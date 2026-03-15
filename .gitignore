@@ -1,0 +1,17 @@
+build/
+out/
+
+compile_commands.json
+
+*.spv
+
+*.o
+*.a
+*.so
+*.dylib
+
+.cache/
+.vscode/
+.idea/
+*.swp
+*~
