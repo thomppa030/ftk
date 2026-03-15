@@ -1,4 +1,5 @@
 #include "core/window.hpp"
+#include "core/log.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -10,6 +11,7 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height)
     if (!glfwInit()) {
         throw std::runtime_error("Failed to initialize GLFW");
     }
+    FJELL_CORE_DEBUG("GLFW initialized");
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
@@ -25,6 +27,7 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height)
         glfwTerminate();
         throw std::runtime_error("Failed to create GLFW window");
     }
+    FJELL_CORE_INFO("Window created: {}x{}", width_, height_);
 }
 
 Window::~Window() {
@@ -32,6 +35,7 @@ Window::~Window() {
         glfwDestroyWindow(window_);
     }
     glfwTerminate();
+    FJELL_CORE_DEBUG("Window destroyed");
 }
 
 bool Window::should_close() const {
