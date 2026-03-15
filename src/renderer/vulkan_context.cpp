@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "renderer/vertex.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 
@@ -76,10 +77,12 @@ VulkanContext::VulkanContext(const Window& window) : window_{window} {
     create_command_pool();
     create_command_buffers();
     create_sync_objects();
+    create_mesh();
     FJELL_GFX_INFO("Vulkan context ready");
 }
 
 VulkanContext::~VulkanContext() {
+    mesh_.reset();
     for (auto sem : render_finished_)
         vkDestroySemaphore(device_, sem, nullptr);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -385,8 +388,8 @@ VkShaderModule VulkanContext::create_shader_module(const std::vector<char>& code
 }
 
 void VulkanContext::create_graphics_pipeline() {
-    auto vert_code = read_shader("shaders/triangle.vert.spv");
-    auto frag_code = read_shader("shaders/triangle.frag.spv");
+    auto vert_code = read_shader("shaders/mesh.vert.spv");
+    auto frag_code = read_shader("shaders/mesh.frag.spv");
 
     VkShaderModule vert_module = create_shader_module(vert_code);
     VkShaderModule frag_module = create_shader_module(frag_code);
@@ -405,8 +408,15 @@ void VulkanContext::create_graphics_pipeline() {
 
     std::array stages = {vert_stage, frag_stage};
 
+    auto binding_desc = Vertex::get_binding_description();
+    auto attrib_descs = Vertex::get_attribute_descriptions();
+
     VkPipelineVertexInputStateCreateInfo vertex_input{};
     vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertex_input.vertexBindingDescriptionCount = 1;
+    vertex_input.pVertexBindingDescriptions = &binding_desc;
+    vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrib_descs.size());
+    vertex_input.pVertexAttributeDescriptions = attrib_descs.data();
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly{};
     input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -559,6 +569,27 @@ void VulkanContext::create_sync_objects() {
     }
 }
 
+void VulkanContext::create_mesh() {
+    const std::array<Vertex, 4> vertices = {{
+        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+        {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+        {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+    }};
+
+    const std::array<uint32_t, 6> indices = {
+        0, 1, 2,
+        2, 3, 0
+    };
+
+    mesh_ = std::make_unique<Mesh>(
+        device_, physical_device_, command_pool_, graphics_queue_,
+        vertices, indices);
+
+    FJELL_GFX_DEBUG("Mesh created: {} vertices, {} indices",
+                    vertices.size(), indices.size());
+}
+
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -581,7 +612,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     vkCmdBeginRenderPass(cmd, &rp_info, VK_SUBPASS_CONTENTS_INLINE);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline_);
-    vkCmdDraw(cmd, 3, 1, 0, 0);
+    mesh_->bind(cmd);
+    mesh_->draw(cmd);
 
     vkCmdEndRenderPass(cmd);
 

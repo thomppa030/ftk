@@ -1,9 +1,12 @@
 #pragma once
 
+#include "renderer/mesh.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -54,6 +57,7 @@ private:
     void create_command_pool();
     void create_command_buffers();
     void create_sync_objects();
+    void create_mesh();
 
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index);
 
@@ -97,6 +101,8 @@ private:
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     std::vector<VkCommandBuffer> command_buffers_;
+
+    std::unique_ptr<Mesh> mesh_;
 
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};

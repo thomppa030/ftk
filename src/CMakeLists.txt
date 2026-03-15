@@ -3,6 +3,8 @@ add_executable(fjell
     core/engine.cpp
     core/log.cpp
     core/window.cpp
+    renderer/buffer.cpp
+    renderer/mesh.cpp
     renderer/vulkan_context.cpp
 )
 
