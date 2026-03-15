@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "renderer/uniform_types.hpp"
 #include "renderer/vertex.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
@@ -6,7 +7,11 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -72,6 +77,7 @@ VulkanContext::VulkanContext(const Window& window) : window_{window} {
     create_swapchain();
     create_image_views();
     create_render_pass();
+    create_descriptor_resources();
     create_graphics_pipeline();
     create_framebuffers();
     create_command_pool();
@@ -83,6 +89,10 @@ VulkanContext::VulkanContext(const Window& window) : window_{window} {
 
 VulkanContext::~VulkanContext() {
     mesh_.reset();
+    for (auto& ub : uniform_buffers_)
+        ub.reset();
+    descriptor_pool_.reset();
+    descriptor_set_layout_.reset();
     for (auto sem : render_finished_)
         vkDestroySemaphore(device_, sem, nullptr);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -387,6 +397,59 @@ VkShaderModule VulkanContext::create_shader_module(const std::vector<char>& code
     return module;
 }
 
+void VulkanContext::create_descriptor_resources() {
+    // Layout: one UBO at binding 0, vertex stage
+    VkDescriptorSetLayoutBinding ubo_binding{};
+    ubo_binding.binding = 0;
+    ubo_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ubo_binding.descriptorCount = 1;
+    ubo_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    descriptor_set_layout_ = std::make_unique<DescriptorSetLayout>(
+        device_, std::span{&ubo_binding, 1});
+
+    // Pool
+    VkDescriptorPoolSize pool_size{};
+    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+    descriptor_pool_ = std::make_unique<DescriptorPool>(
+        device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
+
+    // Per-frame uniform buffers (persistently mapped)
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        uniform_buffers_[i] = std::make_unique<Buffer>(
+            device_, physical_device_, sizeof(MvpUbo),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        uniform_buffers_[i]->map();
+    }
+
+    // Allocate and write descriptor sets
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        descriptor_sets_[i] = descriptor_pool_->allocate(*descriptor_set_layout_);
+
+        VkDescriptorBufferInfo buffer_info{};
+        buffer_info.buffer = uniform_buffers_[i]->handle();
+        buffer_info.offset = 0;
+        buffer_info.range = sizeof(MvpUbo);
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = descriptor_sets_[i];
+        write.dstBinding = 0;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.descriptorCount = 1;
+        write.pBufferInfo = &buffer_info;
+
+        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    }
+
+    FJELL_GFX_DEBUG("Descriptor resources created");
+}
+
 void VulkanContext::create_graphics_pipeline() {
     auto vert_code = read_shader("shaders/mesh.vert.spv");
     auto frag_code = read_shader("shaders/mesh.frag.spv");
@@ -449,7 +512,7 @@ void VulkanContext::create_graphics_pipeline() {
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -469,8 +532,12 @@ void VulkanContext::create_graphics_pipeline() {
     color_blending.attachmentCount = 1;
     color_blending.pAttachments = &color_blend_attachment;
 
+    VkDescriptorSetLayout set_layout = descriptor_set_layout_->handle();
+
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layout_info.setLayoutCount = 1;
+    layout_info.pSetLayouts = &set_layout;
 
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &pipeline_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create pipeline layout");
@@ -612,6 +679,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     vkCmdBeginRenderPass(cmd, &rp_info, VK_SUBPASS_CONTENTS_INLINE);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_,
+                            0, 1, &descriptor_sets_[current_frame_], 0, nullptr);
     mesh_->bind(cmd);
     mesh_->draw(cmd);
 
@@ -620,6 +689,26 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
         throw std::runtime_error("Failed to record command buffer");
     }
+}
+
+void VulkanContext::update_uniform_buffer(uint32_t frame_index) {
+    static auto start_time = std::chrono::steady_clock::now();
+    auto current_time = std::chrono::steady_clock::now();
+    float time = std::chrono::duration<float>(current_time - start_time).count();
+
+    float aspect = static_cast<float>(swapchain_extent_.width) /
+                   static_cast<float>(swapchain_extent_.height);
+
+    MvpUbo ubo{};
+    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f),
+                            glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
+                           glm::vec3(0.0f, 0.0f, 0.0f),
+                           glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.projection = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 10.0f);
+    ubo.projection[1][1] *= -1; // Vulkan Y-flip
+
+    uniform_buffers_[frame_index]->write(&ubo, sizeof(ubo));
 }
 
 void VulkanContext::draw_frame() {
@@ -633,6 +722,7 @@ void VulkanContext::draw_frame() {
                           image_available_[current_frame_], VK_NULL_HANDLE,
                           &image_index);
 
+    update_uniform_buffer(current_frame_);
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
     record_command_buffer(command_buffers_[current_frame_], image_index);
 

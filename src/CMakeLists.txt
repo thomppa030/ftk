@@ -4,6 +4,7 @@ add_executable(fjell
     core/log.cpp
     core/window.cpp
     renderer/buffer.cpp
+    renderer/descriptor.cpp
     renderer/mesh.cpp
     renderer/vulkan_context.cpp
 )

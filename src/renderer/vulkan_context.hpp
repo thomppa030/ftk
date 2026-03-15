@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/buffer.hpp"
+#include "renderer/descriptor.hpp"
 #include "renderer/mesh.hpp"
 
 #include <vulkan/vulkan.h>
@@ -52,6 +54,7 @@ private:
     void create_swapchain();
     void create_image_views();
     void create_render_pass();
+    void create_descriptor_resources();
     void create_graphics_pipeline();
     void create_framebuffers();
     void create_command_pool();
@@ -60,6 +63,7 @@ private:
     void create_mesh();
 
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index);
+    void update_uniform_buffer(uint32_t frame_index);
 
     [[nodiscard]] static std::vector<char> read_shader(const std::string& path);
     [[nodiscard]] VkShaderModule create_shader_module(const std::vector<char>& code) const;
@@ -98,6 +102,11 @@ private:
     VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline graphics_pipeline_{VK_NULL_HANDLE};
     std::vector<VkFramebuffer> framebuffers_;
+
+    std::unique_ptr<DescriptorSetLayout> descriptor_set_layout_;
+    std::unique_ptr<DescriptorPool> descriptor_pool_;
+    std::array<VkDescriptorSet, 2> descriptor_sets_{};
+    std::array<std::unique_ptr<Buffer>, 2> uniform_buffers_;
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     std::vector<VkCommandBuffer> command_buffers_;
