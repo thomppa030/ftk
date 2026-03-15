@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace fjell {
@@ -48,12 +49,16 @@ private:
     void create_swapchain();
     void create_image_views();
     void create_render_pass();
+    void create_graphics_pipeline();
     void create_framebuffers();
     void create_command_pool();
     void create_command_buffers();
     void create_sync_objects();
 
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index);
+
+    [[nodiscard]] static std::vector<char> read_shader(const std::string& path);
+    [[nodiscard]] VkShaderModule create_shader_module(const std::vector<char>& code) const;
 
     [[nodiscard]] bool check_validation_layer_support() const;
     [[nodiscard]] std::vector<const char*> get_required_extensions() const;
@@ -86,6 +91,8 @@ private:
     VkExtent2D swapchain_extent_{};
 
     VkRenderPass render_pass_{VK_NULL_HANDLE};
+    VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline graphics_pipeline_{VK_NULL_HANDLE};
     std::vector<VkFramebuffer> framebuffers_;
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
