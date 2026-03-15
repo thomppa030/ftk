@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "core/log.hpp"
 #include "core/window.hpp"
 
 #define GLFW_INCLUDE_VULKAN
@@ -7,7 +8,6 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
-#include <iostream>
 #include <limits>
 #include <set>
 #include <stdexcept>
@@ -19,8 +19,22 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
     VkDebugUtilsMessageTypeFlagsEXT /*type*/,
     const VkDebugUtilsMessengerCallbackDataEXT* data,
     void* /*user_data*/) {
-    if (severity >= VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-        std::cerr << "[Vulkan] " << data->pMessage << '\n';
+    switch (severity) {
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+        FJELL_GFX_TRACE("Validation: {}", data->pMessage);
+        break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+        FJELL_GFX_DEBUG("Validation: {}", data->pMessage);
+        break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+        FJELL_GFX_WARN("Validation: {}", data->pMessage);
+        break;
+    case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+        FJELL_GFX_ERROR("Validation: {}", data->pMessage);
+        break;
+    default:
+        FJELL_GFX_WARN("Validation (unknown severity): {}", data->pMessage);
+        break;
     }
     return VK_FALSE;
 }
@@ -48,6 +62,7 @@ static void destroy_debug_utils_messenger(
 }
 
 VulkanContext::VulkanContext(const Window& window) : window_{window} {
+    FJELL_GFX_INFO("Initializing Vulkan context");
     create_instance();
     setup_debug_messenger();
     create_surface();
@@ -61,6 +76,7 @@ VulkanContext::VulkanContext(const Window& window) : window_{window} {
     create_command_pool();
     create_command_buffers();
     create_sync_objects();
+    FJELL_GFX_INFO("Vulkan context ready");
 }
 
 VulkanContext::~VulkanContext() {
@@ -125,6 +141,8 @@ void VulkanContext::create_instance() {
     if (vkCreateInstance(&create_info, nullptr, &instance_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create Vulkan instance");
     }
+    FJELL_GFX_DEBUG("Vulkan instance created (API 1.3, {} extensions, validation {})",
+                    extensions.size(), enable_validation_ ? "on" : "off");
 }
 
 void VulkanContext::setup_debug_messenger() {
@@ -175,7 +193,7 @@ void VulkanContext::pick_physical_device() {
 
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device_, &props);
-    std::cout << "GPU: " << props.deviceName << '\n';
+    FJELL_GFX_INFO("GPU: {}", props.deviceName);
 }
 
 void VulkanContext::create_logical_device() {
@@ -268,6 +286,9 @@ void VulkanContext::create_swapchain() {
 
     swapchain_format_ = format.format;
     swapchain_extent_ = extent;
+
+    FJELL_GFX_DEBUG("Swapchain created: {}x{}, {} images",
+                    extent.width, extent.height, swapchain_images_.size());
 }
 
 void VulkanContext::create_image_views() {
@@ -465,6 +486,8 @@ void VulkanContext::create_graphics_pipeline() {
 
     vkDestroyShaderModule(device_, frag_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
+
+    FJELL_GFX_DEBUG("Graphics pipeline created");
 }
 
 void VulkanContext::create_framebuffers() {

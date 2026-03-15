@@ -1,6 +1,7 @@
 add_executable(fjell
     main.cpp
     core/engine.cpp
+    core/log.cpp
     core/window.cpp
     renderer/vulkan_context.cpp
 )
@@ -10,6 +11,7 @@ target_include_directories(fjell PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(fjell PRIVATE
     glfw
     glm::glm
+    spdlog::spdlog
     Vulkan::Vulkan
 )
 

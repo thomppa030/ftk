@@ -17,6 +17,12 @@ FetchContent_Declare(
     GIT_TAG        1.0.1
 )
 
-FetchContent_MakeAvailable(glfw glm)
+FetchContent_Declare(
+    spdlog
+    GIT_REPOSITORY https://github.com/gabime/spdlog.git
+    GIT_TAG        v1.15.0
+)
+
+FetchContent_MakeAvailable(glfw glm spdlog)
 
 find_package(Vulkan REQUIRED)
