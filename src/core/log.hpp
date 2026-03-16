@@ -4,10 +4,17 @@
 
 #include <memory>
 
+namespace fjell {
+class ConsoleSink;
+}
+
 namespace fjell::log {
 
 void init();
 void shutdown();
+
+/// Returns the shared console sink (available after init)
+[[nodiscard]] std::shared_ptr<ConsoleSink>& console_sink();
 
 [[nodiscard]] std::shared_ptr<spdlog::logger>& core();
 [[nodiscard]] std::shared_ptr<spdlog::logger>& renderer();
