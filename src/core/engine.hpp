@@ -13,6 +13,8 @@
 #include "renderer/shader_watcher.hpp"
 #endif
 
+#include <glm/glm.hpp>
+
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -39,7 +41,14 @@ private:
     void add_model_to_scene(const std::string& path);
     void add_primitive_to_scene(const std::string& type);
     void create_default_scene();
+
     void draw_ui();
+    void setup_dockspace();
+    void draw_viewport();
+    void draw_hierarchy();
+    void draw_properties();
+    void draw_assets();
+    void draw_stats();
 
     static constexpr const char* SCENE_FILE = "scene.fjell";
 
@@ -67,6 +76,11 @@ private:
     int selected_{-1};
     int remove_pending_{-1};
     int gizmo_op_{0}; // 0=translate, 1=rotate, 2=scale
+    bool layout_built_{false};
+
+    // Viewport bounds for gizmo
+    glm::vec2 viewport_pos_{0.0f};
+    glm::vec2 viewport_size_{1.0f};
 
     // Frame time history for graph
     static constexpr int FRAME_TIME_HISTORY_SIZE = 120;

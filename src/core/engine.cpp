@@ -6,6 +6,7 @@
 #include "renderer/texture.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <ImGuizmo.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -40,7 +41,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height)
 
     scan_models();
 
-    // Try loading saved scene, fall back to default
     if (std::filesystem::exists(SCENE_FILE)) {
         scene_ = Scene::load(SCENE_FILE, *resource_manager_);
     } else {
@@ -112,6 +112,7 @@ void Engine::add_model_to_scene(const std::string& path) {
 
     auto filename = std::filesystem::path(path).stem().string();
     scene_.add(model, mat, {}, filename, path, mat_name);
+    selected_ = scene_.object_count() - 1;
     FJELL_CORE_INFO("Added model to scene: {}", path);
 }
 
@@ -131,92 +132,189 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     selected_ = scene_.object_count() - 1;
 }
 
-void Engine::draw_ui() {
-    // FPS calculation
-    frame_count_++;
-    fps_timer_ += clock_.delta_time();
-    if (fps_timer_ >= 0.5f) {
-        fps_ = static_cast<float>(frame_count_) / fps_timer_;
-        frame_time_ = fps_timer_ / static_cast<float>(frame_count_) * 1000.0f;
-        frame_count_ = 0;
-        fps_timer_ = 0.0f;
+void Engine::setup_dockspace() {
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+
+    ImGuiWindowFlags host_flags =
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNavFocus |
+        ImGuiWindowFlags_NoBackground |
+        ImGuiWindowFlags_NoDocking;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+
+    ImGui::Begin("##DockHost", nullptr, host_flags);
+    ImGui::PopStyleVar(3);
+
+    ImGuiID dockspace_id = ImGui::GetID("MainDockspace");
+    ImGui::DockSpace(dockspace_id, {0.0f, 0.0f},
+                     ImGuiDockNodeFlags_PassthruCentralNode);
+
+    // Build default layout on first run
+    if (!layout_built_) {
+        layout_built_ = true;
+
+        ImGui::DockBuilderRemoveNode(dockspace_id);
+        ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
+
+        ImGuiID center = dockspace_id;
+        ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
+        ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
+        ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.18f, nullptr, &center);
+        ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.50f, nullptr, &right);
+
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        ImGui::DockBuilderDockWindow("Assets", left);
+        ImGui::DockBuilderDockWindow("Hierarchy", right);
+        ImGui::DockBuilderDockWindow("Properties", right_bottom);
+        ImGui::DockBuilderDockWindow("Stats", bottom);
+
+        ImGui::DockBuilderFinish(dockspace_id);
     }
 
-    frame_time_history_[frame_time_index_] = clock_.delta_time() * 1000.0f;
-    frame_time_index_ = (frame_time_index_ + 1) % FRAME_TIME_HISTORY_SIZE;
+    ImGui::End();
+}
 
-    const auto& stats = vulkan_context_.render_stats();
+void Engine::draw_viewport() {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoBackground;
 
-    // Gizmo keyboard shortcuts (only when ImGui doesn't want keyboard)
-    if (!ImGui::GetIO().WantCaptureKeyboard) {
-        if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmo_op_ = 0;
-        if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmo_op_ = 1;
-        if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmo_op_ = 2;
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) selected_ = -1;
-    }
+    if (ImGui::Begin("Viewport", nullptr, flags)) {
+        // Store viewport bounds for gizmo
+        auto vp_min = ImGui::GetWindowContentRegionMin();
+        auto vp_max = ImGui::GetWindowContentRegionMax();
+        auto vp_pos = ImGui::GetWindowPos();
+        viewport_pos_ = {vp_pos.x + vp_min.x, vp_pos.y + vp_min.y};
+        viewport_size_ = {vp_max.x - vp_min.x, vp_max.y - vp_min.y};
 
-    ImGuiWindowFlags overlay_flags =
-        ImGuiWindowFlags_NoDecoration |
-        ImGuiWindowFlags_AlwaysAutoResize |
-        ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoFocusOnAppearing |
-        ImGuiWindowFlags_NoNav |
-        ImGuiWindowFlags_NoMove;
+        // Gizmo for selected object
+        if (selected_ >= 0 && selected_ < scene_.object_count()) {
+            auto& obj = scene_.objects()[selected_];
 
-    // Performance overlay — top right
-    const float pad = 12.0f;
-    ImVec2 perf_pos = {ImGui::GetMainViewport()->WorkPos.x +
-                       ImGui::GetMainViewport()->WorkSize.x - pad,
-                       ImGui::GetMainViewport()->WorkPos.y + pad};
-    ImGui::SetNextWindowPos(perf_pos, ImGuiCond_Always, {1.0f, 0.0f});
-    ImGui::SetNextWindowBgAlpha(0.75f);
+            float aspect = viewport_size_.x / std::max(viewport_size_.y, 1.0f);
+            auto view = camera_.view_matrix();
+            auto projection = glm::perspective(
+                glm::radians(camera_.fov()), aspect, 0.1f, 1000.0f);
 
-    if (ImGui::Begin("##Performance", nullptr, overlay_flags)) {
-        ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Fjell Engine");
-        ImGui::Separator();
-        ImGui::Text("GPU: %s", vulkan_context_.gpu_name().c_str());
-        ImGui::Text("FPS: %.0f", fps_);
-        ImGui::Text("Frame: %.2f ms", frame_time_);
-        ImGui::Text("Draw calls: %u", stats.draw_calls);
-        ImGui::Text("Triangles: %u", stats.triangle_count);
-        ImGui::Spacing();
+            ImGuizmo::SetRect(viewport_pos_.x, viewport_pos_.y,
+                              viewport_size_.x, viewport_size_.y);
+            ImGuizmo::SetOrthographic(false);
+            ImGuizmo::SetDrawlist();
 
-        ImGui::PlotLines("##FrameTime", frame_time_history_.data(),
-                         FRAME_TIME_HISTORY_SIZE, frame_time_index_,
-                         "Frame ms", 0.0f, 33.3f, {0, 40});
+            glm::mat4 model_matrix = obj.transform.matrix();
 
-        ImGui::Spacing();
-        auto pos = camera_.position();
-        ImGui::Text("Camera: %.1f, %.1f, %.1f", pos.x, pos.y, pos.z);
+            ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
+            if (gizmo_op_ == 1) op = ImGuizmo::ROTATE;
+            if (gizmo_op_ == 2) op = ImGuizmo::SCALE;
+
+            ImGuizmo::Manipulate(
+                glm::value_ptr(view),
+                glm::value_ptr(projection),
+                op,
+                ImGuizmo::LOCAL,
+                glm::value_ptr(model_matrix));
+
+            if (ImGuizmo::IsUsing()) {
+                float translation[3], rotation[3], scale[3];
+                ImGuizmo::DecomposeMatrixToComponents(
+                    glm::value_ptr(model_matrix), translation, rotation, scale);
+                obj.transform.position = {translation[0], translation[1], translation[2]};
+                obj.transform.rotation = {rotation[0], rotation[1], rotation[2]};
+                obj.transform.scale = {scale[0], scale[1], scale[2]};
+            }
+        }
     }
     ImGui::End();
+    ImGui::PopStyleVar();
+}
 
-    // Scene panel — left side
-    ImGui::SetNextWindowPos(
-        {ImGui::GetMainViewport()->WorkPos.x + pad,
-         ImGui::GetMainViewport()->WorkPos.y + pad},
-        ImGuiCond_Always, {0.0f, 0.0f});
-    ImGui::SetNextWindowSizeConstraints({240, 100}, {340, 700});
-    ImGui::SetNextWindowBgAlpha(0.85f);
+void Engine::draw_hierarchy() {
+    if (ImGui::Begin("Hierarchy")) {
+        remove_pending_ = -1;
+        auto& objects = scene_.objects();
+        for (int i = 0; i < static_cast<int>(objects.size()); ++i) {
+            auto& obj = objects[i];
+            ImGui::PushID(i);
 
-    ImGuiWindowFlags panel_flags =
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoFocusOnAppearing;
+            bool is_selected = (i == selected_);
+            if (ImGui::Selectable(obj.name.c_str(), is_selected)) {
+                selected_ = i;
+            }
 
-    if (ImGui::Begin("Scene", nullptr, panel_flags)) {
-        // Add primitives
-        ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Add Primitive");
+            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 20);
+            if (ImGui::SmallButton("X")) {
+                remove_pending_ = i;
+            }
+
+            ImGui::PopID();
+        }
+
+        if (remove_pending_ >= 0) {
+            vulkan_context_.wait_idle();
+            if (selected_ == remove_pending_) selected_ = -1;
+            else if (selected_ > remove_pending_) selected_--;
+            scene_.remove(static_cast<uint32_t>(remove_pending_));
+        }
+    }
+    ImGui::End();
+}
+
+void Engine::draw_properties() {
+    if (ImGui::Begin("Properties")) {
+        if (selected_ >= 0 && selected_ < scene_.object_count()) {
+            auto& obj = scene_.objects()[selected_];
+
+            // Editable name
+            char name_buf[128];
+            std::strncpy(name_buf, obj.name.c_str(), sizeof(name_buf) - 1);
+            name_buf[sizeof(name_buf) - 1] = '\0';
+            if (ImGui::InputText("Name", name_buf, sizeof(name_buf))) {
+                obj.name = name_buf;
+            }
+
+            ImGui::Separator();
+            ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Transform");
+            ImGui::DragFloat3("Position", &obj.transform.position.x, 0.1f);
+            ImGui::DragFloat3("Rotation", &obj.transform.rotation.x, 1.0f);
+            ImGui::DragFloat3("Scale", &obj.transform.scale.x, 0.05f, 0.01f, 100.0f);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Gizmo");
+            ImGui::RadioButton("Move (W)", &gizmo_op_, 0); ImGui::SameLine();
+            ImGui::RadioButton("Rot (E)", &gizmo_op_, 1); ImGui::SameLine();
+            ImGui::RadioButton("Scl (R)", &gizmo_op_, 2);
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Source: %s", obj.source.c_str());
+        } else {
+            ImGui::TextDisabled("No object selected");
+        }
+    }
+    ImGui::End();
+}
+
+void Engine::draw_assets() {
+    if (ImGui::Begin("Assets")) {
+        ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Primitives");
         ImGui::Separator();
-        if (ImGui::Button("Cube", {70, 0})) add_primitive_to_scene("cube");
-        ImGui::SameLine();
-        if (ImGui::Button("Plane", {70, 0})) add_primitive_to_scene("plane");
-        ImGui::SameLine();
-        if (ImGui::Button("Sphere", {70, 0})) add_primitive_to_scene("sphere");
+        if (ImGui::Button("Cube", {-1, 0})) add_primitive_to_scene("cube");
+        if (ImGui::Button("Plane", {-1, 0})) add_primitive_to_scene("plane");
+        if (ImGui::Button("Sphere", {-1, 0})) add_primitive_to_scene("sphere");
 
         ImGui::Spacing();
+        ImGui::Spacing();
 
-        // Models from disk
         ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Models");
         ImGui::Separator();
 
@@ -237,58 +335,8 @@ void Engine::draw_ui() {
 
         ImGui::Spacing();
         ImGui::Spacing();
-
-        // Scene objects
-        ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Objects (%d)", scene_.object_count());
         ImGui::Separator();
 
-        remove_pending_ = -1;
-        auto& objects = scene_.objects();
-        for (int i = 0; i < static_cast<int>(objects.size()); ++i) {
-            auto& obj = objects[i];
-            ImGui::PushID(i);
-
-            bool is_selected = (i == selected_);
-            if (ImGui::Selectable(obj.name.c_str(), is_selected)) {
-                selected_ = i;
-            }
-
-            ImGui::SameLine(ImGui::GetWindowWidth() - 30);
-            if (ImGui::SmallButton("X")) {
-                remove_pending_ = i;
-            }
-
-            if (is_selected) {
-                ImGui::Indent();
-                ImGui::DragFloat3("Pos", &obj.transform.position.x, 0.1f);
-                ImGui::DragFloat3("Rot", &obj.transform.rotation.x, 1.0f);
-                ImGui::DragFloat3("Scale", &obj.transform.scale.x, 0.05f, 0.01f, 100.0f);
-                ImGui::Unindent();
-            }
-
-            ImGui::PopID();
-        }
-
-        if (remove_pending_ >= 0) {
-            vulkan_context_.wait_idle();
-            if (selected_ == remove_pending_) selected_ = -1;
-            else if (selected_ > remove_pending_) selected_--;
-            scene_.remove(static_cast<uint32_t>(remove_pending_));
-        }
-
-        ImGui::Spacing();
-        ImGui::Separator();
-
-        // Gizmo mode
-        ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Gizmo");
-        ImGui::RadioButton("Move (W)", &gizmo_op_, 0); ImGui::SameLine();
-        ImGui::RadioButton("Rot (E)", &gizmo_op_, 1); ImGui::SameLine();
-        ImGui::RadioButton("Scl (R)", &gizmo_op_, 2);
-
-        ImGui::Spacing();
-        ImGui::Separator();
-
-        // Save / Load
         if (ImGui::Button("Save Scene", {-1, 0})) {
             scene_.save(SCENE_FILE);
         }
@@ -297,51 +345,60 @@ void Engine::draw_ui() {
             scene_ = Scene::load(SCENE_FILE, *resource_manager_);
             selected_ = -1;
         }
-
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::TextColored({0.42f, 0.44f, 0.48f, 1.0f}, "[MMB] Orbit  [Shift+MMB] Pan  [Scroll] Zoom");
     }
     ImGui::End();
+}
 
-    // Draw gizmo for selected object
-    if (selected_ >= 0 && selected_ < scene_.object_count()) {
-        auto& obj = scene_.objects()[selected_];
-
-        float aspect = static_cast<float>(window_.width()) /
-                       static_cast<float>(std::max(window_.height(), 1u));
-        auto view = camera_.view_matrix();
-        // ImGuizmo expects OpenGL projection (no Vulkan Y-flip)
-        auto projection = glm::perspective(
-            glm::radians(camera_.fov()), aspect, 0.1f, 1000.0f);
-
-        ImGuizmo::SetRect(0, 0,
-            static_cast<float>(window_.width()),
-            static_cast<float>(window_.height()));
-        ImGuizmo::SetOrthographic(false);
-
-        glm::mat4 model_matrix = obj.transform.matrix();
-
-        ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
-        if (gizmo_op_ == 1) op = ImGuizmo::ROTATE;
-        if (gizmo_op_ == 2) op = ImGuizmo::SCALE;
-
-        ImGuizmo::Manipulate(
-            glm::value_ptr(view),
-            glm::value_ptr(projection),
-            op,
-            ImGuizmo::LOCAL,
-            glm::value_ptr(model_matrix));
-
-        if (ImGuizmo::IsUsing()) {
-            float translation[3], rotation[3], scale[3];
-            ImGuizmo::DecomposeMatrixToComponents(
-                glm::value_ptr(model_matrix), translation, rotation, scale);
-            obj.transform.position = {translation[0], translation[1], translation[2]};
-            obj.transform.rotation = {rotation[0], rotation[1], rotation[2]};
-            obj.transform.scale = {scale[0], scale[1], scale[2]};
-        }
+void Engine::draw_stats() {
+    // FPS calculation
+    frame_count_++;
+    fps_timer_ += clock_.delta_time();
+    if (fps_timer_ >= 0.5f) {
+        fps_ = static_cast<float>(frame_count_) / fps_timer_;
+        frame_time_ = fps_timer_ / static_cast<float>(frame_count_) * 1000.0f;
+        frame_count_ = 0;
+        fps_timer_ = 0.0f;
     }
+
+    frame_time_history_[frame_time_index_] = clock_.delta_time() * 1000.0f;
+    frame_time_index_ = (frame_time_index_ + 1) % FRAME_TIME_HISTORY_SIZE;
+
+    const auto& stats = vulkan_context_.render_stats();
+
+    if (ImGui::Begin("Stats")) {
+        ImGui::Text("GPU: %s", vulkan_context_.gpu_name().c_str());
+        ImGui::SameLine(0, 20);
+        ImGui::Text("FPS: %.0f", fps_);
+        ImGui::SameLine(0, 20);
+        ImGui::Text("Frame: %.2f ms", frame_time_);
+        ImGui::SameLine(0, 20);
+        ImGui::Text("Draw calls: %u", stats.draw_calls);
+        ImGui::SameLine(0, 20);
+        ImGui::Text("Triangles: %u", stats.triangle_count);
+
+        ImGui::PlotLines("##FrameTime", frame_time_history_.data(),
+                         FRAME_TIME_HISTORY_SIZE, frame_time_index_,
+                         nullptr, 0.0f, 33.3f,
+                         {ImGui::GetContentRegionAvail().x, 35});
+    }
+    ImGui::End();
+}
+
+void Engine::draw_ui() {
+    // Gizmo keyboard shortcuts (only when ImGui doesn't want keyboard)
+    if (!ImGui::GetIO().WantCaptureKeyboard) {
+        if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmo_op_ = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmo_op_ = 1;
+        if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmo_op_ = 2;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) selected_ = -1;
+    }
+
+    setup_dockspace();
+    draw_viewport();
+    draw_hierarchy();
+    draw_properties();
+    draw_assets();
+    draw_stats();
 }
 
 void Engine::run() {
@@ -357,7 +414,6 @@ void Engine::run() {
         }
 #endif
 
-        // Only orbit camera when not using gizmo
         if (!ImGuizmo::IsUsing()) {
             camera_.update(input_, clock_.delta_time());
         }
