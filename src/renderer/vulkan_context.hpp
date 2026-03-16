@@ -8,6 +8,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -56,6 +57,13 @@ public:
         return material_set_layout_->handle();
     }
     [[nodiscard]] VkDescriptorPool material_pool() const { return material_pool_; }
+    [[nodiscard]] VkInstance instance() const { return instance_; }
+    [[nodiscard]] VkRenderPass render_pass() const { return render_pass_; }
+    [[nodiscard]] uint32_t image_count() const { return static_cast<uint32_t>(swapchain_images_.size()); }
+    [[nodiscard]] uint32_t graphics_family() const;
+
+    using OverlayCallback = std::function<void(VkCommandBuffer)>;
+    void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
 private:
     void create_instance();
@@ -140,6 +148,8 @@ private:
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     std::vector<VkCommandBuffer> command_buffers_;
+
+    OverlayCallback overlay_callback_;
 
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};

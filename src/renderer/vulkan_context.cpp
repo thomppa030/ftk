@@ -846,6 +846,10 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         scene->render(cmd, pipeline_layout_);
     }
 
+    if (overlay_callback_) {
+        overlay_callback_(cmd);
+    }
+
     vkCmdEndRenderPass(cmd);
 
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
@@ -1092,6 +1096,10 @@ VkFormat VulkanContext::find_supported_format(
         }
     }
     throw std::runtime_error("Failed to find supported format");
+}
+
+uint32_t VulkanContext::graphics_family() const {
+    return find_queue_families(physical_device_).graphics.value();
 }
 
 } // namespace fjell

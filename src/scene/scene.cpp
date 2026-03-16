@@ -4,8 +4,9 @@
 
 namespace fjell {
 
-uint32_t Scene::add(Model* model, Material* material, Transform transform) {
-    objects_.push_back({model, material, transform});
+uint32_t Scene::add(Model* model, Material* material, Transform transform,
+                    const std::string& name) {
+    objects_.push_back({model, material, transform, name});
     return static_cast<uint32_t>(objects_.size() - 1);
 }
 
@@ -13,6 +14,10 @@ void Scene::remove(uint32_t id) {
     if (id < objects_.size()) {
         objects_.erase(objects_.begin() + id);
     }
+}
+
+void Scene::clear() {
+    objects_.clear();
 }
 
 void Scene::render(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout) const {

@@ -36,6 +36,19 @@ FetchContent_Declare(
     GIT_TAG        v0.8.0
 )
 
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        docking
+    GIT_SHALLOW    TRUE
+)
+
 FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf)
+
+# ImGui doesn't have a CMakeLists, so just populate and expose sources
+FetchContent_GetProperties(imgui)
+if(NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+endif()
 
 find_package(Vulkan REQUIRED)

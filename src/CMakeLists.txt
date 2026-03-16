@@ -17,11 +17,26 @@ add_executable(fjell
     renderer/texture.cpp
     renderer/vulkan_context.cpp
     scene/scene.cpp
+    ui/imgui_layer.cpp
+
+    # ImGui sources
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 )
 
 target_include_directories(fjell PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${stb_SOURCE_DIR}
+)
+
+target_include_directories(fjell SYSTEM PRIVATE
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
 )
 
 target_link_libraries(fjell PRIVATE
