@@ -59,7 +59,15 @@ FetchContent_Declare(
     GIT_TAG        v3.11.3
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json)
+set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    JoltPhysics
+    GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
+    GIT_TAG        v5.2.0
+    SOURCE_SUBDIR  Build
+)
+
+FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics)
 
 # ImGui doesn't have a CMakeLists, so just populate and expose sources
 FetchContent_GetProperties(imgui)

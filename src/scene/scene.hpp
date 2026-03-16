@@ -1,5 +1,6 @@
 #pragma once
 
+#include "physics/physics_types.hpp"
 #include "scene/transform.hpp"
 
 #include <glm/glm.hpp>
@@ -8,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -38,6 +40,9 @@ struct RenderObject {
     std::string material_name;
 
     std::vector<ComponentInstance> components;
+
+    std::optional<RigidbodyDesc> rigidbody;
+    std::optional<ColliderDesc> collider;
 };
 
 class Scene {

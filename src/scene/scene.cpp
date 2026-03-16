@@ -178,6 +178,29 @@ void Scene::save(const std::string& path) const {
         jobj["rotation"] = {obj.transform.rotation.x, obj.transform.rotation.y, obj.transform.rotation.z};
         jobj["scale"] = {obj.transform.scale.x, obj.transform.scale.y, obj.transform.scale.z};
 
+        if (obj.rigidbody) {
+            auto& rb = *obj.rigidbody;
+            jobj["rigidbody"] = {
+                {"body_type", static_cast<int>(rb.body_type)},
+                {"mass", rb.mass},
+                {"friction", rb.friction},
+                {"restitution", rb.restitution},
+                {"linear_damping", rb.linear_damping},
+                {"angular_damping", rb.angular_damping},
+                {"gravity_enabled", rb.gravity_enabled}
+            };
+        }
+        if (obj.collider) {
+            auto& col = *obj.collider;
+            jobj["collider"] = {
+                {"shape", static_cast<int>(col.shape)},
+                {"half_extents", {col.half_extents.x, col.half_extents.y, col.half_extents.z}},
+                {"radius", col.radius},
+                {"height", col.height},
+                {"offset", {col.offset.x, col.offset.y, col.offset.z}}
+            };
+        }
+
         if (!obj.components.empty()) {
             jobj["components"] = nlohmann::json::array();
             for (const auto& comp : obj.components) {
@@ -271,6 +294,37 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             if (id > max_id) max_id = id;
         }
         scene.objects().back().parent_id = loaded_parent;
+
+        // Load rigidbody descriptor
+        if (jobj.contains("rigidbody")) {
+            auto& jrb = jobj["rigidbody"];
+            RigidbodyDesc rb;
+            rb.body_type = static_cast<BodyType>(jrb.value("body_type", 2));
+            rb.mass = jrb.value("mass", 1.0f);
+            rb.friction = jrb.value("friction", 0.5f);
+            rb.restitution = jrb.value("restitution", 0.3f);
+            rb.linear_damping = jrb.value("linear_damping", 0.05f);
+            rb.angular_damping = jrb.value("angular_damping", 0.05f);
+            rb.gravity_enabled = jrb.value("gravity_enabled", true);
+            scene.objects().back().rigidbody = rb;
+        }
+        // Load collider descriptor
+        if (jobj.contains("collider")) {
+            auto& jcol = jobj["collider"];
+            ColliderDesc col;
+            col.shape = static_cast<ColliderShape>(jcol.value("shape", 0));
+            if (jcol.contains("half_extents")) {
+                auto& he = jcol["half_extents"];
+                col.half_extents = {he[0].get<float>(), he[1].get<float>(), he[2].get<float>()};
+            }
+            col.radius = jcol.value("radius", 0.5f);
+            col.height = jcol.value("height", 1.0f);
+            if (jcol.contains("offset")) {
+                auto& o = jcol["offset"];
+                col.offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()};
+            }
+            scene.objects().back().collider = col;
+        }
 
         // Load component data as raw JSON (ScriptManager will instantiate later)
         if (jobj.contains("components")) {

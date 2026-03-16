@@ -15,6 +15,7 @@ namespace fjell {
 class Scene;
 class Input;
 class Clock;
+class PhysicsWorld;
 struct RenderObject;
 
 // Engine-owned deep copy of a component type from the .so
@@ -60,7 +61,8 @@ public:
     void unload(Scene& scene);
     bool reload(Scene& scene, const std::filesystem::path& so_path);
 
-    void update(Scene& scene, const Input& input, const Clock& clock);
+    void update(Scene& scene, const Input& input, const Clock& clock,
+                PhysicsWorld* physics = nullptr);
     bool add_component(RenderObject& obj, const std::string& type_name);
     void remove_component(RenderObject& obj, uint32_t type_id);
     void draw_inspector(RenderObject& obj);
@@ -81,7 +83,8 @@ public:
 #endif
 
 private:
-    void populate_engine_api(Scene& scene, const Input& input, const Clock& clock);
+    void populate_engine_api(Scene& scene, const Input& input, const Clock& clock,
+                             PhysicsWorld* physics);
     void build_registry();
 
     void auto_serialize(const OwnedComponentType& type, const void* data,

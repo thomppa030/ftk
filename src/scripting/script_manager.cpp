@@ -3,6 +3,7 @@
 #include "core/clock.hpp"
 #include "core/input.hpp"
 #include "core/log.hpp"
+#include "physics/physics_world.hpp"
 #include "scene/scene.hpp"
 
 #include <imgui.h>
@@ -220,9 +221,13 @@ void ScriptManager::remove_component(RenderObject& obj, uint32_t type_id) {
 
 static ScriptManager* s_active_manager = nullptr;
 
-void ScriptManager::populate_engine_api(Scene& scene, const Input& input, const Clock& clock) {
+static PhysicsWorld* s_active_physics = nullptr;
+
+void ScriptManager::populate_engine_api(Scene& scene, const Input& input, const Clock& clock,
+                                        PhysicsWorld* physics) {
     current_scene_ = &scene;
     s_active_manager = this;
+    s_active_physics = physics;
 
     api_.delta_time = clock.delta_time();
     // elapsed_time would need a cumulative timer — leave as 0 for now
@@ -279,12 +284,56 @@ void ScriptManager::populate_engine_api(Scene& scene, const Input& input, const 
     api_.log_info = [](const char* msg) { FJELL_CORE_INFO("[script] {}", msg); };
     api_.log_warn = [](const char* msg) { FJELL_CORE_WARN("[script] {}", msg); };
     api_.log_error = [](const char* msg) { FJELL_CORE_ERROR("[script] {}", msg); };
+
+    // Physics
+    api_.apply_force = [](uint32_t id, const float* xyz) {
+        if (s_active_physics) s_active_physics->apply_force(id, {xyz[0], xyz[1], xyz[2]});
+    };
+    api_.apply_impulse = [](uint32_t id, const float* xyz) {
+        if (s_active_physics) s_active_physics->apply_impulse(id, {xyz[0], xyz[1], xyz[2]});
+    };
+    api_.set_linear_velocity = [](uint32_t id, const float* xyz) {
+        if (s_active_physics) s_active_physics->set_linear_velocity(id, {xyz[0], xyz[1], xyz[2]});
+    };
+    api_.get_linear_velocity = [](uint32_t id, float* out) {
+        if (s_active_physics) {
+            auto v = s_active_physics->get_linear_velocity(id);
+            out[0] = v.x; out[1] = v.y; out[2] = v.z;
+        }
+    };
+    api_.set_angular_velocity = [](uint32_t id, const float* xyz) {
+        if (s_active_physics) s_active_physics->set_angular_velocity(id, {xyz[0], xyz[1], xyz[2]});
+    };
+    api_.get_angular_velocity = [](uint32_t id, float* out) {
+        if (s_active_physics) {
+            auto v = s_active_physics->get_angular_velocity(id);
+            out[0] = v.x; out[1] = v.y; out[2] = v.z;
+        }
+    };
+    api_.raycast = [](const float* origin, const float* direction,
+                      float max_dist, float* out_pos, float* out_normal,
+                      float* out_dist, uint32_t* out_id) -> uint8_t {
+        if (!s_active_physics) return 0;
+        RaycastHit hit;
+        bool ok = s_active_physics->raycast(
+            {origin[0], origin[1], origin[2]},
+            {direction[0], direction[1], direction[2]},
+            max_dist, hit);
+        if (ok) {
+            if (out_pos) { out_pos[0] = hit.position.x; out_pos[1] = hit.position.y; out_pos[2] = hit.position.z; }
+            if (out_normal) { out_normal[0] = hit.normal.x; out_normal[1] = hit.normal.y; out_normal[2] = hit.normal.z; }
+            if (out_dist) *out_dist = hit.distance;
+            if (out_id) *out_id = hit.object_id;
+        }
+        return ok ? 1 : 0;
+    };
 }
 
-void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock) {
+void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
+                           PhysicsWorld* physics) {
     if (!is_loaded()) return;
 
-    populate_engine_api(scene, input, clock);
+    populate_engine_api(scene, input, clock, physics);
 
     for (auto& obj : scene.objects()) {
         for (auto& comp : obj.components) {
@@ -298,6 +347,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock)
 
     current_scene_ = nullptr;
     s_active_manager = nullptr;
+    s_active_physics = nullptr;
 }
 
 // ── Auto-serialization from field descriptors ───────────────────────────

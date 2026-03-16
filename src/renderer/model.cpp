@@ -170,6 +170,15 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
             }
 
             if (!vertices.empty() && !indices.empty()) {
+                // Retain CPU vertex positions for physics mesh colliders
+                uint32_t base_index = static_cast<uint32_t>(collision_vertices_.size());
+                for (const auto& v : vertices) {
+                    collision_vertices_.push_back(v.position);
+                }
+                for (auto idx : indices) {
+                    collision_indices_.push_back(base_index + idx);
+                }
+
                 meshes_.push_back(std::make_unique<Mesh>(
                     device, physical_device, command_pool, queue,
                     vertices, indices));
@@ -184,6 +193,11 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
 Model::Model(VkDevice device, VkPhysicalDevice physical_device,
              VkCommandPool command_pool, VkQueue queue,
              const PrimitiveMeshData& data) {
+    for (const auto& v : data.vertices) {
+        collision_vertices_.push_back(v.position);
+    }
+    collision_indices_ = data.indices;
+
     meshes_.push_back(std::make_unique<Mesh>(
         device, physical_device, command_pool, queue,
         data.vertices, data.indices));

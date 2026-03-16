@@ -92,6 +92,18 @@ typedef struct FjellEngineApi {
     void (*log_info)(const char* msg);
     void (*log_warn)(const char* msg);
     void (*log_error)(const char* msg);
+
+    // Physics
+    void (*apply_force)(uint32_t id, const float* xyz);
+    void (*apply_impulse)(uint32_t id, const float* xyz);
+    void (*set_linear_velocity)(uint32_t id, const float* xyz);
+    void (*get_linear_velocity)(uint32_t id, float* out_xyz);
+    void (*set_angular_velocity)(uint32_t id, const float* xyz);
+    void (*get_angular_velocity)(uint32_t id, float* out_xyz);
+    uint8_t (*raycast)(const float* origin, const float* direction,
+                       float max_distance, float* out_hit_pos,
+                       float* out_hit_normal, float* out_distance,
+                       uint32_t* out_object_id);
 } FjellEngineApi;
 
 // ── Component callback signatures ───────────────────────────────────────

@@ -3,8 +3,10 @@
 #include "renderer/mesh.hpp"
 #include "renderer/texture.hpp"
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -33,9 +35,18 @@ public:
     }
     [[nodiscard]] uint32_t total_indices() const;
 
+    [[nodiscard]] const std::vector<glm::vec3>& collision_vertices() const {
+        return collision_vertices_;
+    }
+    [[nodiscard]] const std::vector<uint32_t>& collision_indices() const {
+        return collision_indices_;
+    }
+
 private:
     std::vector<std::unique_ptr<Mesh>> meshes_;
     std::vector<std::unique_ptr<Texture>> textures_;
+    std::vector<glm::vec3> collision_vertices_;
+    std::vector<uint32_t> collision_indices_;
 };
 
 } // namespace fjell
