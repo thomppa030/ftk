@@ -2,12 +2,18 @@
 #include "core/log.hpp"
 
 #include <cstdlib>
+#include <filesystem>
 
-int main() {
+int main(int argc, char* argv[]) {
     fjell::log::init();
 
+    std::filesystem::path project_path;
+    if (argc > 1) {
+        project_path = argv[1];
+    }
+
     try {
-        fjell::Engine engine{"Fjell Engine", 1280, 720};
+        fjell::Engine engine{"Fjell Engine", 1280, 720, project_path};
         engine.run();
     } catch (const std::exception& e) {
         FJELL_CORE_CRITICAL("Fatal: {}", e.what());
