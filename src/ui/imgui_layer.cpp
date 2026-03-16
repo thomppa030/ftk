@@ -16,8 +16,9 @@ namespace fjell {
 ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
                        VkPhysicalDevice physical_device, VkDevice device,
                        uint32_t graphics_family, VkQueue graphics_queue,
-                       VkRenderPass render_pass, uint32_t image_count)
-    : device_{device} {
+                       VkRenderPass render_pass, uint32_t image_count,
+                       const std::string& font_dir)
+    : device_{device}, font_dir_{font_dir} {
   // Descriptor pool for ImGui
   std::array<VkDescriptorPoolSize, 1> pool_sizes = {{
       {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100},
@@ -43,6 +44,7 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
   setup_style();
+  theme::load_font(font_dir_);
 
   ImGui_ImplGlfw_InitForVulkan(window, true);
 
