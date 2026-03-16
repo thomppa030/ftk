@@ -2,9 +2,6 @@
 
 #include "renderer/buffer.hpp"
 #include "renderer/descriptor.hpp"
-#include "renderer/mesh.hpp"
-#include "renderer/model.hpp"
-#include "renderer/texture.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -19,6 +16,7 @@
 namespace fjell {
 
 class Window;
+class Scene;
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphics;
@@ -45,8 +43,19 @@ public:
     VulkanContext(VulkanContext&&) = delete;
     VulkanContext& operator=(VulkanContext&&) = delete;
 
-    void draw_frame(const glm::mat4& view, const glm::mat4& projection);
+    void draw_frame(const glm::mat4& view, const glm::mat4& projection,
+                    const Scene* scene);
     void wait_idle();
+
+    // Expose handles for resource management
+    [[nodiscard]] VkDevice device() const { return device_; }
+    [[nodiscard]] VkPhysicalDevice physical_device() const { return physical_device_; }
+    [[nodiscard]] VkCommandPool command_pool() const { return command_pool_; }
+    [[nodiscard]] VkQueue graphics_queue() const { return graphics_queue_; }
+    [[nodiscard]] VkDescriptorSetLayout material_layout() const {
+        return material_set_layout_->handle();
+    }
+    [[nodiscard]] VkDescriptorPool material_pool() const { return material_pool_; }
 
 private:
     void create_instance();
@@ -64,13 +73,12 @@ private:
     void create_command_pool();
     void create_command_buffers();
     void create_sync_objects();
-    void create_mesh();
-    void load_model();
 
     void cleanup_swapchain();
     void recreate_swapchain();
 
-    void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index);
+    void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
+                               const Scene* scene);
     void update_uniform_buffer(uint32_t frame_index,
                                const glm::mat4& view, const glm::mat4& projection);
 
@@ -120,17 +128,18 @@ private:
     VkPipeline graphics_pipeline_{VK_NULL_HANDLE};
     std::vector<VkFramebuffer> framebuffers_;
 
-    std::unique_ptr<DescriptorSetLayout> descriptor_set_layout_;
-    std::unique_ptr<DescriptorPool> descriptor_pool_;
-    std::array<VkDescriptorSet, 2> descriptor_sets_{};
+    // Set 0: global UBO (per-frame)
+    std::unique_ptr<DescriptorSetLayout> global_set_layout_;
+    std::unique_ptr<DescriptorPool> global_pool_;
+    std::array<VkDescriptorSet, 2> global_descriptor_sets_{};
     std::array<std::unique_ptr<Buffer>, 2> uniform_buffers_;
+
+    // Set 1: per-material (shared pool + layout)
+    std::unique_ptr<DescriptorSetLayout> material_set_layout_;
+    VkDescriptorPool material_pool_{VK_NULL_HANDLE};
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     std::vector<VkCommandBuffer> command_buffers_;
-
-    std::unique_ptr<Mesh> mesh_;
-    std::unique_ptr<Model> model_;
-    std::unique_ptr<Texture> texture_;
 
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};

@@ -9,11 +9,14 @@ add_executable(fjell
     renderer/camera.cpp
     renderer/descriptor.cpp
     renderer/image.cpp
+    renderer/material.cpp
     renderer/mesh.cpp
     renderer/model.cpp
+    renderer/resource_manager.cpp
     renderer/stb_image.cpp
     renderer/texture.cpp
     renderer/vulkan_context.cpp
+    scene/scene.cpp
 )
 
 target_include_directories(fjell PRIVATE

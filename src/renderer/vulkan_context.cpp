@@ -3,6 +3,7 @@
 #include "renderer/vertex.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
+#include "scene/scene.hpp"
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -11,9 +12,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <set>
@@ -85,55 +84,17 @@ VulkanContext::VulkanContext(Window& window) : window_{window} {
     create_framebuffers();
     create_command_buffers();
     create_sync_objects();
-    create_mesh();
-
-    // Try loading a glTF model
-    const char* model_paths[] = {
-        "assets/models/scene.gltf", "assets/models/scene.glb",
-        "assets/models/cube.glb"
-    };
-    const char* model_path = nullptr;
-    for (auto* p : model_paths) {
-        if (std::filesystem::exists(p)) { model_path = p; break; }
-    }
-    if (model_path) {
-        auto path = model_path;
-        model_ = std::make_unique<Model>(
-            device_, physical_device_, command_pool_, graphics_queue_, path);
-
-        // Rebind model's texture to descriptors
-        if (!model_->textures().empty()) {
-            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-                VkDescriptorImageInfo image_info{};
-                image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                image_info.imageView = model_->textures()[0]->image_view();
-                image_info.sampler = model_->textures()[0]->sampler();
-
-                VkWriteDescriptorSet write{};
-                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                write.dstSet = descriptor_sets_[i];
-                write.dstBinding = 1;
-                write.dstArrayElement = 0;
-                write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write.descriptorCount = 1;
-                write.pImageInfo = &image_info;
-
-                vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-            }
-        }
-    }
-
     FJELL_GFX_INFO("Vulkan context ready");
 }
 
 VulkanContext::~VulkanContext() {
-    model_.reset();
-    mesh_.reset();
-    texture_.reset();
     for (auto& ub : uniform_buffers_)
         ub.reset();
-    descriptor_pool_.reset();
-    descriptor_set_layout_.reset();
+    global_pool_.reset();
+    global_set_layout_.reset();
+    material_set_layout_.reset();
+    if (material_pool_ != VK_NULL_HANDLE)
+        vkDestroyDescriptorPool(device_, material_pool_, nullptr);
     for (auto sem : render_finished_)
         vkDestroySemaphore(device_, sem, nullptr);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -570,80 +531,77 @@ VkShaderModule VulkanContext::create_shader_module(const std::vector<char>& code
 }
 
 void VulkanContext::create_descriptor_resources() {
-    // Layout: UBO at binding 0 (vertex), sampler at binding 1 (fragment)
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    // Set 0: Global UBO (per-frame, vertex stage)
+    VkDescriptorSetLayoutBinding ubo_binding{};
+    ubo_binding.binding = 0;
+    ubo_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ubo_binding.descriptorCount = 1;
+    ubo_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    global_set_layout_ = std::make_unique<DescriptorSetLayout>(
+        device_, std::span{&ubo_binding, 1});
 
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorPoolSize global_pool_size{};
+    global_pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    global_pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
-    descriptor_set_layout_ = std::make_unique<DescriptorSetLayout>(device_, bindings);
-
-    // Pool
-    std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-
-    descriptor_pool_ = std::make_unique<DescriptorPool>(
-        device_, pool_sizes, MAX_FRAMES_IN_FLIGHT);
+    global_pool_ = std::make_unique<DescriptorPool>(
+        device_, std::span{&global_pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
 
     // Per-frame uniform buffers (persistently mapped)
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         uniform_buffers_[i] = std::make_unique<Buffer>(
-            device_, physical_device_, sizeof(MvpUbo),
+            device_, physical_device_, sizeof(GlobalUbo),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         uniform_buffers_[i]->map();
     }
 
-    // Load texture
-    texture_ = std::make_unique<Texture>(
-        device_, physical_device_, command_pool_, graphics_queue_,
-        "assets/textures/test.png");
-
-    // Allocate and write descriptor sets
+    // Allocate and write global descriptor sets
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        descriptor_sets_[i] = descriptor_pool_->allocate(*descriptor_set_layout_);
+        global_descriptor_sets_[i] = global_pool_->allocate(*global_set_layout_);
 
         VkDescriptorBufferInfo buffer_info{};
         buffer_info.buffer = uniform_buffers_[i]->handle();
         buffer_info.offset = 0;
-        buffer_info.range = sizeof(MvpUbo);
+        buffer_info.range = sizeof(GlobalUbo);
 
-        VkDescriptorImageInfo image_info{};
-        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        image_info.imageView = texture_->image_view();
-        image_info.sampler = texture_->sampler();
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = global_descriptor_sets_[i];
+        write.dstBinding = 0;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.descriptorCount = 1;
+        write.pBufferInfo = &buffer_info;
 
-        std::array<VkWriteDescriptorSet, 2> writes{};
+        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    }
 
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = descriptor_sets_[i];
-        writes[0].dstBinding = 0;
-        writes[0].dstArrayElement = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo = &buffer_info;
+    // Set 1: Per-material (combined image sampler, fragment stage)
+    VkDescriptorSetLayoutBinding sampler_binding{};
+    sampler_binding.binding = 0;
+    sampler_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    sampler_binding.descriptorCount = 1;
+    sampler_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = descriptor_sets_[i];
-        writes[1].dstBinding = 1;
-        writes[1].dstArrayElement = 0;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo = &image_info;
+    material_set_layout_ = std::make_unique<DescriptorSetLayout>(
+        device_, std::span{&sampler_binding, 1});
 
-        vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
-                               writes.data(), 0, nullptr);
+    // Shared material descriptor pool (enough for many materials)
+    VkDescriptorPoolSize mat_pool_size{};
+    mat_pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    mat_pool_size.descriptorCount = 100;
+
+    VkDescriptorPoolCreateInfo mat_pool_info{};
+    mat_pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    mat_pool_info.poolSizeCount = 1;
+    mat_pool_info.pPoolSizes = &mat_pool_size;
+    mat_pool_info.maxSets = 100;
+
+    if (vkCreateDescriptorPool(device_, &mat_pool_info, nullptr, &material_pool_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create material descriptor pool");
     }
 
     FJELL_GFX_DEBUG("Descriptor resources created");
@@ -731,12 +689,22 @@ void VulkanContext::create_graphics_pipeline() {
     color_blending.attachmentCount = 1;
     color_blending.pAttachments = &color_blend_attachment;
 
-    VkDescriptorSetLayout set_layout = descriptor_set_layout_->handle();
+    std::array set_layouts = {
+        global_set_layout_->handle(),
+        material_set_layout_->handle()
+    };
+
+    VkPushConstantRange push_range{};
+    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    push_range.offset = 0;
+    push_range.size = sizeof(glm::mat4);
 
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = 1;
-    layout_info.pSetLayouts = &set_layout;
+    layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+    layout_info.pSetLayouts = set_layouts.data();
+    layout_info.pushConstantRangeCount = 1;
+    layout_info.pPushConstantRanges = &push_range;
 
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &pipeline_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create pipeline layout");
@@ -846,55 +814,8 @@ void VulkanContext::create_sync_objects() {
     }
 }
 
-void VulkanContext::create_mesh() {
-    const std::array<Vertex, 4> vertices = {{
-        {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{ 0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{ 0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-        {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-    }};
-
-    const std::array<uint32_t, 6> indices = {
-        0, 1, 2,
-        2, 3, 0
-    };
-
-    mesh_ = std::make_unique<Mesh>(
-        device_, physical_device_, command_pool_, graphics_queue_,
-        vertices, indices);
-
-    FJELL_GFX_DEBUG("Mesh created: {} vertices, {} indices",
-                    vertices.size(), indices.size());
-}
-
-void VulkanContext::load_model() {
-    model_ = std::make_unique<Model>(
-        device_, physical_device_, command_pool_, graphics_queue_,
-        "assets/models/scene.gltf");
-
-    // Use model's first texture if available, rebind descriptors
-    if (!model_->textures().empty()) {
-        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            VkDescriptorImageInfo image_info{};
-            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            image_info.imageView = model_->textures()[0]->image_view();
-            image_info.sampler = model_->textures()[0]->sampler();
-
-            VkWriteDescriptorSet write{};
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = descriptor_sets_[i];
-            write.dstBinding = 1;
-            write.dstArrayElement = 0;
-            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write.descriptorCount = 1;
-            write.pImageInfo = &image_info;
-
-            vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-        }
-    }
-}
-
-void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
+void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
+                                          const Scene* scene) {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -919,12 +840,10 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_,
-                            0, 1, &descriptor_sets_[current_frame_], 0, nullptr);
-    if (model_) {
-        model_->draw(cmd);
-    } else {
-        mesh_->bind(cmd);
-        mesh_->draw(cmd);
+                            0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
+
+    if (scene) {
+        scene->render(cmd, pipeline_layout_);
     }
 
     vkCmdEndRenderPass(cmd);
@@ -937,15 +856,15 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::mat4& view,
                                           const glm::mat4& projection) {
-    MvpUbo ubo{};
-    ubo.model = glm::mat4(1.0f);
+    GlobalUbo ubo{};
     ubo.view = view;
     ubo.projection = projection;
 
     uniform_buffers_[frame_index]->write(&ubo, sizeof(ubo));
 }
 
-void VulkanContext::draw_frame(const glm::mat4& view, const glm::mat4& projection) {
+void VulkanContext::draw_frame(const glm::mat4& view, const glm::mat4& projection,
+                               const Scene* scene) {
     vkWaitForFences(device_, 1, &in_flight_[current_frame_], VK_TRUE,
                     std::numeric_limits<uint64_t>::max());
 
@@ -967,7 +886,7 @@ void VulkanContext::draw_frame(const glm::mat4& view, const glm::mat4& projectio
 
     update_uniform_buffer(current_frame_, view, projection);
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
-    record_command_buffer(command_buffers_[current_frame_], image_index);
+    record_command_buffer(command_buffers_[current_frame_], image_index, scene);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
