@@ -4,6 +4,8 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+set(SPDLOG_INSTALL OFF CACHE BOOL "" FORCE)
+set(JSON_Install OFF CACHE BOOL "" FORCE)
 
 FetchContent_Declare(
     glfw
@@ -34,6 +36,7 @@ FetchContent_Declare(
     fastgltf
     GIT_REPOSITORY https://github.com/spnda/fastgltf.git
     GIT_TAG        v0.8.0
+    EXCLUDE_FROM_ALL
 )
 
 FetchContent_Declare(

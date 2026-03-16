@@ -10,3 +10,10 @@ include(cmake/Dependencies.cmake)
 include(cmake/CompileShaders.cmake)
 
 add_subdirectory(src)
+
+# --- Packaging ---
+set(CPACK_PACKAGE_NAME "Fjell")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_GENERATOR "TGZ")
+set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)
+include(CPack)
