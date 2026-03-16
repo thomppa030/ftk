@@ -1,6 +1,9 @@
 #pragma once
 
+#include "core/clock.hpp"
+#include "core/input.hpp"
 #include "core/window.hpp"
+#include "renderer/camera.hpp"
 #include "renderer/vulkan_context.hpp"
 
 #include <cstdint>
@@ -22,6 +25,9 @@ public:
 
 private:
     Window window_;
+    Input input_;
+    Clock clock_;
+    Camera camera_;
     VulkanContext vulkan_context_;
 };
 

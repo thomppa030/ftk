@@ -4,6 +4,7 @@
 #include "renderer/descriptor.hpp"
 #include "renderer/mesh.hpp"
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -34,7 +35,7 @@ struct SwapchainSupport {
 
 class VulkanContext {
 public:
-    explicit VulkanContext(const Window& window);
+    explicit VulkanContext(Window& window);
     ~VulkanContext();
 
     VulkanContext(const VulkanContext&) = delete;
@@ -42,7 +43,7 @@ public:
     VulkanContext(VulkanContext&&) = delete;
     VulkanContext& operator=(VulkanContext&&) = delete;
 
-    void draw_frame();
+    void draw_frame(const glm::mat4& view, const glm::mat4& projection);
     void wait_idle();
 
 private:
@@ -54,6 +55,7 @@ private:
     void create_swapchain();
     void create_image_views();
     void create_render_pass();
+    void create_depth_resources();
     void create_descriptor_resources();
     void create_graphics_pipeline();
     void create_framebuffers();
@@ -62,8 +64,12 @@ private:
     void create_sync_objects();
     void create_mesh();
 
+    void cleanup_swapchain();
+    void recreate_swapchain();
+
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index);
-    void update_uniform_buffer(uint32_t frame_index);
+    void update_uniform_buffer(uint32_t frame_index,
+                               const glm::mat4& view, const glm::mat4& projection);
 
     [[nodiscard]] static std::vector<char> read_shader(const std::string& path);
     [[nodiscard]] VkShaderModule create_shader_module(const std::vector<char>& code) const;
@@ -81,8 +87,12 @@ private:
         const std::vector<VkPresentModeKHR>& modes) const;
     [[nodiscard]] VkExtent2D choose_extent(
         const VkSurfaceCapabilitiesKHR& capabilities) const;
+    [[nodiscard]] VkFormat find_depth_format() const;
+    [[nodiscard]] VkFormat find_supported_format(
+        const std::vector<VkFormat>& candidates, VkImageTiling tiling,
+        VkFormatFeatureFlags features) const;
 
-    const Window& window_;
+    Window& window_;
 
     VkInstance instance_{VK_NULL_HANDLE};
     VkDebugUtilsMessengerEXT debug_messenger_{VK_NULL_HANDLE};
@@ -97,6 +107,10 @@ private:
     std::vector<VkImageView> swapchain_image_views_;
     VkFormat swapchain_format_{};
     VkExtent2D swapchain_extent_{};
+
+    VkImage depth_image_{VK_NULL_HANDLE};
+    VkDeviceMemory depth_memory_{VK_NULL_HANDLE};
+    VkImageView depth_image_view_{VK_NULL_HANDLE};
 
     VkRenderPass render_pass_{VK_NULL_HANDLE};
     VkPipelineLayout pipeline_layout_{VK_NULL_HANDLE};

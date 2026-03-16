@@ -67,7 +67,7 @@ static void destroy_debug_utils_messenger(
     }
 }
 
-VulkanContext::VulkanContext(const Window& window) : window_{window} {
+VulkanContext::VulkanContext(Window& window) : window_{window} {
     FJELL_GFX_INFO("Initializing Vulkan context");
     create_instance();
     setup_debug_messenger();
@@ -77,6 +77,7 @@ VulkanContext::VulkanContext(const Window& window) : window_{window} {
     create_swapchain();
     create_image_views();
     create_render_pass();
+    create_depth_resources();
     create_descriptor_resources();
     create_graphics_pipeline();
     create_framebuffers();
@@ -103,18 +104,9 @@ VulkanContext::~VulkanContext() {
     }
     if (command_pool_ != VK_NULL_HANDLE)
         vkDestroyCommandPool(device_, command_pool_, nullptr);
-    for (auto fb : framebuffers_)
-        vkDestroyFramebuffer(device_, fb, nullptr);
-    if (graphics_pipeline_ != VK_NULL_HANDLE)
-        vkDestroyPipeline(device_, graphics_pipeline_, nullptr);
-    if (pipeline_layout_ != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
+    cleanup_swapchain();
     if (render_pass_ != VK_NULL_HANDLE)
         vkDestroyRenderPass(device_, render_pass_, nullptr);
-    for (auto view : swapchain_image_views_)
-        vkDestroyImageView(device_, view, nullptr);
-    if (swapchain_ != VK_NULL_HANDLE)
-        vkDestroySwapchainKHR(device_, swapchain_, nullptr);
     if (device_ != VK_NULL_HANDLE)
         vkDestroyDevice(device_, nullptr);
     if (enable_validation_ && debug_messenger_ != VK_NULL_HANDLE)
@@ -123,6 +115,71 @@ VulkanContext::~VulkanContext() {
         vkDestroySurfaceKHR(instance_, surface_, nullptr);
     if (instance_ != VK_NULL_HANDLE)
         vkDestroyInstance(instance_, nullptr);
+}
+
+void VulkanContext::cleanup_swapchain() {
+    if (depth_image_view_ != VK_NULL_HANDLE)
+        vkDestroyImageView(device_, depth_image_view_, nullptr);
+    if (depth_image_ != VK_NULL_HANDLE)
+        vkDestroyImage(device_, depth_image_, nullptr);
+    if (depth_memory_ != VK_NULL_HANDLE)
+        vkFreeMemory(device_, depth_memory_, nullptr);
+    depth_image_view_ = VK_NULL_HANDLE;
+    depth_image_ = VK_NULL_HANDLE;
+    depth_memory_ = VK_NULL_HANDLE;
+
+    for (auto fb : framebuffers_)
+        vkDestroyFramebuffer(device_, fb, nullptr);
+    framebuffers_.clear();
+    if (graphics_pipeline_ != VK_NULL_HANDLE)
+        vkDestroyPipeline(device_, graphics_pipeline_, nullptr);
+    graphics_pipeline_ = VK_NULL_HANDLE;
+    if (pipeline_layout_ != VK_NULL_HANDLE)
+        vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
+    pipeline_layout_ = VK_NULL_HANDLE;
+    for (auto view : swapchain_image_views_)
+        vkDestroyImageView(device_, view, nullptr);
+    swapchain_image_views_.clear();
+    if (swapchain_ != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+    swapchain_ = VK_NULL_HANDLE;
+}
+
+void VulkanContext::recreate_swapchain() {
+    // Handle minimized window
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(window_.handle(), &width, &height);
+    while (width == 0 || height == 0) {
+        glfwGetFramebufferSize(window_.handle(), &width, &height);
+        glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(device_);
+
+    // Destroy old render_finished semaphores (per-swapchain-image)
+    for (auto sem : render_finished_)
+        vkDestroySemaphore(device_, sem, nullptr);
+    render_finished_.clear();
+
+    cleanup_swapchain();
+
+    create_swapchain();
+    create_image_views();
+    create_depth_resources();
+    create_graphics_pipeline();
+    create_framebuffers();
+
+    // Recreate per-swapchain-image semaphores
+    VkSemaphoreCreateInfo sem_info{};
+    sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    render_finished_.resize(swapchain_images_.size());
+    for (auto& sem : render_finished_) {
+        if (vkCreateSemaphore(device_, &sem_info, nullptr, &sem) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create render finished semaphore");
+        }
+    }
+
+    FJELL_GFX_INFO("Swapchain recreated: {}x{}", swapchain_extent_.width, swapchain_extent_.height);
 }
 
 void VulkanContext::create_instance() {
@@ -340,27 +397,47 @@ void VulkanContext::create_render_pass() {
     color_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     color_attachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
+    VkAttachmentDescription depth_attachment{};
+    depth_attachment.format = find_depth_format();
+    depth_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    depth_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth_attachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    depth_attachment.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
     VkAttachmentReference color_ref{};
     color_ref.attachment = 0;
     color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkAttachmentReference depth_ref{};
+    depth_ref.attachment = 1;
+    depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &color_ref;
+    subpass.pDepthStencilAttachment = &depth_ref;
 
     VkSubpassDependency dependency{};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependency.srcAccessMask = 0;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+
+    std::array attachments = {color_attachment, depth_attachment};
 
     VkRenderPassCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    create_info.attachmentCount = 1;
-    create_info.pAttachments = &color_attachment;
+    create_info.attachmentCount = static_cast<uint32_t>(attachments.size());
+    create_info.pAttachments = attachments.data();
     create_info.subpassCount = 1;
     create_info.pSubpasses = &subpass;
     create_info.dependencyCount = 1;
@@ -368,6 +445,60 @@ void VulkanContext::create_render_pass() {
 
     if (vkCreateRenderPass(device_, &create_info, nullptr, &render_pass_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create render pass");
+    }
+}
+
+void VulkanContext::create_depth_resources() {
+    VkFormat depth_format = find_depth_format();
+
+    VkImageCreateInfo image_info{};
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.extent.width = swapchain_extent_.width;
+    image_info.extent.height = swapchain_extent_.height;
+    image_info.extent.depth = 1;
+    image_info.mipLevels = 1;
+    image_info.arrayLayers = 1;
+    image_info.format = depth_format;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateImage(device_, &image_info, nullptr, &depth_image_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create depth image");
+    }
+
+    VkMemoryRequirements mem_reqs;
+    vkGetImageMemoryRequirements(device_, depth_image_, &mem_reqs);
+
+    VkMemoryAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = mem_reqs.size;
+    alloc_info.memoryTypeIndex = Buffer::find_memory_type(
+        physical_device_, mem_reqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(device_, &alloc_info, nullptr, &depth_memory_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate depth image memory");
+    }
+
+    vkBindImageMemory(device_, depth_image_, depth_memory_, 0);
+
+    VkImageViewCreateInfo view_info{};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = depth_image_;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = depth_format;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    view_info.subresourceRange.baseMipLevel = 0;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.baseArrayLayer = 0;
+    view_info.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device_, &view_info, nullptr, &depth_image_view_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create depth image view");
     }
 }
 
@@ -551,7 +682,16 @@ void VulkanContext::create_graphics_pipeline() {
     pipeline_info.pInputAssemblyState = &input_assembly;
     pipeline_info.pViewportState = &viewport_state;
     pipeline_info.pRasterizationState = &rasterizer;
+    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
+    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil.depthTestEnable = VK_TRUE;
+    depth_stencil.depthWriteEnable = VK_TRUE;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+    depth_stencil.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil.stencilTestEnable = VK_FALSE;
+
     pipeline_info.pMultisampleState = &multisampling;
+    pipeline_info.pDepthStencilState = &depth_stencil;
     pipeline_info.pColorBlendState = &color_blending;
     pipeline_info.layout = pipeline_layout_;
     pipeline_info.renderPass = render_pass_;
@@ -571,11 +711,13 @@ void VulkanContext::create_framebuffers() {
     framebuffers_.resize(swapchain_image_views_.size());
 
     for (size_t i = 0; i < swapchain_image_views_.size(); ++i) {
+        std::array attachments = {swapchain_image_views_[i], depth_image_view_};
+
         VkFramebufferCreateInfo create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
         create_info.renderPass = render_pass_;
-        create_info.attachmentCount = 1;
-        create_info.pAttachments = &swapchain_image_views_[i];
+        create_info.attachmentCount = static_cast<uint32_t>(attachments.size());
+        create_info.pAttachments = attachments.data();
         create_info.width = swapchain_extent_.width;
         create_info.height = swapchain_extent_.height;
         create_info.layers = 1;
@@ -665,7 +807,9 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         throw std::runtime_error("Failed to begin recording command buffer");
     }
 
-    VkClearValue clear_color = {{{0.1f, 0.1f, 0.12f, 1.0f}}};
+    std::array<VkClearValue, 2> clear_values{};
+    clear_values[0].color = {{0.1f, 0.1f, 0.12f, 1.0f}};
+    clear_values[1].depthStencil = {1.0f, 0};
 
     VkRenderPassBeginInfo rp_info{};
     rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -673,8 +817,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     rp_info.framebuffer = framebuffers_[image_index];
     rp_info.renderArea.offset = {0, 0};
     rp_info.renderArea.extent = swapchain_extent_;
-    rp_info.clearValueCount = 1;
-    rp_info.pClearValues = &clear_color;
+    rp_info.clearValueCount = static_cast<uint32_t>(clear_values.size());
+    rp_info.pClearValues = clear_values.data();
 
     vkCmdBeginRenderPass(cmd, &rp_info, VK_SUBPASS_CONTENTS_INLINE);
 
@@ -691,38 +835,43 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     }
 }
 
-void VulkanContext::update_uniform_buffer(uint32_t frame_index) {
+void VulkanContext::update_uniform_buffer(uint32_t frame_index,
+                                          const glm::mat4& view,
+                                          const glm::mat4& projection) {
     static auto start_time = std::chrono::steady_clock::now();
     auto current_time = std::chrono::steady_clock::now();
     float time = std::chrono::duration<float>(current_time - start_time).count();
 
-    float aspect = static_cast<float>(swapchain_extent_.width) /
-                   static_cast<float>(swapchain_extent_.height);
-
     MvpUbo ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f),
-                            glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f),
-                           glm::vec3(0.0f, 0.0f, 0.0f),
-                           glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.projection = glm::perspective(glm::radians(45.0f), aspect, 0.1f, 10.0f);
-    ubo.projection[1][1] *= -1; // Vulkan Y-flip
+    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(45.0f),
+                            glm::vec3(0.0f, 1.0f, 0.0f));
+    ubo.view = view;
+    ubo.projection = projection;
 
     uniform_buffers_[frame_index]->write(&ubo, sizeof(ubo));
 }
 
-void VulkanContext::draw_frame() {
+void VulkanContext::draw_frame(const glm::mat4& view, const glm::mat4& projection) {
     vkWaitForFences(device_, 1, &in_flight_[current_frame_], VK_TRUE,
                     std::numeric_limits<uint64_t>::max());
-    vkResetFences(device_, 1, &in_flight_[current_frame_]);
 
     uint32_t image_index;
-    vkAcquireNextImageKHR(device_, swapchain_,
+    VkResult result = vkAcquireNextImageKHR(device_, swapchain_,
                           std::numeric_limits<uint64_t>::max(),
                           image_available_[current_frame_], VK_NULL_HANDLE,
                           &image_index);
 
-    update_uniform_buffer(current_frame_);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        recreate_swapchain();
+        return;
+    }
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        throw std::runtime_error("Failed to acquire swapchain image");
+    }
+
+    vkResetFences(device_, 1, &in_flight_[current_frame_]);
+
+    update_uniform_buffer(current_frame_, view, projection);
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
     record_command_buffer(command_buffers_[current_frame_], image_index);
 
@@ -750,7 +899,15 @@ void VulkanContext::draw_frame() {
     present_info.pSwapchains = &swapchain_;
     present_info.pImageIndices = &image_index;
 
-    vkQueuePresentKHR(present_queue_, &present_info);
+    result = vkQueuePresentKHR(present_queue_, &present_info);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
+        window_.was_resized()) {
+        window_.reset_resized();
+        recreate_swapchain();
+    } else if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to present swapchain image");
+    }
 
     current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
 }
@@ -896,6 +1053,32 @@ VkExtent2D VulkanContext::choose_extent(
     extent.height = std::clamp(extent.height,
         capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
     return extent;
+}
+
+VkFormat VulkanContext::find_depth_format() const {
+    return find_supported_format(
+        {VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT},
+        VK_IMAGE_TILING_OPTIMAL,
+        VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT);
+}
+
+VkFormat VulkanContext::find_supported_format(
+    const std::vector<VkFormat>& candidates, VkImageTiling tiling,
+    VkFormatFeatureFlags features) const {
+    for (VkFormat format : candidates) {
+        VkFormatProperties props;
+        vkGetPhysicalDeviceFormatProperties(physical_device_, format, &props);
+
+        if (tiling == VK_IMAGE_TILING_LINEAR &&
+            (props.linearTilingFeatures & features) == features) {
+            return format;
+        }
+        if (tiling == VK_IMAGE_TILING_OPTIMAL &&
+            (props.optimalTilingFeatures & features) == features) {
+            return format;
+        }
+    }
+    throw std::runtime_error("Failed to find supported format");
 }
 
 } // namespace fjell

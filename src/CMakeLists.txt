@@ -1,9 +1,12 @@
 add_executable(fjell
     main.cpp
+    core/clock.cpp
     core/engine.cpp
+    core/input.cpp
     core/log.cpp
     core/window.cpp
     renderer/buffer.cpp
+    renderer/camera.cpp
     renderer/descriptor.cpp
     renderer/mesh.cpp
     renderer/vulkan_context.cpp
