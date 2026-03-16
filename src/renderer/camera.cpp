@@ -14,13 +14,27 @@ Camera::Camera(glm::vec3 target, float distance, float yaw, float pitch)
     update_position();
 }
 
-void Camera::update(const Input& input, float /*dt*/) {
+void Camera::update(const Input& input, float dt) {
     auto mouse_d = input.mouse_delta();
     auto scroll_d = input.scroll_delta();
 
     bool middle_held = input.is_mouse_button_held(GLFW_MOUSE_BUTTON_MIDDLE);
     bool shift_held = input.is_key_held(GLFW_KEY_LEFT_SHIFT) ||
                       input.is_key_held(GLFW_KEY_RIGHT_SHIFT);
+
+    // WASD movement — moves target (and camera) through space
+    {
+        glm::vec3 forward = glm::normalize(target_ - position_);
+        glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3{0.0f, 1.0f, 0.0f}));
+        float speed = move_speed_ * dt * (distance_ * 0.5f + 1.0f);
+
+        if (input.is_key_held(GLFW_KEY_W)) target_ += forward * speed;
+        if (input.is_key_held(GLFW_KEY_S)) target_ -= forward * speed;
+        if (input.is_key_held(GLFW_KEY_A)) target_ -= right * speed;
+        if (input.is_key_held(GLFW_KEY_D)) target_ += right * speed;
+        if (input.is_key_held(GLFW_KEY_Q)) target_.y -= speed;
+        if (input.is_key_held(GLFW_KEY_E)) target_.y += speed;
+    }
 
     if (middle_held && shift_held) {
         // Pan: shift + middle mouse drag

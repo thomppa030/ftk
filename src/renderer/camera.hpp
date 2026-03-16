@@ -19,6 +19,8 @@ public:
 
     [[nodiscard]] glm::vec3 position() const { return position_; }
     [[nodiscard]] float fov() const { return fov_; }
+    [[nodiscard]] float yaw() const { return yaw_; }
+    [[nodiscard]] float pitch() const { return pitch_; }
 
 private:
     void update_position();
@@ -30,6 +32,7 @@ private:
     float pitch_;
     float distance_;
 
+    float move_speed_{1.0f};
     float orbit_sensitivity_{0.3f};
     float pan_sensitivity_{0.02f};
     float zoom_sensitivity_{1.5f};
