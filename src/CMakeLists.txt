@@ -87,8 +87,41 @@ file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBO
 file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_api.h"
      DESTINATION "${CMAKE_BINARY_DIR}/scripting")
 
+# --- Fjell Hub (launcher) ---
+find_package(OpenGL REQUIRED)
+
+add_executable(fjell-hub
+    hub/main.cpp
+    hub/hub_ui.cpp
+    hub/recent_projects.cpp
+    core/log.cpp
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+)
+
+target_include_directories(fjell-hub PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+target_include_directories(fjell-hub SYSTEM PRIVATE
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+target_link_libraries(fjell-hub PRIVATE
+    glfw
+    nlohmann_json::nlohmann_json
+    spdlog::spdlog
+    OpenGL::GL
+)
+target_compile_options(fjell-hub PRIVATE
+    -Wall -Wextra -Wpedantic -Werror
+)
+
 # --- Install rules ---
-install(TARGETS fjell RUNTIME DESTINATION .)
+install(TARGETS fjell fjell-hub RUNTIME DESTINATION .)
 install(DIRECTORY "${SHADER_OUTPUT_DIR}/" DESTINATION shaders
         FILES_MATCHING PATTERN "*.spv")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/" DESTINATION assets)
