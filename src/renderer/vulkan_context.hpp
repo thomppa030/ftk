@@ -3,6 +3,7 @@
 #include "renderer/buffer.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/mesh.hpp"
+#include "renderer/model.hpp"
 #include "renderer/texture.hpp"
 
 #include <glm/glm.hpp>
@@ -64,6 +65,7 @@ private:
     void create_command_buffers();
     void create_sync_objects();
     void create_mesh();
+    void load_model();
 
     void cleanup_swapchain();
     void recreate_swapchain();
@@ -127,6 +129,7 @@ private:
     std::vector<VkCommandBuffer> command_buffers_;
 
     std::unique_ptr<Mesh> mesh_;
+    std::unique_ptr<Model> model_;
     std::unique_ptr<Texture> texture_;
 
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;

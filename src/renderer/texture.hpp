@@ -4,6 +4,7 @@
 
 #include <vulkan/vulkan.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -14,6 +15,11 @@ public:
     Texture(VkDevice device, VkPhysicalDevice physical_device,
             VkCommandPool command_pool, VkQueue queue,
             const std::string& path);
+
+    Texture(VkDevice device, VkPhysicalDevice physical_device,
+            VkCommandPool command_pool, VkQueue queue,
+            const uint8_t* pixels, uint32_t width, uint32_t height);
+
     ~Texture();
 
     Texture(const Texture&) = delete;
@@ -25,6 +31,9 @@ public:
     [[nodiscard]] VkSampler sampler() const { return sampler_; }
 
 private:
+    void upload(VkPhysicalDevice physical_device, VkCommandPool command_pool,
+                VkQueue queue, const void* pixels, uint32_t width, uint32_t height);
+
     VkDevice device_;
     std::unique_ptr<Image> image_;
     VkSampler sampler_{VK_NULL_HANDLE};

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <set>
@@ -85,10 +86,48 @@ VulkanContext::VulkanContext(Window& window) : window_{window} {
     create_command_buffers();
     create_sync_objects();
     create_mesh();
+
+    // Try loading a glTF model
+    const char* model_paths[] = {
+        "assets/models/scene.gltf", "assets/models/scene.glb",
+        "assets/models/cube.glb"
+    };
+    const char* model_path = nullptr;
+    for (auto* p : model_paths) {
+        if (std::filesystem::exists(p)) { model_path = p; break; }
+    }
+    if (model_path) {
+        auto path = model_path;
+        model_ = std::make_unique<Model>(
+            device_, physical_device_, command_pool_, graphics_queue_, path);
+
+        // Rebind model's texture to descriptors
+        if (!model_->textures().empty()) {
+            for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+                VkDescriptorImageInfo image_info{};
+                image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                image_info.imageView = model_->textures()[0]->image_view();
+                image_info.sampler = model_->textures()[0]->sampler();
+
+                VkWriteDescriptorSet write{};
+                write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                write.dstSet = descriptor_sets_[i];
+                write.dstBinding = 1;
+                write.dstArrayElement = 0;
+                write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                write.descriptorCount = 1;
+                write.pImageInfo = &image_info;
+
+                vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+            }
+        }
+    }
+
     FJELL_GFX_INFO("Vulkan context ready");
 }
 
 VulkanContext::~VulkanContext() {
+    model_.reset();
     mesh_.reset();
     texture_.reset();
     for (auto& ub : uniform_buffers_)
@@ -671,7 +710,7 @@ void VulkanContext::create_graphics_pipeline() {
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -828,6 +867,33 @@ void VulkanContext::create_mesh() {
                     vertices.size(), indices.size());
 }
 
+void VulkanContext::load_model() {
+    model_ = std::make_unique<Model>(
+        device_, physical_device_, command_pool_, graphics_queue_,
+        "assets/models/scene.gltf");
+
+    // Use model's first texture if available, rebind descriptors
+    if (!model_->textures().empty()) {
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            VkDescriptorImageInfo image_info{};
+            image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            image_info.imageView = model_->textures()[0]->image_view();
+            image_info.sampler = model_->textures()[0]->sampler();
+
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = descriptor_sets_[i];
+            write.dstBinding = 1;
+            write.dstArrayElement = 0;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.descriptorCount = 1;
+            write.pImageInfo = &image_info;
+
+            vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+        }
+    }
+}
+
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index) {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -854,8 +920,12 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_,
                             0, 1, &descriptor_sets_[current_frame_], 0, nullptr);
-    mesh_->bind(cmd);
-    mesh_->draw(cmd);
+    if (model_) {
+        model_->draw(cmd);
+    } else {
+        mesh_->bind(cmd);
+        mesh_->draw(cmd);
+    }
 
     vkCmdEndRenderPass(cmd);
 
@@ -867,13 +937,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::mat4& view,
                                           const glm::mat4& projection) {
-    static auto start_time = std::chrono::steady_clock::now();
-    auto current_time = std::chrono::steady_clock::now();
-    float time = std::chrono::duration<float>(current_time - start_time).count();
-
     MvpUbo ubo{};
-    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(45.0f),
-                            glm::vec3(0.0f, 1.0f, 0.0f));
+    ubo.model = glm::mat4(1.0f);
     ubo.view = view;
     ubo.projection = projection;
 

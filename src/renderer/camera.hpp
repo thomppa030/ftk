@@ -33,11 +33,11 @@ private:
 
     float yaw_;
     float pitch_;
-    float speed_{5.0f};
+    float speed_{20.0f};
     float sensitivity_{0.1f};
     float fov_{45.0f};
     float near_{0.1f};
-    float far_{100.0f};
+    float far_{1000.0f};
 };
 
 } // namespace fjell

@@ -7,7 +7,7 @@ namespace fjell {
 
 Engine::Engine(std::string_view title, uint32_t width, uint32_t height)
     : window_{title, width, height}
-    , camera_{{0.0f, 1.0f, 3.0f}}
+    , camera_{{0.0f, 5.0f, 30.0f}}
     , vulkan_context_{window_} {
     window_.set_input(&input_);
     input_.attach(window_.handle());

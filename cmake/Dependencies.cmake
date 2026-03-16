@@ -30,6 +30,12 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog stb)
+FetchContent_Declare(
+    fastgltf
+    GIT_REPOSITORY https://github.com/spnda/fastgltf.git
+    GIT_TAG        v0.8.0
+)
+
+FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf)
 
 find_package(Vulkan REQUIRED)

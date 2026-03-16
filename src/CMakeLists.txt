@@ -10,6 +10,7 @@ add_executable(fjell
     renderer/descriptor.cpp
     renderer/image.cpp
     renderer/mesh.cpp
+    renderer/model.cpp
     renderer/stb_image.cpp
     renderer/texture.cpp
     renderer/vulkan_context.cpp
@@ -21,6 +22,7 @@ target_include_directories(fjell PRIVATE
 )
 
 target_link_libraries(fjell PRIVATE
+    fastgltf::fastgltf
     glfw
     glm::glm
     spdlog::spdlog
@@ -30,6 +32,10 @@ target_link_libraries(fjell PRIVATE
 target_compile_options(fjell PRIVATE
     -Wall -Wextra -Wpedantic -Werror
 )
+
+# Treat fastgltf headers as system headers to suppress warnings from them
+get_target_property(FASTGLTF_INCLUDE_DIRS fastgltf::fastgltf INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(fjell SYSTEM PRIVATE ${FASTGLTF_INCLUDE_DIRS})
 
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")

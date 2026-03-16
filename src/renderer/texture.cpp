@@ -19,27 +19,47 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
         throw std::runtime_error("Failed to load texture: " + path);
     }
 
-    auto tex_width = static_cast<uint32_t>(width);
-    auto tex_height = static_cast<uint32_t>(height);
-    VkDeviceSize image_size = tex_width * tex_height * 4;
-    uint32_t mip_levels = static_cast<uint32_t>(
-        std::floor(std::log2(std::max(tex_width, tex_height)))) + 1;
+    upload(physical_device, command_pool, queue, pixels,
+           static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    stbi_image_free(pixels);
 
-    Buffer staging{device, physical_device, image_size,
+    FJELL_GFX_DEBUG("Texture loaded from file: {}x{}", width, height);
+}
+
+Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
+                 VkCommandPool command_pool, VkQueue queue,
+                 const uint8_t* pixels, uint32_t width, uint32_t height)
+    : device_{device} {
+    upload(physical_device, command_pool, queue, pixels, width, height);
+
+    FJELL_GFX_DEBUG("Texture loaded from memory: {}x{}", width, height);
+}
+
+Texture::~Texture() {
+    if (sampler_ != VK_NULL_HANDLE) {
+        vkDestroySampler(device_, sampler_, nullptr);
+    }
+}
+
+void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_pool,
+                     VkQueue queue, const void* pixels, uint32_t width, uint32_t height) {
+    VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * 4;
+    uint32_t mip_levels = static_cast<uint32_t>(
+        std::floor(std::log2(std::max(width, height)))) + 1;
+
+    Buffer staging{device_, physical_device, image_size,
                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
     staging.write(pixels, image_size);
-    stbi_image_free(pixels);
 
     image_ = std::make_unique<Image>(
-        device, physical_device, tex_width, tex_height,
+        device_, physical_device, width, height,
         VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
         VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mip_levels);
 
-    // One-shot command buffer for upload + mipmaps
     VkCommandBufferAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -47,7 +67,7 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
     alloc_info.commandBufferCount = 1;
 
     VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(device, &alloc_info, &cmd);
+    vkAllocateCommandBuffers(device_, &alloc_info, &cmd);
 
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -58,20 +78,16 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mip_levels);
 
     VkBufferImageCopy region{};
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.mipLevel = 0;
     region.imageSubresource.baseArrayLayer = 0;
     region.imageSubresource.layerCount = 1;
-    region.imageOffset = {0, 0, 0};
-    region.imageExtent = {tex_width, tex_height, 1};
+    region.imageExtent = {width, height, 1};
 
     vkCmdCopyBufferToImage(cmd, staging.handle(), image_->handle(),
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    image_->generate_mipmaps(cmd, physical_device, tex_width, tex_height, mip_levels);
+    image_->generate_mipmaps(cmd, physical_device, width, height, mip_levels);
 
     vkEndCommandBuffer(cmd);
 
@@ -82,11 +98,10 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
     vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
     vkQueueWaitIdle(queue);
 
-    vkFreeCommandBuffers(device, command_pool, 1, &cmd);
+    vkFreeCommandBuffers(device_, command_pool, 1, &cmd);
 
     image_->create_view(VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
 
-    // Sampler with anisotropy
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device, &props);
 
@@ -109,14 +124,6 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
 
     if (vkCreateSampler(device_, &sampler_info, nullptr, &sampler_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create texture sampler");
-    }
-
-    FJELL_GFX_DEBUG("Texture loaded: {}x{}, {} mip levels", tex_width, tex_height, mip_levels);
-}
-
-Texture::~Texture() {
-    if (sampler_ != VK_NULL_HANDLE) {
-        vkDestroySampler(device_, sampler_, nullptr);
     }
 }
 
