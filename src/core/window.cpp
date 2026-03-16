@@ -50,6 +50,10 @@ void Window::poll_events() {
     glfwPollEvents();
 }
 
+void Window::set_title(std::string_view title) {
+    glfwSetWindowTitle(window_, std::string{title}.c_str());
+}
+
 VkSurfaceKHR Window::create_surface(VkInstance instance) const {
     VkSurfaceKHR surface{};
     if (glfwCreateWindowSurface(instance, window_, nullptr, &surface) != VK_SUCCESS) {

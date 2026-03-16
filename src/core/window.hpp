@@ -22,6 +22,7 @@ public:
 
     [[nodiscard]] bool should_close() const;
     void poll_events();
+    void set_title(std::string_view title);
 
     void set_input(Input* input) { input_ = input; }
     [[nodiscard]] Input* input() const { return input_; }
