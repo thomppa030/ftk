@@ -14,7 +14,7 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height)
     FJELL_CORE_DEBUG("GLFW initialized");
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
     window_ = glfwCreateWindow(
         static_cast<int>(width_),
@@ -27,6 +27,10 @@ Window::Window(std::string_view title, uint32_t width, uint32_t height)
         glfwTerminate();
         throw std::runtime_error("Failed to create GLFW window");
     }
+
+    glfwSetWindowUserPointer(window_, this);
+    glfwSetFramebufferSizeCallback(window_, framebuffer_resize_callback);
+
     FJELL_CORE_INFO("Window created: {}x{}", width_, height_);
 }
 
@@ -52,6 +56,15 @@ VkSurfaceKHR Window::create_surface(VkInstance instance) const {
         throw std::runtime_error("Failed to create window surface");
     }
     return surface;
+}
+
+void Window::framebuffer_resize_callback(GLFWwindow* window, int width, int height) {
+    auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+    if (self) {
+        self->framebuffer_resized_ = true;
+        self->width_ = static_cast<uint32_t>(width);
+        self->height_ = static_cast<uint32_t>(height);
+    }
 }
 
 } // namespace fjell
