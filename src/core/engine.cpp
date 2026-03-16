@@ -86,13 +86,15 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         create_default_scene();
     }
 
-    // Load game scripts in game mode
+    // Load game scripts
     if (game_mode_) {
         auto game_so = base_path::resolve("game.so");
         if (std::filesystem::exists(game_so)) {
             script_manager_.load(game_so);
             script_manager_.deserialize_all(scene_);
         }
+    } else {
+        load_project_scripts();
     }
 
     FJELL_CORE_INFO("Engine initialized");
@@ -601,8 +603,10 @@ void Engine::open_project(const std::filesystem::path& path) {
     window_.set_title("Fjell - " + project_->config().name);
     scan_models();
     scan_scenes();
+}
 
-    // Load game scripts if available
+void Engine::load_project_scripts() {
+    if (!project_) return;
     auto so_path = project_->root() / "game.so";
     if (std::filesystem::exists(so_path)) {
         script_manager_.load(so_path);
@@ -704,7 +708,6 @@ void Engine::draw_menu_bar() {
 
         if (ImGui::Button("Open", {120, 0})) {
             open_project(project_path_buf);
-            // Reload scene from new project
             if (project_) {
                 current_scene_path_ = project_->resolve(project_->config().default_scene);
                 if (std::filesystem::exists(current_scene_path_)) {
@@ -713,6 +716,7 @@ void Engine::draw_menu_bar() {
                     scene_.clear();
                     create_default_scene();
                 }
+                load_project_scripts();
             }
             ImGui::CloseCurrentPopup();
         }

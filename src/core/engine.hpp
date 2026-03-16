@@ -65,6 +65,7 @@ private:
     void draw_play_overlay();
 
     void open_project(const std::filesystem::path& path);
+    void load_project_scripts();
     void close_project();
     void scan_scenes();
     void load_scene(const std::string& path);
