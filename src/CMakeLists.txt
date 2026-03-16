@@ -8,12 +8,17 @@ add_executable(fjell
     renderer/buffer.cpp
     renderer/camera.cpp
     renderer/descriptor.cpp
+    renderer/device.cpp
     renderer/image.cpp
     renderer/material.cpp
     renderer/mesh.cpp
     renderer/model.cpp
+    renderer/pipeline.cpp
+    renderer/primitives.cpp
     renderer/resource_manager.cpp
+    renderer/shader_watcher.cpp
     renderer/stb_image.cpp
+    renderer/swapchain.cpp
     renderer/texture.cpp
     renderer/vulkan_context.cpp
     scene/scene.cpp
@@ -27,6 +32,9 @@ add_executable(fjell
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+
+    # ImGuizmo
+    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
 )
 
 target_include_directories(fjell PRIVATE
@@ -37,12 +45,14 @@ target_include_directories(fjell PRIVATE
 target_include_directories(fjell SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
+    ${imguizmo_SOURCE_DIR}
 )
 
 target_link_libraries(fjell PRIVATE
     fastgltf::fastgltf
     glfw
     glm::glm
+    nlohmann_json::nlohmann_json
     spdlog::spdlog
     Vulkan::Vulkan
 )

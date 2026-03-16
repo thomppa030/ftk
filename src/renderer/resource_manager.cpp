@@ -1,6 +1,7 @@
 #include "renderer/resource_manager.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
+#include "renderer/primitives.hpp"
 #include "renderer/texture.hpp"
 #include "core/log.hpp"
 
@@ -28,6 +29,30 @@ Model* ResourceManager::load_model(const std::string& path) {
     auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_, path);
     auto* ptr = model.get();
     models_.emplace(path, std::move(model));
+    return ptr;
+}
+
+Model* ResourceManager::create_primitive(const std::string& type) {
+    std::string key = "primitive:" + type;
+    auto it = models_.find(key);
+    if (it != models_.end()) {
+        return it->second.get();
+    }
+
+    PrimitiveMeshData data;
+    if (type == "cube") {
+        data = primitives::cube();
+    } else if (type == "plane") {
+        data = primitives::plane();
+    } else if (type == "sphere") {
+        data = primitives::sphere();
+    } else {
+        return nullptr;
+    }
+
+    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_, data);
+    auto* ptr = model.get();
+    models_.emplace(key, std::move(model));
     return ptr;
 }
 

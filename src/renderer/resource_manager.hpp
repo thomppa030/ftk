@@ -21,6 +21,7 @@ public:
                     VkDescriptorSetLayout material_layout);
 
     Model* load_model(const std::string& path);
+    Model* create_primitive(const std::string& type);
     Texture* load_texture(const std::string& path);
     Material* create_material(const std::string& name, Texture* texture,
                               glm::vec4 tint = {1.0f, 1.0f, 1.0f, 1.0f});
