@@ -1,18 +1,24 @@
 add_executable(fjell
     main.cpp
+    core/base_path.cpp
     core/clock.cpp
+    core/game_builder.cpp
     core/engine.cpp
     core/input.cpp
+    core/play_session.cpp
+    core/project.cpp
     core/log.cpp
     core/window.cpp
     renderer/buffer.cpp
     renderer/camera.cpp
     renderer/descriptor.cpp
+    renderer/fly_camera.cpp
     renderer/device.cpp
     renderer/image.cpp
     renderer/material.cpp
     renderer/mesh.cpp
     renderer/model.cpp
+    renderer/offscreen_pass.cpp
     renderer/pipeline.cpp
     renderer/primitives.cpp
     renderer/resource_manager.cpp
@@ -68,3 +74,12 @@ target_include_directories(fjell SYSTEM PRIVATE ${FASTGLTF_INCLUDE_DIRS})
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
 compile_shaders(fjell ${SHADER_DIR} ${SHADER_OUTPUT_DIR})
+
+# Symlink assets into build dir so the executable finds them during development
+file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBOLIC)
+
+# --- Install rules ---
+install(TARGETS fjell RUNTIME DESTINATION .)
+install(DIRECTORY "${SHADER_OUTPUT_DIR}/" DESTINATION shaders
+        FILES_MATCHING PATTERN "*.spv")
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/" DESTINATION assets)

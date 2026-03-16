@@ -2,9 +2,12 @@
 
 #include "core/clock.hpp"
 #include "core/input.hpp"
+#include "core/play_session.hpp"
+#include "core/project.hpp"
 #include "core/window.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/resource_manager.hpp"
+#include "renderer/uniform_types.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/scene.hpp"
 #include "ui/imgui_layer.hpp"
@@ -17,7 +20,9 @@
 
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -26,7 +31,8 @@ namespace fjell {
 
 class Engine {
 public:
-    Engine(std::string_view title, uint32_t width, uint32_t height);
+    Engine(std::string_view title, uint32_t width, uint32_t height,
+           const std::filesystem::path& project_path = {});
     ~Engine();
 
     Engine(const Engine&) = delete;
@@ -44,11 +50,25 @@ private:
 
     void draw_ui();
     void setup_dockspace();
+    void draw_menu_bar();
     void draw_viewport();
     void draw_hierarchy();
     void draw_properties();
     void draw_assets();
     void draw_stats();
+
+    void start_play();
+    void stop_play();
+    [[nodiscard]] bool is_playing() const { return play_session_ != nullptr; }
+    void draw_play_overlay();
+
+    void open_project(const std::filesystem::path& path);
+    void close_project();
+    void scan_scenes();
+    void load_scene(const std::string& path);
+    [[nodiscard]] Project* active_project() {
+        return project_ ? &*project_ : nullptr;
+    }
 
     static constexpr const char* SCENE_FILE = "scene.fjell";
 
@@ -62,11 +82,23 @@ private:
     Scene scene_;
 
 #ifndef NDEBUG
-    ShaderWatcher shader_watcher_{"../shaders", "shaders"};
+    ShaderWatcher shader_watcher_;
 #endif
+
+    // Project
+    std::optional<Project> project_;
+    bool game_mode_{false};
+    std::string current_scene_path_;
+    std::vector<std::string> available_scenes_;
 
     // Available model files
     std::vector<std::string> available_models_;
+
+    // Lighting
+    DirectionalLight light_;
+
+    // Play mode
+    std::unique_ptr<PlaySession> play_session_;
 
     // UI state
     float fps_{0.0f};

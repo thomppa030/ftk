@@ -1,4 +1,6 @@
 #include "core/engine.hpp"
+#include "core/base_path.hpp"
+#include "core/game_builder.hpp"
 #include "core/log.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
@@ -10,15 +12,40 @@
 #include <ImGuizmo.h>
 #include <GLFW/glfw3.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <nlohmann/json.hpp>
 
 #include <filesystem>
+#include <fstream>
 
 namespace fjell {
 
-Engine::Engine(std::string_view title, uint32_t width, uint32_t height)
+Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
+               const std::filesystem::path& project_path)
     : window_{title, width, height}
     , camera_{{0.0f, 1.0f, 0.0f}, 8.0f}
-    , vulkan_context_{window_} {
+    , vulkan_context_{window_}
+#ifndef NDEBUG
+    , shader_watcher_{base_path::resolve("../shaders"), base_path::resolve("shaders")}
+#endif
+{
+    // Check for game mode (game.fjell next to binary)
+    auto game_config_path = base_path::resolve("game.fjell");
+    if (std::filesystem::exists(game_config_path)) {
+        game_mode_ = true;
+        std::ifstream gf(game_config_path);
+        if (gf.is_open()) {
+            auto gj = nlohmann::json::parse(gf, nullptr, false);
+            if (!gj.is_discarded() && gj.contains("window")) {
+                window_.set_title(gj["window"].value("title", "Fjell Game"));
+            }
+        }
+    }
+
+    // Open project if path given
+    if (!project_path.empty()) {
+        open_project(project_path);
+    }
+
     window_.set_input(&input_);
     input_.attach(window_.handle());
 
@@ -37,12 +64,24 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height)
         vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
         vulkan_context_.material_pool(), vulkan_context_.material_layout());
 
-    resource_manager_->load_texture("assets/textures/test.png");
+    resource_manager_->load_texture(
+        base_path::resolve_asset("assets/textures/test.png", active_project()));
 
     scan_models();
 
-    if (std::filesystem::exists(SCENE_FILE)) {
-        scene_ = Scene::load(SCENE_FILE, *resource_manager_);
+    // Determine which scene to load
+    if (project_) {
+        current_scene_path_ = project_->resolve(project_->config().default_scene);
+        scan_scenes();
+    } else if (game_mode_) {
+        // In game mode, scenes are alongside the binary
+        current_scene_path_ = base_path::resolve("scenes/main.fjell");
+    } else {
+        current_scene_path_ = base_path::resolve(SCENE_FILE);
+    }
+
+    if (std::filesystem::exists(current_scene_path_)) {
+        scene_ = Scene::load(current_scene_path_, *resource_manager_, active_project());
     } else {
         create_default_scene();
     }
@@ -55,20 +94,27 @@ Engine::~Engine() {
     vulkan_context_.set_overlay_callback(nullptr);
     scene_ = {};
     resource_manager_.reset();
+    vulkan_context_.release_viewport_texture();
     imgui_layer_.reset();
     FJELL_CORE_INFO("Engine shut down");
 }
 
 void Engine::scan_models() {
     available_models_.clear();
-    const auto models_dir = std::filesystem::path("assets/models");
+    const auto models_dir = std::filesystem::path(
+        base_path::resolve_asset("assets/models", active_project()));
     if (!std::filesystem::exists(models_dir)) return;
+
+    // Compute the root to make paths relative to (project root or engine root)
+    auto root = project_ ? project_->root() : base_path::dir();
 
     for (const auto& entry : std::filesystem::directory_iterator(models_dir)) {
         if (!entry.is_regular_file()) continue;
         auto ext = entry.path().extension().string();
         if (ext == ".gltf" || ext == ".glb") {
-            available_models_.push_back(entry.path().string());
+            // Store relative path (e.g. "assets/models/cube.glb") for scene portability
+            auto relative = std::filesystem::relative(entry.path(), root);
+            available_models_.push_back(relative.string());
         }
     }
     std::sort(available_models_.begin(), available_models_.end());
@@ -77,7 +123,8 @@ void Engine::scan_models() {
 
 void Engine::create_default_scene() {
     vulkan_context_.wait_idle();
-    auto* tex = resource_manager_->load_texture("assets/textures/test.png");
+    auto* tex = resource_manager_->load_texture(
+        base_path::resolve_asset("assets/textures/test.png", active_project()));
     auto* mat = resource_manager_->create_material("default", tex);
 
     auto* plane = resource_manager_->create_primitive("plane");
@@ -98,8 +145,10 @@ void Engine::create_default_scene() {
 void Engine::add_model_to_scene(const std::string& path) {
     vulkan_context_.wait_idle();
 
-    auto* model = resource_manager_->load_model(path);
-    auto* tex = resource_manager_->load_texture("assets/textures/test.png");
+    auto* model = resource_manager_->load_model(
+        base_path::resolve_asset(path, active_project()));
+    auto* tex = resource_manager_->load_texture(
+        base_path::resolve_asset("assets/textures/test.png", active_project()));
     auto* mat = resource_manager_->create_material("default", tex);
     std::string mat_name = "default";
 
@@ -122,7 +171,8 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     auto* model = resource_manager_->create_primitive(type);
     if (!model) return;
 
-    auto* tex = resource_manager_->load_texture("assets/textures/test.png");
+    auto* tex = resource_manager_->load_texture(
+        base_path::resolve_asset("assets/textures/test.png", active_project()));
     auto* mat = resource_manager_->create_material("default", tex);
 
     std::string name = type;
@@ -187,17 +237,37 @@ void Engine::setup_dockspace() {
 
 void Engine::draw_viewport() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoBackground;
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});
 
-    if (ImGui::Begin("Viewport", nullptr, flags)) {
-        // Store viewport bounds for gizmo
+    if (ImGui::Begin("Viewport")) {
+        // Play button toolbar
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f, 4.0f});
+        if (ImGui::Button(is_playing() ? "Stop" : "Play")) {
+            if (is_playing()) stop_play();
+            else start_play();
+        }
+        ImGui::PopStyleVar();
+
         auto vp_min = ImGui::GetWindowContentRegionMin();
         auto vp_max = ImGui::GetWindowContentRegionMax();
         auto vp_pos = ImGui::GetWindowPos();
         viewport_pos_ = {vp_pos.x + vp_min.x, vp_pos.y + vp_min.y};
         viewport_size_ = {vp_max.x - vp_min.x, vp_max.y - vp_min.y};
 
-        // Gizmo for selected object
+        // Resize offscreen pass to match viewport
+        auto vp_w = static_cast<uint32_t>(viewport_size_.x);
+        auto vp_h = static_cast<uint32_t>(viewport_size_.y);
+        if (vp_w > 0 && vp_h > 0) {
+            vulkan_context_.resize_viewport(vp_w, vp_h);
+        }
+
+        // Display rendered scene as texture
+        auto tex_id = vulkan_context_.viewport_texture();
+        if (tex_id) {
+            ImGui::Image(tex_id, {viewport_size_.x, viewport_size_.y});
+        }
+
+        // Gizmo for selected object (draw over the image)
         if (selected_ >= 0 && selected_ < scene_.object_count()) {
             auto& obj = scene_.objects()[selected_];
 
@@ -235,6 +305,7 @@ void Engine::draw_viewport() {
         }
     }
     ImGui::End();
+    ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 }
 
@@ -283,22 +354,33 @@ void Engine::draw_properties() {
             }
 
             ImGui::Separator();
-            ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Transform");
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Transform");
             ImGui::DragFloat3("Position", &obj.transform.position.x, 0.1f);
             ImGui::DragFloat3("Rotation", &obj.transform.rotation.x, 1.0f);
             ImGui::DragFloat3("Scale", &obj.transform.scale.x, 0.05f, 0.01f, 100.0f);
 
             ImGui::Spacing();
             ImGui::Separator();
-            ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Gizmo");
-            ImGui::RadioButton("Move (W)", &gizmo_op_, 0); ImGui::SameLine();
-            ImGui::RadioButton("Rot (E)", &gizmo_op_, 1); ImGui::SameLine();
-            ImGui::RadioButton("Scl (R)", &gizmo_op_, 2);
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Gizmo");
+            ImGui::RadioButton("Move (1)", &gizmo_op_, 0); ImGui::SameLine();
+            ImGui::RadioButton("Rot (2)", &gizmo_op_, 1); ImGui::SameLine();
+            ImGui::RadioButton("Scl (3)", &gizmo_op_, 2);
 
             ImGui::Spacing();
             ImGui::TextDisabled("Source: %s", obj.source.c_str());
         } else {
             ImGui::TextDisabled("No object selected");
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
+            ImGui::DragFloat3("Direction", &light_.direction.x, 0.01f, -1.0f, 1.0f);
+            ImGui::ColorEdit3("Color", &light_.color.x);
+            ImGui::DragFloat("Intensity", &light_.intensity, 0.05f, 0.0f, 10.0f);
+            ImGui::Spacing();
+            ImGui::ColorEdit3("Ambient", &light_.ambient_color.x);
+            ImGui::DragFloat("Ambient Intensity", &light_.ambient_intensity, 0.05f, 0.0f, 2.0f);
         }
     }
     ImGui::End();
@@ -306,7 +388,7 @@ void Engine::draw_properties() {
 
 void Engine::draw_assets() {
     if (ImGui::Begin("Assets")) {
-        ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Primitives");
+        ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Primitives");
         ImGui::Separator();
         if (ImGui::Button("Cube", {-1, 0})) add_primitive_to_scene("cube");
         if (ImGui::Button("Plane", {-1, 0})) add_primitive_to_scene("plane");
@@ -315,7 +397,7 @@ void Engine::draw_assets() {
         ImGui::Spacing();
         ImGui::Spacing();
 
-        ImGui::TextColored({0.50f, 0.60f, 0.82f, 1.0f}, "Models");
+        ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Models");
         ImGui::Separator();
 
         if (available_models_.empty()) {
@@ -337,13 +419,26 @@ void Engine::draw_assets() {
         ImGui::Spacing();
         ImGui::Separator();
 
-        if (ImGui::Button("Save Scene", {-1, 0})) {
-            scene_.save(SCENE_FILE);
-        }
-        if (ImGui::Button("Load Scene", {-1, 0})) {
-            vulkan_context_.wait_idle();
-            scene_ = Scene::load(SCENE_FILE, *resource_manager_);
-            selected_ = -1;
+        // Scenes section (when project is open)
+        if (project_ && !available_scenes_.empty()) {
+            ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Scenes");
+            ImGui::Separator();
+
+            for (const auto& scene_path : available_scenes_) {
+                auto scene_name = std::filesystem::path(scene_path).stem().string();
+                bool is_current = (scene_path == current_scene_path_);
+                if (is_current) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, {0.2f, 0.4f, 0.8f, 1.0f});
+                }
+                if (ImGui::Button(scene_name.c_str(), {-1, 0})) {
+                    load_scene(scene_path);
+                }
+                if (is_current) {
+                    ImGui::PopStyleColor();
+                }
+            }
         }
     }
     ImGui::End();
@@ -384,15 +479,167 @@ void Engine::draw_stats() {
     ImGui::End();
 }
 
+void Engine::open_project(const std::filesystem::path& path) {
+    auto proj = Project::open(path);
+    if (!proj) return;
+
+    project_ = std::move(proj);
+    window_.set_title("Fjell - " + project_->config().name);
+    scan_models();
+    scan_scenes();
+}
+
+void Engine::close_project() {
+    project_.reset();
+    available_scenes_.clear();
+    current_scene_path_ = base_path::resolve(SCENE_FILE);
+    window_.set_title("Fjell Engine");
+    scan_models();
+}
+
+void Engine::scan_scenes() {
+    available_scenes_.clear();
+    if (!project_) return;
+
+    auto scenes_dir = std::filesystem::path(project_->resolve("scenes"));
+    if (!std::filesystem::exists(scenes_dir)) return;
+
+    for (const auto& entry : std::filesystem::directory_iterator(scenes_dir)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().extension() == ".fjell") {
+            available_scenes_.push_back(entry.path().string());
+        }
+    }
+    std::sort(available_scenes_.begin(), available_scenes_.end());
+}
+
+void Engine::load_scene(const std::string& path) {
+    vulkan_context_.wait_idle();
+    current_scene_path_ = path;
+    scene_ = Scene::load(path, *resource_manager_, active_project());
+    selected_ = -1;
+}
+
+void Engine::draw_menu_bar() {
+    static char project_path_buf[512] = "";
+    static char new_project_path_buf[512] = "";
+    static char new_project_name_buf[128] = "";
+    static bool show_open_popup = false;
+    static bool show_new_popup = false;
+
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("Save Scene")) {
+                scene_.save(current_scene_path_);
+            }
+            if (ImGui::MenuItem("Load Scene") && !current_scene_path_.empty()) {
+                load_scene(current_scene_path_);
+            }
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Project")) {
+            if (ImGui::MenuItem("New Project...")) {
+                show_new_popup = true;
+                new_project_path_buf[0] = '\0';
+                new_project_name_buf[0] = '\0';
+            }
+            if (ImGui::MenuItem("Open Project...")) {
+                show_open_popup = true;
+                project_path_buf[0] = '\0';
+            }
+            if (project_ && ImGui::MenuItem("Close Project")) {
+                close_project();
+            }
+            ImGui::Separator();
+            if (project_ && ImGui::MenuItem("Build Game")) {
+                auto output = project_->root() / "build";
+                GameBuilder::build(*project_, output);
+            }
+            ImGui::Separator();
+            if (project_) {
+                ImGui::TextDisabled("Project: %s", project_->config().name.c_str());
+                ImGui::TextDisabled("Root: %s", project_->root().c_str());
+            } else {
+                ImGui::TextDisabled("No project open");
+            }
+            ImGui::EndMenu();
+        }
+
+        ImGui::EndMainMenuBar();
+    }
+
+    // Open Project popup
+    if (show_open_popup) {
+        ImGui::OpenPopup("Open Project");
+        show_open_popup = false;
+    }
+    if (ImGui::BeginPopupModal("Open Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Project directory:");
+        ImGui::InputText("##path", project_path_buf, sizeof(project_path_buf));
+
+        if (ImGui::Button("Open", {120, 0})) {
+            open_project(project_path_buf);
+            // Reload scene from new project
+            if (project_) {
+                current_scene_path_ = project_->resolve(project_->config().default_scene);
+                if (std::filesystem::exists(current_scene_path_)) {
+                    load_scene(current_scene_path_);
+                } else {
+                    scene_.clear();
+                    create_default_scene();
+                }
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", {120, 0})) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // New Project popup
+    if (show_new_popup) {
+        ImGui::OpenPopup("New Project");
+        show_new_popup = false;
+    }
+    if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Project name:");
+        ImGui::InputText("##name", new_project_name_buf, sizeof(new_project_name_buf));
+        ImGui::Text("Directory:");
+        ImGui::InputText("##dir", new_project_path_buf, sizeof(new_project_path_buf));
+
+        if (ImGui::Button("Create", {120, 0})) {
+            if (new_project_name_buf[0] != '\0' && new_project_path_buf[0] != '\0') {
+                project_ = Project::create(new_project_path_buf, new_project_name_buf);
+                window_.set_title("Fjell - " + project_->config().name);
+                scan_models();
+                scan_scenes();
+                current_scene_path_ = project_->resolve(project_->config().default_scene);
+                scene_.clear();
+                create_default_scene();
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", {120, 0})) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+}
+
 void Engine::draw_ui() {
     // Gizmo keyboard shortcuts (only when ImGui doesn't want keyboard)
     if (!ImGui::GetIO().WantCaptureKeyboard) {
-        if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmo_op_ = 0;
-        if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmo_op_ = 1;
-        if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmo_op_ = 2;
+        if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmo_op_ = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmo_op_ = 1;
+        if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmo_op_ = 2;
         if (ImGui::IsKeyPressed(ImGuiKey_Escape)) selected_ = -1;
     }
 
+    draw_menu_bar();
     setup_dockspace();
     draw_viewport();
     draw_hierarchy();
@@ -401,8 +648,95 @@ void Engine::draw_ui() {
     draw_stats();
 }
 
+void Engine::start_play() {
+    // Derive fly camera orientation from orbit camera
+    // Orbit yaw is the same; negate pitch (orbit elevation → fly look angle)
+    play_session_ = std::make_unique<PlaySession>(
+        scene_, camera_.position(), camera_.yaw(), -camera_.pitch());
+    input_.set_cursor_captured(window_.handle(), true);
+    selected_ = -1;
+    FJELL_CORE_INFO("Play mode started");
+}
+
+void Engine::stop_play() {
+    if (game_mode_) {
+        // In game mode, ESC quits the application
+        glfwSetWindowShouldClose(window_.handle(), GLFW_TRUE);
+        return;
+    }
+    play_session_->restore(scene_);
+    input_.set_cursor_captured(window_.handle(), false);
+    play_session_.reset();
+    FJELL_CORE_INFO("Play mode stopped");
+}
+
+void Engine::draw_play_overlay() {
+    // Resize viewport to fill window
+    auto w = window_.width();
+    auto h = window_.height();
+    if (w > 0 && h > 0) {
+        vulkan_context_.resize_viewport(w, h);
+    }
+
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+
+    ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNavFocus |
+        ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoScrollbar;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
+    ImGui::Begin("##PlayView", nullptr, flags);
+    ImGui::PopStyleVar();
+
+    // Scene image fills the window
+    auto tex_id = vulkan_context_.viewport_texture();
+    if (tex_id) {
+        ImGui::Image(tex_id, viewport->WorkSize);
+    }
+
+    // Overlay bar at top center
+    float bar_width = 220.0f;
+    float bar_height = 32.0f;
+    float bar_x = viewport->WorkPos.x + (viewport->WorkSize.x - bar_width) * 0.5f;
+    float bar_y = viewport->WorkPos.y + 8.0f;
+
+    ImGui::SetNextWindowPos({bar_x, bar_y});
+    ImGui::SetNextWindowSize({bar_width, bar_height});
+    ImGui::SetNextWindowBgAlpha(0.6f);
+    ImGui::Begin("##PlayBar", nullptr,
+                 ImGuiWindowFlags_NoTitleBar |
+                 ImGuiWindowFlags_NoResize |
+                 ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoScrollbar |
+                 ImGuiWindowFlags_NoDocking |
+                 ImGuiWindowFlags_NoFocusOnAppearing);
+
+    ImGui::Text("Press ESC to stop");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Stop")) {
+        stop_play();
+    }
+    ImGui::End();
+
+    ImGui::End(); // ##PlayView
+}
+
 void Engine::run() {
     FJELL_CORE_INFO("Entering main loop");
+
+    // Game mode: start playing immediately
+    if (game_mode_) {
+        start_play();
+    }
+
     while (!window_.should_close()) {
         input_.update();
         window_.poll_events();
@@ -414,20 +748,44 @@ void Engine::run() {
         }
 #endif
 
-        if (!ImGuizmo::IsUsing()) {
-            camera_.update(input_, clock_.delta_time());
+        float dt = clock_.delta_time();
+
+        if (is_playing()) {
+            play_session_->update(input_, dt);
+            if (play_session_->wants_stop(input_)) {
+                stop_play();
+            }
+        } else {
+            if (!ImGuizmo::IsUsing()) {
+                camera_.update(input_, dt);
+            }
         }
 
         imgui_layer_->begin_frame();
-        draw_ui();
+        if (is_playing()) {
+            draw_play_overlay();
+        } else {
+            draw_ui();
+        }
         imgui_layer_->end_frame();
+
+        glm::mat4 view;
+        glm::mat4 projection;
+        glm::vec3 camera_pos;
 
         float aspect = static_cast<float>(window_.width()) /
                        static_cast<float>(std::max(window_.height(), 1u));
-        auto view = camera_.view_matrix();
-        auto projection = camera_.projection_matrix(aspect);
+        if (is_playing()) {
+            view = play_session_->camera().view_matrix();
+            projection = play_session_->camera().projection_matrix(aspect);
+            camera_pos = play_session_->camera().position();
+        } else {
+            view = camera_.view_matrix();
+            projection = camera_.projection_matrix(aspect);
+            camera_pos = camera_.position();
+        }
 
-        vulkan_context_.draw_frame(view, projection, &scene_);
+        vulkan_context_.draw_frame(view, projection, camera_pos, light_, &scene_);
     }
     FJELL_CORE_INFO("Exiting main loop");
 }
