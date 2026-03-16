@@ -2,6 +2,8 @@
 #include "core/base_path.hpp"
 #include "core/game_builder.hpp"
 #include "core/log.hpp"
+#include "physics/physics_world.hpp"
+#include "ui/console.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
 #include "renderer/render_stats.hpp"
@@ -53,7 +55,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         window_.handle(), vulkan_context_.instance(),
         vulkan_context_.physical_device(), vulkan_context_.device(),
         vulkan_context_.graphics_family(), vulkan_context_.graphics_queue(),
-        vulkan_context_.render_pass(), vulkan_context_.image_count(),
+        vulkan_context_.swapchain_format(), vulkan_context_.image_count(),
         base_path::resolve("assets/fonts"));
 
     vulkan_context_.set_overlay_callback([this](VkCommandBuffer cmd) {
@@ -238,6 +240,8 @@ void Engine::setup_dockspace() {
         ImGui::DockBuilderDockWindow("Hierarchy", right);
         ImGui::DockBuilderDockWindow("Properties", right_bottom);
         ImGui::DockBuilderDockWindow("Stats", bottom);
+        ImGui::DockBuilderDockWindow("Console", bottom);
+        ImGui::DockBuilderDockWindow("Code Editor", center);
 
         ImGui::DockBuilderFinish(dockspace_id);
     }
@@ -255,6 +259,11 @@ void Engine::draw_viewport() {
         if (ImGui::Button(is_playing() ? "Stop" : "Play")) {
             if (is_playing()) stop_play();
             else start_play();
+        }
+        ImGui::SameLine();
+        bool show_col = vulkan_context_.show_colliders();
+        if (ImGui::Checkbox("Colliders", &show_col)) {
+            vulkan_context_.set_show_colliders(show_col);
         }
         ImGui::PopStyleVar();
 
@@ -465,6 +474,78 @@ void Engine::draw_properties() {
             ImGui::Spacing();
             ImGui::TextDisabled("Source: %s", obj->source.c_str());
 
+            // Rigidbody
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Rigidbody");
+            if (obj->rigidbody) {
+                auto& rb = *obj->rigidbody;
+                static const char* body_type_labels[] = {"Static", "Kinematic", "Dynamic"};
+                int bt = static_cast<int>(rb.body_type);
+                if (ImGui::Combo("Body Type", &bt, body_type_labels, 3)) {
+                    rb.body_type = static_cast<BodyType>(bt);
+                }
+                ImGui::DragFloat("Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
+                ImGui::DragFloat("Friction", &rb.friction, 0.01f, 0.0f, 2.0f);
+                ImGui::DragFloat("Restitution", &rb.restitution, 0.01f, 0.0f, 2.0f);
+                ImGui::DragFloat("Linear Damping", &rb.linear_damping, 0.01f, 0.0f, 10.0f);
+                ImGui::DragFloat("Angular Damping", &rb.angular_damping, 0.01f, 0.0f, 10.0f);
+                ImGui::Checkbox("Gravity", &rb.gravity_enabled);
+                if (ImGui::SmallButton("Remove Rigidbody")) {
+                    obj->rigidbody.reset();
+                }
+            } else {
+                if (ImGui::Button("Add Rigidbody", {-1, 0})) {
+                    obj->rigidbody = RigidbodyDesc{};
+                }
+            }
+
+            // Collider
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Collider");
+            if (obj->collider) {
+                auto& col = *obj->collider;
+                static const char* shape_labels[] = {"Box", "Sphere", "Capsule", "Mesh"};
+                int sh = static_cast<int>(col.shape);
+                if (ImGui::Combo("Shape", &sh, shape_labels, 4)) {
+                    col.shape = static_cast<ColliderShape>(sh);
+                }
+                switch (col.shape) {
+                    case ColliderShape::Box:
+                        ImGui::DragFloat3("Half Extents", &col.half_extents.x, 0.05f, 0.01f, 100.0f);
+                        break;
+                    case ColliderShape::Sphere:
+                        ImGui::DragFloat("Radius", &col.radius, 0.05f, 0.01f, 100.0f);
+                        break;
+                    case ColliderShape::Capsule:
+                        ImGui::DragFloat("Radius##cap", &col.radius, 0.05f, 0.01f, 100.0f);
+                        ImGui::DragFloat("Height", &col.height, 0.05f, 0.01f, 100.0f);
+                        break;
+                    case ColliderShape::Mesh:
+                        ImGui::TextDisabled("Uses model collision mesh");
+                        break;
+                }
+                ImGui::DragFloat3("Offset", &col.offset.x, 0.05f);
+                if (ImGui::SmallButton("Remove Collider")) {
+                    obj->collider.reset();
+                }
+            } else {
+                if (ImGui::Button("Add Collider", {-1, 0})) {
+                    ColliderDesc col{};
+                    // Auto-detect shape from primitive source
+                    if (obj->source == "primitive:cube") {
+                        col.shape = ColliderShape::Box;
+                    } else if (obj->source == "primitive:sphere") {
+                        col.shape = ColliderShape::Sphere;
+                        col.radius = 0.5f;
+                    } else {
+                        col.shape = ColliderShape::Box;
+                    }
+                    obj->collider = col;
+                }
+            }
+
             // Components
             ImGui::Spacing();
             ImGui::Separator();
@@ -536,6 +617,29 @@ void Engine::draw_assets() {
         ImGui::Spacing();
         ImGui::Separator();
 
+        // Scripts section (when project is open)
+        if (project_) {
+            ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Scripts");
+            ImGui::Separator();
+
+            auto scripts_dir = std::filesystem::path(project_->resolve("scripts"));
+            if (std::filesystem::exists(scripts_dir)) {
+                for (const auto& entry : std::filesystem::directory_iterator(scripts_dir)) {
+                    if (!entry.is_regular_file()) continue;
+                    auto ext = entry.path().extension().string();
+                    if (ext != ".cpp" && ext != ".h" && ext != ".hpp") continue;
+                    auto fname = entry.path().filename().string();
+                    if (ImGui::Selectable(fname.c_str())) {
+                        nvim_panel_.open(entry.path().string());
+                    }
+                }
+            } else {
+                ImGui::TextDisabled("No scripts/ directory");
+            }
+        }
+
         // Scenes section (when project is open)
         if (project_ && !available_scenes_.empty()) {
             ImGui::Spacing();
@@ -594,6 +698,18 @@ void Engine::draw_stats() {
                          {ImGui::GetContentRegionAvail().x, 35});
     }
     ImGui::End();
+}
+
+void Engine::draw_console() {
+    auto& sink = log::console_sink();
+    if (sink) {
+        sink->draw("Console");
+    }
+}
+
+void Engine::draw_code_editor() {
+    nvim_panel_.poll();
+    nvim_panel_.draw();
 }
 
 void Engine::open_project(const std::filesystem::path& path) {
@@ -775,12 +891,14 @@ void Engine::draw_ui() {
     draw_properties();
     draw_assets();
     draw_stats();
+    draw_console();
+    draw_code_editor();
 }
 
 void Engine::start_play() {
     script_manager_.serialize_all(scene_);
     play_session_ = std::make_unique<PlaySession>(
-        scene_, camera_.position(), camera_.yaw(), -camera_.pitch());
+        scene_, camera_.position(), camera_.yaw() + 180.0f, -camera_.pitch());
     input_.set_cursor_captured(window_.handle(), true);
     selected_id_ = 0;
     FJELL_CORE_INFO("Play mode started");
@@ -881,7 +999,8 @@ void Engine::run() {
 
         if (is_playing()) {
             play_session_->update(input_, dt);
-            script_manager_.update(scene_, input_, clock_);
+            script_manager_.update(scene_, input_, clock_, play_session_->physics_world());
+            play_session_->physics_step(dt, scene_);
             if (play_session_->wants_stop(input_)) {
                 stop_play();
             }

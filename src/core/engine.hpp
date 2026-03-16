@@ -12,6 +12,7 @@
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"
 #include "ui/imgui_layer.hpp"
+#include "ui/nvim_panel.hpp"
 
 #ifndef NDEBUG
 #include "renderer/shader_watcher.hpp"
@@ -58,6 +59,8 @@ private:
     void draw_properties();
     void draw_assets();
     void draw_stats();
+    void draw_console();
+    void draw_code_editor();
 
     void start_play();
     void stop_play();
@@ -84,6 +87,7 @@ private:
     std::unique_ptr<ResourceManager> resource_manager_;
     Scene scene_;
     ScriptManager script_manager_;
+    NvimPanel nvim_panel_;
 
 #ifndef NDEBUG
     ShaderWatcher shader_watcher_;
