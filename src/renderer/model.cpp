@@ -129,7 +129,25 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
                     vertices[idx].tex_coord = {0.0f, 0.0f};
                 });
 
-            // Normals (skip for now, but iterate to not lose data)
+            // Normals
+            auto* norm_it = primitive.findAttribute("NORMAL");
+            if (norm_it != primitive.attributes.end()) {
+                auto& norm_accessor = asset.accessors[norm_it->accessorIndex];
+                fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, norm_accessor,
+                    [&](glm::vec3 n, size_t idx) {
+                        vertices[idx].normal = n;
+                    });
+            }
+
+            // Tangents
+            auto* tan_it = primitive.findAttribute("TANGENT");
+            if (tan_it != primitive.attributes.end()) {
+                auto& tan_accessor = asset.accessors[tan_it->accessorIndex];
+                fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, tan_accessor,
+                    [&](glm::vec4 t, size_t idx) {
+                        vertices[idx].tangent = t;
+                    });
+            }
 
             // Tex coords
             auto* uv_it = primitive.findAttribute("TEXCOORD_0");

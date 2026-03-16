@@ -1,14 +1,17 @@
 #include "renderer/material.hpp"
 #include "renderer/texture.hpp"
 
+#include <array>
 #include <stdexcept>
 
 namespace fjell {
 
 Material::Material(VkDevice device, VkDescriptorPool pool,
-                   VkDescriptorSetLayout layout, const Texture& texture,
-                   glm::vec4 tint)
-    : tint_{tint} {
+                   VkDescriptorSetLayout layout,
+                   const Texture& base_color, const Texture& normal_map,
+                   const Texture& metallic_roughness, const Texture& emissive,
+                   PbrParams params)
+    : params_{params} {
     VkDescriptorSetAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = pool;
@@ -19,21 +22,28 @@ Material::Material(VkDevice device, VkDescriptorPool pool,
         throw std::runtime_error("Failed to allocate material descriptor set");
     }
 
-    VkDescriptorImageInfo image_info{};
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image_info.imageView = texture.image_view();
-    image_info.sampler = texture.sampler();
+    std::array<VkDescriptorImageInfo, 4> image_infos{};
+    const Texture* textures[] = {&base_color, &normal_map, &metallic_roughness, &emissive};
 
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = descriptor_set_;
-    write.dstBinding = 0;
-    write.dstArrayElement = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.descriptorCount = 1;
-    write.pImageInfo = &image_info;
+    for (int i = 0; i < 4; ++i) {
+        image_infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_infos[i].imageView = textures[i]->image_view();
+        image_infos[i].sampler = textures[i]->sampler();
+    }
 
-    vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    std::array<VkWriteDescriptorSet, 4> writes{};
+    for (int i = 0; i < 4; ++i) {
+        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[i].dstSet = descriptor_set_;
+        writes[i].dstBinding = static_cast<uint32_t>(i);
+        writes[i].dstArrayElement = 0;
+        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[i].descriptorCount = 1;
+        writes[i].pImageInfo = &image_infos[i];
+    }
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()),
+                           writes.data(), 0, nullptr);
 }
 
 void Material::bind(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout) const {

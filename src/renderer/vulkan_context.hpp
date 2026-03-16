@@ -3,6 +3,7 @@
 #include "renderer/buffer.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/pipeline.hpp"
 #include "renderer/swapchain.hpp"
 
@@ -32,9 +33,13 @@ public:
     VulkanContext& operator=(VulkanContext&&) = delete;
 
     void draw_frame(const glm::mat4& view, const glm::mat4& projection,
+                    const glm::vec3& camera_position,
+                    const struct DirectionalLight& light,
                     const Scene* scene);
     void wait_idle();
     void reload_pipeline();
+    void resize_viewport(uint32_t width, uint32_t height);
+    void release_viewport_texture();
 
     [[nodiscard]] VkDevice device() const { return device_.handle(); }
     [[nodiscard]] VkPhysicalDevice physical_device() const { return device_.physical_device(); }
@@ -50,6 +55,7 @@ public:
     [[nodiscard]] uint32_t graphics_family() const;
     [[nodiscard]] const std::string& gpu_name() const { return device_.gpu_name(); }
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }
+    [[nodiscard]] VkDescriptorSet viewport_texture() const { return offscreen_->imgui_texture(); }
 
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
@@ -63,7 +69,9 @@ private:
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                                const Scene* scene);
     void update_uniform_buffer(uint32_t frame_index,
-                               const glm::mat4& view, const glm::mat4& projection);
+                               const glm::mat4& view, const glm::mat4& projection,
+                               const glm::vec3& camera_position,
+                               const struct DirectionalLight& light);
 
     Window& window_;
     Device device_;
@@ -80,7 +88,10 @@ private:
     std::unique_ptr<DescriptorSetLayout> material_set_layout_;
     VkDescriptorPool material_pool_{VK_NULL_HANDLE};
 
-    // Pipeline (created after descriptors)
+    // Offscreen scene rendering
+    std::unique_ptr<OffscreenPass> offscreen_;
+
+    // Pipeline (uses offscreen render pass)
     std::unique_ptr<Pipeline> pipeline_;
 
     // Command buffers and sync
@@ -93,7 +104,6 @@ private:
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
     uint32_t current_frame_{0};
 
-    // Render stats
     std::unique_ptr<RenderStats> render_stats_;
 };
 

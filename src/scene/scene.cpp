@@ -4,6 +4,8 @@
 #include "renderer/render_stats.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/texture.hpp"
+#include "renderer/uniform_types.hpp"
+#include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
@@ -33,9 +35,18 @@ void Scene::clear() {
 void Scene::render(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout,
                    RenderStats* stats) const {
     for (const auto& obj : objects_) {
-        glm::mat4 model_matrix = obj.transform.matrix();
-        vkCmdPushConstants(cmd, pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT,
-                           0, sizeof(glm::mat4), &model_matrix);
+        PbrPushConstants push{};
+        push.model = obj.transform.matrix();
+        if (obj.material) {
+            const auto& params = obj.material->params();
+            push.base_color_factor = params.base_color_factor;
+            push.metallic_factor = params.metallic_factor;
+            push.roughness_factor = params.roughness_factor;
+            push.has_normal_map = params.has_normal_map ? 1.0f : 0.0f;
+        }
+        vkCmdPushConstants(cmd, pipeline_layout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(PbrPushConstants), &push);
 
         if (obj.material) {
             obj.material->bind(cmd, pipeline_layout);
@@ -74,7 +85,8 @@ void Scene::save(const std::string& path) const {
     FJELL_CORE_INFO("Scene saved: {}", path);
 }
 
-Scene Scene::load(const std::string& path, ResourceManager& resources) {
+Scene Scene::load(const std::string& path, ResourceManager& resources,
+                  const Project* project) {
     std::ifstream file(path);
     if (!file.is_open()) {
         FJELL_CORE_WARN("Scene file not found: {}", path);
@@ -90,7 +102,8 @@ Scene Scene::load(const std::string& path, ResourceManager& resources) {
     }
 
     Scene scene;
-    auto* default_tex = resources.load_texture("assets/textures/test.png");
+    auto* default_tex = resources.load_texture(
+        base_path::resolve_asset("assets/textures/test.png", project));
 
     for (const auto& jobj : j["objects"]) {
         std::string name = jobj.value("name", "Object");
@@ -102,7 +115,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources) {
             std::string type = source.substr(10);
             model = resources.create_primitive(type);
         } else if (!source.empty()) {
-            model = resources.load_model(source);
+            model = resources.load_model(base_path::resolve_asset(source, project));
         }
 
         if (!model) continue;

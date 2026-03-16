@@ -8,38 +8,38 @@ namespace fjell::primitives {
 PrimitiveMeshData cube() {
     const glm::vec3 white{1.0f, 1.0f, 1.0f};
 
-    // 24 vertices (4 per face for proper UVs)
+    // 24 vertices (4 per face for proper UVs and flat normals)
     std::vector<Vertex> vertices = {
-        // Front face
-        {{-0.5f, -0.5f,  0.5f}, white, {0.0f, 1.0f}},
-        {{ 0.5f, -0.5f,  0.5f}, white, {1.0f, 1.0f}},
-        {{ 0.5f,  0.5f,  0.5f}, white, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f,  0.5f}, white, {0.0f, 0.0f}},
-        // Back face
-        {{ 0.5f, -0.5f, -0.5f}, white, {0.0f, 1.0f}},
-        {{-0.5f, -0.5f, -0.5f}, white, {1.0f, 1.0f}},
-        {{-0.5f,  0.5f, -0.5f}, white, {1.0f, 0.0f}},
-        {{ 0.5f,  0.5f, -0.5f}, white, {0.0f, 0.0f}},
-        // Top face
-        {{-0.5f,  0.5f,  0.5f}, white, {0.0f, 1.0f}},
-        {{ 0.5f,  0.5f,  0.5f}, white, {1.0f, 1.0f}},
-        {{ 0.5f,  0.5f, -0.5f}, white, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f, -0.5f}, white, {0.0f, 0.0f}},
-        // Bottom face
-        {{-0.5f, -0.5f, -0.5f}, white, {0.0f, 1.0f}},
-        {{ 0.5f, -0.5f, -0.5f}, white, {1.0f, 1.0f}},
-        {{ 0.5f, -0.5f,  0.5f}, white, {1.0f, 0.0f}},
-        {{-0.5f, -0.5f,  0.5f}, white, {0.0f, 0.0f}},
-        // Right face
-        {{ 0.5f, -0.5f,  0.5f}, white, {0.0f, 1.0f}},
-        {{ 0.5f, -0.5f, -0.5f}, white, {1.0f, 1.0f}},
-        {{ 0.5f,  0.5f, -0.5f}, white, {1.0f, 0.0f}},
-        {{ 0.5f,  0.5f,  0.5f}, white, {0.0f, 0.0f}},
-        // Left face
-        {{-0.5f, -0.5f, -0.5f}, white, {0.0f, 1.0f}},
-        {{-0.5f, -0.5f,  0.5f}, white, {1.0f, 1.0f}},
-        {{-0.5f,  0.5f,  0.5f}, white, {1.0f, 0.0f}},
-        {{-0.5f,  0.5f, -0.5f}, white, {0.0f, 0.0f}},
+        // Front face (normal: 0,0,1 tangent: 1,0,0)
+        {{-0.5f, -0.5f,  0.5f}, white, {0.0f, 1.0f}, { 0.0f,  0.0f,  1.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{ 0.5f, -0.5f,  0.5f}, white, {1.0f, 1.0f}, { 0.0f,  0.0f,  1.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, white, {1.0f, 0.0f}, { 0.0f,  0.0f,  1.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{-0.5f,  0.5f,  0.5f}, white, {0.0f, 0.0f}, { 0.0f,  0.0f,  1.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        // Back face (normal: 0,0,-1 tangent: -1,0,0)
+        {{ 0.5f, -0.5f, -0.5f}, white, {0.0f, 1.0f}, { 0.0f,  0.0f, -1.0f}, {-1.0f, 0.0f, 0.0f, 1.0f}},
+        {{-0.5f, -0.5f, -0.5f}, white, {1.0f, 1.0f}, { 0.0f,  0.0f, -1.0f}, {-1.0f, 0.0f, 0.0f, 1.0f}},
+        {{-0.5f,  0.5f, -0.5f}, white, {1.0f, 0.0f}, { 0.0f,  0.0f, -1.0f}, {-1.0f, 0.0f, 0.0f, 1.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, white, {0.0f, 0.0f}, { 0.0f,  0.0f, -1.0f}, {-1.0f, 0.0f, 0.0f, 1.0f}},
+        // Top face (normal: 0,1,0 tangent: 1,0,0)
+        {{-0.5f,  0.5f,  0.5f}, white, {0.0f, 1.0f}, { 0.0f,  1.0f,  0.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, white, {1.0f, 1.0f}, { 0.0f,  1.0f,  0.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, white, {1.0f, 0.0f}, { 0.0f,  1.0f,  0.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{-0.5f,  0.5f, -0.5f}, white, {0.0f, 0.0f}, { 0.0f,  1.0f,  0.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        // Bottom face (normal: 0,-1,0 tangent: 1,0,0)
+        {{-0.5f, -0.5f, -0.5f}, white, {0.0f, 1.0f}, { 0.0f, -1.0f,  0.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{ 0.5f, -0.5f, -0.5f}, white, {1.0f, 1.0f}, { 0.0f, -1.0f,  0.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{ 0.5f, -0.5f,  0.5f}, white, {1.0f, 0.0f}, { 0.0f, -1.0f,  0.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        {{-0.5f, -0.5f,  0.5f}, white, {0.0f, 0.0f}, { 0.0f, -1.0f,  0.0f}, { 1.0f, 0.0f, 0.0f, 1.0f}},
+        // Right face (normal: 1,0,0 tangent: 0,0,-1)
+        {{ 0.5f, -0.5f,  0.5f}, white, {0.0f, 1.0f}, { 1.0f,  0.0f,  0.0f}, { 0.0f, 0.0f,-1.0f, 1.0f}},
+        {{ 0.5f, -0.5f, -0.5f}, white, {1.0f, 1.0f}, { 1.0f,  0.0f,  0.0f}, { 0.0f, 0.0f,-1.0f, 1.0f}},
+        {{ 0.5f,  0.5f, -0.5f}, white, {1.0f, 0.0f}, { 1.0f,  0.0f,  0.0f}, { 0.0f, 0.0f,-1.0f, 1.0f}},
+        {{ 0.5f,  0.5f,  0.5f}, white, {0.0f, 0.0f}, { 1.0f,  0.0f,  0.0f}, { 0.0f, 0.0f,-1.0f, 1.0f}},
+        // Left face (normal: -1,0,0 tangent: 0,0,1)
+        {{-0.5f, -0.5f, -0.5f}, white, {0.0f, 1.0f}, {-1.0f,  0.0f,  0.0f}, { 0.0f, 0.0f, 1.0f, 1.0f}},
+        {{-0.5f, -0.5f,  0.5f}, white, {1.0f, 1.0f}, {-1.0f,  0.0f,  0.0f}, { 0.0f, 0.0f, 1.0f, 1.0f}},
+        {{-0.5f,  0.5f,  0.5f}, white, {1.0f, 0.0f}, {-1.0f,  0.0f,  0.0f}, { 0.0f, 0.0f, 1.0f, 1.0f}},
+        {{-0.5f,  0.5f, -0.5f}, white, {0.0f, 0.0f}, {-1.0f,  0.0f,  0.0f}, { 0.0f, 0.0f, 1.0f, 1.0f}},
     };
 
     std::vector<uint32_t> indices;
@@ -59,12 +59,14 @@ PrimitiveMeshData cube() {
 
 PrimitiveMeshData plane() {
     const glm::vec3 white{1.0f, 1.0f, 1.0f};
+    const glm::vec3 up{0.0f, 1.0f, 0.0f};
+    const glm::vec4 tan{1.0f, 0.0f, 0.0f, 1.0f};
 
     std::vector<Vertex> vertices = {
-        {{-0.5f, 0.0f,  0.5f}, white, {0.0f, 0.0f}},
-        {{ 0.5f, 0.0f,  0.5f}, white, {1.0f, 0.0f}},
-        {{ 0.5f, 0.0f, -0.5f}, white, {1.0f, 1.0f}},
-        {{-0.5f, 0.0f, -0.5f}, white, {0.0f, 1.0f}},
+        {{-0.5f, 0.0f,  0.5f}, white, {0.0f, 0.0f}, up, tan},
+        {{ 0.5f, 0.0f,  0.5f}, white, {1.0f, 0.0f}, up, tan},
+        {{ 0.5f, 0.0f, -0.5f}, white, {1.0f, 1.0f}, up, tan},
+        {{-0.5f, 0.0f, -0.5f}, white, {0.0f, 1.0f}, up, tan},
     };
 
     std::vector<uint32_t> indices = {0, 1, 2, 0, 2, 3};
@@ -92,7 +94,14 @@ PrimitiveMeshData sphere(uint32_t rings, uint32_t segments) {
             float u = static_cast<float>(s) / static_cast<float>(segments);
             float v = static_cast<float>(r) / static_cast<float>(rings);
 
-            vertices.push_back({{x, y, z}, white, {u, v}});
+            glm::vec3 pos{x, y, z};
+            glm::vec3 normal = glm::normalize(pos);
+
+            // Tangent: derivative of position with respect to theta
+            glm::vec3 tan_dir{-std::sin(theta), 0.0f, std::cos(theta)};
+            glm::vec4 tangent{glm::normalize(tan_dir), 1.0f};
+
+            vertices.push_back({pos, white, {u, v}, normal, tangent});
         }
     }
 

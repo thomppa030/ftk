@@ -13,6 +13,7 @@ namespace fjell {
 
 class Model;
 class Material;
+class Project;
 struct RenderStats;
 
 struct RenderObject {
@@ -35,7 +36,8 @@ public:
 
     void save(const std::string& path) const;
     static Scene load(const std::string& path,
-                      class ResourceManager& resources);
+                      class ResourceManager& resources,
+                      const Project* project = nullptr);
 
     void render(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout,
                 RenderStats* stats = nullptr) const;

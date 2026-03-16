@@ -1,6 +1,8 @@
 #include "renderer/pipeline.hpp"
 #include "renderer/device.hpp"
+#include "renderer/uniform_types.hpp"
 #include "renderer/vertex.hpp"
+#include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <glm/glm.hpp>
@@ -33,8 +35,8 @@ void Pipeline::recreate() {
 }
 
 void Pipeline::create() {
-    auto vert_code = read_shader("shaders/mesh.vert.spv");
-    auto frag_code = read_shader("shaders/mesh.frag.spv");
+    auto vert_code = read_shader(base_path::resolve("shaders/mesh.vert.spv"));
+    auto frag_code = read_shader(base_path::resolve("shaders/mesh.frag.spv"));
 
     VkShaderModule vert_module = create_shader_module(vert_code);
     VkShaderModule frag_module = create_shader_module(frag_code);
@@ -121,9 +123,9 @@ void Pipeline::create() {
     std::array set_layouts = {global_layout_, material_layout_};
 
     VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     push_range.offset = 0;
-    push_range.size = sizeof(glm::mat4);
+    push_range.size = sizeof(PbrPushConstants);
 
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;

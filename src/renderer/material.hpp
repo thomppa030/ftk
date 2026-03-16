@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/uniform_types.hpp"
+
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
@@ -10,16 +12,18 @@ class Texture;
 class Material {
 public:
     Material(VkDevice device, VkDescriptorPool pool,
-             VkDescriptorSetLayout layout, const Texture& texture,
-             glm::vec4 tint = {1.0f, 1.0f, 1.0f, 1.0f});
+             VkDescriptorSetLayout layout,
+             const Texture& base_color, const Texture& normal_map,
+             const Texture& metallic_roughness, const Texture& emissive,
+             PbrParams params = {});
 
     void bind(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout) const;
 
-    [[nodiscard]] glm::vec4 tint() const { return tint_; }
+    [[nodiscard]] const PbrParams& params() const { return params_; }
 
 private:
     VkDescriptorSet descriptor_set_{VK_NULL_HANDLE};
-    glm::vec4 tint_;
+    PbrParams params_;
 };
 
 } // namespace fjell

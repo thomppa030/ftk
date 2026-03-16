@@ -1,12 +1,132 @@
 #version 450
 
-layout(set = 1, binding = 0) uniform sampler2D tex_sampler;
+const float PI = 3.14159265359;
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;    // xyz = dir toward light, w = intensity
+    vec4 light_color;        // xyz = color
+    vec4 camera_position;    // xyz = eye pos
+    vec4 ambient_color;      // xyz = color, w = intensity
+} ubo;
+
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    vec4 base_color_factor;
+    float metallic_factor;
+    float roughness_factor;
+    float has_normal_map;
+    float padding;
+} push;
+
+layout(set = 1, binding = 0) uniform sampler2D base_color_map;
+layout(set = 1, binding = 1) uniform sampler2D normal_map;
+layout(set = 1, binding = 2) uniform sampler2D metallic_roughness_map;
+layout(set = 1, binding = 3) uniform sampler2D emissive_map;
 
 layout(location = 0) in vec3 frag_color;
 layout(location = 1) in vec2 frag_tex_coord;
+layout(location = 2) in vec3 frag_world_pos;
+layout(location = 3) in vec3 frag_world_normal;
+layout(location = 4) in mat3 frag_TBN;
 
 layout(location = 0) out vec4 out_color;
 
+// GGX/Trowbridge-Reitz normal distribution
+float distribution_GGX(float NdotH, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float denom = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / (PI * denom * denom);
+}
+
+// Schlick-GGX geometry function
+float geometry_schlick_GGX(float NdotV, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0;
+    return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+// Smith's method combining both view and light directions
+float geometry_smith(float NdotV, float NdotL, float roughness) {
+    return geometry_schlick_GGX(NdotV, roughness) *
+           geometry_schlick_GGX(NdotL, roughness);
+}
+
+// Fresnel-Schlick approximation
+vec3 fresnel_schlick(float cos_theta, vec3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+
 void main() {
-    out_color = texture(tex_sampler, frag_tex_coord) * vec4(frag_color, 1.0);
+    // Base color
+    vec4 base_color = texture(base_color_map, frag_tex_coord) *
+                      push.base_color_factor *
+                      vec4(frag_color, 1.0);
+    vec3 albedo = base_color.rgb;
+
+    // Metallic / roughness
+    vec4 mr_sample = texture(metallic_roughness_map, frag_tex_coord);
+    float metallic = mr_sample.b * push.metallic_factor;
+    float roughness = mr_sample.g * push.roughness_factor;
+    roughness = clamp(roughness, 0.04, 1.0);
+
+    // Normal
+    float normal_len = length(frag_world_normal);
+    if (normal_len < 0.001) {
+        // No normals — render unlit (backward compatibility)
+        out_color = base_color;
+        return;
+    }
+
+    vec3 N;
+    if (push.has_normal_map > 0.5) {
+        vec3 tangent_normal = texture(normal_map, frag_tex_coord).rgb * 2.0 - 1.0;
+        N = normalize(frag_TBN * tangent_normal);
+    } else {
+        N = normalize(frag_world_normal);
+    }
+
+    // Emissive
+    vec3 emissive = texture(emissive_map, frag_tex_coord).rgb;
+
+    // Lighting vectors
+    vec3 V = normalize(ubo.camera_position.xyz - frag_world_pos);
+    vec3 L = normalize(ubo.light_direction.xyz);
+    vec3 H = normalize(V + L);
+    float light_intensity = ubo.light_direction.w;
+
+    float NdotL = max(dot(N, L), 0.0);
+    float NdotV = max(dot(N, V), 0.001);
+    float NdotH = max(dot(N, H), 0.0);
+    float HdotV = max(dot(H, V), 0.0);
+
+    // F0: reflectance at normal incidence
+    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+
+    // Cook-Torrance BRDF
+    float D = distribution_GGX(NdotH, roughness);
+    float G = geometry_smith(NdotV, NdotL, roughness);
+    vec3  F = fresnel_schlick(HdotV, F0);
+
+    vec3 specular = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
+
+    // Diffuse (energy conserving)
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+    vec3 diffuse = kD * albedo / PI;
+
+    // Direct lighting
+    vec3 radiance = ubo.light_color.xyz * light_intensity;
+    vec3 Lo = (diffuse + specular) * radiance * NdotL;
+
+    // Ambient
+    vec3 ambient = ubo.ambient_color.xyz * ubo.ambient_color.w * albedo;
+
+    vec3 color = ambient + Lo + emissive;
+
+    // Tone mapping (Reinhard) and gamma correction
+    color = color / (color + vec3(1.0));
+
+    out_color = vec4(color, base_color.a);
 }
