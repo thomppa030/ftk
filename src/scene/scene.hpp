@@ -17,6 +17,10 @@ class Project;
 struct RenderStats;
 
 struct RenderObject {
+    uint32_t id{0};
+    int32_t parent_id{-1};
+    glm::mat4 world_matrix_{1.0f};
+
     Model* model;
     Material* material;
     Transform transform;
@@ -34,6 +38,13 @@ public:
     void remove(uint32_t id);
     void clear();
 
+    void compute_world_matrices();
+    void reparent(uint32_t child_id, int32_t new_parent_id);
+
+    [[nodiscard]] RenderObject* find(uint32_t id);
+    [[nodiscard]] const RenderObject* find(uint32_t id) const;
+    [[nodiscard]] int index_of(uint32_t id) const;
+
     void save(const std::string& path) const;
     static Scene load(const std::string& path,
                       class ResourceManager& resources,
@@ -46,8 +57,12 @@ public:
     [[nodiscard]] std::vector<RenderObject>& objects() { return objects_; }
     [[nodiscard]] const std::vector<RenderObject>& objects() const { return objects_; }
 
+    [[nodiscard]] uint32_t next_id() const { return next_id_; }
+    void set_next_id(uint32_t id) { next_id_ = id; }
+
 private:
     std::vector<RenderObject> objects_;
+    uint32_t next_id_{1};
 };
 
 } // namespace fjell

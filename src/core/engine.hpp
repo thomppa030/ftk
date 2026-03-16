@@ -53,6 +53,7 @@ private:
     void draw_menu_bar();
     void draw_viewport();
     void draw_hierarchy();
+    void draw_hierarchy_node(RenderObject& obj);
     void draw_properties();
     void draw_assets();
     void draw_stats();
@@ -105,8 +106,8 @@ private:
     float frame_time_{0.0f};
     int frame_count_{0};
     float fps_timer_{0.0f};
-    int selected_{-1};
-    int remove_pending_{-1};
+    uint32_t selected_id_{0};
+    uint32_t remove_pending_id_{0};
     int gizmo_op_{0}; // 0=translate, 1=rotate, 2=scale
     bool layout_built_{false};
 

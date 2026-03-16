@@ -160,8 +160,7 @@ void Engine::add_model_to_scene(const std::string& path) {
     }
 
     auto filename = std::filesystem::path(path).stem().string();
-    scene_.add(model, mat, {}, filename, path, mat_name);
-    selected_ = scene_.object_count() - 1;
+    selected_id_ = scene_.add(model, mat, {}, filename, path, mat_name);
     FJELL_CORE_INFO("Added model to scene: {}", path);
 }
 
@@ -178,8 +177,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     std::string name = type;
     name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
 
-    scene_.add(model, mat, {}, name, "primitive:" + type);
-    selected_ = scene_.object_count() - 1;
+    selected_id_ = scene_.add(model, mat, {}, name, "primitive:" + type);
 }
 
 void Engine::setup_dockspace() {
@@ -268,9 +266,7 @@ void Engine::draw_viewport() {
         }
 
         // Gizmo for selected object (draw over the image)
-        if (selected_ >= 0 && selected_ < scene_.object_count()) {
-            auto& obj = scene_.objects()[selected_];
-
+        if (auto* obj = scene_.find(selected_id_); obj) {
             float aspect = viewport_size_.x / std::max(viewport_size_.y, 1.0f);
             auto view = camera_.view_matrix();
             auto projection = glm::perspective(
@@ -281,7 +277,7 @@ void Engine::draw_viewport() {
             ImGuizmo::SetOrthographic(false);
             ImGuizmo::SetDrawlist();
 
-            glm::mat4 model_matrix = obj.transform.matrix();
+            glm::mat4 world_matrix = obj->world_matrix_;
 
             ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
             if (gizmo_op_ == 1) op = ImGuizmo::ROTATE;
@@ -292,15 +288,19 @@ void Engine::draw_viewport() {
                 glm::value_ptr(projection),
                 op,
                 ImGuizmo::LOCAL,
-                glm::value_ptr(model_matrix));
+                glm::value_ptr(world_matrix));
 
             if (ImGuizmo::IsUsing()) {
-                float translation[3], rotation[3], scale[3];
-                ImGuizmo::DecomposeMatrixToComponents(
-                    glm::value_ptr(model_matrix), translation, rotation, scale);
-                obj.transform.position = {translation[0], translation[1], translation[2]};
-                obj.transform.rotation = {rotation[0], rotation[1], rotation[2]};
-                obj.transform.scale = {scale[0], scale[1], scale[2]};
+                // Convert manipulated world matrix back to local space
+                glm::mat4 local_matrix = world_matrix;
+                if (obj->parent_id != -1) {
+                    const auto* parent = scene_.find(
+                        static_cast<uint32_t>(obj->parent_id));
+                    if (parent) {
+                        local_matrix = glm::inverse(parent->world_matrix_) * world_matrix;
+                    }
+                }
+                obj->transform = decompose_matrix(local_matrix);
             }
         }
     }
@@ -311,53 +311,137 @@ void Engine::draw_viewport() {
 
 void Engine::draw_hierarchy() {
     if (ImGui::Begin("Hierarchy")) {
-        remove_pending_ = -1;
-        auto& objects = scene_.objects();
-        for (int i = 0; i < static_cast<int>(objects.size()); ++i) {
-            auto& obj = objects[i];
-            ImGui::PushID(i);
+        remove_pending_id_ = 0;
 
-            bool is_selected = (i == selected_);
-            if (ImGui::Selectable(obj.name.c_str(), is_selected)) {
-                selected_ = i;
+        // Draw root objects
+        for (auto& obj : scene_.objects()) {
+            if (obj.parent_id == -1) {
+                draw_hierarchy_node(obj);
             }
-
-            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 20);
-            if (ImGui::SmallButton("X")) {
-                remove_pending_ = i;
-            }
-
-            ImGui::PopID();
         }
 
-        if (remove_pending_ >= 0) {
+        // Empty space = drop target for unparent to root
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+        if (avail.y > 0) {
+            ImGui::Dummy(avail);
+            if (ImGui::BeginDragDropTarget()) {
+                if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
+                    uint32_t dragged_id = *static_cast<const uint32_t*>(payload->Data);
+                    scene_.reparent(dragged_id, -1);
+                }
+                ImGui::EndDragDropTarget();
+            }
+        }
+
+        // Deferred removal
+        if (remove_pending_id_ != 0) {
             vulkan_context_.wait_idle();
-            if (selected_ == remove_pending_) selected_ = -1;
-            else if (selected_ > remove_pending_) selected_--;
-            scene_.remove(static_cast<uint32_t>(remove_pending_));
+            if (selected_id_ == remove_pending_id_) selected_id_ = 0;
+            scene_.remove(remove_pending_id_);
         }
     }
     ImGui::End();
 }
 
+void Engine::draw_hierarchy_node(RenderObject& obj) {
+    auto& objects = scene_.objects();
+
+    bool has_children = false;
+    for (const auto& other : objects) {
+        if (other.parent_id == static_cast<int32_t>(obj.id)) {
+            has_children = true;
+            break;
+        }
+    }
+
+    ImGui::PushID(static_cast<int>(obj.id));
+
+    ImGuiTreeNodeFlags flags =
+        ImGuiTreeNodeFlags_OpenOnArrow |
+        ImGuiTreeNodeFlags_SpanAvailWidth |
+        ImGuiTreeNodeFlags_DefaultOpen;
+
+    if (!has_children) {
+        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+    }
+    if (obj.id == selected_id_) {
+        flags |= ImGuiTreeNodeFlags_Selected;
+    }
+
+    bool node_open = ImGui::TreeNodeEx(obj.name.c_str(), flags);
+
+    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
+        selected_id_ = obj.id;
+    }
+
+    // Drag source
+    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+        ImGui::SetDragDropPayload("HIERARCHY_NODE", &obj.id, sizeof(obj.id));
+        ImGui::Text("%s", obj.name.c_str());
+        ImGui::EndDragDropSource();
+    }
+
+    // Drop target — reparent dragged object under this one
+    if (ImGui::BeginDragDropTarget()) {
+        if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
+            uint32_t dragged_id = *static_cast<const uint32_t*>(payload->Data);
+            if (dragged_id != obj.id) {
+                // Cycle check: walk up from this node, ensure dragged isn't an ancestor
+                bool is_ancestor = false;
+                int32_t check = static_cast<int32_t>(obj.id);
+                while (check != -1) {
+                    if (static_cast<uint32_t>(check) == dragged_id) {
+                        is_ancestor = true;
+                        break;
+                    }
+                    const auto* p = scene_.find(static_cast<uint32_t>(check));
+                    check = p ? p->parent_id : -1;
+                }
+                if (!is_ancestor) {
+                    scene_.reparent(dragged_id, static_cast<int32_t>(obj.id));
+                }
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    // Delete button
+    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 20);
+    if (ImGui::SmallButton("X")) {
+        remove_pending_id_ = obj.id;
+    }
+
+    // Recurse children
+    if (has_children && node_open) {
+        for (auto& child : objects) {
+            if (child.parent_id == static_cast<int32_t>(obj.id)) {
+                draw_hierarchy_node(child);
+            }
+        }
+        ImGui::TreePop();
+    }
+
+    ImGui::PopID();
+}
+
 void Engine::draw_properties() {
     if (ImGui::Begin("Properties")) {
-        if (selected_ >= 0 && selected_ < scene_.object_count()) {
-            auto& obj = scene_.objects()[selected_];
+        auto* obj = scene_.find(selected_id_);
+        if (obj) {
 
             // Editable name
             char name_buf[128];
-            std::strncpy(name_buf, obj.name.c_str(), sizeof(name_buf) - 1);
+            std::strncpy(name_buf, obj->name.c_str(), sizeof(name_buf) - 1);
             name_buf[sizeof(name_buf) - 1] = '\0';
             if (ImGui::InputText("Name", name_buf, sizeof(name_buf))) {
-                obj.name = name_buf;
+                obj->name = name_buf;
             }
 
             ImGui::Separator();
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Transform");
-            ImGui::DragFloat3("Position", &obj.transform.position.x, 0.1f);
-            ImGui::DragFloat3("Rotation", &obj.transform.rotation.x, 1.0f);
-            ImGui::DragFloat3("Scale", &obj.transform.scale.x, 0.05f, 0.01f, 100.0f);
+            ImGui::DragFloat3("Position", &obj->transform.position.x, 0.1f);
+            ImGui::DragFloat3("Rotation", &obj->transform.rotation.x, 1.0f);
+            ImGui::DragFloat3("Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f);
 
             ImGui::Spacing();
             ImGui::Separator();
@@ -367,7 +451,7 @@ void Engine::draw_properties() {
             ImGui::RadioButton("Scl (3)", &gizmo_op_, 2);
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Source: %s", obj.source.c_str());
+            ImGui::TextDisabled("Source: %s", obj->source.c_str());
         } else {
             ImGui::TextDisabled("No object selected");
         }
@@ -517,7 +601,7 @@ void Engine::load_scene(const std::string& path) {
     vulkan_context_.wait_idle();
     current_scene_path_ = path;
     scene_ = Scene::load(path, *resource_manager_, active_project());
-    selected_ = -1;
+    selected_id_ = 0;
 }
 
 void Engine::draw_menu_bar() {
@@ -636,7 +720,7 @@ void Engine::draw_ui() {
         if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmo_op_ = 0;
         if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmo_op_ = 1;
         if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmo_op_ = 2;
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) selected_ = -1;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) selected_id_ = 0;
     }
 
     draw_menu_bar();
@@ -654,7 +738,7 @@ void Engine::start_play() {
     play_session_ = std::make_unique<PlaySession>(
         scene_, camera_.position(), camera_.yaw(), -camera_.pitch());
     input_.set_cursor_captured(window_.handle(), true);
-    selected_ = -1;
+    selected_id_ = 0;
     FJELL_CORE_INFO("Play mode started");
 }
 
@@ -760,6 +844,8 @@ void Engine::run() {
                 camera_.update(input_, dt);
             }
         }
+
+        scene_.compute_world_matrices();
 
         imgui_layer_->begin_frame();
         if (is_playing()) {
