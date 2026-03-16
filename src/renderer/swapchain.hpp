@@ -23,19 +23,18 @@ public:
     void recreate();
 
     [[nodiscard]] VkSwapchainKHR handle() const { return swapchain_; }
-    [[nodiscard]] VkRenderPass render_pass() const { return render_pass_; }
     [[nodiscard]] VkFormat format() const { return format_; }
     [[nodiscard]] VkExtent2D extent() const { return extent_; }
-    [[nodiscard]] const std::vector<VkFramebuffer>& framebuffers() const { return framebuffers_; }
+    [[nodiscard]] VkImage image(uint32_t index) const { return images_[index]; }
+    [[nodiscard]] VkImageView image_view(uint32_t index) const { return image_views_[index]; }
+    [[nodiscard]] VkImageView depth_view() const { return depth_image_view_; }
     [[nodiscard]] uint32_t image_count() const { return static_cast<uint32_t>(images_.size()); }
     [[nodiscard]] const std::vector<VkSemaphore>& render_finished_semaphores() const { return render_finished_; }
 
 private:
     void create_swapchain();
     void create_image_views();
-    void create_render_pass();
     void create_depth_resources();
-    void create_framebuffers();
     void create_render_finished_semaphores();
     void cleanup();
 
@@ -59,8 +58,6 @@ private:
     VkDeviceMemory depth_memory_{VK_NULL_HANDLE};
     VkImageView depth_image_view_{VK_NULL_HANDLE};
 
-    VkRenderPass render_pass_{VK_NULL_HANDLE};
-    std::vector<VkFramebuffer> framebuffers_;
     std::vector<VkSemaphore> render_finished_;
 };
 

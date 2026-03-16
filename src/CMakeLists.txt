@@ -11,6 +11,7 @@ add_executable(fjell
     core/window.cpp
     renderer/buffer.cpp
     renderer/camera.cpp
+    renderer/debug_draw.cpp
     renderer/descriptor.cpp
     renderer/fly_camera.cpp
     renderer/device.cpp
@@ -27,10 +28,13 @@ add_executable(fjell
     renderer/swapchain.cpp
     renderer/texture.cpp
     renderer/vulkan_context.cpp
+    physics/physics_world.cpp
     scene/scene.cpp
     scripting/json_bridge.cpp
     scripting/script_manager.cpp
+    ui/console.cpp
     ui/imgui_layer.cpp
+    ui/nvim_panel.cpp
 
     # ImGui sources
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -56,13 +60,18 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${imguizmo_SOURCE_DIR}
 )
 
+find_library(VTERM_LIB vterm REQUIRED)
+
 target_link_libraries(fjell PRIVATE
     fastgltf::fastgltf
     glfw
     glm::glm
+    Jolt
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     Vulkan::Vulkan
+    ${VTERM_LIB}
+    util
     ${CMAKE_DL_LIBS}
 )
 
@@ -75,6 +84,10 @@ target_compile_options(fjell PRIVATE
 # Treat fastgltf headers as system headers to suppress warnings from them
 get_target_property(FASTGLTF_INCLUDE_DIRS fastgltf::fastgltf INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(fjell SYSTEM PRIVATE ${FASTGLTF_INCLUDE_DIRS})
+
+# Treat Jolt headers as system headers to suppress warnings from them
+get_target_property(JOLT_INCLUDE_DIRS Jolt INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(fjell SYSTEM PRIVATE ${JOLT_INCLUDE_DIRS})
 
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
@@ -94,6 +107,7 @@ add_executable(fjell-hub
     hub/recent_projects.cpp
     core/log.cpp
     core/window.cpp
+    ui/console.cpp
     renderer/device.cpp
     renderer/swapchain.cpp
     renderer/image.cpp

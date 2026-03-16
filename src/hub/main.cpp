@@ -33,6 +33,31 @@ static void launch_editor(const std::string& project_path) {
     }
 }
 
+static void transition_image(VkCommandBuffer cmd, VkImage image,
+                              VkImageLayout old_layout, VkImageLayout new_layout,
+                              VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                              VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
+    VkImageMemoryBarrier2 barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = src_stage;
+    barrier.srcAccessMask = src_access;
+    barrier.dstStageMask = dst_stage;
+    barrier.dstAccessMask = dst_access;
+    barrier.oldLayout = old_layout;
+    barrier.newLayout = new_layout;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    VkDependencyInfo dep{};
+    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &barrier;
+
+    vkCmdPipelineBarrier2(cmd, &dep);
+}
+
 int main() {
     fjell::log::init();
 
@@ -49,7 +74,6 @@ int main() {
         if (exe_len > 0) {
             exe_buf[exe_len] = '\0';
             auto exe_dir = std::filesystem::path(exe_buf).parent_path();
-            // Walk up to find assets/ (same logic as base_path)
             for (int i = 0; i < 3; ++i) {
                 if (std::filesystem::is_directory(exe_dir / "assets" / "fonts")) {
                     font_dir = (exe_dir / "assets" / "fonts").string();
@@ -64,7 +88,7 @@ int main() {
             device.physical_device(), device.handle(),
             device.find_queue_families().graphics.value(),
             device.graphics_queue(),
-            swapchain.render_pass(), swapchain.image_count(),
+            swapchain.format(), swapchain.image_count(),
             font_dir);
 
         // Command pool + buffers
@@ -100,7 +124,6 @@ int main() {
             si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
             vkCreateSemaphore(device.handle(), &si, nullptr, &image_ready[i]);
         }
-        // render_finished semaphores: one per swapchain image (owned by Swapchain)
         auto& render_done = swapchain.render_finished_semaphores();
 
         fjell::hub::HubUI hub_ui;
@@ -132,19 +155,29 @@ int main() {
             begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
             vkBeginCommandBuffer(cmd_bufs[frame], &begin);
 
-            std::array<VkClearValue, 2> clears{};
-            clears[0].color = {{0.012f, 0.012f, 0.015f, 1.0f}}; // #1e1f22 linearized
-            clears[1].depthStencil = {1.0f, 0};
+            // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
+            transition_image(cmd_bufs[frame], swapchain.image(img_idx),
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
-            VkRenderPassBeginInfo rp{};
-            rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-            rp.renderPass = swapchain.render_pass();
-            rp.framebuffer = swapchain.framebuffers()[img_idx];
-            rp.renderArea.extent = swapchain.extent();
-            rp.clearValueCount = static_cast<uint32_t>(clears.size());
-            rp.pClearValues = clears.data();
+            VkRenderingAttachmentInfo color_attachment{};
+            color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            color_attachment.imageView = swapchain.image_view(img_idx);
+            color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            color_attachment.clearValue.color = {{0.012f, 0.012f, 0.015f, 1.0f}};
 
-            vkCmdBeginRenderPass(cmd_bufs[frame], &rp, VK_SUBPASS_CONTENTS_INLINE);
+            VkRenderingInfo rendering_info{};
+            rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            rendering_info.renderArea.extent = swapchain.extent();
+            rendering_info.layerCount = 1;
+            rendering_info.colorAttachmentCount = 1;
+            rendering_info.pColorAttachments = &color_attachment;
+
+            vkCmdBeginRendering(cmd_bufs[frame], &rendering_info);
 
             imgui_layer.begin_frame();
             auto launch = hub_ui.draw(
@@ -153,7 +186,15 @@ int main() {
             imgui_layer.end_frame();
             imgui_layer.render(cmd_bufs[frame]);
 
-            vkCmdEndRenderPass(cmd_bufs[frame]);
+            vkCmdEndRendering(cmd_bufs[frame]);
+
+            // Transition swapchain image: COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
+            transition_image(cmd_bufs[frame], swapchain.image(img_idx),
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
+
             vkEndCommandBuffer(cmd_bufs[frame]);
 
             VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/buffer.hpp"
+#include "renderer/debug_draw.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -50,7 +51,7 @@ public:
     }
     [[nodiscard]] VkDescriptorPool material_pool() const { return material_pool_; }
     [[nodiscard]] VkInstance instance() const { return device_.instance(); }
-    [[nodiscard]] VkRenderPass render_pass() const { return swapchain_.render_pass(); }
+    [[nodiscard]] VkFormat swapchain_format() const { return swapchain_.format(); }
     [[nodiscard]] uint32_t image_count() const { return swapchain_.image_count(); }
     [[nodiscard]] uint32_t graphics_family() const;
     [[nodiscard]] const std::string& gpu_name() const { return device_.gpu_name(); }
@@ -60,7 +61,14 @@ public:
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
+    void set_show_colliders(bool show) { show_colliders_ = show; }
+    [[nodiscard]] bool show_colliders() const { return show_colliders_; }
+    [[nodiscard]] DebugDraw& debug_draw() { return *debug_draw_; }
+
 private:
+    void create_debug_pipeline();
+    void destroy_debug_pipeline();
+
     void create_descriptor_resources();
     void create_command_pool();
     void create_command_buffers();
@@ -72,6 +80,12 @@ private:
                                const glm::mat4& view, const glm::mat4& projection,
                                const glm::vec3& camera_position,
                                const struct DirectionalLight& light);
+
+    static void transition_image(VkCommandBuffer cmd, VkImage image,
+                                 VkImageLayout old_layout, VkImageLayout new_layout,
+                                 VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                                 VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access,
+                                 VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
 
     Window& window_;
     Device device_;
@@ -91,7 +105,7 @@ private:
     // Offscreen scene rendering
     std::unique_ptr<OffscreenPass> offscreen_;
 
-    // Pipeline (uses offscreen render pass)
+    // Pipeline (uses dynamic rendering)
     std::unique_ptr<Pipeline> pipeline_;
 
     // Command buffers and sync
@@ -105,6 +119,12 @@ private:
     uint32_t current_frame_{0};
 
     std::unique_ptr<RenderStats> render_stats_;
+
+    // Debug collider visualization
+    VkPipelineLayout debug_layout_{VK_NULL_HANDLE};
+    VkPipeline debug_pipeline_{VK_NULL_HANDLE};
+    std::unique_ptr<DebugDraw> debug_draw_;
+    bool show_colliders_{true};
 };
 
 } // namespace fjell

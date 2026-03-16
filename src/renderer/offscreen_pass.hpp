@@ -20,15 +20,19 @@ public:
 
     void resize(uint32_t width, uint32_t height);
 
-    [[nodiscard]] VkRenderPass render_pass() const { return render_pass_; }
-    [[nodiscard]] VkFramebuffer framebuffer() const { return framebuffer_; }
+    [[nodiscard]] VkImageView color_view() const { return color_view_; }
+    [[nodiscard]] VkImageView depth_view() const { return depth_view_; }
+    [[nodiscard]] VkImage color_image() const { return color_image_; }
+    [[nodiscard]] VkImage depth_image() const { return depth_image_; }
     [[nodiscard]] VkExtent2D extent() const { return extent_; }
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
 
+    static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_SRGB;
+
 private:
     void create(uint32_t width, uint32_t height);
-    void cleanup_framebuffer();
+    void cleanup_images();
 
     Device& device_;
 
@@ -41,8 +45,6 @@ private:
     VkDeviceMemory depth_memory_{VK_NULL_HANDLE};
     VkImageView depth_view_{VK_NULL_HANDLE};
 
-    VkRenderPass render_pass_{VK_NULL_HANDLE};
-    VkFramebuffer framebuffer_{VK_NULL_HANDLE};
     VkExtent2D extent_{};
 
     VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};

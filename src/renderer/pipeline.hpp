@@ -11,7 +11,8 @@ class Device;
 
 class Pipeline {
 public:
-    Pipeline(Device& device, VkRenderPass render_pass,
+    Pipeline(Device& device,
+             VkFormat color_format, VkFormat depth_format,
              VkDescriptorSetLayout global_layout,
              VkDescriptorSetLayout material_layout);
     ~Pipeline();
@@ -34,7 +35,8 @@ private:
     [[nodiscard]] VkShaderModule create_shader_module(const std::vector<char>& code) const;
 
     Device& device_;
-    VkRenderPass render_pass_;
+    VkFormat color_format_;
+    VkFormat depth_format_;
     VkDescriptorSetLayout global_layout_;
     VkDescriptorSetLayout material_layout_;
 

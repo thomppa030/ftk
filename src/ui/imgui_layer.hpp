@@ -13,7 +13,7 @@ public:
     ImGuiLayer(GLFWwindow* window, VkInstance instance,
                VkPhysicalDevice physical_device, VkDevice device,
                uint32_t graphics_family, VkQueue graphics_queue,
-               VkRenderPass render_pass, uint32_t image_count,
+               VkFormat color_format, uint32_t image_count,
                const std::string& font_dir = {});
     ~ImGuiLayer();
 

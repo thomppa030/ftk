@@ -13,11 +13,13 @@
 
 namespace fjell {
 
-Pipeline::Pipeline(Device& device, VkRenderPass render_pass,
+Pipeline::Pipeline(Device& device,
+                   VkFormat color_format, VkFormat depth_format,
                    VkDescriptorSetLayout global_layout,
                    VkDescriptorSetLayout material_layout)
     : device_{device}
-    , render_pass_{render_pass}
+    , color_format_{color_format}
+    , depth_format_{depth_format}
     , global_layout_{global_layout}
     , material_layout_{material_layout} {
     create();
@@ -138,8 +140,16 @@ void Pipeline::create() {
         throw std::runtime_error("Failed to create pipeline layout");
     }
 
+    // Dynamic rendering: specify attachment formats instead of render pass
+    VkPipelineRenderingCreateInfo rendering_info{};
+    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachmentFormats = &color_format_;
+    rendering_info.depthAttachmentFormat = depth_format_;
+
     VkGraphicsPipelineCreateInfo pipeline_info{};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeline_info.pNext = &rendering_info;
     pipeline_info.stageCount = static_cast<uint32_t>(stages.size());
     pipeline_info.pStages = stages.data();
     pipeline_info.pVertexInputState = &vertex_input;
@@ -151,8 +161,7 @@ void Pipeline::create() {
     pipeline_info.pColorBlendState = &color_blending;
     pipeline_info.pDynamicState = &dynamic_state;
     pipeline_info.layout = layout_;
-    pipeline_info.renderPass = render_pass_;
-    pipeline_info.subpass = 0;
+    pipeline_info.renderPass = VK_NULL_HANDLE;
 
     if (vkCreateGraphicsPipelines(device_.handle(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create graphics pipeline");
