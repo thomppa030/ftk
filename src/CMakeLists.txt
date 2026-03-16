@@ -83,8 +83,13 @@ compile_shaders(fjell ${SHADER_DIR} ${SHADER_OUTPUT_DIR})
 # Symlink assets into build dir so the executable finds them during development
 file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBOLIC)
 
+# Copy fjell_api.h into build dir for project scaffolding
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_api.h"
+     DESTINATION "${CMAKE_BINARY_DIR}/scripting")
+
 # --- Install rules ---
 install(TARGETS fjell RUNTIME DESTINATION .)
 install(DIRECTORY "${SHADER_OUTPUT_DIR}/" DESTINATION shaders
         FILES_MATCHING PATTERN "*.spv")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/" DESTINATION assets)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_api.h" DESTINATION scripting)

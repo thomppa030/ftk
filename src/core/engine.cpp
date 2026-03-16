@@ -887,7 +887,7 @@ void Engine::run() {
         }
 
 #ifndef NDEBUG
-        script_manager_.poll_reload(scene_);
+        (void)script_manager_.poll_reload(scene_);
 #endif
 
         scene_.compute_world_matrices();
