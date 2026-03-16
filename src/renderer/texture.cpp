@@ -1,5 +1,6 @@
 #include "renderer/texture.hpp"
 #include "renderer/buffer.hpp"
+#include "renderer/vk_check.hpp"
 #include "core/log.hpp"
 
 #include <stb_image.h>
@@ -67,12 +68,14 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
     alloc_info.commandBufferCount = 1;
 
     VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(device_, &alloc_info, &cmd);
+    vk_check(vkAllocateCommandBuffers(device_, &alloc_info, &cmd),
+             "Failed to allocate texture upload command buffer");
 
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin_info);
+    vk_check(vkBeginCommandBuffer(cmd, &begin_info),
+             "Failed to begin texture upload command buffer");
 
     image_->transition_layout(cmd, VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mip_levels);
@@ -89,13 +92,15 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
 
     image_->generate_mipmaps(cmd, physical_device, width, height, mip_levels);
 
-    vkEndCommandBuffer(cmd);
+    vk_check(vkEndCommandBuffer(cmd),
+             "Failed to end texture upload command buffer");
 
     VkSubmitInfo submit_info{};
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &cmd;
-    vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
+    vk_check(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE),
+             "Failed to submit texture upload command");
     vkQueueWaitIdle(queue);
 
     vkFreeCommandBuffers(device_, command_pool, 1, &cmd);

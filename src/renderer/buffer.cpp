@@ -1,4 +1,5 @@
 #include "renderer/buffer.hpp"
+#include "renderer/vk_check.hpp"
 
 #include <cstring>
 #include <stdexcept>
@@ -76,7 +77,8 @@ Buffer& Buffer::operator=(Buffer&& other) noexcept {
 
 void Buffer::map() {
     if (!mapped_) {
-        vkMapMemory(device_, memory_, 0, size_, 0, &mapped_);
+        vk_check(vkMapMemory(device_, memory_, 0, size_, 0, &mapped_),
+                 "Failed to map buffer memory");
     }
 }
 
@@ -104,26 +106,30 @@ void Buffer::copy(VkDevice device, VkCommandPool command_pool,
     alloc_info.commandBufferCount = 1;
 
     VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(device, &alloc_info, &cmd);
+    vk_check(vkAllocateCommandBuffers(device, &alloc_info, &cmd),
+             "Failed to allocate copy command buffer");
 
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-    vkBeginCommandBuffer(cmd, &begin_info);
+    vk_check(vkBeginCommandBuffer(cmd, &begin_info),
+             "Failed to begin copy command buffer");
 
     VkBufferCopy copy_region{};
     copy_region.size = size;
     vkCmdCopyBuffer(cmd, src.handle(), dst.handle(), 1, &copy_region);
 
-    vkEndCommandBuffer(cmd);
+    vk_check(vkEndCommandBuffer(cmd),
+             "Failed to end copy command buffer");
 
     VkSubmitInfo submit_info{};
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit_info.commandBufferCount = 1;
     submit_info.pCommandBuffers = &cmd;
 
-    vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE);
+    vk_check(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE),
+             "Failed to submit copy command");
     vkQueueWaitIdle(queue);
 
     vkFreeCommandBuffers(device, command_pool, 1, &cmd);
