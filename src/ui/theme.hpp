@@ -1,7 +1,10 @@
 #pragma once
 
 #include <imgui.h>
+
 #include <cmath>
+#include <filesystem>
+#include <string>
 
 namespace fjell::theme {
 
@@ -27,6 +30,37 @@ inline ImVec4 accent()     { return srgb(0.831f, 0.627f, 0.329f); }          // 
 inline ImVec4 accent_dim() { return srgb(0.831f, 0.627f, 0.329f, 0.40f); }
 inline ImVec4 accent_hov() { return srgb(0.722f, 0.537f, 0.243f); }          // #B8893E
 inline ImVec4 success()    { return srgb(0.494f, 0.749f, 0.557f); }           // #7EBF8E
+
+/// Load Inter font with oversampling. Call after ImGui::CreateContext()
+/// but before backend init. Returns true if font was loaded.
+inline bool load_font(const std::string& font_dir) {
+    auto& io = ImGui::GetIO();
+
+    auto regular = font_dir + "/Inter-Regular.ttf";
+    auto medium = font_dir + "/Inter-Medium.ttf";
+    auto bold = font_dir + "/Inter-Bold.ttf";
+
+    ImFontConfig cfg;
+    cfg.OversampleH = 3;
+    cfg.OversampleV = 2;
+    cfg.PixelSnapH = true;
+
+    // Main UI font — Medium weight at 15px for readability
+    if (std::filesystem::exists(medium)) {
+        io.FontDefault = io.Fonts->AddFontFromFileTTF(medium.c_str(), 15.0f, &cfg);
+    } else if (std::filesystem::exists(regular)) {
+        io.FontDefault = io.Fonts->AddFontFromFileTTF(regular.c_str(), 15.0f, &cfg);
+    } else {
+        return false;
+    }
+
+    // Also load bold for headers (accessible via io.Fonts->Fonts[1])
+    if (std::filesystem::exists(bold)) {
+        io.Fonts->AddFontFromFileTTF(bold.c_str(), 15.0f, &cfg);
+    }
+
+    return true;
+}
 
 inline void apply(ImGuiStyle& style) {
     auto& c = style.Colors;

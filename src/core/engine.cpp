@@ -53,7 +53,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         window_.handle(), vulkan_context_.instance(),
         vulkan_context_.physical_device(), vulkan_context_.device(),
         vulkan_context_.graphics_family(), vulkan_context_.graphics_queue(),
-        vulkan_context_.render_pass(), vulkan_context_.image_count());
+        vulkan_context_.render_pass(), vulkan_context_.image_count(),
+        base_path::resolve("assets/fonts"));
 
     vulkan_context_.set_overlay_callback([this](VkCommandBuffer cmd) {
         imgui_layer_->render(cmd);

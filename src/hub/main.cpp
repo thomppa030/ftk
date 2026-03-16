@@ -9,6 +9,7 @@
 
 #include <array>
 #include <cstdlib>
+#include <filesystem>
 #include <string>
 #include <unistd.h>
 
@@ -41,12 +42,30 @@ int main() {
 
         fjell::Swapchain swapchain{device, window};
 
+        // Resolve font dir from executable location
+        char exe_buf[4096];
+        auto exe_len = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
+        std::string font_dir;
+        if (exe_len > 0) {
+            exe_buf[exe_len] = '\0';
+            auto exe_dir = std::filesystem::path(exe_buf).parent_path();
+            // Walk up to find assets/ (same logic as base_path)
+            for (int i = 0; i < 3; ++i) {
+                if (std::filesystem::is_directory(exe_dir / "assets" / "fonts")) {
+                    font_dir = (exe_dir / "assets" / "fonts").string();
+                    break;
+                }
+                exe_dir = exe_dir.parent_path();
+            }
+        }
+
         auto imgui_layer = fjell::ImGuiLayer(
             window.handle(), device.instance(),
             device.physical_device(), device.handle(),
             device.find_queue_families().graphics.value(),
             device.graphics_queue(),
-            swapchain.render_pass(), swapchain.image_count());
+            swapchain.render_pass(), swapchain.image_count(),
+            font_dir);
 
         // Command pool + buffers
         VkCommandPool cmd_pool;
