@@ -1,4 +1,5 @@
 #include "renderer/model.hpp"
+#include "renderer/primitives.hpp"
 #include "renderer/vertex.hpp"
 #include "core/log.hpp"
 
@@ -162,11 +163,27 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
                    meshes_.size(), textures_.size());
 }
 
+Model::Model(VkDevice device, VkPhysicalDevice physical_device,
+             VkCommandPool command_pool, VkQueue queue,
+             const PrimitiveMeshData& data) {
+    meshes_.push_back(std::make_unique<Mesh>(
+        device, physical_device, command_pool, queue,
+        data.vertices, data.indices));
+}
+
 void Model::draw(VkCommandBuffer cmd) const {
     for (auto& mesh : meshes_) {
         mesh->bind(cmd);
         mesh->draw(cmd);
     }
+}
+
+uint32_t Model::total_indices() const {
+    uint32_t total = 0;
+    for (auto& mesh : meshes_) {
+        total += mesh->index_count();
+    }
+    return total;
 }
 
 } // namespace fjell

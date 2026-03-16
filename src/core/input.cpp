@@ -9,6 +9,7 @@ void Input::attach(GLFWwindow* window) {
     glfwSetKeyCallback(window, key_callback);
     glfwSetCursorPosCallback(window, cursor_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetScrollCallback(window, scroll_callback);
 }
 
 void Input::update() {
@@ -27,6 +28,7 @@ void Input::update() {
         }
     }
     mouse_delta_ = {0.0, 0.0};
+    scroll_delta_ = {0.0, 0.0};
 }
 
 bool Input::is_key_pressed(int key) const {
@@ -108,6 +110,13 @@ void Input::mouse_button_callback(GLFWwindow* window, int button,
     } else if (action == GLFW_RELEASE) {
         input->mouse_buttons_[button] = KeyState::Released;
     }
+}
+
+void Input::scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
+    auto* input = get_input(window);
+    if (!input) return;
+
+    input->scroll_delta_ += glm::dvec2{xoffset, yoffset};
 }
 
 } // namespace fjell

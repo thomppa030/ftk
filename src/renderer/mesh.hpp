@@ -20,6 +20,8 @@ public:
     void bind(VkCommandBuffer cmd) const;
     void draw(VkCommandBuffer cmd) const;
 
+    [[nodiscard]] uint32_t index_count() const { return index_count_; }
+
 private:
     Buffer vertex_buffer_;
     Buffer index_buffer_;

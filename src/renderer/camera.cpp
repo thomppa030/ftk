@@ -9,34 +9,49 @@
 
 namespace fjell {
 
-Camera::Camera(glm::vec3 position, float yaw, float pitch)
-    : position_{position}, yaw_{yaw}, pitch_{pitch} {
-    update_vectors();
+Camera::Camera(glm::vec3 target, float distance, float yaw, float pitch)
+    : target_{target}, yaw_{yaw}, pitch_{pitch}, distance_{distance} {
+    update_position();
 }
 
-void Camera::update(const Input& input, float dt) {
-    // Movement
-    float velocity = speed_ * dt;
+void Camera::update(const Input& input, float /*dt*/) {
+    auto mouse_d = input.mouse_delta();
+    auto scroll_d = input.scroll_delta();
 
-    if (input.is_key_held(GLFW_KEY_W)) position_ += front_ * velocity;
-    if (input.is_key_held(GLFW_KEY_S)) position_ -= front_ * velocity;
-    if (input.is_key_held(GLFW_KEY_A)) position_ -= right_ * velocity;
-    if (input.is_key_held(GLFW_KEY_D)) position_ += right_ * velocity;
-    if (input.is_key_held(GLFW_KEY_SPACE)) position_ += up_ * velocity;
-    if (input.is_key_held(GLFW_KEY_LEFT_SHIFT)) position_ -= up_ * velocity;
+    bool middle_held = input.is_mouse_button_held(GLFW_MOUSE_BUTTON_MIDDLE);
+    bool shift_held = input.is_key_held(GLFW_KEY_LEFT_SHIFT) ||
+                      input.is_key_held(GLFW_KEY_RIGHT_SHIFT);
 
-    // Look (only when cursor is captured)
-    if (input.is_cursor_captured()) {
-        auto delta = input.mouse_delta();
-        yaw_ += static_cast<float>(delta.x) * sensitivity_;
-        pitch_ -= static_cast<float>(delta.y) * sensitivity_;
+    if (middle_held && shift_held) {
+        // Pan: shift + middle mouse drag
+        glm::vec3 right = glm::normalize(glm::cross(
+            glm::normalize(target_ - position_), glm::vec3{0.0f, 1.0f, 0.0f}));
+        glm::vec3 up = glm::normalize(glm::cross(right,
+            glm::normalize(target_ - position_)));
+
+        float t = (distance_ - min_distance_) / (max_distance_ - min_distance_);
+        float pan_scale = pan_sensitivity_ * glm::mix(0.2f, 1.0f, t) * distance_;
+        target_ -= right * static_cast<float>(mouse_d.x) * pan_scale;
+        target_ += up * static_cast<float>(mouse_d.y) * pan_scale;
+    } else if (middle_held) {
+        // Orbit: middle mouse drag
+        yaw_ += static_cast<float>(mouse_d.x) * orbit_sensitivity_;
+        pitch_ += static_cast<float>(mouse_d.y) * orbit_sensitivity_;
         pitch_ = std::clamp(pitch_, -89.0f, 89.0f);
-        update_vectors();
     }
+
+    // Zoom: scroll wheel — speed proportional to distance
+    if (scroll_d.y != 0.0) {
+        float zoom_scale = zoom_sensitivity_ * (distance_ / max_distance_);
+        distance_ -= static_cast<float>(scroll_d.y) * zoom_scale * distance_;
+        distance_ = std::clamp(distance_, min_distance_, max_distance_);
+    }
+
+    update_position();
 }
 
 glm::mat4 Camera::view_matrix() const {
-    return glm::lookAt(position_, position_ + front_, up_);
+    return glm::lookAt(position_, target_, glm::vec3{0.0f, 1.0f, 0.0f});
 }
 
 glm::mat4 Camera::projection_matrix(float aspect) const {
@@ -45,17 +60,17 @@ glm::mat4 Camera::projection_matrix(float aspect) const {
     return proj;
 }
 
-void Camera::update_vectors() {
+void Camera::update_position() {
     float yaw_rad = glm::radians(yaw_);
     float pitch_rad = glm::radians(pitch_);
 
-    front_ = glm::normalize(glm::vec3{
-        std::cos(yaw_rad) * std::cos(pitch_rad),
+    glm::vec3 offset{
+        std::cos(pitch_rad) * std::cos(yaw_rad),
         std::sin(pitch_rad),
-        std::sin(yaw_rad) * std::cos(pitch_rad)
-    });
-    right_ = glm::normalize(glm::cross(front_, glm::vec3{0.0f, 1.0f, 0.0f}));
-    up_ = glm::normalize(glm::cross(right_, front_));
+        std::cos(pitch_rad) * std::sin(yaw_rad)
+    };
+
+    position_ = target_ + offset * distance_;
 }
 
 } // namespace fjell

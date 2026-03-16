@@ -22,6 +22,7 @@ public:
 
     [[nodiscard]] glm::dvec2 mouse_position() const { return mouse_pos_; }
     [[nodiscard]] glm::dvec2 mouse_delta() const { return mouse_delta_; }
+    [[nodiscard]] glm::dvec2 scroll_delta() const { return scroll_delta_; }
 
     void set_cursor_captured(GLFWwindow* window, bool captured);
     [[nodiscard]] bool is_cursor_captured() const { return cursor_captured_; }
@@ -38,6 +39,7 @@ private:
     glm::dvec2 mouse_pos_{0.0};
     glm::dvec2 mouse_last_{0.0};
     glm::dvec2 mouse_delta_{0.0};
+    glm::dvec2 scroll_delta_{0.0};
     bool first_mouse_{true};
     bool cursor_captured_{false};
 
@@ -46,6 +48,7 @@ private:
     static void cursor_callback(GLFWwindow* window, double xpos, double ypos);
     static void mouse_button_callback(GLFWwindow* window, int button,
                                       int action, int mods);
+    static void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 };
 
 } // namespace fjell
