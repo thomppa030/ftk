@@ -59,6 +59,16 @@ inline bool load_font(const std::string& font_dir) {
         io.Fonts->AddFontFromFileTTF(bold.c_str(), 15.0f, &cfg);
     }
 
+    // Monospace font for terminal/code editor (accessible via io.Fonts->Fonts[2])
+    auto mono = font_dir + "/JetBrainsMono-Regular.ttf";
+    if (std::filesystem::exists(mono)) {
+        ImFontConfig mono_cfg;
+        mono_cfg.OversampleH = 2;
+        mono_cfg.OversampleV = 1;
+        mono_cfg.PixelSnapH = true;
+        io.Fonts->AddFontFromFileTTF(mono.c_str(), 14.0f, &mono_cfg);
+    }
+
     return true;
 }
 
