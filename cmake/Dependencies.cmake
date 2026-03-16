@@ -23,6 +23,13 @@ FetchContent_Declare(
     GIT_TAG        v1.15.0
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog)
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_MakeAvailable(glfw glm spdlog stb)
 
 find_package(Vulkan REQUIRED)

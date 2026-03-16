@@ -8,11 +8,17 @@ add_executable(fjell
     renderer/buffer.cpp
     renderer/camera.cpp
     renderer/descriptor.cpp
+    renderer/image.cpp
     renderer/mesh.cpp
+    renderer/stb_image.cpp
+    renderer/texture.cpp
     renderer/vulkan_context.cpp
 )
 
-target_include_directories(fjell PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(fjell PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${stb_SOURCE_DIR}
+)
 
 target_link_libraries(fjell PRIVATE
     glfw

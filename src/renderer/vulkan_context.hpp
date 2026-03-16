@@ -3,6 +3,7 @@
 #include "renderer/buffer.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/mesh.hpp"
+#include "renderer/texture.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -126,6 +127,7 @@ private:
     std::vector<VkCommandBuffer> command_buffers_;
 
     std::unique_ptr<Mesh> mesh_;
+    std::unique_ptr<Texture> texture_;
 
     static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};

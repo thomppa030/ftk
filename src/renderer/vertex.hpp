@@ -10,6 +10,7 @@ namespace fjell {
 struct Vertex {
     glm::vec3 position;
     glm::vec3 color;
+    glm::vec2 tex_coord;
 
     [[nodiscard]] static VkVertexInputBindingDescription get_binding_description() {
         VkVertexInputBindingDescription desc{};
@@ -19,9 +20,9 @@ struct Vertex {
         return desc;
     }
 
-    [[nodiscard]] static std::array<VkVertexInputAttributeDescription, 2>
+    [[nodiscard]] static std::array<VkVertexInputAttributeDescription, 3>
     get_attribute_descriptions() {
-        std::array<VkVertexInputAttributeDescription, 2> attrs{};
+        std::array<VkVertexInputAttributeDescription, 3> attrs{};
 
         attrs[0].binding = 0;
         attrs[0].location = 0;
@@ -32,6 +33,11 @@ struct Vertex {
         attrs[1].location = 1;
         attrs[1].format = VK_FORMAT_R32G32B32_SFLOAT;
         attrs[1].offset = offsetof(Vertex, color);
+
+        attrs[2].binding = 0;
+        attrs[2].location = 2;
+        attrs[2].format = VK_FORMAT_R32G32_SFLOAT;
+        attrs[2].offset = offsetof(Vertex, tex_coord);
 
         return attrs;
     }

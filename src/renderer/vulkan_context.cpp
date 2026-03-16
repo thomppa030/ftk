@@ -78,10 +78,10 @@ VulkanContext::VulkanContext(Window& window) : window_{window} {
     create_image_views();
     create_render_pass();
     create_depth_resources();
+    create_command_pool();
     create_descriptor_resources();
     create_graphics_pipeline();
     create_framebuffers();
-    create_command_pool();
     create_command_buffers();
     create_sync_objects();
     create_mesh();
@@ -90,6 +90,7 @@ VulkanContext::VulkanContext(Window& window) : window_{window} {
 
 VulkanContext::~VulkanContext() {
     mesh_.reset();
+    texture_.reset();
     for (auto& ub : uniform_buffers_)
         ub.reset();
     descriptor_pool_.reset();
@@ -286,6 +287,7 @@ void VulkanContext::create_logical_device() {
     }
 
     VkPhysicalDeviceFeatures features{};
+    features.samplerAnisotropy = VK_TRUE;
 
     VkDeviceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -529,23 +531,30 @@ VkShaderModule VulkanContext::create_shader_module(const std::vector<char>& code
 }
 
 void VulkanContext::create_descriptor_resources() {
-    // Layout: one UBO at binding 0, vertex stage
-    VkDescriptorSetLayoutBinding ubo_binding{};
-    ubo_binding.binding = 0;
-    ubo_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    ubo_binding.descriptorCount = 1;
-    ubo_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    // Layout: UBO at binding 0 (vertex), sampler at binding 1 (fragment)
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
 
-    descriptor_set_layout_ = std::make_unique<DescriptorSetLayout>(
-        device_, std::span{&ubo_binding, 1});
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    descriptor_set_layout_ = std::make_unique<DescriptorSetLayout>(device_, bindings);
 
     // Pool
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    std::array<VkDescriptorPoolSize, 2> pool_sizes{};
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
     descriptor_pool_ = std::make_unique<DescriptorPool>(
-        device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
+        device_, pool_sizes, MAX_FRAMES_IN_FLIGHT);
 
     // Per-frame uniform buffers (persistently mapped)
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -557,6 +566,11 @@ void VulkanContext::create_descriptor_resources() {
         uniform_buffers_[i]->map();
     }
 
+    // Load texture
+    texture_ = std::make_unique<Texture>(
+        device_, physical_device_, command_pool_, graphics_queue_,
+        "assets/textures/test.png");
+
     // Allocate and write descriptor sets
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         descriptor_sets_[i] = descriptor_pool_->allocate(*descriptor_set_layout_);
@@ -566,16 +580,31 @@ void VulkanContext::create_descriptor_resources() {
         buffer_info.offset = 0;
         buffer_info.range = sizeof(MvpUbo);
 
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = descriptor_sets_[i];
-        write.dstBinding = 0;
-        write.dstArrayElement = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo = &buffer_info;
+        VkDescriptorImageInfo image_info{};
+        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_info.imageView = texture_->image_view();
+        image_info.sampler = texture_->sampler();
 
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+        std::array<VkWriteDescriptorSet, 2> writes{};
+
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = descriptor_sets_[i];
+        writes[0].dstBinding = 0;
+        writes[0].dstArrayElement = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo = &buffer_info;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = descriptor_sets_[i];
+        writes[1].dstBinding = 1;
+        writes[1].dstArrayElement = 0;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &image_info;
+
+        vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
+                               writes.data(), 0, nullptr);
     }
 
     FJELL_GFX_DEBUG("Descriptor resources created");
@@ -780,10 +809,10 @@ void VulkanContext::create_sync_objects() {
 
 void VulkanContext::create_mesh() {
     const std::array<Vertex, 4> vertices = {{
-        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-        {{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-        {{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}},
+        {{-0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{ 0.5f, -0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{ 0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        {{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
     }};
 
     const std::array<uint32_t, 6> indices = {
