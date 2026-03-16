@@ -30,6 +30,11 @@ struct PbrPushConstants {
     float padding{0.0f};
 };
 
+struct DebugPushConstants {
+    glm::mat4 model;
+    glm::vec4 color{0.0f, 1.0f, 0.0f, 1.0f};
+};
+
 struct PbrParams {
     glm::vec4 base_color_factor{1.0f};
     float metallic_factor{1.0f};
