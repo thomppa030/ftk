@@ -10,6 +10,7 @@
 #include "renderer/uniform_types.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/scene.hpp"
+#include "scripting/script_manager.hpp"
 #include "ui/imgui_layer.hpp"
 
 #ifndef NDEBUG
@@ -81,6 +82,7 @@ private:
     std::unique_ptr<ImGuiLayer> imgui_layer_;
     std::unique_ptr<ResourceManager> resource_manager_;
     Scene scene_;
+    ScriptManager script_manager_;
 
 #ifndef NDEBUG
     ShaderWatcher shader_watcher_;

@@ -5,6 +5,8 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include <nlohmann/json.hpp>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -15,6 +17,13 @@ class Model;
 class Material;
 class Project;
 struct RenderStats;
+
+struct ComponentInstance {
+    uint32_t type_id{0};
+    std::string type_name;
+    std::vector<uint8_t> data;
+    nlohmann::json serialized;
+};
 
 struct RenderObject {
     uint32_t id{0};
@@ -27,6 +36,8 @@ struct RenderObject {
     std::string name;
     std::string source;       // "primitive:cube", "primitive:plane", etc. or model file path
     std::string material_name;
+
+    std::vector<ComponentInstance> components;
 };
 
 class Scene {

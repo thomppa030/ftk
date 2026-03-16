@@ -86,6 +86,15 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         create_default_scene();
     }
 
+    // Load game scripts in game mode
+    if (game_mode_) {
+        auto game_so = base_path::resolve("game.so");
+        if (std::filesystem::exists(game_so)) {
+            script_manager_.load(game_so);
+            script_manager_.deserialize_all(scene_);
+        }
+    }
+
     FJELL_CORE_INFO("Engine initialized");
 }
 
@@ -452,6 +461,27 @@ void Engine::draw_properties() {
 
             ImGui::Spacing();
             ImGui::TextDisabled("Source: %s", obj->source.c_str());
+
+            // Components
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
+            script_manager_.draw_inspector(*obj);
+
+            // Add component button
+            if (script_manager_.is_loaded() && !script_manager_.types().empty()) {
+                if (ImGui::Button("Add Component", {-1, 0})) {
+                    ImGui::OpenPopup("##AddComponent");
+                }
+                if (ImGui::BeginPopup("##AddComponent")) {
+                    for (const auto& type : script_manager_.types()) {
+                        if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
+                            script_manager_.add_component(*obj, type.name);
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
+            }
         } else {
             ImGui::TextDisabled("No object selected");
         }
@@ -571,6 +601,16 @@ void Engine::open_project(const std::filesystem::path& path) {
     window_.set_title("Fjell - " + project_->config().name);
     scan_models();
     scan_scenes();
+
+    // Load game scripts if available
+    auto so_path = project_->root() / "game.so";
+    if (std::filesystem::exists(so_path)) {
+        script_manager_.load(so_path);
+        script_manager_.deserialize_all(scene_);
+#ifndef NDEBUG
+        script_manager_.watch(so_path);
+#endif
+    }
 }
 
 void Engine::close_project() {
@@ -733,8 +773,7 @@ void Engine::draw_ui() {
 }
 
 void Engine::start_play() {
-    // Derive fly camera orientation from orbit camera
-    // Orbit yaw is the same; negate pitch (orbit elevation → fly look angle)
+    script_manager_.serialize_all(scene_);
     play_session_ = std::make_unique<PlaySession>(
         scene_, camera_.position(), camera_.yaw(), -camera_.pitch());
     input_.set_cursor_captured(window_.handle(), true);
@@ -749,6 +788,7 @@ void Engine::stop_play() {
         return;
     }
     play_session_->restore(scene_);
+    script_manager_.deserialize_all(scene_);
     input_.set_cursor_captured(window_.handle(), false);
     play_session_.reset();
     FJELL_CORE_INFO("Play mode stopped");
@@ -836,6 +876,7 @@ void Engine::run() {
 
         if (is_playing()) {
             play_session_->update(input_, dt);
+            script_manager_.update(scene_, input_, clock_);
             if (play_session_->wants_stop(input_)) {
                 stop_play();
             }
@@ -844,6 +885,10 @@ void Engine::run() {
                 camera_.update(input_, dt);
             }
         }
+
+#ifndef NDEBUG
+        script_manager_.poll_reload(scene_);
+#endif
 
         scene_.compute_world_matrices();
 

@@ -28,6 +28,8 @@ add_executable(fjell
     renderer/texture.cpp
     renderer/vulkan_context.cpp
     scene/scene.cpp
+    scripting/json_bridge.cpp
+    scripting/script_manager.cpp
     ui/imgui_layer.cpp
 
     # ImGui sources
@@ -61,7 +63,10 @@ target_link_libraries(fjell PRIVATE
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     Vulkan::Vulkan
+    ${CMAKE_DL_LIBS}
 )
+
+target_link_options(fjell PRIVATE -rdynamic)
 
 target_compile_options(fjell PRIVATE
     -Wall -Wextra -Wpedantic -Werror

@@ -59,6 +59,13 @@ bool GameBuilder::build(const Project& project,
                      fs::copy_options::recursive | fs::copy_options::overwrite_existing);
         }
 
+        // Copy game scripts .so if available
+        auto game_so = project.root() / "game.so";
+        if (fs::exists(game_so)) {
+            fs::copy_file(game_so, output_dir / "game.so",
+                          fs::copy_options::overwrite_existing);
+        }
+
         // Write game.fjell (acts as both game mode marker and config)
         nlohmann::json j;
         j["name"] = project.config().name;

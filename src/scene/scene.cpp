@@ -177,6 +177,17 @@ void Scene::save(const std::string& path) const {
         jobj["position"] = {obj.transform.position.x, obj.transform.position.y, obj.transform.position.z};
         jobj["rotation"] = {obj.transform.rotation.x, obj.transform.rotation.y, obj.transform.rotation.z};
         jobj["scale"] = {obj.transform.scale.x, obj.transform.scale.y, obj.transform.scale.z};
+
+        if (!obj.components.empty()) {
+            jobj["components"] = nlohmann::json::array();
+            for (const auto& comp : obj.components) {
+                nlohmann::json jcomp;
+                jcomp["type"] = comp.type_name;
+                jcomp["data"] = comp.serialized;
+                jobj["components"].push_back(jcomp);
+            }
+        }
+
         j["objects"].push_back(jobj);
     }
 
@@ -260,6 +271,18 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             if (id > max_id) max_id = id;
         }
         scene.objects().back().parent_id = loaded_parent;
+
+        // Load component data as raw JSON (ScriptManager will instantiate later)
+        if (jobj.contains("components")) {
+            for (const auto& jcomp : jobj["components"]) {
+                ComponentInstance comp;
+                comp.type_name = jcomp.value("type", "");
+                if (jcomp.contains("data")) {
+                    comp.serialized = jcomp["data"];
+                }
+                scene.objects().back().components.push_back(std::move(comp));
+            }
+        }
     }
 
     // Restore next_id from file or compute from max

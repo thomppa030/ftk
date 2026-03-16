@@ -19,6 +19,8 @@ Project Project::create(const std::filesystem::path& directory,
     fs::create_directories(root / "assets" / "textures");
     fs::create_directories(root / "assets" / "models");
     fs::create_directories(root / "scenes");
+    fs::create_directories(root / "scripts");
+    fs::create_directories(root / "include");
 
     // Copy default texture from engine
     auto engine_texture = base_path::resolve("assets/textures/test.png");
@@ -39,6 +41,34 @@ Project Project::create(const std::filesystem::path& directory,
     scene_json["objects"] = nlohmann::json::array();
     std::ofstream scene_file(root / "scenes" / "main.fjell");
     scene_file << scene_json.dump(2);
+
+    // Copy fjell_api.h for script compilation
+    auto api_header = base_path::resolve("scripting/fjell_api.h");
+    auto project_header = root / "include" / "fjell_api.h";
+    if (fs::exists(api_header) && !fs::exists(project_header)) {
+        fs::copy_file(api_header, project_header);
+    }
+
+    // Scaffold scripts CMakeLists.txt
+    auto scripts_cmake = root / "scripts" / "CMakeLists.txt";
+    if (!fs::exists(scripts_cmake)) {
+        std::ofstream cmake_file(scripts_cmake);
+        cmake_file << "cmake_minimum_required(VERSION 3.25)\n"
+                   << "project(FjellGame LANGUAGES CXX)\n\n"
+                   << "set(CMAKE_CXX_STANDARD 23)\n"
+                   << "set(CMAKE_CXX_STANDARD_REQUIRED ON)\n"
+                   << "set(CMAKE_POSITION_INDEPENDENT_CODE ON)\n\n"
+                   << "file(GLOB_RECURSE GAME_SOURCES \"*.cpp\")\n\n"
+                   << "add_library(game SHARED ${GAME_SOURCES})\n\n"
+                   << "target_include_directories(game PRIVATE\n"
+                   << "    ${CMAKE_CURRENT_SOURCE_DIR}/../include\n"
+                   << ")\n\n"
+                   << "target_compile_options(game PRIVATE -Wall -Wextra)\n\n"
+                   << "set_target_properties(game PROPERTIES\n"
+                   << "    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..\n"
+                   << "    PREFIX \"\"\n"
+                   << ")\n";
+    }
 
     FJELL_CORE_INFO("Project created: {} at {}", name, root.string());
     return project;
