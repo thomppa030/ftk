@@ -16,7 +16,7 @@ namespace fjell {
 ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
                        VkPhysicalDevice physical_device, VkDevice device,
                        uint32_t graphics_family, VkQueue graphics_queue,
-                       VkRenderPass render_pass, uint32_t image_count,
+                       VkFormat color_format, uint32_t image_count,
                        const std::string& font_dir)
     : device_{device}, font_dir_{font_dir} {
   // Descriptor pool for ImGui
@@ -57,8 +57,10 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   init_info.DescriptorPool = descriptor_pool_;
   init_info.MinImageCount = 2;
   init_info.ImageCount = image_count;
-  init_info.PipelineInfoMain.RenderPass = render_pass;
-  init_info.PipelineInfoMain.Subpass = 0;
+  init_info.UseDynamicRendering = true;
+  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+  init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &color_format;
   init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
   ImGui_ImplVulkan_Init(&init_info);

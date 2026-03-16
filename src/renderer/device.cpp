@@ -186,8 +186,15 @@ void Device::create_logical_device() {
     VkPhysicalDeviceFeatures features{};
     features.samplerAnisotropy = VK_TRUE;
 
+    // Vulkan 1.3 dynamic rendering
+    VkPhysicalDeviceVulkan13Features features_13{};
+    features_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    features_13.dynamicRendering = VK_TRUE;
+    features_13.synchronization2 = VK_TRUE;
+
     VkDeviceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    create_info.pNext = &features_13;
     create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
     create_info.pQueueCreateInfos = queue_create_infos.data();
     create_info.pEnabledFeatures = &features;
