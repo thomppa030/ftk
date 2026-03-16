@@ -1,4 +1,5 @@
 #include "hub/hub_ui.hpp"
+#include "ui/theme.hpp"
 
 #include <imgui.h>
 
@@ -14,41 +15,7 @@ namespace fjell::hub {
 HubUI::HubUI() = default;
 
 void HubUI::setup_style() {
-    auto& style = ImGui::GetStyle();
-    auto& c = style.Colors;
-
-    style.WindowRounding = 0.0f;
-    style.FrameRounding = 6.0f;
-    style.GrabRounding = 3.0f;
-    style.ScrollbarRounding = 8.0f;
-    style.PopupRounding = 6.0f;
-    style.WindowPadding = {12.0f, 10.0f};
-    style.FramePadding = {10.0f, 6.0f};
-    style.ItemSpacing = {8.0f, 6.0f};
-    style.WindowBorderSize = 0.0f;
-    style.FrameBorderSize = 0.0f;
-
-    c[ImGuiCol_WindowBg] = {0.118f, 0.122f, 0.133f, 1.0f};
-    c[ImGuiCol_ChildBg] = {0.118f, 0.122f, 0.133f, 1.0f};
-    c[ImGuiCol_PopupBg] = {0.067f, 0.071f, 0.078f, 0.98f};
-    c[ImGuiCol_Border] = {0.055f, 0.055f, 0.063f, 1.0f};
-    c[ImGuiCol_FrameBg] = {0.067f, 0.071f, 0.078f, 1.0f};
-    c[ImGuiCol_FrameBgHovered] = {0.118f, 0.122f, 0.133f, 1.0f};
-    c[ImGuiCol_FrameBgActive] = {0.169f, 0.176f, 0.192f, 1.0f};
-    c[ImGuiCol_TitleBg] = {0.067f, 0.071f, 0.078f, 1.0f};
-    c[ImGuiCol_TitleBgActive] = {0.067f, 0.071f, 0.078f, 1.0f};
-    c[ImGuiCol_Button] = {0.169f, 0.176f, 0.192f, 1.0f};
-    c[ImGuiCol_ButtonHovered] = {0.345f, 0.396f, 0.949f, 1.0f};
-    c[ImGuiCol_ButtonActive] = {0.278f, 0.322f, 0.769f, 1.0f};
-    c[ImGuiCol_Header] = {0.169f, 0.176f, 0.192f, 1.0f};
-    c[ImGuiCol_HeaderHovered] = {0.220f, 0.227f, 0.251f, 1.0f};
-    c[ImGuiCol_HeaderActive] = {0.345f, 0.396f, 0.949f, 1.0f};
-    c[ImGuiCol_Text] = {0.878f, 0.878f, 0.878f, 1.0f};
-    c[ImGuiCol_TextDisabled] = {0.502f, 0.502f, 0.502f, 1.0f};
-    c[ImGuiCol_ScrollbarBg] = {0.067f, 0.071f, 0.078f, 0.5f};
-    c[ImGuiCol_ScrollbarGrab] = {0.220f, 0.227f, 0.251f, 1.0f};
-    c[ImGuiCol_ScrollbarGrabHovered] = {0.306f, 0.314f, 0.345f, 1.0f};
-    c[ImGuiCol_ScrollbarGrabActive] = {0.345f, 0.396f, 0.949f, 1.0f};
+    fjell::theme::apply(ImGui::GetStyle());
 }
 
 // Draw the Fjell mountain logo using polylines
@@ -79,9 +46,10 @@ void HubUI::draw_logo(float cx, float y, float scale) {
                     pt(515,168), pt(540,155), pt(565,164), pt(585,148), pt(600,185)};
     dl->AddPolyline(mid, 9, color(0.45f), ImDrawFlags_None, 1.8f * scale);
 
-    // Front ridge (dominant peak)
+    // Front ridge (dominant peak) — amber accent
     ImVec2 front[] = {pt(420,185), pt(510,95), pt(600,185)};
-    dl->AddPolyline(front, 3, color(1.0f), ImDrawFlags_None, 2.5f * scale);
+    ImU32 amber = IM_COL32(212, 160, 84, 255); // #D4A054
+    dl->AddPolyline(front, 3, amber, ImDrawFlags_None, 2.5f * scale);
 
     // Horizon
     dl->AddLine(pt(418,185), pt(602,185), color(0.3f), 0.8f * scale);
@@ -102,28 +70,35 @@ void HubUI::draw_logo(float cx, float y, float scale) {
 }
 
 void HubUI::draw_hub(float window_w, float window_h) {
+    float pad = 30.0f;
+    float content_w = window_w - pad * 2.0f;
+    float button_h = 36.0f;
+    float button_area = button_h + pad; // buttons + bottom padding
+
     ImGui::SetNextWindowPos({0, 0});
     ImGui::SetNextWindowSize({window_w, window_h});
     ImGui::Begin("##Hub", nullptr,
                  ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-                 ImGuiWindowFlags_NoBringToFrontOnFocus);
+                 ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoScrollbar);
 
     float cx = window_w * 0.5f;
 
-    // Logo
-    float logo_scale = window_w / 240.0f;
-    draw_logo(cx, 40.0f, logo_scale);
+    // -- Top section: logo + title --
+    float logo_scale = content_w / 300.0f;
+    // Full logo height: from top of SVG (y=48) to bottom of deepest reflection (y=275)
+    float logo_h = (275.0f - 48.0f) * logo_scale;
+    float logo_y = pad - 20.0f;
 
-    // "FJELL" title below logo
-    float logo_bottom = 40.0f + 270.0f * logo_scale;
-    ImGui::SetCursorPosY(logo_bottom + 10.0f);
+    // Reserve space for the entire logo including reflections
+    ImGui::Dummy({0, logo_h + 5.0f});
+    draw_logo(cx, logo_y, logo_scale);
 
+    // "FJELL" title — separate from logo
     auto title_size = ImGui::CalcTextSize("F J E L L");
     ImGui::SetCursorPosX((window_w - title_size.x) * 0.5f);
     ImGui::TextColored({0.878f, 0.878f, 0.878f, 0.7f}, "F J E L L");
 
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.0f);
     auto subtitle = ImGui::CalcTextSize("Game Engine");
     ImGui::SetCursorPosX((window_w - subtitle.x) * 0.5f);
     ImGui::TextDisabled("Game Engine");
@@ -132,39 +107,55 @@ void HubUI::draw_hub(float window_w, float window_h) {
     ImGui::Separator();
     ImGui::Spacing();
 
-    // Recent projects
-    float list_width = window_w - 60.0f;
-    ImGui::SetCursorPosX(30.0f);
-    ImGui::BeginGroup();
+    // -- Middle section: scrollable project list (fills remaining space) --
+    float list_top = ImGui::GetCursorPosY();
+    float list_height = window_h - list_top - button_area - pad;
+
+    ImGui::SetCursorPosX(pad);
+    ImGui::BeginChild("##ProjectList", {content_w, list_height}, ImGuiChildFlags_None);
 
     if (recent_.list().empty()) {
+        auto msg = ImGui::CalcTextSize("No recent projects");
+        ImGui::SetCursorPosX((content_w - msg.x) * 0.5f);
         ImGui::TextDisabled("No recent projects");
     } else {
+        float item_h = 32.0f;
+        auto* dl = ImGui::GetWindowDrawList();
+
         for (const auto& project : recent_.list()) {
             ImGui::PushID(project.path.c_str());
             std::string label = project.name.empty() ? project.path : project.name;
 
-            if (ImGui::Selectable(label.c_str(), false, 0, {list_width, 28.0f})) {
+            if (ImGui::Selectable("##sel", false, 0, {content_w, item_h})) {
                 splash_active_ = true;
                 splash_timer_ = 0.0f;
                 launch_path_ = project.path;
                 launch_name_ = project.name;
             }
-            // Show path as tooltip
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("%s", project.path.c_str());
             }
+
+            // Draw centered text over the selectable via draw list (no layout side effects)
+            auto rect_min = ImGui::GetItemRectMin();
+            auto rect_max = ImGui::GetItemRectMax();
+            auto text_size = ImGui::CalcTextSize(label.c_str());
+            ImVec2 text_pos = {
+                rect_min.x + (rect_max.x - rect_min.x - text_size.x) * 0.5f,
+                rect_min.y + (rect_max.y - rect_min.y - text_size.y) * 0.5f
+            };
+            dl->AddText(text_pos, IM_COL32(224, 224, 224, 255), label.c_str());
+
             ImGui::PopID();
         }
     }
-    ImGui::EndGroup();
+    ImGui::EndChild();
 
-    // Buttons at bottom
-    float button_y = window_h - 80.0f;
-    float button_w = (list_width - 10.0f) * 0.5f;
-    ImGui::SetCursorPos({30.0f, button_y});
+    // -- Bottom section: buttons pinned to bottom --
+    float button_w = (content_w - 10.0f) * 0.5f;
+    ImGui::SetCursorPos({pad, window_h - button_area});
 
-    if (ImGui::Button("New Project", {button_w, 36.0f})) {
+    if (ImGui::Button("New Project", {button_w, button_h})) {
         show_new_project_ = true;
         new_project_path_[0] = '\0';
         new_project_name_[0] = '\0';
@@ -256,10 +247,11 @@ void HubUI::draw_splash(float window_w, float window_h) {
     float cx = window_w * 0.5f;
 
     // Logo
-    float logo_scale = window_w / 280.0f;
-    draw_logo(cx, 80.0f, logo_scale);
+    float logo_scale = window_w / 300.0f;
+    float logo_top = 80.0f;
+    draw_logo(cx, logo_top, logo_scale);
 
-    float logo_bottom = 80.0f + 270.0f * logo_scale;
+    float logo_bottom = logo_top + (275.0f - 48.0f) * logo_scale;
 
     // "FJELL" title
     ImGui::SetCursorPosY(logo_bottom + 15.0f);
@@ -279,7 +271,7 @@ void HubUI::draw_splash(float window_w, float window_h) {
     float arc_start = angle;
     float arc_end = angle + pi * 1.4f;
     dl->PathArcTo(center, spinner_radius, arc_start, arc_end, 20);
-    dl->PathStroke(IM_COL32(88, 101, 242, 200), ImDrawFlags_None, 2.5f);
+    dl->PathStroke(IM_COL32(212, 160, 84, 200), ImDrawFlags_None, 2.5f); // amber
 
     // Loading text
     ImGui::SetCursorPosY(spinner_y + spinner_radius * 2.0f + 20.0f);

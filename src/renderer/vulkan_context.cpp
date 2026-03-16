@@ -230,7 +230,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     // --- Pass 2: Render ImGui to swapchain ---
     {
         std::array<VkClearValue, 2> clear_values{};
-        clear_values[0].color = {{0.118f, 0.122f, 0.133f, 1.0f}};
+        clear_values[0].color = {{0.012f, 0.012f, 0.015f, 1.0f}}; // #1e1f22 linearized
         clear_values[1].depthStencil = {1.0f, 0};
 
         VkRenderPassBeginInfo rp_info{};

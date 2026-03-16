@@ -88,33 +88,41 @@ file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_api.h"
      DESTINATION "${CMAKE_BINARY_DIR}/scripting")
 
 # --- Fjell Hub (launcher) ---
-find_package(OpenGL REQUIRED)
-
 add_executable(fjell-hub
     hub/main.cpp
     hub/hub_ui.cpp
     hub/recent_projects.cpp
     core/log.cpp
+    core/window.cpp
+    renderer/device.cpp
+    renderer/swapchain.cpp
+    renderer/image.cpp
+    renderer/buffer.cpp
+    ui/imgui_layer.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
 )
 
 target_include_directories(fjell-hub PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${stb_SOURCE_DIR}
 )
 target_include_directories(fjell-hub SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
+    ${imguizmo_SOURCE_DIR}
 )
 target_link_libraries(fjell-hub PRIVATE
     glfw
     nlohmann_json::nlohmann_json
     spdlog::spdlog
-    OpenGL::GL
+    Vulkan::Vulkan
 )
 target_compile_options(fjell-hub PRIVATE
     -Wall -Wextra -Wpedantic -Werror
