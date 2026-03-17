@@ -43,6 +43,7 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
     obj.source = source;
     obj.material_name = material_name;
     objects_.push_back(std::move(obj));
+    dirty_ = true;
     return id;
 }
 
@@ -57,6 +58,7 @@ void Scene::remove(uint32_t id) {
                            [id](const RenderObject& o) { return o.id == id; });
     if (it != objects_.end()) {
         objects_.erase(it);
+        dirty_ = true;
     }
 }
 
@@ -146,9 +148,10 @@ void Scene::reparent(uint32_t child_id, int32_t new_parent_id) {
         }
     }
     child->transform = decompose_matrix(new_local);
+    dirty_ = true;
 }
 
-void Scene::save(const std::string& path) const {
+void Scene::save(const std::string& path) {
     nlohmann::json j;
     j["next_id"] = next_id_;
     j["objects"] = nlohmann::json::array();
@@ -216,6 +219,7 @@ void Scene::save(const std::string& path) const {
         return;
     }
     file << j.dump(2);
+    dirty_ = false;
     FJELL_CORE_INFO("Scene saved: {}", path);
 }
 

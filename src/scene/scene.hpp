@@ -110,7 +110,10 @@ public:
     [[nodiscard]] const RenderObject* find(uint32_t id) const;
     [[nodiscard]] int index_of(uint32_t id) const;
 
-    void save(const std::string& path) const;
+    void save(const std::string& path);
+
+    void mark_dirty() { dirty_ = true; }
+    [[nodiscard]] bool is_dirty() const { return dirty_; }
     static Scene load(const std::string& path,
                       ResourceManager& resources,
                       const Project* project = nullptr);
@@ -125,6 +128,7 @@ public:
 private:
     std::vector<RenderObject> objects_;
     uint32_t next_id_{1};
+    bool dirty_{false};
 };
 
 } // namespace fjell

@@ -84,7 +84,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     resource_manager_ = std::make_unique<ResourceManager>(
         vulkan_context_.device(), vulkan_context_.physical_device(),
         vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
-        vulkan_context_.material_pool(), vulkan_context_.material_layout());
+        vulkan_context_.bindless_textures());
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));
@@ -462,19 +462,20 @@ void Engine::draw_properties() {
             ImGui::SetNextItemWidth(-1);
             if (ImGui::InputText("##Name", name_buf, sizeof(name_buf))) {
                 obj->name = name_buf;
+                scene_.mark_dirty();
             }
 
             ImGui::Separator();
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Transform");
             ImGui::Text("Position");
             ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat3("##Position", &obj->transform.position.x, 0.1f);
+            if (ImGui::DragFloat3("##Position", &obj->transform.position.x, 0.1f)) scene_.mark_dirty();
             ImGui::Text("Rotation");
             ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat3("##Rotation", &obj->transform.rotation.x, 1.0f);
+            if (ImGui::DragFloat3("##Rotation", &obj->transform.rotation.x, 1.0f)) scene_.mark_dirty();
             ImGui::Text("Scale");
             ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat3("##Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f);
+            if (ImGui::DragFloat3("##Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f)) scene_.mark_dirty();
 
             ImGui::Spacing();
             ImGui::Separator();
@@ -946,6 +947,19 @@ void Engine::draw_menu_bar() {
 }
 
 void Engine::draw_ui() {
+    // Update window title with unsaved indicator
+    {
+        std::string title = "Fjell";
+        if (project_) title += " - " + project_->config().name;
+        if (scene_.is_dirty()) title += " *";
+        window_.set_title(title);
+    }
+
+    // Global shortcuts
+    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+        scene_.save(current_scene_path_);
+    }
+
     // Gizmo keyboard shortcuts (only when viewport owns input)
     if (layer_stack_.has_input("Viewport")) {
         if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmo_op_ = 0;
