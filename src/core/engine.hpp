@@ -6,7 +6,6 @@
 #include "core/play_session.hpp"
 #include "core/project.hpp"
 #include "core/window.hpp"
-#include "renderer/camera.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/uniform_types.hpp"
@@ -15,6 +14,7 @@
 #include "scripting/script_manager.hpp"
 #include "ui/file_browser.hpp"
 #include "ui/imgui_layer.hpp"
+#include "ui/viewport_manager.hpp"
 #include "ui/nvim_panel.hpp"
 
 #ifndef NDEBUG
@@ -56,7 +56,6 @@ private:
     void draw_ui();
     void setup_dockspace();
     void draw_menu_bar();
-    void draw_viewport();
     void draw_hierarchy();
     void draw_hierarchy_node(RenderObject& obj);
     void draw_properties();
@@ -84,7 +83,6 @@ private:
     Window window_;
     Input input_;
     Clock clock_;
-    Camera camera_;
     VulkanContext vulkan_context_;
     std::unique_ptr<ImGuiLayer> imgui_layer_;
     std::unique_ptr<ResourceManager> resource_manager_;
@@ -129,13 +127,13 @@ private:
     bool layout_built_{false};
     bool focus_viewport_{false};
 
+    // Viewports
+    ViewportManager viewport_manager_;
+
     // File browsers
     FileBrowser open_browser_{FileBrowser::Mode::select_directory};
     FileBrowser new_browser_{FileBrowser::Mode::select_location};
 
-    // Viewport bounds for gizmo
-    glm::vec2 viewport_pos_{0.0f};
-    glm::vec2 viewport_size_{1.0f};
 
     // Frame time history for graph
     static constexpr int FRAME_TIME_HISTORY_SIZE = 120;

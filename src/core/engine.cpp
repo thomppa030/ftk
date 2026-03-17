@@ -44,7 +44,6 @@ private:
 Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                const std::filesystem::path& project_path)
     : window_{title, width, height}
-    , camera_{{0.0f, 1.0f, 0.0f}, 8.0f}
     , vulkan_context_{window_}
 #ifndef NDEBUG
     , shader_watcher_{base_path::resolve("../shaders"), base_path::resolve("shaders")}
@@ -122,6 +121,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
+    viewport_manager_.init(vulkan_context_.device_ref());
+    viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
+
     FJELL_CORE_INFO("Engine initialized");
 }
 
@@ -130,7 +132,7 @@ Engine::~Engine() {
     vulkan_context_.set_overlay_callback(nullptr);
     scene_ = {};
     resource_manager_.reset();
-    vulkan_context_.release_viewport_texture();
+    viewport_manager_.release_textures();
     imgui_layer_.reset();
     FJELL_CORE_INFO("Engine shut down");
 }
@@ -288,175 +290,6 @@ void Engine::setup_dockspace() {
     ImGui::End();
 }
 
-void Engine::draw_viewport() {
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});
-
-    if (ImGui::Begin("Viewport")) {
-        viewport_hovered_ = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
-
-        // Play button toolbar
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f, 4.0f});
-        if (ImGui::Button(is_playing() ? "Stop" : "Play")) {
-            if (is_playing()) stop_play();
-            else start_play();
-        }
-        ImGui::SameLine();
-        bool show_col = vulkan_context_.show_colliders();
-        if (ImGui::Checkbox("Colliders", &show_col)) {
-            vulkan_context_.set_show_colliders(show_col);
-        }
-        ImGui::PopStyleVar();
-
-        auto cursor = ImGui::GetCursorScreenPos();
-        auto vp_max = ImGui::GetWindowContentRegionMax();
-        auto vp_pos = ImGui::GetWindowPos();
-        auto vp_min = ImGui::GetWindowContentRegionMin();
-        viewport_pos_ = {cursor.x, cursor.y};
-        viewport_size_ = {vp_max.x - vp_min.x, vp_pos.y + vp_max.y - cursor.y};
-
-        // Resize offscreen pass to match viewport
-        auto vp_w = static_cast<uint32_t>(viewport_size_.x);
-        auto vp_h = static_cast<uint32_t>(viewport_size_.y);
-        if (vp_w > 0 && vp_h > 0) {
-            vulkan_context_.resize_viewport(vp_w, vp_h);
-        }
-
-        // Display rendered scene as texture
-        auto tex_id = vulkan_context_.viewport_texture();
-        if (tex_id) {
-            ImGui::Image(tex_id, {viewport_size_.x, viewport_size_.y});
-        }
-
-        // Mouse picking — click/double-click objects in viewport
-        if (ImGui::IsItemHovered() && !ImGuizmo::IsUsing() &&
-            (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
-             ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) {
-            // Build ray from mouse position through viewport
-            auto mouse = ImGui::GetMousePos();
-            float mx = (mouse.x - viewport_pos_.x) / viewport_size_.x;
-            float my = (mouse.y - viewport_pos_.y) / viewport_size_.y;
-
-            float aspect = viewport_size_.x / std::max(viewport_size_.y, 1.0f);
-            auto view = camera_.view_matrix();
-            auto proj = glm::perspective(
-                glm::radians(camera_.fov()), aspect, 0.1f, 1000.0f);
-            auto inv_vp = glm::inverse(proj * view);
-
-            // NDC: [-1,1] range, Y flipped for Vulkan projection
-            glm::vec4 ndc_near{mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 0.0f, 1.0f};
-            glm::vec4 ndc_far {mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 1.0f, 1.0f};
-
-            glm::vec4 world_near = inv_vp * ndc_near;
-            glm::vec4 world_far  = inv_vp * ndc_far;
-            world_near /= world_near.w;
-            world_far  /= world_far.w;
-
-            glm::vec3 ray_origin = glm::vec3(world_near);
-            glm::vec3 ray_dir = glm::normalize(glm::vec3(world_far - world_near));
-
-            // Test ray against each object's world-space AABB
-            float closest_t = std::numeric_limits<float>::max();
-            uint32_t hit_id = 0;
-
-            for (const auto& obj : scene_.objects()) {
-                if (!obj.model) continue;
-                const auto& verts = obj.model->collision_vertices();
-                if (verts.empty()) continue;
-
-                // Compute world-space AABB
-                glm::vec3 aabb_min{std::numeric_limits<float>::max()};
-                glm::vec3 aabb_max{std::numeric_limits<float>::lowest()};
-                for (const auto& v : verts) {
-                    glm::vec3 world_v = glm::vec3(obj.world_matrix_ * glm::vec4(v, 1.0f));
-                    aabb_min = glm::min(aabb_min, world_v);
-                    aabb_max = glm::max(aabb_max, world_v);
-                }
-
-                // Ray-AABB intersection (slab method)
-                glm::vec3 inv_dir = 1.0f / ray_dir;
-                glm::vec3 t1 = (aabb_min - ray_origin) * inv_dir;
-                glm::vec3 t2 = (aabb_max - ray_origin) * inv_dir;
-                glm::vec3 t_min_v = glm::min(t1, t2);
-                glm::vec3 t_max_v = glm::max(t1, t2);
-                float t_enter = std::max({t_min_v.x, t_min_v.y, t_min_v.z});
-                float t_exit  = std::min({t_max_v.x, t_max_v.y, t_max_v.z});
-
-                if (t_enter <= t_exit && t_exit >= 0.0f) {
-                    float t = t_enter >= 0.0f ? t_enter : t_exit;
-                    if (t < closest_t) {
-                        closest_t = t;
-                        hit_id = obj.id;
-                    }
-                }
-            }
-
-            if (hit_id != 0) {
-                selected_id_ = hit_id;
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    if (auto* hit_obj = scene_.find(hit_id)) {
-                        glm::vec3 center = glm::vec3(hit_obj->world_matrix_[3]);
-                        float radius = 1.0f;
-                        if (hit_obj->model && !hit_obj->model->collision_vertices().empty()) {
-                            float max_r2 = 0.0f;
-                            for (const auto& v : hit_obj->model->collision_vertices()) {
-                                auto wv = glm::vec3(hit_obj->world_matrix_ * glm::vec4(v, 1.0f));
-                                max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
-                            }
-                            radius = std::max(std::sqrt(max_r2), 0.1f);
-                        }
-                        camera_.focus(center, radius);
-                    }
-                }
-            } else {
-                selected_id_ = 0;
-            }
-        }
-
-        // Gizmo for selected object (draw over the image)
-        if (auto* obj = scene_.find(selected_id_); obj) {
-            float aspect = viewport_size_.x / std::max(viewport_size_.y, 1.0f);
-            auto view = camera_.view_matrix();
-            auto projection = glm::perspective(
-                glm::radians(camera_.fov()), aspect, 0.1f, 1000.0f);
-
-            ImGuizmo::SetRect(viewport_pos_.x, viewport_pos_.y,
-                              viewport_size_.x, viewport_size_.y);
-            ImGuizmo::SetOrthographic(false);
-            ImGuizmo::SetDrawlist();
-
-            glm::mat4 world_matrix = obj->world_matrix_;
-
-            ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
-            if (gizmo_op_ == 1) op = ImGuizmo::ROTATE;
-            if (gizmo_op_ == 2) op = ImGuizmo::SCALE;
-
-            ImGuizmo::Manipulate(
-                glm::value_ptr(view),
-                glm::value_ptr(projection),
-                op,
-                ImGuizmo::LOCAL,
-                glm::value_ptr(world_matrix));
-
-            if (ImGuizmo::IsUsing()) {
-                // Convert manipulated world matrix back to local space
-                glm::mat4 local_matrix = world_matrix;
-                if (obj->parent_id != -1) {
-                    const auto* parent = scene_.find(
-                        static_cast<uint32_t>(obj->parent_id));
-                    if (parent) {
-                        local_matrix = glm::inverse(parent->world_matrix_) * world_matrix;
-                    }
-                }
-                obj->transform = decompose_matrix(local_matrix);
-            }
-        }
-    }
-    ImGui::End();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
-}
-
 void Engine::draw_hierarchy() {
     if (ImGui::Begin("Hierarchy")) {
         remove_pending_id_ = 0;
@@ -553,7 +386,9 @@ void Engine::draw_hierarchy_node(RenderObject& obj) {
             }
             radius = std::max(std::sqrt(max_r2), 0.1f);
         }
-        camera_.focus(center, radius);
+        if (auto* cam = viewport_manager_.active_camera()) {
+            cam->focus(center, radius);
+        }
     }
 
     // Drag source — must follow immediately after TreeNodeEx
@@ -1013,6 +848,13 @@ void Engine::draw_menu_bar() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("View")) {
+            if (ImGui::MenuItem("Add Viewport")) {
+                viewport_manager_.add_viewport();
+            }
+            ImGui::EndMenu();
+        }
+
         ImGui::EndMainMenuBar();
     }
 
@@ -1056,7 +898,8 @@ void Engine::draw_ui() {
 
     draw_menu_bar();
     setup_dockspace();
-    draw_viewport();
+    viewport_manager_.draw(vulkan_context_, scene_, selected_id_, input_, clock_.delta_time());
+    viewport_hovered_ = viewport_manager_.any_hovered();
     draw_hierarchy();
     draw_properties();
     draw_assets();
@@ -1072,8 +915,11 @@ void Engine::draw_ui() {
 
 void Engine::start_play() {
     script_manager_.serialize_all(scene_);
+    auto* cam = viewport_manager_.active_camera();
+    Camera fallback_cam;
+    if (!cam) cam = &fallback_cam;
     play_session_ = std::make_unique<PlaySession>(
-        scene_, camera_.position(), camera_.yaw() + 180.0f, -camera_.pitch());
+        scene_, cam->position(), cam->yaw() + 180.0f, -cam->pitch());
     input_.set_cursor_captured(window_.handle(), true);
     selected_id_ = 0;
     FJELL_CORE_INFO("Play mode started");
@@ -1094,12 +940,10 @@ void Engine::stop_play() {
 }
 
 void Engine::draw_play_overlay() {
-    // Resize viewport to fill window
+    // In play mode, resize the active viewport's offscreen to fill the window
     auto w = window_.width();
     auto h = window_.height();
-    if (w > 0 && h > 0) {
-        vulkan_context_.resize_viewport(w, h);
-    }
+    viewport_manager_.resize_active(w, h);
 
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -1119,8 +963,8 @@ void Engine::draw_play_overlay() {
     ImGui::Begin("##PlayView", nullptr, flags);
     ImGui::PopStyleVar();
 
-    // Scene image fills the window
-    auto tex_id = vulkan_context_.viewport_texture();
+    // Scene image fills the window — use active viewport's offscreen
+    auto tex_id = viewport_manager_.active_texture();
     if (tex_id) {
         ImGui::Image(tex_id, viewport->WorkSize);
     }
@@ -1180,10 +1024,6 @@ void Engine::run() {
             if (play_session_->wants_stop(input_)) {
                 stop_play();
             }
-        } else {
-            if (!ImGuizmo::IsUsing() && viewport_hovered_) {
-                camera_.update(input_, dt);
-            }
         }
 
 #ifndef NDEBUG
@@ -1191,6 +1031,9 @@ void Engine::run() {
 #endif
 
         scene_.compute_world_matrices();
+
+        // Resize offscreen passes before ImGui frame so descriptors stay valid
+        viewport_manager_.apply_resize();
 
         imgui_layer_->begin_frame();
         if (is_playing()) {
@@ -1200,22 +1043,17 @@ void Engine::run() {
         }
         imgui_layer_->end_frame();
 
-        glm::mat4 view;
-        glm::mat4 projection;
-        glm::vec3 camera_pos;
+        auto requests = viewport_manager_.build_render_requests();
 
-        float aspect = viewport_size_.x / std::max(viewport_size_.y, 1.0f);
-        if (is_playing()) {
-            view = play_session_->camera().view_matrix();
-            projection = play_session_->camera().projection_matrix(aspect);
-            camera_pos = play_session_->camera().position();
-        } else {
-            view = camera_.view_matrix();
-            projection = camera_.projection_matrix(aspect);
-            camera_pos = camera_.position();
+        // In play mode, override the active viewport's camera with the play camera
+        if (is_playing() && !requests.empty()) {
+            float aspect = viewport_manager_.active_aspect();
+            requests[0].view = play_session_->camera().view_matrix();
+            requests[0].projection = play_session_->camera().projection_matrix(aspect);
+            requests[0].camera_position = play_session_->camera().position();
         }
 
-        vulkan_context_.draw_frame(view, projection, camera_pos, light_, &scene_);
+        vulkan_context_.draw_frame(requests, light_, &scene_);
     }
     FJELL_CORE_INFO("Exiting main loop");
 }
