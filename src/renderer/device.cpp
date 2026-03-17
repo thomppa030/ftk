@@ -186,6 +186,7 @@ void Device::create_logical_device() {
     VkPhysicalDeviceFeatures features{};
     features.samplerAnisotropy = VK_TRUE;
     features.depthClamp = VK_TRUE;
+    features.fillModeNonSolid = VK_TRUE;
 
     // Vulkan 1.3 dynamic rendering
     VkPhysicalDeviceVulkan13Features features_13{};
