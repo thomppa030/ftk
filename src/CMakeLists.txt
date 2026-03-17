@@ -100,9 +100,20 @@ compile_shaders(fjell ${SHADER_DIR} ${SHADER_OUTPUT_DIR})
 # Symlink assets into build dir so the executable finds them during development
 file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBOLIC)
 
-# Copy fjell_api.h into build dir for project scaffolding
-file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_api.h"
-     DESTINATION "${CMAKE_BINARY_DIR}/scripting")
+# Copy scripting headers into build dir for project scaffolding
+file(COPY
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_api.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_actor.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_component.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_world.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_registry.hpp"
+    DESTINATION "${CMAKE_BINARY_DIR}/scripting")
+file(COPY
+    "${CMAKE_CURRENT_SOURCE_DIR}/scene/transform.hpp"
+    DESTINATION "${CMAKE_BINARY_DIR}/scene")
+file(COPY
+    "${CMAKE_CURRENT_SOURCE_DIR}/core/input.hpp"
+    DESTINATION "${CMAKE_BINARY_DIR}/core")
 
 # --- Fjell Hub (launcher) ---
 add_executable(fjell-hub

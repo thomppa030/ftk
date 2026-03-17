@@ -2,6 +2,8 @@
 #include "renderer/model.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/texture.hpp"
+#include "scripting/fjell_actor.hpp"
+#include "scripting/fjell_component.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -11,6 +13,18 @@
 #include <fstream>
 
 namespace fjell {
+
+// ── Out-of-line special members (need complete Actor/Component types) ───
+
+ComponentEntry::ComponentEntry() = default;
+ComponentEntry::~ComponentEntry() = default;
+ComponentEntry::ComponentEntry(ComponentEntry&&) noexcept = default;
+ComponentEntry& ComponentEntry::operator=(ComponentEntry&&) noexcept = default;
+
+RenderObject::RenderObject() = default;
+RenderObject::~RenderObject() = default;
+RenderObject::RenderObject(RenderObject&&) noexcept = default;
+RenderObject& RenderObject::operator=(RenderObject&&) noexcept = default;
 
 uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
                     ResourceManager& resources, Transform transform,

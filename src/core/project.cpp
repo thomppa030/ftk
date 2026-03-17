@@ -42,12 +42,26 @@ Project Project::create(const std::filesystem::path& directory,
     std::ofstream scene_file(root / "scenes" / "main.fjell");
     scene_file << scene_json.dump(2);
 
-    // Copy fjell_api.h for script compilation
-    auto api_header = base_path::resolve("scripting/fjell_api.h");
-    auto project_header = root / "include" / "fjell_api.h";
-    if (fs::exists(api_header) && !fs::exists(project_header)) {
-        fs::copy_file(api_header, project_header);
-    }
+    // Copy scripting headers for script compilation
+    fs::create_directories(root / "include" / "scripting");
+    fs::create_directories(root / "include" / "scene");
+    fs::create_directories(root / "include" / "core");
+
+    auto copy_header = [&](const std::string& src, const std::string& dst) {
+        auto from = base_path::resolve(src);
+        auto to = root / "include" / dst;
+        if (fs::exists(from)) {
+            fs::copy_file(from, to, fs::copy_options::overwrite_existing);
+        }
+    };
+
+    copy_header("scripting/fjell_api.h", "scripting/fjell_api.h");
+    copy_header("scripting/fjell_actor.hpp", "scripting/fjell_actor.hpp");
+    copy_header("scripting/fjell_component.hpp", "scripting/fjell_component.hpp");
+    copy_header("scripting/fjell_world.hpp", "scripting/fjell_world.hpp");
+    copy_header("scripting/fjell_registry.hpp", "scripting/fjell_registry.hpp");
+    copy_header("scene/transform.hpp", "scene/transform.hpp");
+    copy_header("core/input.hpp", "core/input.hpp");
 
     // Scaffold scripts CMakeLists.txt
     auto scripts_cmake = root / "scripts" / "CMakeLists.txt";
@@ -70,7 +84,7 @@ Project Project::create(const std::filesystem::path& directory,
                    << "target_include_directories(game PRIVATE\n"
                    << "    ${CMAKE_CURRENT_SOURCE_DIR}/../include\n"
                    << ")\n\n"
-                   << "target_compile_options(game PRIVATE -Wall -Wextra)\n\n"
+                   << "target_compile_options(game PRIVATE -Wall -Wextra -Wno-invalid-offsetof)\n\n"
                    << "set_target_properties(game PROPERTIES\n"
                    << "    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..\n"
                    << "    PREFIX \"\"\n"

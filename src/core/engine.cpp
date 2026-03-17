@@ -587,19 +587,31 @@ void Engine::draw_properties() {
             ImGui::Separator();
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
             script_manager_.draw_inspector(*obj);
+            script_manager_.draw_oop_inspector(*obj);
 
             // Add component button
-            if (script_manager_.is_loaded() && !script_manager_.types().empty()) {
-                if (ImGui::Button("Add Component", {-1, 0})) {
-                    ImGui::OpenPopup("##AddComponent");
-                }
-                if (ImGui::BeginPopup("##AddComponent")) {
-                    for (const auto& type : script_manager_.types()) {
-                        if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
-                            script_manager_.add_component(*obj, type.name);
-                        }
+            if (script_manager_.is_loaded()) {
+                bool has_types = !script_manager_.types().empty() ||
+                                 !script_manager_.oop_component_types().empty();
+                if (has_types) {
+                    if (ImGui::Button("Add Component", {-1, 0})) {
+                        ImGui::OpenPopup("##AddComponent");
                     }
-                    ImGui::EndPopup();
+                    if (ImGui::BeginPopup("##AddComponent")) {
+                        // Old-style C API components
+                        for (const auto& type : script_manager_.types()) {
+                            if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
+                                script_manager_.add_component(*obj, type.name);
+                            }
+                        }
+                        // New OOP components
+                        for (const auto& type : script_manager_.oop_component_types()) {
+                            if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
+                                script_manager_.add_oop_component(*obj, type.name);
+                            }
+                        }
+                        ImGui::EndPopup();
+                    }
                 }
             }
         } else {
@@ -920,6 +932,8 @@ void Engine::start_play() {
     if (!cam) cam = &fallback_cam;
     play_session_ = std::make_unique<PlaySession>(
         scene_, cam->position(), cam->yaw() + 180.0f, -cam->pitch());
+    script_manager_.deserialize_all(scene_);
+    script_manager_.call_begin_play(scene_);
     input_.set_cursor_captured(window_.handle(), true);
     selected_id_ = 0;
     FJELL_CORE_INFO("Play mode started");
@@ -931,6 +945,7 @@ void Engine::stop_play() {
         glfwSetWindowShouldClose(window_.handle(), GLFW_TRUE);
         return;
     }
+    script_manager_.call_end_play(scene_);
     play_session_->restore(scene_);
     script_manager_.deserialize_all(scene_);
     input_.set_cursor_captured(window_.handle(), false);
