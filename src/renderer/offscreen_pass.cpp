@@ -22,11 +22,25 @@ OffscreenPass::OffscreenPass(Device& device, uint32_t width, uint32_t height)
         throw std::runtime_error("Failed to create offscreen sampler");
     }
 
+    VkSamplerCreateInfo depth_sampler_info{};
+    depth_sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    depth_sampler_info.magFilter = VK_FILTER_NEAREST;
+    depth_sampler_info.minFilter = VK_FILTER_NEAREST;
+    depth_sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    depth_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    depth_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+    if (vkCreateSampler(device_.handle(), &depth_sampler_info, nullptr, &depth_sampler_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create depth sampler");
+    }
+
     create(width, height);
 }
 
 OffscreenPass::~OffscreenPass() {
     cleanup_images();
+    if (depth_sampler_ != VK_NULL_HANDLE)
+        vkDestroySampler(device_.handle(), depth_sampler_, nullptr);
     if (sampler_ != VK_NULL_HANDLE)
         vkDestroySampler(device_.handle(), sampler_, nullptr);
 }
@@ -43,6 +57,7 @@ void OffscreenPass::cleanup_images() {
     auto vk = device_.handle();
 
     invalidate_imgui_texture();
+    invalidate_depth_imgui_texture();
 
     if (color_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, color_view_, nullptr);
     if (color_image_ != VK_NULL_HANDLE) vkDestroyImage(vk, color_image_, nullptr);
@@ -118,7 +133,7 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     depth_info.arrayLayers = 1;
     depth_info.samples = VK_SAMPLE_COUNT_1_BIT;
     depth_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-    depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (vkCreateImage(vk, &depth_info, nullptr, &depth_image_) != VK_SUCCESS) {
@@ -160,6 +175,21 @@ void OffscreenPass::invalidate_imgui_texture() {
     if (imgui_descriptor_ != VK_NULL_HANDLE) {
         ImGui_ImplVulkan_RemoveTexture(imgui_descriptor_);
         imgui_descriptor_ = VK_NULL_HANDLE;
+    }
+}
+
+VkDescriptorSet OffscreenPass::depth_imgui_texture() {
+    if (depth_imgui_descriptor_ == VK_NULL_HANDLE && depth_view_ != VK_NULL_HANDLE) {
+        depth_imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
+            depth_sampler_, depth_view_, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    }
+    return depth_imgui_descriptor_;
+}
+
+void OffscreenPass::invalidate_depth_imgui_texture() {
+    if (depth_imgui_descriptor_ != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(depth_imgui_descriptor_);
+        depth_imgui_descriptor_ = VK_NULL_HANDLE;
     }
 }
 

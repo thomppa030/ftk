@@ -26,7 +26,9 @@ public:
     [[nodiscard]] VkImage depth_image() const { return depth_image_; }
     [[nodiscard]] VkExtent2D extent() const { return extent_; }
     [[nodiscard]] VkDescriptorSet imgui_texture();
+    [[nodiscard]] VkDescriptorSet depth_imgui_texture();
     void invalidate_imgui_texture();
+    void invalidate_depth_imgui_texture();
 
     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_SRGB;
 
@@ -40,6 +42,7 @@ private:
     VkDeviceMemory color_memory_{VK_NULL_HANDLE};
     VkImageView color_view_{VK_NULL_HANDLE};
     VkSampler sampler_{VK_NULL_HANDLE};
+    VkSampler depth_sampler_{VK_NULL_HANDLE};
 
     VkImage depth_image_{VK_NULL_HANDLE};
     VkDeviceMemory depth_memory_{VK_NULL_HANDLE};
@@ -48,6 +51,7 @@ private:
     VkExtent2D extent_{};
 
     VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
+    VkDescriptorSet depth_imgui_descriptor_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell
