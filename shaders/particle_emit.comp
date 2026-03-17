@@ -1,0 +1,82 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+struct Particle {
+    vec3  position;
+    float lifetime;
+    vec3  velocity;
+    float max_lifetime;
+    vec4  color;
+    float size;
+    float size_end;
+    float pad0;
+    float pad1;
+};
+
+layout(std430, set = 0, binding = 0) buffer ParticleBuffer {
+    Particle particles[];
+};
+
+layout(std430, set = 0, binding = 1) buffer Counters {
+    uint alive_count;
+    uint dead_count;
+};
+
+layout(std430, set = 0, binding = 2) buffer DeadList {
+    uint dead_indices[];
+};
+
+layout(push_constant) uniform PushConstants {
+    vec3  emitter_position;
+    float dt;
+    vec3  gravity;
+    uint  max_particles;
+    vec4  color_start;
+    vec4  color_end;
+    float size_start;
+    float size_end;
+    float lifetime_min;
+    float lifetime_max;
+    vec3  velocity_min;
+    uint  emit_count;
+    vec3  velocity_max;
+    uint  random_seed;
+};
+
+uint hash(uint x) {
+    x ^= x >> 16; x *= 0x45d9f3bu; x ^= x >> 16; x *= 0x45d9f3bu; x ^= x >> 16;
+    return x;
+}
+
+float rand01(inout uint seed) {
+    seed = hash(seed);
+    return float(seed) / 4294967295.0;
+}
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= emit_count) return;
+
+    // Atomically pop from dead list
+    uint slot = atomicAdd(dead_count, -1u);
+    if (slot == 0 || slot > max_particles) {
+        atomicAdd(dead_count, 1u); // undo
+        return;
+    }
+    uint pi = dead_indices[slot - 1];
+
+    uint seed = random_seed ^ hash(idx);
+
+    particles[pi].position = emitter_position;
+    float t = rand01(seed);
+    particles[pi].lifetime = mix(lifetime_min, lifetime_max, t);
+    particles[pi].max_lifetime = particles[pi].lifetime;
+    particles[pi].velocity = mix(velocity_min, velocity_max,
+        vec3(rand01(seed), rand01(seed), rand01(seed)));
+    particles[pi].color = color_start;
+    particles[pi].size = size_start;
+    particles[pi].size_end = size_end;
+
+    atomicAdd(alive_count, 1);
+}

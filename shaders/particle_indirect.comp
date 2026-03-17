@@ -1,0 +1,23 @@
+#version 450
+
+layout(local_size_x = 1) in;
+
+layout(std430, set = 0, binding = 0) buffer Counters {
+    uint alive_count;
+    uint dead_count;
+};
+
+// VkDrawIndirectCommand layout
+layout(std430, set = 0, binding = 1) buffer IndirectDraw {
+    uint vertex_count;
+    uint instance_count;
+    uint first_vertex;
+    uint first_instance;
+};
+
+void main() {
+    vertex_count = alive_count * 6;
+    instance_count = 1;
+    first_vertex = 0;
+    first_instance = 0;
+}

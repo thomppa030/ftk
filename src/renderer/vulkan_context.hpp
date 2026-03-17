@@ -2,6 +2,7 @@
 
 #include "renderer/bindless.hpp"
 #include "renderer/buffer.hpp"
+#include "renderer/particle_system.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/descriptor.hpp"
@@ -48,7 +49,7 @@ public:
 
     void draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                     const struct DirectionalLight& light,
-                    const Scene* scene);
+                    Scene* scene, float dt = 0.0f);
     void wait_idle();
     void reload_pipeline();
 
@@ -84,9 +85,9 @@ private:
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                                const std::vector<ViewportRenderRequest>& viewports,
                                const struct DirectionalLight& light,
-                               const Scene* scene);
+                               Scene* scene, float dt);
     void render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
-                         const Scene* scene);
+                         Scene* scene, float dt);
     void update_uniform_buffer(uint32_t frame_index,
                                const glm::mat4& view, const glm::mat4& projection,
                                const glm::vec3& camera_position,
@@ -137,6 +138,9 @@ private:
     std::unique_ptr<RenderStats> render_stats_;
     RenderQueue render_queue_;
     glm::vec3 camera_position_{0.0f};
+
+    // Particles
+    ParticleSystem particle_system_;
 
     // Debug collider visualization
     std::unique_ptr<DebugDraw> debug_draw_;

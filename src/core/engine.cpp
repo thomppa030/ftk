@@ -583,6 +583,44 @@ void Engine::draw_properties() {
                 }
             }
 
+            // Particle Emitter
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Particle Emitter");
+            if (obj->emitter) {
+                auto& em = *obj->emitter;
+                if (ImGui::DragFloat("Emit Rate", &em.emission_rate, 1.0f, 0.0f, 10000.0f)) scene_.mark_dirty();
+                if (ImGui::DragFloat("Lifetime Min", &em.lifetime_min, 0.1f, 0.01f, 30.0f)) scene_.mark_dirty();
+                if (ImGui::DragFloat("Lifetime Max", &em.lifetime_max, 0.1f, 0.01f, 30.0f)) scene_.mark_dirty();
+                int max_p = static_cast<int>(em.max_particles);
+                if (ImGui::DragInt("Max Particles", &max_p, 100, 100, 100000)) {
+                    em.max_particles = static_cast<uint32_t>(max_p);
+                    scene_.mark_dirty();
+                }
+                if (ImGui::DragFloat3("Velocity Min", &em.velocity_min.x, 0.1f)) scene_.mark_dirty();
+                if (ImGui::DragFloat3("Velocity Max", &em.velocity_max.x, 0.1f)) scene_.mark_dirty();
+                if (ImGui::DragFloat3("Gravity", &em.gravity.x, 0.1f)) scene_.mark_dirty();
+                if (ImGui::ColorEdit4("Color Start", &em.color_start.r)) scene_.mark_dirty();
+                if (ImGui::ColorEdit4("Color End", &em.color_end.r)) scene_.mark_dirty();
+                if (ImGui::DragFloat("Size Start", &em.size_start, 0.01f, 0.001f, 10.0f)) scene_.mark_dirty();
+                if (ImGui::DragFloat("Size End", &em.size_end, 0.01f, 0.001f, 10.0f)) scene_.mark_dirty();
+                static const char* blend_labels[] = {"Additive", "Alpha"};
+                int bm = static_cast<int>(em.blend_mode);
+                if (ImGui::Combo("Blend Mode", &bm, blend_labels, 2)) {
+                    em.blend_mode = static_cast<ParticleBlendMode>(bm);
+                    scene_.mark_dirty();
+                }
+                if (ImGui::SmallButton("Remove Emitter")) {
+                    obj->emitter.reset();
+                    scene_.mark_dirty();
+                }
+            } else {
+                if (ImGui::Button("Add Particle Emitter", {-1, 0})) {
+                    obj->emitter = ParticleEmitter{};
+                    scene_.mark_dirty();
+                }
+            }
+
             // Components
             ImGui::Spacing();
             ImGui::Separator();
@@ -1129,7 +1167,7 @@ void Engine::run() {
             requests[0].camera_position = play_session_->camera().position();
         }
 
-        vulkan_context_.draw_frame(requests, light_, &scene_);
+        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time());
     }
     FJELL_CORE_INFO("Exiting main loop");
 }

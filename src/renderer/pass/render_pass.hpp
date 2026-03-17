@@ -9,6 +9,7 @@ class Device;
 class DebugDraw;
 class OffscreenPass;
 class RenderQueue;
+class Scene;
 
 // Shared descriptor set layouts needed by passes at pipeline creation time.
 struct PassResources {
@@ -27,6 +28,8 @@ struct FrameContext {
     VkDescriptorSet bindless_set{VK_NULL_HANDLE};
     glm::vec3 camera_position{0.0f};
     DebugDraw* debug_draw{nullptr};
+    const Scene* scene{nullptr};
+    float delta_time{0.0f};
     bool show_colliders{false};
     uint32_t frame_index{0};
 };

@@ -67,6 +67,7 @@ VulkanContext::VulkanContext(Window& window)
     sky_pass_.create(device_, pass_resources);
     transparent_pass_.create(device_, pass_resources);
     tonemap_pass_.create(device_, pass_resources);
+    particle_system_.create(device_, pass_resources);
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 
     create_command_buffers();
@@ -78,6 +79,7 @@ VulkanContext::~VulkanContext() {
     auto vk_device = device_.handle();
 
     debug_draw_.reset();
+    particle_system_.destroy();
     sky_pass_.destroy();
     transparent_pass_.destroy();
     tonemap_pass_.destroy();
@@ -241,7 +243,7 @@ void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
 // ── Command buffer recording ────────────────────────────────────────────
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
-                                    const Scene* scene) {
+                                    Scene* scene, float dt) {
     // Build render queue
     if (scene) {
         render_queue_.clear();
@@ -275,6 +277,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.global_descriptor_set = global_descriptor_sets_[current_frame_];
     ctx.bindless_set = bindless_textures_.descriptor_set();
     ctx.debug_draw = debug_draw_.get();
+    ctx.scene = scene;
+    ctx.delta_time = dt;
     ctx.show_colliders = show_colliders_;
     ctx.frame_index = current_frame_;
 
@@ -292,7 +296,16 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     graph.add_pass("depth_prepass", [&] { depth_prepass_.record(ctx); },
                    {{depth_id, ImageUsage::depth_attachment}});
 
-    // Color pass (opaques + sky + debug + transparent in one rendering scope)
+    // Particle compute (before rendering so particles are ready to draw)
+    graph.add_pass("particle_compute", [&] {
+        if (scene) {
+            particle_system_.sync_emitters(*scene);
+            particle_system_.dispatch_compute(cmd, dt, *scene);
+            particle_system_.insert_barriers(cmd);
+        }
+    }, {});
+
+    // Color pass (opaques + sky + debug + transparent + particles in one rendering scope)
     graph.add_pass("color", [&] {
         VkRenderingAttachmentInfo color_attachment{};
         color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -344,6 +357,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         sky_pass_.record(ctx);
         debug_pass_.record(ctx);
         transparent_pass_.record(ctx);
+        particle_system_.record_render(ctx);
 
         vkCmdEndRendering(cmd);
     }, {{color_id, ImageUsage::color_attachment},
@@ -372,7 +386,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                                           const std::vector<ViewportRenderRequest>& viewports,
                                           const DirectionalLight& light,
-                                          const Scene* scene) {
+                                          Scene* scene, float dt) {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -391,7 +405,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         if (!vp.target) continue;
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
                               vp.camera_position, light);
-        render_scene_to(cmd, *vp.target, scene);
+        render_scene_to(cmd, *vp.target, scene, dt);
     }
 
     // --- Render ImGui to swapchain ---
@@ -466,7 +480,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
 
 void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                                const DirectionalLight& light,
-                               const Scene* scene) {
+                               Scene* scene, float dt) {
     auto vk_device = device_.handle();
 
     vkWaitForFences(vk_device, 1, &in_flight_[current_frame_], VK_TRUE,
@@ -494,7 +508,7 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
     }
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
     record_command_buffer(command_buffers_[current_frame_], image_index,
-                          viewports, light, scene);
+                          viewports, light, scene, dt);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 

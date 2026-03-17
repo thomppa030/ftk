@@ -1,0 +1,73 @@
+#version 450
+
+layout(local_size_x = 256) in;
+
+struct Particle {
+    vec3  position;
+    float lifetime;
+    vec3  velocity;
+    float max_lifetime;
+    vec4  color;
+    float size;
+    float size_end;
+    float pad0;
+    float pad1;
+};
+
+layout(std430, set = 0, binding = 0) buffer ParticleBuffer {
+    Particle particles[];
+};
+
+layout(std430, set = 0, binding = 1) buffer Counters {
+    uint alive_count;
+    uint dead_count;
+};
+
+layout(std430, set = 0, binding = 2) buffer DeadList {
+    uint dead_indices[];
+};
+
+layout(push_constant) uniform PushConstants {
+    vec3  emitter_position;
+    float dt;
+    vec3  gravity;
+    uint  max_particles;
+    vec4  color_start;
+    vec4  color_end;
+    float size_start;
+    float size_end;
+    float lifetime_min;
+    float lifetime_max;
+    vec3  velocity_min;
+    uint  emit_count;
+    vec3  velocity_max;
+    uint  random_seed;
+};
+
+void main() {
+    uint idx = gl_GlobalInvocationID.x;
+    if (idx >= max_particles) return;
+
+    Particle p = particles[idx];
+    if (p.lifetime <= 0.0) return;
+
+    p.lifetime -= dt;
+    if (p.lifetime <= 0.0) {
+        // Kill particle — return index to dead list
+        particles[idx].lifetime = 0.0;
+        uint slot = atomicAdd(dead_count, 1);
+        dead_indices[slot] = idx;
+        atomicAdd(alive_count, -1);
+        return;
+    }
+
+    p.velocity += gravity * dt;
+    p.position += p.velocity * dt;
+
+    // Interpolate color and size over lifetime
+    float age = 1.0 - (p.lifetime / p.max_lifetime);
+    p.color = mix(color_start, color_end, age);
+    p.size = mix(size_start, p.size_end, age);
+
+    particles[idx] = p;
+}

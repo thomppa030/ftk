@@ -200,6 +200,24 @@ void Scene::save(const std::string& path) {
             };
         }
 
+        if (obj.emitter) {
+            auto& em = *obj.emitter;
+            jobj["emitter"] = {
+                {"emission_rate", em.emission_rate},
+                {"lifetime_min", em.lifetime_min},
+                {"lifetime_max", em.lifetime_max},
+                {"max_particles", em.max_particles},
+                {"velocity_min", {em.velocity_min.x, em.velocity_min.y, em.velocity_min.z}},
+                {"velocity_max", {em.velocity_max.x, em.velocity_max.y, em.velocity_max.z}},
+                {"gravity", {em.gravity.x, em.gravity.y, em.gravity.z}},
+                {"color_start", {em.color_start.r, em.color_start.g, em.color_start.b, em.color_start.a}},
+                {"color_end", {em.color_end.r, em.color_end.g, em.color_end.b, em.color_end.a}},
+                {"size_start", em.size_start},
+                {"size_end", em.size_end},
+                {"blend_mode", static_cast<int>(em.blend_mode)}
+            };
+        }
+
         if (!obj.components.empty()) {
             jobj["components"] = nlohmann::json::array();
             for (const auto& comp : obj.components) {
@@ -338,6 +356,40 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                 col.offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()};
             }
             scene.objects().back().collider = col;
+        }
+
+        // Load particle emitter
+        if (jobj.contains("emitter")) {
+            auto& jem = jobj["emitter"];
+            ParticleEmitter em;
+            em.emission_rate = jem.value("emission_rate", 50.0f);
+            em.lifetime_min = jem.value("lifetime_min", 1.0f);
+            em.lifetime_max = jem.value("lifetime_max", 3.0f);
+            em.max_particles = jem.value("max_particles", 10000u);
+            if (jem.contains("velocity_min")) {
+                auto& v = jem["velocity_min"];
+                em.velocity_min = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
+            }
+            if (jem.contains("velocity_max")) {
+                auto& v = jem["velocity_max"];
+                em.velocity_max = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
+            }
+            if (jem.contains("gravity")) {
+                auto& g = jem["gravity"];
+                em.gravity = {g[0].get<float>(), g[1].get<float>(), g[2].get<float>()};
+            }
+            if (jem.contains("color_start")) {
+                auto& c = jem["color_start"];
+                em.color_start = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()};
+            }
+            if (jem.contains("color_end")) {
+                auto& c = jem["color_end"];
+                em.color_end = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()};
+            }
+            em.size_start = jem.value("size_start", 0.1f);
+            em.size_end = jem.value("size_end", 0.02f);
+            em.blend_mode = static_cast<ParticleBlendMode>(jem.value("blend_mode", 0));
+            scene.objects().back().emitter = em;
         }
 
         // Load component data as raw JSON (ScriptManager will instantiate later)

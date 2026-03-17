@@ -1,6 +1,7 @@
 #pragma once
 
 #include "physics/physics_types.hpp"
+#include "renderer/particle_emitter.hpp"
 #include "renderer/resource_handle.hpp"
 #include "scene/transform.hpp"
 
@@ -59,6 +60,7 @@ struct RenderObject {
 
     std::optional<RigidbodyDesc> rigidbody;
     std::optional<ColliderDesc> collider;
+    std::optional<ParticleEmitter> emitter;
 
     RenderObject();
     ~RenderObject();
