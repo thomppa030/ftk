@@ -5,6 +5,8 @@
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/depth_prepass.hpp"
+#include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pipeline.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/swapchain.hpp"
@@ -104,8 +106,10 @@ private:
     std::unique_ptr<DescriptorSetLayout> material_set_layout_;
     VkDescriptorPool material_pool_{VK_NULL_HANDLE};
 
-    // Pipeline (dynamic rendering)
+    // Pipelines / passes
     std::unique_ptr<Pipeline> pipeline_;
+    DepthPrePass depth_prepass_;
+    ShadowPass shadow_pass_;
 
     // Command buffers and sync
     std::vector<VkCommandBuffer> command_buffers_;

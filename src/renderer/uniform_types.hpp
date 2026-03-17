@@ -11,6 +11,8 @@ struct GlobalUbo {
     alignas(16) glm::vec4 light_color;      // xyz = rgb
     alignas(16) glm::vec4 camera_position;  // xyz = world-space eye position
     alignas(16) glm::vec4 ambient_color;    // xyz = rgb, w = intensity
+    alignas(16) glm::mat4 cascade_vp[3];    // light-space view-projection per cascade
+    alignas(16) glm::vec4 cascade_splits;   // xyz = split distances, w = unused
 };
 
 struct DirectionalLight {

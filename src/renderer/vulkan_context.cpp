@@ -32,6 +32,33 @@ VulkanContext::VulkanContext(Window& window)
         device_, OffscreenPass::COLOR_FORMAT, depth_format,
         global_set_layout_->handle(), material_set_layout_->handle());
 
+    PassResources pass_resources{};
+    pass_resources.global_set_layout = global_set_layout_->handle();
+    pass_resources.material_set_layout = material_set_layout_->handle();
+    pass_resources.depth_format = depth_format;
+    pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
+    depth_prepass_.create(device_, pass_resources);
+    shadow_pass_.create(device_, pass_resources);
+
+    // Write shadow map sampler into global descriptor sets (binding 1)
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDescriptorImageInfo shadow_info{};
+        shadow_info.sampler = shadow_pass_.sampler();
+        shadow_info.imageView = shadow_pass_.array_view();
+        shadow_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = global_descriptor_sets_[i];
+        write.dstBinding = 1;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo = &shadow_info;
+
+        vkUpdateDescriptorSets(device_.handle(), 1, &write, 0, nullptr);
+    }
+
     create_debug_pipeline();
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 
@@ -45,6 +72,8 @@ VulkanContext::~VulkanContext() {
 
     debug_draw_.reset();
     destroy_debug_pipeline();
+    shadow_pass_.destroy();
+    depth_prepass_.destroy();
 
     for (auto& ub : uniform_buffers_)
         ub.reset();
@@ -67,21 +96,29 @@ VulkanContext::~VulkanContext() {
 void VulkanContext::create_descriptor_resources() {
     auto vk_device = device_.handle();
 
-    VkDescriptorSetLayoutBinding ubo_binding{};
-    ubo_binding.binding = 0;
-    ubo_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    ubo_binding.descriptorCount = 1;
-    ubo_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler
+    std::array<VkDescriptorSetLayoutBinding, 2> global_bindings{};
+    global_bindings[0].binding = 0;
+    global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    global_bindings[0].descriptorCount = 1;
+    global_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    global_bindings[1].binding = 1;
+    global_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    global_bindings[1].descriptorCount = 1;
+    global_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     global_set_layout_ = std::make_unique<DescriptorSetLayout>(
-        vk_device, std::span{&ubo_binding, 1});
+        vk_device, std::span{global_bindings});
 
-    VkDescriptorPoolSize global_pool_size{};
-    global_pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    global_pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    std::array<VkDescriptorPoolSize, 2> global_pool_sizes{};
+    global_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    global_pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    global_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
     global_pool_ = std::make_unique<DescriptorPool>(
-        vk_device, std::span{&global_pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
+        vk_device, std::span{global_pool_sizes}, MAX_FRAMES_IN_FLIGHT);
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         uniform_buffers_[i] = std::make_unique<Buffer>(
@@ -220,67 +257,7 @@ void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     const Scene* scene) {
-    // Transition offscreen color: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
-    transition_image(cmd, target.color_image(),
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-    // Transition offscreen depth: UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL
-    transition_image(cmd, target.depth_image(),
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        VK_IMAGE_ASPECT_DEPTH_BIT);
-
-    VkRenderingAttachmentInfo color_attachment{};
-    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment.imageView = target.color_view();
-    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
-
-    VkRenderingAttachmentInfo depth_attachment{};
-    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = target.depth_view();
-    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    depth_attachment.clearValue.depthStencil = {1.0f, 0};
-
-    VkRenderingInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    rendering_info.renderArea.offset = {0, 0};
-    rendering_info.renderArea.extent = target.extent();
-    rendering_info.layerCount = 1;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachments = &color_attachment;
-    rendering_info.pDepthAttachment = &depth_attachment;
-
-    vkCmdBeginRendering(cmd, &rendering_info);
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->handle());
-
-    VkViewport viewport{};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(target.extent().width);
-    viewport.height = static_cast<float>(target.extent().height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = target.extent();
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
-                            0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
-
+    // Build render queue from scene (shared between passes)
     if (scene) {
         render_queue_.clear();
         for (const auto& obj : scene->objects()) {
@@ -304,20 +281,101 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             render_queue_.push(dc);
         }
         render_queue_.sort();
-        render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
     }
 
-    // Debug collider wireframes
-    if (show_colliders_ && debug_draw_ && !debug_draw_->empty()) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_pipeline_);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_layout_,
+    FrameContext ctx{};
+    ctx.cmd = cmd;
+    ctx.target = &target;
+    ctx.queue = &render_queue_;
+    ctx.global_descriptor_set = global_descriptor_sets_[current_frame_];
+    ctx.frame_index = current_frame_;
+
+    // ── Pass 0: Shadow map (renders to its own texture array) ───────────
+
+    shadow_pass_.record(ctx);
+
+    // ── Pass 1: Depth pre-pass ──────────────────────────────────────────
+
+    transition_image(cmd, target.depth_image(),
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    depth_prepass_.record(ctx);
+
+    // ── Pass 2: Color pass (depth read, no depth write) ─────────────────
+
+    transition_image(cmd, target.color_image(),
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+    {
+        VkRenderingAttachmentInfo color_attachment{};
+        color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        color_attachment.imageView = target.color_view();
+        color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
+
+        VkRenderingAttachmentInfo depth_attachment{};
+        depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        depth_attachment.imageView = target.depth_view();
+        depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        VkRenderingInfo rendering_info{};
+        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        rendering_info.renderArea.offset = {0, 0};
+        rendering_info.renderArea.extent = target.extent();
+        rendering_info.layerCount = 1;
+        rendering_info.colorAttachmentCount = 1;
+        rendering_info.pColorAttachments = &color_attachment;
+        rendering_info.pDepthAttachment = &depth_attachment;
+
+        vkCmdBeginRendering(cmd, &rendering_info);
+
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->handle());
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(target.extent().width);
+        viewport.height = static_cast<float>(target.extent().height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = target.extent();
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
                                 0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
-        debug_draw_->draw(cmd, debug_layout_);
+
+        if (scene) {
+            render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
+        }
+
+        // Debug collider wireframes
+        if (show_colliders_ && debug_draw_ && !debug_draw_->empty()) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_pipeline_);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_layout_,
+                                    0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
+            debug_draw_->draw(cmd, debug_layout_);
+        }
+
+        vkCmdEndRendering(cmd);
     }
 
-    vkCmdEndRendering(cmd);
+    // ── Transitions for sampling ────────────────────────────────────────
 
-    // Transition offscreen color: COLOR_ATTACHMENT_OPTIMAL → SHADER_READ_ONLY_OPTIMAL
     transition_image(cmd, target.color_image(),
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -326,7 +384,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 
-    // Transition depth: DEPTH_ATTACHMENT_OPTIMAL → DEPTH_STENCIL_READ_ONLY_OPTIMAL
     transition_image(cmd, target.depth_image(),
         VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
@@ -346,6 +403,12 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 
     if (vkBeginCommandBuffer(cmd, &begin_info) != VK_SUCCESS) {
         throw std::runtime_error("Failed to begin recording command buffer");
+    }
+
+    // Update shadow cascades from the first viewport's camera
+    if (!viewports.empty() && viewports[0].target) {
+        shadow_pass_.update(viewports[0].view, viewports[0].projection,
+                            light, 0.1f, 1000.0f);
     }
 
     // --- Render scene once per viewport ---
@@ -414,6 +477,13 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.light_color = glm::vec4(light.color, 0.0f);
     ubo.camera_position = glm::vec4(camera_position, 0.0f);
     ubo.ambient_color = glm::vec4(light.ambient_color, light.ambient_intensity);
+
+    const auto& matrices = shadow_pass_.light_matrices();
+    const auto& splits = shadow_pass_.cascade_splits();
+    for (uint32_t i = 0; i < ShadowPass::CASCADE_COUNT; ++i) {
+        ubo.cascade_vp[i] = matrices[i];
+    }
+    ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], 0.0f);
 
     uniform_buffers_[frame_index]->write(&ubo, sizeof(ubo));
 }
@@ -496,6 +566,16 @@ void VulkanContext::wait_idle() {
 
 void VulkanContext::reload_pipeline() {
     pipeline_->recreate();
+
+    VkFormat depth_format = device_.find_depth_format();
+    PassResources pass_resources{};
+    pass_resources.global_set_layout = global_set_layout_->handle();
+    pass_resources.material_set_layout = material_set_layout_->handle();
+    pass_resources.depth_format = depth_format;
+    pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
+    depth_prepass_.recreate(device_, pass_resources);
+    shadow_pass_.recreate(device_, pass_resources);
+
     destroy_debug_pipeline();
     create_debug_pipeline();
 }

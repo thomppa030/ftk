@@ -30,6 +30,7 @@ public:
                  RenderStats* stats = nullptr) const;
 
     [[nodiscard]] bool empty() const { return commands_.empty(); }
+    [[nodiscard]] const std::vector<DrawCommand>& commands() const { return commands_; }
 
     // Build a sort key: material first (minimize descriptor rebinds), then mesh
     static uint64_t make_sort_key(uint32_t material_id, uint32_t mesh_id);
