@@ -2,15 +2,18 @@
 
 #include "core/clock.hpp"
 #include "core/input.hpp"
+#include "core/layer_stack.hpp"
 #include "core/play_session.hpp"
 #include "core/project.hpp"
 #include "core/window.hpp"
 #include "renderer/camera.hpp"
+#include "renderer/resource_handle.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"
+#include "ui/file_browser.hpp"
 #include "ui/imgui_layer.hpp"
 #include "ui/nvim_panel.hpp"
 
@@ -102,11 +105,18 @@ private:
     // Available model files
     std::vector<std::string> available_models_;
 
+    // Default texture handle (preloaded)
+    TextureHandle default_texture_;
+
     // Lighting
     DirectionalLight light_;
 
     // Play mode
     std::unique_ptr<PlaySession> play_session_;
+
+    // Layer stack for input routing
+    LayerStack layer_stack_;
+    bool viewport_hovered_{false};
 
     // UI state
     float fps_{0.0f};
@@ -117,6 +127,11 @@ private:
     uint32_t remove_pending_id_{0};
     int gizmo_op_{0}; // 0=translate, 1=rotate, 2=scale
     bool layout_built_{false};
+    bool focus_viewport_{false};
+
+    // File browsers
+    FileBrowser open_browser_{FileBrowser::Mode::select_directory};
+    FileBrowser new_browser_{FileBrowser::Mode::select_location};
 
     // Viewport bounds for gizmo
     glm::vec2 viewport_pos_{0.0f};

@@ -1,6 +1,7 @@
 #include "core/engine.hpp"
 #include "core/base_path.hpp"
 #include "core/game_builder.hpp"
+#include "core/layer.hpp"
 #include "core/log.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
@@ -16,10 +17,29 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 namespace fjell {
+
+namespace {
+
+class ViewportLayer : public Layer {
+public:
+    explicit ViewportLayer(bool* hovered)
+        : Layer("Viewport"), hovered_{hovered} {}
+
+    [[nodiscard]] bool wants_input() const override {
+        return *hovered_ && !ImGui::GetIO().WantCaptureKeyboard;
+    }
+
+private:
+    bool* hovered_;
+};
+
+} // namespace
 
 Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                const std::filesystem::path& project_path)
@@ -67,7 +87,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
         vulkan_context_.material_pool(), vulkan_context_.material_layout());
 
-    resource_manager_->load_texture(
+    default_texture_ = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));
 
     scan_models();
@@ -99,6 +119,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     } else {
         load_project_scripts();
     }
+
+    layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
     FJELL_CORE_INFO("Engine initialized");
 }
@@ -137,20 +159,23 @@ void Engine::scan_models() {
 
 void Engine::create_default_scene() {
     vulkan_context_.wait_idle();
-    auto* tex = resource_manager_->load_texture(
+    auto tex = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));
-    auto* mat = resource_manager_->create_material("default", tex);
+    auto mat = resource_manager_->create_material("default", tex);
 
-    auto* plane = resource_manager_->create_primitive("plane");
-    scene_.add(plane, mat, {{0.0f, 0.0f, 0.0f}, {}, {10.0f, 1.0f, 10.0f}},
+    auto plane = resource_manager_->create_primitive("plane");
+    scene_.add(plane, mat, *resource_manager_,
+               {{0.0f, 0.0f, 0.0f}, {}, {10.0f, 1.0f, 10.0f}},
                "Ground", "primitive:plane");
 
-    auto* cube = resource_manager_->create_primitive("cube");
-    scene_.add(cube, mat, {{0.0f, 0.5f, 0.0f}},
+    auto cube = resource_manager_->create_primitive("cube");
+    scene_.add(cube, mat, *resource_manager_,
+               {{0.0f, 0.5f, 0.0f}},
                "Cube", "primitive:cube");
 
-    auto* sphere = resource_manager_->create_primitive("sphere");
-    scene_.add(sphere, mat, {{2.5f, 0.5f, 0.0f}},
+    auto sphere = resource_manager_->create_primitive("sphere");
+    scene_.add(sphere, mat, *resource_manager_,
+               {{2.5f, 0.5f, 0.0f}},
                "Sphere", "primitive:sphere");
 
     FJELL_CORE_INFO("Default scene created");
@@ -159,39 +184,42 @@ void Engine::create_default_scene() {
 void Engine::add_model_to_scene(const std::string& path) {
     vulkan_context_.wait_idle();
 
-    auto* model = resource_manager_->load_model(
+    auto model_handle = resource_manager_->load_model(
         base_path::resolve_asset(path, active_project()));
-    auto* tex = resource_manager_->load_texture(
+    auto tex = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));
-    auto* mat = resource_manager_->create_material("default", tex);
+    auto mat_handle = resource_manager_->create_material("default", tex);
     std::string mat_name = "default";
 
-    if (!model->textures().empty()) {
+    auto* model = resource_manager_->get(model_handle);
+    if (model && !model->textures().empty()) {
         mat_name = path + "_mat";
-        mat = resource_manager_->create_material(
+        mat_handle = resource_manager_->create_material_from_texture(
             mat_name,
             const_cast<Texture*>(model->textures()[0].get()));
     }
 
     auto filename = std::filesystem::path(path).stem().string();
-    selected_id_ = scene_.add(model, mat, {}, filename, path, mat_name);
+    selected_id_ = scene_.add(model_handle, mat_handle, *resource_manager_,
+                              {}, filename, path, mat_name);
     FJELL_CORE_INFO("Added model to scene: {}", path);
 }
 
 void Engine::add_primitive_to_scene(const std::string& type) {
     vulkan_context_.wait_idle();
 
-    auto* model = resource_manager_->create_primitive(type);
-    if (!model) return;
+    auto model_handle = resource_manager_->create_primitive(type);
+    if (!model_handle.valid()) return;
 
-    auto* tex = resource_manager_->load_texture(
+    auto tex = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));
-    auto* mat = resource_manager_->create_material("default", tex);
+    auto mat = resource_manager_->create_material("default", tex);
 
     std::string name = type;
     name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
 
-    selected_id_ = scene_.add(model, mat, {}, name, "primitive:" + type);
+    selected_id_ = scene_.add(model_handle, mat, *resource_manager_,
+                              {}, name, "primitive:" + type);
 }
 
 void Engine::setup_dockspace() {
@@ -229,21 +257,32 @@ void Engine::setup_dockspace() {
         ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
 
-        ImGuiID center = dockspace_id;
-        ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.18f, nullptr, &center);
-        ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
-        ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.18f, nullptr, &center);
+        // Viewport is the parent — split everything else off from it
+        ImGuiID viewport_node = dockspace_id;
+
+        // Split bottom strip (Stats/Console) off viewport
+        ImGuiID bottom = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Down, 0.18f, nullptr, &viewport_node);
+
+        // Split left panel (Assets) off viewport
+        ImGuiID left = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Left, 0.18f, nullptr, &viewport_node);
+
+        // Split right panel off viewport, then split that into top/bottom
+        ImGuiID right = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Right, 0.22f, nullptr, &viewport_node);
         ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.50f, nullptr, &right);
 
-        ImGui::DockBuilderDockWindow("Viewport", center);
+        // Split Code Editor below viewport
+        ImGuiID editor = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Down, 0.40f, nullptr, &viewport_node);
+
+        ImGui::DockBuilderDockWindow("Viewport", viewport_node);
+        ImGui::DockBuilderDockWindow("Code Editor", editor);
         ImGui::DockBuilderDockWindow("Assets", left);
         ImGui::DockBuilderDockWindow("Hierarchy", right);
         ImGui::DockBuilderDockWindow("Properties", right_bottom);
         ImGui::DockBuilderDockWindow("Stats", bottom);
         ImGui::DockBuilderDockWindow("Console", bottom);
-        ImGui::DockBuilderDockWindow("Code Editor", center);
 
         ImGui::DockBuilderFinish(dockspace_id);
+        focus_viewport_ = true;
     }
 
     ImGui::End();
@@ -254,6 +293,8 @@ void Engine::draw_viewport() {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});
 
     if (ImGui::Begin("Viewport")) {
+        viewport_hovered_ = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows);
+
         // Play button toolbar
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f, 4.0f});
         if (ImGui::Button(is_playing() ? "Stop" : "Play")) {
@@ -267,11 +308,12 @@ void Engine::draw_viewport() {
         }
         ImGui::PopStyleVar();
 
-        auto vp_min = ImGui::GetWindowContentRegionMin();
+        auto cursor = ImGui::GetCursorScreenPos();
         auto vp_max = ImGui::GetWindowContentRegionMax();
         auto vp_pos = ImGui::GetWindowPos();
-        viewport_pos_ = {vp_pos.x + vp_min.x, vp_pos.y + vp_min.y};
-        viewport_size_ = {vp_max.x - vp_min.x, vp_max.y - vp_min.y};
+        auto vp_min = ImGui::GetWindowContentRegionMin();
+        viewport_pos_ = {cursor.x, cursor.y};
+        viewport_size_ = {vp_max.x - vp_min.x, vp_pos.y + vp_max.y - cursor.y};
 
         // Resize offscreen pass to match viewport
         auto vp_w = static_cast<uint32_t>(viewport_size_.x);
@@ -284,6 +326,91 @@ void Engine::draw_viewport() {
         auto tex_id = vulkan_context_.viewport_texture();
         if (tex_id) {
             ImGui::Image(tex_id, {viewport_size_.x, viewport_size_.y});
+        }
+
+        // Mouse picking — click/double-click objects in viewport
+        if (ImGui::IsItemHovered() && !ImGuizmo::IsUsing() &&
+            (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+             ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) {
+            // Build ray from mouse position through viewport
+            auto mouse = ImGui::GetMousePos();
+            float mx = (mouse.x - viewport_pos_.x) / viewport_size_.x;
+            float my = (mouse.y - viewport_pos_.y) / viewport_size_.y;
+
+            float aspect = viewport_size_.x / std::max(viewport_size_.y, 1.0f);
+            auto view = camera_.view_matrix();
+            auto proj = glm::perspective(
+                glm::radians(camera_.fov()), aspect, 0.1f, 1000.0f);
+            auto inv_vp = glm::inverse(proj * view);
+
+            // NDC: [-1,1] range, Y flipped for Vulkan projection
+            glm::vec4 ndc_near{mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 0.0f, 1.0f};
+            glm::vec4 ndc_far {mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 1.0f, 1.0f};
+
+            glm::vec4 world_near = inv_vp * ndc_near;
+            glm::vec4 world_far  = inv_vp * ndc_far;
+            world_near /= world_near.w;
+            world_far  /= world_far.w;
+
+            glm::vec3 ray_origin = glm::vec3(world_near);
+            glm::vec3 ray_dir = glm::normalize(glm::vec3(world_far - world_near));
+
+            // Test ray against each object's world-space AABB
+            float closest_t = std::numeric_limits<float>::max();
+            uint32_t hit_id = 0;
+
+            for (const auto& obj : scene_.objects()) {
+                if (!obj.model) continue;
+                const auto& verts = obj.model->collision_vertices();
+                if (verts.empty()) continue;
+
+                // Compute world-space AABB
+                glm::vec3 aabb_min{std::numeric_limits<float>::max()};
+                glm::vec3 aabb_max{std::numeric_limits<float>::lowest()};
+                for (const auto& v : verts) {
+                    glm::vec3 world_v = glm::vec3(obj.world_matrix_ * glm::vec4(v, 1.0f));
+                    aabb_min = glm::min(aabb_min, world_v);
+                    aabb_max = glm::max(aabb_max, world_v);
+                }
+
+                // Ray-AABB intersection (slab method)
+                glm::vec3 inv_dir = 1.0f / ray_dir;
+                glm::vec3 t1 = (aabb_min - ray_origin) * inv_dir;
+                glm::vec3 t2 = (aabb_max - ray_origin) * inv_dir;
+                glm::vec3 t_min_v = glm::min(t1, t2);
+                glm::vec3 t_max_v = glm::max(t1, t2);
+                float t_enter = std::max({t_min_v.x, t_min_v.y, t_min_v.z});
+                float t_exit  = std::min({t_max_v.x, t_max_v.y, t_max_v.z});
+
+                if (t_enter <= t_exit && t_exit >= 0.0f) {
+                    float t = t_enter >= 0.0f ? t_enter : t_exit;
+                    if (t < closest_t) {
+                        closest_t = t;
+                        hit_id = obj.id;
+                    }
+                }
+            }
+
+            if (hit_id != 0) {
+                selected_id_ = hit_id;
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    if (auto* hit_obj = scene_.find(hit_id)) {
+                        glm::vec3 center = glm::vec3(hit_obj->world_matrix_[3]);
+                        float radius = 1.0f;
+                        if (hit_obj->model && !hit_obj->model->collision_vertices().empty()) {
+                            float max_r2 = 0.0f;
+                            for (const auto& v : hit_obj->model->collision_vertices()) {
+                                auto wv = glm::vec3(hit_obj->world_matrix_ * glm::vec4(v, 1.0f));
+                                max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
+                            }
+                            radius = std::max(std::sqrt(max_r2), 0.1f);
+                        }
+                        camera_.focus(center, radius);
+                    }
+                }
+            } else {
+                selected_id_ = 0;
+            }
         }
 
         // Gizmo for selected object (draw over the image)
@@ -377,25 +504,59 @@ void Engine::draw_hierarchy_node(RenderObject& obj) {
 
     ImGui::PushID(static_cast<int>(obj.id));
 
+    bool is_selected = (obj.id == selected_id_);
+
     ImGuiTreeNodeFlags flags =
         ImGuiTreeNodeFlags_OpenOnArrow |
         ImGuiTreeNodeFlags_SpanAvailWidth |
-        ImGuiTreeNodeFlags_DefaultOpen;
+        ImGuiTreeNodeFlags_DefaultOpen |
+        ImGuiTreeNodeFlags_FramePadding;
 
     if (!has_children) {
         flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     }
-    if (obj.id == selected_id_) {
+    if (is_selected) {
         flags |= ImGuiTreeNodeFlags_Selected;
+    }
+
+    // Row styling — equal vertical padding for centered text
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.0f, 4.0f});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 1.0f});
+
+    if (is_selected) {
+        ImGui::PushStyleColor(ImGuiCol_Header, {0.22f, 0.27f, 0.58f, 1.0f});
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.26f, 0.32f, 0.65f, 1.0f});
     }
 
     bool node_open = ImGui::TreeNodeEx(obj.name.c_str(), flags);
 
+    if (is_selected) {
+        ImGui::PopStyleColor(2);
+    }
+
+    ImGui::PopStyleVar(2);
+
+    bool row_hovered = ImGui::IsItemHovered();
+
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
         selected_id_ = obj.id;
     }
+    if (row_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+        selected_id_ = obj.id;
+        glm::vec3 center = glm::vec3(obj.world_matrix_[3]);
+        float radius = 1.0f;
+        if (obj.model && !obj.model->collision_vertices().empty()) {
+            float max_r2 = 0.0f;
+            for (const auto& v : obj.model->collision_vertices()) {
+                auto wv = glm::vec3(obj.world_matrix_ * glm::vec4(v, 1.0f));
+                max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
+            }
+            radius = std::max(std::sqrt(max_r2), 0.1f);
+        }
+        camera_.focus(center, radius);
+    }
 
-    // Drag source
+    // Drag source — must follow immediately after TreeNodeEx
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
         ImGui::SetDragDropPayload("HIERARCHY_NODE", &obj.id, sizeof(obj.id));
         ImGui::Text("%s", obj.name.c_str());
@@ -407,7 +568,6 @@ void Engine::draw_hierarchy_node(RenderObject& obj) {
         if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
             uint32_t dragged_id = *static_cast<const uint32_t*>(payload->Data);
             if (dragged_id != obj.id) {
-                // Cycle check: walk up from this node, ensure dragged isn't an ancestor
                 bool is_ancestor = false;
                 int32_t check = static_cast<int32_t>(obj.id);
                 while (check != -1) {
@@ -426,10 +586,19 @@ void Engine::draw_hierarchy_node(RenderObject& obj) {
         ImGui::EndDragDropTarget();
     }
 
-    // Delete button
+    // Delete button — always present to avoid layout shift, hidden when not relevant
     ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 20);
-    if (ImGui::SmallButton("X")) {
-        remove_pending_id_ = obj.id;
+    if (row_hovered || is_selected) {
+        ImGui::PushStyleColor(ImGuiCol_Button, {0.0f, 0.0f, 0.0f, 0.0f});
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.8f, 0.2f, 0.2f, 0.6f});
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.9f, 0.1f, 0.1f, 0.8f});
+        ImGui::PushStyleColor(ImGuiCol_Text, {0.7f, 0.7f, 0.7f, 1.0f});
+        if (ImGui::SmallButton("X")) {
+            remove_pending_id_ = obj.id;
+        }
+        ImGui::PopStyleColor(4);
+    } else {
+        ImGui::Dummy({20.0f, 0.0f});
     }
 
     // Recurse children
@@ -454,15 +623,23 @@ void Engine::draw_properties() {
             char name_buf[128];
             std::strncpy(name_buf, obj->name.c_str(), sizeof(name_buf) - 1);
             name_buf[sizeof(name_buf) - 1] = '\0';
-            if (ImGui::InputText("Name", name_buf, sizeof(name_buf))) {
+            ImGui::Text("Name");
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::InputText("##Name", name_buf, sizeof(name_buf))) {
                 obj->name = name_buf;
             }
 
             ImGui::Separator();
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Transform");
-            ImGui::DragFloat3("Position", &obj->transform.position.x, 0.1f);
-            ImGui::DragFloat3("Rotation", &obj->transform.rotation.x, 1.0f);
-            ImGui::DragFloat3("Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f);
+            ImGui::Text("Position");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::DragFloat3("##Position", &obj->transform.position.x, 0.1f);
+            ImGui::Text("Rotation");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::DragFloat3("##Rotation", &obj->transform.rotation.x, 1.0f);
+            ImGui::Text("Scale");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::DragFloat3("##Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f);
 
             ImGui::Spacing();
             ImGui::Separator();
@@ -482,14 +659,26 @@ void Engine::draw_properties() {
                 auto& rb = *obj->rigidbody;
                 static const char* body_type_labels[] = {"Static", "Kinematic", "Dynamic"};
                 int bt = static_cast<int>(rb.body_type);
-                if (ImGui::Combo("Body Type", &bt, body_type_labels, 3)) {
+                ImGui::Text("Body Type");
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::Combo("##BodyType", &bt, body_type_labels, 3)) {
                     rb.body_type = static_cast<BodyType>(bt);
                 }
-                ImGui::DragFloat("Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
-                ImGui::DragFloat("Friction", &rb.friction, 0.01f, 0.0f, 2.0f);
-                ImGui::DragFloat("Restitution", &rb.restitution, 0.01f, 0.0f, 2.0f);
-                ImGui::DragFloat("Linear Damping", &rb.linear_damping, 0.01f, 0.0f, 10.0f);
-                ImGui::DragFloat("Angular Damping", &rb.angular_damping, 0.01f, 0.0f, 10.0f);
+                ImGui::Text("Mass");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::DragFloat("##Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
+                ImGui::Text("Friction");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::DragFloat("##Friction", &rb.friction, 0.01f, 0.0f, 2.0f);
+                ImGui::Text("Restitution");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::DragFloat("##Restitution", &rb.restitution, 0.01f, 0.0f, 2.0f);
+                ImGui::Text("Linear Damping");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::DragFloat("##LinearDamping", &rb.linear_damping, 0.01f, 0.0f, 10.0f);
+                ImGui::Text("Angular Damping");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::DragFloat("##AngularDamping", &rb.angular_damping, 0.01f, 0.0f, 10.0f);
                 ImGui::Checkbox("Gravity", &rb.gravity_enabled);
                 if (ImGui::SmallButton("Remove Rigidbody")) {
                     obj->rigidbody.reset();
@@ -508,25 +697,37 @@ void Engine::draw_properties() {
                 auto& col = *obj->collider;
                 static const char* shape_labels[] = {"Box", "Sphere", "Capsule", "Mesh"};
                 int sh = static_cast<int>(col.shape);
-                if (ImGui::Combo("Shape", &sh, shape_labels, 4)) {
+                ImGui::Text("Shape");
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::Combo("##Shape", &sh, shape_labels, 4)) {
                     col.shape = static_cast<ColliderShape>(sh);
                 }
                 switch (col.shape) {
                     case ColliderShape::Box:
-                        ImGui::DragFloat3("Half Extents", &col.half_extents.x, 0.05f, 0.01f, 100.0f);
+                        ImGui::Text("Half Extents");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::DragFloat3("##HalfExtents", &col.half_extents.x, 0.05f, 0.01f, 100.0f);
                         break;
                     case ColliderShape::Sphere:
-                        ImGui::DragFloat("Radius", &col.radius, 0.05f, 0.01f, 100.0f);
+                        ImGui::Text("Radius");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::DragFloat("##Radius", &col.radius, 0.05f, 0.01f, 100.0f);
                         break;
                     case ColliderShape::Capsule:
-                        ImGui::DragFloat("Radius##cap", &col.radius, 0.05f, 0.01f, 100.0f);
-                        ImGui::DragFloat("Height", &col.height, 0.05f, 0.01f, 100.0f);
+                        ImGui::Text("Radius");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::DragFloat("##RadiusCap", &col.radius, 0.05f, 0.01f, 100.0f);
+                        ImGui::Text("Height");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::DragFloat("##Height", &col.height, 0.05f, 0.01f, 100.0f);
                         break;
                     case ColliderShape::Mesh:
                         ImGui::TextDisabled("Uses model collision mesh");
                         break;
                 }
-                ImGui::DragFloat3("Offset", &col.offset.x, 0.05f);
+                ImGui::Text("Offset");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::DragFloat3("##Offset", &col.offset.x, 0.05f);
                 if (ImGui::SmallButton("Remove Collider")) {
                     obj->collider.reset();
                 }
@@ -573,12 +774,22 @@ void Engine::draw_properties() {
         ImGui::Spacing();
         ImGui::Separator();
         if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::DragFloat3("Direction", &light_.direction.x, 0.01f, -1.0f, 1.0f);
-            ImGui::ColorEdit3("Color", &light_.color.x);
-            ImGui::DragFloat("Intensity", &light_.intensity, 0.05f, 0.0f, 10.0f);
+            ImGui::Text("Direction");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::DragFloat3("##Direction", &light_.direction.x, 0.01f, -1.0f, 1.0f);
+            ImGui::Text("Color");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::ColorEdit3("##Color", &light_.color.x);
+            ImGui::Text("Intensity");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::DragFloat("##Intensity", &light_.intensity, 0.05f, 0.0f, 10.0f);
             ImGui::Spacing();
-            ImGui::ColorEdit3("Ambient", &light_.ambient_color.x);
-            ImGui::DragFloat("Ambient Intensity", &light_.ambient_intensity, 0.05f, 0.0f, 2.0f);
+            ImGui::Text("Ambient");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::ColorEdit3("##Ambient", &light_.ambient_color.x);
+            ImGui::Text("Ambient Intensity");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::DragFloat("##AmbientIntensity", &light_.ambient_intensity, 0.05f, 0.0f, 2.0f);
         }
     }
     ImGui::End();
@@ -766,12 +977,6 @@ void Engine::load_scene(const std::string& path) {
 }
 
 void Engine::draw_menu_bar() {
-    static char project_path_buf[512] = "";
-    static char new_project_path_buf[512] = "";
-    static char new_project_name_buf[128] = "";
-    static bool show_open_popup = false;
-    static bool show_new_popup = false;
-
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Save Scene")) {
@@ -785,13 +990,10 @@ void Engine::draw_menu_bar() {
 
         if (ImGui::BeginMenu("Project")) {
             if (ImGui::MenuItem("New Project...")) {
-                show_new_popup = true;
-                new_project_path_buf[0] = '\0';
-                new_project_name_buf[0] = '\0';
+                new_browser_.open("New Project");
             }
             if (ImGui::MenuItem("Open Project...")) {
-                show_open_popup = true;
-                project_path_buf[0] = '\0';
+                open_browser_.open("Open Project");
             }
             if (project_ && ImGui::MenuItem("Close Project")) {
                 close_project();
@@ -814,70 +1016,38 @@ void Engine::draw_menu_bar() {
         ImGui::EndMainMenuBar();
     }
 
-    // Open Project popup
-    if (show_open_popup) {
-        ImGui::OpenPopup("Open Project");
-        show_open_popup = false;
-    }
-    if (ImGui::BeginPopupModal("Open Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Project directory:");
-        ImGui::InputText("##path", project_path_buf, sizeof(project_path_buf));
-
-        if (ImGui::Button("Open", {120, 0})) {
-            open_project(project_path_buf);
-            if (project_) {
-                current_scene_path_ = project_->resolve(project_->config().default_scene);
-                if (std::filesystem::exists(current_scene_path_)) {
-                    load_scene(current_scene_path_);
-                } else {
-                    scene_.clear();
-                    create_default_scene();
-                }
-                load_project_scripts();
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {120, 0})) {
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    // New Project popup
-    if (show_new_popup) {
-        ImGui::OpenPopup("New Project");
-        show_new_popup = false;
-    }
-    if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Project name:");
-        ImGui::InputText("##name", new_project_name_buf, sizeof(new_project_name_buf));
-        ImGui::Text("Directory:");
-        ImGui::InputText("##dir", new_project_path_buf, sizeof(new_project_path_buf));
-
-        if (ImGui::Button("Create", {120, 0})) {
-            if (new_project_name_buf[0] != '\0' && new_project_path_buf[0] != '\0') {
-                project_ = Project::create(new_project_path_buf, new_project_name_buf);
-                window_.set_title("Fjell - " + project_->config().name);
-                scan_models();
-                scan_scenes();
-                current_scene_path_ = project_->resolve(project_->config().default_scene);
+    // File browser popups
+    if (open_browser_.draw()) {
+        open_project(open_browser_.selected_path());
+        if (project_) {
+            current_scene_path_ = project_->resolve(project_->config().default_scene);
+            if (std::filesystem::exists(current_scene_path_)) {
+                load_scene(current_scene_path_);
+            } else {
                 scene_.clear();
                 create_default_scene();
             }
-            ImGui::CloseCurrentPopup();
+            load_project_scripts();
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {120, 0})) {
-            ImGui::CloseCurrentPopup();
+    }
+
+    if (new_browser_.draw()) {
+        project_ = Project::create(new_browser_.selected_path(),
+                                   new_browser_.project_name());
+        if (project_) {
+            window_.set_title("Fjell - " + project_->config().name);
+            scan_models();
+            scan_scenes();
+            current_scene_path_ = project_->resolve(project_->config().default_scene);
+            scene_.clear();
+            create_default_scene();
         }
-        ImGui::EndPopup();
     }
 }
 
 void Engine::draw_ui() {
-    // Gizmo keyboard shortcuts (only when ImGui doesn't want keyboard)
-    if (!ImGui::GetIO().WantCaptureKeyboard) {
+    // Gizmo keyboard shortcuts (only when viewport owns input)
+    if (layer_stack_.has_input("Viewport")) {
         if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmo_op_ = 0;
         if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmo_op_ = 1;
         if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmo_op_ = 2;
@@ -893,6 +1063,11 @@ void Engine::draw_ui() {
     draw_stats();
     draw_console();
     draw_code_editor();
+
+    if (focus_viewport_) {
+        ImGui::SetWindowFocus("Viewport");
+        focus_viewport_ = false;
+    }
 }
 
 void Engine::start_play() {
@@ -914,6 +1089,7 @@ void Engine::stop_play() {
     script_manager_.deserialize_all(scene_);
     input_.set_cursor_captured(window_.handle(), false);
     play_session_.reset();
+    focus_viewport_ = true;
     FJELL_CORE_INFO("Play mode stopped");
 }
 
@@ -1005,7 +1181,7 @@ void Engine::run() {
                 stop_play();
             }
         } else {
-            if (!ImGuizmo::IsUsing()) {
+            if (!ImGuizmo::IsUsing() && viewport_hovered_) {
                 camera_.update(input_, dt);
             }
         }
@@ -1028,8 +1204,7 @@ void Engine::run() {
         glm::mat4 projection;
         glm::vec3 camera_pos;
 
-        float aspect = static_cast<float>(window_.width()) /
-                       static_cast<float>(std::max(window_.height(), 1u));
+        float aspect = viewport_size_.x / std::max(viewport_size_.y, 1.0f);
         if (is_playing()) {
             view = play_session_->camera().view_matrix();
             projection = play_session_->camera().projection_matrix(aspect);
