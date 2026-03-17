@@ -61,8 +61,14 @@ private:
     VkDescriptorSetLayout composite_layout_{VK_NULL_HANDLE};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
 
-    // One descriptor set per mip (for downsampling input)
-    std::array<VkDescriptorSet, MIP_COUNT + 2> desc_sets_{}; // +1 for source, +1 for composite
+    static constexpr int FRAMES_IN_FLIGHT = 2;
+
+    // Mip chain descriptors (shared, only updated on resize)
+    std::array<VkDescriptorSet, MIP_COUNT> mip_sets_{};
+
+    // Per-frame descriptors (double-buffered to avoid updating while in flight)
+    VkDescriptorSet source_sets_[FRAMES_IN_FLIGHT]{};     // scene color input
+    VkDescriptorSet composite_sets_[FRAMES_IN_FLIGHT]{};  // scene + bloom composite
 
     // Pipelines
     VkPipelineLayout downsample_layout_{VK_NULL_HANDLE};

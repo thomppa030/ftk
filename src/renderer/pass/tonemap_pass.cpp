@@ -70,24 +70,26 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
 
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = 1;
+    pool_size.descriptorCount = FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = 1;
+    pool_ci.maxSets = FRAMES_IN_FLIGHT;
     pool_ci.poolSizeCount = 1;
     pool_ci.pPoolSizes = &pool_size;
     if (vkCreateDescriptorPool(device_, &pool_ci, nullptr, &pool_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create tonemap descriptor pool");
     }
 
+    std::array<VkDescriptorSetLayout, FRAMES_IN_FLIGHT> layouts{};
+    layouts.fill(set_layout_);
     VkDescriptorSetAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = pool_;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &set_layout_;
-    if (vkAllocateDescriptorSets(device_, &alloc_info, &input_set_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate tonemap descriptor set");
+    alloc_info.descriptorSetCount = FRAMES_IN_FLIGHT;
+    alloc_info.pSetLayouts = layouts.data();
+    if (vkAllocateDescriptorSets(device_, &alloc_info, input_sets_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate tonemap descriptor sets");
     }
 
     // Pipeline (no push constants needed)
@@ -304,7 +306,7 @@ void TonemapPass::record(const FrameContext& ctx) {
 
     VkWriteDescriptorSet write{};
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = input_set_;
+    write.dstSet = input_sets_[ctx.frame_index];
     write.dstBinding = 0;
     write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     write.descriptorCount = 1;
@@ -360,7 +362,7 @@ void TonemapPass::record(const FrameContext& ctx) {
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 1, &input_set_, 0, nullptr);
+                            0, 1, &input_sets_[ctx.frame_index], 0, nullptr);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
 

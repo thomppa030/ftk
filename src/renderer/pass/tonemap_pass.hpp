@@ -37,7 +37,8 @@ private:
 
     VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
-    VkDescriptorSet input_set_{VK_NULL_HANDLE};
+    static constexpr int FRAMES_IN_FLIGHT = 2;
+    VkDescriptorSet input_sets_[FRAMES_IN_FLIGHT]{};
     VkSampler input_sampler_{VK_NULL_HANDLE};
 
     VkPipelineLayout layout_{VK_NULL_HANDLE};

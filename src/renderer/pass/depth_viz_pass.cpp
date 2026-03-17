@@ -71,14 +71,14 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
         throw std::runtime_error("Failed to create depth viz descriptor set layout");
     }
 
-    // Descriptor pool
+    // Descriptor pool (per-frame to avoid updating while previous frame is in flight)
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = 1;
+    pool_size.descriptorCount = FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = 1;
+    pool_ci.maxSets = FRAMES_IN_FLIGHT;
     pool_ci.poolSizeCount = 1;
     pool_ci.pPoolSizes = &pool_size;
 
@@ -86,15 +86,17 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
         throw std::runtime_error("Failed to create depth viz descriptor pool");
     }
 
-    // Allocate descriptor set
+    // Allocate per-frame descriptor sets
+    std::array<VkDescriptorSetLayout, FRAMES_IN_FLIGHT> layouts{};
+    layouts.fill(set_layout_);
     VkDescriptorSetAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = pool_;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &set_layout_;
+    alloc_info.descriptorSetCount = FRAMES_IN_FLIGHT;
+    alloc_info.pSetLayouts = layouts.data();
 
-    if (vkAllocateDescriptorSets(device_, &alloc_info, &depth_set_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate depth viz descriptor set");
+    if (vkAllocateDescriptorSets(device_, &alloc_info, depth_sets_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate depth viz descriptor sets");
     }
 
     // Pipeline layout: one set + push constants (near, far)
@@ -350,7 +352,7 @@ void DepthVizPass::record(const FrameContext& ctx) {
 
     VkWriteDescriptorSet write{};
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = depth_set_;
+    write.dstSet = depth_sets_[ctx.frame_index];
     write.dstBinding = 0;
     write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     write.descriptorCount = 1;
@@ -409,7 +411,7 @@ void DepthVizPass::record(const FrameContext& ctx) {
     vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
 
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 1, &depth_set_, 0, nullptr);
+                            0, 1, &depth_sets_[ctx.frame_index], 0, nullptr);
 
     struct { float near; float far; } push{0.1f, 1000.0f};
     vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT,

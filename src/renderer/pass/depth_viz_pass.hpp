@@ -40,7 +40,8 @@ private:
     // Input: depth texture descriptor
     VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
-    VkDescriptorSet depth_set_{VK_NULL_HANDLE};
+    static constexpr int FRAMES_IN_FLIGHT = 2;
+    VkDescriptorSet depth_sets_[FRAMES_IN_FLIGHT]{};
     VkSampler depth_sampler_{VK_NULL_HANDLE};
 
     // Pipeline

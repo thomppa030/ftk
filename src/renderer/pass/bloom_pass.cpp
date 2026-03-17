@@ -170,40 +170,46 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
         throw std::runtime_error("Failed to create bloom composite descriptor layout");
     }
 
-    // Descriptor pool: MIP_COUNT for mip chain + 1 for scene source + 1 for composite
+    // Descriptor pool: MIP_COUNT shared + FRAMES_IN_FLIGHT source + FRAMES_IN_FLIGHT composite
+    uint32_t total_sets = MIP_COUNT + FRAMES_IN_FLIGHT * 2;
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = MIP_COUNT + 4;
+    pool_size.descriptorCount = MIP_COUNT + FRAMES_IN_FLIGHT + FRAMES_IN_FLIGHT * 2;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    pool_ci.maxSets = MIP_COUNT + 2;
+    pool_ci.maxSets = total_sets;
     pool_ci.poolSizeCount = 1;
     pool_ci.pPoolSizes = &pool_size;
     if (vkCreateDescriptorPool(device_, &pool_ci, nullptr, &pool_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create bloom descriptor pool");
     }
 
-    // Allocate descriptor sets
-    for (uint32_t i = 0; i < MIP_COUNT + 1; ++i) {
+    // Allocate mip chain descriptor sets (shared, updated on resize only)
+    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
         VkDescriptorSetAllocateInfo alloc{};
         alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc.descriptorPool = pool_;
         alloc.descriptorSetCount = 1;
         alloc.pSetLayouts = &single_tex_layout_;
-        if (vkAllocateDescriptorSets(device_, &alloc, &desc_sets_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate bloom descriptor set");
+        if (vkAllocateDescriptorSets(device_, &alloc, &mip_sets_[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate bloom mip descriptor set");
         }
     }
-    // Composite set
-    {
+    // Per-frame source + composite sets
+    for (int f = 0; f < FRAMES_IN_FLIGHT; ++f) {
         VkDescriptorSetAllocateInfo alloc{};
         alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc.descriptorPool = pool_;
         alloc.descriptorSetCount = 1;
+        alloc.pSetLayouts = &single_tex_layout_;
+        if (vkAllocateDescriptorSets(device_, &alloc, &source_sets_[f]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate bloom source descriptor set");
+        }
+
         alloc.pSetLayouts = &composite_layout_;
-        if (vkAllocateDescriptorSets(device_, &alloc, &desc_sets_[MIP_COUNT + 1]) != VK_SUCCESS) {
+        if (vkAllocateDescriptorSets(device_, &alloc, &composite_sets_[f]) != VK_SUCCESS) {
             throw std::runtime_error("Failed to allocate bloom composite descriptor set");
         }
     }
@@ -399,8 +405,7 @@ void BloomPass::destroy_mip_chain() {
 }
 
 void BloomPass::update_descriptors() {
-    // desc_sets_[0] = scene color input (updated per-frame in record())
-    // desc_sets_[1..MIP_COUNT] = mip chain inputs for upsampling
+    // mip_sets_[0..MIP_COUNT-1] = mip chain inputs (updated on resize only)
     for (uint32_t i = 0; i < MIP_COUNT; ++i) {
         VkDescriptorImageInfo img_info{};
         img_info.sampler = sampler_;
@@ -409,7 +414,7 @@ void BloomPass::update_descriptors() {
 
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = desc_sets_[i + 1]; // offset by 1 (0 = scene)
+        write.dstSet = mip_sets_[i];
         write.dstBinding = 0;
         write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         write.descriptorCount = 1;
@@ -516,7 +521,9 @@ void BloomPass::record(const FrameContext& ctx) {
 
     auto cmd = ctx.cmd;
 
-    // Update scene source descriptor
+    uint32_t fi = ctx.frame_index;
+
+    // Update scene source descriptor (per-frame)
     {
         VkDescriptorImageInfo img_info{};
         img_info.sampler = sampler_;
@@ -525,7 +532,7 @@ void BloomPass::record(const FrameContext& ctx) {
 
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = desc_sets_[0];
+        write.dstSet = source_sets_[fi];
         write.dstBinding = 0;
         write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         write.descriptorCount = 1;
@@ -537,7 +544,7 @@ void BloomPass::record(const FrameContext& ctx) {
 
     for (uint32_t i = 0; i < MIP_COUNT; ++i) {
         auto& mip = mips_[i];
-        VkDescriptorSet src_set = (i == 0) ? desc_sets_[0] : desc_sets_[i];
+        VkDescriptorSet src_set = (i == 0) ? source_sets_[fi] : mip_sets_[i - 1];
 
         struct { float threshold, is_first, pad1, pad2; } push{
             threshold_, (i == 0) ? 1.0f : 0.0f, 0.0f, 0.0f};
@@ -573,7 +580,7 @@ void BloomPass::record(const FrameContext& ctx) {
             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
         // Source = the mip below (i+1)
-        draw_fullscreen(cmd, upsample_pipeline_, upsample_layout_, desc_sets_[i + 2],
+        draw_fullscreen(cmd, upsample_pipeline_, upsample_layout_, mip_sets_[i + 1],
                         dst.view, dst.width, dst.height,
                         VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                         &push, sizeof(push));
@@ -599,7 +606,7 @@ void BloomPass::record(const FrameContext& ctx) {
         std::array<VkWriteDescriptorSet, 2> writes{};
         for (int b = 0; b < 2; ++b) {
             writes[b].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[b].dstSet = desc_sets_[MIP_COUNT + 1];
+            writes[b].dstSet = composite_sets_[fi];
             writes[b].dstBinding = b;
             writes[b].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             writes[b].descriptorCount = 1;
@@ -617,7 +624,7 @@ void BloomPass::record(const FrameContext& ctx) {
         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
     draw_fullscreen(cmd, composite_pipeline_, composite_layout_pipeline_,
-                    desc_sets_[MIP_COUNT + 1],
+                    composite_sets_[fi],
                     output_view_, extent_.width, extent_.height,
                     VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                     &comp_push, sizeof(comp_push));
