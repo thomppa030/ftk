@@ -4,6 +4,7 @@ add_executable(fjell
     core/clock.cpp
     core/game_builder.cpp
     core/engine.cpp
+    core/layer_stack.cpp
     core/input.cpp
     core/play_session.cpp
     core/project.cpp
@@ -22,6 +23,7 @@ add_executable(fjell
     renderer/offscreen_pass.cpp
     renderer/pipeline.cpp
     renderer/primitives.cpp
+    renderer/render_queue.cpp
     renderer/resource_manager.cpp
     renderer/shader_watcher.cpp
     renderer/stb_image.cpp
@@ -33,6 +35,7 @@ add_executable(fjell
     scripting/json_bridge.cpp
     scripting/script_manager.cpp
     ui/console.cpp
+    ui/file_browser.cpp
     ui/imgui_layer.cpp
     ui/nvim_panel.cpp
 
@@ -105,6 +108,7 @@ add_executable(fjell-hub
     hub/main.cpp
     hub/hub_ui.cpp
     hub/recent_projects.cpp
+    ui/file_browser.cpp
     core/log.cpp
     core/window.cpp
     ui/console.cpp

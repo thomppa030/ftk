@@ -6,6 +6,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pipeline.hpp"
+#include "renderer/render_queue.hpp"
 #include "renderer/swapchain.hpp"
 
 #include <glm/glm.hpp>
@@ -57,7 +58,6 @@ public:
     [[nodiscard]] const std::string& gpu_name() const { return device_.gpu_name(); }
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }
     [[nodiscard]] VkDescriptorSet viewport_texture() const { return offscreen_->imgui_texture(); }
-
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
@@ -105,7 +105,7 @@ private:
     // Offscreen scene rendering
     std::unique_ptr<OffscreenPass> offscreen_;
 
-    // Pipeline (uses dynamic rendering)
+    // Pipeline (dynamic rendering)
     std::unique_ptr<Pipeline> pipeline_;
 
     // Command buffers and sync
@@ -119,6 +119,7 @@ private:
     uint32_t current_frame_{0};
 
     std::unique_ptr<RenderStats> render_stats_;
+    RenderQueue render_queue_;
 
     // Debug collider visualization
     VkPipelineLayout debug_layout_{VK_NULL_HANDLE};

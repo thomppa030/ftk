@@ -1,4 +1,6 @@
 #include "renderer/vulkan_context.hpp"
+#include "renderer/material.hpp"
+#include "renderer/model.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/vertex.hpp"
@@ -292,7 +294,29 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                                 0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
 
         if (scene) {
-            scene->render(cmd, pipeline_->layout(), render_stats_.get());
+            render_queue_.clear();
+            for (const auto& obj : scene->objects()) {
+                if (!obj.model) continue;
+
+                DrawCommand dc{};
+                dc.world_matrix = obj.world_matrix_;
+                dc.push.model = obj.world_matrix_;
+                if (obj.material) {
+                    const auto& params = obj.material->params();
+                    dc.push.base_color_factor = params.base_color_factor;
+                    dc.push.metallic_factor = params.metallic_factor;
+                    dc.push.roughness_factor = params.roughness_factor;
+                    dc.push.has_normal_map = params.has_normal_map ? 1.0f : 0.0f;
+                    dc.material_set = obj.material->descriptor_set();
+                    dc.sort_key = RenderQueue::make_sort_key(
+                        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(obj.material) & 0xFFFFFFFF),
+                        obj.id);
+                }
+                dc.model = obj.model;
+                render_queue_.push(dc);
+            }
+            render_queue_.sort();
+            render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
         }
 
         // Debug collider wireframes
