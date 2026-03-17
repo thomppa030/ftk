@@ -14,7 +14,9 @@ public:
     Pipeline(Device& device,
              VkFormat color_format, VkFormat depth_format,
              VkDescriptorSetLayout global_layout,
-             VkDescriptorSetLayout material_layout);
+             VkDescriptorSetLayout material_layout,
+             const std::string& vert_shader = "shaders/mesh.vert.spv",
+             const std::string& frag_shader = "shaders/mesh.frag.spv");
     ~Pipeline();
 
     Pipeline(const Pipeline&) = delete;
@@ -39,6 +41,8 @@ private:
     VkFormat depth_format_;
     VkDescriptorSetLayout global_layout_;
     VkDescriptorSetLayout material_layout_;
+    std::string vert_shader_;
+    std::string frag_shader_;
 
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};

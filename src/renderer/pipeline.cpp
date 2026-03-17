@@ -16,12 +16,16 @@ namespace fjell {
 Pipeline::Pipeline(Device& device,
                    VkFormat color_format, VkFormat depth_format,
                    VkDescriptorSetLayout global_layout,
-                   VkDescriptorSetLayout material_layout)
+                   VkDescriptorSetLayout material_layout,
+                   const std::string& vert_shader,
+                   const std::string& frag_shader)
     : device_{device}
     , color_format_{color_format}
     , depth_format_{depth_format}
     , global_layout_{global_layout}
-    , material_layout_{material_layout} {
+    , material_layout_{material_layout}
+    , vert_shader_{vert_shader}
+    , frag_shader_{frag_shader} {
     create();
 }
 
@@ -37,8 +41,8 @@ void Pipeline::recreate() {
 }
 
 void Pipeline::create() {
-    auto vert_code = read_shader(base_path::resolve("shaders/mesh.vert.spv"));
-    auto frag_code = read_shader(base_path::resolve("shaders/mesh.frag.spv"));
+    auto vert_code = read_shader(base_path::resolve(vert_shader_));
+    auto frag_code = read_shader(base_path::resolve(frag_shader_));
 
     VkShaderModule vert_module = create_shader_module(vert_code);
     VkShaderModule frag_module = create_shader_module(frag_code);
