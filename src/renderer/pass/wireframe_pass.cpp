@@ -341,12 +341,16 @@ void WireframePass::record(const FrameContext& ctx) {
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &ctx.global_descriptor_set, 0, nullptr);
 
-    for (const auto& dc : ctx.queue->commands()) {
-        vkCmdPushConstants(ctx.cmd, layout_,
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                           0, sizeof(glm::mat4), &dc.world_matrix);
-        dc.model->draw(ctx.cmd);
-    }
+    auto draw_list = [&](const std::vector<DrawCommand>& list) {
+        for (const auto& dc : list) {
+            vkCmdPushConstants(ctx.cmd, layout_,
+                               VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                               0, sizeof(glm::mat4), &dc.world_matrix);
+            dc.model->draw(ctx.cmd);
+        }
+    };
+    draw_list(ctx.queue->commands());
+    draw_list(ctx.queue->transparent_commands());
 
     vkCmdEndRendering(ctx.cmd);
 

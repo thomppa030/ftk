@@ -162,8 +162,12 @@ void Scene::save(const std::string& path) const {
         jobj["material"] = obj.material_name;
         if (obj.material) {
             const auto& bcf = obj.material->params().base_color_factor;
-            if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f) {
-                jobj["color"] = {bcf.r, bcf.g, bcf.b};
+            if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f || bcf.a != 1.0f) {
+                if (bcf.a < 1.0f) {
+                    jobj["color"] = {bcf.r, bcf.g, bcf.b, bcf.a};
+                } else {
+                    jobj["color"] = {bcf.r, bcf.g, bcf.b};
+                }
             }
         }
         jobj["position"] = {obj.transform.position.x, obj.transform.position.y, obj.transform.position.z};
@@ -256,8 +260,9 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         if (jobj.contains("color")) {
             auto& c = jobj["color"];
             PbrParams params{};
+            float alpha = c.size() > 3 ? c[3].get<float>() : 1.0f;
             params.base_color_factor = {c[0].get<float>(), c[1].get<float>(),
-                                        c[2].get<float>(), 1.0f};
+                                        c[2].get<float>(), alpha};
             std::string color_mat_name = mat_name + "_color_" + std::to_string(jobj.value("id", 0));
             mat_handle = resources.create_material(color_mat_name,
                 resources.default_white_handle(), {}, {}, {}, params);
