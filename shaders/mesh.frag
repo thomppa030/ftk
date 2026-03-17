@@ -9,7 +9,11 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 light_color;        // xyz = color
     vec4 camera_position;    // xyz = eye pos
     vec4 ambient_color;      // xyz = color, w = intensity
+    mat4 cascade_vp[3];      // light-space matrices per cascade
+    vec4 cascade_splits;     // xyz = split distances
 } ubo;
+
+layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
@@ -57,6 +61,49 @@ float geometry_smith(float NdotV, float NdotL, float roughness) {
 // Fresnel-Schlick approximation
 vec3 fresnel_schlick(float cos_theta, vec3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+
+// Cascaded shadow map lookup
+float shadow_factor(vec3 world_pos, float NdotL_for_bias) {
+    // Find which cascade this fragment belongs to
+    float view_depth = -(ubo.view * vec4(world_pos, 1.0)).z;
+    int cascade = 2;
+    for (int i = 0; i < 3; ++i) {
+        if (view_depth < ubo.cascade_splits[i]) {
+            cascade = i;
+            break;
+        }
+    }
+
+    // Project into light space
+    vec4 light_pos = ubo.cascade_vp[cascade] * vec4(world_pos, 1.0);
+    vec3 proj = light_pos.xyz / light_pos.w;
+
+    // Remap XY from [-1,1] to [0,1]
+    vec2 uv = proj.xy * 0.5 + 0.5;
+
+    // Out of shadow map bounds = lit
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 ||
+        proj.z < 0.0 || proj.z > 1.0) {
+        return 1.0;
+    }
+
+    // Slope-scaled bias: steeper surfaces get more bias to avoid acne
+    // while keeping contact shadows tight
+    float bias = max(0.001 * (1.0 - NdotL_for_bias), 0.0002);
+    float compare_depth = proj.z - bias;
+
+    // PCF 3x3: sample shadow map with offsets for softer edges
+    float shadow = 0.0;
+    vec2 texel_size = vec2(1.0) / vec2(2048.0);
+    for (int x = -1; x <= 1; ++x) {
+        for (int y = -1; y <= 1; ++y) {
+            vec2 offset = vec2(float(x), float(y)) * texel_size;
+            shadow += texture(shadow_map, vec4(uv + offset, float(cascade), compare_depth));
+        }
+    }
+    shadow /= 9.0;
+    return shadow;
 }
 
 void main() {
@@ -116,9 +163,11 @@ void main() {
     vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
     vec3 diffuse = kD * albedo / PI;
 
+    float shadow = shadow_factor(frag_world_pos, NdotL);
+
     // Direct lighting
     vec3 radiance = ubo.light_color.xyz * light_intensity;
-    vec3 Lo = (diffuse + specular) * radiance * NdotL;
+    vec3 Lo = (diffuse + specular) * radiance * NdotL * shadow;
 
     // Ambient
     vec3 ambient = ubo.ambient_color.xyz * ubo.ambient_color.w * albedo;
