@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/buffer.hpp"
+#include "renderer/frame_graph.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"

@@ -23,6 +23,8 @@ add_executable(fjell
     renderer/offscreen_pass.cpp
     renderer/pipeline.cpp
     renderer/primitives.cpp
+    renderer/bindless.cpp
+    renderer/frame_graph.cpp
     renderer/pass/bloom_pass.cpp
     renderer/pass/debug_pass.cpp
     renderer/pass/depth_prepass.cpp

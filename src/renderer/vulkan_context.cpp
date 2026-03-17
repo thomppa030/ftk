@@ -269,7 +269,7 @@ void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     const Scene* scene) {
-    // Build render queue from scene (shared between passes)
+    // Build render queue
     if (scene) {
         render_queue_.clear();
         for (const auto& obj : scene->objects()) {
@@ -306,30 +306,22 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.show_colliders = show_colliders_;
     ctx.frame_index = current_frame_;
 
-    // ── Pass 0: Shadow map (renders to its own texture array) ───────────
+    // ── Frame graph: declare image usage per pass ────────────────────────
 
-    shadow_pass_.record(ctx);
+    FrameGraph graph;
+    uint32_t color_id = graph.register_image(target.color_image());
+    uint32_t depth_id = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
+    graph.begin_frame();
 
-    // ── Pass 1: Depth pre-pass ──────────────────────────────────────────
+    // Shadow pass (uses its own images — no graph tracking needed)
+    graph.add_pass("shadow", [&] { shadow_pass_.record(ctx); }, {});
 
-    transition_image(cmd, target.depth_image(),
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        VK_IMAGE_ASPECT_DEPTH_BIT);
+    // Depth pre-pass
+    graph.add_pass("depth_prepass", [&] { depth_prepass_.record(ctx); },
+                   {{depth_id, ImageUsage::depth_attachment}});
 
-    depth_prepass_.record(ctx);
-
-    // ── Pass 2: Color pass (depth read, no depth write) ─────────────────
-
-    transition_image(cmd, target.color_image(),
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-    {
+    // Color pass (opaques + sky + debug + transparent in one rendering scope)
+    graph.add_pass("color", [&] {
         VkRenderingAttachmentInfo color_attachment{};
         color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         color_attachment.imageView = target.color_view();
@@ -345,32 +337,27 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-        VkRenderingInfo rendering_info{};
-        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        rendering_info.renderArea.offset = {0, 0};
-        rendering_info.renderArea.extent = target.extent();
-        rendering_info.layerCount = 1;
-        rendering_info.colorAttachmentCount = 1;
-        rendering_info.pColorAttachments = &color_attachment;
-        rendering_info.pDepthAttachment = &depth_attachment;
+        VkRenderingInfo ri{};
+        ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        ri.renderArea.extent = target.extent();
+        ri.layerCount = 1;
+        ri.colorAttachmentCount = 1;
+        ri.pColorAttachments = &color_attachment;
+        ri.pDepthAttachment = &depth_attachment;
 
-        vkCmdBeginRendering(cmd, &rendering_info);
+        vkCmdBeginRendering(cmd, &ri);
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->handle());
 
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(target.extent().width);
-        viewport.height = static_cast<float>(target.extent().height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        VkViewport vp{};
+        vp.width = static_cast<float>(target.extent().width);
+        vp.height = static_cast<float>(target.extent().height);
+        vp.maxDepth = 1.0f;
+        vkCmdSetViewport(cmd, 0, 1, &vp);
 
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = target.extent();
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
+        VkRect2D sc{};
+        sc.extent = target.extent();
+        vkCmdSetScissor(cmd, 0, 1, &sc);
 
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
                                 0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
@@ -379,47 +366,32 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
         }
 
-        // Sky (draws only where depth == 1.0, behind everything)
         sky_pass_.record(ctx);
-
-        // Debug collider wireframes
         debug_pass_.record(ctx);
-
-        // Transparent objects (back-to-front, alpha blended)
         transparent_pass_.record(ctx);
 
         vkCmdEndRendering(cmd);
-    }
+    }, {{color_id, ImageUsage::color_attachment},
+        {depth_id, ImageUsage::depth_attachment_read}});
 
-    // ── Transitions for sampling ────────────────────────────────────────
+    // Post-processing reads the color buffer
+    graph.add_pass("bloom", [&] { bloom_pass_.record(ctx); },
+                   {{color_id, ImageUsage::shader_read}});
 
-    transition_image(cmd, target.color_image(),
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    graph.add_pass("tonemap", [&] {
+        tonemap_pass_.set_source_view(target.color_view());
+        tonemap_pass_.record(ctx);
+    }, {{color_id, ImageUsage::shader_read}});
 
-    transition_image(cmd, target.depth_image(),
-        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_IMAGE_ASPECT_DEPTH_BIT);
+    // Utility passes
+    graph.add_pass("depth_viz", [&] { depth_viz_pass_.record(ctx); },
+                   {{depth_id, ImageUsage::shader_read}});
 
-    // ── Post-processing ───────────────────────────────────────────────
-    bloom_pass_.record(ctx);
+    graph.add_pass("wireframe", [&] { wireframe_pass_.record(ctx); }, {});
 
-    // Tone mapping reads the raw scene color for now (bypass bloom)
-    tonemap_pass_.set_source_view(target.color_view());
-    tonemap_pass_.record(ctx);
+    // ── Execute ─────────────────────────────────────────────────────────
 
-    // ── Utility passes (render to their own images for viewport debug) ──
-    depth_viz_pass_.record(ctx);
-    wireframe_pass_.record(ctx);
+    graph.execute(cmd);
 }
 
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
