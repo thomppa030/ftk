@@ -38,6 +38,7 @@ add_executable(fjell
     ui/file_browser.cpp
     ui/imgui_layer.cpp
     ui/nvim_panel.cpp
+    ui/viewport_manager.cpp
 
     # ImGui sources
     ${imgui_SOURCE_DIR}/imgui.cpp
