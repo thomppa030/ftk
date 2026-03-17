@@ -323,6 +323,16 @@ bool ScriptManager::add_oop_component(RenderObject& obj, const std::string& type
     const auto* type = find_oop_component_type(type_name);
     if (!type || !type->loaded || !type->create) return false;
 
+    // Ensure the object has an Actor (create a default one if needed)
+    if (!obj.actor) {
+        obj.actor = std::make_unique<Actor>();
+        obj.actor->id_ = obj.id;
+        obj.actor->parent_id_ = obj.parent_id;
+        obj.actor->name_ = obj.name.c_str();
+        obj.actor->world_ = &world_;
+        obj.actor->transform_ = &obj.transform;
+    }
+
     ComponentEntry entry;
     entry.type_name = type->name;
     entry.instance.reset(type->create());
@@ -355,6 +365,9 @@ void ScriptManager::populate_engine_api(Scene& scene, const Input& input, const 
     world_.physics_ = physics;
     world_.scene_ = &scene;
     world_.delta_time = clock.delta_time();
+    world_.log_info_fn = [](const char* msg) { FJELL_CORE_INFO("[script] {}", msg); };
+    world_.log_warn_fn = [](const char* msg) { FJELL_CORE_WARN("[script] {}", msg); };
+    world_.log_error_fn = [](const char* msg) { FJELL_CORE_ERROR("[script] {}", msg); };
 
     api_.delta_time = clock.delta_time();
 
@@ -466,6 +479,11 @@ void ScriptManager::populate_engine_api(Scene& scene, const Input& input, const 
 }
 
 // ── Update ──────────────────────────────────────────────────────────────
+
+void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock,
+                            PhysicsWorld* physics) {
+    populate_engine_api(scene, input, clock, physics);
+}
 
 void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
                            PhysicsWorld* physics) {
@@ -704,6 +722,16 @@ void ScriptManager::deserialize_all(Scene& scene) {
             }
         }
 
+        // Ensure a default Actor exists if there are OOP components
+        if (!obj.oop_components.empty() && !obj.actor) {
+            obj.actor = std::make_unique<Actor>();
+            obj.actor->id_ = obj.id;
+            obj.actor->parent_id_ = obj.parent_id;
+            obj.actor->name_ = obj.name.c_str();
+            obj.actor->world_ = &world_;
+            obj.actor->transform_ = &obj.transform;
+        }
+
         // OOP components
         for (auto& comp : obj.oop_components) {
             const auto* ctype = find_oop_component_type(comp.type_name);
@@ -896,7 +924,7 @@ bool ScriptManager::poll_reload(Scene& scene) {
         const auto* event = reinterpret_cast<const inotify_event*>(ptr);
         if (event->len > 0) {
             std::string filename{event->name};
-            if (filename.ends_with(".so")) {
+            if (filename == so_path_.filename().string()) {
                 changed = true;
             }
         }

@@ -89,9 +89,15 @@ struct RenderObject {
         copy.material_name = material_name;
         copy.components = components;
         copy.actor_type_name = actor_type_name;
+        // Copy OOP component metadata (type names + serialized data), not instances
+        for (const auto& comp : oop_components) {
+            ComponentEntry entry;
+            entry.type_name = comp.type_name;
+            entry.serialized = comp.serialized;
+            copy.oop_components.push_back(std::move(entry));
+        }
         copy.rigidbody = rigidbody;
         copy.collider = collider;
-        // actor, oop_components left as nullptr — serialized separately
         return copy;
     }
 };

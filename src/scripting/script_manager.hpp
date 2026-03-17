@@ -85,6 +85,10 @@ public:
     void unload(Scene& scene);
     bool reload(Scene& scene, const std::filesystem::path& so_path);
 
+    // Populate engine services (World, API) without ticking — call before begin_play
+    void prepare(Scene& scene, const Input& input, const Clock& clock,
+                 PhysicsWorld* physics = nullptr);
+
     void update(Scene& scene, const Input& input, const Clock& clock,
                 PhysicsWorld* physics = nullptr);
 

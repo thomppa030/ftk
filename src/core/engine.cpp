@@ -867,6 +867,20 @@ void Engine::draw_menu_bar() {
             ImGui::EndMenu();
         }
 
+        // Play/Stop button in menu bar
+        float bar_w = ImGui::GetWindowWidth();
+        float button_w = 60.0f;
+        ImGui::SameLine(bar_w * 0.5f - button_w * 0.5f);
+        if (is_playing()) {
+            if (ImGui::SmallButton("Stop")) {
+                stop_play();
+            }
+        } else {
+            if (ImGui::SmallButton("Play")) {
+                start_play();
+            }
+        }
+
         ImGui::EndMainMenuBar();
     }
 
@@ -932,6 +946,7 @@ void Engine::start_play() {
     if (!cam) cam = &fallback_cam;
     play_session_ = std::make_unique<PlaySession>(
         scene_, cam->position(), cam->yaw() + 180.0f, -cam->pitch());
+    script_manager_.prepare(scene_, input_, clock_, play_session_->physics_world());
     script_manager_.deserialize_all(scene_);
     script_manager_.call_begin_play(scene_);
     input_.set_cursor_captured(window_.handle(), true);
