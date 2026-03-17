@@ -14,6 +14,32 @@ Camera::Camera(glm::vec3 target, float distance, float yaw, float pitch)
     update_position();
 }
 
+void Camera::focus(const glm::vec3& target, float object_radius) {
+    focusing_ = true;
+    focus_from_ = target_;
+    focus_to_ = target;
+    focus_dist_from_ = distance_;
+    // Frame the object: distance so it fills ~60% of the view
+    float ideal_dist = object_radius / std::tan(glm::radians(fov_ * 0.5f)) * 1.5f;
+    focus_dist_to_ = std::clamp(ideal_dist, min_distance_, max_distance_);
+    focus_t_ = 0.0f;
+}
+
+void Camera::update_focus(float dt) {
+    if (!focusing_) return;
+
+    focus_t_ += dt * 4.0f; // ~0.25s transition
+    if (focus_t_ >= 1.0f) {
+        focus_t_ = 1.0f;
+        focusing_ = false;
+    }
+
+    // Smooth ease-out
+    float t = 1.0f - (1.0f - focus_t_) * (1.0f - focus_t_);
+    target_ = glm::mix(focus_from_, focus_to_, t);
+    distance_ = glm::mix(focus_dist_from_, focus_dist_to_, t);
+}
+
 void Camera::update(const Input& input, float dt) {
     auto mouse_d = input.mouse_delta();
     auto scroll_d = input.scroll_delta();
@@ -21,6 +47,16 @@ void Camera::update(const Input& input, float dt) {
     bool middle_held = input.is_mouse_button_held(GLFW_MOUSE_BUTTON_MIDDLE);
     bool shift_held = input.is_key_held(GLFW_KEY_LEFT_SHIFT) ||
                       input.is_key_held(GLFW_KEY_RIGHT_SHIFT);
+
+    // Cancel focus animation on any camera input
+    if (middle_held || scroll_d.y != 0.0 ||
+        input.is_key_held(GLFW_KEY_W) || input.is_key_held(GLFW_KEY_S) ||
+        input.is_key_held(GLFW_KEY_A) || input.is_key_held(GLFW_KEY_D) ||
+        input.is_key_held(GLFW_KEY_Q) || input.is_key_held(GLFW_KEY_E)) {
+        focusing_ = false;
+    }
+
+    update_focus(dt);
 
     // WASD movement — moves target (and camera) through space
     {

@@ -13,6 +13,7 @@ public:
            float yaw = -30.0f, float pitch = 25.0f);
 
     void update(const Input& input, float dt);
+    void focus(const glm::vec3& target, float object_radius = 1.0f);
 
     [[nodiscard]] glm::mat4 view_matrix() const;
     [[nodiscard]] glm::mat4 projection_matrix(float aspect) const;
@@ -24,9 +25,18 @@ public:
 
 private:
     void update_position();
+    void update_focus(float dt);
 
     glm::vec3 target_;
     glm::vec3 position_;
+
+    // Focus animation
+    bool focusing_{false};
+    glm::vec3 focus_from_{0.0f};
+    glm::vec3 focus_to_{0.0f};
+    float focus_dist_from_{0.0f};
+    float focus_dist_to_{0.0f};
+    float focus_t_{0.0f};
 
     float yaw_;
     float pitch_;
