@@ -1095,7 +1095,7 @@ void Engine::run() {
         scene_.compute_world_matrices();
 
         // Resize offscreen passes before ImGui frame so descriptors stay valid
-        viewport_manager_.apply_resize();
+        viewport_manager_.apply_resize(vulkan_context_);
 
         imgui_layer_->begin_frame();
         if (is_playing()) {

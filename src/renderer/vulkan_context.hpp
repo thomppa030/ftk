@@ -6,6 +6,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
+#include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pipeline.hpp"
 #include "renderer/render_queue.hpp"
@@ -58,6 +59,7 @@ public:
     [[nodiscard]] const std::string& gpu_name() const { return device_.gpu_name(); }
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }
     [[nodiscard]] Device& device_ref() { return device_; }
+    [[nodiscard]] DepthVizPass& depth_viz_pass() { return depth_viz_pass_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
@@ -110,6 +112,7 @@ private:
     std::unique_ptr<Pipeline> pipeline_;
     DepthPrePass depth_prepass_;
     ShadowPass shadow_pass_;
+    DepthVizPass depth_viz_pass_;
 
     // Command buffers and sync
     std::vector<VkCommandBuffer> command_buffers_;

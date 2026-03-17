@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "renderer/material.hpp"
 #include "renderer/model.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/texture.hpp"
@@ -159,6 +160,12 @@ void Scene::save(const std::string& path) const {
         jobj["name"] = obj.name;
         jobj["source"] = obj.source;
         jobj["material"] = obj.material_name;
+        if (obj.material) {
+            const auto& bcf = obj.material->params().base_color_factor;
+            if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f) {
+                jobj["color"] = {bcf.r, bcf.g, bcf.b};
+            }
+        }
         jobj["position"] = {obj.transform.position.x, obj.transform.position.y, obj.transform.position.z};
         jobj["rotation"] = {obj.transform.rotation.x, obj.transform.rotation.y, obj.transform.rotation.z};
         jobj["scale"] = {obj.transform.scale.x, obj.transform.scale.y, obj.transform.scale.z};
@@ -245,7 +252,18 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
 
         if (!model_handle.valid()) continue;
 
-        auto mat_handle = resources.create_material(mat_name, default_tex);
+        MaterialHandle mat_handle;
+        if (jobj.contains("color")) {
+            auto& c = jobj["color"];
+            PbrParams params{};
+            params.base_color_factor = {c[0].get<float>(), c[1].get<float>(),
+                                        c[2].get<float>(), 1.0f};
+            std::string color_mat_name = mat_name + "_color_" + std::to_string(jobj.value("id", 0));
+            mat_handle = resources.create_material(color_mat_name,
+                resources.default_white_handle(), {}, {}, {}, params);
+        } else {
+            mat_handle = resources.create_material(mat_name, default_tex);
+        }
 
         auto* model = resources.get(model_handle);
         if (!source.starts_with("primitive:") && model && !model->textures().empty()) {

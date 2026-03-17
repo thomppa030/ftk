@@ -51,7 +51,7 @@ public:
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests();
 
     // Resize each panel's offscreen pass to match its ImGui panel size
-    void apply_resize();
+    void apply_resize(VulkanContext& ctx);
 
     // Resize the active viewport's offscreen (for play mode fullscreen)
     void resize_active(uint32_t width, uint32_t height);

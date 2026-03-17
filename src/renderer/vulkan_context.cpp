@@ -39,6 +39,7 @@ VulkanContext::VulkanContext(Window& window)
     pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
     depth_prepass_.create(device_, pass_resources);
     shadow_pass_.create(device_, pass_resources);
+    depth_viz_pass_.create(device_, pass_resources);
 
     // Write shadow map sampler into global descriptor sets (binding 1)
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -72,6 +73,7 @@ VulkanContext::~VulkanContext() {
 
     debug_draw_.reset();
     destroy_debug_pipeline();
+    depth_viz_pass_.destroy();
     shadow_pass_.destroy();
     depth_prepass_.destroy();
 
@@ -392,6 +394,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    // ── Depth visualization (reads depth, writes to its own color image) ─
+    depth_viz_pass_.record(ctx);
 }
 
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,

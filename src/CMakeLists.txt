@@ -24,6 +24,7 @@ add_executable(fjell
     renderer/pipeline.cpp
     renderer/primitives.cpp
     renderer/pass/depth_prepass.cpp
+    renderer/pass/depth_viz_pass.cpp
     renderer/pass/shadow_pass.cpp
     renderer/render_queue.cpp
     renderer/resource_manager.cpp

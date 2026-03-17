@@ -105,13 +105,14 @@ void ViewportManager::draw(VulkanContext& ctx, Scene& scene,
     }
 }
 
-void ViewportManager::apply_resize() {
+void ViewportManager::apply_resize(VulkanContext& ctx) {
     for (auto& panel : panels_) {
         if (!panel.offscreen) continue;
         auto vp_w = static_cast<uint32_t>(panel.size.x);
         auto vp_h = static_cast<uint32_t>(panel.size.y);
         if (vp_w > 0 && vp_h > 0) {
             panel.offscreen->resize(vp_w, vp_h);
+            ctx.depth_viz_pass().resize(vp_w, vp_h);
         }
     }
 }
@@ -222,9 +223,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                     tex = panel.offscreen->imgui_texture();
                     break;
                 case ViewportSource::depth:
-                    // Raw depth can't go through ImGui directly (wrong format).
-                    // Needs a linearization pass into a color attachment first.
-                    tex = VK_NULL_HANDLE;
+                    tex = ctx.depth_viz_pass().imgui_texture();
                     break;
             }
         }
@@ -252,12 +251,6 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             }
 
             ImGui::Image(tex, {img_w, img_h});
-        } else if (panel.size.x > 0 && panel.size.y > 0) {
-            ImGui::Dummy({panel.size.x, panel.size.y});
-            auto dl = ImGui::GetWindowDrawList();
-            auto p = ImGui::GetItemRectMin();
-            dl->AddText({p.x + 8, p.y + 8}, IM_COL32(180, 180, 180, 255),
-                        "Depth (needs linearization pass)");
         }
 
         // Camera input — only the active viewport drives the render
