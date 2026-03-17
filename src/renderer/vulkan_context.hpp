@@ -5,6 +5,7 @@
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
@@ -68,9 +69,6 @@ public:
     [[nodiscard]] DebugDraw& debug_draw() { return *debug_draw_; }
 
 private:
-    void create_debug_pipeline();
-    void destroy_debug_pipeline();
-
     void create_descriptor_resources();
     void create_command_pool();
     void create_command_buffers();
@@ -112,6 +110,7 @@ private:
     std::unique_ptr<Pipeline> pipeline_;
     DepthPrePass depth_prepass_;
     ShadowPass shadow_pass_;
+    DebugPass debug_pass_;
     DepthVizPass depth_viz_pass_;
 
     // Command buffers and sync
@@ -128,8 +127,6 @@ private:
     RenderQueue render_queue_;
 
     // Debug collider visualization
-    VkPipelineLayout debug_layout_{VK_NULL_HANDLE};
-    VkPipeline debug_pipeline_{VK_NULL_HANDLE};
     std::unique_ptr<DebugDraw> debug_draw_;
     bool show_colliders_{true};
 };

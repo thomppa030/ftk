@@ -5,6 +5,7 @@
 namespace fjell {
 
 class Device;
+class DebugDraw;
 class OffscreenPass;
 class RenderQueue;
 
@@ -22,6 +23,8 @@ struct FrameContext {
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};
+    DebugDraw* debug_draw{nullptr};
+    bool show_colliders{false};
     uint32_t frame_index{0};
 };
 
