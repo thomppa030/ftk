@@ -93,6 +93,9 @@ typedef struct FjellEngineApi {
     void (*log_warn)(const char* msg);
     void (*log_error)(const char* msg);
 
+    // Components
+    void* (*get_component)(uint32_t object_id, const char* type_name);
+
     // Physics
     void (*apply_force)(uint32_t id, const float* xyz);
     void (*apply_impulse)(uint32_t id, const float* xyz);

@@ -281,6 +281,16 @@ void ScriptManager::populate_engine_api(Scene& scene, const Input& input, const 
         out[1] = static_cast<float>(d.y);
     };
 
+    api_.get_component = [](uint32_t object_id, const char* type_name) -> void* {
+        auto* obj = s_active_manager->current_scene_->find(object_id);
+        if (!obj) return nullptr;
+        uint32_t tid = ScriptManager::hash_type_name(type_name);
+        for (auto& comp : obj->components) {
+            if (comp.type_id == tid && !comp.data.empty()) return comp.data.data();
+        }
+        return nullptr;
+    };
+
     api_.log_info = [](const char* msg) { FJELL_CORE_INFO("[script] {}", msg); };
     api_.log_warn = [](const char* msg) { FJELL_CORE_WARN("[script] {}", msg); };
     api_.log_error = [](const char* msg) { FJELL_CORE_ERROR("[script] {}", msg); };
