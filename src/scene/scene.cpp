@@ -316,7 +316,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Load component data as raw JSON (ScriptManager will instantiate later)
         if (jobj.contains("components")) {
             for (const auto& jcomp : jobj["components"]) {
-                ComponentInstance comp;
+                ComponentEntry comp;
                 comp.type_name = jcomp.value("type", "");
                 if (jcomp.contains("data")) {
                     comp.serialized = jcomp["data"];

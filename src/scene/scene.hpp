@@ -23,7 +23,7 @@ class Material;
 class Project;
 class ResourceManager;
 
-// ── OOP component entry ─────────────────────────────────────────────────
+// ── Component entry ─────────────────────────────────────────────────────
 
 struct ComponentEntry {
     std::unique_ptr<Component> instance;
@@ -36,12 +36,7 @@ struct ComponentEntry {
     ComponentEntry& operator=(ComponentEntry&&) noexcept;
 };
 
-struct ComponentInstance {
-    uint32_t type_id{0};
-    std::string type_name;
-    std::vector<uint8_t> data;
-    nlohmann::json serialized;
-};
+// ── Scene object ────────────────────────────────────────────────────────
 
 struct RenderObject {
     uint32_t id{0};
@@ -54,16 +49,13 @@ struct RenderObject {
     Material* material{nullptr};
     Transform transform;
     std::string name;
-    std::string source;       // "primitive:cube", "primitive:plane", etc. or model file path
+    std::string source;
     std::string material_name;
 
-    // Old-style components (C API — kept during migration)
-    std::vector<ComponentInstance> components;
-
-    // OOP actor/component system
+    // Actor/component system
     std::unique_ptr<Actor> actor;
     std::string actor_type_name;
-    std::vector<ComponentEntry> oop_components;
+    std::vector<ComponentEntry> components;
 
     std::optional<RigidbodyDesc> rigidbody;
     std::optional<ColliderDesc> collider;
@@ -87,14 +79,12 @@ struct RenderObject {
         copy.name = name;
         copy.source = source;
         copy.material_name = material_name;
-        copy.components = components;
         copy.actor_type_name = actor_type_name;
-        // Copy OOP component metadata (type names + serialized data), not instances
-        for (const auto& comp : oop_components) {
+        for (const auto& comp : components) {
             ComponentEntry entry;
             entry.type_name = comp.type_name;
             entry.serialized = comp.serialized;
-            copy.oop_components.push_back(std::move(entry));
+            copy.components.push_back(std::move(entry));
         }
         copy.rigidbody = rigidbody;
         copy.collider = collider;

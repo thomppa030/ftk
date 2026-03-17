@@ -587,31 +587,19 @@ void Engine::draw_properties() {
             ImGui::Separator();
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
             script_manager_.draw_inspector(*obj);
-            script_manager_.draw_oop_inspector(*obj);
 
             // Add component button
-            if (script_manager_.is_loaded()) {
-                bool has_types = !script_manager_.types().empty() ||
-                                 !script_manager_.oop_component_types().empty();
-                if (has_types) {
-                    if (ImGui::Button("Add Component", {-1, 0})) {
-                        ImGui::OpenPopup("##AddComponent");
-                    }
-                    if (ImGui::BeginPopup("##AddComponent")) {
-                        // Old-style C API components
-                        for (const auto& type : script_manager_.types()) {
-                            if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
-                                script_manager_.add_component(*obj, type.name);
-                            }
+            if (script_manager_.is_loaded() && !script_manager_.component_types().empty()) {
+                if (ImGui::Button("Add Component", {-1, 0})) {
+                    ImGui::OpenPopup("##AddComponent");
+                }
+                if (ImGui::BeginPopup("##AddComponent")) {
+                    for (const auto& type : script_manager_.component_types()) {
+                        if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
+                            script_manager_.add_component(*obj, type.name);
                         }
-                        // New OOP components
-                        for (const auto& type : script_manager_.oop_component_types()) {
-                            if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
-                                script_manager_.add_oop_component(*obj, type.name);
-                            }
-                        }
-                        ImGui::EndPopup();
                     }
+                    ImGui::EndPopup();
                 }
             }
         } else {
@@ -768,6 +756,7 @@ void Engine::draw_console() {
 void Engine::draw_code_editor() {
     nvim_panel_.poll();
     nvim_panel_.draw();
+
 }
 
 void Engine::open_project(const std::filesystem::path& path) {
@@ -863,6 +852,49 @@ void Engine::draw_menu_bar() {
         if (ImGui::BeginMenu("View")) {
             if (ImGui::MenuItem("Add Viewport")) {
                 viewport_manager_.add_viewport();
+            }
+            ImGui::EndMenu();
+        }
+
+        if (project_ && ImGui::BeginMenu("Scripts")) {
+            if (ImGui::MenuItem("Build & Reload")) {
+                auto build_dir = project_->root() / "scripts" / "build";
+                auto cmd = "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
+
+                FJELL_CORE_INFO("Building scripts...");
+
+                FILE* pipe = popen(cmd.c_str(), "r");
+                bool success = false;
+                if (pipe) {
+                    std::array<char, 512> line{};
+                    while (fgets(line.data(), static_cast<int>(line.size()), pipe)) {
+                        std::string s{line.data()};
+                        while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
+                            s.pop_back();
+                        }
+                        if (!s.empty()) {
+                            if (s.find("error") != std::string::npos) {
+                                FJELL_CORE_ERROR("[build] {}", s);
+                            } else if (s.find("warning") != std::string::npos) {
+                                FJELL_CORE_WARN("[build] {}", s);
+                            } else {
+                                FJELL_CORE_INFO("[build] {}", s);
+                            }
+                        }
+                    }
+                    int ret = pclose(pipe);
+                    success = (ret == 0);
+                }
+
+                if (success) {
+                    FJELL_CORE_INFO("Scripts built successfully");
+                    auto so_path = project_->root() / "game.so";
+                    if (std::filesystem::exists(so_path)) {
+                        script_manager_.reload(scene_, so_path);
+                    }
+                } else {
+                    FJELL_CORE_ERROR("Script build failed");
+                }
             }
             ImGui::EndMenu();
         }

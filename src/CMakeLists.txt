@@ -32,7 +32,6 @@ add_executable(fjell
     renderer/vulkan_context.cpp
     physics/physics_world.cpp
     scene/scene.cpp
-    scripting/json_bridge.cpp
     scripting/script_manager.cpp
     ui/console.cpp
     ui/file_browser.cpp

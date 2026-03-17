@@ -79,7 +79,7 @@ Project Project::create(const std::filesystem::path& directory,
                    << "    \"${CMAKE_BINARY_DIR}/compile_commands.json\"\n"
                    << "    \"${CMAKE_CURRENT_SOURCE_DIR}/compile_commands.json\"\n"
                    << "    SYMBOLIC)\n\n"
-                   << "file(GLOB_RECURSE GAME_SOURCES \"*.cpp\")\n\n"
+                   << "file(GLOB GAME_SOURCES \"${CMAKE_CURRENT_SOURCE_DIR}/*.cpp\")\n\n"
                    << "add_library(game SHARED ${GAME_SOURCES})\n\n"
                    << "target_include_directories(game PRIVATE\n"
                    << "    ${CMAKE_CURRENT_SOURCE_DIR}/../include\n"
