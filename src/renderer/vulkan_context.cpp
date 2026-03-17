@@ -27,8 +27,6 @@ VulkanContext::VulkanContext(Window& window)
     create_command_pool();
     create_descriptor_resources();
 
-    offscreen_ = std::make_unique<OffscreenPass>(device_, window.width(), window.height());
-
     VkFormat depth_format = device_.find_depth_format();
     pipeline_ = std::make_unique<Pipeline>(
         device_, OffscreenPass::COLOR_FORMAT, depth_format,
@@ -56,7 +54,6 @@ VulkanContext::~VulkanContext() {
     if (material_pool_ != VK_NULL_HANDLE)
         vkDestroyDescriptorPool(vk_device, material_pool_, nullptr);
     pipeline_.reset();
-    offscreen_.reset();
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (image_available_[i] != VK_NULL_HANDLE)
             vkDestroySemaphore(vk_device, image_available_[i], nullptr);
@@ -221,7 +218,128 @@ void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
 
 // ── Command buffer recording ────────────────────────────────────────────
 
+void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
+                                    const Scene* scene) {
+    // Transition offscreen color: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
+    transition_image(cmd, target.color_image(),
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+    // Transition offscreen depth: UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL
+    transition_image(cmd, target.depth_image(),
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    VkRenderingAttachmentInfo color_attachment{};
+    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    color_attachment.imageView = target.color_view();
+    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
+
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = target.depth_view();
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    depth_attachment.clearValue.depthStencil = {1.0f, 0};
+
+    VkRenderingInfo rendering_info{};
+    rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    rendering_info.renderArea.offset = {0, 0};
+    rendering_info.renderArea.extent = target.extent();
+    rendering_info.layerCount = 1;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachments = &color_attachment;
+    rendering_info.pDepthAttachment = &depth_attachment;
+
+    vkCmdBeginRendering(cmd, &rendering_info);
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->handle());
+
+    VkViewport viewport{};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(target.extent().width);
+    viewport.height = static_cast<float>(target.extent().height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = target.extent();
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
+                            0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
+
+    if (scene) {
+        render_queue_.clear();
+        for (const auto& obj : scene->objects()) {
+            if (!obj.model) continue;
+
+            DrawCommand dc{};
+            dc.world_matrix = obj.world_matrix_;
+            dc.push.model = obj.world_matrix_;
+            if (obj.material) {
+                const auto& params = obj.material->params();
+                dc.push.base_color_factor = params.base_color_factor;
+                dc.push.metallic_factor = params.metallic_factor;
+                dc.push.roughness_factor = params.roughness_factor;
+                dc.push.has_normal_map = params.has_normal_map ? 1.0f : 0.0f;
+                dc.material_set = obj.material->descriptor_set();
+                dc.sort_key = RenderQueue::make_sort_key(
+                    static_cast<uint32_t>(reinterpret_cast<uintptr_t>(obj.material) & 0xFFFFFFFF),
+                    obj.id);
+            }
+            dc.model = obj.model;
+            render_queue_.push(dc);
+        }
+        render_queue_.sort();
+        render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
+    }
+
+    // Debug collider wireframes
+    if (show_colliders_ && debug_draw_ && !debug_draw_->empty()) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_pipeline_);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_layout_,
+                                0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
+        debug_draw_->draw(cmd, debug_layout_);
+    }
+
+    vkCmdEndRendering(cmd);
+
+    // Transition offscreen color: COLOR_ATTACHMENT_OPTIMAL → SHADER_READ_ONLY_OPTIMAL
+    transition_image(cmd, target.color_image(),
+        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+    // Transition depth: DEPTH_ATTACHMENT_OPTIMAL → DEPTH_STENCIL_READ_ONLY_OPTIMAL
+    transition_image(cmd, target.depth_image(),
+        VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+        VK_IMAGE_ASPECT_DEPTH_BIT);
+}
+
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
+                                          const std::vector<ViewportRenderRequest>& viewports,
+                                          const DirectionalLight& light,
                                           const Scene* scene) {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -230,116 +348,15 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         throw std::runtime_error("Failed to begin recording command buffer");
     }
 
-    // --- Pass 1: Render scene to offscreen texture ---
-    {
-        // Transition offscreen color: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
-        transition_image(cmd, offscreen_->color_image(),
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-        // Transition offscreen depth: UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL
-        transition_image(cmd, offscreen_->depth_image(),
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
-            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            VK_IMAGE_ASPECT_DEPTH_BIT);
-
-        VkRenderingAttachmentInfo color_attachment{};
-        color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachment.imageView = offscreen_->color_view();
-        color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
-
-        VkRenderingAttachmentInfo depth_attachment{};
-        depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        depth_attachment.imageView = offscreen_->depth_view();
-        depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depth_attachment.clearValue.depthStencil = {1.0f, 0};
-
-        VkRenderingInfo rendering_info{};
-        rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        rendering_info.renderArea.offset = {0, 0};
-        rendering_info.renderArea.extent = offscreen_->extent();
-        rendering_info.layerCount = 1;
-        rendering_info.colorAttachmentCount = 1;
-        rendering_info.pColorAttachments = &color_attachment;
-        rendering_info.pDepthAttachment = &depth_attachment;
-
-        vkCmdBeginRendering(cmd, &rendering_info);
-
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->handle());
-
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(offscreen_->extent().width);
-        viewport.height = static_cast<float>(offscreen_->extent().height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(cmd, 0, 1, &viewport);
-
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = offscreen_->extent();
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
-                                0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
-
-        if (scene) {
-            render_queue_.clear();
-            for (const auto& obj : scene->objects()) {
-                if (!obj.model) continue;
-
-                DrawCommand dc{};
-                dc.world_matrix = obj.world_matrix_;
-                dc.push.model = obj.world_matrix_;
-                if (obj.material) {
-                    const auto& params = obj.material->params();
-                    dc.push.base_color_factor = params.base_color_factor;
-                    dc.push.metallic_factor = params.metallic_factor;
-                    dc.push.roughness_factor = params.roughness_factor;
-                    dc.push.has_normal_map = params.has_normal_map ? 1.0f : 0.0f;
-                    dc.material_set = obj.material->descriptor_set();
-                    dc.sort_key = RenderQueue::make_sort_key(
-                        static_cast<uint32_t>(reinterpret_cast<uintptr_t>(obj.material) & 0xFFFFFFFF),
-                        obj.id);
-                }
-                dc.model = obj.model;
-                render_queue_.push(dc);
-            }
-            render_queue_.sort();
-            render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
-        }
-
-        // Debug collider wireframes
-        if (show_colliders_ && debug_draw_ && !debug_draw_->empty()) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_pipeline_);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, debug_layout_,
-                                    0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
-            debug_draw_->draw(cmd, debug_layout_);
-        }
-
-        vkCmdEndRendering(cmd);
-
-        // Transition offscreen color: COLOR_ATTACHMENT_OPTIMAL → SHADER_READ_ONLY_OPTIMAL
-        transition_image(cmd, offscreen_->color_image(),
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    // --- Render scene once per viewport ---
+    for (const auto& vp : viewports) {
+        if (!vp.target) continue;
+        update_uniform_buffer(current_frame_, vp.view, vp.projection,
+                              vp.camera_position, light);
+        render_scene_to(cmd, *vp.target, scene);
     }
 
-    // --- Pass 2: Render ImGui to swapchain ---
+    // --- Render ImGui to swapchain ---
     {
         // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
         transition_image(cmd, swapchain_.image(image_index),
@@ -401,8 +418,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     uniform_buffers_[frame_index]->write(&ubo, sizeof(ubo));
 }
 
-void VulkanContext::draw_frame(const glm::mat4& view, const glm::mat4& projection,
-                               const glm::vec3& camera_position,
+void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                                const DirectionalLight& light,
                                const Scene* scene) {
     auto vk_device = device_.handle();
@@ -430,9 +446,9 @@ void VulkanContext::draw_frame(const glm::mat4& view, const glm::mat4& projectio
     if (show_colliders_ && scene) {
         debug_draw_->update(*scene);
     }
-    update_uniform_buffer(current_frame_, view, projection, camera_position, light);
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
-    record_command_buffer(command_buffers_[current_frame_], image_index, scene);
+    record_command_buffer(command_buffers_[current_frame_], image_index,
+                          viewports, light, scene);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
@@ -482,16 +498,6 @@ void VulkanContext::reload_pipeline() {
     pipeline_->recreate();
     destroy_debug_pipeline();
     create_debug_pipeline();
-}
-
-void VulkanContext::resize_viewport(uint32_t width, uint32_t height) {
-    if (width > 0 && height > 0) {
-        offscreen_->resize(width, height);
-    }
-}
-
-void VulkanContext::release_viewport_texture() {
-    offscreen_->invalidate_imgui_texture();
 }
 
 uint32_t VulkanContext::graphics_family() const {

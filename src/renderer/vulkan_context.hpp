@@ -8,6 +8,7 @@
 #include "renderer/pipeline.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/swapchain.hpp"
+#include "renderer/viewport_source.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -34,14 +35,11 @@ public:
     VulkanContext(VulkanContext&&) = delete;
     VulkanContext& operator=(VulkanContext&&) = delete;
 
-    void draw_frame(const glm::mat4& view, const glm::mat4& projection,
-                    const glm::vec3& camera_position,
+    void draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                     const struct DirectionalLight& light,
                     const Scene* scene);
     void wait_idle();
     void reload_pipeline();
-    void resize_viewport(uint32_t width, uint32_t height);
-    void release_viewport_texture();
 
     [[nodiscard]] VkDevice device() const { return device_.handle(); }
     [[nodiscard]] VkPhysicalDevice physical_device() const { return device_.physical_device(); }
@@ -57,7 +55,7 @@ public:
     [[nodiscard]] uint32_t graphics_family() const;
     [[nodiscard]] const std::string& gpu_name() const { return device_.gpu_name(); }
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }
-    [[nodiscard]] VkDescriptorSet viewport_texture() const { return offscreen_->imgui_texture(); }
+    [[nodiscard]] Device& device_ref() { return device_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
@@ -75,7 +73,11 @@ private:
     void create_sync_objects();
 
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
+                               const std::vector<ViewportRenderRequest>& viewports,
+                               const struct DirectionalLight& light,
                                const Scene* scene);
+    void render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
+                         const Scene* scene);
     void update_uniform_buffer(uint32_t frame_index,
                                const glm::mat4& view, const glm::mat4& projection,
                                const glm::vec3& camera_position,
@@ -101,9 +103,6 @@ private:
 
     std::unique_ptr<DescriptorSetLayout> material_set_layout_;
     VkDescriptorPool material_pool_{VK_NULL_HANDLE};
-
-    // Offscreen scene rendering
-    std::unique_ptr<OffscreenPass> offscreen_;
 
     // Pipeline (dynamic rendering)
     std::unique_ptr<Pipeline> pipeline_;
