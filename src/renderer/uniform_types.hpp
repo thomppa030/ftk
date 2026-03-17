@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <glm/glm.hpp>
 
 namespace fjell {
@@ -25,11 +26,8 @@ struct DirectionalLight {
 
 struct PbrPushConstants {
     glm::mat4 model;
-    glm::vec4 base_color_factor{1.0f};
-    float metallic_factor{1.0f};
-    float roughness_factor{1.0f};
-    float has_normal_map{0.0f};
-    float padding{0.0f};
+    uint32_t material_id{0};
+    float padding[3]{};
 };
 
 struct DebugPushConstants {

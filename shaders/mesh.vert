@@ -11,11 +11,7 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
-    vec4 base_color_factor;
-    float metallic_factor;
-    float roughness_factor;
-    float has_normal_map;
-    float padding;
+    uint material_id;
 } push;
 
 layout(location = 0) in vec3 in_position;

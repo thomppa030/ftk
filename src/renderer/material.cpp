@@ -1,54 +1,32 @@
 #include "renderer/material.hpp"
-#include "renderer/texture.hpp"
-
-#include <array>
-#include <stdexcept>
+#include "renderer/bindless.hpp"
 
 namespace fjell {
 
-Material::Material(VkDevice device, VkDescriptorPool pool,
-                   VkDescriptorSetLayout layout,
-                   const Texture& base_color, const Texture& normal_map,
-                   const Texture& metallic_roughness, const Texture& emissive,
+Material::Material(uint32_t material_id, uint32_t base_color_idx, uint32_t normal_idx,
+                   uint32_t metallic_roughness_idx, uint32_t emissive_idx,
                    PbrParams params)
-    : params_{params} {
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = pool;
-    alloc_info.descriptorSetCount = 1;
-    alloc_info.pSetLayouts = &layout;
+    : material_id_{material_id}
+    , base_color_idx_{base_color_idx}
+    , normal_idx_{normal_idx}
+    , metallic_roughness_idx_{metallic_roughness_idx}
+    , emissive_idx_{emissive_idx}
+    , params_{params} {}
 
-    if (vkAllocateDescriptorSets(device, &alloc_info, &descriptor_set_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate material descriptor set");
-    }
-
-    std::array<VkDescriptorImageInfo, 4> image_infos{};
-    const Texture* textures[] = {&base_color, &normal_map, &metallic_roughness, &emissive};
-
-    for (int i = 0; i < 4; ++i) {
-        image_infos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        image_infos[i].imageView = textures[i]->image_view();
-        image_infos[i].sampler = textures[i]->sampler();
-    }
-
-    std::array<VkWriteDescriptorSet, 4> writes{};
-    for (int i = 0; i < 4; ++i) {
-        writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = descriptor_set_;
-        writes[i].dstBinding = static_cast<uint32_t>(i);
-        writes[i].dstArrayElement = 0;
-        writes[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[i].descriptorCount = 1;
-        writes[i].pImageInfo = &image_infos[i];
-    }
-
-    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()),
-                           writes.data(), 0, nullptr);
-}
-
-void Material::bind(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout) const {
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout,
-                            1, 1, &descriptor_set_, 0, nullptr);
+GpuMaterial Material::gpu_material() const {
+    GpuMaterial m{};
+    m.base_color_idx = base_color_idx_;
+    m.normal_idx = normal_idx_;
+    m.metallic_roughness_idx = metallic_roughness_idx_;
+    m.emissive_idx = emissive_idx_;
+    m.base_color_factor[0] = params_.base_color_factor.x;
+    m.base_color_factor[1] = params_.base_color_factor.y;
+    m.base_color_factor[2] = params_.base_color_factor.z;
+    m.base_color_factor[3] = params_.base_color_factor.w;
+    m.metallic_factor = params_.metallic_factor;
+    m.roughness_factor = params_.roughness_factor;
+    m.has_normal_map = params_.has_normal_map ? 1.0f : 0.0f;
+    return m;
 }
 
 } // namespace fjell

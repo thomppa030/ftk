@@ -2,28 +2,28 @@
 
 #include "renderer/uniform_types.hpp"
 
-#include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
+#include <cstdint>
 
 namespace fjell {
 
-class Texture;
+struct GpuMaterial;
 
 class Material {
 public:
-    Material(VkDevice device, VkDescriptorPool pool,
-             VkDescriptorSetLayout layout,
-             const Texture& base_color, const Texture& normal_map,
-             const Texture& metallic_roughness, const Texture& emissive,
+    Material(uint32_t material_id, uint32_t base_color_idx, uint32_t normal_idx,
+             uint32_t metallic_roughness_idx, uint32_t emissive_idx,
              PbrParams params = {});
 
-    void bind(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout) const;
-
     [[nodiscard]] const PbrParams& params() const { return params_; }
-    [[nodiscard]] VkDescriptorSet descriptor_set() const { return descriptor_set_; }
+    [[nodiscard]] uint32_t material_id() const { return material_id_; }
+    [[nodiscard]] GpuMaterial gpu_material() const;
 
 private:
-    VkDescriptorSet descriptor_set_{VK_NULL_HANDLE};
+    uint32_t material_id_;
+    uint32_t base_color_idx_;
+    uint32_t normal_idx_;
+    uint32_t metallic_roughness_idx_;
+    uint32_t emissive_idx_;
     PbrParams params_;
 };
 

@@ -6,6 +6,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -13,6 +14,7 @@
 
 namespace fjell {
 
+class BindlessTextures;
 class Model;
 class Texture;
 class Material;
@@ -21,8 +23,7 @@ class ResourceManager {
 public:
     ResourceManager(VkDevice device, VkPhysicalDevice physical_device,
                     VkCommandPool command_pool, VkQueue queue,
-                    VkDescriptorPool material_pool,
-                    VkDescriptorSetLayout material_layout);
+                    BindlessTextures& bindless);
 
     ModelHandle load_model(const std::string& path);
     ModelHandle create_primitive(const std::string& type);
@@ -49,6 +50,8 @@ public:
     [[nodiscard]] TextureHandle default_metallic_roughness_handle() const { return default_mr_handle_; }
     [[nodiscard]] TextureHandle default_black_handle() const { return default_black_handle_; }
 
+    [[nodiscard]] uint32_t bindless_index(TextureHandle handle) const;
+
 private:
     template <typename T, typename HandleT>
     struct Pool {
@@ -64,12 +67,14 @@ private:
     VkPhysicalDevice physical_device_;
     VkCommandPool command_pool_;
     VkQueue queue_;
-    VkDescriptorPool material_pool_;
-    VkDescriptorSetLayout material_layout_;
+    BindlessTextures& bindless_;
 
     Pool<Model, ModelHandle> models_;
     Pool<Texture, TextureHandle> textures_;
     Pool<Material, MaterialHandle> materials_;
+
+    // Maps texture pool slot index → bindless texture index
+    std::unordered_map<uint32_t, uint32_t> texture_to_bindless_;
 
     TextureHandle default_white_handle_;
     TextureHandle default_normal_handle_;

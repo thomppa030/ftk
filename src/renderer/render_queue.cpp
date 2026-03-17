@@ -1,5 +1,4 @@
 #include "renderer/render_queue.hpp"
-#include "renderer/material.hpp"
 #include "renderer/model.hpp"
 #include "renderer/render_stats.hpp"
 
@@ -41,18 +40,10 @@ void RenderQueue::sort(const glm::vec3& camera_pos) {
 static void execute_list(const std::vector<DrawCommand>& list,
                          VkCommandBuffer cmd, VkPipelineLayout layout,
                          RenderStats* stats) {
-    VkDescriptorSet bound_set = VK_NULL_HANDLE;
-
     for (const auto& dc : list) {
         vkCmdPushConstants(cmd, layout,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(PbrPushConstants), &dc.push);
-
-        if (dc.material_set != VK_NULL_HANDLE && dc.material_set != bound_set) {
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
-                                    1, 1, &dc.material_set, 0, nullptr);
-            bound_set = dc.material_set;
-        }
 
         if (stats) {
             stats->draw_calls += dc.model->mesh_count();

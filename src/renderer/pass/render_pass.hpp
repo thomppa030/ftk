@@ -24,6 +24,7 @@ struct FrameContext {
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};
+    VkDescriptorSet bindless_set{VK_NULL_HANDLE};
     glm::vec3 camera_position{0.0f};
     DebugDraw* debug_draw{nullptr};
     bool show_colliders{false};

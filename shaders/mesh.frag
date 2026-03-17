@@ -1,6 +1,19 @@
 #version 450
+#extension GL_EXT_nonuniform_qualifier : require
 
 const float PI = 3.14159265359;
+
+struct GpuMaterial {
+    uint base_color_idx;
+    uint normal_idx;
+    uint metallic_roughness_idx;
+    uint emissive_idx;
+    vec4 base_color_factor;
+    float metallic_factor;
+    float roughness_factor;
+    float has_normal_map;
+    float padding;
+};
 
 layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 view;
@@ -15,19 +28,16 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 
+layout(set = 1, binding = 0) uniform sampler2D textures[];
+
+layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
+    GpuMaterial materials[];
+};
+
 layout(push_constant) uniform PushConstants {
     mat4 model;
-    vec4 base_color_factor;
-    float metallic_factor;
-    float roughness_factor;
-    float has_normal_map;
-    float padding;
+    uint material_id;
 } push;
-
-layout(set = 1, binding = 0) uniform sampler2D base_color_map;
-layout(set = 1, binding = 1) uniform sampler2D normal_map;
-layout(set = 1, binding = 2) uniform sampler2D metallic_roughness_map;
-layout(set = 1, binding = 3) uniform sampler2D emissive_map;
 
 layout(location = 0) in vec3 frag_color;
 layout(location = 1) in vec2 frag_tex_coord;
@@ -107,16 +117,18 @@ float shadow_factor(vec3 world_pos, float NdotL_for_bias) {
 }
 
 void main() {
+    GpuMaterial mat = materials[push.material_id];
+
     // Base color
-    vec4 base_color = texture(base_color_map, frag_tex_coord) *
-                      push.base_color_factor *
+    vec4 base_color = texture(textures[nonuniformEXT(mat.base_color_idx)], frag_tex_coord) *
+                      mat.base_color_factor *
                       vec4(frag_color, 1.0);
     vec3 albedo = base_color.rgb;
 
     // Metallic / roughness
-    vec4 mr_sample = texture(metallic_roughness_map, frag_tex_coord);
-    float metallic = mr_sample.b * push.metallic_factor;
-    float roughness = mr_sample.g * push.roughness_factor;
+    vec4 mr_sample = texture(textures[nonuniformEXT(mat.metallic_roughness_idx)], frag_tex_coord);
+    float metallic = mr_sample.b * mat.metallic_factor;
+    float roughness = mr_sample.g * mat.roughness_factor;
     roughness = clamp(roughness, 0.04, 1.0);
 
     // Normal
@@ -128,15 +140,15 @@ void main() {
     }
 
     vec3 N;
-    if (push.has_normal_map > 0.5) {
-        vec3 tangent_normal = texture(normal_map, frag_tex_coord).rgb * 2.0 - 1.0;
+    if (mat.has_normal_map > 0.5) {
+        vec3 tangent_normal = texture(textures[nonuniformEXT(mat.normal_idx)], frag_tex_coord).rgb * 2.0 - 1.0;
         N = normalize(frag_TBN * tangent_normal);
     } else {
         N = normalize(frag_world_normal);
     }
 
     // Emissive
-    vec3 emissive = texture(emissive_map, frag_tex_coord).rgb;
+    vec3 emissive = texture(textures[nonuniformEXT(mat.emissive_idx)], frag_tex_coord).rgb;
 
     // Lighting vectors
     vec3 V = normalize(ubo.camera_position.xyz - frag_world_pos);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/bindless.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/debug_draw.hpp"
@@ -55,10 +56,7 @@ public:
     [[nodiscard]] VkPhysicalDevice physical_device() const { return device_.physical_device(); }
     [[nodiscard]] VkCommandPool command_pool() const { return command_pool_; }
     [[nodiscard]] VkQueue graphics_queue() const { return device_.graphics_queue(); }
-    [[nodiscard]] VkDescriptorSetLayout material_layout() const {
-        return material_set_layout_->handle();
-    }
-    [[nodiscard]] VkDescriptorPool material_pool() const { return material_pool_; }
+    [[nodiscard]] BindlessTextures& bindless_textures() { return bindless_textures_; }
     [[nodiscard]] VkInstance instance() const { return device_.instance(); }
     [[nodiscard]] VkFormat swapchain_format() const { return swapchain_.format(); }
     [[nodiscard]] uint32_t image_count() const { return swapchain_.image_count(); }
@@ -112,8 +110,7 @@ private:
     std::array<VkDescriptorSet, 2> global_descriptor_sets_{};
     std::array<std::unique_ptr<Buffer>, 2> uniform_buffers_;
 
-    std::unique_ptr<DescriptorSetLayout> material_set_layout_;
-    VkDescriptorPool material_pool_{VK_NULL_HANDLE};
+    BindlessTextures bindless_textures_;
 
     // Pipelines / passes
     std::unique_ptr<Pipeline> pipeline_;

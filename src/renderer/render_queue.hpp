@@ -17,7 +17,6 @@ struct DrawCommand {
     uint64_t sort_key{0};
     glm::mat4 world_matrix{1.0f};
     PbrPushConstants push{};
-    VkDescriptorSet material_set{VK_NULL_HANDLE};
     Model* model{nullptr};
     float camera_distance{0.0f};
     bool transparent{false};

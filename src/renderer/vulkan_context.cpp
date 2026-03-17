@@ -26,15 +26,16 @@ VulkanContext::VulkanContext(Window& window)
     FJELL_GFX_INFO("Initializing Vulkan context");
     create_command_pool();
     create_descriptor_resources();
+    bindless_textures_.create(device_.handle(), device_.physical_device());
 
     VkFormat depth_format = device_.find_depth_format();
     pipeline_ = std::make_unique<Pipeline>(
         device_, OffscreenPass::COLOR_FORMAT, depth_format,
-        global_set_layout_->handle(), material_set_layout_->handle());
+        global_set_layout_->handle(), bindless_textures_.layout());
 
     PassResources pass_resources{};
     pass_resources.global_set_layout = global_set_layout_->handle();
-    pass_resources.material_set_layout = material_set_layout_->handle();
+    pass_resources.material_set_layout = bindless_textures_.layout();
     pass_resources.depth_format = depth_format;
     pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
     depth_prepass_.create(device_, pass_resources);
@@ -91,9 +92,7 @@ VulkanContext::~VulkanContext() {
         ub.reset();
     global_pool_.reset();
     global_set_layout_.reset();
-    material_set_layout_.reset();
-    if (material_pool_ != VK_NULL_HANDLE)
-        vkDestroyDescriptorPool(vk_device, material_pool_, nullptr);
+    bindless_textures_.destroy();
     pipeline_.reset();
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (image_available_[i] != VK_NULL_HANDLE)
@@ -159,32 +158,6 @@ void VulkanContext::create_descriptor_resources() {
         write.pBufferInfo = &buffer_info;
 
         vkUpdateDescriptorSets(vk_device, 1, &write, 0, nullptr);
-    }
-
-    // Material descriptor set: 4 texture samplers
-    std::array<VkDescriptorSetLayoutBinding, 4> sampler_bindings{};
-    for (uint32_t i = 0; i < 4; ++i) {
-        sampler_bindings[i].binding = i;
-        sampler_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        sampler_bindings[i].descriptorCount = 1;
-        sampler_bindings[i].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    }
-
-    material_set_layout_ = std::make_unique<DescriptorSetLayout>(
-        vk_device, std::span{sampler_bindings});
-
-    VkDescriptorPoolSize mat_pool_size{};
-    mat_pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    mat_pool_size.descriptorCount = 400;
-
-    VkDescriptorPoolCreateInfo mat_pool_info{};
-    mat_pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    mat_pool_info.poolSizeCount = 1;
-    mat_pool_info.pPoolSizes = &mat_pool_size;
-    mat_pool_info.maxSets = 100;
-
-    if (vkCreateDescriptorPool(vk_device, &mat_pool_info, nullptr, &material_pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create material descriptor pool");
     }
 
     FJELL_GFX_DEBUG("Descriptor resources created");
@@ -279,22 +252,20 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             dc.world_matrix = obj.world_matrix_;
             dc.push.model = obj.world_matrix_;
             if (obj.material) {
-                const auto& params = obj.material->params();
-                dc.push.base_color_factor = params.base_color_factor;
-                dc.push.metallic_factor = params.metallic_factor;
-                dc.push.roughness_factor = params.roughness_factor;
-                dc.push.has_normal_map = params.has_normal_map ? 1.0f : 0.0f;
-                dc.material_set = obj.material->descriptor_set();
+                dc.push.material_id = obj.material->material_id();
                 dc.sort_key = RenderQueue::make_sort_key(
-                    static_cast<uint32_t>(reinterpret_cast<uintptr_t>(obj.material) & 0xFFFFFFFF),
-                    obj.id);
+                    obj.material->material_id(), obj.id);
+                dc.transparent = (obj.material->params().base_color_factor.w < 1.0f);
             }
             dc.model = obj.model;
-            dc.transparent = (dc.push.base_color_factor.w < 1.0f);
             render_queue_.push(dc);
         }
         render_queue_.sort(camera_position_);
     }
+
+    // Flush any pending bindless texture/material updates
+    bindless_textures_.update_descriptors();
+    bindless_textures_.update_material_buffer();
 
     FrameContext ctx{};
     ctx.cmd = cmd;
@@ -302,6 +273,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.queue = &render_queue_;
     ctx.camera_position = camera_position_;
     ctx.global_descriptor_set = global_descriptor_sets_[current_frame_];
+    ctx.bindless_set = bindless_textures_.descriptor_set();
     ctx.debug_draw = debug_draw_.get();
     ctx.show_colliders = show_colliders_;
     ctx.frame_index = current_frame_;
@@ -359,8 +331,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         sc.extent = target.extent();
         vkCmdSetScissor(cmd, 0, 1, &sc);
 
+        std::array descriptor_sets = {global_descriptor_sets_[current_frame_],
+                                     bindless_textures_.descriptor_set()};
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
-                                0, 1, &global_descriptor_sets_[current_frame_], 0, nullptr);
+                                0, static_cast<uint32_t>(descriptor_sets.size()),
+                                descriptor_sets.data(), 0, nullptr);
 
         if (scene) {
             render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
@@ -571,7 +546,7 @@ void VulkanContext::reload_pipeline() {
     VkFormat depth_format = device_.find_depth_format();
     PassResources pass_resources{};
     pass_resources.global_set_layout = global_set_layout_->handle();
-    pass_resources.material_set_layout = material_set_layout_->handle();
+    pass_resources.material_set_layout = bindless_textures_.layout();
     pass_resources.depth_format = depth_format;
     pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
     depth_prepass_.recreate(device_, pass_resources);

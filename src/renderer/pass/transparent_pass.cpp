@@ -192,8 +192,10 @@ void TransparentPass::record(const FrameContext& ctx) {
     // The caller (render_scene_to) must have the color+depth rendering active.
     // We just bind the transparent pipeline and draw.
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    std::array descriptor_sets = {ctx.global_descriptor_set, ctx.bindless_set};
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
+                            0, static_cast<uint32_t>(descriptor_sets.size()),
+                            descriptor_sets.data(), 0, nullptr);
     ctx.queue->execute_transparent(ctx.cmd, layout_, nullptr);
 }
 
