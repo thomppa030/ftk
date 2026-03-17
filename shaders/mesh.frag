@@ -174,8 +174,6 @@ void main() {
 
     vec3 color = ambient + Lo + emissive;
 
-    // Tone mapping (Reinhard) and gamma correction
-    color = color / (color + vec3(1.0));
-
+    // Output linear HDR — tone mapping happens in a separate pass
     out_color = vec4(color, base_color.a);
 }

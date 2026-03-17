@@ -1,5 +1,6 @@
 #pragma once
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 namespace fjell {
@@ -23,6 +24,7 @@ struct FrameContext {
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};
+    glm::vec3 camera_position{0.0f};
     DebugDraw* debug_draw{nullptr};
     bool show_colliders{false};
     uint32_t frame_index{0};

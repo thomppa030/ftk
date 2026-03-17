@@ -63,6 +63,8 @@ VulkanContext::VulkanContext(Window& window)
     debug_pass_.create(device_, pass_resources);
     wireframe_pass_.create(device_, pass_resources);
     bloom_pass_.create(device_, pass_resources);
+    transparent_pass_.create(device_, pass_resources);
+    tonemap_pass_.create(device_, pass_resources);
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 
     create_command_buffers();
@@ -74,6 +76,8 @@ VulkanContext::~VulkanContext() {
     auto vk_device = device_.handle();
 
     debug_draw_.reset();
+    transparent_pass_.destroy();
+    tonemap_pass_.destroy();
     bloom_pass_.destroy();
     wireframe_pass_.destroy();
     debug_pass_.destroy();
@@ -284,15 +288,17 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     obj.id);
             }
             dc.model = obj.model;
+            dc.transparent = (dc.push.base_color_factor.w < 1.0f);
             render_queue_.push(dc);
         }
-        render_queue_.sort();
+        render_queue_.sort(camera_position_);
     }
 
     FrameContext ctx{};
     ctx.cmd = cmd;
     ctx.target = &target;
     ctx.queue = &render_queue_;
+    ctx.camera_position = camera_position_;
     ctx.global_descriptor_set = global_descriptor_sets_[current_frame_];
     ctx.debug_draw = debug_draw_.get();
     ctx.show_colliders = show_colliders_;
@@ -374,6 +380,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         // Debug collider wireframes
         debug_pass_.record(ctx);
 
+        // Transparent objects (back-to-front, alpha blended)
+        transparent_pass_.record(ctx);
+
         vkCmdEndRendering(cmd);
     }
 
@@ -398,6 +407,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // ── Post-processing ───────────────────────────────────────────────
     bloom_pass_.record(ctx);
+
+    // Tone mapping reads the raw scene color for now (bypass bloom)
+    tonemap_pass_.set_source_view(target.color_view());
+    tonemap_pass_.record(ctx);
 
     // ── Utility passes (render to their own images for viewport debug) ──
     depth_viz_pass_.record(ctx);
@@ -480,6 +493,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::mat4& projection,
                                           const glm::vec3& camera_position,
                                           const DirectionalLight& light) {
+    camera_position_ = camera_position;
     GlobalUbo ubo{};
     ubo.view = view;
     ubo.projection = projection;

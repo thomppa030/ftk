@@ -19,24 +19,30 @@ struct DrawCommand {
     PbrPushConstants push{};
     VkDescriptorSet material_set{VK_NULL_HANDLE};
     Model* model{nullptr};
+    float camera_distance{0.0f};
+    bool transparent{false};
 };
 
 class RenderQueue {
 public:
     void clear();
     void push(const DrawCommand& cmd);
-    void sort();
+    void sort(const glm::vec3& camera_pos);
     void execute(VkCommandBuffer cmd, VkPipelineLayout layout,
                  RenderStats* stats = nullptr) const;
+    void execute_transparent(VkCommandBuffer cmd, VkPipelineLayout layout,
+                             RenderStats* stats = nullptr) const;
 
-    [[nodiscard]] bool empty() const { return commands_.empty(); }
-    [[nodiscard]] const std::vector<DrawCommand>& commands() const { return commands_; }
+    [[nodiscard]] bool empty() const { return opaque_.empty() && transparent_.empty(); }
+    [[nodiscard]] bool has_transparent() const { return !transparent_.empty(); }
+    [[nodiscard]] const std::vector<DrawCommand>& commands() const { return opaque_; }
+    [[nodiscard]] const std::vector<DrawCommand>& transparent_commands() const { return transparent_; }
 
-    // Build a sort key: material first (minimize descriptor rebinds), then mesh
     static uint64_t make_sort_key(uint32_t material_id, uint32_t mesh_id);
 
 private:
-    std::vector<DrawCommand> commands_;
+    std::vector<DrawCommand> opaque_;
+    std::vector<DrawCommand> transparent_;
 };
 
 } // namespace fjell

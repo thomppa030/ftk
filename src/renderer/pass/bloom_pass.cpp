@@ -253,7 +253,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
     auto up_mod   = create_module(device_, up_code);
     auto comp_mod = create_module(device_, comp_code);
 
-    VkFormat fmt = VK_FORMAT_R8G8B8A8_SRGB;
+    VkFormat fmt = VK_FORMAT_R16G16B16A16_SFLOAT;
     downsample_pipeline_ = create_fullscreen_pipeline(device_, downsample_layout_, vert_mod, down_mod, fmt);
     upsample_pipeline_   = create_fullscreen_pipeline(device_, upsample_layout_, vert_mod, up_mod, fmt);
     composite_pipeline_  = create_fullscreen_pipeline(device_, composite_layout_pipeline_, vert_mod, comp_mod, fmt);
@@ -285,7 +285,7 @@ void BloomPass::destroy() {
 
 void BloomPass::create_mip_chain(uint32_t width, uint32_t height) {
     extent_ = {width, height};
-    VkFormat fmt = VK_FORMAT_R8G8B8A8_SRGB;
+    VkFormat fmt = VK_FORMAT_R16G16B16A16_SFLOAT;
 
     auto create_img = [&](uint32_t w, uint32_t h) -> MipLevel {
         MipLevel mip{};

@@ -30,7 +30,7 @@ public:
     void invalidate_imgui_texture();
     void invalidate_depth_imgui_texture();
 
-    static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R8G8B8A8_SRGB;
+    static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
 
 private:
     void create(uint32_t width, uint32_t height);

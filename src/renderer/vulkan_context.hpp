@@ -10,6 +10,8 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
+#include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
 #include "renderer/pipeline.hpp"
 #include "renderer/render_queue.hpp"
@@ -65,6 +67,7 @@ public:
     [[nodiscard]] DepthVizPass& depth_viz_pass() { return depth_viz_pass_; }
     [[nodiscard]] WireframePass& wireframe_pass() { return wireframe_pass_; }
     [[nodiscard]] BloomPass& bloom_pass() { return bloom_pass_; }
+    [[nodiscard]] TonemapPass& tonemap_pass() { return tonemap_pass_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
@@ -118,6 +121,8 @@ private:
     DepthVizPass depth_viz_pass_;
     WireframePass wireframe_pass_;
     BloomPass bloom_pass_;
+    TransparentPass transparent_pass_;
+    TonemapPass tonemap_pass_;
 
     // Command buffers and sync
     std::vector<VkCommandBuffer> command_buffers_;
@@ -131,6 +136,7 @@ private:
 
     std::unique_ptr<RenderStats> render_stats_;
     RenderQueue render_queue_;
+    glm::vec3 camera_position_{0.0f};
 
     // Debug collider visualization
     std::unique_ptr<DebugDraw> debug_draw_;

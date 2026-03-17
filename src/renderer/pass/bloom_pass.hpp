@@ -22,6 +22,7 @@ public:
     void record(const FrameContext& ctx) override;
 
     // The final composited output (scene + bloom)
+    [[nodiscard]] VkImageView output_view() const { return output_view_; }
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
     void resize(uint32_t width, uint32_t height);

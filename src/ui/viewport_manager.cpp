@@ -115,6 +115,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             ctx.depth_viz_pass().resize(vp_w, vp_h);
             ctx.wireframe_pass().resize(vp_w, vp_h);
             ctx.bloom_pass().resize(vp_w, vp_h);
+            ctx.tonemap_pass().resize(vp_w, vp_h);
         }
     }
 }
@@ -222,7 +223,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         if (panel.offscreen) {
             switch (panel.source) {
                 case ViewportSource::final_color:
-                    tex = panel.offscreen->imgui_texture();
+                    tex = ctx.tonemap_pass().imgui_texture();
                     break;
                 case ViewportSource::depth:
                     tex = ctx.depth_viz_pass().imgui_texture();
