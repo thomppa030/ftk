@@ -63,6 +63,7 @@ VulkanContext::VulkanContext(Window& window)
     debug_pass_.create(device_, pass_resources);
     wireframe_pass_.create(device_, pass_resources);
     bloom_pass_.create(device_, pass_resources);
+    sky_pass_.create(device_, pass_resources);
     transparent_pass_.create(device_, pass_resources);
     tonemap_pass_.create(device_, pass_resources);
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
@@ -76,6 +77,7 @@ VulkanContext::~VulkanContext() {
     auto vk_device = device_.handle();
 
     debug_draw_.reset();
+    sky_pass_.destroy();
     transparent_pass_.destroy();
     tonemap_pass_.destroy();
     bloom_pass_.destroy();
@@ -376,6 +378,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         if (scene) {
             render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
         }
+
+        // Sky (draws only where depth == 1.0, behind everything)
+        sky_pass_.record(ctx);
 
         // Debug collider wireframes
         debug_pass_.record(ctx);

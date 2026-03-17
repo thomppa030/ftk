@@ -11,6 +11,7 @@
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/sky_pass.hpp"
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
 #include "renderer/pipeline.hpp"
@@ -121,6 +122,7 @@ private:
     DepthVizPass depth_viz_pass_;
     WireframePass wireframe_pass_;
     BloomPass bloom_pass_;
+    SkyPass sky_pass_;
     TransparentPass transparent_pass_;
     TonemapPass tonemap_pass_;
 
