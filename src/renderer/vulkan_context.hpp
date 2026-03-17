@@ -5,6 +5,7 @@
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
@@ -63,6 +64,7 @@ public:
     [[nodiscard]] Device& device_ref() { return device_; }
     [[nodiscard]] DepthVizPass& depth_viz_pass() { return depth_viz_pass_; }
     [[nodiscard]] WireframePass& wireframe_pass() { return wireframe_pass_; }
+    [[nodiscard]] BloomPass& bloom_pass() { return bloom_pass_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
@@ -115,6 +117,7 @@ private:
     DebugPass debug_pass_;
     DepthVizPass depth_viz_pass_;
     WireframePass wireframe_pass_;
+    BloomPass bloom_pass_;
 
     // Command buffers and sync
     std::vector<VkCommandBuffer> command_buffers_;

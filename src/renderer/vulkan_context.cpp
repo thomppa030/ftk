@@ -62,6 +62,7 @@ VulkanContext::VulkanContext(Window& window)
 
     debug_pass_.create(device_, pass_resources);
     wireframe_pass_.create(device_, pass_resources);
+    bloom_pass_.create(device_, pass_resources);
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 
     create_command_buffers();
@@ -73,6 +74,7 @@ VulkanContext::~VulkanContext() {
     auto vk_device = device_.handle();
 
     debug_draw_.reset();
+    bloom_pass_.destroy();
     wireframe_pass_.destroy();
     debug_pass_.destroy();
     depth_viz_pass_.destroy();
@@ -393,6 +395,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    // ── Post-processing ───────────────────────────────────────────────
+    bloom_pass_.record(ctx);
 
     // ── Utility passes (render to their own images for viewport debug) ──
     depth_viz_pass_.record(ctx);
