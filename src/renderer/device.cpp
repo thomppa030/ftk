@@ -188,15 +188,28 @@ void Device::create_logical_device() {
     features.depthClamp = VK_TRUE;
     features.fillModeNonSolid = VK_TRUE;
 
+    // Vulkan 1.2 descriptor indexing (for bindless textures)
+    VkPhysicalDeviceVulkan12Features features_12{};
+    features_12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    features_12.descriptorIndexing = VK_TRUE;
+    features_12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
+    features_12.runtimeDescriptorArray = VK_TRUE;
+    features_12.descriptorBindingPartiallyBound = VK_TRUE;
+    features_12.descriptorBindingVariableDescriptorCount = VK_TRUE;
+
     // Vulkan 1.3 dynamic rendering
     VkPhysicalDeviceVulkan13Features features_13{};
     features_13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+    features_13.pNext = nullptr;
     features_13.dynamicRendering = VK_TRUE;
     features_13.synchronization2 = VK_TRUE;
 
+    // Chain: create_info → features_13 → features_12
+    features_12.pNext = &features_13;
+
     VkDeviceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    create_info.pNext = &features_13;
+    create_info.pNext = &features_12;
     create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
     create_info.pQueueCreateInfos = queue_create_infos.data();
     create_info.pEnabledFeatures = &features;

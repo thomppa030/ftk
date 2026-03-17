@@ -1,0 +1,72 @@
+#pragma once
+
+#include <vulkan/vulkan.h>
+
+#include <cstdint>
+#include <functional>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace fjell {
+
+// How a pass uses an image
+enum class ImageUsage : uint8_t {
+    color_attachment,       // write as color render target
+    depth_attachment,       // write as depth render target
+    depth_attachment_read,  // read depth (no write) during rendering
+    shader_read,            // sample in a shader
+};
+
+// Image tracked by the frame graph
+struct TrackedImage {
+    VkImage image{VK_NULL_HANDLE};
+    VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
+    VkImageLayout current_layout{VK_IMAGE_LAYOUT_UNDEFINED};
+    VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT};
+    VkAccessFlags2 last_access{0};
+    uint32_t base_layer{0};
+    uint32_t layer_count{1};
+};
+
+// A pass declaration: what images it reads and writes
+struct PassDecl {
+    std::string name;
+    std::function<void()> execute;
+    std::vector<std::pair<uint32_t, ImageUsage>> image_uses; // image_id, usage
+};
+
+// Lightweight frame graph that tracks image layouts and inserts barriers.
+// Not a full dependency graph — pass order is explicit, the graph just
+// handles transitions.
+class FrameGraph {
+public:
+    // Register an image to track. Returns an ID.
+    uint32_t register_image(VkImage image, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
+                            uint32_t base_layer = 0, uint32_t layer_count = 1);
+
+    // Start a new frame — reset all layouts to UNDEFINED
+    void begin_frame();
+
+    // Add a pass that uses images. The execute callback records the actual commands.
+    void add_pass(const std::string& name, std::function<void()> execute,
+                  std::initializer_list<std::pair<uint32_t, ImageUsage>> uses);
+
+    // Execute all passes, inserting barriers between them
+    void execute(VkCommandBuffer cmd);
+
+private:
+    static VkImageLayout layout_for(ImageUsage usage, VkImageAspectFlags aspect);
+    static VkPipelineStageFlags2 stage_for(ImageUsage usage);
+    static VkAccessFlags2 access_for(ImageUsage usage);
+
+    void insert_barrier(VkCommandBuffer cmd, TrackedImage& img,
+                        VkImageLayout new_layout,
+                        VkPipelineStageFlags2 dst_stage,
+                        VkAccessFlags2 dst_access);
+
+    std::vector<TrackedImage> images_;
+    std::vector<PassDecl> passes_;
+};
+
+} // namespace fjell
