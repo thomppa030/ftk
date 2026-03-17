@@ -9,6 +9,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
+#include "renderer/pass/wireframe_pass.hpp"
 #include "renderer/pipeline.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/swapchain.hpp"
@@ -61,6 +62,7 @@ public:
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }
     [[nodiscard]] Device& device_ref() { return device_; }
     [[nodiscard]] DepthVizPass& depth_viz_pass() { return depth_viz_pass_; }
+    [[nodiscard]] WireframePass& wireframe_pass() { return wireframe_pass_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
@@ -112,6 +114,7 @@ private:
     ShadowPass shadow_pass_;
     DebugPass debug_pass_;
     DepthVizPass depth_viz_pass_;
+    WireframePass wireframe_pass_;
 
     // Command buffers and sync
     std::vector<VkCommandBuffer> command_buffers_;

@@ -11,17 +11,19 @@ class OffscreenPass;
 enum class ViewportSource : uint8_t {
     final_color,
     depth,
+    wireframe,
 };
 
 inline const char* viewport_source_name(ViewportSource source) {
     switch (source) {
         case ViewportSource::final_color: return "Final Color";
         case ViewportSource::depth:       return "Depth";
+        case ViewportSource::wireframe:   return "Wireframe";
     }
     return "Unknown";
 }
 
-constexpr int VIEWPORT_SOURCE_COUNT = 2;
+constexpr int VIEWPORT_SOURCE_COUNT = 3;
 
 struct ViewportRenderRequest {
     OffscreenPass* target{nullptr};

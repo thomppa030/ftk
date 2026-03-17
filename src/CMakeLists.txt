@@ -27,6 +27,7 @@ add_executable(fjell
     renderer/pass/depth_prepass.cpp
     renderer/pass/depth_viz_pass.cpp
     renderer/pass/shadow_pass.cpp
+    renderer/pass/wireframe_pass.cpp
     renderer/render_queue.cpp
     renderer/resource_manager.cpp
     renderer/shader_watcher.cpp

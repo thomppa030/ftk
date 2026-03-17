@@ -113,6 +113,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
         if (vp_w > 0 && vp_h > 0) {
             panel.offscreen->resize(vp_w, vp_h);
             ctx.depth_viz_pass().resize(vp_w, vp_h);
+            ctx.wireframe_pass().resize(vp_w, vp_h);
         }
     }
 }
@@ -224,6 +225,9 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                     break;
                 case ViewportSource::depth:
                     tex = ctx.depth_viz_pass().imgui_texture();
+                    break;
+                case ViewportSource::wireframe:
+                    tex = ctx.wireframe_pass().imgui_texture();
                     break;
             }
         }
