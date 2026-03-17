@@ -1,10 +1,10 @@
 #pragma once
 
 #include "physics/physics_types.hpp"
+#include "renderer/resource_handle.hpp"
 #include "scene/transform.hpp"
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 #include <nlohmann/json.hpp>
 
@@ -18,7 +18,7 @@ namespace fjell {
 class Model;
 class Material;
 class Project;
-struct RenderStats;
+class ResourceManager;
 
 struct ComponentInstance {
     uint32_t type_id{0};
@@ -32,8 +32,10 @@ struct RenderObject {
     int32_t parent_id{-1};
     glm::mat4 world_matrix_{1.0f};
 
-    Model* model;
-    Material* material;
+    ModelHandle model_handle;
+    MaterialHandle material_handle;
+    Model* model{nullptr};
+    Material* material{nullptr};
     Transform transform;
     std::string name;
     std::string source;       // "primitive:cube", "primitive:plane", etc. or model file path
@@ -47,7 +49,9 @@ struct RenderObject {
 
 class Scene {
 public:
-    uint32_t add(Model* model, Material* material, Transform transform = {},
+    uint32_t add(ModelHandle model_handle, MaterialHandle material_handle,
+                 ResourceManager& resources,
+                 Transform transform = {},
                  const std::string& name = "Object",
                  const std::string& source = "",
                  const std::string& material_name = "default");
@@ -63,11 +67,8 @@ public:
 
     void save(const std::string& path) const;
     static Scene load(const std::string& path,
-                      class ResourceManager& resources,
+                      ResourceManager& resources,
                       const Project* project = nullptr);
-
-    void render(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout,
-                RenderStats* stats = nullptr) const;
 
     [[nodiscard]] int object_count() const { return static_cast<int>(objects_.size()); }
     [[nodiscard]] std::vector<RenderObject>& objects() { return objects_; }

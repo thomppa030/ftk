@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
 
 #include <glm/glm.hpp>
@@ -8,6 +9,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace fjell {
 
@@ -22,23 +24,42 @@ public:
                     VkDescriptorPool material_pool,
                     VkDescriptorSetLayout material_layout);
 
-    Model* load_model(const std::string& path);
-    Model* create_primitive(const std::string& type);
-    Texture* load_texture(const std::string& path);
+    ModelHandle load_model(const std::string& path);
+    ModelHandle create_primitive(const std::string& type);
+    TextureHandle load_texture(const std::string& path);
 
-    Material* create_material(const std::string& name,
-                              Texture* base_color,
-                              Texture* normal_map = nullptr,
-                              Texture* metallic_roughness = nullptr,
-                              Texture* emissive = nullptr,
-                              PbrParams params = {});
+    MaterialHandle create_material(const std::string& name,
+                                   TextureHandle base_color,
+                                   TextureHandle normal_map = {},
+                                   TextureHandle metallic_roughness = {},
+                                   TextureHandle emissive = {},
+                                   PbrParams params = {});
 
-    [[nodiscard]] Texture* default_white() const { return default_white_.get(); }
-    [[nodiscard]] Texture* default_normal() const { return default_normal_.get(); }
-    [[nodiscard]] Texture* default_metallic_roughness() const { return default_mr_.get(); }
-    [[nodiscard]] Texture* default_black() const { return default_black_.get(); }
+    // Create material using a raw texture pointer (for model-embedded textures)
+    MaterialHandle create_material_from_texture(const std::string& name,
+                                                Texture* base_color,
+                                                PbrParams params = {});
+
+    [[nodiscard]] Model* get(ModelHandle handle) const;
+    [[nodiscard]] Texture* get(TextureHandle handle) const;
+    [[nodiscard]] Material* get(MaterialHandle handle) const;
+
+    [[nodiscard]] TextureHandle default_white_handle() const { return default_white_handle_; }
+    [[nodiscard]] TextureHandle default_normal_handle() const { return default_normal_handle_; }
+    [[nodiscard]] TextureHandle default_metallic_roughness_handle() const { return default_mr_handle_; }
+    [[nodiscard]] TextureHandle default_black_handle() const { return default_black_handle_; }
 
 private:
+    template <typename T, typename HandleT>
+    struct Pool {
+        std::vector<std::unique_ptr<T>> slots;
+        std::vector<uint32_t> generations;
+        std::unordered_map<std::string, HandleT> name_to_handle;
+
+        HandleT insert(const std::string& key, std::unique_ptr<T> resource);
+        T* get(HandleT handle) const;
+    };
+
     VkDevice device_;
     VkPhysicalDevice physical_device_;
     VkCommandPool command_pool_;
@@ -46,15 +67,14 @@ private:
     VkDescriptorPool material_pool_;
     VkDescriptorSetLayout material_layout_;
 
-    // Default 1x1 textures for missing PBR maps
-    std::unique_ptr<Texture> default_white_;
-    std::unique_ptr<Texture> default_normal_;
-    std::unique_ptr<Texture> default_mr_;
-    std::unique_ptr<Texture> default_black_;
+    Pool<Model, ModelHandle> models_;
+    Pool<Texture, TextureHandle> textures_;
+    Pool<Material, MaterialHandle> materials_;
 
-    std::unordered_map<std::string, std::unique_ptr<Model>> models_;
-    std::unordered_map<std::string, std::unique_ptr<Texture>> textures_;
-    std::unordered_map<std::string, std::unique_ptr<Material>> materials_;
+    TextureHandle default_white_handle_;
+    TextureHandle default_normal_handle_;
+    TextureHandle default_mr_handle_;
+    TextureHandle default_black_handle_;
 };
 
 } // namespace fjell

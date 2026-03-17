@@ -20,6 +20,7 @@ public:
     void bind(VkCommandBuffer cmd, VkPipelineLayout pipeline_layout) const;
 
     [[nodiscard]] const PbrParams& params() const { return params_; }
+    [[nodiscard]] VkDescriptorSet descriptor_set() const { return descriptor_set_; }
 
 private:
     VkDescriptorSet descriptor_set_{VK_NULL_HANDLE};
