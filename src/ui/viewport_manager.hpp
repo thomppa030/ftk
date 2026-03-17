@@ -3,6 +3,7 @@
 #include "renderer/camera.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/viewport_source.hpp"
+#include "scene/transform.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -31,6 +32,12 @@ struct ViewportPanel {
     bool focused{false};
     bool open{true};
     std::unique_ptr<OffscreenPass> offscreen;
+
+    // Gizmo drag state: apply delta to original transform to avoid Euler roundtrip
+    bool gizmo_dragging{false};
+    glm::mat4 gizmo_matrix{1.0f};       // current working matrix (fed to ImGuizmo)
+    glm::mat4 gizmo_start_world{1.0f};  // world matrix at drag start
+    Transform gizmo_start_transform{};   // local transform at drag start
 };
 
 class ViewportManager {

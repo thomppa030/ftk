@@ -218,6 +218,25 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
 
         // Size is applied later via apply_resize(), not during draw
 
+        // Compute the rendered image region within the panel (letterboxed)
+        float img_w = panel.size.x;
+        float img_h = panel.size.y;
+        float pad_x = 0.0f;
+        float pad_y = 0.0f;
+        if (panel.offscreen && panel.size.x > 0 && panel.size.y > 0) {
+            auto extent = panel.offscreen->extent();
+            float tex_aspect = static_cast<float>(extent.width) /
+                               std::max(static_cast<float>(extent.height), 1.0f);
+            float panel_aspect = panel.size.x / std::max(panel.size.y, 1.0f);
+            if (tex_aspect > panel_aspect) {
+                img_h = img_w / tex_aspect;
+            } else {
+                img_w = img_h * tex_aspect;
+            }
+            pad_x = (panel.size.x - img_w) * 0.5f;
+            pad_y = (panel.size.y - img_h) * 0.5f;
+        }
+
         // Display texture from this panel's own offscreen pass
         VkDescriptorSet tex = VK_NULL_HANDLE;
         if (panel.offscreen) {
@@ -237,28 +256,10 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             }
         }
 
-        if (tex && panel.size.x > 0 && panel.size.y > 0) {
-            // Fit image to panel while preserving offscreen aspect ratio
-            auto extent = panel.offscreen->extent();
-            float tex_aspect = static_cast<float>(extent.width) /
-                               std::max(static_cast<float>(extent.height), 1.0f);
-            float panel_aspect = panel.size.x / std::max(panel.size.y, 1.0f);
-
-            float img_w = panel.size.x;
-            float img_h = panel.size.y;
-            if (tex_aspect > panel_aspect) {
-                img_h = img_w / tex_aspect;
-            } else {
-                img_w = img_h * tex_aspect;
-            }
-
-            // Center in panel
-            float pad_x = (panel.size.x - img_w) * 0.5f;
-            float pad_y = (panel.size.y - img_h) * 0.5f;
+        if (tex && img_w > 0 && img_h > 0) {
             if (pad_x > 0 || pad_y > 0) {
                 ImGui::SetCursorScreenPos({panel.pos.x + pad_x, panel.pos.y + pad_y});
             }
-
             ImGui::Image(tex, {img_w, img_h});
         }
 
@@ -267,15 +268,15 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             panel.camera.update(input, dt);
         }
 
-        // Mouse picking
-        if (panel.hovered && !ImGuizmo::IsUsing() &&
+        // Mouse picking — skip when interacting with a gizmo
+        if (panel.hovered && !ImGuizmo::IsUsing() && !ImGuizmo::IsOver() &&
             (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
              ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) {
             auto mouse = ImGui::GetMousePos();
-            float mx = (mouse.x - panel.pos.x) / panel.size.x;
-            float my = (mouse.y - panel.pos.y) / panel.size.y;
+            float mx = (mouse.x - panel.pos.x - pad_x) / img_w;
+            float my = (mouse.y - panel.pos.y - pad_y) / img_h;
 
-            float aspect = panel.size.x / std::max(panel.size.y, 1.0f);
+            float aspect = img_w / std::max(img_h, 1.0f);
             auto view = panel.camera.view_matrix();
             auto proj = panel.camera.projection_matrix(aspect);
             auto inv_vp = glm::inverse(proj * view);
@@ -346,18 +347,25 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             }
         }
 
-        // Gizmo
+        // Gizmo — ImGuizmo expects OpenGL-style projection (Y-up NDC),
+        // so undo the Vulkan Y-flip for the gizmo only.
         if (auto* obj = scene.find(selected_id); obj) {
-            float aspect = panel.size.x / std::max(panel.size.y, 1.0f);
+            float aspect = img_w / std::max(img_h, 1.0f);
             auto view = panel.camera.view_matrix();
             auto projection = panel.camera.projection_matrix(aspect);
+            projection[1][1] *= -1.0f; // undo Vulkan Y-flip for ImGuizmo
 
-            ImGuizmo::SetRect(panel.pos.x, panel.pos.y,
-                              panel.size.x, panel.size.y);
+            ImGuizmo::SetRect(panel.pos.x + pad_x, panel.pos.y + pad_y,
+                              img_w, img_h);
             ImGuizmo::SetOrthographic(false);
             ImGuizmo::SetDrawlist();
 
-            glm::mat4 world_matrix = obj->world_matrix_;
+            // Snapshot at drag start so we can apply delta to the original transform
+            if (!panel.gizmo_dragging) {
+                panel.gizmo_matrix = obj->world_matrix_;
+                panel.gizmo_start_world = obj->world_matrix_;
+                panel.gizmo_start_transform = obj->transform;
+            }
 
             ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
             if (panel.gizmo_op == 1) op = ImGuizmo::ROTATE;
@@ -368,18 +376,49 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 glm::value_ptr(projection),
                 op,
                 ImGuizmo::LOCAL,
-                glm::value_ptr(world_matrix));
+                glm::value_ptr(panel.gizmo_matrix));
 
-            if (ImGuizmo::IsUsing()) {
-                glm::mat4 local_matrix = world_matrix;
+            auto apply_gizmo = [&] {
+                // Decompose the delta between start and current gizmo matrices
+                // and apply it to the original transform to avoid full Euler roundtrip.
+                glm::mat4 parent_world{1.0f};
                 if (obj->parent_id != -1) {
                     const auto* parent = scene.find(
                         static_cast<uint32_t>(obj->parent_id));
-                    if (parent) {
-                        local_matrix = glm::inverse(parent->world_matrix_) * world_matrix;
-                    }
+                    if (parent) parent_world = parent->world_matrix_;
                 }
-                obj->transform = decompose_matrix(local_matrix);
+                glm::mat4 inv_parent = glm::inverse(parent_world);
+                glm::mat4 new_local = inv_parent * panel.gizmo_matrix;
+                Transform result = panel.gizmo_start_transform;
+
+                // Extract position directly from the local matrix (always exact)
+                result.position = glm::vec3(new_local[3]);
+
+                if (op == ImGuizmo::SCALE) {
+                    result.scale.x = glm::length(glm::vec3(new_local[0]));
+                    result.scale.y = glm::length(glm::vec3(new_local[1]));
+                    result.scale.z = glm::length(glm::vec3(new_local[2]));
+                } else if (op == ImGuizmo::ROTATE) {
+                    // Compute rotation delta and add to original Euler angles
+                    // to avoid lossy full decompose
+                    glm::mat4 start_local = inv_parent * panel.gizmo_start_world;
+                    Transform start_decomp = decompose_matrix(start_local);
+                    Transform new_decomp = decompose_matrix(new_local);
+                    glm::vec3 rot_delta = new_decomp.rotation - start_decomp.rotation;
+                    result.rotation = panel.gizmo_start_transform.rotation + rot_delta;
+                }
+
+                obj->transform = result;
+                obj->world_matrix_ = panel.gizmo_matrix;
+            };
+
+            if (ImGuizmo::IsUsing()) {
+                panel.gizmo_dragging = true;
+                apply_gizmo();
+                scene.mark_dirty();
+            } else if (panel.gizmo_dragging) {
+                panel.gizmo_dragging = false;
+                apply_gizmo();
             }
         }
     }
