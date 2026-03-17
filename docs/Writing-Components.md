@@ -1,12 +1,93 @@
 # Writing Components
 
-## Minimal Example
+## Minimal Example (C++ wrapper)
+
+The recommended way to write components. Include `fjell.hpp` instead of `fjell_api.h`:
+
+```cpp
+#include "fjell.hpp"
+#include <array>
+
+struct Spinner : fjell::Component<Spinner> {
+    static constexpr const char* component_name = "Spinner";
+
+    float speed = 90.0f;
+
+    static auto reflect() {
+        return std::array{
+            FJELL_F_RANGE(Spinner, speed, FJELL_FIELD_FLOAT, 0, 360, 1),
+        };
+    }
+
+    void update(const FjellEngineApi* api, float dt) {
+        float rot[3];
+        api->get_rotation(api->object_id, rot);
+        rot[1] += speed * dt;
+        api->set_rotation(api->object_id, rot);
+    }
+};
+
+FJELL_EXPORT(Spinner)
+```
+
+That's it. The CRTP base generates the `FjellComponentType` descriptor, wires up callbacks for methods you define, and builds the field array from `reflect()`. You only write what you need — no null fields, no boilerplate.
+
+### Multiple components
+
+```cpp
+FJELL_EXPORT(Spinner, Health, PlayerController)
+```
+
+### Component communication
+
+Use `fjell::get<T>()` to query components on the current or any other object:
+
+```cpp
+void update(const FjellEngineApi* api, float dt) {
+    // Same object
+    if (auto* health = fjell::get<Health>(api)) {
+        if (health->hp <= 0) return;
+    }
+
+    // Different object
+    if (auto* target = fjell::get<Health>(api, target_id)) {
+        target->hp -= damage * dt;
+    }
+}
+```
+
+### Available callbacks
+
+All optional — just define the ones you need:
+
+```cpp
+void create(const FjellEngineApi* api);              // on instantiation
+void destroy();                                       // on removal
+void update(const FjellEngineApi* api, float dt);     // every frame (play mode)
+void inspector();                                     // custom ImGui inspector
+void serialize(FjellJsonWriter* w) const;             // custom JSON write
+void deserialize(const FjellJsonReader* r);           // custom JSON read
+```
+
+### Field macros
+
+Used inside `reflect()` to describe inspector-editable fields:
+
+```cpp
+FJELL_F(MyComp, my_field, FJELL_FIELD_FLOAT)                    // basic
+FJELL_F_RANGE(MyComp, health, FJELL_FIELD_FLOAT, 0, 100, 0.5)  // with min/max/speed
+FJELL_F_ENUM(MyComp, mode, mode_labels, 3)                      // enum combo
+```
+
+## Raw C API
+
+You can still use the C API directly if you prefer. Include `fjell_api.h`:
 
 ```cpp
 #include "fjell_api.h"
 
 struct Spinner {
-    float speed = 90.0f;  // degrees per second
+    float speed = 90.0f;
 };
 
 static void spinner_update(void* data, const FjellEngineApi* api, float dt) {
@@ -29,9 +110,9 @@ static const FjellComponentType spinner_type = {
     .create = nullptr,
     .destroy = nullptr,
     .update = spinner_update,
-    .inspector = nullptr,      // auto-generated from fields
-    .serialize = nullptr,      // auto-generated from fields
-    .deserialize = nullptr,    // auto-generated from fields
+    .inspector = nullptr,
+    .serialize = nullptr,
+    .deserialize = nullptr,
     .fields = spinner_fields,
     .field_count = 1,
 };
@@ -39,12 +120,7 @@ static const FjellComponentType spinner_type = {
 FJELL_EXPORT_COMPONENTS(&spinner_type)
 ```
 
-This gives you a component with:
-- A `speed` field editable in the inspector (drag float, 0-360, step 1)
-- An update function that rotates the object around Y each frame
-- Automatic serialization to/from JSON
-
-## Multiple Components
+Multiple types with the C API:
 
 ```cpp
 FJELL_EXPORT_COMPONENTS(&spinner_type, &player_type, &health_type)

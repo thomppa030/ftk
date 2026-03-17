@@ -55,6 +55,32 @@ void (*log_error)(const char* msg);
 
 Messages appear in the in-editor console panel and stdout, prefixed with `[script]`.
 
+## Components
+
+```c
+void* (*get_component)(uint32_t object_id, const char* type_name);
+```
+
+Returns a pointer to the raw component data for the given type on the given object, or null if the object doesn't have that component. Use it to communicate between components:
+
+```c
+// C style
+Health* health = (Health*)api->get_component(api->object_id, "Health");
+if (health) health->hp -= 10;
+```
+
+With the C++ wrapper (`fjell.hpp`):
+
+```cpp
+// Same object
+if (auto* health = fjell::get<Health>(api))
+    health->hp -= 10;
+
+// Different object
+if (auto* health = fjell::get<Health>(api, other_id))
+    health->hp -= 10;
+```
+
 ## Physics
 
 All physics functions are null-safe — they no-op silently if physics isn't active (outside play mode).

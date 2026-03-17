@@ -5,14 +5,20 @@ Components are written in C++ and compiled to a shared library (`.so`). The engi
 ## How It Works
 
 ```
-1. Write component code (C++ with fjell_api.h)
+1. Write component code (C++ with fjell.hpp or fjell_api.h)
 2. Compile to game.so
 3. Engine loads game.so, calls fjell_register_components()
 4. Engine gets back an array of FjellComponentType descriptors
 5. Components can be added to objects in the inspector
 6. Each frame, Update callbacks are called with FjellEngineApi
-7. On save/load, component data is serialized to/from JSON
+7. Components can query each other via get_component()
+8. On save/load, component data is serialized to/from JSON
 ```
+
+There are two ways to write components:
+
+- **`fjell.hpp`** (recommended) — C++ convenience header with CRTP base class, automatic callback wiring, and typed `fjell::get<T>()` for component communication. See [Writing Components](Writing-Components.md).
+- **`fjell_api.h`** — Raw C API with manual struct descriptors and function pointers. Same thing under the hood, more verbose.
 
 ## Component Lifecycle
 
@@ -67,6 +73,21 @@ If a component type doesn't provide custom `serialize`/`deserialize`/`inspector`
 | `FJELL_FIELD_ENUM` | Combo | int |
 
 Fields can specify `min`, `max`, and `speed` for drag widgets.
+
+## Component Communication
+
+Components can query other components on the same or any object via the engine API:
+
+```cpp
+// C++ wrapper (fjell.hpp)
+auto* health = fjell::get<Health>(api);             // same object
+auto* health = fjell::get<Health>(api, other_id);   // other object
+
+// C API (fjell_api.h)
+Health* health = (Health*)api->get_component(api->object_id, "Health");
+```
+
+Returns null if the component doesn't exist on that object.
 
 ## Project Script Setup
 
