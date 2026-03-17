@@ -12,6 +12,7 @@ VulkanContext
   ├── Swapchain              Swapchain images, views, depth buffer
   ├── OffscreenPass          Color + depth images for viewport rendering
   ├── Pipeline               PBR graphics pipeline (mesh.vert/mesh.frag)
+  ├── RenderQueue            Sorted draw command list, replayed each frame
   ├── DebugDraw              Collider wireframe line-list pipeline
   ├── Descriptors
   │     ├── Set 0: Global    View, projection, lighting (uniform buffer)
@@ -35,13 +36,16 @@ Renders to `OffscreenPass` color/depth images.
 4. Bind PBR pipeline
 5. Set viewport/scissor (dynamic state)
 6. Bind global descriptor set (set 0)
-7. For each RenderObject:
-     Bind material descriptor set (set 1)
-     Push PbrPushConstants (model matrix + PBR params)
-     Draw mesh
-8. Optional: bind debug pipeline, draw collider wireframes
-9. vkCmdEndRendering
-10. Barrier: color image  COLOR_ATTACHMENT_OPTIMAL → SHADER_READ_ONLY_OPTIMAL
+7. Build RenderQueue from scene objects
+8. Sort by material (minimize descriptor rebinds)
+9. Execute queue:
+     For each DrawCommand:
+       Push PbrPushConstants (model matrix + PBR params)
+       Bind material descriptor set (set 1) if changed
+       Draw mesh
+10. Optional: bind debug pipeline, draw collider wireframes
+11. vkCmdEndRendering
+12. Barrier: color image  COLOR_ATTACHMENT_OPTIMAL → SHADER_READ_ONLY_OPTIMAL
 ```
 
 ### Pass 2: UI (swapchain)
@@ -55,6 +59,17 @@ Renders ImGui to the swapchain image. The offscreen texture is displayed as an `
 4. vkCmdEndRendering
 5. Barrier: swapchain image  COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
 ```
+
+## Render Queue
+
+Instead of walking the scene and issuing draw calls directly, `VulkanContext` builds a `RenderQueue` each frame:
+
+1. Iterate scene objects, resolve cached Model/Material pointers
+2. Fill `DrawCommand` structs (sort key, push constants, descriptor set, model pointer)
+3. Sort by material to minimize `vkCmdBindDescriptorSets` calls
+4. Execute the sorted list into the command buffer
+
+The scene itself has no Vulkan dependency — it's a pure data container. All rendering knowledge lives in `VulkanContext` and `RenderQueue`.
 
 ## Pipeline Configuration
 
@@ -93,15 +108,22 @@ Uniform data:
 
 Minimal pass-through. Transforms position via GlobalUbo view/projection + push constant model matrix. Outputs a solid color from push constants.
 
+## Resource Handles
+
+Resources are referenced by generational handles (`Handle<Tag>`) instead of raw pointers. The handle packs a slot index (20 bits) and a generation counter (12 bits) into a single `uint32_t`. This means you can detect stale references — if a resource gets freed and the slot reused, old handles won't accidentally point at the new occupant.
+
+`RenderObject` stores both the handle (for validation/serialization) and a cached raw pointer (for the hot path). The pointer is resolved once when the object is added to the scene.
+
 ## Resource Management
 
-`ResourceManager` caches GPU resources to avoid redundant uploads:
+`ResourceManager` stores resources in flat vector pools indexed by handle, with a string→handle map for cache-by-path lookups:
 
 ```
-load_model(path)      → Model (meshes + textures from glTF)
-load_texture(path)    → Texture (VkImage + view + sampler)
-create_material(name) → Material (descriptor set binding textures)
-create_primitive(type) → Model (cube/plane/sphere generated on CPU)
+load_model(path)       → ModelHandle
+load_texture(path)     → TextureHandle
+create_material(name)  → MaterialHandle
+create_primitive(type) → ModelHandle
+get(handle)            → raw pointer (nullptr if stale)
 ```
 
 Default textures (1x1 white, flat normal, etc.) are created at startup for materials that don't specify all maps.

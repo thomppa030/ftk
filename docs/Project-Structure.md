@@ -41,6 +41,8 @@ Engine lifecycle, window management, input, timing.
 | `clock.hpp/cpp` | Frame timing (delta_time, elapsed) |
 | `project.hpp/cpp` | Project manifest and directory management |
 | `play_session.hpp/cpp` | Play mode state (scene snapshot, physics, fly camera) |
+| `layer.hpp` | Input layer interface |
+| `layer_stack.hpp/cpp` | Priority stack for input event routing |
 | `game_builder.hpp/cpp` | Package game for distribution |
 | `log.hpp/cpp` | spdlog initialization, console sink |
 | `base_path.hpp/cpp` | Resolve asset paths relative to executable |
@@ -66,7 +68,9 @@ Vulkan rendering backend.
 | `camera.hpp/cpp` | Orbit camera (editor) |
 | `fly_camera.hpp/cpp` | First-person camera (play mode) |
 | `primitives.hpp/cpp` | Cube, plane, sphere mesh generation |
-| `resource_manager.hpp/cpp` | Model/texture/material cache |
+| `resource_handle.hpp` | Generational handle template (Handle<Tag>) for type-safe resource refs |
+| `resource_manager.hpp/cpp` | Handle-based resource pools (models, textures, materials) |
+| `render_queue.hpp/cpp` | Sorted draw command list, built each frame by VulkanContext |
 | `debug_draw.hpp/cpp` | Collider wireframe visualization |
 | `render_stats.hpp` | Per-frame draw call and triangle tracking |
 | `shader_watcher.hpp/cpp` | inotify-based GLSL hot-reload (debug only) |
@@ -103,6 +107,7 @@ Vulkan rendering backend.
 | `theme.hpp` | Shared amber theme (sRGB-to-linear conversion) |
 | `console.hpp/cpp` | spdlog sink for in-editor log panel |
 | `nvim_panel.hpp/cpp` | Embedded neovim via libvterm + PTY |
+| `file_browser.hpp/cpp` | Filesystem browser widget for project open/create |
 
 ### `src/hub/`
 

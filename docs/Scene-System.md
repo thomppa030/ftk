@@ -10,8 +10,10 @@ struct RenderObject {
     int32_t parent_id;          // -1 = root
     glm::mat4 world_matrix_;   // Computed each frame
 
-    Model* model;               // Mesh geometry (owned by ResourceManager)
-    Material* material;         // PBR material (owned by ResourceManager)
+    ModelHandle model_handle;       // Handle into ResourceManager pool
+    MaterialHandle material_handle;
+    Model* model;                   // Cached pointer (resolved on add)
+    Material* material;
     Transform transform;        // Local TRS
 
     std::string name;           // Display name
@@ -24,6 +26,8 @@ struct RenderObject {
     std::optional<ColliderDesc> collider;        // Physics collider descriptor
 };
 ```
+
+Handles are the source of truth for which resource an object references. The raw pointers are a cached dereference resolved at add time — the render path, physics, and picking code all use the pointers directly for zero overhead.
 
 ## Transform
 
@@ -54,14 +58,15 @@ Objects reference their parent via `parent_id`. The hierarchy is stored flat —
 
 | Method | Description |
 |--------|-------------|
-| `add(model, material, transform, name, source)` | Create object, returns ID |
+| `add(model_handle, material_handle, resources, ...)` | Create object, resolves handles, returns ID |
 | `remove(id)` | Delete object, orphan its children |
 | `find(id)` | Lookup by ID (returns pointer or null) |
 | `clear()` | Remove all objects |
 | `reparent(child, parent)` | Change parent, preserve world position |
-| `render(cmd, layout, stats)` | Draw all objects with push constants |
 | `save(path)` | Serialize to JSON |
 | `Scene::load(path, resources, project)` | Deserialize from JSON |
+
+Note: Scene has no render method. Drawing is handled by the `RenderQueue` in `VulkanContext`.
 
 ## Serialization Format
 
@@ -100,4 +105,4 @@ On load, `source` determines how the model is created:
 - `"primitive:cube"` / `"primitive:plane"` / `"primitive:sphere"` — generated geometry
 - File path — loaded via fastgltf
 
-Component data is stored as raw JSON. The `ScriptManager` instantiates components and deserializes the data after the .so is loaded.
+Handles are resolved from the source/material strings during load. Component data is stored as raw JSON. The `ScriptManager` instantiates components and deserializes the data after the .so is loaded.
