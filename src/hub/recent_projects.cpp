@@ -68,11 +68,14 @@ void RecentProjects::save() const {
 }
 
 void RecentProjects::add(const std::string& path, const std::string& name) {
+    // Always store absolute paths so the hub works regardless of CWD
+    auto abs_path = std::filesystem::absolute(path).string();
+
     // Remove existing entry with same path
-    std::erase_if(projects_, [&](const RecentProject& p) { return p.path == path; });
+    std::erase_if(projects_, [&](const RecentProject& p) { return p.path == abs_path; });
 
     // Insert at front
-    projects_.insert(projects_.begin(), {path, name});
+    projects_.insert(projects_.begin(), {abs_path, name});
 
     // Keep max 10
     if (projects_.size() > 10) {

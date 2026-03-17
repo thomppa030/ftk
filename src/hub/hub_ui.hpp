@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui/file_browser.hpp"
 #include "hub/recent_projects.hpp"
 
 #include <string>
@@ -27,20 +28,17 @@ private:
     void draw_splash(float window_w, float window_h);
     void setup_style();
 
+    void launch_project(const std::string& path, const std::string& name);
+
     RecentProjects recent_;
     bool splash_active_{false};
     float splash_timer_{0.0f};
     std::string launch_path_;
     std::string launch_name_;
 
-    // New project dialog
-    char new_project_path_[512]{};
-    char new_project_name_[128]{};
-    bool show_new_project_{false};
-
-    // Open project dialog
-    char open_project_path_[512]{};
-    bool show_open_project_{false};
+    // File browsers
+    FileBrowser open_browser_{FileBrowser::Mode::select_directory};
+    FileBrowser new_browser_{FileBrowser::Mode::select_location};
 
     bool style_set_{false};
 };

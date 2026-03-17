@@ -225,6 +225,7 @@ int main() {
 
             if (!launch.empty()) {
                 launch_editor(launch);
+                glfwSetWindowShouldClose(window.handle(), GLFW_TRUE);
             }
         }
 

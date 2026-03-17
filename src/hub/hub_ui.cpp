@@ -156,84 +156,44 @@ void HubUI::draw_hub(float window_w, float window_h) {
     ImGui::SetCursorPos({pad, window_h - button_area});
 
     if (ImGui::Button("New Project", {button_w, button_h})) {
-        show_new_project_ = true;
-        new_project_path_[0] = '\0';
-        new_project_name_[0] = '\0';
+        new_browser_.open("New Project");
     }
     ImGui::SameLine();
     if (ImGui::Button("Open Project", {button_w, 36.0f})) {
-        show_open_project_ = true;
-        open_project_path_[0] = '\0';
+        open_browser_.open("Open Project");
     }
 
     ImGui::End();
 
-    // New Project popup
-    if (show_new_project_) {
-        ImGui::OpenPopup("New Project");
-        show_new_project_ = false;
-    }
-    if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Project name:");
-        ImGui::InputText("##name", new_project_name_, sizeof(new_project_name_));
-        ImGui::Text("Directory:");
-        ImGui::InputText("##dir", new_project_path_, sizeof(new_project_path_));
-
-        if (ImGui::Button("Create", {120, 0})) {
-            if (new_project_name_[0] != '\0' && new_project_path_[0] != '\0') {
-                // Just record it — the editor will create the project
-                recent_.add(new_project_path_, new_project_name_);
-                splash_active_ = true;
-                splash_timer_ = 0.0f;
-                launch_path_ = new_project_path_;
-                launch_name_ = new_project_name_;
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {120, 0})) {
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
+    // File browser popups
+    if (new_browser_.draw()) {
+        launch_project(new_browser_.selected_path(), new_browser_.project_name());
     }
 
-    // Open Project popup
-    if (show_open_project_) {
-        ImGui::OpenPopup("Open Project");
-        show_open_project_ = false;
+    if (open_browser_.draw()) {
+        auto path = open_browser_.selected_path();
+        // Try to read project name from manifest
+        std::string name;
+        auto manifest = std::filesystem::path(path) / "project.fjell";
+        if (std::filesystem::exists(manifest)) {
+            std::ifstream f(manifest);
+            nlohmann::json j;
+            try { j = nlohmann::json::parse(f); name = j.value("name", ""); }
+            catch (...) {}
+        }
+        if (name.empty()) {
+            name = std::filesystem::path(path).filename().string();
+        }
+        launch_project(path, name);
     }
-    if (ImGui::BeginPopupModal("Open Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Project directory:");
-        ImGui::InputText("##path", open_project_path_, sizeof(open_project_path_));
+}
 
-        if (ImGui::Button("Open", {120, 0})) {
-            if (open_project_path_[0] != '\0') {
-                // Try to read project name from manifest
-                std::string name;
-                auto manifest = std::filesystem::path(open_project_path_) / "project.fjell";
-                if (std::filesystem::exists(manifest)) {
-                    std::ifstream f(manifest);
-                    nlohmann::json j;
-                    try { j = nlohmann::json::parse(f); name = j.value("name", ""); }
-                    catch (...) {}
-                }
-                if (name.empty()) {
-                    name = std::filesystem::path(open_project_path_).filename().string();
-                }
-                recent_.add(open_project_path_, name);
-                splash_active_ = true;
-                splash_timer_ = 0.0f;
-                launch_path_ = open_project_path_;
-                launch_name_ = name;
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {120, 0})) {
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
+void HubUI::launch_project(const std::string& path, const std::string& name) {
+    recent_.add(path, name);
+    splash_active_ = true;
+    splash_timer_ = 0.0f;
+    launch_path_ = path;
+    launch_name_ = name;
 }
 
 void HubUI::draw_splash(float window_w, float window_h) {
