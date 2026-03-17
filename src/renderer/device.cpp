@@ -196,6 +196,8 @@ void Device::create_logical_device() {
     features_12.runtimeDescriptorArray = VK_TRUE;
     features_12.descriptorBindingPartiallyBound = VK_TRUE;
     features_12.descriptorBindingVariableDescriptorCount = VK_TRUE;
+    features_12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+    features_12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
 
     // Vulkan 1.3 dynamic rendering
     VkPhysicalDeviceVulkan13Features features_13{};
