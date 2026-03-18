@@ -66,6 +66,10 @@ struct TaskPayload {
     uint meshlet_indices[32];
 };
 
+layout(push_constant) uniform PushConstants {
+    uint draw_index;
+} push;
+
 taskPayloadSharedEXT TaskPayload payload;
 
 uint get_triangle_index(uint meshlet_tri_offset, uint local_tri, uint vertex_in_tri) {
@@ -81,25 +85,26 @@ void main() {
     uint meshlet_idx = payload.meshlet_indices[gl_WorkGroupID.x];
     Meshlet m = meshlets[meshlet_idx];
 
-    DrawData dd = draws[payload.draw_index];
-    mat4 mvp = ubo.projection * ubo.view * dd.model;
+    DrawData dd = draws[push.draw_index];
+    mat4 model = dd.model;
 
     SetMeshOutputsEXT(m.vertex_count, m.triangle_count);
 
     uint tid = gl_LocalInvocationIndex;
 
-    // Emit vertices
+    // Emit vertices — must match mesh.mesh exactly to avoid depth precision mismatch
     if (tid < m.vertex_count) {
         uint global_vertex = meshlet_vertices[m.vertex_offset + tid] + dd.vertex_offset;
         vec3 pos = fetch_position(global_vertex);
-        gl_MeshVerticesEXT[tid].gl_Position = mvp * vec4(pos, 1.0);
+        vec4 world_pos = model * vec4(pos, 1.0);
+        gl_MeshVerticesEXT[tid].gl_Position = ubo.projection * ubo.view * world_pos;
     }
 
-    // Emit triangles
-    if (tid < m.triangle_count) {
-        uint i0 = get_triangle_index(m.triangle_offset, tid, 0);
-        uint i1 = get_triangle_index(m.triangle_offset, tid, 1);
-        uint i2 = get_triangle_index(m.triangle_offset, tid, 2);
-        gl_PrimitiveTriangleIndicesEXT[tid] = uvec3(i0, i1, i2);
+    // Emit triangles — may need multiple iterations since triangle_count can exceed workgroup size
+    for (uint t = tid; t < m.triangle_count; t += 64) {
+        uint i0 = get_triangle_index(m.triangle_offset, t, 0);
+        uint i1 = get_triangle_index(m.triangle_offset, t, 1);
+        uint i2 = get_triangle_index(m.triangle_offset, t, 2);
+        gl_PrimitiveTriangleIndicesEXT[t] = uvec3(i0, i1, i2);
     }
 }

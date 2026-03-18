@@ -72,6 +72,9 @@ VulkanContext::VulkanContext(Window& window)
         mesh_shader_depth_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
         mesh_shader_depth_pass_.set_meshlet_layout(meshlet_descriptor_.layout());
         mesh_shader_depth_pass_.create(device_, pass_resources);
+        mesh_shader_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
+        mesh_shader_pass_.set_meshlet_layout(meshlet_descriptor_.layout());
+        mesh_shader_pass_.create(device_, pass_resources);
     }
     shadow_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     shadow_pass_.create(device_, pass_resources);
@@ -143,6 +146,7 @@ VulkanContext::~VulkanContext() {
     shadow_pass_.destroy();
     depth_prepass_.destroy();
     mesh_shader_depth_pass_.destroy();
+    mesh_shader_pass_.destroy();
 
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
@@ -509,9 +513,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     graph.add_pass("shadow", [&] { shadow_pass_.record(ctx); }, {});
 
     // Depth pre-pass (writes MSAA depth when MSAA active, otherwise single-sample)
-    // Always use traditional depth prepass for now — mesh shader depth will be used
-    // once the color pass also uses mesh shaders (to avoid depth precision mismatch)
-    auto& depth_pass = static_cast<RenderPass&>(depth_prepass_);
+    auto& depth_pass = use_mesh_shaders_ ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
+                                          : static_cast<RenderPass&>(depth_prepass_);
     if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
         // With MSAA: depth prepass writes MSAA depth, then resolve to single-sample for compute
         graph.add_pass("depth_prepass", [&] { depth_pass.record(ctx); },
@@ -633,8 +636,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                 descriptor_sets.data(), 0, nullptr);
 
         if (scene) {
-            mega_buffer_->bind(cmd);
-            indirect_batch_->draw(cmd, current_frame_);
+            if (use_mesh_shaders_) {
+                mesh_shader_pass_.record(ctx);
+            } else {
+                mega_buffer_->bind(cmd);
+                indirect_batch_->draw(cmd, current_frame_);
+            }
             render_stats_->draw_calls += indirect_batch_->opaque_draw_count(current_frame_);
             render_stats_->triangle_count += indirect_batch_->total_triangles(current_frame_);
             if (indirect_batch_->opaque_draw_count(current_frame_) > 0) {

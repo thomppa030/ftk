@@ -21,6 +21,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
+#include "renderer/pass/mesh_shader_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
@@ -179,6 +180,7 @@ private:
     std::unique_ptr<MeshletBuffer> meshlet_buffer_;
     MeshletDescriptor meshlet_descriptor_;
     MeshShaderDepthPass mesh_shader_depth_pass_;
+    MeshShaderPass mesh_shader_pass_;
     bool use_mesh_shaders_{false};
 
     // Forward+ light culling + visualization

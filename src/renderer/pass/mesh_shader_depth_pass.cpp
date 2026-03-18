@@ -107,7 +107,7 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
                               draw_data_layout_, meshlet_layout_};
 
     VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT;
+    push_range.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
     push_range.offset = 0;
     push_range.size = sizeof(uint32_t); // draw_index
 
@@ -211,7 +211,7 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
     if (ctx.indirect_batch) {
         uint32_t draw_count = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
         for (uint32_t i = 0; i < draw_count; ++i) {
-            vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_TASK_BIT_EXT,
+            vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
                                0, sizeof(uint32_t), &i);
             pfn_vkCmdDrawMeshTasksEXT(ctx.cmd, 1, 1, 1);
         }
