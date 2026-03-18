@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 void main() {
     vec2 pos = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);

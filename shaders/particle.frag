@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 layout(location = 0) in vec2 frag_uv;
 layout(location = 1) in vec4 frag_color;

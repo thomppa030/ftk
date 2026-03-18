@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 layout(push_constant) uniform PushConstants {
     vec4 top_color;

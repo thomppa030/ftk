@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 layout(set = 0, binding = 0) uniform sampler2D scene_tex;
 layout(set = 0, binding = 1) uniform sampler2D bloom_tex;

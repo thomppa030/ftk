@@ -84,16 +84,6 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
     depth_stencil.depthBoundsTestEnable = VK_FALSE;
     depth_stencil.stencilTestEnable = VK_FALSE;
 
-    // Layout needs a global UBO set layout. We receive it via the descriptor
-    // set at record time, but the pipeline layout must declare it at creation.
-    // Store the layout handle so we can pass it later.
-    // For now, create a minimal layout with just the push constant.
-    // The global descriptor set layout is passed in via FrameContext.
-    //
-    // Actually we need the set layout at pipeline creation time. Let's store
-    // it as a member received from the device/context setup.
-    // TODO: pass global_set_layout into create() or FrameContext
-
     std::array set_layouts = {resources.global_set_layout, draw_data_layout_};
 
     VkPipelineLayoutCreateInfo layout_info{};

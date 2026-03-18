@@ -1,4 +1,4 @@
-#version 450
+#version 460
 
 // Fullscreen triangle — no vertex buffer needed
 // Vertices: (-1,-1), (3,-1), (-1,3) cover the entire screen
