@@ -11,12 +11,13 @@ class CommandHistory;
 class Scene;
 class ScriptManager;
 struct DirectionalLight;
+struct GridSettings;
 
 class PropertiesPanel {
 public:
     void init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
               DirectionalLight* light, ScriptManager* scripts,
-              CommandHistory* history);
+              CommandHistory* history, GridSettings* grid_settings = nullptr);
 
     void draw();
 
@@ -27,6 +28,7 @@ private:
     DirectionalLight* light_{nullptr};
     ScriptManager* scripts_{nullptr};
     CommandHistory* history_{nullptr};
+    GridSettings* grid_settings_{nullptr};
 
     // Drag coalescing
     Transform drag_start_transform_;

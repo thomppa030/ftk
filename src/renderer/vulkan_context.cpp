@@ -98,6 +98,7 @@ VulkanContext::VulkanContext(Window& window)
     }
 
     debug_pass_.create(device_, pass_resources);
+    grid_pass_.create(device_, pass_resources);
     wireframe_pass_.create(device_, pass_resources);
     normal_pass_.create(device_, pass_resources);
     overdraw_pass_.create(device_, pass_resources);
@@ -138,6 +139,7 @@ VulkanContext::~VulkanContext() {
     overdraw_pass_.destroy();
     normal_pass_.destroy();
     wireframe_pass_.destroy();
+    grid_pass_.destroy();
     debug_pass_.destroy();
     depth_viz_pass_.destroy();
     shadow_pass_.destroy();
@@ -648,6 +650,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         }
 
         sky_pass_.record(ctx);
+        grid_pass_.record(ctx);
         debug_pass_.record(ctx);
         draw_outline(cmd, ctx);
         transparent_pass_.record(ctx);
@@ -1130,6 +1133,7 @@ void VulkanContext::reload_pipeline() {
     depth_prepass_.recreate(device_, pass_resources);
     shadow_pass_.recreate(device_, pass_resources);
     debug_pass_.recreate(device_, pass_resources);
+    grid_pass_.recreate(device_, pass_resources);
 }
 
 uint32_t VulkanContext::graphics_family() const {

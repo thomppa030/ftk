@@ -4,25 +4,36 @@
 #include "scene/scene.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/particle_emitter.hpp"
+#include "renderer/pass/grid_pass.hpp"
 #include "physics/physics_types.hpp"
 #include "scripting/script_manager.hpp"
 
 #include <imgui.h>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <cmath>
 #include <cstring>
 
 namespace fjell {
 
+static glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
+    return {
+        std::round(pos.x / cell_size) * cell_size,
+        std::round(pos.y / cell_size) * cell_size,
+        std::round(pos.z / cell_size) * cell_size,
+    };
+}
+
 void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
                            DirectionalLight* light, ScriptManager* scripts,
-                           CommandHistory* history) {
+                           CommandHistory* history, GridSettings* grid_settings) {
     scene_ = scene;
     selected_id_ = selected_id;
     gizmo_op_ = gizmo_op;
     light_ = light;
     scripts_ = scripts;
     history_ = history;
+    grid_settings_ = grid_settings;
 }
 
 void PropertiesPanel::draw() {
@@ -49,8 +60,27 @@ void PropertiesPanel::draw() {
             ImGui::Separator();
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Transform");
             ImGui::Text("Position");
+            if (grid_settings_ && grid_settings_->snap_enabled) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Snap")) {
+                    Transform before = obj->transform;
+                    obj->transform.position = snap_to_grid(obj->transform.position, grid_settings_->cell_size);
+                    scene_->mark_dirty();
+                    if (history_) {
+                        history_->execute(std::make_unique<TransformCommand>(
+                            *scene_, obj->id, before, obj->transform, obj->name));
+                    }
+                }
+            }
+            float drag_speed = (grid_settings_ && grid_settings_->snap_enabled)
+                ? grid_settings_->cell_size : 0.1f;
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##Position", &obj->transform.position.x, 0.1f)) scene_->mark_dirty();
+            if (ImGui::DragFloat3("##Position", &obj->transform.position.x, drag_speed)) {
+                if (grid_settings_ && grid_settings_->snap_enabled) {
+                    obj->transform.position = snap_to_grid(obj->transform.position, grid_settings_->cell_size);
+                }
+                scene_->mark_dirty();
+            }
             if (ImGui::IsItemActivated()) {
                 drag_start_transform_ = obj->transform;
                 drag_start_name_ = obj->name;

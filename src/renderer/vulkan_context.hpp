@@ -18,6 +18,7 @@
 #include "renderer/pass/overdraw_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
+#include "renderer/pass/grid_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
@@ -100,6 +101,7 @@ public:
 
     void set_show_colliders(bool show) { show_colliders_ = show; }
     [[nodiscard]] bool show_colliders() const { return show_colliders_; }
+    [[nodiscard]] GridPass& grid_pass() { return grid_pass_; }
     [[nodiscard]] DebugDraw& debug_draw() { return *debug_draw_; }
     [[nodiscard]] MegaBuffer* mega_buffer() { return mega_buffer_.get(); }
     [[nodiscard]] MeshletBuffer* meshlet_buffer() { return meshlet_buffer_.get(); }
@@ -149,6 +151,7 @@ private:
     DepthPrePass depth_prepass_;
     ShadowPass shadow_pass_;
     DebugPass debug_pass_;
+    GridPass grid_pass_;
     DepthVizPass depth_viz_pass_;
     WireframePass wireframe_pass_;
     NormalPass normal_pass_;
