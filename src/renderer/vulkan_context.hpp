@@ -10,6 +10,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/normal_pass.hpp"
+#include "renderer/pass/overdraw_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
@@ -70,6 +71,7 @@ public:
     [[nodiscard]] DepthVizPass& depth_viz_pass() { return depth_viz_pass_; }
     [[nodiscard]] WireframePass& wireframe_pass() { return wireframe_pass_; }
     [[nodiscard]] NormalPass& normal_pass() { return normal_pass_; }
+    [[nodiscard]] OverdrawPass& overdraw_pass() { return overdraw_pass_; }
     [[nodiscard]] BloomPass& bloom_pass() { return bloom_pass_; }
     [[nodiscard]] TonemapPass& tonemap_pass() { return tonemap_pass_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
@@ -125,6 +127,7 @@ private:
     DepthVizPass depth_viz_pass_;
     WireframePass wireframe_pass_;
     NormalPass normal_pass_;
+    OverdrawPass overdraw_pass_;
     BloomPass bloom_pass_;
     SkyPass sky_pass_;
     TransparentPass transparent_pass_;

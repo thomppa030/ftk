@@ -116,6 +116,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             ctx.depth_viz_pass().resize(vp_w, vp_h);
             ctx.wireframe_pass().resize(vp_w, vp_h);
             ctx.normal_pass().resize(vp_w, vp_h);
+            ctx.overdraw_pass().resize(vp_w, vp_h);
             ctx.bloom_pass().resize(vp_w, vp_h);
             ctx.tonemap_pass().resize(vp_w, vp_h);
         }
@@ -176,6 +177,8 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
                 return ctx.bloom_pass().imgui_texture();
             case ViewportSource::normals:
                 return ctx.normal_pass().imgui_texture();
+            case ViewportSource::overdraw:
+                return ctx.overdraw_pass().imgui_texture();
         }
         return panel.offscreen->imgui_texture();
     }
@@ -269,6 +272,9 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                     break;
                 case ViewportSource::normals:
                     tex = ctx.normal_pass().imgui_texture();
+                    break;
+                case ViewportSource::overdraw:
+                    tex = ctx.overdraw_pass().imgui_texture();
                     break;
             }
         }
