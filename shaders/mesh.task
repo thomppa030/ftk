@@ -1,0 +1,22 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+layout(local_size_x = 32) in;
+
+struct TaskPayload {
+    uint draw_index;
+    uint meshlet_indices[32];
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+void main() {
+    // Placeholder — passes through one meshlet per invocation
+    // Will be replaced with frustum + cone culling
+    payload.draw_index = 0;
+    payload.meshlet_indices[gl_LocalInvocationIndex] = gl_LocalInvocationIndex;
+
+    if (gl_LocalInvocationIndex == 0) {
+        EmitMeshTasksEXT(1, 1, 1);
+    }
+}
