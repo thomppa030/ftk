@@ -40,6 +40,8 @@ struct FrameContext {
     uint32_t frame_index{0};
     IndirectBatch* indirect_batch{nullptr};
     MegaBuffer* mega_buffer{nullptr};
+    VkDescriptorSet meshlet_set{VK_NULL_HANDLE};
+    bool use_mesh_shaders{false};
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

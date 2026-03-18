@@ -68,17 +68,32 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
                     vertex_index_used_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
         vertex_index_capacity_ = (vertex_index_used_ + vert_idx_size) * 2;
     }
-    if (triangle_used_ + tri_size_padded > triangle_capacity_) {
-        grow_buffer(triangle_buffer_, (triangle_used_ + tri_size_padded) * 2,
-                    triangle_used_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-        triangle_capacity_ = (triangle_used_ + tri_size_padded) * 2;
+    VkDeviceSize tri_end = triangle_raw_bytes_ + tri_size_padded;
+    if (tri_end > triangle_capacity_) {
+        grow_buffer(triangle_buffer_, tri_end * 2,
+                    triangle_raw_bytes_, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+        triangle_capacity_ = tri_end * 2;
+    }
+
+    // Rebase meshlet offsets from per-result local to global buffer positions
+    uint32_t global_vert_idx_base = static_cast<uint32_t>(vertex_index_used_ / sizeof(uint32_t));
+    // triangle_raw_bytes_ tracks actual byte count (not padded), so offset is clean
+    uint32_t global_tri_base_bytes = static_cast<uint32_t>(triangle_raw_bytes_);
+
+    std::vector<Meshlet> adjusted_meshlets = result.meshlets;
+    for (auto& m : adjusted_meshlets) {
+        m.vertex_offset += global_vert_idx_base;
+        // Shader does: byte_offset = triangle_offset * 3 + local_tri * 3 + vert
+        // So we convert global byte offset back to triangle units
+        uint32_t original_byte_offset = m.triangle_offset * 3;
+        m.triangle_offset = (original_byte_offset + global_tri_base_bytes) / 3;
     }
 
     // Stage all data in one command buffer
     Buffer meshlet_staging{device_, physical_device_, meshlet_size,
                            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
-    meshlet_staging.write(result.meshlets.data(), meshlet_size);
+    meshlet_staging.write(adjusted_meshlets.data(), meshlet_size);
 
     Buffer bounds_staging{device_, physical_device_, bounds_size,
                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -123,7 +138,7 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
     copy(meshlet_staging, *meshlet_buffer_, meshlet_used_, meshlet_size);
     copy(bounds_staging, *bounds_buffer_, bounds_used_, bounds_size);
     copy(vert_staging, *vertex_index_buffer_, vertex_index_used_, vert_idx_size);
-    copy(tri_staging, *triangle_buffer_, triangle_used_, tri_size_padded);
+    copy(tri_staging, *triangle_buffer_, triangle_raw_bytes_, tri_size_padded);
 
     vkEndCommandBuffer(cmd);
 
@@ -145,7 +160,8 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
     meshlet_used_ += meshlet_size;
     bounds_used_ += bounds_size;
     vertex_index_used_ += vert_idx_size;
-    triangle_used_ += tri_size_padded;
+    triangle_raw_bytes_ += tri_size_raw;
+    triangle_used_ = (triangle_raw_bytes_ + 3) & ~3; // padded total
 
     return range;
 }

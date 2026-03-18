@@ -44,6 +44,7 @@ VulkanContext::VulkanContext(Window& window)
         meshlet_buffer_ = std::make_unique<MeshletBuffer>(
             device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
         meshlet_descriptor_.create(device_.handle());
+        use_mesh_shaders_ = true;
     }
 
     // Query and clamp MSAA sample count
@@ -67,6 +68,11 @@ VulkanContext::VulkanContext(Window& window)
     pass_resources.sample_count = msaa_samples_;
     depth_prepass_.set_draw_data_layout(draw_data_descriptor_.layout());
     depth_prepass_.create(device_, pass_resources);
+    if (use_mesh_shaders_) {
+        mesh_shader_depth_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
+        mesh_shader_depth_pass_.set_meshlet_layout(meshlet_descriptor_.layout());
+        mesh_shader_depth_pass_.create(device_, pass_resources);
+    }
     shadow_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     shadow_pass_.create(device_, pass_resources);
     depth_viz_pass_.create(device_, pass_resources);
@@ -136,6 +142,7 @@ VulkanContext::~VulkanContext() {
     depth_viz_pass_.destroy();
     shadow_pass_.destroy();
     depth_prepass_.destroy();
+    mesh_shader_depth_pass_.destroy();
 
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
@@ -175,7 +182,8 @@ void VulkanContext::create_descriptor_resources() {
     global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_bindings[0].descriptorCount = 1;
     global_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                                     VK_SHADER_STAGE_COMPUTE_BIT;
+                                     VK_SHADER_STAGE_COMPUTE_BIT |
+                                     VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
 
     global_bindings[1].binding = 1;
     global_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -476,6 +484,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.frame_index = current_frame_;
     ctx.indirect_batch = indirect_batch_.get();
     ctx.mega_buffer = mega_buffer_.get();
+    ctx.use_mesh_shaders = use_mesh_shaders_;
+    if (use_mesh_shaders_) {
+        ctx.meshlet_set = meshlet_descriptor_.descriptor_set(current_frame_);
+    }
 
     // ── Frame graph: declare image usage per pass ────────────────────────
 
@@ -497,9 +509,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     graph.add_pass("shadow", [&] { shadow_pass_.record(ctx); }, {});
 
     // Depth pre-pass (writes MSAA depth when MSAA active, otherwise single-sample)
+    // Always use traditional depth prepass for now — mesh shader depth will be used
+    // once the color pass also uses mesh shaders (to avoid depth precision mismatch)
+    auto& depth_pass = static_cast<RenderPass&>(depth_prepass_);
     if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
         // With MSAA: depth prepass writes MSAA depth, then resolve to single-sample for compute
-        graph.add_pass("depth_prepass", [&] { depth_prepass_.record(ctx); },
+        graph.add_pass("depth_prepass", [&] { depth_pass.record(ctx); },
                        {{msaa_depth_id, ImageUsage::depth_attachment}});
 
         // Depth resolve: begin a rendering scope with MSAA depth loaded + resolve target
@@ -525,7 +540,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         }, {{msaa_depth_id, ImageUsage::depth_attachment_read},
             {depth_id, ImageUsage::depth_attachment}});
     } else {
-        graph.add_pass("depth_prepass", [&] { depth_prepass_.record(ctx); },
+        graph.add_pass("depth_prepass", [&] { depth_pass.record(ctx); },
                        {{depth_id, ImageUsage::depth_attachment}});
     }
 

@@ -1,0 +1,101 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+#extension GL_KHR_shader_subgroup_ballot : require
+
+layout(local_size_x = 32) in;
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+} ubo;
+
+struct DrawData {
+    mat4 model;
+    uint material_id;
+    uint meshlet_offset;
+    uint meshlet_count;
+    uint vertex_offset;
+};
+
+layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
+    DrawData draws[];
+};
+
+struct Meshlet {
+    uint vertex_offset;
+    uint triangle_offset;
+    uint vertex_count;
+    uint triangle_count;
+};
+
+struct MeshletBounds {
+    vec4 bounding_sphere;
+    vec4 cone_apex;
+    vec4 cone_axis_cutoff;
+};
+
+layout(set = 3, binding = 0) readonly buffer MeshletBuffer {
+    Meshlet meshlets[];
+};
+
+layout(set = 3, binding = 1) readonly buffer BoundsBuffer {
+    MeshletBounds bounds[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint draw_index;
+} push;
+
+struct TaskPayload {
+    uint draw_index;
+    uint meshlet_indices[32];
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+// Frustum test: 6 planes from VP matrix
+bool frustum_test(vec4 sphere, mat4 mvp) {
+    vec4 center = vec4(sphere.xyz, 1.0);
+    float radius = sphere.w;
+
+    // Extract frustum planes from MVP matrix
+    vec4 planes[6];
+    planes[0] = mvp[3] + mvp[0]; // left
+    planes[1] = mvp[3] - mvp[0]; // right
+    planes[2] = mvp[3] + mvp[1]; // bottom
+    planes[3] = mvp[3] - mvp[1]; // top
+    planes[4] = mvp[3] + mvp[2]; // near
+    planes[5] = mvp[3] - mvp[2]; // far
+
+    for (int i = 0; i < 6; ++i) {
+        float d = dot(planes[i].xyz, center.xyz) + planes[i].w;
+        if (d < -radius * length(planes[i].xyz)) return false;
+    }
+    return true;
+}
+
+void main() {
+    uint draw_idx = push.draw_index;
+    DrawData dd = draws[draw_idx];
+
+    uint meshlet_count = dd.meshlet_count;
+    uint meshlet_base = dd.meshlet_offset;
+    uint tid = gl_LocalInvocationIndex;
+
+    // Pass through: each thread handles one meshlet, no culling for now
+    payload.draw_index = draw_idx;
+
+    if (tid < meshlet_count) {
+        payload.meshlet_indices[tid] = meshlet_base + tid;
+    }
+
+    EmitMeshTasksEXT(min(meshlet_count, 32u), 1, 1);
+}

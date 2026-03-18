@@ -57,7 +57,8 @@ private:
     VkDeviceSize meshlet_used_{0};
     VkDeviceSize bounds_used_{0};
     VkDeviceSize vertex_index_used_{0};
-    VkDeviceSize triangle_used_{0};
+    VkDeviceSize triangle_used_{0};          // padded bytes used in GPU buffer
+    VkDeviceSize triangle_raw_bytes_{0};     // unpadded raw bytes (for offset calculation)
 
     uint32_t meshlet_count_{0};
 

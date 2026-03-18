@@ -1,0 +1,105 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+layout(local_size_x = 64) in;
+layout(triangles, max_vertices = 64, max_primitives = 124) out;
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+} ubo;
+
+struct DrawData {
+    mat4 model;
+    uint material_id;
+    uint meshlet_offset;
+    uint meshlet_count;
+    uint vertex_offset;
+};
+
+layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
+    DrawData draws[];
+};
+
+struct Meshlet {
+    uint vertex_offset;
+    uint triangle_offset;
+    uint vertex_count;
+    uint triangle_count;
+};
+
+layout(set = 3, binding = 0) readonly buffer MeshletBuffer {
+    Meshlet meshlets[];
+};
+
+layout(set = 3, binding = 2) readonly buffer MeshletVertexBuffer {
+    uint meshlet_vertices[];
+};
+
+layout(set = 3, binding = 3) readonly buffer MeshletTriangleBuffer {
+    uint meshlet_triangles_packed[];
+};
+
+// Vertex data as raw floats — C++ Vertex is 60 bytes (15 floats), no std430 padding
+layout(set = 3, binding = 4) readonly buffer VertexBuffer {
+    float vertex_data[];
+};
+
+const uint VERTEX_STRIDE = 15; // 60 bytes / 4 = 15 floats
+// Layout: position(3) + color(3) + tex_coord(2) + normal(3) + tangent(4)
+
+vec3 fetch_position(uint vertex_index) {
+    uint base = vertex_index * VERTEX_STRIDE;
+    return vec3(vertex_data[base], vertex_data[base + 1], vertex_data[base + 2]);
+}
+
+struct TaskPayload {
+    uint draw_index;
+    uint meshlet_indices[32];
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+uint get_triangle_index(uint meshlet_tri_offset, uint local_tri, uint vertex_in_tri) {
+    // meshlet_triangles is packed as uint8[3] per triangle
+    // Stored as uint32 array, so 4 bytes per uint32
+    uint byte_offset = (meshlet_tri_offset * 3) + (local_tri * 3) + vertex_in_tri;
+    uint word = meshlet_triangles_packed[byte_offset / 4];
+    uint byte_in_word = byte_offset % 4;
+    return (word >> (byte_in_word * 8)) & 0xFF;
+}
+
+void main() {
+    uint meshlet_idx = payload.meshlet_indices[gl_WorkGroupID.x];
+    Meshlet m = meshlets[meshlet_idx];
+
+    DrawData dd = draws[payload.draw_index];
+    mat4 mvp = ubo.projection * ubo.view * dd.model;
+
+    SetMeshOutputsEXT(m.vertex_count, m.triangle_count);
+
+    uint tid = gl_LocalInvocationIndex;
+
+    // Emit vertices
+    if (tid < m.vertex_count) {
+        uint global_vertex = meshlet_vertices[m.vertex_offset + tid] + dd.vertex_offset;
+        vec3 pos = fetch_position(global_vertex);
+        gl_MeshVerticesEXT[tid].gl_Position = mvp * vec4(pos, 1.0);
+    }
+
+    // Emit triangles
+    if (tid < m.triangle_count) {
+        uint i0 = get_triangle_index(m.triangle_offset, tid, 0);
+        uint i1 = get_triangle_index(m.triangle_offset, tid, 1);
+        uint i2 = get_triangle_index(m.triangle_offset, tid, 2);
+        gl_PrimitiveTriangleIndicesEXT[tid] = uvec3(i0, i1, i2);
+    }
+}
