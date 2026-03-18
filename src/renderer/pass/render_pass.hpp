@@ -30,6 +30,7 @@ struct FrameContext {
     DebugDraw* debug_draw{nullptr};
     const Scene* scene{nullptr};
     float delta_time{0.0f};
+    uint32_t selected_id{0};
     bool show_colliders{false};
     uint32_t frame_index{0};
 };

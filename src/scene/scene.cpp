@@ -174,7 +174,10 @@ void Scene::save(const std::string& path) {
             }
         }
         jobj["position"] = {obj.transform.position.x, obj.transform.position.y, obj.transform.position.z};
-        jobj["rotation"] = {obj.transform.rotation.x, obj.transform.rotation.y, obj.transform.rotation.z};
+        {
+            auto euler = obj.transform.euler_degrees();
+            jobj["rotation"] = {euler.x, euler.y, euler.z};
+        }
         jobj["scale"] = {obj.transform.scale.x, obj.transform.scale.y, obj.transform.scale.z};
 
         if (obj.rigidbody) {
@@ -306,7 +309,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         }
         if (jobj.contains("rotation")) {
             auto& r = jobj["rotation"];
-            transform.rotation = {r[0].get<float>(), r[1].get<float>(), r[2].get<float>()};
+            transform.set_euler_degrees({r[0].get<float>(), r[1].get<float>(), r[2].get<float>()});
         }
         if (jobj.contains("scale")) {
             auto& s = jobj["scale"];

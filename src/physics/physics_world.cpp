@@ -171,14 +171,12 @@ static glm::vec3 to_glm(JPH::Vec3 v) {
     return {v.GetX(), v.GetY(), v.GetZ()};
 }
 
-static JPH::Quat euler_to_jolt_quat(const glm::vec3& euler_deg) {
-    auto q = glm::quat(glm::radians(euler_deg));
+static JPH::Quat to_jolt_quat(const glm::quat& q) {
     return JPH::Quat(q.x, q.y, q.z, q.w);
 }
 
-static glm::vec3 jolt_quat_to_euler(JPH::Quat q) {
-    glm::quat gq(q.GetW(), q.GetX(), q.GetY(), q.GetZ());
-    return glm::degrees(glm::eulerAngles(gq));
+static glm::quat to_glm_quat(JPH::Quat q) {
+    return glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ());
 }
 
 // ── Body creation ───────────────────────────────────────────────────────
@@ -278,7 +276,7 @@ void PhysicsWorld::create_bodies(Scene& scene) {
         JPH::BodyCreationSettings body_settings(
             shape,
             to_jolt(obj.transform.position),
-            euler_to_jolt_quat(obj.transform.rotation),
+            to_jolt_quat(obj.transform.rotation),
             motion, layer);
 
         body_settings.mFriction = rb.friction;
@@ -323,7 +321,7 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 
         bi.MoveKinematic(it->second,
                          to_jolt(obj.transform.position),
-                         euler_to_jolt_quat(obj.transform.rotation),
+                         to_jolt_quat(obj.transform.rotation),
                          dt);
     }
 
@@ -345,7 +343,7 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         auto rot = bi.GetRotation(it->second);
 
         obj.transform.position = to_glm(pos);
-        obj.transform.rotation = jolt_quat_to_euler(rot);
+        obj.transform.rotation = to_glm_quat(rot);
     }
 }
 
