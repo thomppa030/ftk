@@ -25,6 +25,7 @@ add_executable(fjell
     renderer/mesh.cpp
     renderer/meshlet.cpp
     renderer/meshlet_buffer.cpp
+    renderer/meshlet_descriptor.cpp
     renderer/model.cpp
     renderer/offscreen_pass.cpp
     renderer/pipeline.cpp

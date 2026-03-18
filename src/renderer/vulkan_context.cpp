@@ -39,10 +39,11 @@ VulkanContext::VulkanContext(Window& window)
         device_.handle(), device_.physical_device());
     draw_data_descriptor_.create(device_.handle());
 
-    // Meshlet buffers (uploaded at model load time)
+    // Meshlet buffers + descriptor (uploaded at model load time)
     if (device_.mesh_shader_supported()) {
         meshlet_buffer_ = std::make_unique<MeshletBuffer>(
             device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
+        meshlet_descriptor_.create(device_.handle());
     }
 
     // Query and clamp MSAA sample count
@@ -136,6 +137,7 @@ VulkanContext::~VulkanContext() {
     shadow_pass_.destroy();
     depth_prepass_.destroy();
 
+    meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
     indirect_batch_.reset();
     mega_buffer_.reset();
@@ -451,6 +453,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             indirect_batch_->draw_data_buffer(current_frame_),
             indirect_batch_->draw_data_size(current_frame_),
             current_frame_);
+    }
+
+    // Update meshlet descriptor (set 3) if mesh shaders are available
+    if (meshlet_buffer_ && meshlet_buffer_->total_meshlets() > 0) {
+        meshlet_descriptor_.update(*meshlet_buffer_, *mega_buffer_, current_frame_);
     }
 
     FrameContext ctx{};

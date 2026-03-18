@@ -6,6 +6,7 @@
 #include "renderer/indirect_batch.hpp"
 #include "renderer/mega_buffer.hpp"
 #include "renderer/meshlet_buffer.hpp"
+#include "renderer/meshlet_descriptor.hpp"
 #include "renderer/particle_system.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/debug_draw.hpp"
@@ -173,8 +174,9 @@ private:
     std::unique_ptr<IndirectBatch> indirect_batch_;
     DrawDataDescriptor draw_data_descriptor_;
 
-    // Meshlet GPU buffers
+    // Meshlet GPU buffers + descriptor
     std::unique_ptr<MeshletBuffer> meshlet_buffer_;
+    MeshletDescriptor meshlet_descriptor_;
 
     // Forward+ light culling + visualization
     LightCullPass light_cull_pass_;
