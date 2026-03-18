@@ -63,11 +63,13 @@ VulkanContext::VulkanContext(Window& window)
 
     debug_pass_.create(device_, pass_resources);
     wireframe_pass_.create(device_, pass_resources);
+    normal_pass_.create(device_, pass_resources);
     bloom_pass_.create(device_, pass_resources);
     sky_pass_.create(device_, pass_resources);
     transparent_pass_.create(device_, pass_resources);
     tonemap_pass_.create(device_, pass_resources);
     particle_system_.create(device_, pass_resources);
+    create_outline_pipeline();
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 
     create_command_buffers();
@@ -79,11 +81,14 @@ VulkanContext::~VulkanContext() {
     auto vk_device = device_.handle();
 
     debug_draw_.reset();
+    if (outline_pipeline_) { vkDestroyPipeline(vk_device, outline_pipeline_, nullptr); outline_pipeline_ = VK_NULL_HANDLE; }
+    if (outline_layout_) { vkDestroyPipelineLayout(vk_device, outline_layout_, nullptr); outline_layout_ = VK_NULL_HANDLE; }
     particle_system_.destroy();
     sky_pass_.destroy();
     transparent_pass_.destroy();
     tonemap_pass_.destroy();
     bloom_pass_.destroy();
+    normal_pass_.destroy();
     wireframe_pass_.destroy();
     debug_pass_.destroy();
     depth_viz_pass_.destroy();
@@ -243,7 +248,7 @@ void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
 // ── Command buffer recording ────────────────────────────────────────────
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
-                                    Scene* scene, float dt) {
+                                    Scene* scene, float dt, uint32_t selected_id) {
     // Build render queue
     if (scene) {
         render_queue_.clear();
@@ -279,6 +284,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.debug_draw = debug_draw_.get();
     ctx.scene = scene;
     ctx.delta_time = dt;
+    ctx.selected_id = selected_id;
     ctx.show_colliders = show_colliders_;
     ctx.frame_index = current_frame_;
 
@@ -356,6 +362,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
         sky_pass_.record(ctx);
         debug_pass_.record(ctx);
+        draw_outline(cmd, ctx);
         transparent_pass_.record(ctx);
         particle_system_.record_render(ctx);
 
@@ -377,6 +384,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                    {{depth_id, ImageUsage::shader_read}});
 
     graph.add_pass("wireframe", [&] { wireframe_pass_.record(ctx); }, {});
+    graph.add_pass("normals", [&] { normal_pass_.record(ctx); }, {});
 
     // ── Execute ─────────────────────────────────────────────────────────
 
@@ -386,7 +394,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                                           const std::vector<ViewportRenderRequest>& viewports,
                                           const DirectionalLight& light,
-                                          Scene* scene, float dt) {
+                                          Scene* scene, float dt,
+                                          uint32_t selected_id) {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -405,7 +414,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         if (!vp.target) continue;
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
                               vp.camera_position, light);
-        render_scene_to(cmd, *vp.target, scene, dt);
+        render_scene_to(cmd, *vp.target, scene, dt, selected_id);
     }
 
     // --- Render ImGui to swapchain ---
@@ -480,7 +489,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
 
 void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                                const DirectionalLight& light,
-                               Scene* scene, float dt) {
+                               Scene* scene, float dt,
+                               uint32_t selected_id) {
     auto vk_device = device_.handle();
 
     vkWaitForFences(vk_device, 1, &in_flight_[current_frame_], VK_TRUE,
@@ -508,7 +518,7 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
     }
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
     record_command_buffer(command_buffers_[current_frame_], image_index,
-                          viewports, light, scene, dt);
+                          viewports, light, scene, dt, selected_id);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
@@ -552,6 +562,182 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
 
 void VulkanContext::wait_idle() {
     vkDeviceWaitIdle(device_.handle());
+}
+
+void VulkanContext::create_outline_pipeline() {
+    auto read_file = [](const std::string& path) {
+        auto full = base_path::resolve(path);
+        std::ifstream f(full, std::ios::ate | std::ios::binary);
+        if (!f.is_open()) throw std::runtime_error("Failed to open: " + full);
+        auto sz = static_cast<size_t>(f.tellg());
+        std::vector<char> buf(sz);
+        f.seekg(0);
+        f.read(buf.data(), static_cast<std::streamsize>(sz));
+        return buf;
+    };
+
+    auto vert_code = read_file("shaders/outline.vert.spv");
+    auto frag_code = read_file("shaders/outline.frag.spv");
+
+    auto create_module = [&](const std::vector<char>& code) {
+        VkShaderModuleCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        ci.codeSize = code.size();
+        ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
+        VkShaderModule mod;
+        vkCreateShaderModule(device_.handle(), &ci, nullptr, &mod);
+        return mod;
+    };
+
+    auto vert_mod = create_module(vert_code);
+    auto frag_mod = create_module(frag_code);
+
+    // Push constants: mat4 model + vec4 color + float thickness = 84 bytes
+    VkPushConstantRange push_range{};
+    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    push_range.size = sizeof(glm::mat4) + sizeof(glm::vec4) + sizeof(float);
+
+    VkDescriptorSetLayout set_layout = global_set_layout_->handle();
+    VkPipelineLayoutCreateInfo layout_ci{};
+    layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layout_ci.setLayoutCount = 1;
+    layout_ci.pSetLayouts = &set_layout;
+    layout_ci.pushConstantRangeCount = 1;
+    layout_ci.pPushConstantRanges = &push_range;
+    vkCreatePipelineLayout(device_.handle(), &layout_ci, nullptr, &outline_layout_);
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert_mod;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag_mod;
+    stages[1].pName = "main";
+
+    auto binding = Vertex::get_binding_description();
+    auto attribs = Vertex::get_attribute_descriptions();
+    VkPipelineVertexInputStateCreateInfo vertex_input{};
+    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertex_input.vertexBindingDescriptionCount = 1;
+    vertex_input.pVertexBindingDescriptions = &binding;
+    vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribs.size());
+    vertex_input.pVertexAttributeDescriptions = attribs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
+    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPipelineViewportStateCreateInfo viewport_state{};
+    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport_state.viewportCount = 1;
+    viewport_state.scissorCount = 1;
+
+    VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic_state{};
+    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_state.dynamicStateCount = 2;
+    dynamic_state.pDynamicStates = dyn_states;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT; // cull front faces → only back faces show as outline
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
+    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil.depthTestEnable = VK_TRUE;
+    depth_stencil.depthWriteEnable = VK_FALSE;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkPipelineColorBlendAttachmentState blend{};
+    blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    blend.blendEnable = VK_TRUE;
+    blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    blend.colorBlendOp = VK_BLEND_OP_ADD;
+    blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    VkPipelineColorBlendStateCreateInfo color_blending{};
+    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    color_blending.attachmentCount = 1;
+    color_blending.pAttachments = &blend;
+
+    VkFormat color_format = OffscreenPass::COLOR_FORMAT;
+    VkFormat depth_format = device_.find_depth_format();
+    VkPipelineRenderingCreateInfo rendering_info{};
+    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachmentFormats = &color_format;
+    rendering_info.depthAttachmentFormat = depth_format;
+
+    VkGraphicsPipelineCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    ci.pNext = &rendering_info;
+    ci.stageCount = 2;
+    ci.pStages = stages;
+    ci.pVertexInputState = &vertex_input;
+    ci.pInputAssemblyState = &input_assembly;
+    ci.pViewportState = &viewport_state;
+    ci.pRasterizationState = &rasterizer;
+    ci.pMultisampleState = &multisampling;
+    ci.pDepthStencilState = &depth_stencil;
+    ci.pColorBlendState = &color_blending;
+    ci.pDynamicState = &dynamic_state;
+    ci.layout = outline_layout_;
+
+    vkCreateGraphicsPipelines(device_.handle(), VK_NULL_HANDLE, 1, &ci, nullptr, &outline_pipeline_);
+
+    vkDestroyShaderModule(device_.handle(), vert_mod, nullptr);
+    vkDestroyShaderModule(device_.handle(), frag_mod, nullptr);
+}
+
+void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
+    if (ctx.selected_id == 0 || !ctx.scene) return;
+
+    const auto* obj = ctx.scene->find(ctx.selected_id);
+    if (!obj || !obj->model) return;
+
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, outline_pipeline_);
+
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, outline_layout_,
+                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
+
+    VkViewport vp{};
+    vp.width = static_cast<float>(ctx.target->extent().width);
+    vp.height = static_cast<float>(ctx.target->extent().height);
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+
+    VkRect2D sc{};
+    sc.extent = ctx.target->extent();
+    vkCmdSetScissor(cmd, 0, 1, &sc);
+
+    // Push: model mat4 + outline_color vec4 + thickness float
+    struct {
+        glm::mat4 model;
+        glm::vec4 color;
+        float thickness;
+    } push{};
+    push.model = obj->world_matrix_;
+    push.color = {1.0f, 0.6f, 0.15f, 0.7f}; // subtle amber outline
+    push.thickness = 0.015f;
+
+    vkCmdPushConstants(cmd, outline_layout_,
+                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                       0, sizeof(push), &push);
+
+    obj->model->draw(cmd);
 }
 
 void VulkanContext::reload_pipeline() {

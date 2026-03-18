@@ -9,6 +9,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/bloom_pass.hpp"
+#include "renderer/pass/normal_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
@@ -49,7 +50,8 @@ public:
 
     void draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                     const struct DirectionalLight& light,
-                    Scene* scene, float dt = 0.0f);
+                    Scene* scene, float dt = 0.0f,
+                    uint32_t selected_id = 0);
     void wait_idle();
     void reload_pipeline();
 
@@ -67,6 +69,7 @@ public:
     [[nodiscard]] Device& device_ref() { return device_; }
     [[nodiscard]] DepthVizPass& depth_viz_pass() { return depth_viz_pass_; }
     [[nodiscard]] WireframePass& wireframe_pass() { return wireframe_pass_; }
+    [[nodiscard]] NormalPass& normal_pass() { return normal_pass_; }
     [[nodiscard]] BloomPass& bloom_pass() { return bloom_pass_; }
     [[nodiscard]] TonemapPass& tonemap_pass() { return tonemap_pass_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
@@ -85,9 +88,10 @@ private:
     void record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                                const std::vector<ViewportRenderRequest>& viewports,
                                const struct DirectionalLight& light,
-                               Scene* scene, float dt);
+                               Scene* scene, float dt,
+                               uint32_t selected_id);
     void render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
-                         Scene* scene, float dt);
+                         Scene* scene, float dt, uint32_t selected_id);
     void update_uniform_buffer(uint32_t frame_index,
                                const glm::mat4& view, const glm::mat4& projection,
                                const glm::vec3& camera_position,
@@ -120,6 +124,7 @@ private:
     DebugPass debug_pass_;
     DepthVizPass depth_viz_pass_;
     WireframePass wireframe_pass_;
+    NormalPass normal_pass_;
     BloomPass bloom_pass_;
     SkyPass sky_pass_;
     TransparentPass transparent_pass_;
@@ -141,6 +146,12 @@ private:
 
     // Particles
     ParticleSystem particle_system_;
+
+    // Selection outline
+    VkPipelineLayout outline_layout_{VK_NULL_HANDLE};
+    VkPipeline outline_pipeline_{VK_NULL_HANDLE};
+    void create_outline_pipeline();
+    void draw_outline(VkCommandBuffer cmd, const FrameContext& ctx);
 
     // Debug collider visualization
     std::unique_ptr<DebugDraw> debug_draw_;
