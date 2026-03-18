@@ -50,6 +50,7 @@ public:
     [[nodiscard]] QueueFamilyIndices find_queue_families() const;
     [[nodiscard]] SwapchainSupport query_swapchain_support() const;
     [[nodiscard]] VkFormat find_depth_format() const;
+    [[nodiscard]] VkSampleCountFlagBits max_msaa_samples() const;
     [[nodiscard]] VkFormat find_supported_format(
         const std::vector<VkFormat>& candidates, VkImageTiling tiling,
         VkFormatFeatureFlags features) const;

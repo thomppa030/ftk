@@ -187,6 +187,13 @@ void Device::create_logical_device() {
     features.samplerAnisotropy = VK_TRUE;
     features.depthClamp = VK_TRUE;
     features.fillModeNonSolid = VK_TRUE;
+    features.multiDrawIndirect = VK_TRUE;
+    features.drawIndirectFirstInstance = VK_TRUE;
+
+    // Vulkan 1.1 shader draw parameters (for gl_BaseInstance)
+    VkPhysicalDeviceVulkan11Features features_11{};
+    features_11.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
+    features_11.shaderDrawParameters = VK_TRUE;
 
     // Vulkan 1.2 descriptor indexing (for bindless textures)
     VkPhysicalDeviceVulkan12Features features_12{};
@@ -206,12 +213,14 @@ void Device::create_logical_device() {
     features_13.dynamicRendering = VK_TRUE;
     features_13.synchronization2 = VK_TRUE;
 
-    // Chain: create_info → features_13 → features_12
+    // Chain: create_info → features_11 → features_12 → features_13
+    features_13.pNext = nullptr;
     features_12.pNext = &features_13;
+    features_11.pNext = &features_12;
 
     VkDeviceCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    create_info.pNext = &features_12;
+    create_info.pNext = &features_11;
     create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
     create_info.pQueueCreateInfos = queue_create_infos.data();
     create_info.pEnabledFeatures = &features;
@@ -369,6 +378,22 @@ VkFormat Device::find_supported_format(
         }
     }
     throw std::runtime_error("Failed to find supported format");
+}
+
+VkSampleCountFlagBits Device::max_msaa_samples() const {
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(physical_device_, &props);
+
+    VkSampleCountFlags counts = props.limits.framebufferColorSampleCounts &
+                                props.limits.framebufferDepthSampleCounts;
+
+    if (counts & VK_SAMPLE_COUNT_64_BIT) return VK_SAMPLE_COUNT_64_BIT;
+    if (counts & VK_SAMPLE_COUNT_32_BIT) return VK_SAMPLE_COUNT_32_BIT;
+    if (counts & VK_SAMPLE_COUNT_16_BIT) return VK_SAMPLE_COUNT_16_BIT;
+    if (counts & VK_SAMPLE_COUNT_8_BIT)  return VK_SAMPLE_COUNT_8_BIT;
+    if (counts & VK_SAMPLE_COUNT_4_BIT)  return VK_SAMPLE_COUNT_4_BIT;
+    if (counts & VK_SAMPLE_COUNT_2_BIT)  return VK_SAMPLE_COUNT_2_BIT;
+    return VK_SAMPLE_COUNT_1_BIT;
 }
 
 } // namespace fjell
