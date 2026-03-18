@@ -15,7 +15,8 @@ namespace fjell {
 
 static VkPipeline create_fullscreen_pipeline(
         VkDevice device, VkPipelineLayout layout,
-        VkShaderModule vert, VkShaderModule frag, VkFormat color_format) {
+        VkShaderModule vert, VkShaderModule frag, VkFormat color_format,
+        bool additive_blend = false) {
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -57,7 +58,17 @@ static VkPipeline create_fullscreen_pipeline(
     VkPipelineColorBlendAttachmentState blend{};
     blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    blend.blendEnable = VK_FALSE;
+    if (additive_blend) {
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+    } else {
+        blend.blendEnable = VK_FALSE;
+    }
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -237,7 +248,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
 
     VkFormat fmt = VK_FORMAT_R16G16B16A16_SFLOAT;
     downsample_pipeline_ = create_fullscreen_pipeline(device_, downsample_layout_, vert_mod, down_mod, fmt);
-    upsample_pipeline_   = create_fullscreen_pipeline(device_, upsample_layout_, vert_mod, up_mod, fmt);
+    upsample_pipeline_   = create_fullscreen_pipeline(device_, upsample_layout_, vert_mod, up_mod, fmt, true);
     composite_pipeline_  = create_fullscreen_pipeline(device_, composite_layout_pipeline_, vert_mod, comp_mod, fmt);
 
     vkDestroyShaderModule(device_, comp_mod, nullptr);
@@ -542,23 +553,23 @@ void BloomPass::record(const FrameContext& ctx) {
             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 
-    // ── Upsample chain (overwrite each mip with the upscaled smaller one) ──
+    // ── Upsample chain (additively blend upscaled smaller mip into current) ──
 
     for (int i = static_cast<int>(MIP_COUNT) - 2; i >= 0; --i) {
         auto& dst = mips_[i];
 
-        struct { float blend, pad1, pad2, pad3; } push{1.0f, 0.0f, 0.0f, 0.0f};
+        struct { float blend, pad1, pad2, pad3; } push{0.6f, 0.0f, 0.0f, 0.0f};
 
         transition(cmd, dst.image,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT);
 
-        // Source = the mip below (i+1)
+        // Source = the mip below (i+1), additively blended onto dst
         draw_fullscreen(cmd, upsample_pipeline_, upsample_layout_, mip_sets_[i + 1],
                         dst.view, dst.width, dst.height,
-                        VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                        VK_ATTACHMENT_LOAD_OP_LOAD,
                         &push, sizeof(push));
 
         transition(cmd, dst.image,
