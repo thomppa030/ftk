@@ -8,6 +8,8 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
         "${SHADER_DIR}/*.geom"
         "${SHADER_DIR}/*.tesc"
         "${SHADER_DIR}/*.tese"
+        "${SHADER_DIR}/*.mesh"
+        "${SHADER_DIR}/*.task"
     )
 
     foreach(SHADER ${SHADERS})
@@ -17,7 +19,7 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
         add_custom_command(
             OUTPUT ${SPIRV_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIR}
-            COMMAND ${GLSLC} ${SHADER} -o ${SPIRV_OUTPUT}
+            COMMAND ${GLSLC} --target-env=vulkan1.3 ${SHADER} -o ${SPIRV_OUTPUT}
             DEPENDS ${SHADER}
             COMMENT "Compiling shader: ${SHADER_NAME}"
             VERBATIM
