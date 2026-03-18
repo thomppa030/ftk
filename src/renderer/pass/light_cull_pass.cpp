@@ -1,4 +1,5 @@
 #include "renderer/pass/light_cull_pass.hpp"
+#include "renderer/renderer_constants.hpp"
 #include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -73,8 +74,8 @@ void LightCullPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
     vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                        sizeof(push_data), push_data);
 
-    uint32_t groups_x = (width + 15) / 16;
-    uint32_t groups_y = (height + 15) / 16;
+    uint32_t groups_x = (width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
+    uint32_t groups_y = (height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
 }
 

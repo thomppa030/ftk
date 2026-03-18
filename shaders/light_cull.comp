@@ -37,7 +37,7 @@ layout(set = 0, binding = 2) readonly buffer LightBuffer {
     GpuSpotLight spot_lights[1024];
 };
 
-const uint MAX_LIGHTS_PER_TILE = 256;
+const uint MAX_LIGHTS_PER_TILE = 256; // must match renderer_constants.hpp
 
 layout(set = 0, binding = 3) buffer TileLightIndexBuffer {
     uint tile_data[]; // [tile_count counts][tile_count * MAX_LIGHTS_PER_TILE indices]

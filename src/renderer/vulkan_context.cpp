@@ -222,9 +222,7 @@ void VulkanContext::create_descriptor_resources() {
 
     // Light SSBO: 1024 point + 1024 spot lights (~48 KB)
     constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
-    // Tile light index SSBO: max 16384 tiles, each with count + MAX_LIGHTS_PER_TILE indices
-    constexpr uint32_t MAX_TILES = 16384;
-    constexpr uint32_t MAX_LIGHTS_PER_TILE = 256;
+    // Tile light index SSBO: max tiles, each with count + MAX_LIGHTS_PER_TILE indices
     constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
                                              MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
 
@@ -797,8 +795,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], 0.0f);
 
     // Forward+ tile info
-    uint32_t tiles_x = (extent.width + 15) / 16;
-    uint32_t tiles_y = (extent.height + 15) / 16;
+    uint32_t tiles_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
+    uint32_t tiles_y = (extent.height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     uint32_t point_count = scene ? static_cast<uint32_t>(scene->point_lights().size()) : 0;
     uint32_t spot_count = scene ? static_cast<uint32_t>(scene->spot_lights().size()) : 0;
     point_count = std::min(point_count, 1024u);

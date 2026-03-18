@@ -2,6 +2,7 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 const float PI = 3.14159265359;
+const float SHADOW_MAP_SIZE = 2048.0; // must match ShadowPass::MAP_SIZE
 
 struct GpuMaterial {
     uint base_color_idx;
@@ -50,7 +51,7 @@ layout(set = 0, binding = 2) readonly buffer LightBuffer {
     GpuSpotLight spot_lights[1024];
 };
 
-const uint MAX_LIGHTS_PER_TILE = 256;
+const uint MAX_LIGHTS_PER_TILE = 256; // must match renderer_constants.hpp
 
 layout(set = 0, binding = 3) readonly buffer TileLightIndexBuffer {
     uint tile_data[]; // [tile_count counts][tile_count * MAX_LIGHTS_PER_TILE indices]
@@ -141,7 +142,7 @@ float shadow_factor(vec3 world_pos, float NdotL_for_bias) {
 
     // PCF 3x3: sample shadow map with offsets for softer edges
     float shadow = 0.0;
-    vec2 texel_size = vec2(1.0) / vec2(2048.0);
+    vec2 texel_size = vec2(1.0) / vec2(SHADOW_MAP_SIZE);
     for (int x = -1; x <= 1; ++x) {
         for (int y = -1; y <= 1; ++y) {
             vec2 offset = vec2(float(x), float(y)) * texel_size;
