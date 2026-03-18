@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/buffer.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -28,8 +29,6 @@ static_assert(sizeof(GpuDrawData) == 80, "GpuDrawData must be 80 bytes for std43
 
 class IndirectBatch {
 public:
-    static constexpr uint32_t MAX_FRAMES = 2;
-
     IndirectBatch(VkDevice device, VkPhysicalDevice physical_device);
 
     void build(const std::vector<DrawCommand>& opaque_commands,
@@ -61,12 +60,12 @@ private:
     VkDevice device_;
     VkPhysicalDevice physical_device_;
 
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES> indirect_buffers_;
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES> draw_data_buffers_;
-    std::array<uint32_t, MAX_FRAMES> capacities_{};
-    std::array<uint32_t, MAX_FRAMES> opaque_counts_{};
-    std::array<uint32_t, MAX_FRAMES> draw_data_counts_{};
-    std::array<uint32_t, MAX_FRAMES> total_triangles_{};
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> indirect_buffers_;
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> draw_data_buffers_;
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> capacities_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> draw_data_counts_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_triangles_{};
 };
 
 } // namespace fjell

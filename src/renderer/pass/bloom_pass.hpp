@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -61,14 +62,12 @@ private:
     VkDescriptorSetLayout composite_layout_{VK_NULL_HANDLE};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
 
-    static constexpr int FRAMES_IN_FLIGHT = 2;
-
     // Mip chain descriptors (shared, only updated on resize)
     std::array<VkDescriptorSet, MIP_COUNT> mip_sets_{};
 
     // Per-frame descriptors (double-buffered to avoid updating while in flight)
-    VkDescriptorSet source_sets_[FRAMES_IN_FLIGHT]{};     // scene color input
-    VkDescriptorSet composite_sets_[FRAMES_IN_FLIGHT]{};  // scene + bloom composite
+    VkDescriptorSet source_sets_[MAX_FRAMES_IN_FLIGHT]{};     // scene color input
+    VkDescriptorSet composite_sets_[MAX_FRAMES_IN_FLIGHT]{};  // scene + bloom composite
 
     // Pipelines
     VkPipelineLayout downsample_layout_{VK_NULL_HANDLE};

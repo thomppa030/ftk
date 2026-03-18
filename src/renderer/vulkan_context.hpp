@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/renderer_constants.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/draw_data_descriptor.hpp"
@@ -164,7 +165,6 @@ private:
 
     OverlayCallback overlay_callback_;
 
-    static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
     uint32_t current_frame_{0};

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -40,8 +41,7 @@ private:
     // Input: depth texture descriptor
     VkDescriptorSetLayout set_layout_{VK_NULL_HANDLE};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
-    static constexpr int FRAMES_IN_FLIGHT = 2;
-    VkDescriptorSet depth_sets_[FRAMES_IN_FLIGHT]{};
+    VkDescriptorSet depth_sets_[MAX_FRAMES_IN_FLIGHT]{};
     VkSampler depth_sampler_{VK_NULL_HANDLE};
 
     // Pipeline

@@ -49,11 +49,11 @@ void LightVizPass::create(Device& device, const PassResources& /*resources*/) {
     // Descriptor pool
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = FRAMES_IN_FLIGHT;
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = FRAMES_IN_FLIGHT;
+    pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
     pool_ci.poolSizeCount = 1;
     pool_ci.pPoolSizes = &pool_size;
 
@@ -62,12 +62,12 @@ void LightVizPass::create(Device& device, const PassResources& /*resources*/) {
     }
 
     // Allocate per-frame descriptor sets
-    std::array<VkDescriptorSetLayout, FRAMES_IN_FLIGHT> layouts{};
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts{};
     layouts.fill(set_layout_);
     VkDescriptorSetAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_info.descriptorPool = pool_;
-    alloc_info.descriptorSetCount = FRAMES_IN_FLIGHT;
+    alloc_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
     alloc_info.pSetLayouts = layouts.data();
 
     if (vkAllocateDescriptorSets(device_, &alloc_info, tile_sets_) != VK_SUCCESS) {

@@ -84,7 +84,7 @@ VulkanContext::VulkanContext(Window& window)
     depth_viz_pass_.create(device_, pass_resources);
 
     // Write shadow map sampler into global descriptor sets (binding 1)
-    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkDescriptorImageInfo shadow_info{};
         shadow_info.sampler = shadow_pass_.sampler();
         shadow_info.imageView = shadow_pass_.array_view();
@@ -169,7 +169,7 @@ VulkanContext::~VulkanContext() {
     global_set_layout_.reset();
     bindless_textures_.destroy();
     pipeline_.reset();
-    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (image_available_[i] != VK_NULL_HANDLE)
             vkDestroySemaphore(vk_device, image_available_[i], nullptr);
         if (in_flight_[i] != VK_NULL_HANDLE)
@@ -235,7 +235,7 @@ void VulkanContext::create_descriptor_resources() {
     constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
                                              MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
 
-    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         uniform_buffers_[i] = std::make_unique<Buffer>(
             vk_device, device_.physical_device(), sizeof(GlobalUbo),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -270,7 +270,7 @@ void VulkanContext::create_descriptor_resources() {
         throw std::runtime_error("Failed to create depth sampler for light culling");
     }
 
-    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         global_descriptor_sets_[i] = global_pool_->allocate(*global_set_layout_);
 
         VkDescriptorBufferInfo buffer_info{};
@@ -356,7 +356,7 @@ void VulkanContext::create_sync_objects() {
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (vkCreateSemaphore(device_.handle(), &sem_info, nullptr, &image_available_[i]) != VK_SUCCESS ||
             vkCreateFence(device_.handle(), &fence_info, nullptr, &in_flight_[i]) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create sync objects");

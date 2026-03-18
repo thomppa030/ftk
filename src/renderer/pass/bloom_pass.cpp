@@ -146,11 +146,11 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
         throw std::runtime_error("Failed to create bloom composite descriptor layout");
     }
 
-    // Descriptor pool: MIP_COUNT shared + FRAMES_IN_FLIGHT source + FRAMES_IN_FLIGHT composite
-    uint32_t total_sets = MIP_COUNT + FRAMES_IN_FLIGHT * 2;
+    // Descriptor pool: MIP_COUNT shared + MAX_FRAMES_IN_FLIGHT source + MAX_FRAMES_IN_FLIGHT composite
+    uint32_t total_sets = MIP_COUNT + MAX_FRAMES_IN_FLIGHT * 2;
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = MIP_COUNT + FRAMES_IN_FLIGHT + FRAMES_IN_FLIGHT * 2;
+    pool_size.descriptorCount = MIP_COUNT + MAX_FRAMES_IN_FLIGHT + MAX_FRAMES_IN_FLIGHT * 2;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -174,7 +174,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
         }
     }
     // Per-frame source + composite sets
-    for (int f = 0; f < FRAMES_IN_FLIGHT; ++f) {
+    for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f) {
         VkDescriptorSetAllocateInfo alloc{};
         alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc.descriptorPool = pool_;

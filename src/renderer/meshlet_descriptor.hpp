@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/descriptor.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -15,8 +16,6 @@ class MegaBuffer;
 
 class MeshletDescriptor {
 public:
-    static constexpr uint32_t MAX_FRAMES = 2;
-
     MeshletDescriptor() = default;
 
     void create(VkDevice device);
@@ -34,7 +33,7 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<DescriptorSetLayout> layout_;
     std::unique_ptr<DescriptorPool> pool_;
-    std::array<VkDescriptorSet, MAX_FRAMES> descriptor_sets_{};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> descriptor_sets_{};
 };
 
 } // namespace fjell

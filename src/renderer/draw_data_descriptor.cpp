@@ -23,13 +23,13 @@ void DrawDataDescriptor::create(VkDevice device) {
     // Pool
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = MAX_FRAMES;
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
 
     pool_ = std::make_unique<DescriptorPool>(
-        device_, std::span{&pool_size, 1}, MAX_FRAMES);
+        device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
 
     // Allocate per-frame descriptor sets
-    for (uint32_t i = 0; i < MAX_FRAMES; ++i) {
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         descriptor_sets_[i] = pool_->allocate(*layout_);
     }
 
