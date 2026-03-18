@@ -1,5 +1,6 @@
 #include "renderer/model.hpp"
 #include "renderer/meshlet.hpp"
+#include "renderer/meshlet_buffer.hpp"
 #include "renderer/primitives.hpp"
 #include "renderer/vertex.hpp"
 #include "core/log.hpp"
@@ -69,7 +70,8 @@ static LoadedImage load_image_from_source(
 
 Model::Model(VkDevice device, VkPhysicalDevice physical_device,
              VkCommandPool command_pool, VkQueue queue,
-             const std::string& path, MegaBuffer* mega) {
+             const std::string& path, MegaBuffer* mega,
+             MeshletBuffer* meshlet_buf) {
     auto gltf_path = std::filesystem::path(path);
     auto base_dir = gltf_path.parent_path();
 
@@ -182,12 +184,18 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
                 }
 
                 // Build meshlets for this sub-mesh
-                meshlet_results_.push_back(build_meshlets(
+                auto meshlet_result = build_meshlets(
                     vertices.data(), static_cast<uint32_t>(vertices.size()),
-                    indices.data(), static_cast<uint32_t>(indices.size())));
+                    indices.data(), static_cast<uint32_t>(indices.size()));
+                meshlet_results_.push_back(meshlet_result);
 
                 if (mega) {
                     auto entry = mega->upload(vertices, indices);
+                    if (meshlet_buf && !meshlet_result.meshlets.empty()) {
+                        auto range = meshlet_buf->upload(meshlet_result, entry.vertex_offset);
+                        entry.meshlet_offset = range.meshlet_offset;
+                        entry.meshlet_count = range.meshlet_count;
+                    }
                     mega_entries_.push_back(entry);
                     meshes_.push_back(std::make_unique<Mesh>(entry));
                 } else {
@@ -205,19 +213,26 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
 
 Model::Model(VkDevice device, VkPhysicalDevice physical_device,
              VkCommandPool command_pool, VkQueue queue,
-             const PrimitiveMeshData& data, MegaBuffer* mega) {
+             const PrimitiveMeshData& data, MegaBuffer* mega,
+             MeshletBuffer* meshlet_buf) {
     for (const auto& v : data.vertices) {
         collision_vertices_.push_back(v.position);
         local_aabb_.expand(v.position);
     }
     collision_indices_ = data.indices;
 
-    meshlet_results_.push_back(build_meshlets(
+    auto meshlet_result = build_meshlets(
         data.vertices.data(), static_cast<uint32_t>(data.vertices.size()),
-        data.indices.data(), static_cast<uint32_t>(data.indices.size())));
+        data.indices.data(), static_cast<uint32_t>(data.indices.size()));
+    meshlet_results_.push_back(meshlet_result);
 
     if (mega) {
         auto entry = mega->upload(data.vertices, data.indices);
+        if (meshlet_buf && !meshlet_result.meshlets.empty()) {
+            auto range = meshlet_buf->upload(meshlet_result, entry.vertex_offset);
+            entry.meshlet_offset = range.meshlet_offset;
+            entry.meshlet_count = range.meshlet_count;
+        }
         mega_entries_.push_back(entry);
         meshes_.push_back(std::make_unique<Mesh>(entry));
     } else {

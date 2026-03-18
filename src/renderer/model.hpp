@@ -4,6 +4,7 @@
 #include "renderer/mega_buffer.hpp"
 #include "renderer/mesh.hpp"
 #include "renderer/meshlet.hpp"
+#include "renderer/meshlet_buffer.hpp"
 #include "renderer/texture.hpp"
 
 #include <glm/glm.hpp>
@@ -22,11 +23,13 @@ class Model {
 public:
     Model(VkDevice device, VkPhysicalDevice physical_device,
           VkCommandPool command_pool, VkQueue queue,
-          const std::string& path, MegaBuffer* mega = nullptr);
+          const std::string& path, MegaBuffer* mega = nullptr,
+          MeshletBuffer* meshlet_buf = nullptr);
 
     Model(VkDevice device, VkPhysicalDevice physical_device,
           VkCommandPool command_pool, VkQueue queue,
-          const PrimitiveMeshData& data, MegaBuffer* mega = nullptr);
+          const PrimitiveMeshData& data, MegaBuffer* mega = nullptr,
+          MeshletBuffer* meshlet_buf = nullptr);
 
     void draw(VkCommandBuffer cmd) const;
 

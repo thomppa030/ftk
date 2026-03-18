@@ -5,6 +5,7 @@
 #include "renderer/draw_data_descriptor.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/mega_buffer.hpp"
+#include "renderer/meshlet_buffer.hpp"
 #include "renderer/particle_system.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/debug_draw.hpp"
@@ -93,6 +94,7 @@ public:
     [[nodiscard]] bool show_colliders() const { return show_colliders_; }
     [[nodiscard]] DebugDraw& debug_draw() { return *debug_draw_; }
     [[nodiscard]] MegaBuffer* mega_buffer() { return mega_buffer_.get(); }
+    [[nodiscard]] MeshletBuffer* meshlet_buffer() { return meshlet_buffer_.get(); }
 
 private:
     void create_descriptor_resources();
@@ -170,6 +172,9 @@ private:
     std::unique_ptr<MegaBuffer> mega_buffer_;
     std::unique_ptr<IndirectBatch> indirect_batch_;
     DrawDataDescriptor draw_data_descriptor_;
+
+    // Meshlet GPU buffers
+    std::unique_ptr<MeshletBuffer> meshlet_buffer_;
 
     // Forward+ light culling + visualization
     LightCullPass light_cull_pass_;

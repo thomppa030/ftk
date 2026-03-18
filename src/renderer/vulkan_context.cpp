@@ -39,6 +39,12 @@ VulkanContext::VulkanContext(Window& window)
         device_.handle(), device_.physical_device());
     draw_data_descriptor_.create(device_.handle());
 
+    // Meshlet buffers (uploaded at model load time)
+    if (device_.mesh_shader_supported()) {
+        meshlet_buffer_ = std::make_unique<MeshletBuffer>(
+            device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
+    }
+
     // Query and clamp MSAA sample count
     auto max_samples = device_.max_msaa_samples();
     msaa_samples_ = static_cast<VkSampleCountFlagBits>(
@@ -130,6 +136,7 @@ VulkanContext::~VulkanContext() {
     shadow_pass_.destroy();
     depth_prepass_.destroy();
 
+    meshlet_buffer_.reset();
     indirect_batch_.reset();
     mega_buffer_.reset();
     draw_data_descriptor_.destroy();

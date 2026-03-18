@@ -84,7 +84,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     resource_manager_ = std::make_unique<ResourceManager>(
         vulkan_context_.device(), vulkan_context_.physical_device(),
         vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
-        vulkan_context_.bindless_textures(), vulkan_context_.mega_buffer());
+        vulkan_context_.bindless_textures(), vulkan_context_.mega_buffer(),
+        vulkan_context_.meshlet_buffer());
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));

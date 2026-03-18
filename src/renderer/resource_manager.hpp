@@ -16,6 +16,7 @@ namespace fjell {
 
 class BindlessTextures;
 class MegaBuffer;
+class MeshletBuffer;
 class Model;
 class Texture;
 class Material;
@@ -24,7 +25,8 @@ class ResourceManager {
 public:
     ResourceManager(VkDevice device, VkPhysicalDevice physical_device,
                     VkCommandPool command_pool, VkQueue queue,
-                    BindlessTextures& bindless, MegaBuffer* mega_buffer = nullptr);
+                    BindlessTextures& bindless, MegaBuffer* mega_buffer = nullptr,
+                    MeshletBuffer* meshlet_buffer = nullptr);
 
     ModelHandle load_model(const std::string& path);
     ModelHandle create_primitive(const std::string& type);
@@ -70,6 +72,7 @@ private:
     VkQueue queue_;
     BindlessTextures& bindless_;
     MegaBuffer* mega_buffer_;
+    MeshletBuffer* meshlet_buffer_;
 
     Pool<Model, ModelHandle> models_;
     Pool<Texture, TextureHandle> textures_;

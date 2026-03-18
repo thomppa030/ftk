@@ -15,6 +15,8 @@ struct MegaMeshEntry {
     uint32_t vertex_offset{0};
     uint32_t first_index{0};
     uint32_t index_count{0};
+    uint32_t meshlet_offset{0};
+    uint32_t meshlet_count{0};
 };
 
 class MegaBuffer {
@@ -29,6 +31,10 @@ public:
 
     [[nodiscard]] uint32_t vertex_count() const { return vertex_offset_; }
     [[nodiscard]] uint32_t index_count() const { return index_offset_; }
+    [[nodiscard]] VkBuffer vertex_buffer_handle() const { return vertex_buffer_->handle(); }
+    [[nodiscard]] VkDeviceSize vertex_buffer_size() const {
+        return static_cast<VkDeviceSize>(vertex_offset_) * sizeof(Vertex);
+    }
 
 private:
     void grow_vertex_buffer(VkDeviceSize new_size);
