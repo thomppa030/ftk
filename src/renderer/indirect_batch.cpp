@@ -71,9 +71,9 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             GpuDrawData& data = draw_data[draw_index];
             data.model = dc.push.model;
             data.material_id = dc.push.material_id;
-            data.padding[0] = 0;
-            data.padding[1] = 0;
-            data.padding[2] = 0;
+            data.meshlet_offset = entry.meshlet_offset;
+            data.meshlet_count = entry.meshlet_count;
+            data.vertex_offset = entry.vertex_offset;
 
             triangles += entry.index_count / 3;
             draw_index++;
@@ -87,9 +87,9 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         GpuDrawData& data = draw_data[draw_index];
         data.model = dc.push.model;
         data.material_id = dc.push.material_id;
-        data.padding[0] = 0;
-        data.padding[1] = 0;
-        data.padding[2] = 0;
+        data.meshlet_offset = 0;
+        data.meshlet_count = 0;
+        data.vertex_offset = 0;
 
         const auto& entries = dc.model->mega_entries();
         for (const auto& entry : entries) {

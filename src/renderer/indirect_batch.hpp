@@ -19,7 +19,9 @@ class Model;
 struct GpuDrawData {
     glm::mat4 model;
     uint32_t material_id;
-    uint32_t padding[3];
+    uint32_t meshlet_offset;
+    uint32_t meshlet_count;
+    uint32_t vertex_offset;
 };
 
 static_assert(sizeof(GpuDrawData) == 80, "GpuDrawData must be 80 bytes for std430");

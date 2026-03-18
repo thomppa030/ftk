@@ -16,9 +16,9 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 struct DrawData {
     mat4 model;
     uint material_id;
-    uint pad0;
-    uint pad1;
-    uint pad2;
+    uint meshlet_offset;
+    uint meshlet_count;
+    uint vertex_offset;
 };
 
 layout(set = 1, binding = 0) readonly buffer DrawDataBuffer {
