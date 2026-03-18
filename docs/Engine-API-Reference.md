@@ -1,150 +1,217 @@
 # Engine API Reference
 
-The `FjellEngineApi` struct is passed to component callbacks. It provides access to engine systems from game code.
+## Component
 
-Defined in `src/scripting/fjell_api.h`.
+Base class for all game components. Defined in `scripting/fjell_component.hpp`.
 
-## Context
+```cpp
+class Component {
+public:
+    virtual void begin_play() {}
+    virtual void tick(float dt) {}
+    virtual void end_play() {}
 
-```c
-uint32_t object_id;     // ID of the object this component is attached to
+    Actor* actor();
+    World* world();
+};
 ```
+
+| Method | Description |
+|--------|-------------|
+| `begin_play()` | Called once when play mode starts. |
+| `tick(dt)` | Called every frame. `dt` is seconds since last frame. |
+| `end_play()` | Called when play stops or the object is destroyed. |
+| `actor()` | Returns the actor this component is attached to. |
+| `world()` | Returns the World for engine services. |
+
+All lifecycle methods are optional overrides.
+
+## Actor
+
+An entity in the scene. Defined in `scripting/fjell_actor.hpp`.
+
+```cpp
+class Actor {
+public:
+    uint32_t id() const;
+    const char* name() const;
+    World* world();
+    Transform& transform();
+};
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `id()` | `uint32_t` | Unique ID in the scene. |
+| `name()` | `const char*` | Display name (set in the editor). |
+| `world()` | `World*` | Engine services. |
+| `transform()` | `Transform&` | Read/write position, rotation, and scale. |
 
 ## Transform
 
-```c
-void (*get_position)(uint32_t id, float* out_xyz);
-void (*set_position)(uint32_t id, const float* xyz);
-void (*get_rotation)(uint32_t id, float* out_xyz);   // Euler degrees (XYZ)
-void (*set_rotation)(uint32_t id, const float* xyz);
-void (*get_scale)(uint32_t id, float* out_xyz);
-void (*set_scale)(uint32_t id, const float* xyz);
+Position, rotation, and scale of an object. Defined in `scene/transform.hpp`.
+
+```cpp
+struct Transform {
+    glm::vec3 position{0.0f};
+    glm::quat rotation{1, 0, 0, 0};   // identity
+    glm::vec3 scale{1.0f};
+
+    glm::vec3 euler_degrees() const;
+    void set_euler_degrees(const glm::vec3& degrees);
+    glm::mat4 matrix() const;
+};
 ```
 
-All transform functions take an object ID — you can read/write transforms of any object in the scene, not just the current one. Rotations are Euler angles in degrees, XYZ order.
+| Member/Method | Description |
+|--------|-------------|
+| `position` | World-space position. Read/write directly. |
+| `rotation` | Orientation as a quaternion. |
+| `scale` | Scale on each axis. `{1,1,1}` is default. |
+| `euler_degrees()` | Returns rotation as Euler angles in degrees (XYZ). |
+| `set_euler_degrees(v)` | Sets rotation from Euler angles in degrees. |
+| `matrix()` | Returns the 4x4 TRS model matrix. |
+
+```cpp
+auto& t = actor()->transform();
+t.position = {10.0f, 0.0f, 5.0f};
+
+auto euler = t.euler_degrees();
+euler.y += 90.0f * dt;
+t.set_euler_degrees(euler);
+
+// Or use quaternions directly
+t.rotation = glm::angleAxis(glm::radians(45.0f), glm::vec3{0, 1, 0});
+```
+
+## World
+
+Engine services accessible from any component. Defined in `scripting/fjell_world.hpp`.
+
+```cpp
+struct World {
+    float delta_time;
+    float elapsed_time;
+
+    const Input& input() const;
+    PhysicsWorld* physics();
+    Scene* scene();
+
+    void log_info(const char* msg) const;
+    void log_warn(const char* msg) const;
+    void log_error(const char* msg) const;
+};
+```
+
+| Member/Method | Description |
+|--------|-------------|
+| `delta_time` | Seconds since last frame (same as `dt` in `tick()`). |
+| `elapsed_time` | Total seconds since engine start. |
+| `input()` | Keyboard and mouse state. |
+| `physics()` | Physics simulation (forces, velocity, raycasting). |
+| `scene()` | Scene graph access. |
+| `log_info/warn/error` | Log to the editor console (shows with `[script]` prefix). |
 
 ## Input
 
-```c
-uint8_t (*is_key_held)(int key);          // True while key is down
-uint8_t (*is_key_pressed)(int key);       // True for one frame on press
-uint8_t (*is_key_released)(int key);      // True for one frame on release
-uint8_t (*is_mouse_button_held)(int button);
-uint8_t (*is_mouse_button_pressed)(int button);
-void    (*get_mouse_delta)(float* out_xy);
-```
-
-Key codes are GLFW key constants (e.g., `GLFW_KEY_W = 87`, `GLFW_KEY_SPACE = 32`). Mouse buttons: `0 = left`, `1 = right`, `2 = middle`.
-
-During play mode the cursor is captured, so `get_mouse_delta` returns frame-to-frame movement.
-
-## Time
-
-```c
-float delta_time;       // Seconds since last frame
-float elapsed_time;     // Total seconds since engine start
-```
-
-## Logging
-
-```c
-void (*log_info)(const char* msg);
-void (*log_warn)(const char* msg);
-void (*log_error)(const char* msg);
-```
-
-Messages appear in the in-editor console panel and stdout, prefixed with `[script]`.
-
-## Components
-
-```c
-void* (*get_component)(uint32_t object_id, const char* type_name);
-```
-
-Returns a pointer to the raw component data for the given type on the given object, or null if the object doesn't have that component. Use it to communicate between components:
-
-```c
-// C style
-Health* health = (Health*)api->get_component(api->object_id, "Health");
-if (health) health->hp -= 10;
-```
-
-With the C++ wrapper (`fjell.hpp`):
+Keyboard and mouse state. Accessed via `world()->input()`.
 
 ```cpp
-// Same object
-if (auto* health = fjell::get<Health>(api))
-    health->hp -= 10;
+bool is_key_pressed(int key) const;     // true for one frame on key down
+bool is_key_held(int key) const;        // true while key is held
+bool is_key_released(int key) const;    // true for one frame on key up
 
-// Different object
-if (auto* health = fjell::get<Health>(api, other_id))
-    health->hp -= 10;
+bool is_mouse_button_pressed(int button) const;
+bool is_mouse_button_held(int button) const;
+
+glm::dvec2 mouse_position() const;
+glm::dvec2 mouse_delta() const;
+glm::dvec2 scroll_delta() const;
 ```
 
-## Physics
+Key codes are GLFW constants. Common ones:
 
-All physics functions are null-safe — they no-op silently if physics isn't active (outside play mode).
+| Constant | Value |
+|----------|-------|
+| `GLFW_KEY_W` | 87 |
+| `GLFW_KEY_A` | 65 |
+| `GLFW_KEY_S` | 83 |
+| `GLFW_KEY_D` | 68 |
+| `GLFW_KEY_SPACE` | 32 |
+| `GLFW_KEY_LEFT_SHIFT` | 340 |
+
+Mouse buttons: 0 = left, 1 = right, 2 = middle.
+
+During play mode the cursor is captured, so `mouse_delta()` returns relative movement.
+
+## PhysicsWorld
+
+Physics simulation. Accessed via `world()->physics()`.
 
 ### Forces and Impulses
 
-```c
-void (*apply_force)(uint32_t id, const float* xyz);
-void (*apply_impulse)(uint32_t id, const float* xyz);
+```cpp
+void apply_force(uint32_t id, const glm::vec3& force);    // continuous, call every frame
+void apply_impulse(uint32_t id, const glm::vec3& impulse); // instantaneous velocity change
 ```
-
-`apply_force` applies a continuous force (integrate over dt — call every frame). `apply_impulse` applies an instantaneous velocity change (e.g., jump). Both take world-space vectors.
 
 ### Velocity
 
-```c
-void (*set_linear_velocity)(uint32_t id, const float* xyz);
-void (*get_linear_velocity)(uint32_t id, float* out_xyz);
-void (*set_angular_velocity)(uint32_t id, const float* xyz);
-void (*get_angular_velocity)(uint32_t id, float* out_xyz);
+```cpp
+void set_linear_velocity(uint32_t id, const glm::vec3& vel);
+glm::vec3 get_linear_velocity(uint32_t id) const;
+void set_angular_velocity(uint32_t id, const glm::vec3& vel);  // radians/sec
+glm::vec3 get_angular_velocity(uint32_t id) const;
 ```
 
-Direct velocity control. Angular velocity is in radians/second around each axis.
+### Raycasting
 
-### Raycast
-
-```c
-uint8_t (*raycast)(const float* origin,       // World-space ray start
-                   const float* direction,     // Ray direction (normalized)
-                   float max_distance,         // Maximum ray length
-                   float* out_hit_pos,         // Hit point (nullable)
-                   float* out_hit_normal,      // Surface normal at hit (nullable)
-                   float* out_distance,        // Distance to hit (nullable)
-                   uint32_t* out_object_id);   // Object that was hit (nullable)
+```cpp
+bool raycast(const glm::vec3& origin, const glm::vec3& direction,
+             float max_distance, RaycastHit& out_hit) const;
 ```
 
-Returns 1 if something was hit, 0 otherwise. Output pointers can be null if you don't need that info.
+Returns `true` if something was hit. The `RaycastHit` struct:
 
-## JSON Bridge
-
-For custom serialization callbacks:
-
-### Writing
-
-```c
-void fjell_json_write_float(FjellJsonWriter* w, const char* key, float v);
-void fjell_json_write_int(FjellJsonWriter* w, const char* key, int32_t v);
-void fjell_json_write_bool(FjellJsonWriter* w, const char* key, uint8_t v);
-void fjell_json_write_vec2(FjellJsonWriter* w, const char* key, const float* xy);
-void fjell_json_write_vec3(FjellJsonWriter* w, const char* key, const float* xyz);
-void fjell_json_write_vec4(FjellJsonWriter* w, const char* key, const float* xyzw);
-void fjell_json_write_string(FjellJsonWriter* w, const char* key, const char* v);
+```cpp
+struct RaycastHit {
+    glm::vec3 position;     // world-space hit point
+    glm::vec3 normal;       // surface normal at hit
+    float distance;          // distance from origin
+    uint32_t object_id;      // ID of the object that was hit
+};
 ```
 
-### Reading
+All physics methods are null-safe — they no-op outside play mode.
 
-```c
-float    fjell_json_read_float(const FjellJsonReader* r, const char* key, float fallback);
-int32_t  fjell_json_read_int(const FjellJsonReader* r, const char* key, int32_t fallback);
-uint8_t  fjell_json_read_bool(const FjellJsonReader* r, const char* key, uint8_t fallback);
-void     fjell_json_read_vec2(const FjellJsonReader* r, const char* key, float* out, const float* fallback);
-void     fjell_json_read_vec3(const FjellJsonReader* r, const char* key, float* out, const float* fallback);
-void     fjell_json_read_vec4(const FjellJsonReader* r, const char* key, float* out, const float* fallback);
-const char* fjell_json_read_string(const FjellJsonReader* r, const char* key, const char* fallback);
+## Field Reflection
+
+Macros for exposing member variables to the inspector and serialization.
+
+```cpp
+FJELL_F(Class, member, type)                           // basic field
+FJELL_F_RANGE(Class, member, type, min, max, speed)    // with min/max/drag speed
+FJELL_F_ENUM(Class, member, labels, count)             // enum combo box
 ```
 
-All read functions take a fallback value returned when the key is missing.
+### Field Types
+
+| Type constant | C++ type | Inspector widget |
+|---------------|----------|-----------------|
+| `FJELL_FIELD_FLOAT` | `float` | DragFloat |
+| `FJELL_FIELD_INT` | `int32_t` | DragInt |
+| `FJELL_FIELD_BOOL` | `bool` | Checkbox |
+| `FJELL_FIELD_VEC2` | `glm::vec2` | DragFloat2 |
+| `FJELL_FIELD_VEC3` | `glm::vec3` | DragFloat3 |
+| `FJELL_FIELD_VEC4` | `glm::vec4` | DragFloat4 |
+| `FJELL_FIELD_COLOR3` | `glm::vec3` | ColorEdit3 |
+| `FJELL_FIELD_COLOR4` | `glm::vec4` | ColorEdit4 |
+| `FJELL_FIELD_STRING` | `char[]` | InputText |
+| `FJELL_FIELD_ENUM` | `int` | Combo |
+
+## Registration Macros
+
+| Macro | Purpose |
+|-------|---------|
+| `FJELL_COMPONENT(ClassName)` | Declares and registers a component type. Put at the top of your class body. |
+| `FJELL_REGISTER()` | Defines the `.so` entry point. Goes in `register_all.cpp` (auto-generated by Build & Reload). |

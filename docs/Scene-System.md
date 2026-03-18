@@ -1,72 +1,83 @@
 # Scene System
 
+The scene is a flat list of `RenderObject`s with optional parent-child relationships. There's no deep tree — parenting is tracked with `parent_id`, and world matrices are computed top-down each frame.
+
 ## RenderObject
 
-Every entity in the scene is a `RenderObject`:
+Every object in the scene is a `RenderObject`. It holds everything needed to place, render, and simulate something:
 
-```cpp
-struct RenderObject {
-    uint32_t id;                // Unique, auto-incremented
-    int32_t parent_id;          // -1 = root
-    glm::mat4 world_matrix_;   // Computed each frame
-
-    ModelHandle model_handle;       // Handle into ResourceManager pool
-    MaterialHandle material_handle;
-    Model* model;                   // Cached pointer (resolved on add)
-    Material* material;
-    Transform transform;        // Local TRS
-
-    std::string name;           // Display name
-    std::string source;         // "primitive:cube", "assets/models/thing.glb", etc.
-    std::string material_name;
-
-    std::vector<ComponentInstance> components;   // Script components
-
-    std::optional<RigidbodyDesc> rigidbody;     // Physics body descriptor
-    std::optional<ColliderDesc> collider;        // Physics collider descriptor
-};
-```
-
-Handles are the source of truth for which resource an object references. The raw pointers are a cached dereference resolved at add time — the render path, physics, and picking code all use the pointers directly for zero overhead.
+| Field | What it does |
+|---|---|
+| `id` | Unique identifier within the scene |
+| `parent_id` | ID of the parent object, or `-1` for root objects |
+| `world_matrix_` | Computed each frame from the transform hierarchy |
+| `model_handle` / `material_handle` | Bindless resource handles into `ResourceManager` |
+| `model` / `material` | Resolved raw pointers (cached after handle lookup) |
+| `transform` | Local-space position, rotation, scale |
+| `name` | Display name (shown in hierarchy panel) |
+| `source` | Where this object came from (e.g. a glTF file path) |
+| `material_name` | Material identifier from the source asset |
+| `actor` | Optional scripting actor attached to this object |
+| `components` | List of script components attached to this object |
+| `rigidbody` | Optional rigidbody description for physics |
+| `collider` | Optional collider description for physics |
+| `emitter` | Optional particle emitter |
 
 ## Transform
 
-Local transform relative to parent (or world if root):
+Transforms use **quaternions** for rotation, not Euler angles.
 
 ```cpp
 struct Transform {
     glm::vec3 position{0.0f};
-    glm::vec3 rotation{0.0f};  // Euler angles in degrees (XYZ order)
+    glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f}; // identity
     glm::vec3 scale{1.0f};
 };
 ```
 
-`Transform::matrix()` builds the TRS matrix: translate, then rotate X→Y→Z, then scale. `decompose_matrix()` reverses this.
+- `matrix()` — builds the local TRS matrix.
+- `euler_degrees()` — returns the rotation as Euler angles in degrees (for UI display).
+- `set_euler_degrees(degrees)` — sets the quaternion from Euler angles in degrees (for UI input).
 
-## Hierarchy
-
-Objects reference their parent via `parent_id`. The hierarchy is stored flat — all objects live in a single `std::vector<RenderObject>`.
-
-`compute_world_matrices()` runs every frame, propagating transforms top-down:
-1. Roots (parent_id == -1) get `world_matrix = local.matrix()`
-2. Children get `world_matrix = parent.world_matrix * local.matrix()`
-3. Cycle detection breaks infinite loops by orphaning offenders
-
-`reparent(child_id, new_parent_id)` adjusts the child's local transform so its world position doesn't change.
+Quaternions avoid gimbal lock and make interpolation reliable. The Euler helpers exist so the properties panel can show human-readable angles.
 
 ## Scene Operations
 
-| Method | Description |
-|--------|-------------|
-| `add(model_handle, material_handle, resources, ...)` | Create object, resolves handles, returns ID |
-| `remove(id)` | Delete object, orphan its children |
-| `find(id)` | Lookup by ID (returns pointer or null) |
-| `clear()` | Remove all objects |
-| `reparent(child, parent)` | Change parent, preserve world position |
-| `save(path)` | Serialize to JSON |
-| `Scene::load(path, resources, project)` | Deserialize from JSON |
+**Object management:**
+- `add` — append an object to the scene.
+- `remove` — delete an object by ID.
+- `extract` — remove an object and return it (used by undo).
+- `restore` — re-insert a previously extracted object (used by redo).
+- `clear` — wipe everything.
 
-Note: Scene has no render method. Drawing is handled by the `RenderQueue` in `VulkanContext`.
+**Lookup:**
+- `find` — get an object by ID.
+- `index_of` — get the position of an object in the flat list.
+
+**Hierarchy:**
+- `reparent` — move an object under a new parent. World position is preserved — the local transform is adjusted so the object doesn't visually jump.
+- `compute_world_matrices` — walks the hierarchy top-down and writes each object's `world_matrix_`. Called once per frame before rendering.
+
+**Lights:**
+- Point and spot lights are managed separately from the object list.
+- `add` — append a light.
+- `insert` — add a light at a specific index.
+- `remove` — remove a light at a specific index.
+
+**Serialization:**
+- `save` / `load` — JSON format. Stores transforms, hierarchy, resource references, physics descriptors, components, and lights.
+
+**Snapshotting:**
+- `clone_flat()` on `RenderObject` produces a shallow copy suitable for undo/redo snapshots. It captures the object's current state without deep-copying GPU resources.
+
+## Undo/Redo
+
+The scene doesn't own the undo stack — that lives in `CommandHistory`. But `extract`, `restore`, and `clone_flat` exist specifically to support it. A typical undo flow:
+
+1. Before a destructive edit, `clone_flat()` the affected object.
+2. Apply the edit.
+3. Push a command to `CommandHistory` that holds the snapshot.
+4. On undo, `extract` the modified object and `restore` the snapshot (or vice versa).
 
 ## Serialization Format
 
@@ -81,21 +92,8 @@ Note: Scene has no render method. Drawing is handled by the `RenderQueue` in `Vu
       "source": "primitive:plane",
       "material": "default",
       "position": [0, 0, 0],
-      "rotation": [0, 0, 0],
-      "scale": [10, 1, 10],
-      "collider": {
-        "shape": 0,
-        "half_extents": [0.5, 0.5, 0.5],
-        "radius": 0.5,
-        "height": 1.0,
-        "offset": [0, 0, 0]
-      },
-      "components": [
-        {
-          "type": "PlayerController",
-          "data": { "speed": 5.0, "jump_force": 8.0 }
-        }
-      ]
+      "rotation": [0, 0, 0, 1],
+      "scale": [10, 1, 10]
     }
   ]
 }
@@ -105,4 +103,4 @@ On load, `source` determines how the model is created:
 - `"primitive:cube"` / `"primitive:plane"` / `"primitive:sphere"` — generated geometry
 - File path — loaded via fastgltf
 
-Handles are resolved from the source/material strings during load. Component data is stored as raw JSON. The `ScriptManager` instantiates components and deserializes the data after the .so is loaded.
+Handles are resolved from the source/material strings during load. Component data is stored as raw JSON and deserialized by `ScriptManager` after the .so is loaded.

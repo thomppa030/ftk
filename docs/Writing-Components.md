@@ -1,15 +1,13 @@
 # Writing Components
 
-## Minimal Example (C++ wrapper)
-
-The recommended way to write components. Include `fjell.hpp` instead of `fjell_api.h`:
+## Minimal Example
 
 ```cpp
-#include "fjell.hpp"
-#include <array>
+#include "scripting/fjell_registry.hpp"
+#include "scripting/fjell_world.hpp"
 
-struct Spinner : fjell::Component<Spinner> {
-    static constexpr const char* component_name = "Spinner";
+class Spinner : public fjell::Component {
+    FJELL_COMPONENT(Spinner)
 
     float speed = 90.0f;
 
@@ -19,250 +17,259 @@ struct Spinner : fjell::Component<Spinner> {
         };
     }
 
-    void update(const FjellEngineApi* api, float dt) {
-        float rot[3];
-        api->get_rotation(api->object_id, rot);
-        rot[1] += speed * dt;
-        api->set_rotation(api->object_id, rot);
+    void tick(float dt) override {
+        auto& t = actor()->transform();
+        auto euler = t.euler_degrees();
+        euler.y += speed * dt;
+        t.set_euler_degrees(euler);
     }
 };
-
-FJELL_EXPORT(Spinner)
 ```
 
-That's it. The CRTP base generates the `FjellComponentType` descriptor, wires up callbacks for methods you define, and builds the field array from `reflect()`. You only write what you need — no null fields, no boilerplate.
+That's a complete component. `FJELL_COMPONENT` handles registration. `reflect()` exposes `speed` to the inspector. `tick()` runs every frame.
 
-### Multiple components
+## The Three Lifecycle Methods
+
+All optional — override only what you need:
 
 ```cpp
-FJELL_EXPORT(Spinner, Health, PlayerController)
+void begin_play() override;   // called once when play starts
+void tick(float dt) override;  // called every frame (dt = seconds since last frame)
+void end_play() override;      // called when play stops or object is destroyed
 ```
 
-### Component communication
+## Accessing the Actor and Transform
 
-Use `fjell::get<T>()` to query components on the current or any other object:
+Every component has a pointer to its owning actor:
 
 ```cpp
-void update(const FjellEngineApi* api, float dt) {
-    // Same object
-    if (auto* health = fjell::get<Health>(api)) {
-        if (health->hp <= 0) return;
-    }
+void tick(float dt) override {
+    auto& t = actor()->transform();
 
-    // Different object
-    if (auto* target = fjell::get<Health>(api, target_id)) {
-        target->hp -= damage * dt;
-    }
+    // Position
+    t.position.z += 5.0f * dt;
+
+    // Rotation via Euler angles (degrees)
+    auto euler = t.euler_degrees();
+    euler.y += 90.0f * dt;
+    t.set_euler_degrees(euler);
+
+    // Rotation via quaternion (for advanced use)
+    t.rotation = glm::angleAxis(glm::radians(45.0f), glm::vec3{0, 1, 0});
+
+    // Scale
+    t.scale = glm::vec3(2.0f);
+
+    // Actor metadata
+    uint32_t id = actor()->id();
+    const char* name = actor()->name();
 }
 ```
 
-### Available callbacks
+The `Transform` stores rotation as a quaternion internally. Use `euler_degrees()` / `set_euler_degrees()` for the common case.
 
-All optional — just define the ones you need:
-
-```cpp
-void create(const FjellEngineApi* api);              // on instantiation
-void destroy();                                       // on removal
-void update(const FjellEngineApi* api, float dt);     // every frame (play mode)
-void inspector();                                     // custom ImGui inspector
-void serialize(FjellJsonWriter* w) const;             // custom JSON write
-void deserialize(const FjellJsonReader* r);           // custom JSON read
-```
-
-### Field macros
-
-Used inside `reflect()` to describe inspector-editable fields:
+## Reading Input
 
 ```cpp
-FJELL_F(MyComp, my_field, FJELL_FIELD_FLOAT)                    // basic
-FJELL_F_RANGE(MyComp, health, FJELL_FIELD_FLOAT, 0, 100, 0.5)  // with min/max/speed
-FJELL_F_ENUM(MyComp, mode, mode_labels, 3)                      // enum combo
-```
+void tick(float dt) override {
+    const auto& input = world()->input();
 
-## Raw C API
-
-You can still use the C API directly if you prefer. Include `fjell_api.h`:
-
-```cpp
-#include "fjell_api.h"
-
-struct Spinner {
-    float speed = 90.0f;
-};
-
-static void spinner_update(void* data, const FjellEngineApi* api, float dt) {
-    auto* self = static_cast<Spinner*>(data);
-
-    float rot[3];
-    api->get_rotation(api->object_id, rot);
-    rot[1] += self->speed * dt;
-    api->set_rotation(api->object_id, rot);
-}
-
-static const FjellFieldDesc spinner_fields[] = {
-    FJELL_FIELD_RANGE(Spinner, speed, FJELL_FIELD_FLOAT, 0.0f, 360.0f, 1.0f),
-};
-
-static const FjellComponentType spinner_type = {
-    .name = "Spinner",
-    .instance_size = sizeof(Spinner),
-    .version = 1,
-    .create = nullptr,
-    .destroy = nullptr,
-    .update = spinner_update,
-    .inspector = nullptr,
-    .serialize = nullptr,
-    .deserialize = nullptr,
-    .fields = spinner_fields,
-    .field_count = 1,
-};
-
-FJELL_EXPORT_COMPONENTS(&spinner_type)
-```
-
-Multiple types with the C API:
-
-```cpp
-FJELL_EXPORT_COMPONENTS(&spinner_type, &player_type, &health_type)
-```
-
-All types are registered in a single call. Each object can have one instance of each type.
-
-## Component Data
-
-Component data is a flat struct. The engine allocates `instance_size` bytes, zero-initializes it, and passes a pointer to your callbacks. You cast it to your struct type.
-
-Keep component structs POD-like. Don't use std::string, std::vector, or other types with non-trivial constructors — the engine copies raw bytes for serialization. Use fixed-size arrays and C strings (char buffers) instead.
-
-## Callbacks
-
-All callbacks are optional (set to `nullptr` to skip):
-
-### create
-
-```cpp
-void my_create(void* data, const FjellEngineApi* api);
-```
-
-Called when a component is instantiated (add in editor, or deserialize on load). Use it to set default values that depend on the object or engine state.
-
-### destroy
-
-```cpp
-void my_destroy(void* data);
-```
-
-Called when the component is removed or the scene is unloaded. Free any external resources here.
-
-### update
-
-```cpp
-void my_update(void* data, const FjellEngineApi* api, float dt);
-```
-
-Called every frame during play mode. This is where game logic goes. The `api` provides access to transforms, input, time, logging, and physics.
-
-### inspector
-
-```cpp
-void my_inspector(void* data);
-```
-
-Custom ImGui UI for the properties panel. If null, the engine generates a UI from the `fields` array. You can use any ImGui call here — the engine includes Dear ImGui headers.
-
-### serialize / deserialize
-
-```cpp
-void my_serialize(const void* data, FjellJsonWriter* writer);
-void my_deserialize(void* data, const FjellJsonReader* reader);
-```
-
-Custom JSON serialization. If null, auto-serialized from fields. Use the `fjell_json_write_*` / `fjell_json_read_*` functions:
-
-```cpp
-static void my_serialize(const void* data, FjellJsonWriter* w) {
-    auto* self = static_cast<const MyComp*>(data);
-    fjell_json_write_float(w, "health", self->health);
-    fjell_json_write_vec3(w, "target", &self->target.x);
-}
-
-static void my_deserialize(void* data, const FjellJsonReader* r) {
-    auto* self = static_cast<MyComp*>(data);
-    self->health = fjell_json_read_float(r, "health", 100.0f);
-    float fallback[] = {0, 0, 0};
-    fjell_json_read_vec3(r, "target", &self->target.x, fallback);
-}
-```
-
-## Field Descriptors
-
-Use the helper macros:
-
-```cpp
-// Basic field (no range constraints)
-FJELL_FIELD(MyStruct, my_float, FJELL_FIELD_FLOAT)
-
-// Field with min/max/drag speed
-FJELL_FIELD_RANGE(MyStruct, health, FJELL_FIELD_FLOAT, 0.0f, 100.0f, 0.5f)
-```
-
-For enum fields, provide labels:
-
-```cpp
-static const char* const mode_labels[] = {"Idle", "Walk", "Run"};
-
-FjellFieldDesc{
-    .name = "mode",
-    .type = FJELL_FIELD_ENUM,
-    .offset = offsetof(MyStruct, mode),
-    .size = 3,  // number of labels
-    .enum_labels = mode_labels,
-};
-```
-
-## Physics Example
-
-```cpp
-static void ball_update(void* data, const FjellEngineApi* api, float dt) {
-    (void)data;
-    (void)dt;
-
-    // Apply upward impulse on space press
-    if (api->is_key_pressed(32)) {  // GLFW_KEY_SPACE = 32
-        float impulse[] = {0.0f, 10.0f, 0.0f};
-        api->apply_impulse(api->object_id, impulse);
+    if (input.is_key_held(GLFW_KEY_W)) {
+        actor()->transform().position.z -= move_speed * dt;
+    }
+    if (input.is_key_pressed(GLFW_KEY_SPACE)) {
+        jump();
     }
 
-    // Raycast downward to check if grounded
-    float origin[3], dir[] = {0, -1, 0};
-    api->get_position(api->object_id, origin);
-    float hit_pos[3], hit_normal[3], hit_dist;
-    uint32_t hit_id;
-    if (api->raycast(origin, dir, 1.1f, hit_pos, hit_normal, &hit_dist, &hit_id)) {
-        // grounded
+    // Mouse look
+    glm::dvec2 delta = input.mouse_delta();
+    auto euler = actor()->transform().euler_degrees();
+    euler.y += static_cast<float>(delta.x) * look_sensitivity;
+    actor()->transform().set_euler_degrees(euler);
+
+    // Mouse buttons: 0 = left, 1 = right, 2 = middle
+    if (input.is_mouse_button_pressed(0)) {
+        shoot();
     }
 }
 ```
 
-## Build Setup
+Key codes are GLFW constants (`GLFW_KEY_W`, `GLFW_KEY_SPACE`, etc.). Include `<GLFW/glfw3.h>` to use the named constants.
 
-In your project's `scripts/CMakeLists.txt`:
+## Using Physics
 
-```cmake
-cmake_minimum_required(VERSION 3.25)
-project(game)
+```cpp
+void tick(float dt) override {
+    auto* phys = world()->physics();
 
-add_library(game SHARED player.cpp)
-target_include_directories(game PRIVATE ${CMAKE_SOURCE_DIR}/../../build/scripting)
-set_target_properties(game PROPERTIES PREFIX "")  # output: game.so not libgame.so
+    // Jump on space press
+    if (world()->input().is_key_pressed(GLFW_KEY_SPACE)) {
+        phys->apply_impulse(actor()->id(), {0.0f, 10.0f, 0.0f});
+    }
+
+    // Continuous thrust
+    phys->apply_force(actor()->id(), {0.0f, 0.0f, -50.0f});
+
+    // Direct velocity control
+    phys->set_linear_velocity(actor()->id(), {0.0f, 5.0f, 0.0f});
+
+    // Raycast
+    fjell::RaycastHit hit;
+    glm::vec3 origin = actor()->transform().position;
+    if (phys->raycast(origin, {0, -1, 0}, 1.1f, hit)) {
+        world()->log_info("grounded");
+    }
+}
 ```
 
-Build with:
-```bash
-cd my_project/scripts
-cmake -B build
-cmake --build build
-cp build/game.so ..
+Physics calls no-op silently if the physics world isn't active.
+
+## Logging
+
+```cpp
+void begin_play() override {
+    world()->log_info("Player spawned");
+    world()->log_warn("Health is low");
+    world()->log_error("Something went wrong");
+}
 ```
 
-The engine watches for changes to `game.so` in the project root and hot-reloads automatically in debug builds.
+Messages appear in the editor console and stdout, prefixed with `[script]`.
+
+## Exposing Fields to the Inspector
+
+Define a static `reflect()` method that returns an array of field descriptors:
+
+```cpp
+class PlayerController : public fjell::Component {
+    FJELL_COMPONENT(PlayerController)
+
+    float move_speed = 5.0f;
+    float jump_force = 10.0f;
+    int max_health = 100;
+    bool god_mode = false;
+    glm::vec3 spawn_point{0.0f, 5.0f, 0.0f};
+
+    static auto reflect() {
+        return std::array{
+            FJELL_F_RANGE(PlayerController, move_speed, FJELL_FIELD_FLOAT, 0, 50, 0.5),
+            FJELL_F_RANGE(PlayerController, jump_force, FJELL_FIELD_FLOAT, 0, 100, 0.5),
+            FJELL_F_RANGE(PlayerController, max_health, FJELL_FIELD_INT, 1, 999, 1),
+            FJELL_F(PlayerController, god_mode, FJELL_FIELD_BOOL),
+            FJELL_F(PlayerController, spawn_point, FJELL_FIELD_VEC3),
+        };
+    }
+};
+```
+
+### Field Macros
+
+```cpp
+FJELL_F(Class, member, type)                           // basic field
+FJELL_F_RANGE(Class, member, type, min, max, speed)    // constrained with drag speed
+FJELL_F_ENUM(Class, member, labels, count)             // enum combo box
+```
+
+### Enum Fields
+
+```cpp
+static constexpr const char* const mode_labels[] = {"Idle", "Walk", "Run"};
+int mode = 0;
+
+static auto reflect() {
+    return std::array{
+        FJELL_F_ENUM(MyComponent, mode, mode_labels, 3),
+    };
+}
+```
+
+## Multiple Components in One File
+
+Each just needs its own `FJELL_COMPONENT` macro:
+
+```cpp
+class Health : public fjell::Component {
+    FJELL_COMPONENT(Health)
+    float hp = 100.0f;
+    // ...
+};
+
+class DamageFlash : public fjell::Component {
+    FJELL_COMPONENT(DamageFlash)
+    // ...
+};
+```
+
+## Registration
+
+The `FJELL_COMPONENT` macro handles auto-registration through a static linked list. You don't need to manually register anything.
+
+Your project needs one `register_all.cpp` file (auto-generated by Build & Reload):
+
+```cpp
+#include "scripting/fjell_registry.hpp"
+FJELL_REGISTER()
+```
+
+## Full Example: First-Person Controller
+
+```cpp
+#include "scripting/fjell_registry.hpp"
+#include "scripting/fjell_world.hpp"
+#include <GLFW/glfw3.h>
+
+class FPSController : public fjell::Component {
+    FJELL_COMPONENT(FPSController)
+
+    float move_speed = 8.0f;
+    float look_sensitivity = 0.15f;
+    float jump_force = 8.0f;
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+
+    static auto reflect() {
+        return std::array{
+            FJELL_F_RANGE(FPSController, move_speed, FJELL_FIELD_FLOAT, 0, 50, 0.5),
+            FJELL_F_RANGE(FPSController, look_sensitivity, FJELL_FIELD_FLOAT, 0.01, 1, 0.01),
+            FJELL_F_RANGE(FPSController, jump_force, FJELL_FIELD_FLOAT, 0, 50, 0.5),
+        };
+    }
+
+    void tick(float dt) override {
+        const auto& input = world()->input();
+        auto& t = actor()->transform();
+
+        // Mouse look
+        auto mouse = input.mouse_delta();
+        yaw -= static_cast<float>(mouse.x) * look_sensitivity;
+        pitch -= static_cast<float>(mouse.y) * look_sensitivity;
+        pitch = glm::clamp(pitch, -89.0f, 89.0f);
+        t.set_euler_degrees({pitch, yaw, 0.0f});
+
+        // Movement (WASD)
+        glm::vec3 forward = glm::normalize(glm::vec3{
+            sin(glm::radians(yaw)), 0.0f, -cos(glm::radians(yaw))
+        });
+        glm::vec3 right = glm::normalize(glm::cross(forward, {0, 1, 0}));
+
+        glm::vec3 move{0.0f};
+        if (input.is_key_held(GLFW_KEY_W)) move += forward;
+        if (input.is_key_held(GLFW_KEY_S)) move -= forward;
+        if (input.is_key_held(GLFW_KEY_D)) move += right;
+        if (input.is_key_held(GLFW_KEY_A)) move -= right;
+
+        if (glm::length(move) > 0.0f) {
+            move = glm::normalize(move) * move_speed;
+        }
+
+        auto* phys = world()->physics();
+        auto vel = phys->get_linear_velocity(actor()->id());
+        phys->set_linear_velocity(actor()->id(), {move.x, vel.y, move.z});
+
+        // Jump
+        if (input.is_key_pressed(GLFW_KEY_SPACE)) {
+            phys->apply_impulse(actor()->id(), {0, jump_force, 0});
+        }
+    }
+};
+```

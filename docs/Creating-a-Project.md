@@ -6,7 +6,7 @@ Launch `fjell-hub`, click "New Project", enter a name and directory path. The hu
 
 ## Via the Editor
 
-In the editor: Project → New Project. Same dialog.
+In the editor: Project > New Project. Same dialog.
 
 ## Directory Structure
 
@@ -41,19 +41,25 @@ MyProject/
 
 ## Adding Assets
 
-Drop `.glb`/`.gltf` files into `assets/models/` and `.png`/`.jpg` into `assets/textures/`. Click "Refresh" in the Assets panel (or restart) to pick them up.
+Drop `.glb`/`.gltf` files into `assets/models/` and `.png`/`.jpg` into `assets/textures/`. Open the Content Browser (Ctrl+Space) to browse and manage your project files. Models can be added to the scene by double-clicking them or right-click > Add to Scene.
 
 ## Adding Scripts
 
+The easiest way is from the editor:
+
+1. **Scripts > New Component** — generates a template .cpp file with the boilerplate filled in
+2. **Scripts > Build & Reload** — the engine auto-generates `register_all.cpp`, runs cmake, and hot-reloads the .so
+
+You can also do it manually:
 1. Create a `.cpp` file in `scripts/` (see [Writing Components](Writing-Components.md))
-2. Set up `scripts/CMakeLists.txt` to build `game.so`
-3. Build: `cd scripts && cmake -B build && cmake --build build && cp build/game.so ..`
-4. The editor detects the new `.so` and loads it automatically
-5. In debug builds, recompiling triggers hot-reload
+2. Scripts > Build & Reload (or build manually: `cd scripts && cmake -B build && cmake --build build`)
+3. In debug builds, recompiling triggers hot-reload automatically
+
+Scripts show up in the Content Browser and can be opened in the embedded neovim editor by double-clicking.
 
 ## Building a Game
 
-Project → Build Game packages the project into a standalone distribution:
+Project > Build Game packages the project into a standalone distribution:
 
 ```
 build/

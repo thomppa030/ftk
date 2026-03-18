@@ -55,7 +55,7 @@ An object with a `ColliderDesc` but no `RigidbodyDesc` becomes a **static body**
 | Type | Behavior |
 |------|----------|
 | **Static** | Doesn't move. Other bodies collide with it. |
-| **Kinematic** | Moved by scripts (set_position/set_rotation). Pushes dynamic bodies but isn't affected by them. |
+| **Kinematic** | Moved by scripts (set position/rotation). Pushes dynamic bodies but isn't affected by them. |
 | **Dynamic** | Moved by physics. Affected by gravity, forces, collisions. |
 
 ## Collider Shapes
@@ -75,7 +75,7 @@ Each physics step:
 2. **Jolt step:** Forces integrated, collisions resolved
 3. **Dynamic bodies:** Jolt positions/rotations pulled back to `RenderObject.transform`
 
-Jolt uses quaternions internally. Conversion happens at the sync boundary via `glm::quat` / `glm::eulerAngles`.
+Jolt uses quaternions internally — so does Fjell's Transform struct, so there's no conversion overhead at the sync boundary.
 
 ## Broadphase
 
@@ -87,22 +87,37 @@ Static-vs-static collisions are skipped. Everything else is checked.
 
 ## Script API
 
-Scripts interact with physics through the `FjellEngineApi`:
+Scripts interact with physics through `world()->physics()`:
 
-```c
-void (*apply_force)(uint32_t id, const float* xyz);
-void (*apply_impulse)(uint32_t id, const float* xyz);
-void (*set_linear_velocity)(uint32_t id, const float* xyz);
-void (*get_linear_velocity)(uint32_t id, float* out_xyz);
-void (*set_angular_velocity)(uint32_t id, const float* xyz);
-void (*get_angular_velocity)(uint32_t id, float* out_xyz);
-uint8_t (*raycast)(const float* origin, const float* direction,
-                   float max_distance, float* out_hit_pos,
-                   float* out_hit_normal, float* out_distance,
-                   uint32_t* out_object_id);
+```cpp
+void tick(float dt) override {
+    auto* phys = world()->physics();
+    if (!phys) return; // null outside play mode
+
+    // Apply upward impulse on space press
+    if (world()->input().is_key_pressed(GLFW_KEY_SPACE)) {
+        phys->apply_impulse(actor()->id(), {0.0f, 10.0f, 0.0f});
+    }
+
+    // Raycast downward to check if grounded
+    auto hit = phys->raycast(
+        actor()->transform().position,
+        {0.0f, -1.0f, 0.0f},
+        1.1f);
+    if (hit.hit) {
+        // grounded — hit.position, hit.normal, hit.distance, hit.object_id available
+    }
+}
 ```
 
-All callbacks are null-safe — they check for an active `PhysicsWorld` before calling. Outside of play mode, they silently no-op.
+Available physics methods:
+- `apply_force(id, vec3)` — continuous force (call every frame)
+- `apply_impulse(id, vec3)` — instantaneous velocity change
+- `set_linear_velocity(id, vec3)` / `get_linear_velocity(id)`
+- `set_angular_velocity(id, vec3)` / `get_angular_velocity(id)`
+- `raycast(origin, direction, max_distance)` — returns `RaycastHit`
+
+All methods are null-safe — they no-op outside play mode.
 
 ## Debug Visualization
 

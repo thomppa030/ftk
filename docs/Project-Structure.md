@@ -1,118 +1,188 @@
 # Project Structure
 
-## Repository Layout
+Quick map of the source tree. If you're looking for something specific, this should tell you where to find it.
 
-```
-Fjell/
-  CMakeLists.txt                    Root build config
-  cmake/
-    Dependencies.cmake              FetchContent declarations
-    CompileShaders.cmake            GLSL -> SPIR-V compilation
-  shaders/
-    mesh.vert                       PBR vertex shader
-    mesh.frag                       PBR fragment shader (Cook-Torrance)
-    debug.vert                      Collider wireframe vertex shader
-    debug.frag                      Collider wireframe fragment shader
-  assets/
-    fonts/                          Inter, JetBrains Mono
-    textures/                       Default textures
-  src/
-    main.cpp                        Entry point
-    core/                           Engine core
-    renderer/                       Vulkan rendering backend
-    scene/                          Scene graph and transforms
-    physics/                        Jolt Physics integration
-    scripting/                      Component system and script loading
-    ui/                             ImGui integration
-    hub/                            Launcher application
-```
+## Source Code — `src/`
 
-## Source Directories
+### `src/core/` — Engine core
 
-### `src/core/`
+| File | What it does |
+|---|---|
+| `engine` | Main loop, owns all subsystems, ticks everything |
+| `window` | GLFW window creation and management |
+| `input` | Keyboard and mouse state polling |
+| `clock` | Frame delta time and elapsed time |
+| `project` | Project configuration (paths, settings) |
+| `play_session` | Play mode state — owns the fly camera and physics world |
+| `layer` / `layer_stack` | Input layer priority stack |
+| `game_builder` | Builds standalone game packages |
+| `log` | spdlog setup and console sink |
+| `base_path` | Resolves paths relative to the executable |
+| `thread_pool` | Worker thread pool for parallel operations |
+| `command` | Base class for undoable commands |
+| `command_history` | Undo/redo stack |
+| `commands` | Concrete command implementations (transform, rename, add/remove, reparent, lights) |
 
-Engine lifecycle, window management, input, timing.
+### `src/renderer/` — Vulkan rendering backend
 
-| File | Purpose |
-|------|---------|
-| `engine.hpp/cpp` | Main loop, editor UI, play mode |
-| `window.hpp/cpp` | GLFW window wrapper |
-| `input.hpp/cpp` | Keyboard/mouse state tracking |
-| `clock.hpp/cpp` | Frame timing (delta_time, elapsed) |
-| `project.hpp/cpp` | Project manifest and directory management |
-| `play_session.hpp/cpp` | Play mode state (scene snapshot, physics, fly camera) |
-| `layer.hpp` | Input layer interface |
-| `layer_stack.hpp/cpp` | Priority stack for input event routing |
-| `game_builder.hpp/cpp` | Package game for distribution |
-| `log.hpp/cpp` | spdlog initialization, console sink |
-| `base_path.hpp/cpp` | Resolve asset paths relative to executable |
+**Core rendering:**
 
-### `src/renderer/`
+| File | What it does |
+|---|---|
+| `vulkan_context` | Top-level rendering orchestrator — owns all passes, runs the frame |
+| `device` | Vulkan instance, physical/logical device, queues |
+| `swapchain` | Swapchain images, views, depth buffer |
+| `pipeline` | PBR graphics pipeline (traditional vertex path) |
+| `offscreen_pass` | Off-screen render target for viewports |
+| `frame_graph` | Frame graph for pass ordering and resource transitions |
 
-Vulkan rendering backend.
+**Resources:**
 
-| File | Purpose |
-|------|---------|
-| `vulkan_context.hpp/cpp` | Frame orchestration, command recording, debug pipeline |
-| `device.hpp/cpp` | Instance, physical/logical device, queues |
-| `swapchain.hpp/cpp` | Swapchain images, views, depth buffer |
-| `offscreen_pass.hpp/cpp` | Offscreen render target for viewport |
-| `pipeline.hpp/cpp` | PBR graphics pipeline |
-| `model.hpp/cpp` | glTF/primitive mesh loading |
-| `mesh.hpp/cpp` | GPU vertex/index buffers |
-| `material.hpp/cpp` | PBR material with texture descriptor set |
-| `texture.hpp/cpp` | Image loading and GPU upload |
-| `image.hpp/cpp` | VkImage wrapper with layout transitions |
-| `buffer.hpp/cpp` | VkBuffer wrapper (vertex, index, uniform, staging) |
-| `descriptor.hpp/cpp` | Descriptor set layout and pool wrappers |
-| `camera.hpp/cpp` | Orbit camera (editor) |
-| `fly_camera.hpp/cpp` | First-person camera (play mode) |
-| `primitives.hpp/cpp` | Cube, plane, sphere mesh generation |
-| `resource_handle.hpp` | Generational handle template (Handle<Tag>) for type-safe resource refs |
-| `resource_manager.hpp/cpp` | Handle-based resource pools (models, textures, materials) |
-| `render_queue.hpp/cpp` | Sorted draw command list, built each frame by VulkanContext |
-| `debug_draw.hpp/cpp` | Collider wireframe visualization |
-| `render_stats.hpp` | Per-frame draw call and triangle tracking |
-| `shader_watcher.hpp/cpp` | inotify-based GLSL hot-reload (debug only) |
-| `uniform_types.hpp` | GlobalUbo, PbrPushConstants, DebugPushConstants, DirectionalLight |
-| `vertex.hpp` | Vertex layout (position, color, texcoord, normal, tangent) |
+| File | What it does |
+|---|---|
+| `resource_manager` | Handle-based pools for models, textures, materials |
+| `resource_handle` | Generational `Handle<Tag>` template |
+| `model` | glTF model loading via fastgltf |
+| `mesh` | Vertex/index buffer data |
+| `meshlet` / `meshlet_buffer` / `meshlet_descriptor` | Meshlet generation, GPU buffers, and descriptor setup |
+| `material` | PBR material with texture references |
+| `texture` | Texture loading and Vulkan image creation |
+| `image` | VkImage wrapper |
+| `buffer` | VkBuffer wrapper |
+| `mega_buffer` | Large shared buffer for bindless vertex/index data |
+| `bindless` | Bindless descriptor set management |
+| `descriptor` | Descriptor set/pool helpers |
+| `draw_data_descriptor` | Per-draw data descriptor layout |
+| `stb_image` | stb_image include wrapper |
+
+**Rendering pipeline:**
+
+| File | What it does |
+|---|---|
+| `render_queue` | Sorted draw command list, rebuilt each frame |
+| `indirect_batch` | Multi-draw indirect batch building |
+| `camera` | Camera matrices (view, projection) |
+| `fly_camera` | First-person fly camera for play mode |
+| `particle_system` | GPU-driven particle emission, simulation, and rendering |
+| `debug_draw` | Immediate-mode debug line/shape drawing |
+| `viz_image` | Shared image management for visualization passes |
+| `primitives` | Built-in mesh generation (cube, sphere, plane) |
+
+**Utilities:**
+
+| File | What it does |
+|---|---|
+| `render_stats` | Per-frame draw call and triangle count tracking |
+| `shader_watcher` | inotify-based GLSL hot-reload (debug builds only) |
+| `uniform_types` | Shared uniform buffer struct definitions |
+| `vertex` | Vertex format definition |
+| `viewport_source` | Enum for which visualization a viewport displays |
+| `vk_check` | `vk_check()` for Vulkan error checking |
+| `renderer_constants` | Named constants (max frames in flight, etc.) |
+
+### `src/renderer/pass/` — Render passes
+
+Each pass is its own class. They're instantiated and orchestrated by `VulkanContext`.
+
+| Pass | What it does |
+|---|---|
+| `shadow_pass` | Cascaded shadow map rendering (3 cascades) |
+| `depth_prepass` | Early Z pass (traditional vertex) |
+| `mesh_shader_pass` | Main geometry via mesh shaders |
+| `mesh_shader_depth_pass` | Depth-only mesh shader path |
+| `transparent_pass` | Alpha-blended objects (back-to-front) |
+| `sky_pass` | Procedural sky rendering |
+| `bloom_pass` | Multi-stage bloom (downsample + upsample + composite) |
+| `tonemap_pass` | AgX tone mapping |
+| `light_cull_pass` | Forward+ tiled light culling (compute) |
+| `debug_pass` | Debug line rendering |
+| `depth_viz_pass` | Depth buffer visualization |
+| `normal_pass` | World-space normal visualization |
+| `uv_viz_pass` | UV coordinate visualization |
+| `wireframe_pass` | Wireframe overlay |
+| `overdraw_pass` | Overdraw heatmap |
+| `meshlet_viz_pass` | Meshlet boundary visualization |
+| `light_viz_pass` | Light tile heatmap visualization |
 
 ### `src/scene/`
 
-| File | Purpose |
-|------|---------|
-| `scene.hpp/cpp` | Scene graph: add/remove/find objects, hierarchy, save/load |
-| `transform.hpp` | TRS struct with matrix computation and decomposition |
+| File | What it does |
+|---|---|
+| `scene` | Object list, hierarchy, lights, save/load |
+| `transform` | Position + quaternion rotation + scale, with matrix computation |
 
 ### `src/physics/`
 
-| File | Purpose |
-|------|---------|
-| `physics_types.hpp` | BodyType, ColliderShape enums, RigidbodyDesc, ColliderDesc, RaycastHit |
-| `physics_world.hpp/cpp` | Jolt wrapper: body creation, stepping, forces, raycast |
+| File | What it does |
+|---|---|
+| `physics_types` | Rigidbody and collider description structs |
+| `physics_world` | Jolt Physics world wrapper |
 
 ### `src/scripting/`
 
-| File | Purpose |
-|------|---------|
-| `fjell_api.h` | Pure C header — the public scripting API |
-| `script_manager.hpp/cpp` | .so loading, component lifecycle, auto-inspector |
-| `json_bridge.hpp/cpp` | C-compatible JSON serialization bridge |
+| File | What it does |
+|---|---|
+| `fjell_api.h` | C header for field reflection types |
+| `fjell_actor` | Actor base class — lifecycle hooks, transform access |
+| `fjell_component` | Component base class — begin_play, tick, end_play |
+| `fjell_world` | World interface exposed to scripts (input, physics, logging) |
+| `fjell_registry` | Type registration macros and auto-registration |
+| `script_manager` | Loads script libraries, manages component lifecycle |
 
-### `src/ui/`
+### `src/ui/` — Editor panels
 
-| File | Purpose |
-|------|---------|
-| `imgui_layer.hpp/cpp` | ImGui Vulkan backend setup |
-| `theme.hpp` | Shared amber theme (sRGB-to-linear conversion) |
-| `console.hpp/cpp` | spdlog sink for in-editor log panel |
-| `nvim_panel.hpp/cpp` | Embedded neovim via libvterm + PTY |
-| `file_browser.hpp/cpp` | Filesystem browser widget for project open/create |
+All panels use Dear ImGui. Each is a self-contained class.
 
-### `src/hub/`
+| File | What it does |
+|---|---|
+| `imgui_layer` | ImGui initialization and per-frame rendering |
+| `theme` | Editor color theme (amber/dark) |
+| `viewport_manager` | Multiple viewports, each with its own viz source |
+| `hierarchy_panel` | Scene tree — add, delete, drag-to-reparent |
+| `properties_panel` | Object inspector — transform, physics, lights, components |
+| `stats_panel` | FPS, draw calls, GPU info |
+| `history_panel` | Undo/redo history list |
+| `content_browser` | File browser with icon thumbnails (overlay panel) |
+| `icon_cache` | Loads and caches PNG icon textures |
+| `nvim_panel` | Embedded neovim terminal |
+| `console` | Log output panel |
+| `file_browser` | File open/save dialogs |
 
-| File | Purpose |
-|------|---------|
-| `main.cpp` | Hub launcher entry point |
-| `hub_ui.hpp/cpp` | Project browser, splash screen |
-| `recent_projects.hpp/cpp` | ~/.config/fjell/hub.json persistence |
+## Shaders — `shaders/`
+
+Compiled to SPIR-V at build time into `build/shaders/`.
+
+**Main rendering:**
+- `mesh.vert`, `mesh.frag` — traditional vertex pipeline
+- `mesh.task`, `mesh.mesh` — mesh shader geometry path
+- `depth.vert`, `depth_push.vert` — depth prepass variants
+- `depth_mesh.task`, `depth_mesh.mesh` — mesh shader depth
+- `shadow.vert` — shadow map rendering
+- `sky.vert`, `sky.frag` — procedural sky
+
+**Post-processing:**
+- `bloom_downsample.frag`, `bloom_upsample.frag`, `bloom_composite.frag` — bloom chain
+- `tonemap.frag` — AgX tone mapping
+
+**Particles:**
+- `particle_emit.comp`, `particle_sim.comp`, `particle_indirect.comp` — GPU particle compute
+- `particle.vert`, `particle.frag` — particle rendering
+
+**Debug and visualization:**
+- `debug.vert`, `debug.frag` — debug line drawing
+- `depth_viz.vert`, `depth_viz.frag` — depth visualization
+- `normal_viz.vert`, `normal_viz.frag` — normal visualization
+- `uv_viz.vert`, `uv_viz.frag` — UV visualization
+- `wireframe.frag` — wireframe overlay
+- `overdraw.frag` — overdraw heatmap
+- `meshlet_viz.mesh`, `meshlet_viz.frag` — meshlet visualization
+- `light_cull.comp` — tiled light culling
+- `light_heatmap.vert`, `light_heatmap.frag` — light tile heatmap
+- `outline.vert`, `outline.frag` — selection outline
+
+## Assets — `assets/`
+
+- `fonts/` — UI fonts (Inter, JetBrains Mono)
+- `textures/` — Engine default textures
+- `models/` — Built-in models
+- `icons/` — PNG icons for the content browser
