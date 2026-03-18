@@ -38,8 +38,6 @@ public:
         return cascade_splits_;
     }
 
-    void set_draw_data_layout(VkDescriptorSetLayout layout) { draw_data_layout_ = layout; }
-
 private:
     void create_images();
     void destroy_images();

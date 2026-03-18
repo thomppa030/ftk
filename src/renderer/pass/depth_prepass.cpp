@@ -19,6 +19,7 @@ namespace fjell {
 
 void DepthPrePass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    draw_data_layout_ = resources.draw_data_layout;
 
     auto vert_code = read_spirv(base_path::resolve("shaders/depth.vert.spv"));
     auto vert_module = create_shader_module(device_, vert_code);

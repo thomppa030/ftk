@@ -17,6 +17,8 @@ namespace fjell {
 void MeshShaderDepthPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
+    draw_data_layout_ = resources.draw_data_layout;
+    meshlet_layout_ = resources.meshlet_layout;
 
     auto task_code = read_spirv(base_path::resolve("shaders/depth_mesh.task.spv"));
     auto mesh_code = read_spirv(base_path::resolve("shaders/depth_mesh.mesh.spv"));

@@ -15,6 +15,8 @@ class Scene;
 struct PassResources {
     VkDescriptorSetLayout global_set_layout{VK_NULL_HANDLE};
     VkDescriptorSetLayout material_set_layout{VK_NULL_HANDLE};
+    VkDescriptorSetLayout draw_data_layout{VK_NULL_HANDLE};
+    VkDescriptorSetLayout meshlet_layout{VK_NULL_HANDLE};
     VkFormat depth_format{VK_FORMAT_UNDEFINED};
     VkFormat color_format{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};

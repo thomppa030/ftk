@@ -18,6 +18,7 @@ namespace fjell {
 
 void TransparentPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    draw_data_layout_ = resources.draw_data_layout;
 
     // Same shaders as PBR — the alpha blending is in the pipeline state
     auto vert_code = read_spirv(base_path::resolve("shaders/mesh.vert.spv"));

@@ -12,9 +12,6 @@ public:
     void destroy() override;
     void record(const FrameContext& ctx) override;
 
-    void set_draw_data_layout(VkDescriptorSetLayout layout) { draw_data_layout_ = layout; }
-    void set_meshlet_layout(VkDescriptorSetLayout layout) { meshlet_layout_ = layout; }
-
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
     void resize(uint32_t width, uint32_t height);

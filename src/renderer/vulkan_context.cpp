@@ -63,23 +63,17 @@ VulkanContext::VulkanContext(Window& window)
     PassResources pass_resources{};
     pass_resources.global_set_layout = global_set_layout_->handle();
     pass_resources.material_set_layout = bindless_textures_.layout();
+    pass_resources.draw_data_layout = draw_data_descriptor_.layout();
+    pass_resources.meshlet_layout = use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
     pass_resources.depth_format = depth_format;
     pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
     pass_resources.sample_count = msaa_samples_;
-    depth_prepass_.set_draw_data_layout(draw_data_descriptor_.layout());
     depth_prepass_.create(device_, pass_resources);
     if (use_mesh_shaders_) {
-        mesh_shader_depth_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
-        mesh_shader_depth_pass_.set_meshlet_layout(meshlet_descriptor_.layout());
         mesh_shader_depth_pass_.create(device_, pass_resources);
-        mesh_shader_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
-        mesh_shader_pass_.set_meshlet_layout(meshlet_descriptor_.layout());
         mesh_shader_pass_.create(device_, pass_resources);
-        meshlet_viz_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
-        meshlet_viz_pass_.set_meshlet_layout(meshlet_descriptor_.layout());
         meshlet_viz_pass_.create(device_, pass_resources);
     }
-    shadow_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     shadow_pass_.create(device_, pass_resources);
     depth_viz_pass_.create(device_, pass_resources);
 
@@ -109,7 +103,6 @@ VulkanContext::VulkanContext(Window& window)
     uv_viz_pass_.create(device_, pass_resources);
     bloom_pass_.create(device_, pass_resources);
     sky_pass_.create(device_, pass_resources);
-    transparent_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     transparent_pass_.create(device_, pass_resources);
     tonemap_pass_.create(device_, pass_resources);
     light_cull_pass_.create(device_.handle(), global_set_layout_->handle());
@@ -1130,12 +1123,12 @@ void VulkanContext::reload_pipeline() {
     PassResources pass_resources{};
     pass_resources.global_set_layout = global_set_layout_->handle();
     pass_resources.material_set_layout = bindless_textures_.layout();
+    pass_resources.draw_data_layout = draw_data_descriptor_.layout();
+    pass_resources.meshlet_layout = use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
     pass_resources.depth_format = depth_format;
     pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
     pass_resources.sample_count = msaa_samples_;
-    depth_prepass_.set_draw_data_layout(draw_data_descriptor_.layout());
     depth_prepass_.recreate(device_, pass_resources);
-    shadow_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     shadow_pass_.recreate(device_, pass_resources);
     debug_pass_.recreate(device_, pass_resources);
 }

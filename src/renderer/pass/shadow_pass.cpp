@@ -247,9 +247,10 @@ void ShadowPass::destroy_images() {
 
 // ── Pipeline ────────────────────────────────────────────────────────────
 
-void ShadowPass::create(Device& device, const PassResources& /*resources*/) {
+void ShadowPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
+    draw_data_layout_ = resources.draw_data_layout;
 
     create_images();
 

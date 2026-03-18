@@ -21,6 +21,8 @@ void MeshletVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
+    draw_data_layout_ = resources.draw_data_layout;
+    meshlet_layout_ = resources.meshlet_layout;
 
     // Sampler for ImGui display
     VkSamplerCreateInfo sampler_ci{};
