@@ -251,9 +251,13 @@ void Engine::setup_dockspace() {
     ImGui::DockSpace(dockspace_id, {0.0f, 0.0f},
                      ImGuiDockNodeFlags_PassthruCentralNode);
 
-    // Build default layout on first run
+    // Build default layout on first run (skip if restoring a saved layout)
     if (!layout_built_) {
         layout_built_ = true;
+        if (has_saved_layout_) {
+            ImGui::End();
+            return;
+        }
 
         ImGui::DockBuilderRemoveNode(dockspace_id);
         ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
@@ -472,7 +476,13 @@ void Engine::draw_properties() {
             if (ImGui::DragFloat3("##Position", &obj->transform.position.x, 0.1f)) scene_.mark_dirty();
             ImGui::Text("Rotation");
             ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##Rotation", &obj->transform.rotation.x, 1.0f)) scene_.mark_dirty();
+            {
+                glm::vec3 euler = obj->transform.euler_degrees();
+                if (ImGui::DragFloat3("##Rotation", &euler.x, 1.0f)) {
+                    obj->transform.set_euler_degrees(euler);
+                    scene_.mark_dirty();
+                }
+            }
             ImGui::Text("Scale");
             ImGui::SetNextItemWidth(-1);
             if (ImGui::DragFloat3("##Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f)) scene_.mark_dirty();
@@ -480,9 +490,9 @@ void Engine::draw_properties() {
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Gizmo");
-            ImGui::RadioButton("Move (1)", &gizmo_op_, 0); ImGui::SameLine();
-            ImGui::RadioButton("Rot (2)", &gizmo_op_, 1); ImGui::SameLine();
-            ImGui::RadioButton("Scl (3)", &gizmo_op_, 2);
+            ImGui::RadioButton("Move (W)", &gizmo_op_, 0); ImGui::SameLine();
+            ImGui::RadioButton("Rot (E)", &gizmo_op_, 1); ImGui::SameLine();
+            ImGui::RadioButton("Scl (R)", &gizmo_op_, 2);
 
             ImGui::Spacing();
             ImGui::TextDisabled("Source: %s", obj->source.c_str());
@@ -806,6 +816,15 @@ void Engine::open_project(const std::filesystem::path& path) {
     window_.set_title("Fjell - " + project_->config().name);
     scan_models();
     scan_scenes();
+
+    // Defer layout restore to the first frame (ImGui needs a frame to set up docking)
+    if (!project_->config().layout.empty()) {
+        auto layout_path = project_->root() / "layouts" / (project_->config().layout + ".ini");
+        if (std::filesystem::exists(layout_path)) {
+            pending_layout_load_ = layout_path.string();
+            has_saved_layout_ = true;
+        }
+    }
 }
 
 void Engine::load_project_scripts() {
@@ -895,10 +914,77 @@ void Engine::draw_menu_bar() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Layout")) {
+            // Save current layout
+            if (ImGui::MenuItem("Save Layout...")) {
+                show_save_layout_popup_ = true;
+                std::memset(layout_name_buf_, 0, sizeof(layout_name_buf_));
+            }
+            ImGui::Separator();
+
+            // List saved layouts
+            auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
+            if (std::filesystem::is_directory(layout_dir)) {
+                for (const auto& entry : std::filesystem::directory_iterator(layout_dir)) {
+                    if (entry.path().extension() != ".ini") continue;
+                    auto name = entry.path().stem().string();
+                    if (ImGui::MenuItem(name.c_str())) {
+                        ImGui::LoadIniSettingsFromDisk(entry.path().string().c_str());
+                    }
+                }
+            }
+            ImGui::EndMenu();
+        }
+
         if (project_ && ImGui::BeginMenu("Scripts")) {
+            if (ImGui::MenuItem("New Component...")) {
+                show_new_script_popup_ = true;
+                std::memset(new_script_name_, 0, sizeof(new_script_name_));
+            }
+            ImGui::Separator();
             if (ImGui::MenuItem("Build & Reload")) {
-                auto build_dir = project_->root() / "scripts" / "build";
-                auto cmd = "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
+                // Refresh scripting headers in project so scripts see latest API
+                Project::refresh_headers(*project_);
+
+                auto scripts_dir = project_->root() / "scripts";
+                auto build_dir = scripts_dir / "build";
+
+                // Auto-generate register_all.cpp by scanning for FJELL_COMPONENT macros
+                {
+                    std::vector<std::pair<std::string, std::string>> components; // {filename, classname}
+                    for (const auto& entry : std::filesystem::directory_iterator(scripts_dir)) {
+                        if (!entry.is_regular_file()) continue;
+                        auto ext = entry.path().extension().string();
+                        if (ext != ".cpp" && ext != ".hpp") continue;
+                        if (entry.path().filename() == "register_all.cpp") continue;
+
+                        std::ifstream src(entry.path());
+                        std::string line;
+                        while (std::getline(src, line)) {
+                            auto pos = line.find("FJELL_COMPONENT(");
+                            if (pos == std::string::npos) continue;
+                            auto start = pos + 16; // length of "FJELL_COMPONENT("
+                            auto end = line.find(')', start);
+                            if (end == std::string::npos) continue;
+                            std::string cls = line.substr(start, end - start);
+                            components.emplace_back(entry.path().filename().string(), cls);
+                        }
+                    }
+
+                    // Generate register_all.cpp with the single FJELL_REGISTER() entry point.
+                    // Each component auto-registers via static init from FJELL_COMPONENT().
+                    std::ofstream reg(scripts_dir / "register_all.cpp");
+                    if (reg.is_open()) {
+                        reg << "// Auto-generated — do not edit.\n";
+                        reg << "#include \"scripting/fjell_registry.hpp\"\n\n";
+                        reg << "FJELL_REGISTER()\n";
+                    }
+                }
+
+                // Reconfigure to pick up new/removed .cpp files, then build
+                auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
+                           " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
+                           "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
 
                 FJELL_CORE_INFO("Building scripts...");
 
@@ -955,6 +1041,111 @@ void Engine::draw_menu_bar() {
         ImGui::EndMainMenuBar();
     }
 
+    // Save Layout popup
+    if (show_save_layout_popup_) {
+        ImGui::OpenPopup("Save Layout");
+        show_save_layout_popup_ = false;
+    }
+    if (ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Layout Name:");
+        ImGui::SetNextItemWidth(250.0f);
+        bool enter = ImGui::InputText("##LayoutName", layout_name_buf_, sizeof(layout_name_buf_),
+                                       ImGuiInputTextFlags_EnterReturnsTrue);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
+
+        bool valid = std::strlen(layout_name_buf_) > 0;
+        if (!valid) ImGui::BeginDisabled();
+        bool save = ImGui::Button("Save", {120, 0}) || (enter && valid);
+        if (!valid) ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", {120, 0})) ImGui::CloseCurrentPopup();
+
+        if (save) {
+            auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
+            std::filesystem::create_directories(layout_dir);
+            auto path = layout_dir / (std::string(layout_name_buf_) + ".ini");
+            ImGui::SaveIniSettingsToDisk(path.string().c_str());
+            if (project_) {
+                project_->config().layout = layout_name_buf_;
+                project_->save();
+            }
+            FJELL_CORE_INFO("Layout saved: {}", path.string());
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    // New Component script popup
+    if (show_new_script_popup_) {
+        ImGui::OpenPopup("New Component");
+        show_new_script_popup_ = false;
+    }
+    if (ImGui::BeginPopupModal("New Component", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("Class Name:");
+        ImGui::SetNextItemWidth(300.0f);
+        bool enter = ImGui::InputText("##ClassName", new_script_name_, sizeof(new_script_name_),
+                                       ImGuiInputTextFlags_EnterReturnsTrue);
+        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
+
+        bool valid = std::strlen(new_script_name_) > 0;
+        if (!valid) ImGui::BeginDisabled();
+        bool create = ImGui::Button("Create", {140, 0}) || (enter && valid);
+        if (!valid) ImGui::EndDisabled();
+        ImGui::SameLine();
+        bool cancel = ImGui::Button("Cancel", {140, 0});
+
+        if (create && project_) {
+            std::string name = new_script_name_;
+            // Lowercase filename
+            std::string filename = name;
+            for (auto& c : filename) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+            auto script_dir = project_->root() / "scripts";
+            auto path = script_dir / (filename + ".cpp");
+
+            std::ofstream file(path);
+            if (file.is_open()) {
+                file << "#include \"scripting/fjell_registry.hpp\"\n"
+                     << "#include \"scripting/fjell_world.hpp\"\n"
+                     << "#include <array>\n"
+                     << "#include <cmath>\n"
+                     << "\n"
+                     << "class " << name << " : public fjell::Component {\n"
+                     << "  FJELL_COMPONENT(" << name << ")\n"
+                     << "\n"
+                     << "  // Fields here show up in Properties. Types: FJELL_FIELD_FLOAT, _VEC3, _INT\n"
+                     << "  // FJELL_F_RANGE(Class, member, type, min, max, drag_speed) for sliders\n"
+                     << "  static auto reflect() {\n"
+                     << "    return std::array{\n"
+                     << "      // FJELL_F(" << name << ", speed, FJELL_FIELD_FLOAT),\n"
+                     << "    };\n"
+                     << "  }\n"
+                     << "\n"
+                     << "  void begin_play() override {\n"
+                     << "  }\n"
+                     << "\n"
+                     << "  // actor()->transform().position / .rotation / .scale\n"
+                     << "  // world()->log_info(\"msg\")\n"
+                     << "  void tick(float dt) override {\n"
+                     << "    (void)dt;\n"
+                     << "  }\n"
+                     << "\n"
+                     << "private:\n"
+                     << "  // float speed = 1.0f;\n"
+                     << "};\n";
+
+                FJELL_CORE_INFO("Created script: {}", path.string());
+            } else {
+                FJELL_CORE_ERROR("Failed to create script: {}", path.string());
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        if (cancel) {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
     // File browser popups
     if (open_browser_.draw()) {
         open_project(open_browser_.selected_path());
@@ -998,17 +1189,24 @@ void Engine::draw_ui() {
         scene_.save(current_scene_path_);
     }
 
-    // Gizmo keyboard shortcuts (only when viewport owns input)
-    if (layer_stack_.has_input("Viewport")) {
-        if (ImGui::IsKeyPressed(ImGuiKey_1)) gizmo_op_ = 0;
-        if (ImGui::IsKeyPressed(ImGuiKey_2)) gizmo_op_ = 1;
-        if (ImGui::IsKeyPressed(ImGuiKey_3)) gizmo_op_ = 2;
+    // Gizmo keyboard shortcuts (skip when typing in a text field or navigating)
+    bool navigating = input_.is_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
+    if (!ImGui::GetIO().WantTextInput && !navigating) {
+        if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmo_op_ = 0; // translate
+        if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmo_op_ = 1; // rotate
+        if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmo_op_ = 2; // scale
         if (ImGui::IsKeyPressed(ImGuiKey_Escape)) selected_id_ = 0;
+    }
+
+    // Apply deferred layout load
+    if (!pending_layout_load_.empty()) {
+        ImGui::LoadIniSettingsFromDisk(pending_layout_load_.c_str());
+        pending_layout_load_.clear();
     }
 
     draw_menu_bar();
     setup_dockspace();
-    viewport_manager_.draw(vulkan_context_, scene_, selected_id_, input_, clock_.delta_time());
+    viewport_manager_.draw(vulkan_context_, scene_, selected_id_, input_, clock_.delta_time(), gizmo_op_);
     viewport_hovered_ = viewport_manager_.any_hovered();
     draw_hierarchy();
     draw_properties();
@@ -1078,7 +1276,7 @@ void Engine::draw_play_overlay() {
     ImGui::PopStyleVar();
 
     // Scene image fills the window — use active viewport's offscreen
-    auto tex_id = viewport_manager_.active_texture();
+    auto tex_id = viewport_manager_.active_texture(vulkan_context_);
     if (tex_id) {
         ImGui::Image(tex_id, viewport->WorkSize);
     }
@@ -1167,7 +1365,7 @@ void Engine::run() {
             requests[0].camera_position = play_session_->camera().position();
         }
 
-        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time());
+        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_);
     }
     FJELL_CORE_INFO("Exiting main loop");
 }

@@ -74,10 +74,11 @@ bool ViewportManager::any_hovered() const {
 }
 
 void ViewportManager::draw(VulkanContext& ctx, Scene& scene,
-                           uint32_t& selected_id, const Input& input, float dt) {
+                           uint32_t& selected_id, const Input& input, float dt,
+                           int gizmo_op) {
     bool any_closing = false;
     for (auto it = panels_.begin(); it != panels_.end();) {
-        draw_viewport_panel(*it, ctx, scene, selected_id, input, dt);
+        draw_viewport_panel(*it, ctx, scene, selected_id, input, dt, gizmo_op);
 
         if (!it->open) {
             any_closing = true;
@@ -114,6 +115,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             panel.offscreen->resize(vp_w, vp_h);
             ctx.depth_viz_pass().resize(vp_w, vp_h);
             ctx.wireframe_pass().resize(vp_w, vp_h);
+            ctx.normal_pass().resize(vp_w, vp_h);
             ctx.bloom_pass().resize(vp_w, vp_h);
             ctx.tonemap_pass().resize(vp_w, vp_h);
         }
@@ -159,18 +161,30 @@ void ViewportManager::resize_active(uint32_t width, uint32_t height) {
     }
 }
 
-VkDescriptorSet ViewportManager::active_texture() {
+VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
     for (auto& panel : panels_) {
-        if (panel.id == active_id_ && panel.offscreen) {
-            return panel.offscreen->imgui_texture();
+        if (panel.id != active_id_ || !panel.offscreen) continue;
+
+        switch (panel.source) {
+            case ViewportSource::final_color:
+                return ctx.tonemap_pass().imgui_texture();
+            case ViewportSource::depth:
+                return ctx.depth_viz_pass().imgui_texture();
+            case ViewportSource::wireframe:
+                return ctx.wireframe_pass().imgui_texture();
+            case ViewportSource::bloom:
+                return ctx.bloom_pass().imgui_texture();
+            case ViewportSource::normals:
+                return ctx.normal_pass().imgui_texture();
         }
+        return panel.offscreen->imgui_texture();
     }
     return VK_NULL_HANDLE;
 }
 
 void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                                            Scene& scene, uint32_t& selected_id,
-                                           const Input& input, float dt) {
+                                           const Input& input, float dt, int gizmo_op) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
     ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});
 
@@ -252,6 +266,9 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                     break;
                 case ViewportSource::bloom:
                     tex = ctx.bloom_pass().imgui_texture();
+                    break;
+                case ViewportSource::normals:
+                    tex = ctx.normal_pass().imgui_texture();
                     break;
             }
         }
@@ -368,8 +385,8 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             }
 
             ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
-            if (panel.gizmo_op == 1) op = ImGuizmo::ROTATE;
-            if (panel.gizmo_op == 2) op = ImGuizmo::SCALE;
+            if (gizmo_op == 1) op = ImGuizmo::ROTATE;
+            if (gizmo_op == 2) op = ImGuizmo::SCALE;
 
             ImGuizmo::Manipulate(
                 glm::value_ptr(view),
@@ -379,36 +396,15 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 glm::value_ptr(panel.gizmo_matrix));
 
             auto apply_gizmo = [&] {
-                // Decompose the delta between start and current gizmo matrices
-                // and apply it to the original transform to avoid full Euler roundtrip.
+                // Quaternion-based decompose roundtrips perfectly — no Euler issues
                 glm::mat4 parent_world{1.0f};
                 if (obj->parent_id != -1) {
                     const auto* parent = scene.find(
                         static_cast<uint32_t>(obj->parent_id));
                     if (parent) parent_world = parent->world_matrix_;
                 }
-                glm::mat4 inv_parent = glm::inverse(parent_world);
-                glm::mat4 new_local = inv_parent * panel.gizmo_matrix;
-                Transform result = panel.gizmo_start_transform;
-
-                // Extract position directly from the local matrix (always exact)
-                result.position = glm::vec3(new_local[3]);
-
-                if (op == ImGuizmo::SCALE) {
-                    result.scale.x = glm::length(glm::vec3(new_local[0]));
-                    result.scale.y = glm::length(glm::vec3(new_local[1]));
-                    result.scale.z = glm::length(glm::vec3(new_local[2]));
-                } else if (op == ImGuizmo::ROTATE) {
-                    // Compute rotation delta and add to original Euler angles
-                    // to avoid lossy full decompose
-                    glm::mat4 start_local = inv_parent * panel.gizmo_start_world;
-                    Transform start_decomp = decompose_matrix(start_local);
-                    Transform new_decomp = decompose_matrix(new_local);
-                    glm::vec3 rot_delta = new_decomp.rotation - start_decomp.rotation;
-                    result.rotation = panel.gizmo_start_transform.rotation + rot_delta;
-                }
-
-                obj->transform = result;
+                glm::mat4 local_matrix = glm::inverse(parent_world) * panel.gizmo_matrix;
+                obj->transform = decompose_matrix(local_matrix);
                 obj->world_matrix_ = panel.gizmo_matrix;
             };
 

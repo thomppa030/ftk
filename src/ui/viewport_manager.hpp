@@ -46,7 +46,8 @@ public:
     void add_viewport(ViewportSource source = ViewportSource::final_color,
                       const std::string& title = "");
     void draw(VulkanContext& ctx, Scene& scene,
-              uint32_t& selected_id, const Input& input, float dt);
+              uint32_t& selected_id, const Input& input, float dt,
+              int gizmo_op = 0);
 
     // The active viewport is the last one that was focused.
     // Its camera drives the scene render.
@@ -63,8 +64,8 @@ public:
     // Resize the active viewport's offscreen (for play mode fullscreen)
     void resize_active(uint32_t width, uint32_t height);
 
-    // Get the active viewport's ImGui texture descriptor set
-    [[nodiscard]] VkDescriptorSet active_texture();
+    // Get the active viewport's ImGui texture descriptor set (respects source)
+    [[nodiscard]] VkDescriptorSet active_texture(VulkanContext& ctx);
 
     // Release all offscreen ImGui textures (call before destroying ImGui)
     void release_textures();
@@ -72,7 +73,7 @@ public:
 private:
     void draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                              Scene& scene, uint32_t& selected_id,
-                             const Input& input, float dt);
+                             const Input& input, float dt, int gizmo_op);
 
     Device* device_{nullptr};
     std::vector<ViewportPanel> panels_;

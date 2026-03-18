@@ -125,6 +125,12 @@ private:
     uint32_t remove_pending_id_{0};
     int gizmo_op_{0}; // 0=translate, 1=rotate, 2=scale
     bool layout_built_{false};
+    bool show_new_script_popup_{false};
+    char new_script_name_[128]{};
+    bool show_save_layout_popup_{false};
+    char layout_name_buf_[128]{};
+    std::string pending_layout_load_;
+    bool has_saved_layout_{false};
     bool focus_viewport_{false};
 
     // Viewports
