@@ -8,6 +8,7 @@ add_executable(fjell
     core/input.cpp
     core/play_session.cpp
     core/project.cpp
+    core/thread_pool.cpp
     core/log.cpp
     core/window.cpp
     renderer/buffer.cpp
