@@ -122,8 +122,16 @@ void DebugDraw::update(const Scene& scene) {
         uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
         if (count == 0) continue;
 
-        // Model matrix = object world position + collider offset (no scale — already baked into shape)
-        auto model = glm::translate(glm::mat4(1.0f), obj.transform.position + col.offset);
+        // Model matrix = object position + rotation + collider offset (rotated).
+        // Scale is already baked into the shape dimensions, so strip it.
+        glm::mat3 rot(glm::normalize(glm::vec3(obj.world_matrix_[0])),
+                      glm::normalize(glm::vec3(obj.world_matrix_[1])),
+                      glm::normalize(glm::vec3(obj.world_matrix_[2])));
+        glm::vec3 world_offset = rot * col.offset;
+        glm::mat4 model(glm::vec4(rot[0], 0.0f),
+                         glm::vec4(rot[1], 0.0f),
+                         glm::vec4(rot[2], 0.0f),
+                         glm::vec4(glm::vec3(obj.world_matrix_[3]) + world_offset, 1.0f));
         draw_commands_.push_back({model, first, count});
     }
 
