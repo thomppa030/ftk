@@ -34,6 +34,7 @@ add_executable(fjell
     renderer/pass/sky_pass.cpp
     renderer/pass/tonemap_pass.cpp
     renderer/pass/transparent_pass.cpp
+    renderer/pass/normal_pass.cpp
     renderer/pass/wireframe_pass.cpp
     renderer/render_queue.cpp
     renderer/resource_manager.cpp
