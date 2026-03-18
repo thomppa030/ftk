@@ -56,6 +56,7 @@ add_executable(fjell
     renderer/stb_image.cpp
     renderer/swapchain.cpp
     renderer/texture.cpp
+    renderer/viz_image.cpp
     renderer/vulkan_context.cpp
     physics/physics_world.cpp
     scene/scene.cpp

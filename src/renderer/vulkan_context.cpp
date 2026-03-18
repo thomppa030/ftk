@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "renderer/frame_graph.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"

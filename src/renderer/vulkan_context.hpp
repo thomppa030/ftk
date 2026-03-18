@@ -9,7 +9,6 @@
 #include "renderer/meshlet_buffer.hpp"
 #include "renderer/meshlet_descriptor.hpp"
 #include "renderer/particle_system.hpp"
-#include "renderer/frame_graph.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"
