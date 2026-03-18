@@ -846,6 +846,17 @@ void Engine::draw_stats() {
         ImGui::Text("Culled: %u/%u", stats.objects_culled, stats.objects_total);
         ImGui::SameLine(0, 20);
         ImGui::Text("MSAA: %ux", static_cast<uint32_t>(vulkan_context_.msaa_samples()));
+        if (vulkan_context_.mesh_shaders_available()) {
+            ImGui::SameLine(0, 20);
+            bool mesh_on = vulkan_context_.use_mesh_shaders();
+            if (ImGui::Checkbox("Mesh Shaders", &mesh_on)) {
+                vulkan_context_.set_use_mesh_shaders(mesh_on);
+            }
+            if (mesh_on) {
+                ImGui::SameLine(0, 10);
+                ImGui::Text("Meshlets: %u", stats.meshlets_dispatched);
+            }
+        }
 
         ImGui::PlotLines("##FrameTime", frame_time_history_.data(),
                          FRAME_TIME_HISTORY_SIZE, frame_time_index_,

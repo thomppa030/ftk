@@ -642,6 +642,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         if (scene) {
             if (use_mesh_shaders_) {
                 mesh_shader_pass_.record(ctx);
+                render_stats_->meshlets_dispatched += meshlet_buffer_
+                    ? meshlet_buffer_->total_meshlets() : 0;
             } else {
                 mega_buffer_->bind(cmd);
                 indirect_batch_->draw(cmd, current_frame_);

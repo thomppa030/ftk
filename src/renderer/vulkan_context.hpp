@@ -82,6 +82,9 @@ public:
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }
     [[nodiscard]] Device& device_ref() { return device_; }
     [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return msaa_samples_; }
+    [[nodiscard]] bool mesh_shaders_available() const { return device_.mesh_shader_supported(); }
+    [[nodiscard]] bool use_mesh_shaders() const { return use_mesh_shaders_; }
+    void set_use_mesh_shaders(bool enable) { use_mesh_shaders_ = enable && device_.mesh_shader_supported(); }
     [[nodiscard]] DepthVizPass& depth_viz_pass() { return depth_viz_pass_; }
     [[nodiscard]] WireframePass& wireframe_pass() { return wireframe_pass_; }
     [[nodiscard]] NormalPass& normal_pass() { return normal_pass_; }
