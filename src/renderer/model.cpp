@@ -1,4 +1,5 @@
 #include "renderer/model.hpp"
+#include "renderer/meshlet.hpp"
 #include "renderer/primitives.hpp"
 #include "renderer/vertex.hpp"
 #include "core/log.hpp"
@@ -180,6 +181,11 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
                     collision_indices_.push_back(base_index + idx);
                 }
 
+                // Build meshlets for this sub-mesh
+                meshlet_results_.push_back(build_meshlets(
+                    vertices.data(), static_cast<uint32_t>(vertices.size()),
+                    indices.data(), static_cast<uint32_t>(indices.size())));
+
                 if (mega) {
                     auto entry = mega->upload(vertices, indices);
                     mega_entries_.push_back(entry);
@@ -193,8 +199,8 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
         }
     }
 
-    FJELL_GFX_INFO("Model loaded: {} meshes, {} textures",
-                   meshes_.size(), textures_.size());
+    FJELL_GFX_INFO("Model loaded: {} meshes, {} textures, {} meshlets",
+                   meshes_.size(), textures_.size(), total_meshlet_count());
 }
 
 Model::Model(VkDevice device, VkPhysicalDevice physical_device,
@@ -205,6 +211,10 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
         local_aabb_.expand(v.position);
     }
     collision_indices_ = data.indices;
+
+    meshlet_results_.push_back(build_meshlets(
+        data.vertices.data(), static_cast<uint32_t>(data.vertices.size()),
+        data.indices.data(), static_cast<uint32_t>(data.indices.size())));
 
     if (mega) {
         auto entry = mega->upload(data.vertices, data.indices);
@@ -235,6 +245,14 @@ uint32_t Model::total_indices() const {
     uint32_t total = 0;
     for (auto& mesh : meshes_) {
         total += mesh->index_count();
+    }
+    return total;
+}
+
+uint32_t Model::total_meshlet_count() const {
+    uint32_t total = 0;
+    for (const auto& result : meshlet_results_) {
+        total += static_cast<uint32_t>(result.meshlets.size());
     }
     return total;
 }

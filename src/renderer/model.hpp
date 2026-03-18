@@ -3,6 +3,7 @@
 #include "renderer/frustum.hpp"
 #include "renderer/mega_buffer.hpp"
 #include "renderer/mesh.hpp"
+#include "renderer/meshlet.hpp"
 #include "renderer/texture.hpp"
 
 #include <glm/glm.hpp>
@@ -51,6 +52,9 @@ public:
         return static_cast<uint32_t>(mega_entries_.size());
     }
 
+    [[nodiscard]] const std::vector<MeshletBuildResult>& meshlet_results() const { return meshlet_results_; }
+    [[nodiscard]] uint32_t total_meshlet_count() const;
+
 private:
     std::vector<std::unique_ptr<Mesh>> meshes_;
     std::vector<std::unique_ptr<Texture>> textures_;
@@ -58,6 +62,7 @@ private:
     std::vector<uint32_t> collision_indices_;
     AABB local_aabb_;
     std::vector<MegaMeshEntry> mega_entries_;
+    std::vector<MeshletBuildResult> meshlet_results_;
 };
 
 } // namespace fjell
