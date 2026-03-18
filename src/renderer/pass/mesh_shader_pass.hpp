@@ -21,6 +21,7 @@ private:
     VkPipeline pipeline_{VK_NULL_HANDLE};
     VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout meshlet_layout_{VK_NULL_HANDLE};
+    PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
 };
 
 } // namespace fjell

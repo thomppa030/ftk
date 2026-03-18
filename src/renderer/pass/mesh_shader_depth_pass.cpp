@@ -14,15 +14,9 @@
 
 namespace fjell {
 
-static PFN_vkCmdDrawMeshTasksEXT pfn_vkCmdDrawMeshTasksEXT = nullptr;
-
 void MeshShaderDepthPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-
-    if (!pfn_vkCmdDrawMeshTasksEXT) {
-        pfn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(
-            vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksEXT"));
-    }
+    draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
 
     auto task_code = read_spirv(base_path::resolve("shaders/depth_mesh.task.spv"));
     auto mesh_code = read_spirv(base_path::resolve("shaders/depth_mesh.mesh.spv"));
@@ -185,7 +179,7 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         for (uint32_t i = 0; i < draw_count; ++i) {
             vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
                                0, sizeof(uint32_t), &i);
-            pfn_vkCmdDrawMeshTasksEXT(ctx.cmd, 1, 1, 1);
+            draw_mesh_tasks_(ctx.cmd, 1, 1, 1);
         }
     }
 

@@ -17,16 +17,10 @@ namespace fjell {
 
 static constexpr VkFormat VIZ_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
-static PFN_vkCmdDrawMeshTasksEXT pfn_vkCmdDrawMeshTasksEXT = nullptr;
-
 void MeshletVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
-
-    if (!pfn_vkCmdDrawMeshTasksEXT) {
-        pfn_vkCmdDrawMeshTasksEXT = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(
-            vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksEXT"));
-    }
+    draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
 
     // Sampler for ImGui display
     VkSamplerCreateInfo sampler_ci{};
@@ -345,7 +339,7 @@ void MeshletVizPass::record(const FrameContext& ctx) {
                 vkCmdPushConstants(cmd, layout_,
                                    VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
                                    0, sizeof(uint32_t), &i);
-                pfn_vkCmdDrawMeshTasksEXT(cmd, 1, 1, 1);
+                draw_mesh_tasks_(cmd, 1, 1, 1);
             }
         }
     }

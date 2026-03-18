@@ -53,6 +53,7 @@ public:
     [[nodiscard]] VkSampleCountFlagBits max_msaa_samples() const;
     [[nodiscard]] bool mesh_shader_supported() const { return mesh_shader_supported_; }
     [[nodiscard]] uint32_t mesh_shader_max_workgroup_size() const { return mesh_shader_max_workgroup_size_; }
+    [[nodiscard]] PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_fn() const { return pfn_draw_mesh_tasks_; }
     [[nodiscard]] VkFormat find_supported_format(
         const std::vector<VkFormat>& candidates, VkImageTiling tiling,
         VkFormatFeatureFlags features) const;
@@ -83,6 +84,7 @@ private:
     std::string gpu_name_;
     bool mesh_shader_supported_{false};
     uint32_t mesh_shader_max_workgroup_size_{0};
+    PFN_vkCmdDrawMeshTasksEXT pfn_draw_mesh_tasks_{nullptr};
 
 #ifdef NDEBUG
     static constexpr bool enable_validation_ = false;
