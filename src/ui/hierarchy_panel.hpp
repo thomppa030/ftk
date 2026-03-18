@@ -1,0 +1,40 @@
+#pragma once
+
+#include <cstdint>
+#include <functional>
+#include <string>
+
+namespace fjell {
+
+class CommandHistory;
+class Scene;
+class ViewportManager;
+struct RenderObject;
+
+class HierarchyPanel {
+public:
+    using AddPrimitiveCallback = std::function<void(const std::string&)>;
+    using RemoveObjectCallback = std::function<void(uint32_t)>;
+
+    void init(Scene* scene, ViewportManager* viewports, uint32_t* selected_id,
+              CommandHistory* history);
+    void set_add_primitive_callback(AddPrimitiveCallback cb) { add_primitive_cb_ = std::move(cb); }
+    void set_remove_object_callback(RemoveObjectCallback cb) { remove_object_cb_ = std::move(cb); }
+
+    void draw();
+
+private:
+    void draw_node(RenderObject& obj);
+
+    Scene* scene_{nullptr};
+    ViewportManager* viewports_{nullptr};
+    uint32_t* selected_id_{nullptr};
+    CommandHistory* history_{nullptr};
+
+    uint32_t remove_pending_id_{0};
+
+    AddPrimitiveCallback add_primitive_cb_;
+    RemoveObjectCallback remove_object_cb_;
+};
+
+} // namespace fjell
