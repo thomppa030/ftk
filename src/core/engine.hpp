@@ -23,6 +23,7 @@
 #include "ui/properties_panel.hpp"
 #include "ui/stats_panel.hpp"
 #include "ui/viewport_manager.hpp"
+#include "ui/node_editor_panel.hpp"
 #include "ui/nvim_panel.hpp"
 
 #ifndef NDEBUG
@@ -97,6 +98,7 @@ private:
     PropertiesPanel properties_panel_;
     StatsPanel stats_panel_;
     HistoryPanel history_panel_;
+    NodeEditorPanel node_editor_panel_;
 
 #ifndef NDEBUG
     ShaderWatcher shader_watcher_;

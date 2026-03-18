@@ -151,11 +151,14 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         });
 
     properties_panel_.init(&scene_, &selected_id_, &gizmo_op_, &light_,
-                           &script_manager_, &command_history_);
+                           &script_manager_, &command_history_,
+                           &vulkan_context_.grid_pass().settings());
 
     stats_panel_.init(&vulkan_context_);
 
     history_panel_.init(&command_history_);
+
+    node_editor_panel_.init(&scene_, &selected_id_);
 
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
@@ -168,6 +171,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 Engine::~Engine() {
     vulkan_context_.wait_idle();
     vulkan_context_.set_overlay_callback(nullptr);
+    node_editor_panel_.shutdown();
     scene_ = {};
     resource_manager_.reset();
     icon_cache_.reset();
@@ -451,6 +455,13 @@ void Engine::draw_menu_bar() {
             if (ImGui::MenuItem("Add Viewport")) {
                 viewport_manager_.add_viewport();
             }
+            ImGui::Separator();
+            auto& grid = vulkan_context_.grid_pass().settings();
+            ImGui::Checkbox("Show Grid", &grid.visible);
+            ImGui::Checkbox("Snap to Grid", &grid.snap_enabled);
+            ImGui::DragFloat("Grid Size", &grid.cell_size, 0.1f, 0.1f, 50.0f);
+            ImGui::DragFloat("Grid Opacity", &grid.opacity, 0.01f, 0.0f, 1.0f);
+            ImGui::DragFloat("Grid Fade", &grid.fade_distance, 1.0f, 10.0f, 500.0f);
             ImGui::EndMenu();
         }
 
@@ -790,6 +801,7 @@ void Engine::draw_ui() {
     content_browser_.draw();
     stats_panel_.draw(clock_.delta_time());
     history_panel_.draw();
+    node_editor_panel_.draw();
     draw_console();
     draw_code_editor();
 

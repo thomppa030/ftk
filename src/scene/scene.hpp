@@ -91,6 +91,7 @@ struct RenderObject {
         }
         copy.rigidbody = rigidbody;
         copy.collider = collider;
+        copy.emitter = emitter;
         return copy;
     }
 };

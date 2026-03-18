@@ -34,6 +34,7 @@ add_executable(fjell
     renderer/frame_graph.cpp
     renderer/particle_system.cpp
     renderer/pass/bloom_pass.cpp
+    renderer/pass/grid_pass.cpp
     renderer/pass/debug_pass.cpp
     renderer/pass/depth_prepass.cpp
     renderer/pass/depth_viz_pass.cpp
@@ -72,6 +73,7 @@ add_executable(fjell
     ui/icon_cache.cpp
     ui/properties_panel.cpp
     ui/stats_panel.cpp
+    ui/node_editor_panel.cpp
     ui/viewport_manager.cpp
 
     # ImGui sources
@@ -85,6 +87,9 @@ add_executable(fjell
 
     # ImGuizmo
     ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
+
+    # imnodes
+    ${imnodes_SOURCE_DIR}/imnodes.cpp
 )
 
 target_include_directories(fjell PRIVATE
@@ -96,6 +101,7 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}
+    ${imnodes_SOURCE_DIR}
 )
 
 find_library(VTERM_LIB vterm REQUIRED)

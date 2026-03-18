@@ -54,6 +54,13 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
+    imnodes
+    GIT_REPOSITORY https://github.com/Nelarius/imnodes.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_Declare(
     json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG        v3.11.3
@@ -79,6 +86,12 @@ endif()
 FetchContent_GetProperties(imguizmo)
 if(NOT imguizmo_POPULATED)
     FetchContent_Populate(imguizmo)
+endif()
+
+# imnodes — same pattern
+FetchContent_GetProperties(imnodes)
+if(NOT imnodes_POPULATED)
+    FetchContent_Populate(imnodes)
 endif()
 
 find_package(Vulkan REQUIRED)
