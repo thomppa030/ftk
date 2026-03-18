@@ -1,5 +1,6 @@
 #include "core/engine.hpp"
 #include "core/base_path.hpp"
+#include "core/commands.hpp"
 #include "core/game_builder.hpp"
 #include "core/layer.hpp"
 #include "core/log.hpp"
@@ -7,20 +8,16 @@
 #include "ui/console.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
-#include "renderer/render_stats.hpp"
 #include "renderer/texture.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <ImGuizmo.h>
 #include <GLFW/glfw3.h>
-#include <glm/gtc/type_ptr.hpp>
 #include <nlohmann/json.hpp>
 
-#include <cmath>
 #include <filesystem>
 #include <fstream>
-#include <limits>
 
 namespace fjell {
 
@@ -120,6 +117,46 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         load_project_scripts();
     }
 
+    icon_cache_ = std::make_unique<IconCache>(
+        vulkan_context_.device(), vulkan_context_.physical_device(),
+        vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
+        base_path::resolve("assets/icons"));
+
+    content_browser_.init(icon_cache_.get(), &nvim_panel_,
+                          &vulkan_context_, resource_manager_.get());
+    content_browser_.set_add_model_callback(
+        [this](const std::string& path) {
+            add_model_to_scene(path);
+            command_history_.execute(std::make_unique<AddObjectCommand>(
+                scene_, selected_id_, &selected_id_));
+        });
+    content_browser_.set_load_scene_callback(
+        [this](const std::string& path) { load_scene(path); });
+    if (project_) {
+        content_browser_.set_root(project_->root());
+    }
+
+    hierarchy_panel_.init(&scene_, &viewport_manager_, &selected_id_, &command_history_);
+    hierarchy_panel_.set_add_primitive_callback(
+        [this](const std::string& type) {
+            add_primitive_to_scene(type);
+            command_history_.execute(std::make_unique<AddObjectCommand>(
+                scene_, selected_id_, &selected_id_));
+        });
+    hierarchy_panel_.set_remove_object_callback(
+        [this](uint32_t id) {
+            command_history_.execute(std::make_unique<RemoveObjectCommand>(
+                scene_, id, &selected_id_,
+                [this]() { vulkan_context_.wait_idle(); }));
+        });
+
+    properties_panel_.init(&scene_, &selected_id_, &gizmo_op_, &light_,
+                           &script_manager_, &command_history_);
+
+    stats_panel_.init(&vulkan_context_);
+
+    history_panel_.init(&command_history_);
+
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
     viewport_manager_.init(vulkan_context_.device_ref(), vulkan_context_.msaa_samples());
@@ -133,6 +170,7 @@ Engine::~Engine() {
     vulkan_context_.set_overlay_callback(nullptr);
     scene_ = {};
     resource_manager_.reset();
+    icon_cache_.reset();
     viewport_manager_.release_textures();
     imgui_layer_.reset();
     FJELL_CORE_INFO("Engine shut down");
@@ -255,6 +293,7 @@ void Engine::setup_dockspace() {
     // Build default layout on first run (skip if restoring a saved layout)
     if (!layout_built_) {
         layout_built_ = true;
+        focus_viewport_ = true;
         if (has_saved_layout_) {
             ImGui::End();
             return;
@@ -267,604 +306,30 @@ void Engine::setup_dockspace() {
         // Viewport is the parent — split everything else off from it
         ImGuiID viewport_node = dockspace_id;
 
-        // Split bottom strip (Stats/Console) off viewport
-        ImGuiID bottom = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Down, 0.18f, nullptr, &viewport_node);
-
-        // Split left panel (Assets) off viewport
-        ImGuiID left = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Left, 0.18f, nullptr, &viewport_node);
-
-        // Split right panel off viewport, then split that into top/bottom
+        // Right panel: Hierarchy + Properties
         ImGuiID right = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Right, 0.22f, nullptr, &viewport_node);
         ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.50f, nullptr, &right);
 
-        // Split Code Editor below viewport
-        ImGuiID editor = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Down, 0.40f, nullptr, &viewport_node);
+        // Stats/Console strip below viewport (tabbed)
+        ImGuiID stats_strip = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Down, 0.20f, nullptr, &viewport_node);
+
+        // Code Editor below stats
+        ImGuiID editor = ImGui::DockBuilderSplitNode(stats_strip, ImGuiDir_Down, 0.65f, nullptr, &stats_strip);
 
         ImGui::DockBuilderDockWindow("Viewport", viewport_node);
+        ImGui::DockBuilderDockWindow("Stats", stats_strip);
+        ImGui::DockBuilderDockWindow("Console", stats_strip);
         ImGui::DockBuilderDockWindow("Code Editor", editor);
-        ImGui::DockBuilderDockWindow("Assets", left);
         ImGui::DockBuilderDockWindow("Hierarchy", right);
+        ImGui::DockBuilderDockWindow("History", right);
         ImGui::DockBuilderDockWindow("Properties", right_bottom);
-        ImGui::DockBuilderDockWindow("Stats", bottom);
-        ImGui::DockBuilderDockWindow("Console", bottom);
-
         ImGui::DockBuilderFinish(dockspace_id);
-        focus_viewport_ = true;
     }
 
     ImGui::End();
 }
 
-void Engine::draw_hierarchy() {
-    if (ImGui::Begin("Hierarchy")) {
-        remove_pending_id_ = 0;
-
-        // Draw root objects
-        for (auto& obj : scene_.objects()) {
-            if (obj.parent_id == -1) {
-                draw_hierarchy_node(obj);
-            }
-        }
-
-        // Empty space = drop target for unparent to root
-        ImVec2 avail = ImGui::GetContentRegionAvail();
-        if (avail.y > 0) {
-            ImGui::Dummy(avail);
-            if (ImGui::BeginDragDropTarget()) {
-                if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
-                    uint32_t dragged_id = *static_cast<const uint32_t*>(payload->Data);
-                    scene_.reparent(dragged_id, -1);
-                }
-                ImGui::EndDragDropTarget();
-            }
-        }
-
-        // Deferred removal
-        if (remove_pending_id_ != 0) {
-            vulkan_context_.wait_idle();
-            if (selected_id_ == remove_pending_id_) selected_id_ = 0;
-            scene_.remove(remove_pending_id_);
-        }
-    }
-    ImGui::End();
-}
-
-void Engine::draw_hierarchy_node(RenderObject& obj) {
-    auto& objects = scene_.objects();
-
-    bool has_children = false;
-    for (const auto& other : objects) {
-        if (other.parent_id == static_cast<int32_t>(obj.id)) {
-            has_children = true;
-            break;
-        }
-    }
-
-    ImGui::PushID(static_cast<int>(obj.id));
-
-    bool is_selected = (obj.id == selected_id_);
-
-    ImGuiTreeNodeFlags flags =
-        ImGuiTreeNodeFlags_OpenOnArrow |
-        ImGuiTreeNodeFlags_SpanAvailWidth |
-        ImGuiTreeNodeFlags_DefaultOpen |
-        ImGuiTreeNodeFlags_FramePadding;
-
-    if (!has_children) {
-        flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
-    }
-    if (is_selected) {
-        flags |= ImGuiTreeNodeFlags_Selected;
-    }
-
-    // Row styling — equal vertical padding for centered text
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.0f, 4.0f});
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 1.0f});
-
-    if (is_selected) {
-        ImGui::PushStyleColor(ImGuiCol_Header, {0.22f, 0.27f, 0.58f, 1.0f});
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.26f, 0.32f, 0.65f, 1.0f});
-    }
-
-    bool node_open = ImGui::TreeNodeEx(obj.name.c_str(), flags);
-
-    if (is_selected) {
-        ImGui::PopStyleColor(2);
-    }
-
-    ImGui::PopStyleVar(2);
-
-    bool row_hovered = ImGui::IsItemHovered();
-
-    if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-        selected_id_ = obj.id;
-    }
-    if (row_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        selected_id_ = obj.id;
-        glm::vec3 center = glm::vec3(obj.world_matrix_[3]);
-        float radius = 1.0f;
-        if (obj.model && !obj.model->collision_vertices().empty()) {
-            float max_r2 = 0.0f;
-            for (const auto& v : obj.model->collision_vertices()) {
-                auto wv = glm::vec3(obj.world_matrix_ * glm::vec4(v, 1.0f));
-                max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
-            }
-            radius = std::max(std::sqrt(max_r2), 0.1f);
-        }
-        if (auto* cam = viewport_manager_.active_camera()) {
-            cam->focus(center, radius);
-        }
-    }
-
-    // Drag source — must follow immediately after TreeNodeEx
-    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-        ImGui::SetDragDropPayload("HIERARCHY_NODE", &obj.id, sizeof(obj.id));
-        ImGui::Text("%s", obj.name.c_str());
-        ImGui::EndDragDropSource();
-    }
-
-    // Drop target — reparent dragged object under this one
-    if (ImGui::BeginDragDropTarget()) {
-        if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
-            uint32_t dragged_id = *static_cast<const uint32_t*>(payload->Data);
-            if (dragged_id != obj.id) {
-                bool is_ancestor = false;
-                int32_t check = static_cast<int32_t>(obj.id);
-                while (check != -1) {
-                    if (static_cast<uint32_t>(check) == dragged_id) {
-                        is_ancestor = true;
-                        break;
-                    }
-                    const auto* p = scene_.find(static_cast<uint32_t>(check));
-                    check = p ? p->parent_id : -1;
-                }
-                if (!is_ancestor) {
-                    scene_.reparent(dragged_id, static_cast<int32_t>(obj.id));
-                }
-            }
-        }
-        ImGui::EndDragDropTarget();
-    }
-
-    // Delete button — always present to avoid layout shift, hidden when not relevant
-    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 20);
-    if (row_hovered || is_selected) {
-        ImGui::PushStyleColor(ImGuiCol_Button, {0.0f, 0.0f, 0.0f, 0.0f});
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.8f, 0.2f, 0.2f, 0.6f});
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.9f, 0.1f, 0.1f, 0.8f});
-        ImGui::PushStyleColor(ImGuiCol_Text, {0.7f, 0.7f, 0.7f, 1.0f});
-        if (ImGui::SmallButton("X")) {
-            remove_pending_id_ = obj.id;
-        }
-        ImGui::PopStyleColor(4);
-    } else {
-        ImGui::Dummy({20.0f, 0.0f});
-    }
-
-    // Recurse children
-    if (has_children && node_open) {
-        for (auto& child : objects) {
-            if (child.parent_id == static_cast<int32_t>(obj.id)) {
-                draw_hierarchy_node(child);
-            }
-        }
-        ImGui::TreePop();
-    }
-
-    ImGui::PopID();
-}
-
-void Engine::draw_properties() {
-    if (ImGui::Begin("Properties")) {
-        auto* obj = scene_.find(selected_id_);
-        if (obj) {
-
-            // Editable name
-            char name_buf[128];
-            std::strncpy(name_buf, obj->name.c_str(), sizeof(name_buf) - 1);
-            name_buf[sizeof(name_buf) - 1] = '\0';
-            ImGui::Text("Name");
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::InputText("##Name", name_buf, sizeof(name_buf))) {
-                obj->name = name_buf;
-                scene_.mark_dirty();
-            }
-
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Transform");
-            ImGui::Text("Position");
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##Position", &obj->transform.position.x, 0.1f)) scene_.mark_dirty();
-            ImGui::Text("Rotation");
-            ImGui::SetNextItemWidth(-1);
-            {
-                glm::vec3 euler = obj->transform.euler_degrees();
-                if (ImGui::DragFloat3("##Rotation", &euler.x, 1.0f)) {
-                    obj->transform.set_euler_degrees(euler);
-                    scene_.mark_dirty();
-                }
-            }
-            ImGui::Text("Scale");
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f)) scene_.mark_dirty();
-
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Gizmo");
-            ImGui::RadioButton("Move (W)", &gizmo_op_, 0); ImGui::SameLine();
-            ImGui::RadioButton("Rot (E)", &gizmo_op_, 1); ImGui::SameLine();
-            ImGui::RadioButton("Scl (R)", &gizmo_op_, 2);
-
-            ImGui::Spacing();
-            ImGui::TextDisabled("Source: %s", obj->source.c_str());
-
-            // Rigidbody
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Rigidbody");
-            if (obj->rigidbody) {
-                auto& rb = *obj->rigidbody;
-                static const char* body_type_labels[] = {"Static", "Kinematic", "Dynamic"};
-                int bt = static_cast<int>(rb.body_type);
-                ImGui::Text("Body Type");
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::Combo("##BodyType", &bt, body_type_labels, 3)) {
-                    rb.body_type = static_cast<BodyType>(bt);
-                }
-                ImGui::Text("Mass");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
-                ImGui::Text("Friction");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##Friction", &rb.friction, 0.01f, 0.0f, 2.0f);
-                ImGui::Text("Restitution");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##Restitution", &rb.restitution, 0.01f, 0.0f, 2.0f);
-                ImGui::Text("Linear Damping");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##LinearDamping", &rb.linear_damping, 0.01f, 0.0f, 10.0f);
-                ImGui::Text("Angular Damping");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##AngularDamping", &rb.angular_damping, 0.01f, 0.0f, 10.0f);
-                ImGui::Checkbox("Gravity", &rb.gravity_enabled);
-                if (ImGui::SmallButton("Remove Rigidbody")) {
-                    obj->rigidbody.reset();
-                }
-            } else {
-                if (ImGui::Button("Add Rigidbody", {-1, 0})) {
-                    obj->rigidbody = RigidbodyDesc{};
-                }
-            }
-
-            // Collider
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Collider");
-            if (obj->collider) {
-                auto& col = *obj->collider;
-                static const char* shape_labels[] = {"Box", "Sphere", "Capsule", "Mesh"};
-                int sh = static_cast<int>(col.shape);
-                ImGui::Text("Shape");
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::Combo("##Shape", &sh, shape_labels, 4)) {
-                    col.shape = static_cast<ColliderShape>(sh);
-                }
-                switch (col.shape) {
-                    case ColliderShape::Box:
-                        ImGui::Text("Half Extents");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat3("##HalfExtents", &col.half_extents.x, 0.05f, 0.01f, 100.0f);
-                        break;
-                    case ColliderShape::Sphere:
-                        ImGui::Text("Radius");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat("##Radius", &col.radius, 0.05f, 0.01f, 100.0f);
-                        break;
-                    case ColliderShape::Capsule:
-                        ImGui::Text("Radius");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat("##RadiusCap", &col.radius, 0.05f, 0.01f, 100.0f);
-                        ImGui::Text("Height");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat("##Height", &col.height, 0.05f, 0.01f, 100.0f);
-                        break;
-                    case ColliderShape::Mesh:
-                        ImGui::TextDisabled("Uses model collision mesh");
-                        break;
-                }
-                ImGui::Text("Offset");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat3("##Offset", &col.offset.x, 0.05f);
-                if (ImGui::SmallButton("Remove Collider")) {
-                    obj->collider.reset();
-                }
-            } else {
-                if (ImGui::Button("Add Collider", {-1, 0})) {
-                    ColliderDesc col{};
-                    // Auto-detect shape from primitive source
-                    if (obj->source == "primitive:cube") {
-                        col.shape = ColliderShape::Box;
-                    } else if (obj->source == "primitive:sphere") {
-                        col.shape = ColliderShape::Sphere;
-                        col.radius = 0.5f;
-                    } else {
-                        col.shape = ColliderShape::Box;
-                    }
-                    obj->collider = col;
-                }
-            }
-
-            // Particle Emitter
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Particle Emitter");
-            if (obj->emitter) {
-                auto& em = *obj->emitter;
-                if (ImGui::DragFloat("Emit Rate", &em.emission_rate, 1.0f, 0.0f, 10000.0f)) scene_.mark_dirty();
-                if (ImGui::DragFloat("Lifetime Min", &em.lifetime_min, 0.1f, 0.01f, 30.0f)) scene_.mark_dirty();
-                if (ImGui::DragFloat("Lifetime Max", &em.lifetime_max, 0.1f, 0.01f, 30.0f)) scene_.mark_dirty();
-                int max_p = static_cast<int>(em.max_particles);
-                if (ImGui::DragInt("Max Particles", &max_p, 100, 100, 100000)) {
-                    em.max_particles = static_cast<uint32_t>(max_p);
-                    scene_.mark_dirty();
-                }
-                if (ImGui::DragFloat3("Velocity Min", &em.velocity_min.x, 0.1f)) scene_.mark_dirty();
-                if (ImGui::DragFloat3("Velocity Max", &em.velocity_max.x, 0.1f)) scene_.mark_dirty();
-                if (ImGui::DragFloat3("Gravity", &em.gravity.x, 0.1f)) scene_.mark_dirty();
-                if (ImGui::ColorEdit4("Color Start", &em.color_start.r)) scene_.mark_dirty();
-                if (ImGui::ColorEdit4("Color End", &em.color_end.r)) scene_.mark_dirty();
-                if (ImGui::DragFloat("Size Start", &em.size_start, 0.01f, 0.001f, 10.0f)) scene_.mark_dirty();
-                if (ImGui::DragFloat("Size End", &em.size_end, 0.01f, 0.001f, 10.0f)) scene_.mark_dirty();
-                static const char* blend_labels[] = {"Additive", "Alpha"};
-                int bm = static_cast<int>(em.blend_mode);
-                if (ImGui::Combo("Blend Mode", &bm, blend_labels, 2)) {
-                    em.blend_mode = static_cast<ParticleBlendMode>(bm);
-                    scene_.mark_dirty();
-                }
-                if (ImGui::SmallButton("Remove Emitter")) {
-                    obj->emitter.reset();
-                    scene_.mark_dirty();
-                }
-            } else {
-                if (ImGui::Button("Add Particle Emitter", {-1, 0})) {
-                    obj->emitter = ParticleEmitter{};
-                    scene_.mark_dirty();
-                }
-            }
-
-            // Components
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
-            script_manager_.draw_inspector(*obj);
-
-            // Add component button
-            if (script_manager_.is_loaded() && !script_manager_.component_types().empty()) {
-                if (ImGui::Button("Add Component", {-1, 0})) {
-                    ImGui::OpenPopup("##AddComponent");
-                }
-                if (ImGui::BeginPopup("##AddComponent")) {
-                    for (const auto& type : script_manager_.component_types()) {
-                        if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
-                            script_manager_.add_component(*obj, type.name);
-                        }
-                    }
-                    ImGui::EndPopup();
-                }
-            }
-        } else {
-            ImGui::TextDisabled("No object selected");
-        }
-
-        ImGui::Spacing();
-        ImGui::Separator();
-        if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Text("Direction");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat3("##Direction", &light_.direction.x, 0.01f, -1.0f, 1.0f);
-            ImGui::Text("Color");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::ColorEdit3("##Color", &light_.color.x);
-            ImGui::Text("Intensity");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat("##Intensity", &light_.intensity, 0.05f, 0.0f, 10.0f);
-            ImGui::Spacing();
-            ImGui::Text("Ambient");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::ColorEdit3("##Ambient", &light_.ambient_color.x);
-            ImGui::Text("Ambient Intensity");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat("##AmbientIntensity", &light_.ambient_intensity, 0.05f, 0.0f, 2.0f);
-        }
-
-        if (ImGui::CollapsingHeader("Point Lights", ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto& point_lights = scene_.point_lights();
-            int remove_idx = -1;
-            for (int i = 0; i < static_cast<int>(point_lights.size()); ++i) {
-                ImGui::PushID(i);
-                auto& pl = point_lights[i];
-                bool open = ImGui::TreeNode("##pl", "Point Light %d", i);
-                if (open) {
-                    ImGui::DragFloat3("Position", &pl.position.x, 0.1f);
-                    ImGui::ColorEdit3("Color", &pl.color.x);
-                    ImGui::DragFloat("Intensity", &pl.intensity, 0.1f, 0.0f, 100.0f);
-                    ImGui::DragFloat("Radius", &pl.radius, 0.5f, 0.1f, 500.0f);
-                    if (ImGui::SmallButton("Remove")) remove_idx = i;
-                    ImGui::TreePop();
-                }
-                ImGui::PopID();
-            }
-            if (remove_idx >= 0) {
-                point_lights.erase(point_lights.begin() + remove_idx);
-                scene_.mark_dirty();
-            }
-            if (ImGui::Button("Add Point Light", {-1, 0})) {
-                scene_.add_point_light();
-            }
-        }
-
-        if (ImGui::CollapsingHeader("Spot Lights")) {
-            auto& spot_lights = scene_.spot_lights();
-            int remove_idx = -1;
-            for (int i = 0; i < static_cast<int>(spot_lights.size()); ++i) {
-                ImGui::PushID(1000 + i);
-                auto& sl = spot_lights[i];
-                bool open = ImGui::TreeNode("##sl", "Spot Light %d", i);
-                if (open) {
-                    ImGui::DragFloat3("Position", &sl.position.x, 0.1f);
-                    ImGui::DragFloat3("Direction", &sl.direction.x, 0.01f, -1.0f, 1.0f);
-                    ImGui::ColorEdit3("Color", &sl.color.x);
-                    ImGui::DragFloat("Intensity", &sl.intensity, 0.1f, 0.0f, 100.0f);
-                    ImGui::DragFloat("Radius", &sl.radius, 0.5f, 0.1f, 500.0f);
-                    ImGui::DragFloat("Inner Angle", &sl.inner_angle, 0.5f, 0.0f, 90.0f);
-                    ImGui::DragFloat("Outer Angle", &sl.outer_angle, 0.5f, 0.0f, 90.0f);
-                    if (ImGui::SmallButton("Remove")) remove_idx = i;
-                    ImGui::TreePop();
-                }
-                ImGui::PopID();
-            }
-            if (remove_idx >= 0) {
-                spot_lights.erase(spot_lights.begin() + remove_idx);
-                scene_.mark_dirty();
-            }
-            if (ImGui::Button("Add Spot Light", {-1, 0})) {
-                scene_.add_spot_light();
-            }
-        }
-    }
-    ImGui::End();
-}
-
-void Engine::draw_assets() {
-    if (ImGui::Begin("Assets")) {
-        ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Primitives");
-        ImGui::Separator();
-        if (ImGui::Button("Cube", {-1, 0})) add_primitive_to_scene("cube");
-        if (ImGui::Button("Plane", {-1, 0})) add_primitive_to_scene("plane");
-        if (ImGui::Button("Sphere", {-1, 0})) add_primitive_to_scene("sphere");
-
-        ImGui::Spacing();
-        ImGui::Spacing();
-
-        ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Models");
-        ImGui::Separator();
-
-        if (available_models_.empty()) {
-            ImGui::TextDisabled("No models found");
-        } else {
-            for (const auto& model_path : available_models_) {
-                auto name = std::filesystem::path(model_path).filename().string();
-                if (ImGui::Button(name.c_str(), {-1, 0})) {
-                    add_model_to_scene(model_path);
-                }
-            }
-        }
-
-        if (ImGui::Button("Refresh", {-1, 0})) {
-            scan_models();
-        }
-
-        ImGui::Spacing();
-        ImGui::Spacing();
-        ImGui::Separator();
-
-        // Scripts section (when project is open)
-        if (project_) {
-            ImGui::Spacing();
-            ImGui::Spacing();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Scripts");
-            ImGui::Separator();
-
-            auto scripts_dir = std::filesystem::path(project_->resolve("scripts"));
-            if (std::filesystem::exists(scripts_dir)) {
-                for (const auto& entry : std::filesystem::directory_iterator(scripts_dir)) {
-                    if (!entry.is_regular_file()) continue;
-                    auto ext = entry.path().extension().string();
-                    if (ext != ".cpp" && ext != ".h" && ext != ".hpp") continue;
-                    auto fname = entry.path().filename().string();
-                    if (ImGui::Selectable(fname.c_str())) {
-                        nvim_panel_.open(entry.path().string());
-                    }
-                }
-            } else {
-                ImGui::TextDisabled("No scripts/ directory");
-            }
-        }
-
-        // Scenes section (when project is open)
-        if (project_ && !available_scenes_.empty()) {
-            ImGui::Spacing();
-            ImGui::Spacing();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Scenes");
-            ImGui::Separator();
-
-            for (const auto& scene_path : available_scenes_) {
-                auto scene_name = std::filesystem::path(scene_path).stem().string();
-                bool is_current = (scene_path == current_scene_path_);
-                if (is_current) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, {0.2f, 0.4f, 0.8f, 1.0f});
-                }
-                if (ImGui::Button(scene_name.c_str(), {-1, 0})) {
-                    load_scene(scene_path);
-                }
-                if (is_current) {
-                    ImGui::PopStyleColor();
-                }
-            }
-        }
-    }
-    ImGui::End();
-}
-
-void Engine::draw_stats() {
-    // FPS calculation
-    frame_count_++;
-    fps_timer_ += clock_.delta_time();
-    if (fps_timer_ >= 0.5f) {
-        fps_ = static_cast<float>(frame_count_) / fps_timer_;
-        frame_time_ = fps_timer_ / static_cast<float>(frame_count_) * 1000.0f;
-        frame_count_ = 0;
-        fps_timer_ = 0.0f;
-    }
-
-    frame_time_history_[frame_time_index_] = clock_.delta_time() * 1000.0f;
-    frame_time_index_ = (frame_time_index_ + 1) % FRAME_TIME_HISTORY_SIZE;
-
-    const auto& stats = vulkan_context_.render_stats();
-
-    if (ImGui::Begin("Stats")) {
-        ImGui::Text("GPU: %s", vulkan_context_.gpu_name().c_str());
-        ImGui::SameLine(0, 20);
-        ImGui::Text("FPS: %.0f", fps_);
-        ImGui::SameLine(0, 20);
-        ImGui::Text("Frame: %.2f ms", frame_time_);
-        ImGui::SameLine(0, 20);
-        ImGui::Text("Draw calls: %u", stats.draw_calls);
-        ImGui::SameLine(0, 20);
-        ImGui::Text("Triangles: %u", stats.triangle_count);
-        ImGui::SameLine(0, 20);
-        ImGui::Text("Culled: %u/%u", stats.objects_culled, stats.objects_total);
-        ImGui::SameLine(0, 20);
-        ImGui::Text("MSAA: %ux", static_cast<uint32_t>(vulkan_context_.msaa_samples()));
-        if (vulkan_context_.mesh_shaders_available()) {
-            ImGui::SameLine(0, 20);
-            bool mesh_on = vulkan_context_.use_mesh_shaders();
-            if (ImGui::Checkbox("Mesh Shaders", &mesh_on)) {
-                vulkan_context_.set_use_mesh_shaders(mesh_on);
-            }
-            if (mesh_on) {
-                ImGui::SameLine(0, 10);
-                ImGui::Text("Meshlets: %u", stats.meshlets_dispatched);
-            }
-        }
-
-        ImGui::PlotLines("##FrameTime", frame_time_history_.data(),
-                         FRAME_TIME_HISTORY_SIZE, frame_time_index_,
-                         nullptr, 0.0f, 33.3f,
-                         {ImGui::GetContentRegionAvail().x, 35});
-    }
-    ImGui::End();
-}
+// Hierarchy and Properties panels extracted to ui/hierarchy_panel.cpp and ui/properties_panel.cpp
 
 void Engine::draw_console() {
     auto& sink = log::console_sink();
@@ -887,12 +352,14 @@ void Engine::open_project(const std::filesystem::path& path) {
     window_.set_title("Fjell - " + project_->config().name);
     scan_models();
     scan_scenes();
+    content_browser_.set_root(project_->root());
 
     // Defer layout restore to the first frame (ImGui needs a frame to set up docking)
     if (!project_->config().layout.empty()) {
         auto layout_path = project_->root() / "layouts" / (project_->config().layout + ".ini");
         if (std::filesystem::exists(layout_path)) {
             pending_layout_load_ = layout_path.string();
+            active_layout_name_ = project_->config().layout;
             has_saved_layout_ = true;
         }
     }
@@ -916,6 +383,7 @@ void Engine::close_project() {
     current_scene_path_ = base_path::resolve(SCENE_FILE);
     window_.set_title("Fjell Engine");
     scan_models();
+    content_browser_.set_root({});
 }
 
 void Engine::scan_scenes() {
@@ -939,6 +407,7 @@ void Engine::load_scene(const std::string& path) {
     current_scene_path_ = path;
     scene_ = Scene::load(path, *resource_manager_, active_project());
     selected_id_ = 0;
+    command_history_.clear();
 }
 
 void Engine::draw_menu_bar() {
@@ -986,8 +455,24 @@ void Engine::draw_menu_bar() {
         }
 
         if (ImGui::BeginMenu("Layout")) {
-            // Save current layout
-            if (ImGui::MenuItem("Save Layout...")) {
+            // Save Layout — overwrite current active layout
+            bool has_active = !active_layout_name_.empty();
+            if (!has_active) ImGui::BeginDisabled();
+            if (ImGui::MenuItem("Save Layout")) {
+                auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
+                std::filesystem::create_directories(layout_dir);
+                auto path = layout_dir / (active_layout_name_ + ".ini");
+                ImGui::SaveIniSettingsToDisk(path.string().c_str());
+                if (project_) {
+                    project_->config().layout = active_layout_name_;
+                    project_->save();
+                }
+                FJELL_CORE_INFO("Layout saved: {}", path.string());
+            }
+            if (!has_active) ImGui::EndDisabled();
+
+            // Save Layout As — always available, prompts for name
+            if (ImGui::MenuItem("Save Layout As...")) {
                 show_save_layout_popup_ = true;
                 std::memset(layout_name_buf_, 0, sizeof(layout_name_buf_));
             }
@@ -999,8 +484,14 @@ void Engine::draw_menu_bar() {
                 for (const auto& entry : std::filesystem::directory_iterator(layout_dir)) {
                     if (entry.path().extension() != ".ini") continue;
                     auto name = entry.path().stem().string();
-                    if (ImGui::MenuItem(name.c_str())) {
+                    bool is_active = (name == active_layout_name_);
+                    if (ImGui::MenuItem(name.c_str(), nullptr, is_active)) {
                         ImGui::LoadIniSettingsFromDisk(entry.path().string().c_str());
+                        active_layout_name_ = name;
+                        if (project_) {
+                            project_->config().layout = name;
+                            project_->save();
+                        }
                     }
                 }
             }
@@ -1112,12 +603,12 @@ void Engine::draw_menu_bar() {
         ImGui::EndMainMenuBar();
     }
 
-    // Save Layout popup
+    // Save Layout As popup
     if (show_save_layout_popup_) {
-        ImGui::OpenPopup("Save Layout");
+        ImGui::OpenPopup("Save Layout As");
         show_save_layout_popup_ = false;
     }
-    if (ImGui::BeginPopupModal("Save Layout", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("Save Layout As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Layout Name:");
         ImGui::SetNextItemWidth(250.0f);
         bool enter = ImGui::InputText("##LayoutName", layout_name_buf_, sizeof(layout_name_buf_),
@@ -1136,8 +627,9 @@ void Engine::draw_menu_bar() {
             std::filesystem::create_directories(layout_dir);
             auto path = layout_dir / (std::string(layout_name_buf_) + ".ini");
             ImGui::SaveIniSettingsToDisk(path.string().c_str());
+            active_layout_name_ = layout_name_buf_;
             if (project_) {
-                project_->config().layout = layout_name_buf_;
+                project_->config().layout = active_layout_name_;
                 project_->save();
             }
             FJELL_CORE_INFO("Layout saved: {}", path.string());
@@ -1239,6 +731,7 @@ void Engine::draw_menu_bar() {
             window_.set_title("Fjell - " + project_->config().name);
             scan_models();
             scan_scenes();
+            content_browser_.set_root(project_->root());
             current_scene_path_ = project_->resolve(project_->config().default_scene);
             scene_.clear();
             create_default_scene();
@@ -1258,6 +751,19 @@ void Engine::draw_ui() {
     // Global shortcuts
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
         scene_.save(current_scene_path_);
+    }
+    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space)) {
+        content_browser_.toggle_visibility();
+    }
+    if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
+        if (ImGui::GetIO().KeyShift) {
+            command_history_.redo();
+        } else {
+            command_history_.undo();
+        }
+    }
+    if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) {
+        command_history_.redo();
     }
 
     // Gizmo keyboard shortcuts (skip when typing in a text field or navigating)
@@ -1279,10 +785,11 @@ void Engine::draw_ui() {
     setup_dockspace();
     viewport_manager_.draw(vulkan_context_, scene_, selected_id_, input_, clock_.delta_time(), gizmo_op_);
     viewport_hovered_ = viewport_manager_.any_hovered();
-    draw_hierarchy();
-    draw_properties();
-    draw_assets();
-    draw_stats();
+    hierarchy_panel_.draw();
+    properties_panel_.draw();
+    content_browser_.draw();
+    stats_panel_.draw(clock_.delta_time());
+    history_panel_.draw();
     draw_console();
     draw_code_editor();
 
@@ -1293,6 +800,7 @@ void Engine::draw_ui() {
 }
 
 void Engine::start_play() {
+    command_history_.clear();
     script_manager_.serialize_all(scene_);
     auto* cam = viewport_manager_.active_camera();
     Camera fallback_cam;

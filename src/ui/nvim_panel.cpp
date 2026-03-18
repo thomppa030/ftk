@@ -23,7 +23,14 @@ NvimPanel::~NvimPanel() {
 }
 
 void NvimPanel::open(const std::string& file_path, int rows, int cols) {
-    if (is_open()) close();
+    // If nvim is already running, switch to the file via :edit instead of restarting
+    if (is_open()) {
+        // Escape to normal mode, then :edit <path>
+        std::string cmd = "\x1b:edit " + file_path + "\n";
+        ::write(master_fd_, cmd.data(), cmd.size());
+        FJELL_CORE_INFO("Nvim: switching to {}", file_path);
+        return;
+    }
 
     rows_ = rows;
     cols_ = cols;

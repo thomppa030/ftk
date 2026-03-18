@@ -13,8 +13,15 @@
 #include "renderer/vulkan_context.hpp"
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"
+#include "core/command_history.hpp"
+#include "ui/content_browser.hpp"
 #include "ui/file_browser.hpp"
+#include "ui/hierarchy_panel.hpp"
+#include "ui/history_panel.hpp"
+#include "ui/icon_cache.hpp"
 #include "ui/imgui_layer.hpp"
+#include "ui/properties_panel.hpp"
+#include "ui/stats_panel.hpp"
 #include "ui/viewport_manager.hpp"
 #include "ui/nvim_panel.hpp"
 
@@ -22,9 +29,6 @@
 #include "renderer/shader_watcher.hpp"
 #endif
 
-#include <glm/glm.hpp>
-
-#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -57,11 +61,6 @@ private:
     void draw_ui();
     void setup_dockspace();
     void draw_menu_bar();
-    void draw_hierarchy();
-    void draw_hierarchy_node(RenderObject& obj);
-    void draw_properties();
-    void draw_assets();
-    void draw_stats();
     void draw_console();
     void draw_code_editor();
 
@@ -91,6 +90,13 @@ private:
     Scene scene_;
     ScriptManager script_manager_;
     NvimPanel nvim_panel_;
+    std::unique_ptr<IconCache> icon_cache_;
+    ContentBrowser content_browser_;
+    CommandHistory command_history_;
+    HierarchyPanel hierarchy_panel_;
+    PropertiesPanel properties_panel_;
+    StatsPanel stats_panel_;
+    HistoryPanel history_panel_;
 
 #ifndef NDEBUG
     ShaderWatcher shader_watcher_;
@@ -119,18 +125,14 @@ private:
     bool viewport_hovered_{false};
 
     // UI state
-    float fps_{0.0f};
-    float frame_time_{0.0f};
-    int frame_count_{0};
-    float fps_timer_{0.0f};
     uint32_t selected_id_{0};
-    uint32_t remove_pending_id_{0};
     int gizmo_op_{0}; // 0=translate, 1=rotate, 2=scale
     bool layout_built_{false};
     bool show_new_script_popup_{false};
     char new_script_name_[128]{};
     bool show_save_layout_popup_{false};
     char layout_name_buf_[128]{};
+    std::string active_layout_name_;
     std::string pending_layout_load_;
     bool has_saved_layout_{false};
     bool focus_viewport_{false};
@@ -141,12 +143,6 @@ private:
     // File browsers
     FileBrowser open_browser_{FileBrowser::Mode::select_directory};
     FileBrowser new_browser_{FileBrowser::Mode::select_location};
-
-
-    // Frame time history for graph
-    static constexpr int FRAME_TIME_HISTORY_SIZE = 120;
-    std::array<float, FRAME_TIME_HISTORY_SIZE> frame_time_history_{};
-    int frame_time_index_{0};
 };
 
 } // namespace fjell

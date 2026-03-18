@@ -65,6 +65,13 @@ add_executable(fjell
     ui/file_browser.cpp
     ui/imgui_layer.cpp
     ui/nvim_panel.cpp
+    core/command_history.cpp
+    ui/content_browser.cpp
+    ui/hierarchy_panel.cpp
+    ui/history_panel.cpp
+    ui/icon_cache.cpp
+    ui/properties_panel.cpp
+    ui/stats_panel.cpp
     ui/viewport_manager.cpp
 
     # ImGui sources

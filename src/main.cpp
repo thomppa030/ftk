@@ -13,7 +13,7 @@ int main(int argc, char* argv[]) {
     }
 
     try {
-        fjell::Engine engine{"Fjell Engine", 1280, 720, project_path};
+        fjell::Engine engine{"Fjell Engine", 2560, 1440, project_path};
         engine.run();
     } catch (const std::exception& e) {
         FJELL_CORE_CRITICAL("Fatal: {}", e.what());
