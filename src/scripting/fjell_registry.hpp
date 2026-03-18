@@ -117,13 +117,41 @@ void register_component(FjellTypeRegistry* reg) {
         count, labels, 0.0f, 0.0f, 0.0f \
     }
 
+// ── Auto-registration ───────────────────────────────────────────────────
+// Each FJELL_COMPONENT builds a linked list of registration functions at
+// static-init time. fjell_register() walks the list when the engine loads
+// the .so. No central register file needed.
+
+struct FjellAutoReg {
+    using Fn = void(*)(FjellTypeRegistry*);
+    Fn fn;
+    FjellAutoReg* next;
+};
+
+inline FjellAutoReg*& fjell_auto_reg_head() {
+    static FjellAutoReg* head = nullptr;
+    return head;
+}
+
 // ── Macro helpers ───────────────────────────────────────────────────────
 
 #define FJELL_ACTOR(T) \
     public: static constexpr const char* type_name = #T;
 
 #define FJELL_COMPONENT(T) \
-    public: static constexpr const char* type_name = #T;
+    public: static constexpr const char* type_name = #T; \
+    private: \
+    static inline FjellAutoReg _fjell_reg_{ \
+        [](FjellTypeRegistry* r) { fjell::register_component<T>(r); }, \
+        nullptr}; \
+    struct _FjellRegInit { _FjellRegInit() { \
+        _fjell_reg_.next = fjell_auto_reg_head(); \
+        fjell_auto_reg_head() = &_fjell_reg_; \
+    }}; \
+    static inline _FjellRegInit _fjell_reg_init_{}; \
+    public:
 
 #define FJELL_REGISTER() \
-    extern "C" void fjell_register(FjellTypeRegistry* registry)
+    extern "C" void fjell_register(FjellTypeRegistry* registry) { \
+        for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry); \
+    }

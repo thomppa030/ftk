@@ -43,25 +43,8 @@ Project Project::create(const std::filesystem::path& directory,
     scene_file << scene_json.dump(2);
 
     // Copy scripting headers for script compilation
-    fs::create_directories(root / "include" / "scripting");
-    fs::create_directories(root / "include" / "scene");
-    fs::create_directories(root / "include" / "core");
-
-    auto copy_header = [&](const std::string& src, const std::string& dst) {
-        auto from = base_path::resolve(src);
-        auto to = root / "include" / dst;
-        if (fs::exists(from)) {
-            fs::copy_file(from, to, fs::copy_options::overwrite_existing);
-        }
-    };
-
-    copy_header("scripting/fjell_api.h", "scripting/fjell_api.h");
-    copy_header("scripting/fjell_actor.hpp", "scripting/fjell_actor.hpp");
-    copy_header("scripting/fjell_component.hpp", "scripting/fjell_component.hpp");
-    copy_header("scripting/fjell_world.hpp", "scripting/fjell_world.hpp");
-    copy_header("scripting/fjell_registry.hpp", "scripting/fjell_registry.hpp");
-    copy_header("scene/transform.hpp", "scene/transform.hpp");
-    copy_header("core/input.hpp", "core/input.hpp");
+    Project proj(root, config);
+    refresh_headers(proj);
 
     // Scaffold scripts CMakeLists.txt
     auto scripts_cmake = root / "scripts" / "CMakeLists.txt";
@@ -124,6 +107,7 @@ std::optional<Project> Project::open(const std::filesystem::path& directory) {
     config.name = j.value("name", "Untitled");
     config.version = j.value("version", "0.1.0");
     config.default_scene = j.value("default_scene", "scenes/main.fjell");
+    config.layout = j.value("layout", "");
 
     if (j.contains("window")) {
         auto& w = j["window"];
@@ -145,6 +129,7 @@ void Project::save() const {
     j["name"] = config_.name;
     j["version"] = config_.version;
     j["default_scene"] = config_.default_scene;
+    if (!config_.layout.empty()) j["layout"] = config_.layout;
     j["window"] = {
         {"width", config_.window.width},
         {"height", config_.window.height},
@@ -159,6 +144,34 @@ void Project::save() const {
     }
     file << j.dump(2);
     FJELL_CORE_INFO("Project saved: {}", path.string());
+}
+
+void Project::refresh_headers(const Project& project) {
+    namespace fs = std::filesystem;
+    const auto& root = project.root();
+
+    // Engine source dir: base_path is the build dir, source is ../src/
+    auto engine_src = base_path::dir() / ".." / "src";
+
+    fs::create_directories(root / "include" / "scripting");
+    fs::create_directories(root / "include" / "scene");
+    fs::create_directories(root / "include" / "core");
+
+    auto copy_header = [&](const std::string& src, const std::string& dst) {
+        auto from = engine_src / src;
+        auto to = root / "include" / dst;
+        if (fs::exists(from)) {
+            fs::copy_file(from, to, fs::copy_options::overwrite_existing);
+        }
+    };
+
+    copy_header("scripting/fjell_api.h", "scripting/fjell_api.h");
+    copy_header("scripting/fjell_actor.hpp", "scripting/fjell_actor.hpp");
+    copy_header("scripting/fjell_component.hpp", "scripting/fjell_component.hpp");
+    copy_header("scripting/fjell_world.hpp", "scripting/fjell_world.hpp");
+    copy_header("scripting/fjell_registry.hpp", "scripting/fjell_registry.hpp");
+    copy_header("scene/transform.hpp", "scene/transform.hpp");
+    copy_header("core/input.hpp", "core/input.hpp");
 }
 
 } // namespace fjell

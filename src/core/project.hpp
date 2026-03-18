@@ -18,6 +18,7 @@ struct ProjectConfig {
     } window;
 
     std::string default_scene{"scenes/main.fjell"};
+    std::string layout;
 };
 
 class Project {
@@ -32,6 +33,9 @@ public:
     [[nodiscard]] ProjectConfig& config() { return config_; }
 
     void save() const;
+
+    // Re-copy engine scripting headers into the project's include/ dir
+    static void refresh_headers(const Project& project);
 
     static constexpr const char* MANIFEST_NAME = "project.fjell";
 
