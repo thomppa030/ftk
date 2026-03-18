@@ -42,7 +42,7 @@ struct ViewportPanel {
 
 class ViewportManager {
 public:
-    void init(Device& device);
+    void init(Device& device, VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_1_BIT);
     void add_viewport(ViewportSource source = ViewportSource::final_color,
                       const std::string& title = "");
     void draw(VulkanContext& ctx, Scene& scene,
@@ -76,6 +76,7 @@ private:
                              const Input& input, float dt, int gizmo_op);
 
     Device* device_{nullptr};
+    VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
     std::vector<ViewportPanel> panels_;
     int next_id_{1};
     int active_id_{0};

@@ -84,7 +84,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     resource_manager_ = std::make_unique<ResourceManager>(
         vulkan_context_.device(), vulkan_context_.physical_device(),
         vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
-        vulkan_context_.bindless_textures());
+        vulkan_context_.bindless_textures(), vulkan_context_.mega_buffer());
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));
@@ -121,7 +121,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
-    viewport_manager_.init(vulkan_context_.device_ref());
+    viewport_manager_.init(vulkan_context_.device_ref(), vulkan_context_.msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
 
     FJELL_CORE_INFO("Engine initialized");
@@ -657,7 +657,7 @@ void Engine::draw_properties() {
 
         ImGui::Spacing();
         ImGui::Separator();
-        if (ImGui::CollapsingHeader("Lighting", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::Text("Direction");
             ImGui::SetNextItemWidth(-1);
             ImGui::DragFloat3("##Direction", &light_.direction.x, 0.01f, -1.0f, 1.0f);
@@ -674,6 +674,61 @@ void Engine::draw_properties() {
             ImGui::Text("Ambient Intensity");
             ImGui::SetNextItemWidth(-1);
             ImGui::DragFloat("##AmbientIntensity", &light_.ambient_intensity, 0.05f, 0.0f, 2.0f);
+        }
+
+        if (ImGui::CollapsingHeader("Point Lights", ImGuiTreeNodeFlags_DefaultOpen)) {
+            auto& point_lights = scene_.point_lights();
+            int remove_idx = -1;
+            for (int i = 0; i < static_cast<int>(point_lights.size()); ++i) {
+                ImGui::PushID(i);
+                auto& pl = point_lights[i];
+                bool open = ImGui::TreeNode("##pl", "Point Light %d", i);
+                if (open) {
+                    ImGui::DragFloat3("Position", &pl.position.x, 0.1f);
+                    ImGui::ColorEdit3("Color", &pl.color.x);
+                    ImGui::DragFloat("Intensity", &pl.intensity, 0.1f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Radius", &pl.radius, 0.5f, 0.1f, 500.0f);
+                    if (ImGui::SmallButton("Remove")) remove_idx = i;
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            if (remove_idx >= 0) {
+                point_lights.erase(point_lights.begin() + remove_idx);
+                scene_.mark_dirty();
+            }
+            if (ImGui::Button("Add Point Light", {-1, 0})) {
+                scene_.add_point_light();
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Spot Lights")) {
+            auto& spot_lights = scene_.spot_lights();
+            int remove_idx = -1;
+            for (int i = 0; i < static_cast<int>(spot_lights.size()); ++i) {
+                ImGui::PushID(1000 + i);
+                auto& sl = spot_lights[i];
+                bool open = ImGui::TreeNode("##sl", "Spot Light %d", i);
+                if (open) {
+                    ImGui::DragFloat3("Position", &sl.position.x, 0.1f);
+                    ImGui::DragFloat3("Direction", &sl.direction.x, 0.01f, -1.0f, 1.0f);
+                    ImGui::ColorEdit3("Color", &sl.color.x);
+                    ImGui::DragFloat("Intensity", &sl.intensity, 0.1f, 0.0f, 100.0f);
+                    ImGui::DragFloat("Radius", &sl.radius, 0.5f, 0.1f, 500.0f);
+                    ImGui::DragFloat("Inner Angle", &sl.inner_angle, 0.5f, 0.0f, 90.0f);
+                    ImGui::DragFloat("Outer Angle", &sl.outer_angle, 0.5f, 0.0f, 90.0f);
+                    if (ImGui::SmallButton("Remove")) remove_idx = i;
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            if (remove_idx >= 0) {
+                spot_lights.erase(spot_lights.begin() + remove_idx);
+                scene_.mark_dirty();
+            }
+            if (ImGui::Button("Add Spot Light", {-1, 0})) {
+                scene_.add_spot_light();
+            }
         }
     }
     ImGui::End();
@@ -786,6 +841,10 @@ void Engine::draw_stats() {
         ImGui::Text("Draw calls: %u", stats.draw_calls);
         ImGui::SameLine(0, 20);
         ImGui::Text("Triangles: %u", stats.triangle_count);
+        ImGui::SameLine(0, 20);
+        ImGui::Text("Culled: %u/%u", stats.objects_culled, stats.objects_total);
+        ImGui::SameLine(0, 20);
+        ImGui::Text("MSAA: %ux", static_cast<uint32_t>(vulkan_context_.msaa_samples()));
 
         ImGui::PlotLines("##FrameTime", frame_time_history_.data(),
                          FRAME_TIME_HISTORY_SIZE, frame_time_index_,
@@ -1365,7 +1424,7 @@ void Engine::run() {
             requests[0].camera_position = play_session_->camera().position();
         }
 
-        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_);
+        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_);
     }
     FJELL_CORE_INFO("Exiting main loop");
 }

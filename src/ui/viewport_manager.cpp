@@ -15,8 +15,9 @@
 
 namespace fjell {
 
-void ViewportManager::init(Device& device) {
+void ViewportManager::init(Device& device, VkSampleCountFlagBits msaa_samples) {
     device_ = &device;
+    msaa_samples_ = msaa_samples;
 }
 
 void ViewportManager::add_viewport(ViewportSource source, const std::string& title) {
@@ -29,7 +30,7 @@ void ViewportManager::add_viewport(ViewportSource source, const std::string& tit
 
     // Create per-panel offscreen pass with a default size
     if (device_) {
-        panel.offscreen = std::make_unique<OffscreenPass>(*device_, 256, 256);
+        panel.offscreen = std::make_unique<OffscreenPass>(*device_, 256, 256, msaa_samples_);
     }
 
     // Dock new viewports as tabs next to the first existing viewport
@@ -120,6 +121,8 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             ctx.uv_viz_pass().resize(vp_w, vp_h);
             ctx.bloom_pass().resize(vp_w, vp_h);
             ctx.tonemap_pass().resize(vp_w, vp_h);
+            ctx.light_heatmap_pass().resize(vp_w, vp_h);
+            ctx.light_grid_pass().resize(vp_w, vp_h);
         }
     }
 }
@@ -182,6 +185,10 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
                 return ctx.overdraw_pass().imgui_texture();
             case ViewportSource::uv:
                 return ctx.uv_viz_pass().imgui_texture();
+            case ViewportSource::light_heatmap:
+                return ctx.light_heatmap_pass().imgui_texture();
+            case ViewportSource::light_grid:
+                return ctx.light_grid_pass().imgui_texture();
         }
         return panel.offscreen->imgui_texture();
     }
@@ -282,6 +289,12 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 case ViewportSource::uv:
                     tex = ctx.uv_viz_pass().imgui_texture();
                     break;
+                case ViewportSource::light_heatmap:
+                    tex = ctx.light_heatmap_pass().imgui_texture();
+                    break;
+                case ViewportSource::light_grid:
+                    tex = ctx.light_grid_pass().imgui_texture();
+                    break;
             }
         }
 
@@ -326,16 +339,11 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
 
             for (const auto& obj : scene.objects()) {
                 if (!obj.model) continue;
-                const auto& verts = obj.model->collision_vertices();
-                if (verts.empty()) continue;
+                if (!obj.model->local_aabb().valid()) continue;
 
-                glm::vec3 aabb_min{std::numeric_limits<float>::max()};
-                glm::vec3 aabb_max{std::numeric_limits<float>::lowest()};
-                for (const auto& v : verts) {
-                    glm::vec3 world_v = glm::vec3(obj.world_matrix_ * glm::vec4(v, 1.0f));
-                    aabb_min = glm::min(aabb_min, world_v);
-                    aabb_max = glm::max(aabb_max, world_v);
-                }
+                AABB world_aabb = obj.model->local_aabb().transform(obj.world_matrix_);
+                glm::vec3 aabb_min = world_aabb.min;
+                glm::vec3 aabb_max = world_aabb.max;
 
                 glm::vec3 inv_dir = 1.0f / ray_dir;
                 glm::vec3 t1 = (aabb_min - ray_origin) * inv_dir;

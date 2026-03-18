@@ -15,6 +15,8 @@ public:
              VkFormat color_format, VkFormat depth_format,
              VkDescriptorSetLayout global_layout,
              VkDescriptorSetLayout material_layout,
+             VkDescriptorSetLayout draw_data_layout,
+             VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT,
              const std::string& vert_shader = "shaders/mesh.vert.spv",
              const std::string& frag_shader = "shaders/mesh.frag.spv");
     ~Pipeline();
@@ -41,6 +43,8 @@ private:
     VkFormat depth_format_;
     VkDescriptorSetLayout global_layout_;
     VkDescriptorSetLayout material_layout_;
+    VkDescriptorSetLayout draw_data_layout_;
+    VkSampleCountFlagBits samples_;
     std::string vert_shader_;
     std::string frag_shader_;
 

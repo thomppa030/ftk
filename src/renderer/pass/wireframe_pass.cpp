@@ -1,6 +1,7 @@
 #include "renderer/pass/wireframe_pass.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/device.hpp"
+#include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
@@ -47,8 +48,8 @@ void WireframePass::create(Device& device, const PassResources& resources) {
         throw std::runtime_error("Failed to create wireframe output sampler");
     }
 
-    // Shaders: reuse depth.vert (transforms position via UBO), wireframe.frag (solid color)
-    auto vert_code = read_file(base_path::resolve("shaders/depth.vert.spv"));
+    // Shaders: reuse depth_push.vert (transforms position via UBO), wireframe.frag (solid color)
+    auto vert_code = read_file(base_path::resolve("shaders/depth_push.vert.spv"));
     auto frag_code = read_file(base_path::resolve("shaders/wireframe.frag.spv"));
 
     VkShaderModuleCreateInfo vert_ci{};
@@ -114,7 +115,7 @@ void WireframePass::create(Device& device, const PassResources& resources) {
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT; // renders to own 1x image
 
     VkPipelineColorBlendAttachmentState blend_attachment{};
     blend_attachment.colorWriteMask =
@@ -340,6 +341,8 @@ void WireframePass::record(const FrameContext& ctx) {
 
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &ctx.global_descriptor_set, 0, nullptr);
+
+    if (ctx.mega_buffer) ctx.mega_buffer->bind(ctx.cmd);
 
     auto draw_list = [&](const std::vector<DrawCommand>& list) {
         for (const auto& dc : list) {

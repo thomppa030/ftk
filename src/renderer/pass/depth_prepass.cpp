@@ -1,5 +1,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/device.hpp"
+#include "renderer/indirect_batch.hpp"
+#include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
@@ -87,7 +89,7 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.sampleShadingEnable = VK_FALSE;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = resources.sample_count;
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -112,19 +114,13 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
     // it as a member received from the device/context setup.
     // TODO: pass global_set_layout into create() or FrameContext
 
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(glm::mat4);
-
-    VkDescriptorSetLayout set_layout = resources.global_set_layout;
+    std::array set_layouts = {resources.global_set_layout, draw_data_layout_};
 
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = 1;
-    layout_info.pSetLayouts = &set_layout;
-    layout_info.pushConstantRangeCount = 1;
-    layout_info.pPushConstantRanges = &push_range;
+    layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+    layout_info.pSetLayouts = set_layouts.data();
+    layout_info.pushConstantRangeCount = 0;
 
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
@@ -192,7 +188,7 @@ void DepthPrePass::record(const FrameContext& ctx) {
 
     VkRenderingAttachmentInfo depth_attachment{};
     depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    depth_attachment.imageView = ctx.target->depth_view();
+    depth_attachment.imageView = ctx.target->msaa_depth_view();
     depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -212,14 +208,14 @@ void DepthPrePass::record(const FrameContext& ctx) {
     vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
     vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
 
+    std::array descriptor_sets = {ctx.global_descriptor_set, ctx.draw_data_set};
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
+                            0, static_cast<uint32_t>(descriptor_sets.size()),
+                            descriptor_sets.data(), 0, nullptr);
 
-    for (const auto& dc : ctx.queue->commands()) {
-        vkCmdPushConstants(ctx.cmd, layout_,
-                           VK_SHADER_STAGE_VERTEX_BIT,
-                           0, sizeof(glm::mat4), &dc.world_matrix);
-        dc.model->draw(ctx.cmd);
+    if (ctx.mega_buffer && ctx.indirect_batch) {
+        ctx.mega_buffer->bind(ctx.cmd);
+        ctx.indirect_batch->draw(ctx.cmd, ctx.frame_index);
     }
 
     vkCmdEndRendering(ctx.cmd);

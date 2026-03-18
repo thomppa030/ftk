@@ -2,6 +2,7 @@
 
 #include "core/clock.hpp"
 #include "core/input.hpp"
+#include "core/thread_pool.hpp"
 #include "core/layer_stack.hpp"
 #include "core/play_session.hpp"
 #include "core/project.hpp"
@@ -83,6 +84,7 @@ private:
     Window window_;
     Input input_;
     Clock clock_;
+    ThreadPool thread_pool_;
     VulkanContext vulkan_context_;
     std::unique_ptr<ImGuiLayer> imgui_layer_;
     std::unique_ptr<ResourceManager> resource_manager_;

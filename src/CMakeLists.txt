@@ -15,10 +15,13 @@ add_executable(fjell
     renderer/camera.cpp
     renderer/debug_draw.cpp
     renderer/descriptor.cpp
+    renderer/draw_data_descriptor.cpp
     renderer/fly_camera.cpp
     renderer/device.cpp
     renderer/image.cpp
+    renderer/indirect_batch.cpp
     renderer/material.cpp
+    renderer/mega_buffer.cpp
     renderer/mesh.cpp
     renderer/model.cpp
     renderer/offscreen_pass.cpp
@@ -31,6 +34,8 @@ add_executable(fjell
     renderer/pass/debug_pass.cpp
     renderer/pass/depth_prepass.cpp
     renderer/pass/depth_viz_pass.cpp
+    renderer/pass/light_cull_pass.cpp
+    renderer/pass/light_viz_pass.cpp
     renderer/pass/shadow_pass.cpp
     renderer/pass/sky_pass.cpp
     renderer/pass/tonemap_pass.cpp

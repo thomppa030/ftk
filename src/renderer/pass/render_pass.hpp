@@ -17,7 +17,11 @@ struct PassResources {
     VkDescriptorSetLayout material_set_layout{VK_NULL_HANDLE};
     VkFormat depth_format{VK_FORMAT_UNDEFINED};
     VkFormat color_format{VK_FORMAT_UNDEFINED};
+    VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
 };
+
+class IndirectBatch;
+class MegaBuffer;
 
 // Shared state that every pass can read during recording.
 struct FrameContext {
@@ -26,6 +30,7 @@ struct FrameContext {
     const RenderQueue* queue{nullptr};
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};
     VkDescriptorSet bindless_set{VK_NULL_HANDLE};
+    VkDescriptorSet draw_data_set{VK_NULL_HANDLE};
     glm::vec3 camera_position{0.0f};
     DebugDraw* debug_draw{nullptr};
     const Scene* scene{nullptr};
@@ -33,6 +38,8 @@ struct FrameContext {
     uint32_t selected_id{0};
     bool show_colliders{false};
     uint32_t frame_index{0};
+    IndirectBatch* indirect_batch{nullptr};
+    MegaBuffer* mega_buffer{nullptr};
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

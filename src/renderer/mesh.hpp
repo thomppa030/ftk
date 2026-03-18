@@ -1,11 +1,13 @@
 #pragma once
 
 #include "renderer/buffer.hpp"
+#include "renderer/mega_buffer.hpp"
 #include "renderer/vertex.hpp"
 
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace fjell {
@@ -17,15 +19,20 @@ public:
          std::span<const Vertex> vertices,
          std::span<const uint32_t> indices);
 
+    explicit Mesh(MegaMeshEntry entry);
+
     void bind(VkCommandBuffer cmd) const;
     void draw(VkCommandBuffer cmd) const;
 
     [[nodiscard]] uint32_t index_count() const { return index_count_; }
+    [[nodiscard]] bool has_mega_entry() const { return mega_entry_.has_value(); }
+    [[nodiscard]] const MegaMeshEntry& mega_entry() const { return *mega_entry_; }
 
 private:
-    Buffer vertex_buffer_;
-    Buffer index_buffer_;
+    std::optional<Buffer> vertex_buffer_;
+    std::optional<Buffer> index_buffer_;
     uint32_t index_count_;
+    std::optional<MegaMeshEntry> mega_entry_;
 };
 
 } // namespace fjell

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/frustum.hpp"
+#include "renderer/mega_buffer.hpp"
 #include "renderer/mesh.hpp"
 #include "renderer/texture.hpp"
 
@@ -19,11 +21,11 @@ class Model {
 public:
     Model(VkDevice device, VkPhysicalDevice physical_device,
           VkCommandPool command_pool, VkQueue queue,
-          const std::string& path);
+          const std::string& path, MegaBuffer* mega = nullptr);
 
     Model(VkDevice device, VkPhysicalDevice physical_device,
           VkCommandPool command_pool, VkQueue queue,
-          const PrimitiveMeshData& data);
+          const PrimitiveMeshData& data, MegaBuffer* mega = nullptr);
 
     void draw(VkCommandBuffer cmd) const;
 
@@ -42,11 +44,20 @@ public:
         return collision_indices_;
     }
 
+    [[nodiscard]] const AABB& local_aabb() const { return local_aabb_; }
+
+    [[nodiscard]] const std::vector<MegaMeshEntry>& mega_entries() const { return mega_entries_; }
+    [[nodiscard]] uint32_t mega_entry_count() const {
+        return static_cast<uint32_t>(mega_entries_.size());
+    }
+
 private:
     std::vector<std::unique_ptr<Mesh>> meshes_;
     std::vector<std::unique_ptr<Texture>> textures_;
     std::vector<glm::vec3> collision_vertices_;
     std::vector<uint32_t> collision_indices_;
+    AABB local_aabb_;
+    std::vector<MegaMeshEntry> mega_entries_;
 };
 
 } // namespace fjell

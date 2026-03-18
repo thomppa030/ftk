@@ -3,6 +3,7 @@
 #include "physics/physics_types.hpp"
 #include "renderer/particle_emitter.hpp"
 #include "renderer/resource_handle.hpp"
+#include "renderer/uniform_types.hpp"
 #include "scene/transform.hpp"
 
 #include <glm/glm.hpp>
@@ -127,8 +128,19 @@ public:
     [[nodiscard]] uint32_t next_id() const { return next_id_; }
     void set_next_id(uint32_t id) { next_id_ = id; }
 
+    // Point/spot lights
+    [[nodiscard]] std::vector<PointLight>& point_lights() { return point_lights_; }
+    [[nodiscard]] const std::vector<PointLight>& point_lights() const { return point_lights_; }
+    [[nodiscard]] std::vector<SpotLight>& spot_lights() { return spot_lights_; }
+    [[nodiscard]] const std::vector<SpotLight>& spot_lights() const { return spot_lights_; }
+
+    void add_point_light(const PointLight& light = {}) { point_lights_.push_back(light); mark_dirty(); }
+    void add_spot_light(const SpotLight& light = {}) { spot_lights_.push_back(light); mark_dirty(); }
+
 private:
     std::vector<RenderObject> objects_;
+    std::vector<PointLight> point_lights_;
+    std::vector<SpotLight> spot_lights_;
     uint32_t next_id_{1};
     bool dirty_{false};
 };

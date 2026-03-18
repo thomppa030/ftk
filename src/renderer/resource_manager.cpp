@@ -42,12 +42,13 @@ template struct ResourceManager::Pool<Material, MaterialHandle>;
 
 ResourceManager::ResourceManager(VkDevice device, VkPhysicalDevice physical_device,
                                  VkCommandPool command_pool, VkQueue queue,
-                                 BindlessTextures& bindless)
+                                 BindlessTextures& bindless, MegaBuffer* mega_buffer)
     : device_{device}
     , physical_device_{physical_device}
     , command_pool_{command_pool}
     , queue_{queue}
-    , bindless_{bindless} {
+    , bindless_{bindless}
+    , mega_buffer_{mega_buffer} {
     // Create default 1x1 textures and register them in the bindless array.
     // These occupy bindless indices 0-3.
     const std::array<uint8_t, 4> white = {255, 255, 255, 255};
@@ -77,7 +78,7 @@ ModelHandle ResourceManager::load_model(const std::string& path) {
         return it->second;
     }
 
-    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_, path);
+    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_, path, mega_buffer_);
     return models_.insert(path, std::move(model));
 }
 
@@ -99,7 +100,7 @@ ModelHandle ResourceManager::create_primitive(const std::string& type) {
         return {};
     }
 
-    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_, data);
+    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_, data, mega_buffer_);
     return models_.insert(key, std::move(model));
 }
 

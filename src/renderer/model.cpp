@@ -68,7 +68,7 @@ static LoadedImage load_image_from_source(
 
 Model::Model(VkDevice device, VkPhysicalDevice physical_device,
              VkCommandPool command_pool, VkQueue queue,
-             const std::string& path) {
+             const std::string& path, MegaBuffer* mega) {
     auto gltf_path = std::filesystem::path(path);
     auto base_dir = gltf_path.parent_path();
 
@@ -174,14 +174,21 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
                 uint32_t base_index = static_cast<uint32_t>(collision_vertices_.size());
                 for (const auto& v : vertices) {
                     collision_vertices_.push_back(v.position);
+                    local_aabb_.expand(v.position);
                 }
                 for (auto idx : indices) {
                     collision_indices_.push_back(base_index + idx);
                 }
 
-                meshes_.push_back(std::make_unique<Mesh>(
-                    device, physical_device, command_pool, queue,
-                    vertices, indices));
+                if (mega) {
+                    auto entry = mega->upload(vertices, indices);
+                    mega_entries_.push_back(entry);
+                    meshes_.push_back(std::make_unique<Mesh>(entry));
+                } else {
+                    meshes_.push_back(std::make_unique<Mesh>(
+                        device, physical_device, command_pool, queue,
+                        vertices, indices));
+                }
             }
         }
     }
@@ -192,21 +199,35 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
 
 Model::Model(VkDevice device, VkPhysicalDevice physical_device,
              VkCommandPool command_pool, VkQueue queue,
-             const PrimitiveMeshData& data) {
+             const PrimitiveMeshData& data, MegaBuffer* mega) {
     for (const auto& v : data.vertices) {
         collision_vertices_.push_back(v.position);
+        local_aabb_.expand(v.position);
     }
     collision_indices_ = data.indices;
 
-    meshes_.push_back(std::make_unique<Mesh>(
-        device, physical_device, command_pool, queue,
-        data.vertices, data.indices));
+    if (mega) {
+        auto entry = mega->upload(data.vertices, data.indices);
+        mega_entries_.push_back(entry);
+        meshes_.push_back(std::make_unique<Mesh>(entry));
+    } else {
+        meshes_.push_back(std::make_unique<Mesh>(
+            device, physical_device, command_pool, queue,
+            data.vertices, data.indices));
+    }
 }
 
 void Model::draw(VkCommandBuffer cmd) const {
     for (auto& mesh : meshes_) {
-        mesh->bind(cmd);
-        mesh->draw(cmd);
+        if (mesh->has_mega_entry()) {
+            const auto& entry = mesh->mega_entry();
+            vkCmdDrawIndexed(cmd, entry.index_count, 1,
+                             entry.first_index,
+                             static_cast<int32_t>(entry.vertex_offset), 0);
+        } else {
+            mesh->bind(cmd);
+            mesh->draw(cmd);
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 #include "renderer/pass/overdraw_pass.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/device.hpp"
+#include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
@@ -43,8 +44,8 @@ void OverdrawPass::create(Device& device, const PassResources& resources) {
     sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     vkCreateSampler(device_, &sampler_info, nullptr, &sampler_);
 
-    // Reuse depth.vert for position transform, overdraw.frag for flat additive color
-    auto vert_code = read_file(base_path::resolve("shaders/depth.vert.spv"));
+    // Reuse depth_push.vert for position transform, overdraw.frag for flat additive color
+    auto vert_code = read_file(base_path::resolve("shaders/depth_push.vert.spv"));
     auto frag_code = read_file(base_path::resolve("shaders/overdraw.frag.spv"));
 
     VkShaderModuleCreateInfo vert_ci{};
@@ -105,7 +106,7 @@ void OverdrawPass::create(Device& device, const PassResources& resources) {
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT; // renders to own 1x image
 
     // Additive blend: each fragment adds to the existing value
     VkPipelineColorBlendAttachmentState blend_attachment{};
@@ -303,6 +304,8 @@ void OverdrawPass::record(const FrameContext& ctx) {
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &ctx.global_descriptor_set, 0, nullptr);
+
+    if (ctx.mega_buffer) ctx.mega_buffer->bind(cmd);
 
     auto draw_list = [&](const std::vector<DrawCommand>& list) {
         for (const auto& dc : list) {

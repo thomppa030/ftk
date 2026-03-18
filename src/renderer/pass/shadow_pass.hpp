@@ -38,6 +38,8 @@ public:
         return cascade_splits_;
     }
 
+    void set_draw_data_layout(VkDescriptorSetLayout layout) { draw_data_layout_ = layout; }
+
 private:
     void create_images();
     void destroy_images();
@@ -55,6 +57,7 @@ private:
     // Pipeline
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
 
     // Per-frame cascade data
     std::array<glm::mat4, CASCADE_COUNT> light_matrices_{};

@@ -1,6 +1,7 @@
 #include "renderer/pass/normal_pass.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/device.hpp"
+#include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
@@ -110,7 +111,7 @@ void NormalPass::create(Device& device, const PassResources& resources) {
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT; // renders to own 1x image
 
     VkPipelineColorBlendAttachmentState blend_attachment{};
     blend_attachment.colorWriteMask =
@@ -302,6 +303,8 @@ void NormalPass::record(const FrameContext& ctx) {
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &ctx.global_descriptor_set, 0, nullptr);
+
+    if (ctx.mega_buffer) ctx.mega_buffer->bind(cmd);
 
     auto draw_list = [&](const std::vector<DrawCommand>& list) {
         for (const auto& dc : list) {

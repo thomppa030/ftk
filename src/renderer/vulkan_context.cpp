@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "renderer/frustum.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
 #include "renderer/render_stats.hpp"
@@ -6,12 +7,15 @@
 #include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/thread_pool.hpp"
 #include "core/window.hpp"
 #include "scene/scene.hpp"
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cstring>
 #include <fstream>
 #include <limits>
 #include <stdexcept>
@@ -28,17 +32,35 @@ VulkanContext::VulkanContext(Window& window)
     create_descriptor_resources();
     bindless_textures_.create(device_.handle(), device_.physical_device());
 
+    // Multi-draw indirect setup
+    mega_buffer_ = std::make_unique<MegaBuffer>(
+        device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
+    indirect_batch_ = std::make_unique<IndirectBatch>(
+        device_.handle(), device_.physical_device());
+    draw_data_descriptor_.create(device_.handle());
+
+    // Query and clamp MSAA sample count
+    auto max_samples = device_.max_msaa_samples();
+    msaa_samples_ = static_cast<VkSampleCountFlagBits>(
+        std::min(static_cast<uint32_t>(VK_SAMPLE_COUNT_4_BIT),
+                 static_cast<uint32_t>(max_samples)));
+    FJELL_GFX_INFO("MSAA: {}x", static_cast<uint32_t>(msaa_samples_));
+
     VkFormat depth_format = device_.find_depth_format();
     pipeline_ = std::make_unique<Pipeline>(
         device_, OffscreenPass::COLOR_FORMAT, depth_format,
-        global_set_layout_->handle(), bindless_textures_.layout());
+        global_set_layout_->handle(), bindless_textures_.layout(),
+        draw_data_descriptor_.layout(), msaa_samples_);
 
     PassResources pass_resources{};
     pass_resources.global_set_layout = global_set_layout_->handle();
     pass_resources.material_set_layout = bindless_textures_.layout();
     pass_resources.depth_format = depth_format;
     pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
+    pass_resources.sample_count = msaa_samples_;
+    depth_prepass_.set_draw_data_layout(draw_data_descriptor_.layout());
     depth_prepass_.create(device_, pass_resources);
+    shadow_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     shadow_pass_.create(device_, pass_resources);
     depth_viz_pass_.create(device_, pass_resources);
 
@@ -68,8 +90,14 @@ VulkanContext::VulkanContext(Window& window)
     uv_viz_pass_.create(device_, pass_resources);
     bloom_pass_.create(device_, pass_resources);
     sky_pass_.create(device_, pass_resources);
+    transparent_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     transparent_pass_.create(device_, pass_resources);
     tonemap_pass_.create(device_, pass_resources);
+    light_cull_pass_.create(device_.handle(), global_set_layout_->handle());
+    light_heatmap_pass_.set_mode(0);
+    light_heatmap_pass_.create(device_, pass_resources);
+    light_grid_pass_.set_mode(1);
+    light_grid_pass_.create(device_, pass_resources);
     particle_system_.create(device_, pass_resources);
     create_outline_pipeline();
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
@@ -86,6 +114,9 @@ VulkanContext::~VulkanContext() {
     if (outline_pipeline_) { vkDestroyPipeline(vk_device, outline_pipeline_, nullptr); outline_pipeline_ = VK_NULL_HANDLE; }
     if (outline_layout_) { vkDestroyPipelineLayout(vk_device, outline_layout_, nullptr); outline_layout_ = VK_NULL_HANDLE; }
     particle_system_.destroy();
+    light_grid_pass_.destroy();
+    light_heatmap_pass_.destroy();
+    light_cull_pass_.destroy();
     sky_pass_.destroy();
     transparent_pass_.destroy();
     tonemap_pass_.destroy();
@@ -99,8 +130,17 @@ VulkanContext::~VulkanContext() {
     shadow_pass_.destroy();
     depth_prepass_.destroy();
 
+    indirect_batch_.reset();
+    mega_buffer_.reset();
+    draw_data_descriptor_.destroy();
     for (auto& ub : uniform_buffers_)
         ub.reset();
+    for (auto& lb : light_ssbo_)
+        lb.reset();
+    for (auto& tb : tile_light_ssbo_)
+        tb.reset();
+    if (depth_sampler_ != VK_NULL_HANDLE)
+        vkDestroySampler(vk_device, depth_sampler_, nullptr);
     global_pool_.reset();
     global_set_layout_.reset();
     bindless_textures_.destroy();
@@ -118,29 +158,57 @@ VulkanContext::~VulkanContext() {
 void VulkanContext::create_descriptor_resources() {
     auto vk_device = device_.handle();
 
-    // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler
-    std::array<VkDescriptorSetLayoutBinding, 2> global_bindings{};
+    // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler,
+    // binding 2 = light SSBO, binding 3 = tile light index SSBO,
+    // binding 4 = depth texture (for light culling compute)
+    std::array<VkDescriptorSetLayoutBinding, 5> global_bindings{};
     global_bindings[0].binding = 0;
     global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_bindings[0].descriptorCount = 1;
-    global_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    global_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                                     VK_SHADER_STAGE_COMPUTE_BIT;
 
     global_bindings[1].binding = 1;
     global_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     global_bindings[1].descriptorCount = 1;
     global_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+    global_bindings[2].binding = 2;
+    global_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    global_bindings[2].descriptorCount = 1;
+    global_bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+    global_bindings[3].binding = 3;
+    global_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    global_bindings[3].descriptorCount = 1;
+    global_bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
+    global_bindings[4].binding = 4;
+    global_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    global_bindings[4].descriptorCount = 1;
+    global_bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
     global_set_layout_ = std::make_unique<DescriptorSetLayout>(
         vk_device, std::span{global_bindings});
 
-    std::array<VkDescriptorPoolSize, 2> global_pool_sizes{};
+    std::array<VkDescriptorPoolSize, 3> global_pool_sizes{};
     global_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
     global_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // shadow map + depth texture
+    global_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    global_pool_sizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // light SSBO + tile SSBO
 
     global_pool_ = std::make_unique<DescriptorPool>(
         vk_device, std::span{global_pool_sizes}, MAX_FRAMES_IN_FLIGHT);
+
+    // Light SSBO: 1024 point + 1024 spot lights (~48 KB)
+    constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
+    // Tile light index SSBO: max 16384 tiles, each with count + MAX_LIGHTS_PER_TILE indices
+    constexpr uint32_t MAX_TILES = 16384;
+    constexpr uint32_t MAX_LIGHTS_PER_TILE = 256;
+    constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
+                                             MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         uniform_buffers_[i] = std::make_unique<Buffer>(
@@ -149,6 +217,32 @@ void VulkanContext::create_descriptor_resources() {
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         uniform_buffers_[i]->map();
+
+        // Light SSBO (host-visible for CPU upload)
+        light_ssbo_[i] = std::make_unique<Buffer>(
+            vk_device, device_.physical_device(), light_ssbo_size,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        light_ssbo_[i]->map();
+
+        // Tile light index SSBO (device-local, compute writes, fragment reads)
+        tile_light_ssbo_[i] = std::make_unique<Buffer>(
+            vk_device, device_.physical_device(), tile_ssbo_size,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    }
+
+    // Depth sampler for compute light culling (nearest, clamp-to-edge)
+    VkSamplerCreateInfo sampler_ci{};
+    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_ci.magFilter = VK_FILTER_NEAREST;
+    sampler_ci.minFilter = VK_FILTER_NEAREST;
+    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(vk_device, &sampler_ci, nullptr, &depth_sampler_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create depth sampler for light culling");
     }
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -159,16 +253,44 @@ void VulkanContext::create_descriptor_resources() {
         buffer_info.offset = 0;
         buffer_info.range = sizeof(GlobalUbo);
 
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = global_descriptor_sets_[i];
-        write.dstBinding = 0;
-        write.dstArrayElement = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo = &buffer_info;
+        VkDescriptorBufferInfo light_info{};
+        light_info.buffer = light_ssbo_[i]->handle();
+        light_info.offset = 0;
+        light_info.range = light_ssbo_size;
 
-        vkUpdateDescriptorSets(vk_device, 1, &write, 0, nullptr);
+        VkDescriptorBufferInfo tile_info{};
+        tile_info.buffer = tile_light_ssbo_[i]->handle();
+        tile_info.offset = 0;
+        tile_info.range = tile_ssbo_size;
+
+        std::array<VkWriteDescriptorSet, 3> writes{};
+
+        // Binding 0: UBO
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = global_descriptor_sets_[i];
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo = &buffer_info;
+
+        // Binding 2: Light SSBO
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = global_descriptor_sets_[i];
+        writes[1].dstBinding = 2;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo = &light_info;
+
+        // Binding 3: Tile light index SSBO
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = global_descriptor_sets_[i];
+        writes[2].dstBinding = 3;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[2].descriptorCount = 1;
+        writes[2].pBufferInfo = &tile_info;
+
+        vkUpdateDescriptorSets(vk_device, static_cast<uint32_t>(writes.size()),
+                               writes.data(), 0, nullptr);
     }
 
     FJELL_GFX_DEBUG("Descriptor resources created");
@@ -252,24 +374,57 @@ void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
 // ── Command buffer recording ────────────────────────────────────────────
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
-                                    Scene* scene, float dt, uint32_t selected_id) {
-    // Build render queue
+                                    Scene* scene, float dt, uint32_t selected_id,
+                                    ThreadPool& pool) {
+    // Build render queue with parallel frustum culling
     if (scene) {
         render_queue_.clear();
-        for (const auto& obj : scene->objects()) {
-            if (!obj.model) continue;
+        Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
+        const auto& objects = scene->objects();
+        auto object_count = static_cast<uint32_t>(objects.size());
 
-            DrawCommand dc{};
-            dc.world_matrix = obj.world_matrix_;
-            dc.push.model = obj.world_matrix_;
-            if (obj.material) {
-                dc.push.material_id = obj.material->material_id();
-                dc.sort_key = RenderQueue::make_sort_key(
-                    obj.material->material_id(), obj.id);
-                dc.transparent = (obj.material->params().base_color_factor.w < 1.0f);
+        uint32_t num_chunks = pool.thread_count() + 1;
+        std::vector<std::vector<DrawCommand>> local_commands(num_chunks);
+        std::vector<uint32_t> local_total(num_chunks, 0);
+        std::vector<uint32_t> local_culled(num_chunks, 0);
+
+        pool.parallel_for(0, object_count,
+            [&](uint32_t chunk_id, uint32_t begin, uint32_t end) {
+                auto& commands = local_commands[chunk_id];
+
+                for (uint32_t i = begin; i < end; ++i) {
+                    const auto& obj = objects[i];
+                    if (!obj.model) continue;
+
+                    local_total[chunk_id]++;
+
+                    AABB world_aabb = obj.model->local_aabb().transform(obj.world_matrix_);
+                    if (!camera_frustum.intersects(world_aabb)) {
+                        local_culled[chunk_id]++;
+                        continue;
+                    }
+
+                    DrawCommand dc{};
+                    dc.world_matrix = obj.world_matrix_;
+                    dc.push.model = obj.world_matrix_;
+                    if (obj.material) {
+                        dc.push.material_id = obj.material->material_id();
+                        dc.sort_key = RenderQueue::make_sort_key(
+                            obj.material->material_id(), obj.id);
+                        dc.transparent = (obj.material->params().base_color_factor.w < 1.0f);
+                    }
+                    dc.model = obj.model;
+                    commands.push_back(dc);
+                }
+            });
+
+        // Merge per-chunk results
+        for (uint32_t i = 0; i < num_chunks; ++i) {
+            render_stats_->objects_total += local_total[i];
+            render_stats_->objects_culled += local_culled[i];
+            for (const auto& dc : local_commands[i]) {
+                render_queue_.push(dc);
             }
-            dc.model = obj.model;
-            render_queue_.push(dc);
         }
         render_queue_.sort(camera_position_);
     }
@@ -278,6 +433,19 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     bindless_textures_.update_descriptors();
     bindless_textures_.update_material_buffer();
 
+    // Build indirect draw commands from opaque + transparent queues
+    indirect_batch_->build(render_queue_.commands(),
+                           render_queue_.transparent_commands(),
+                           current_frame_);
+
+    // Update draw data descriptor for this frame
+    if (indirect_batch_->draw_data_count(current_frame_) > 0) {
+        draw_data_descriptor_.update(
+            indirect_batch_->draw_data_buffer(current_frame_),
+            indirect_batch_->draw_data_size(current_frame_),
+            current_frame_);
+    }
+
     FrameContext ctx{};
     ctx.cmd = cmd;
     ctx.target = &target;
@@ -285,26 +453,88 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.camera_position = camera_position_;
     ctx.global_descriptor_set = global_descriptor_sets_[current_frame_];
     ctx.bindless_set = bindless_textures_.descriptor_set();
+    ctx.draw_data_set = draw_data_descriptor_.descriptor_set(current_frame_);
     ctx.debug_draw = debug_draw_.get();
     ctx.scene = scene;
     ctx.delta_time = dt;
     ctx.selected_id = selected_id;
     ctx.show_colliders = show_colliders_;
     ctx.frame_index = current_frame_;
+    ctx.indirect_batch = indirect_batch_.get();
+    ctx.mega_buffer = mega_buffer_.get();
 
     // ── Frame graph: declare image usage per pass ────────────────────────
 
     FrameGraph graph;
+    // When MSAA: track the resolve image (read by post-process) and the MSAA image (render target)
     uint32_t color_id = graph.register_image(target.color_image());
+    uint32_t msaa_color_id = color_id;
+    if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+        msaa_color_id = graph.register_image(target.msaa_color_image());
+    }
     uint32_t depth_id = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
+    uint32_t msaa_depth_id = depth_id;
+    if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+        msaa_depth_id = graph.register_image(target.msaa_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
+    }
     graph.begin_frame();
 
     // Shadow pass (uses its own images — no graph tracking needed)
     graph.add_pass("shadow", [&] { shadow_pass_.record(ctx); }, {});
 
-    // Depth pre-pass
-    graph.add_pass("depth_prepass", [&] { depth_prepass_.record(ctx); },
-                   {{depth_id, ImageUsage::depth_attachment}});
+    // Depth pre-pass (writes MSAA depth when MSAA active, otherwise single-sample)
+    if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+        // With MSAA: depth prepass writes MSAA depth, then resolve to single-sample for compute
+        graph.add_pass("depth_prepass", [&] { depth_prepass_.record(ctx); },
+                       {{msaa_depth_id, ImageUsage::depth_attachment}});
+
+        // Depth resolve: begin a rendering scope with MSAA depth loaded + resolve target
+        graph.add_pass("depth_resolve", [&] {
+            VkRenderingAttachmentInfo depth_attachment{};
+            depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            depth_attachment.imageView = target.msaa_depth_view();
+            depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depth_attachment.resolveImageView = target.depth_view();
+            depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+
+            VkRenderingInfo ri{};
+            ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            ri.renderArea.extent = target.extent();
+            ri.layerCount = 1;
+            ri.pDepthAttachment = &depth_attachment;
+
+            vkCmdBeginRendering(cmd, &ri);
+            vkCmdEndRendering(cmd);
+        }, {{msaa_depth_id, ImageUsage::depth_attachment_read},
+            {depth_id, ImageUsage::depth_attachment}});
+    } else {
+        graph.add_pass("depth_prepass", [&] { depth_prepass_.record(ctx); },
+                       {{depth_id, ImageUsage::depth_attachment}});
+    }
+
+    // Light cull compute pass (reads resolved depth, writes tile light lists)
+    graph.add_pass("light_cull", [&] {
+        auto extent = target.extent();
+        light_cull_pass_.dispatch(cmd, global_descriptor_sets_[current_frame_],
+                                   extent.width, extent.height);
+
+        // Memory barrier: compute SSBO write → fragment SSBO read
+        VkMemoryBarrier2 mem_barrier{};
+        mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        mem_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        mem_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        mem_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        mem_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &mem_barrier;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }, {{depth_id, ImageUsage::compute_read}});
 
     // Particle compute (before rendering so particles are ready to draw)
     graph.add_pass("particle_compute", [&] {
@@ -319,18 +549,30 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     graph.add_pass("color", [&] {
         VkRenderingAttachmentInfo color_attachment{};
         color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachment.imageView = target.color_view();
+        color_attachment.imageView = target.msaa_color_view();
         color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
 
+        if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+            color_attachment.resolveImageView = target.color_view();
+            color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+        }
+
         VkRenderingAttachmentInfo depth_attachment{};
         depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        depth_attachment.imageView = target.depth_view();
+        depth_attachment.imageView = target.msaa_depth_view();
         depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
         depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+            depth_attachment.resolveImageView = target.depth_view();
+            depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+        }
 
         VkRenderingInfo ri{};
         ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -355,13 +597,20 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         vkCmdSetScissor(cmd, 0, 1, &sc);
 
         std::array descriptor_sets = {global_descriptor_sets_[current_frame_],
-                                     bindless_textures_.descriptor_set()};
+                                     bindless_textures_.descriptor_set(),
+                                     draw_data_descriptor_.descriptor_set(current_frame_)};
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
                                 0, static_cast<uint32_t>(descriptor_sets.size()),
                                 descriptor_sets.data(), 0, nullptr);
 
         if (scene) {
-            render_queue_.execute(cmd, pipeline_->layout(), render_stats_.get());
+            mega_buffer_->bind(cmd);
+            indirect_batch_->draw(cmd, current_frame_);
+            render_stats_->draw_calls += indirect_batch_->opaque_draw_count(current_frame_);
+            render_stats_->triangle_count += indirect_batch_->total_triangles(current_frame_);
+            if (indirect_batch_->opaque_draw_count(current_frame_) > 0) {
+                render_stats_->indirect_draws++;
+            }
         }
 
         sky_pass_.record(ctx);
@@ -371,8 +620,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         particle_system_.record_render(ctx);
 
         vkCmdEndRendering(cmd);
-    }, {{color_id, ImageUsage::color_attachment},
-        {depth_id, ImageUsage::depth_attachment_read}});
+    }, {{msaa_color_id, ImageUsage::color_attachment},
+        {color_id, ImageUsage::color_attachment},
+        {msaa_depth_id, ImageUsage::depth_attachment_read},
+        {depth_id, ImageUsage::depth_attachment}});
 
     // Post-processing reads the color buffer
     graph.add_pass("bloom", [&] { bloom_pass_.record(ctx); },
@@ -392,6 +643,19 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     graph.add_pass("overdraw", [&] { overdraw_pass_.record(ctx); }, {});
     graph.add_pass("uv_viz", [&] { uv_viz_pass_.record(ctx); }, {});
 
+    // Light visualization passes (read tile SSBO written by light_cull)
+    graph.add_pass("light_heatmap", [&] {
+        light_heatmap_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
+                                           tile_light_ssbo_[current_frame_]->size());
+        light_heatmap_pass_.record(ctx);
+    }, {});
+
+    graph.add_pass("light_grid", [&] {
+        light_grid_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
+                                        tile_light_ssbo_[current_frame_]->size());
+        light_grid_pass_.record(ctx);
+    }, {});
+
     // ── Execute ─────────────────────────────────────────────────────────
 
     graph.execute(cmd);
@@ -401,7 +665,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                                           const std::vector<ViewportRenderRequest>& viewports,
                                           const DirectionalLight& light,
                                           Scene* scene, float dt,
-                                          uint32_t selected_id) {
+                                          uint32_t selected_id, ThreadPool& pool) {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -419,8 +683,9 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     for (const auto& vp : viewports) {
         if (!vp.target) continue;
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
-                              vp.camera_position, light);
-        render_scene_to(cmd, *vp.target, scene, dt, selected_id);
+                              vp.camera_position, light, scene, vp.target->extent());
+        update_light_ssbo(current_frame_, scene);
+        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool);
     }
 
     // --- Render ImGui to swapchain ---
@@ -473,8 +738,11 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::mat4& view,
                                           const glm::mat4& projection,
                                           const glm::vec3& camera_position,
-                                          const DirectionalLight& light) {
+                                          const DirectionalLight& light,
+                                          Scene* scene, VkExtent2D extent) {
     camera_position_ = camera_position;
+    view_matrix_ = view;
+    projection_matrix_ = projection;
     GlobalUbo ubo{};
     ubo.view = view;
     ubo.projection = projection;
@@ -490,13 +758,57 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     }
     ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], 0.0f);
 
+    // Forward+ tile info
+    uint32_t tiles_x = (extent.width + 15) / 16;
+    uint32_t tiles_y = (extent.height + 15) / 16;
+    uint32_t point_count = scene ? static_cast<uint32_t>(scene->point_lights().size()) : 0;
+    uint32_t spot_count = scene ? static_cast<uint32_t>(scene->spot_lights().size()) : 0;
+    point_count = std::min(point_count, 1024u);
+    spot_count = std::min(spot_count, 1024u);
+    ubo.tile_info = glm::uvec4(tiles_x, tiles_y, point_count, spot_count);
+    ubo.inv_projection = glm::inverse(projection);
+
     uniform_buffers_[frame_index]->write(&ubo, sizeof(ubo));
+}
+
+void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
+    if (!scene) return;
+
+    const auto& point_lights = scene->point_lights();
+    const auto& spot_lights = scene->spot_lights();
+
+    auto point_count = std::min(static_cast<uint32_t>(point_lights.size()), 1024u);
+    auto spot_count = std::min(static_cast<uint32_t>(spot_lights.size()), 1024u);
+
+    auto* dst = static_cast<uint8_t*>(light_ssbo_[frame_index]->mapped());
+
+    // Write point lights
+    for (uint32_t i = 0; i < point_count; ++i) {
+        const auto& pl = point_lights[i];
+        GpuPointLight gpu{};
+        gpu.position_radius = glm::vec4(pl.position, pl.radius);
+        gpu.color_intensity = glm::vec4(pl.color, pl.intensity);
+        std::memcpy(dst + i * sizeof(GpuPointLight), &gpu, sizeof(GpuPointLight));
+    }
+
+    // Write spot lights after the point light array (offset = 1024 * sizeof(GpuPointLight))
+    auto* spot_dst = dst + 1024 * sizeof(GpuPointLight);
+    for (uint32_t i = 0; i < spot_count; ++i) {
+        const auto& sl = spot_lights[i];
+        GpuSpotLight gpu{};
+        gpu.position_radius = glm::vec4(sl.position, sl.radius);
+        gpu.direction_inner_cos = glm::vec4(glm::normalize(sl.direction),
+                                             std::cos(glm::radians(sl.inner_angle)));
+        gpu.color_intensity = glm::vec4(sl.color, sl.intensity);
+        gpu.outer_cos = std::cos(glm::radians(sl.outer_angle));
+        std::memcpy(spot_dst + i * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
+    }
 }
 
 void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                                const DirectionalLight& light,
                                Scene* scene, float dt,
-                               uint32_t selected_id) {
+                               uint32_t selected_id, ThreadPool& pool) {
     auto vk_device = device_.handle();
 
     vkWaitForFences(vk_device, 1, &in_flight_[current_frame_], VK_TRUE,
@@ -522,9 +834,28 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
     if (show_colliders_ && scene) {
         debug_draw_->update(*scene);
     }
+
+    // Update binding 4 (depth texture for light culling) before recording
+    // Must happen before command buffer starts to avoid invalidating in-flight descriptors
+    if (!viewports.empty() && viewports[0].target) {
+        VkDescriptorImageInfo depth_desc{};
+        depth_desc.sampler = depth_sampler_;
+        depth_desc.imageView = viewports[0].target->depth_view();
+        depth_desc.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet depth_write{};
+        depth_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        depth_write.dstSet = global_descriptor_sets_[current_frame_];
+        depth_write.dstBinding = 4;
+        depth_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        depth_write.descriptorCount = 1;
+        depth_write.pImageInfo = &depth_desc;
+        vkUpdateDescriptorSets(vk_device, 1, &depth_write, 0, nullptr);
+    }
+
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
     record_command_buffer(command_buffers_[current_frame_], image_index,
-                          viewports, light, scene, dt, selected_id);
+                          viewports, light, scene, dt, selected_id, pool);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
@@ -655,7 +986,7 @@ void VulkanContext::create_outline_pipeline() {
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = msaa_samples_;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -743,6 +1074,7 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(push), &push);
 
+    mega_buffer_->bind(cmd);
     obj->model->draw(cmd);
 }
 
@@ -755,7 +1087,10 @@ void VulkanContext::reload_pipeline() {
     pass_resources.material_set_layout = bindless_textures_.layout();
     pass_resources.depth_format = depth_format;
     pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
+    pass_resources.sample_count = msaa_samples_;
+    depth_prepass_.set_draw_data_layout(draw_data_descriptor_.layout());
     depth_prepass_.recreate(device_, pass_resources);
+    shadow_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     shadow_pass_.recreate(device_, pass_resources);
     debug_pass_.recreate(device_, pass_resources);
 }

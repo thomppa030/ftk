@@ -16,22 +16,26 @@ enum class ViewportSource : uint8_t {
     normals,
     overdraw,
     uv,
+    light_heatmap,
+    light_grid,
 };
 
 inline const char* viewport_source_name(ViewportSource source) {
     switch (source) {
-        case ViewportSource::final_color: return "Final Color";
-        case ViewportSource::depth:       return "Depth";
-        case ViewportSource::wireframe:   return "Wireframe";
-        case ViewportSource::bloom:       return "Bloom";
-        case ViewportSource::normals:     return "Normals";
-        case ViewportSource::overdraw:    return "Overdraw";
-        case ViewportSource::uv:          return "UV";
+        case ViewportSource::final_color:    return "Final Color";
+        case ViewportSource::depth:          return "Depth";
+        case ViewportSource::wireframe:      return "Wireframe";
+        case ViewportSource::bloom:          return "Bloom";
+        case ViewportSource::normals:        return "Normals";
+        case ViewportSource::overdraw:       return "Overdraw";
+        case ViewportSource::uv:             return "UV";
+        case ViewportSource::light_heatmap:  return "Light Heatmap";
+        case ViewportSource::light_grid:     return "Light Grid";
     }
     return "Unknown";
 }
 
-constexpr int VIEWPORT_SOURCE_COUNT = 7;
+constexpr int VIEWPORT_SOURCE_COUNT = 9;
 
 struct ViewportRenderRequest {
     OffscreenPass* target{nullptr};

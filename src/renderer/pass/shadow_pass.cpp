@@ -1,6 +1,9 @@
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/device.hpp"
+#include "renderer/frustum.hpp"
+#include "renderer/indirect_batch.hpp"
+#include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
@@ -336,15 +339,16 @@ void ShadowPass::create(Device& device, const PassResources& /*resources*/) {
     depth_stencil.depthBoundsTestEnable = VK_FALSE;
     depth_stencil.stencilTestEnable = VK_FALSE;
 
-    // Push constants: light_space (mat4) + model (mat4) = 128 bytes
+    // Push constants: light_space mat4 only (64 bytes); model from SSBO
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     push_range.offset = 0;
-    push_range.size = 2 * sizeof(glm::mat4);
+    push_range.size = sizeof(glm::mat4);
 
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = 0;
+    layout_info.setLayoutCount = 1;
+    layout_info.pSetLayouts = &draw_data_layout_;
     layout_info.pushConstantRangeCount = 1;
     layout_info.pPushConstantRanges = &push_range;
 
@@ -400,11 +404,6 @@ void ShadowPass::destroy() {
 
 void ShadowPass::record(const FrameContext& ctx) {
     if (!ctx.queue || ctx.queue->empty()) return;
-
-    struct ShadowPush {
-        glm::mat4 light_space;
-        glm::mat4 model;
-    };
 
     VkViewport viewport{};
     viewport.x = 0.0f;
@@ -465,14 +464,18 @@ void ShadowPass::record(const FrameContext& ctx) {
         vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
         vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
 
-        for (const auto& dc : ctx.queue->commands()) {
-            ShadowPush push{};
-            push.light_space = light_matrices_[c];
-            push.model = dc.world_matrix;
-            vkCmdPushConstants(ctx.cmd, layout_,
-                               VK_SHADER_STAGE_VERTEX_BIT,
-                               0, sizeof(ShadowPush), &push);
-            dc.model->draw(ctx.cmd);
+        // Bind draw data SSBO
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
+                                0, 1, &ctx.draw_data_set, 0, nullptr);
+
+        // Push light_space matrix for this cascade
+        vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
+                           0, sizeof(glm::mat4), &light_matrices_[c]);
+
+        // Draw all opaques via MDI
+        if (ctx.mega_buffer && ctx.indirect_batch) {
+            ctx.mega_buffer->bind(ctx.cmd);
+            ctx.indirect_batch->draw(ctx.cmd, ctx.frame_index);
         }
 
         vkCmdEndRendering(ctx.cmd);

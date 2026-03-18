@@ -10,7 +10,8 @@ class Device;
 
 class OffscreenPass {
 public:
-    OffscreenPass(Device& device, uint32_t width, uint32_t height);
+    OffscreenPass(Device& device, uint32_t width, uint32_t height,
+                  VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
     ~OffscreenPass();
 
     OffscreenPass(const OffscreenPass&) = delete;
@@ -20,11 +21,24 @@ public:
 
     void resize(uint32_t width, uint32_t height);
 
-    [[nodiscard]] VkImageView color_view() const { return color_view_; }
-    [[nodiscard]] VkImageView depth_view() const { return depth_view_; }
-    [[nodiscard]] VkImage color_image() const { return color_image_; }
-    [[nodiscard]] VkImage depth_image() const { return depth_image_; }
+    // Returns the single-sample color view (resolve target when MSAA, direct when 1x).
+    // Use this for post-process sampling and ImGui display.
+    [[nodiscard]] VkImageView color_view() const { return resolve_color_view_ ? resolve_color_view_ : color_view_; }
+
+    // Returns the MSAA color view for rendering into (same as color_view when 1x).
+    [[nodiscard]] VkImageView msaa_color_view() const { return color_view_; }
+
+    // Returns the single-sample depth view (resolve target when MSAA, direct when 1x).
+    [[nodiscard]] VkImageView depth_view() const { return resolve_depth_view_ ? resolve_depth_view_ : depth_view_; }
+
+    // Returns the MSAA depth view for rendering into (same as depth_view when 1x).
+    [[nodiscard]] VkImageView msaa_depth_view() const { return depth_view_; }
+    [[nodiscard]] VkImage color_image() const { return resolve_color_image_ ? resolve_color_image_ : color_image_; }
+    [[nodiscard]] VkImage msaa_color_image() const { return color_image_; }
+    [[nodiscard]] VkImage depth_image() const { return resolve_depth_image_ ? resolve_depth_image_ : depth_image_; }
+    [[nodiscard]] VkImage msaa_depth_image() const { return depth_image_; }
     [[nodiscard]] VkExtent2D extent() const { return extent_; }
+    [[nodiscard]] VkSampleCountFlagBits sample_count() const { return msaa_samples_; }
     [[nodiscard]] VkDescriptorSet imgui_texture();
     [[nodiscard]] VkDescriptorSet depth_imgui_texture();
     void invalidate_imgui_texture();
@@ -37,16 +51,30 @@ private:
     void cleanup_images();
 
     Device& device_;
+    VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
 
+    // Color render target (MSAA when samples > 1)
     VkImage color_image_{VK_NULL_HANDLE};
     VkDeviceMemory color_memory_{VK_NULL_HANDLE};
     VkImageView color_view_{VK_NULL_HANDLE};
+
+    // Resolve target (single-sample, only created when MSAA)
+    VkImage resolve_color_image_{VK_NULL_HANDLE};
+    VkDeviceMemory resolve_color_memory_{VK_NULL_HANDLE};
+    VkImageView resolve_color_view_{VK_NULL_HANDLE};
+
     VkSampler sampler_{VK_NULL_HANDLE};
     VkSampler depth_sampler_{VK_NULL_HANDLE};
 
+    // Depth render target (MSAA when samples > 1)
     VkImage depth_image_{VK_NULL_HANDLE};
     VkDeviceMemory depth_memory_{VK_NULL_HANDLE};
     VkImageView depth_view_{VK_NULL_HANDLE};
+
+    // Depth resolve target (single-sample, only created when MSAA)
+    VkImage resolve_depth_image_{VK_NULL_HANDLE};
+    VkDeviceMemory resolve_depth_memory_{VK_NULL_HANDLE};
+    VkImageView resolve_depth_view_{VK_NULL_HANDLE};
 
     VkExtent2D extent_{};
 

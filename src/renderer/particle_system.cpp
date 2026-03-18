@@ -58,6 +58,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     global_set_layout_ = resources.global_set_layout;
     color_format_ = resources.color_format;
     depth_format_ = resources.depth_format;
+    sample_count_ = resources.sample_count;
 
     auto families = device.find_queue_families();
     VkCommandPoolCreateInfo pool_ci{};
@@ -233,7 +234,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = sample_count_;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;

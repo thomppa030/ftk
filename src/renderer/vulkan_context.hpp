@@ -2,6 +2,9 @@
 
 #include "renderer/bindless.hpp"
 #include "renderer/buffer.hpp"
+#include "renderer/draw_data_descriptor.hpp"
+#include "renderer/indirect_batch.hpp"
+#include "renderer/mega_buffer.hpp"
 #include "renderer/particle_system.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/debug_draw.hpp"
@@ -17,6 +20,8 @@
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/light_cull_pass.hpp"
+#include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
@@ -38,6 +43,7 @@ namespace fjell {
 
 class Window;
 class Scene;
+class ThreadPool;
 struct RenderStats;
 
 class VulkanContext {
@@ -52,8 +58,9 @@ public:
 
     void draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                     const struct DirectionalLight& light,
-                    Scene* scene, float dt = 0.0f,
-                    uint32_t selected_id = 0);
+                    Scene* scene, float dt,
+                    uint32_t selected_id, ThreadPool& pool);
+    void update_light_ssbo(uint32_t frame_index, Scene* scene);
     void wait_idle();
     void reload_pipeline();
 
@@ -69,6 +76,7 @@ public:
     [[nodiscard]] const std::string& gpu_name() const { return device_.gpu_name(); }
     [[nodiscard]] RenderStats& render_stats() { return *render_stats_; }
     [[nodiscard]] Device& device_ref() { return device_; }
+    [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return msaa_samples_; }
     [[nodiscard]] DepthVizPass& depth_viz_pass() { return depth_viz_pass_; }
     [[nodiscard]] WireframePass& wireframe_pass() { return wireframe_pass_; }
     [[nodiscard]] NormalPass& normal_pass() { return normal_pass_; }
@@ -76,12 +84,15 @@ public:
     [[nodiscard]] UvVizPass& uv_viz_pass() { return uv_viz_pass_; }
     [[nodiscard]] BloomPass& bloom_pass() { return bloom_pass_; }
     [[nodiscard]] TonemapPass& tonemap_pass() { return tonemap_pass_; }
+    [[nodiscard]] LightVizPass& light_heatmap_pass() { return light_heatmap_pass_; }
+    [[nodiscard]] LightVizPass& light_grid_pass() { return light_grid_pass_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
     void set_show_colliders(bool show) { show_colliders_ = show; }
     [[nodiscard]] bool show_colliders() const { return show_colliders_; }
     [[nodiscard]] DebugDraw& debug_draw() { return *debug_draw_; }
+    [[nodiscard]] MegaBuffer* mega_buffer() { return mega_buffer_.get(); }
 
 private:
     void create_descriptor_resources();
@@ -93,13 +104,15 @@ private:
                                const std::vector<ViewportRenderRequest>& viewports,
                                const struct DirectionalLight& light,
                                Scene* scene, float dt,
-                               uint32_t selected_id);
+                               uint32_t selected_id, ThreadPool& pool);
     void render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
-                         Scene* scene, float dt, uint32_t selected_id);
+                         Scene* scene, float dt, uint32_t selected_id,
+                         ThreadPool& pool);
     void update_uniform_buffer(uint32_t frame_index,
                                const glm::mat4& view, const glm::mat4& projection,
                                const glm::vec3& camera_position,
-                               const struct DirectionalLight& light);
+                               const struct DirectionalLight& light,
+                               Scene* scene, VkExtent2D extent);
 
     static void transition_image(VkCommandBuffer cmd, VkImage image,
                                  VkImageLayout old_layout, VkImageLayout new_layout,
@@ -149,6 +162,22 @@ private:
     std::unique_ptr<RenderStats> render_stats_;
     RenderQueue render_queue_;
     glm::vec3 camera_position_{0.0f};
+    glm::mat4 view_matrix_{1.0f};
+    glm::mat4 projection_matrix_{1.0f};
+    VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
+
+    // Multi-draw indirect
+    std::unique_ptr<MegaBuffer> mega_buffer_;
+    std::unique_ptr<IndirectBatch> indirect_batch_;
+    DrawDataDescriptor draw_data_descriptor_;
+
+    // Forward+ light culling + visualization
+    LightCullPass light_cull_pass_;
+    LightVizPass light_heatmap_pass_;
+    LightVizPass light_grid_pass_;
+    std::array<std::unique_ptr<Buffer>, 2> light_ssbo_;
+    std::array<std::unique_ptr<Buffer>, 2> tile_light_ssbo_;
+    VkSampler depth_sampler_{VK_NULL_HANDLE};
 
     // Particles
     ParticleSystem particle_system_;

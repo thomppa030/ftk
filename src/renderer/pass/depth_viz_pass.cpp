@@ -344,7 +344,7 @@ void DepthVizPass::invalidate_imgui_texture() {
 void DepthVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || view_ == VK_NULL_HANDLE) return;
 
-    // Update descriptor: point at the target's depth view
+    // Update descriptor: point at the target's depth view (resolved single-sample when MSAA)
     VkDescriptorImageInfo depth_info{};
     depth_info.sampler = depth_sampler_;
     depth_info.imageView = ctx.target->depth_view();

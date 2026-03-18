@@ -17,6 +17,8 @@ Pipeline::Pipeline(Device& device,
                    VkFormat color_format, VkFormat depth_format,
                    VkDescriptorSetLayout global_layout,
                    VkDescriptorSetLayout material_layout,
+                   VkDescriptorSetLayout draw_data_layout,
+                   VkSampleCountFlagBits samples,
                    const std::string& vert_shader,
                    const std::string& frag_shader)
     : device_{device}
@@ -24,6 +26,8 @@ Pipeline::Pipeline(Device& device,
     , depth_format_{depth_format}
     , global_layout_{global_layout}
     , material_layout_{material_layout}
+    , draw_data_layout_{draw_data_layout}
+    , samples_{samples}
     , vert_shader_{vert_shader}
     , frag_shader_{frag_shader} {
     create();
@@ -104,7 +108,7 @@ void Pipeline::create() {
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.sampleShadingEnable = VK_FALSE;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = samples_;
 
     VkPipelineColorBlendAttachmentState color_blend_attachment{};
     color_blend_attachment.colorWriteMask =
@@ -126,7 +130,7 @@ void Pipeline::create() {
     depth_stencil.depthBoundsTestEnable = VK_FALSE;
     depth_stencil.stencilTestEnable = VK_FALSE;
 
-    std::array set_layouts = {global_layout_, material_layout_};
+    std::array set_layouts = {global_layout_, material_layout_, draw_data_layout_};
 
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;

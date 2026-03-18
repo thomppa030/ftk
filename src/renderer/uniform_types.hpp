@@ -14,6 +14,8 @@ struct GlobalUbo {
     alignas(16) glm::vec4 ambient_color;    // xyz = rgb, w = intensity
     alignas(16) glm::mat4 cascade_vp[3];    // light-space view-projection per cascade
     alignas(16) glm::vec4 cascade_splits;   // xyz = split distances, w = unused
+    alignas(16) glm::uvec4 tile_info;       // x = tiles_x, y = tiles_y, z = point_count, w = spot_count
+    alignas(16) glm::mat4 inv_projection;
 };
 
 struct DirectionalLight {
@@ -22,6 +24,37 @@ struct DirectionalLight {
     float intensity{1.5f};
     glm::vec3 ambient_color{0.1f, 0.1f, 0.12f};
     float ambient_intensity{1.0f};
+};
+
+struct PointLight {
+    glm::vec3 position{0.0f};
+    float radius{10.0f};
+    glm::vec3 color{1.0f};
+    float intensity{1.0f};
+};
+
+struct SpotLight {
+    glm::vec3 position{0.0f};
+    float radius{10.0f};
+    glm::vec3 direction{0.0f, -1.0f, 0.0f};
+    float inner_angle{20.0f}; // degrees
+    glm::vec3 color{1.0f};
+    float intensity{1.0f};
+    float outer_angle{30.0f}; // degrees
+};
+
+// GPU-side structs matching GLSL layout (std430)
+struct GpuPointLight {
+    alignas(16) glm::vec4 position_radius;  // xyz = world pos, w = radius
+    alignas(16) glm::vec4 color_intensity;  // xyz = color, w = intensity
+};
+
+struct GpuSpotLight {
+    alignas(16) glm::vec4 position_radius;      // xyz = world pos, w = radius
+    alignas(16) glm::vec4 direction_inner_cos;   // xyz = dir, w = cos(inner_angle)
+    alignas(16) glm::vec4 color_intensity;       // xyz = color, w = intensity
+    float outer_cos;
+    float pad[3];
 };
 
 struct PbrPushConstants {

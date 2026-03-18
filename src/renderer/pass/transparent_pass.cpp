@@ -1,5 +1,8 @@
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/device.hpp"
+#include "renderer/indirect_batch.hpp"
+#include "renderer/mega_buffer.hpp"
+#include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/uniform_types.hpp"
@@ -95,7 +98,7 @@ void TransparentPass::create(Device& device, const PassResources& resources) {
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = resources.sample_count;
 
     // Alpha blending: src * srcAlpha + dst * (1 - srcAlpha)
     VkPipelineColorBlendAttachmentState blend{};
@@ -121,20 +124,14 @@ void TransparentPass::create(Device& device, const PassResources& resources) {
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    // Same layout as PBR: global (set 0) + material (set 1) + push constants
-    std::array set_layouts = {resources.global_set_layout, resources.material_set_layout};
-
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(PbrPushConstants);
+    // Layout: global (set 0) + material (set 1) + draw data (set 2)
+    std::array set_layouts = {resources.global_set_layout, resources.material_set_layout, draw_data_layout_};
 
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
     layout_info.pSetLayouts = set_layouts.data();
-    layout_info.pushConstantRangeCount = 1;
-    layout_info.pPushConstantRanges = &push_range;
+    layout_info.pushConstantRangeCount = 0;
 
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
@@ -187,16 +184,32 @@ void TransparentPass::destroy() {
 
 void TransparentPass::record(const FrameContext& ctx) {
     if (!ctx.queue || !ctx.queue->has_transparent()) return;
+    if (!ctx.indirect_batch || !ctx.mega_buffer) return;
 
-    // Transparent pass renders inside an already-active rendering scope.
-    // The caller (render_scene_to) must have the color+depth rendering active.
-    // We just bind the transparent pipeline and draw.
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    std::array descriptor_sets = {ctx.global_descriptor_set, ctx.bindless_set};
+    std::array descriptor_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, static_cast<uint32_t>(descriptor_sets.size()),
                             descriptor_sets.data(), 0, nullptr);
-    ctx.queue->execute_transparent(ctx.cmd, layout_, nullptr);
+
+    // Mega-buffer already bound from color pass scope, but rebind to be safe
+    ctx.mega_buffer->bind(ctx.cmd);
+
+    // Transparent objects: individual draws with firstInstance indexing into SSBO.
+    // The opaque draws already occupied indices [0, opaque_count). Transparent
+    // draw data is appended starting at opaque_count.
+    uint32_t base_index = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
+
+    for (const auto& dc : ctx.queue->transparent_commands()) {
+        const auto& entries = dc.model->mega_entries();
+        for (const auto& entry : entries) {
+            vkCmdDrawIndexed(ctx.cmd, entry.index_count, 1,
+                             entry.first_index,
+                             static_cast<int32_t>(entry.vertex_offset),
+                             base_index);
+        }
+        base_index++;
+    }
 }
 
 } // namespace fjell

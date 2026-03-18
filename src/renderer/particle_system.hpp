@@ -88,6 +88,7 @@ private:
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
     VkFormat color_format_{VK_FORMAT_UNDEFINED};
     VkFormat depth_format_{VK_FORMAT_UNDEFINED};
+    VkSampleCountFlagBits sample_count_{VK_SAMPLE_COUNT_1_BIT};
 
     uint32_t frame_seed_{0};
 };

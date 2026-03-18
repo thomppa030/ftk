@@ -64,6 +64,8 @@ void Scene::remove(uint32_t id) {
 
 void Scene::clear() {
     objects_.clear();
+    point_lights_.clear();
+    spot_lights_.clear();
 }
 
 RenderObject* Scene::find(uint32_t id) {
@@ -232,6 +234,35 @@ void Scene::save(const std::string& path) {
         }
 
         j["objects"].push_back(jobj);
+    }
+
+    // Point lights
+    if (!point_lights_.empty()) {
+        j["point_lights"] = nlohmann::json::array();
+        for (const auto& pl : point_lights_) {
+            j["point_lights"].push_back({
+                {"position", {pl.position.x, pl.position.y, pl.position.z}},
+                {"color", {pl.color.x, pl.color.y, pl.color.z}},
+                {"intensity", pl.intensity},
+                {"radius", pl.radius}
+            });
+        }
+    }
+
+    // Spot lights
+    if (!spot_lights_.empty()) {
+        j["spot_lights"] = nlohmann::json::array();
+        for (const auto& sl : spot_lights_) {
+            j["spot_lights"].push_back({
+                {"position", {sl.position.x, sl.position.y, sl.position.z}},
+                {"direction", {sl.direction.x, sl.direction.y, sl.direction.z}},
+                {"color", {sl.color.x, sl.color.y, sl.color.z}},
+                {"intensity", sl.intensity},
+                {"radius", sl.radius},
+                {"inner_angle", sl.inner_angle},
+                {"outer_angle", sl.outer_angle}
+            });
+        }
     }
 
     std::ofstream file(path);
@@ -405,6 +436,48 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                 }
                 scene.objects().back().components.push_back(std::move(comp));
             }
+        }
+    }
+
+    // Load point lights
+    if (j.contains("point_lights")) {
+        for (const auto& jpl : j["point_lights"]) {
+            PointLight pl;
+            if (jpl.contains("position")) {
+                auto& p = jpl["position"];
+                pl.position = {p[0].get<float>(), p[1].get<float>(), p[2].get<float>()};
+            }
+            if (jpl.contains("color")) {
+                auto& c = jpl["color"];
+                pl.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+            }
+            pl.intensity = jpl.value("intensity", 1.0f);
+            pl.radius = jpl.value("radius", 10.0f);
+            scene.point_lights_.push_back(pl);
+        }
+    }
+
+    // Load spot lights
+    if (j.contains("spot_lights")) {
+        for (const auto& jsl : j["spot_lights"]) {
+            SpotLight sl;
+            if (jsl.contains("position")) {
+                auto& p = jsl["position"];
+                sl.position = {p[0].get<float>(), p[1].get<float>(), p[2].get<float>()};
+            }
+            if (jsl.contains("direction")) {
+                auto& d = jsl["direction"];
+                sl.direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
+            }
+            if (jsl.contains("color")) {
+                auto& c = jsl["color"];
+                sl.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+            }
+            sl.intensity = jsl.value("intensity", 1.0f);
+            sl.radius = jsl.value("radius", 10.0f);
+            sl.inner_angle = jsl.value("inner_angle", 20.0f);
+            sl.outer_angle = jsl.value("outer_angle", 30.0f);
+            scene.spot_lights_.push_back(sl);
         }
     }
 
