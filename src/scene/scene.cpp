@@ -62,6 +62,47 @@ void Scene::remove(uint32_t id) {
     }
 }
 
+RenderObject Scene::extract(uint32_t id) {
+    // Orphan children
+    for (auto& obj : objects_) {
+        if (obj.parent_id == static_cast<int32_t>(id)) {
+            obj.parent_id = -1;
+        }
+    }
+    auto it = std::find_if(objects_.begin(), objects_.end(),
+                           [id](const RenderObject& o) { return o.id == id; });
+    RenderObject result = std::move(*it);
+    objects_.erase(it);
+    dirty_ = true;
+    return result;
+}
+
+void Scene::restore(RenderObject obj) {
+    if (obj.id >= next_id_) next_id_ = obj.id + 1;
+    objects_.push_back(std::move(obj));
+    dirty_ = true;
+}
+
+void Scene::insert_point_light(int index, const PointLight& light) {
+    point_lights_.insert(point_lights_.begin() + index, light);
+    dirty_ = true;
+}
+
+void Scene::insert_spot_light(int index, const SpotLight& light) {
+    spot_lights_.insert(spot_lights_.begin() + index, light);
+    dirty_ = true;
+}
+
+void Scene::remove_point_light(int index) {
+    point_lights_.erase(point_lights_.begin() + index);
+    dirty_ = true;
+}
+
+void Scene::remove_spot_light(int index) {
+    spot_lights_.erase(spot_lights_.begin() + index);
+    dirty_ = true;
+}
+
 void Scene::clear() {
     objects_.clear();
     point_lights_.clear();

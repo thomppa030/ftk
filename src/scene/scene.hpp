@@ -104,6 +104,8 @@ public:
                  const std::string& source = "",
                  const std::string& material_name = "default");
     void remove(uint32_t id);
+    [[nodiscard]] RenderObject extract(uint32_t id);
+    void restore(RenderObject obj);
     void clear();
 
     void compute_world_matrices();
@@ -136,6 +138,10 @@ public:
 
     void add_point_light(const PointLight& light = {}) { point_lights_.push_back(light); mark_dirty(); }
     void add_spot_light(const SpotLight& light = {}) { spot_lights_.push_back(light); mark_dirty(); }
+    void insert_point_light(int index, const PointLight& light);
+    void insert_spot_light(int index, const SpotLight& light);
+    void remove_point_light(int index);
+    void remove_spot_light(int index);
 
 private:
     std::vector<RenderObject> objects_;
