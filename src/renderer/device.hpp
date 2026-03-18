@@ -51,6 +51,8 @@ public:
     [[nodiscard]] SwapchainSupport query_swapchain_support() const;
     [[nodiscard]] VkFormat find_depth_format() const;
     [[nodiscard]] VkSampleCountFlagBits max_msaa_samples() const;
+    [[nodiscard]] bool mesh_shader_supported() const { return mesh_shader_supported_; }
+    [[nodiscard]] uint32_t mesh_shader_max_workgroup_size() const { return mesh_shader_max_workgroup_size_; }
     [[nodiscard]] VkFormat find_supported_format(
         const std::vector<VkFormat>& candidates, VkImageTiling tiling,
         VkFormatFeatureFlags features) const;
@@ -79,6 +81,8 @@ private:
     VkQueue graphics_queue_{VK_NULL_HANDLE};
     VkQueue present_queue_{VK_NULL_HANDLE};
     std::string gpu_name_;
+    bool mesh_shader_supported_{false};
+    uint32_t mesh_shader_max_workgroup_size_{0};
 
 #ifdef NDEBUG
     static constexpr bool enable_validation_ = false;
@@ -90,9 +94,11 @@ private:
         "VK_LAYER_KHRONOS_validation"
     };
 
-    static constexpr std::array device_extensions_ = {
+    static constexpr std::array required_device_extensions_ = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
+
+    std::vector<const char*> device_extensions_;
 };
 
 } // namespace fjell
