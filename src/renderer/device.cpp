@@ -256,6 +256,7 @@ void Device::create_logical_device() {
     features_13.pNext = nullptr;
     features_13.dynamicRendering = VK_TRUE;
     features_13.synchronization2 = VK_TRUE;
+    features_13.maintenance4 = VK_TRUE;
 
     // Chain: create_info → features_11 → features_12 → features_13 [→ mesh_shader_features]
     features_13.pNext = nullptr;
