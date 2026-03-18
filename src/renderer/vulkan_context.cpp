@@ -75,6 +75,9 @@ VulkanContext::VulkanContext(Window& window)
         mesh_shader_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
         mesh_shader_pass_.set_meshlet_layout(meshlet_descriptor_.layout());
         mesh_shader_pass_.create(device_, pass_resources);
+        meshlet_viz_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
+        meshlet_viz_pass_.set_meshlet_layout(meshlet_descriptor_.layout());
+        meshlet_viz_pass_.create(device_, pass_resources);
     }
     shadow_pass_.set_draw_data_layout(draw_data_descriptor_.layout());
     shadow_pass_.create(device_, pass_resources);
@@ -147,6 +150,7 @@ VulkanContext::~VulkanContext() {
     depth_prepass_.destroy();
     mesh_shader_depth_pass_.destroy();
     mesh_shader_pass_.destroy();
+    meshlet_viz_pass_.destroy();
 
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
@@ -691,6 +695,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                         tile_light_ssbo_[current_frame_]->size());
         light_grid_pass_.record(ctx);
     }, {});
+
+    // Meshlet visualization (mesh shader debug view)
+    graph.add_pass("meshlet_viz", [&] { meshlet_viz_pass_.record(ctx); }, {});
 
     // ── Execute ─────────────────────────────────────────────────────────
 

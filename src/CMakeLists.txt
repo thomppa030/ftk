@@ -40,6 +40,7 @@ add_executable(fjell
     renderer/pass/light_cull_pass.cpp
     renderer/pass/mesh_shader_depth_pass.cpp
     renderer/pass/mesh_shader_pass.cpp
+    renderer/pass/meshlet_viz_pass.cpp
     renderer/pass/light_viz_pass.cpp
     renderer/pass/shadow_pass.cpp
     renderer/pass/sky_pass.cpp

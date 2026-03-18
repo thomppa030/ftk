@@ -22,6 +22,7 @@
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
 #include "renderer/pass/mesh_shader_pass.hpp"
+#include "renderer/pass/meshlet_viz_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
@@ -90,6 +91,7 @@ public:
     [[nodiscard]] TonemapPass& tonemap_pass() { return tonemap_pass_; }
     [[nodiscard]] LightVizPass& light_heatmap_pass() { return light_heatmap_pass_; }
     [[nodiscard]] LightVizPass& light_grid_pass() { return light_grid_pass_; }
+    [[nodiscard]] MeshletVizPass& meshlet_viz_pass() { return meshlet_viz_pass_; }
     using OverlayCallback = std::function<void(VkCommandBuffer)>;
     void set_overlay_callback(OverlayCallback callback) { overlay_callback_ = std::move(callback); }
 
@@ -181,6 +183,7 @@ private:
     MeshletDescriptor meshlet_descriptor_;
     MeshShaderDepthPass mesh_shader_depth_pass_;
     MeshShaderPass mesh_shader_pass_;
+    MeshletVizPass meshlet_viz_pass_;
     bool use_mesh_shaders_{false};
 
     // Forward+ light culling + visualization
