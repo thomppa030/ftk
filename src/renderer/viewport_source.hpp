@@ -15,6 +15,7 @@ enum class ViewportSource : uint8_t {
     bloom,
     normals,
     overdraw,
+    uv,
 };
 
 inline const char* viewport_source_name(ViewportSource source) {
@@ -25,11 +26,12 @@ inline const char* viewport_source_name(ViewportSource source) {
         case ViewportSource::bloom:       return "Bloom";
         case ViewportSource::normals:     return "Normals";
         case ViewportSource::overdraw:    return "Overdraw";
+        case ViewportSource::uv:          return "UV";
     }
     return "Unknown";
 }
 
-constexpr int VIEWPORT_SOURCE_COUNT = 6;
+constexpr int VIEWPORT_SOURCE_COUNT = 7;
 
 struct ViewportRenderRequest {
     OffscreenPass* target{nullptr};

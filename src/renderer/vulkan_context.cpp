@@ -65,6 +65,7 @@ VulkanContext::VulkanContext(Window& window)
     wireframe_pass_.create(device_, pass_resources);
     normal_pass_.create(device_, pass_resources);
     overdraw_pass_.create(device_, pass_resources);
+    uv_viz_pass_.create(device_, pass_resources);
     bloom_pass_.create(device_, pass_resources);
     sky_pass_.create(device_, pass_resources);
     transparent_pass_.create(device_, pass_resources);
@@ -89,6 +90,7 @@ VulkanContext::~VulkanContext() {
     transparent_pass_.destroy();
     tonemap_pass_.destroy();
     bloom_pass_.destroy();
+    uv_viz_pass_.destroy();
     overdraw_pass_.destroy();
     normal_pass_.destroy();
     wireframe_pass_.destroy();
@@ -388,6 +390,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     graph.add_pass("wireframe", [&] { wireframe_pass_.record(ctx); }, {});
     graph.add_pass("normals", [&] { normal_pass_.record(ctx); }, {});
     graph.add_pass("overdraw", [&] { overdraw_pass_.record(ctx); }, {});
+    graph.add_pass("uv_viz", [&] { uv_viz_pass_.record(ctx); }, {});
 
     // ── Execute ─────────────────────────────────────────────────────────
 
