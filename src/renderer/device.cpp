@@ -294,6 +294,12 @@ void Device::create_logical_device() {
 
     vkGetDeviceQueue(device_, indices.graphics.value(), 0, &graphics_queue_);
     vkGetDeviceQueue(device_, indices.present.value(), 0, &present_queue_);
+
+    // Load mesh shader extension function pointers
+    if (mesh_shader_supported_) {
+        pfn_draw_mesh_tasks_ = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(
+            vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksEXT"));
+    }
 }
 
 QueueFamilyIndices Device::find_queue_families() const {
