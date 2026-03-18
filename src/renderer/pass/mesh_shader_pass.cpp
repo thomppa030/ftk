@@ -3,28 +3,16 @@
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
+#include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <array>
-#include <fstream>
 #include <stdexcept>
 
 namespace fjell {
 
 static PFN_vkCmdDrawMeshTasksEXT pfn_vkCmdDrawMeshTasksEXT = nullptr;
-
-static std::vector<char> read_file(const std::string& path) {
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open shader file: " + path);
-    }
-    auto size = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(size);
-    file.seekg(0);
-    file.read(buffer.data(), static_cast<std::streamsize>(size));
-    return buffer;
-}
 
 void MeshShaderPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
@@ -34,39 +22,13 @@ void MeshShaderPass::create(Device& device, const PassResources& resources) {
             vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksEXT"));
     }
 
-    auto task_code = read_file(base_path::resolve("shaders/mesh.task.spv"));
-    auto mesh_code = read_file(base_path::resolve("shaders/mesh.mesh.spv"));
-    auto frag_code = read_file(base_path::resolve("shaders/mesh.frag.spv"));
+    auto task_code = read_spirv(base_path::resolve("shaders/mesh.task.spv"));
+    auto mesh_code = read_spirv(base_path::resolve("shaders/mesh.mesh.spv"));
+    auto frag_code = read_spirv(base_path::resolve("shaders/mesh.frag.spv"));
 
-    VkShaderModuleCreateInfo task_ci{};
-    task_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    task_ci.codeSize = task_code.size();
-    task_ci.pCode = reinterpret_cast<const uint32_t*>(task_code.data());
-    VkShaderModule task_module;
-    if (vkCreateShaderModule(device_, &task_ci, nullptr, &task_module) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create mesh.task shader module");
-    }
-
-    VkShaderModuleCreateInfo mesh_ci{};
-    mesh_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    mesh_ci.codeSize = mesh_code.size();
-    mesh_ci.pCode = reinterpret_cast<const uint32_t*>(mesh_code.data());
-    VkShaderModule mesh_module;
-    if (vkCreateShaderModule(device_, &mesh_ci, nullptr, &mesh_module) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, task_module, nullptr);
-        throw std::runtime_error("Failed to create mesh.mesh shader module");
-    }
-
-    VkShaderModuleCreateInfo frag_ci{};
-    frag_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    frag_ci.codeSize = frag_code.size();
-    frag_ci.pCode = reinterpret_cast<const uint32_t*>(frag_code.data());
-    VkShaderModule frag_module;
-    if (vkCreateShaderModule(device_, &frag_ci, nullptr, &frag_module) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, task_module, nullptr);
-        vkDestroyShaderModule(device_, mesh_module, nullptr);
-        throw std::runtime_error("Failed to create mesh.frag shader module");
-    }
+    auto task_module = create_shader_module(device_, task_code);
+    auto mesh_module = create_shader_module(device_, mesh_code);
+    auto frag_module = create_shader_module(device_, frag_code);
 
     std::array<VkPipelineShaderStageCreateInfo, 3> stages{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

@@ -54,8 +54,6 @@ private:
     void destroy_emitter_gpu(EmitterGpu& gpu);
     void init_dead_list(EmitterGpu& gpu);
 
-    VkShaderModule load_shader(const std::string& path);
-
     VkDevice device_{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
     VkCommandPool command_pool_{VK_NULL_HANDLE};

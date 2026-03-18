@@ -1,37 +1,17 @@
 #include "renderer/pass/light_cull_pass.hpp"
+#include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
-#include <fstream>
 #include <stdexcept>
 
 namespace fjell {
 
-static std::vector<char> read_file(const std::string& path) {
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open shader file: " + path);
-    }
-    auto size = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(size);
-    file.seekg(0);
-    file.read(buffer.data(), static_cast<std::streamsize>(size));
-    return buffer;
-}
-
 void LightCullPass::create(VkDevice device, VkDescriptorSetLayout global_set_layout) {
     device_ = device;
 
-    auto comp_code = read_file(base_path::resolve("shaders/light_cull.comp.spv"));
-
-    VkShaderModuleCreateInfo comp_ci{};
-    comp_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    comp_ci.codeSize = comp_code.size();
-    comp_ci.pCode = reinterpret_cast<const uint32_t*>(comp_code.data());
-    VkShaderModule comp_module;
-    if (vkCreateShaderModule(device_, &comp_ci, nullptr, &comp_module) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create light cull compute shader module");
-    }
+    auto comp_code = read_spirv(base_path::resolve("shaders/light_cull.comp.spv"));
+    auto comp_module = create_shader_module(device_, comp_code);
 
     VkPipelineShaderStageCreateInfo stage{};
     stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

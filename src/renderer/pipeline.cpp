@@ -1,5 +1,6 @@
 #include "renderer/pipeline.hpp"
 #include "renderer/device.hpp"
+#include "renderer/shader_utils.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
@@ -8,7 +9,6 @@
 #include <glm/glm.hpp>
 
 #include <array>
-#include <fstream>
 #include <stdexcept>
 
 namespace fjell {
@@ -45,11 +45,11 @@ void Pipeline::recreate() {
 }
 
 void Pipeline::create() {
-    auto vert_code = read_shader(base_path::resolve(vert_shader_));
-    auto frag_code = read_shader(base_path::resolve(frag_shader_));
+    auto vert_code = read_spirv(base_path::resolve(vert_shader_));
+    auto frag_code = read_spirv(base_path::resolve(frag_shader_));
 
-    VkShaderModule vert_module = create_shader_module(vert_code);
-    VkShaderModule frag_module = create_shader_module(frag_code);
+    VkShaderModule vert_module = fjell::create_shader_module(device_.handle(), vert_code);
+    VkShaderModule frag_module = fjell::create_shader_module(device_.handle(), frag_code);
 
     VkPipelineShaderStageCreateInfo vert_stage{};
     vert_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -193,30 +193,5 @@ void Pipeline::destroy() {
     }
 }
 
-std::vector<char> Pipeline::read_shader(const std::string& path) {
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open shader file: " + path);
-    }
-
-    auto size = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(size);
-    file.seekg(0);
-    file.read(buffer.data(), static_cast<std::streamsize>(size));
-    return buffer;
-}
-
-VkShaderModule Pipeline::create_shader_module(const std::vector<char>& code) const {
-    VkShaderModuleCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    create_info.codeSize = code.size();
-    create_info.pCode = reinterpret_cast<const uint32_t*>(code.data());
-
-    VkShaderModule module;
-    if (vkCreateShaderModule(device_.handle(), &create_info, nullptr, &module) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create shader module");
-    }
-    return module;
-}
 
 } // namespace fjell

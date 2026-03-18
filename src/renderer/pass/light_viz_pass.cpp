@@ -2,28 +2,16 @@
 #include "renderer/buffer.hpp"
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <imgui_impl_vulkan.h>
 
 #include <array>
-#include <fstream>
 #include <stdexcept>
 
 namespace fjell {
-
-static std::vector<char> read_file(const std::string& path) {
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open shader file: " + path);
-    }
-    auto size = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(size);
-    file.seekg(0);
-    file.read(buffer.data(), static_cast<std::streamsize>(size));
-    return buffer;
-}
 
 void LightVizPass::create(Device& device, const PassResources& /*resources*/) {
     device_ = device.handle();
@@ -104,27 +92,11 @@ void LightVizPass::create(Device& device, const PassResources& /*resources*/) {
     }
 
     // Shaders
-    auto vert_code = read_file(base_path::resolve("shaders/light_heatmap.vert.spv"));
-    auto frag_code = read_file(base_path::resolve("shaders/light_heatmap.frag.spv"));
+    auto vert_code = read_spirv(base_path::resolve("shaders/light_heatmap.vert.spv"));
+    auto frag_code = read_spirv(base_path::resolve("shaders/light_heatmap.frag.spv"));
 
-    VkShaderModuleCreateInfo vert_ci{};
-    vert_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    vert_ci.codeSize = vert_code.size();
-    vert_ci.pCode = reinterpret_cast<const uint32_t*>(vert_code.data());
-    VkShaderModule vert_module;
-    if (vkCreateShaderModule(device_, &vert_ci, nullptr, &vert_module) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create light viz vert shader module");
-    }
-
-    VkShaderModuleCreateInfo frag_ci{};
-    frag_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    frag_ci.codeSize = frag_code.size();
-    frag_ci.pCode = reinterpret_cast<const uint32_t*>(frag_code.data());
-    VkShaderModule frag_module;
-    if (vkCreateShaderModule(device_, &frag_ci, nullptr, &frag_module) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, vert_module, nullptr);
-        throw std::runtime_error("Failed to create light viz frag shader module");
-    }
+    auto vert_module = create_shader_module(device_, vert_code);
+    auto frag_module = create_shader_module(device_, frag_code);
 
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

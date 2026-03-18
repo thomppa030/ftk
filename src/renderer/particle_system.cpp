@@ -1,12 +1,12 @@
 #include "renderer/particle_system.hpp"
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "scene/scene.hpp"
 
 #include <cstring>
-#include <fstream>
 #include <stdexcept>
 
 namespace fjell {
@@ -28,29 +28,6 @@ struct ParticleComputePush {
     uint32_t random_seed;
 };
 static_assert(sizeof(ParticleComputePush) == 112);
-
-VkShaderModule ParticleSystem::load_shader(const std::string& path) {
-    auto full_path = base_path::resolve(path);
-    std::ifstream file(full_path, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open shader: " + full_path);
-    }
-    auto size = static_cast<size_t>(file.tellg());
-    std::vector<char> code(size);
-    file.seekg(0);
-    file.read(code.data(), static_cast<std::streamsize>(size));
-
-    VkShaderModuleCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    ci.codeSize = code.size();
-    ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
-
-    VkShaderModule module;
-    if (vkCreateShaderModule(device_, &ci, nullptr, &module) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create shader module: " + path);
-    }
-    return module;
-}
 
 void ParticleSystem::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
@@ -134,9 +111,9 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     // ── Compute pipelines ──
 
-    auto emit_mod = load_shader("shaders/particle_emit.comp.spv");
-    auto sim_mod = load_shader("shaders/particle_sim.comp.spv");
-    auto indirect_mod = load_shader("shaders/particle_indirect.comp.spv");
+    auto emit_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle_emit.comp.spv")));
+    auto sim_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle_sim.comp.spv")));
+    auto indirect_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle_indirect.comp.spv")));
 
     auto make_compute = [&](VkShaderModule mod, VkPipelineLayout layout) {
         VkPipelineShaderStageCreateInfo stage{};
@@ -194,8 +171,8 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     // ── Render pipelines (additive + alpha blend) ──
 
-    auto vert_mod = load_shader("shaders/particle.vert.spv");
-    auto frag_mod = load_shader("shaders/particle.frag.spv");
+    auto vert_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle.vert.spv")));
+    auto frag_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle.frag.spv")));
 
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;

@@ -2,40 +2,16 @@
 #include "renderer/buffer.hpp"
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <imgui_impl_vulkan.h>
 
 #include <array>
-#include <fstream>
 #include <stdexcept>
 
 namespace fjell {
-
-static std::vector<char> read_file(const std::string& path) {
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open shader file: " + path);
-    }
-    auto size = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(size);
-    file.seekg(0);
-    file.read(buffer.data(), static_cast<std::streamsize>(size));
-    return buffer;
-}
-
-static VkShaderModule create_module(VkDevice device, const std::vector<char>& code) {
-    VkShaderModuleCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    ci.codeSize = code.size();
-    ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
-    VkShaderModule module;
-    if (vkCreateShaderModule(device, &ci, nullptr, &module) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create shader module");
-    }
-    return module;
-}
 
 static VkPipeline create_fullscreen_pipeline(
         VkDevice device, VkPipelineLayout layout,
@@ -249,15 +225,15 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
     }
 
     // Shaders
-    auto vert_code = read_file(base_path::resolve("shaders/depth_viz.vert.spv")); // reuse fullscreen triangle
-    auto down_code = read_file(base_path::resolve("shaders/bloom_downsample.frag.spv"));
-    auto up_code   = read_file(base_path::resolve("shaders/bloom_upsample.frag.spv"));
-    auto comp_code = read_file(base_path::resolve("shaders/bloom_composite.frag.spv"));
+    auto vert_code = read_spirv(base_path::resolve("shaders/depth_viz.vert.spv")); // reuse fullscreen triangle
+    auto down_code = read_spirv(base_path::resolve("shaders/bloom_downsample.frag.spv"));
+    auto up_code   = read_spirv(base_path::resolve("shaders/bloom_upsample.frag.spv"));
+    auto comp_code = read_spirv(base_path::resolve("shaders/bloom_composite.frag.spv"));
 
-    auto vert_mod = create_module(device_, vert_code);
-    auto down_mod = create_module(device_, down_code);
-    auto up_mod   = create_module(device_, up_code);
-    auto comp_mod = create_module(device_, comp_code);
+    auto vert_mod = create_shader_module(device_, vert_code);
+    auto down_mod = create_shader_module(device_, down_code);
+    auto up_mod   = create_shader_module(device_, up_code);
+    auto comp_mod = create_shader_module(device_, comp_code);
 
     VkFormat fmt = VK_FORMAT_R16G16B16A16_SFLOAT;
     downsample_pipeline_ = create_fullscreen_pipeline(device_, downsample_layout_, vert_mod, down_mod, fmt);

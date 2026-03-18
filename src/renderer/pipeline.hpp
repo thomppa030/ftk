@@ -3,7 +3,6 @@
 #include <vulkan/vulkan.h>
 
 #include <string>
-#include <vector>
 
 namespace fjell {
 
@@ -34,9 +33,6 @@ public:
 private:
     void create();
     void destroy();
-
-    [[nodiscard]] static std::vector<char> read_shader(const std::string& path);
-    [[nodiscard]] VkShaderModule create_shader_module(const std::vector<char>& code) const;
 
     Device& device_;
     VkFormat color_format_;

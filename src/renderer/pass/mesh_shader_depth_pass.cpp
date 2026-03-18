@@ -5,26 +5,14 @@
 #include "renderer/meshlet_buffer.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
+#include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <array>
-#include <fstream>
 #include <stdexcept>
 
 namespace fjell {
-
-static std::vector<char> read_file(const std::string& path) {
-    std::ifstream file(path, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw std::runtime_error("Failed to open shader file: " + path);
-    }
-    auto size = static_cast<size_t>(file.tellg());
-    std::vector<char> buffer(size);
-    file.seekg(0);
-    file.read(buffer.data(), static_cast<std::streamsize>(size));
-    return buffer;
-}
 
 static PFN_vkCmdDrawMeshTasksEXT pfn_vkCmdDrawMeshTasksEXT = nullptr;
 
@@ -36,27 +24,11 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
             vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksEXT"));
     }
 
-    auto task_code = read_file(base_path::resolve("shaders/depth_mesh.task.spv"));
-    auto mesh_code = read_file(base_path::resolve("shaders/depth_mesh.mesh.spv"));
+    auto task_code = read_spirv(base_path::resolve("shaders/depth_mesh.task.spv"));
+    auto mesh_code = read_spirv(base_path::resolve("shaders/depth_mesh.mesh.spv"));
 
-    VkShaderModuleCreateInfo task_ci{};
-    task_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    task_ci.codeSize = task_code.size();
-    task_ci.pCode = reinterpret_cast<const uint32_t*>(task_code.data());
-    VkShaderModule task_module;
-    if (vkCreateShaderModule(device_, &task_ci, nullptr, &task_module) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create depth mesh task shader module");
-    }
-
-    VkShaderModuleCreateInfo mesh_ci{};
-    mesh_ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    mesh_ci.codeSize = mesh_code.size();
-    mesh_ci.pCode = reinterpret_cast<const uint32_t*>(mesh_code.data());
-    VkShaderModule mesh_module;
-    if (vkCreateShaderModule(device_, &mesh_ci, nullptr, &mesh_module) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, task_module, nullptr);
-        throw std::runtime_error("Failed to create depth mesh shader module");
-    }
+    auto task_module = create_shader_module(device_, task_code);
+    auto mesh_module = create_shader_module(device_, mesh_code);
 
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
