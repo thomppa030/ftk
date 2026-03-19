@@ -10,6 +10,7 @@
 #include "renderer/meshlet_buffer.hpp"
 #include "renderer/meshlet_descriptor.hpp"
 #include "renderer/particle_system.hpp"
+#include "renderer/sprite_renderer.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"
@@ -52,6 +53,7 @@ namespace fjell {
 
 class Window;
 class Scene;
+class ResourceManager;
 class ThreadPool;
 struct RenderStats;
 
@@ -65,6 +67,7 @@ public:
     VulkanContext(VulkanContext&&) = delete;
     VulkanContext& operator=(VulkanContext&&) = delete;
 
+    void sync_sprite_textures(Scene& scene, ResourceManager& resources);
     void draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                     const struct DirectionalLight& light,
                     Scene* scene, float dt,
@@ -105,6 +108,8 @@ public:
 
     void set_show_colliders(bool show) { show_colliders_ = show; }
     [[nodiscard]] bool show_colliders() const { return show_colliders_; }
+    void set_playing(bool playing) { playing_ = playing; }
+    [[nodiscard]] bool is_playing() const { return playing_; }
     [[nodiscard]] GridPass& grid_pass() { return grid_pass_; }
     [[nodiscard]] DebugDraw& debug_draw() { return *debug_draw_; }
     [[nodiscard]] MegaBuffer* mega_buffer() { return mega_buffer_.get(); }
@@ -217,6 +222,9 @@ private:
     // Particles
     ParticleSystem particle_system_;
 
+    // Sprites
+    SpriteRenderer sprite_renderer_;
+
     // Selection outline
     VkPipelineLayout outline_layout_{VK_NULL_HANDLE};
     VkPipeline outline_pipeline_{VK_NULL_HANDLE};
@@ -226,6 +234,7 @@ private:
     // Debug collider visualization
     std::unique_ptr<DebugDraw> debug_draw_;
     bool show_colliders_{true};
+    bool playing_{false};
 };
 
 } // namespace fjell

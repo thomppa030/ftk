@@ -323,7 +323,8 @@ void Scene::save(const std::string& path) {
             jobj["sprite"] = {
                 {"texture", sp.texture_path},
                 {"tint", {sp.tint.r, sp.tint.g, sp.tint.b, sp.tint.a}},
-                {"opacity", sp.opacity}
+                {"opacity", sp.opacity},
+                {"editor_only", sp.editor_only}
             };
         }
 
@@ -680,6 +681,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                 sp.tint = {t[0].get<float>(), t[1].get<float>(), t[2].get<float>(), t[3].get<float>()};
             }
             sp.opacity = jsp.value("opacity", 1.0f);
+            sp.editor_only = jsp.value("editor_only", false);
             node->sprite = sp;
         }
 

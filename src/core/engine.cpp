@@ -325,6 +325,9 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     if (type == "camera") {
         auto node = std::make_unique<CameraNode>();
         node->name = "Camera";
+        node->sprite = SpriteComponent{};
+        node->sprite->texture_path = "assets/icons/icon_camera.png";
+        node->sprite->editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
@@ -333,18 +336,27 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     if (type == "light:directional") {
         auto node = std::make_unique<DirectionalLightNode>();
         node->name = "Directional Light";
+        node->sprite = SpriteComponent{};
+        node->sprite->texture_path = "assets/icons/icon_dir_light.png";
+        node->sprite->editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
     if (type == "light:point") {
         auto node = std::make_unique<PointLightNode>();
         node->name = "Point Light";
+        node->sprite = SpriteComponent{};
+        node->sprite->texture_path = "assets/icons/icon_point_light.png";
+        node->sprite->editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
     if (type == "light:spot") {
         auto node = std::make_unique<SpotLightNode>();
         node->name = "Spot Light";
+        node->sprite = SpriteComponent{};
+        node->sprite->texture_path = "assets/icons/icon_point_light.png";
+        node->sprite->editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
@@ -934,6 +946,7 @@ void Engine::start_play() {
     script_manager_.prepare(scene_, input_, clock_, play_session_->physics_world());
     script_manager_.deserialize_all(scene_);
     script_manager_.call_begin_play(scene_);
+    vulkan_context_.set_playing(true);
     input_.set_cursor_captured(window_.handle(), true);
     selected_id_ = 0;
     FJELL_CORE_INFO("Play mode started");
@@ -948,6 +961,7 @@ void Engine::stop_play() {
     script_manager_.call_end_play(scene_);
     play_session_->restore(scene_);
     script_manager_.deserialize_all(scene_);
+    vulkan_context_.set_playing(false);
     input_.set_cursor_captured(window_.handle(), false);
     play_session_.reset();
     focus_viewport_ = true;

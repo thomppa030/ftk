@@ -544,7 +544,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Update sprite SSBO for this frame
     if (scene) {
         sprite_renderer_.update(*scene, projection_matrix_ * view_matrix_,
-                                camera_position_, current_frame_);
+                                camera_position_, current_frame_, playing_);
     }
 
     FrameContext ctx{};
