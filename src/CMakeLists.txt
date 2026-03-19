@@ -35,6 +35,7 @@ add_executable(fjell
     renderer/thread_command_pools.cpp
     renderer/particle_system.cpp
     renderer/pass/bloom_pass.cpp
+    renderer/pass/gtao_pass.cpp
     renderer/pass/grid_pass.cpp
     renderer/pass/debug_pass.cpp
     renderer/pass/depth_prepass.cpp

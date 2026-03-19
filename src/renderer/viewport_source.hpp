@@ -19,6 +19,7 @@ enum class ViewportSource : uint8_t {
     light_heatmap,
     light_grid,
     meshlet_viz,
+    ao,
 };
 
 inline const char* viewport_source_name(ViewportSource source) {
@@ -33,11 +34,12 @@ inline const char* viewport_source_name(ViewportSource source) {
         case ViewportSource::light_heatmap:  return "Light Heatmap";
         case ViewportSource::light_grid:     return "Light Grid";
         case ViewportSource::meshlet_viz:    return "Meshlet Viz";
+        case ViewportSource::ao:             return "Ambient Occlusion";
     }
     return "Unknown";
 }
 
-constexpr int VIEWPORT_SOURCE_COUNT = 10;
+constexpr int VIEWPORT_SOURCE_COUNT = 11;
 
 struct ViewportRenderRequest {
     OffscreenPass* target{nullptr};

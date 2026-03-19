@@ -107,6 +107,7 @@ VulkanContext::VulkanContext(Window& window)
     sky_pass_.create(device_, pass_resources);
     transparent_pass_.create(device_, pass_resources);
     tonemap_pass_.create(device_, pass_resources);
+    gtao_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
     light_cull_pass_.create(device_.handle(), global_set_layout_->handle());
     light_heatmap_pass_.set_mode(0);
     light_heatmap_pass_.create(device_, pass_resources);
@@ -130,6 +131,7 @@ VulkanContext::~VulkanContext() {
     particle_system_.destroy();
     light_grid_pass_.destroy();
     light_heatmap_pass_.destroy();
+    gtao_pass_.destroy();
     light_cull_pass_.destroy();
     sky_pass_.destroy();
     transparent_pass_.destroy();
@@ -182,7 +184,7 @@ void VulkanContext::create_descriptor_resources() {
     // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler,
     // binding 2 = light SSBO, binding 3 = tile light index SSBO,
     // binding 4 = depth texture (for light culling compute)
-    std::array<VkDescriptorSetLayoutBinding, 5> global_bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 6> global_bindings{};
     global_bindings[0].binding = 0;
     global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_bindings[0].descriptorCount = 1;
@@ -210,6 +212,11 @@ void VulkanContext::create_descriptor_resources() {
     global_bindings[4].descriptorCount = 1;
     global_bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
+    global_bindings[5].binding = 5;
+    global_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    global_bindings[5].descriptorCount = 1;
+    global_bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
     global_set_layout_ = std::make_unique<DescriptorSetLayout>(
         vk_device, std::span{global_bindings});
 
@@ -217,7 +224,7 @@ void VulkanContext::create_descriptor_resources() {
     global_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
     global_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // shadow map + depth texture
+    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 3; // shadow map + depth texture + AO texture
     global_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     global_pool_sizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // light SSBO + tile SSBO
 
@@ -555,6 +562,13 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             depth_pass.record(local);
         }, {{depth_id, ImageUsage::depth_attachment}}, 1);
     }
+
+    // GT-VBAO ambient occlusion (reads depth, writes AO texture)
+    graph.add_pass("gtao", [&](VkCommandBuffer cb) {
+        auto extent = target.extent();
+        gtao_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
+                               extent.width, extent.height);
+    }, {{depth_id, ImageUsage::compute_read}});
 
     // Light cull compute pass (reads resolved depth, writes tile light lists)
     graph.add_pass("light_cull", [&](VkCommandBuffer cb) {
@@ -947,6 +961,21 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
         depth_write.descriptorCount = 1;
         depth_write.pImageInfo = &depth_desc;
         vkUpdateDescriptorSets(vk_device, 1, &depth_write, 0, nullptr);
+
+        // Update binding 5 (AO texture for ambient occlusion)
+        VkDescriptorImageInfo ao_desc{};
+        ao_desc.sampler = gtao_pass_.ao_sampler();
+        ao_desc.imageView = gtao_pass_.ao_view();
+        ao_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet ao_write{};
+        ao_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        ao_write.dstSet = global_descriptor_sets_[current_frame_];
+        ao_write.dstBinding = 5;
+        ao_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        ao_write.descriptorCount = 1;
+        ao_write.pImageInfo = &ao_desc;
+        vkUpdateDescriptorSets(vk_device, 1, &ao_write, 0, nullptr);
     }
 
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);

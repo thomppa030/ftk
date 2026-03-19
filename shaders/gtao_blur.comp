@@ -1,0 +1,72 @@
+#version 460
+
+// Depth-aware bilateral blur for GT-VBAO
+// Separable: run twice with direction=0 (horizontal) and direction=1 (vertical)
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+// Global set (set 0) — for depth access
+layout(set = 0, binding = 4) uniform sampler2D depth_texture;
+
+// Per-pass set (set 1)
+layout(set = 1, binding = 0, r8) uniform writeonly image2D blur_output;
+layout(set = 1, binding = 1) uniform sampler2D ao_input;
+
+layout(push_constant) uniform PushConstants {
+    uvec2 viewport_size;
+    uint direction; // 0 = horizontal, 1 = vertical
+    float depth_threshold;
+};
+
+const int KERNEL_RADIUS = 3;
+
+// Gaussian weights for 7-tap kernel (sigma ~= 2.0)
+const float weights[4] = float[](
+    0.2270270270,  // center
+    0.1945945946,  // +/- 1
+    0.1216216216,  // +/- 2
+    0.0540540541   // +/- 3
+);
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(viewport_size.x) || coord.y >= int(viewport_size.y)) return;
+
+    float center_depth = texelFetch(depth_texture, coord, 0).r;
+    float center_ao = texelFetch(ao_input, coord, 0).r;
+
+    if (center_depth >= 1.0) {
+        imageStore(blur_output, coord, vec4(1.0));
+        return;
+    }
+
+    float total_ao = center_ao * weights[0];
+    float total_weight = weights[0];
+
+    ivec2 step_dir = direction == 0 ? ivec2(1, 0) : ivec2(0, 1);
+
+    for (int i = 1; i <= KERNEL_RADIUS; ++i) {
+        for (int sign = -1; sign <= 1; sign += 2) {
+            ivec2 sample_coord = coord + step_dir * (i * sign);
+
+            // Bounds check
+            if (sample_coord.x < 0 || sample_coord.x >= int(viewport_size.x) ||
+                sample_coord.y < 0 || sample_coord.y >= int(viewport_size.y)) continue;
+
+            float sample_depth = texelFetch(depth_texture, sample_coord, 0).r;
+
+            // Depth-aware rejection: skip samples across depth discontinuities
+            float depth_diff = abs(center_depth - sample_depth);
+            if (depth_diff > depth_threshold) continue;
+
+            float sample_ao = texelFetch(ao_input, sample_coord, 0).r;
+
+            float w = weights[i];
+            total_ao += sample_ao * w;
+            total_weight += w;
+        }
+    }
+
+    float result = total_ao / total_weight;
+    imageStore(blur_output, coord, vec4(result, result, result, 1.0));
+}

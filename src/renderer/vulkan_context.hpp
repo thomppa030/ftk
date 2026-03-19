@@ -27,6 +27,7 @@
 #include "renderer/pass/meshlet_viz_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/sky_pass.hpp"
@@ -93,6 +94,7 @@ public:
     [[nodiscard]] OverdrawPass& overdraw_pass() { return overdraw_pass_; }
     [[nodiscard]] UvVizPass& uv_viz_pass() { return uv_viz_pass_; }
     [[nodiscard]] BloomPass& bloom_pass() { return bloom_pass_; }
+    [[nodiscard]] GtaoPass& gtao_pass() { return gtao_pass_; }
     [[nodiscard]] TonemapPass& tonemap_pass() { return tonemap_pass_; }
     [[nodiscard]] LightVizPass& light_heatmap_pass() { return light_heatmap_pass_; }
     [[nodiscard]] LightVizPass& light_grid_pass() { return light_grid_pass_; }
@@ -193,6 +195,9 @@ private:
     MeshShaderPass mesh_shader_pass_;
     MeshletVizPass meshlet_viz_pass_;
     bool use_mesh_shaders_{false};
+
+    // GT-VBAO ambient occlusion
+    GtaoPass gtao_pass_;
 
     // Forward+ light culling + visualization
     LightCullPass light_cull_pass_;
