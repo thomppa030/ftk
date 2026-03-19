@@ -5,6 +5,7 @@
 #include "audio/audio_component.hpp"
 #include "scene/scene.hpp"
 #include "scene/camera_node.hpp"
+#include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <unordered_map>
@@ -85,12 +86,13 @@ void AudioEngine::play(uint32_t node_id, Scene& scene) {
 
     auto& entry = impl_->sounds[node_id];
 
+    std::string resolved = base_path::resolve_asset(audio.clip_path, nullptr);
     ma_result result = ma_sound_init_from_file(
-        &impl_->engine, audio.clip_path.c_str(),
+        &impl_->engine, resolved.c_str(),
         MA_SOUND_FLAG_DECODE, nullptr, nullptr, &entry.sound);
 
     if (result != MA_SUCCESS) {
-        FJELL_CORE_WARN("Failed to load audio clip: {}", audio.clip_path);
+        FJELL_CORE_WARN("Failed to load audio clip: {} (resolved: {})", audio.clip_path, resolved);
         impl_->sounds.erase(node_id);
         return;
     }
