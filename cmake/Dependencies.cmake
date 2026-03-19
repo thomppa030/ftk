@@ -74,7 +74,20 @@ FetchContent_Declare(
     SOURCE_SUBDIR  Build
 )
 
+FetchContent_Declare(
+    miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG        0.11.21
+    GIT_SHALLOW    TRUE
+)
+
 FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics)
+
+# miniaudio — header-only, just populate
+FetchContent_GetProperties(miniaudio)
+if(NOT miniaudio_POPULATED)
+    FetchContent_Populate(miniaudio)
+endif()
 
 # ImGui doesn't have a CMakeLists, so just populate and expose sources
 FetchContent_GetProperties(imgui)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "audio/audio_engine.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
 #include "core/thread_pool.hpp"
@@ -119,6 +120,9 @@ private:
 
     // Lighting
     DirectionalLight light_;
+
+    // Audio
+    AudioEngine audio_engine_;
 
     // Play mode
     std::unique_ptr<PlaySession> play_session_;

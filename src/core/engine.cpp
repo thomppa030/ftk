@@ -947,6 +947,7 @@ void Engine::start_play() {
     script_manager_.prepare(scene_, input_, clock_, play_session_->physics_world());
     script_manager_.deserialize_all(scene_);
     script_manager_.call_begin_play(scene_);
+    audio_engine_.start_play(scene_);
     vulkan_context_.set_playing(true);
     input_.set_cursor_captured(window_.handle(), true);
     selected_id_ = 0;
@@ -959,6 +960,7 @@ void Engine::stop_play() {
         glfwSetWindowShouldClose(window_.handle(), GLFW_TRUE);
         return;
     }
+    audio_engine_.stop_play();
     script_manager_.call_end_play(scene_);
     play_session_->restore(scene_);
     script_manager_.deserialize_all(scene_);
@@ -1061,6 +1063,19 @@ void Engine::run() {
 #endif
 
         scene_.compute_world_matrices();
+
+        // Update audio listener from active camera
+        if (is_playing()) {
+            for (const auto& obj : scene_.objects()) {
+                if (auto* cam_node = dynamic_cast<const CameraNode*>(obj.get())) {
+                    glm::vec3 pos = cam_node->position();
+                    glm::vec3 fwd = -glm::normalize(glm::vec3(cam_node->world_matrix_[2]));
+                    glm::vec3 up = glm::normalize(glm::vec3(cam_node->world_matrix_[1]));
+                    audio_engine_.update(scene_, pos, fwd, up);
+                    break;
+                }
+            }
+        }
 
         // Resize offscreen passes before ImGui frame so descriptors stay valid
         viewport_manager_.apply_resize(vulkan_context_);

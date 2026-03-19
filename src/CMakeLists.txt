@@ -37,6 +37,7 @@ add_executable(fjell
     renderer/frame_graph.cpp
     renderer/thread_command_pools.cpp
     renderer/particle_system.cpp
+    renderer/sprite_renderer.cpp
     renderer/pass/bloom_pass.cpp
     renderer/pass/gtao_pass.cpp
     renderer/pass/grid_pass.cpp
@@ -64,6 +65,7 @@ add_executable(fjell
     renderer/texture.cpp
     renderer/viz_image.cpp
     renderer/vulkan_context.cpp
+    audio/audio_engine.cpp
     physics/physics_world.cpp
     scene/scene.cpp
     scripting/script_manager.cpp
@@ -107,6 +109,7 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}
     ${imnodes_SOURCE_DIR}
+    ${miniaudio_SOURCE_DIR}
 )
 
 find_library(VTERM_LIB vterm REQUIRED)

@@ -7,6 +7,7 @@
 #include "renderer/material.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/uniform_types.hpp"
+#include "audio/audio_component.hpp"
 #include "renderer/particle_emitter.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "renderer/pass/grid_pass.hpp"
@@ -405,6 +406,51 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            // Audio Source
+            if (obj->audio) {
+                colored_separator({0.55f, 0.70f, 0.85f, 1.0f});
+                if (ImGui::CollapsingHeader("Audio Source", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto& au = *obj->audio;
+
+                    char clip_buf[256];
+                    std::strncpy(clip_buf, au.clip_path.c_str(), sizeof(clip_buf) - 1);
+                    clip_buf[sizeof(clip_buf) - 1] = '\0';
+                    ImGui::Text("Clip");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::InputText("##AudioClip", clip_buf, sizeof(clip_buf));
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        au.clip_path = clip_buf;
+                        scene_->mark_dirty();
+                    }
+
+                    ImGui::Text("Volume");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##AudioVolume", &au.volume, 0.01f, 0.0f, 2.0f)) scene_->mark_dirty();
+
+                    ImGui::Text("Pitch");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##AudioPitch", &au.pitch, 0.01f, 0.1f, 4.0f)) scene_->mark_dirty();
+
+                    ImGui::Checkbox("Loop", &au.loop);
+                    ImGui::Checkbox("Spatial", &au.spatial);
+                    ImGui::Checkbox("Play on Start", &au.play_on_start);
+
+                    if (au.spatial) {
+                        ImGui::Text("Min Distance");
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::DragFloat("##AudioMinDist", &au.min_distance, 0.1f, 0.1f, 100.0f)) scene_->mark_dirty();
+                        ImGui::Text("Max Distance");
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::DragFloat("##AudioMaxDist", &au.max_distance, 1.0f, 1.0f, 1000.0f)) scene_->mark_dirty();
+                    }
+
+                    if (remove_button("Remove Audio Source")) {
+                        obj->audio.reset();
+                        scene_->mark_dirty();
+                    }
+                }
+            }
+
             // Add Component popup — lists types not already present
             if (ImGui::Button("Add Component", {-1, 0})) {
                 ImGui::OpenPopup("##AddBuiltinComponent");
@@ -433,6 +479,10 @@ void PropertiesPanel::draw() {
                 }
                 if (!obj->sprite && ImGui::MenuItem("Sprite")) {
                     obj->sprite = SpriteComponent{};
+                    scene_->mark_dirty();
+                }
+                if (!obj->audio && ImGui::MenuItem("Audio Source")) {
+                    obj->audio = AudioSourceComponent{};
                     scene_->mark_dirty();
                 }
                 ImGui::EndPopup();

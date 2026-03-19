@@ -48,6 +48,17 @@ void SceneNode::clone_base_into(SceneNode& target) const {
     target.collider = collider;
     target.emitter = emitter;
     target.sprite = sprite;
+    if (audio) {
+        target.audio = AudioSourceComponent{};
+        target.audio->clip_path = audio->clip_path;
+        target.audio->volume = audio->volume;
+        target.audio->pitch = audio->pitch;
+        target.audio->min_distance = audio->min_distance;
+        target.audio->max_distance = audio->max_distance;
+        target.audio->loop = audio->loop;
+        target.audio->spatial = audio->spatial;
+        target.audio->play_on_start = audio->play_on_start;
+    }
 }
 
 std::unique_ptr<SceneNode> SceneNode::clone() const {
@@ -325,6 +336,20 @@ void Scene::save(const std::string& path) {
                 {"tint", {sp.tint.r, sp.tint.g, sp.tint.b, sp.tint.a}},
                 {"opacity", sp.opacity},
                 {"editor_only", sp.editor_only}
+            };
+        }
+
+        if (obj->audio) {
+            auto& au = *obj->audio;
+            jobj["audio"] = {
+                {"clip", au.clip_path},
+                {"volume", au.volume},
+                {"pitch", au.pitch},
+                {"min_distance", au.min_distance},
+                {"max_distance", au.max_distance},
+                {"loop", au.loop},
+                {"spatial", au.spatial},
+                {"play_on_start", au.play_on_start}
             };
         }
 
@@ -683,6 +708,21 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             sp.opacity = jsp.value("opacity", 1.0f);
             sp.editor_only = jsp.value("editor_only", false);
             node->sprite = sp;
+        }
+
+        // Load audio source
+        if (jobj.contains("audio") && node) {
+            auto& jau = jobj["audio"];
+            AudioSourceComponent au;
+            au.clip_path = jau.value("clip", "");
+            au.volume = jau.value("volume", 1.0f);
+            au.pitch = jau.value("pitch", 1.0f);
+            au.min_distance = jau.value("min_distance", 1.0f);
+            au.max_distance = jau.value("max_distance", 50.0f);
+            au.loop = jau.value("loop", false);
+            au.spatial = jau.value("spatial", true);
+            au.play_on_start = jau.value("play_on_start", false);
+            node->audio = au;
         }
 
         // Load component data as raw JSON (ScriptManager will instantiate later)
