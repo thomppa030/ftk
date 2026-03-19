@@ -313,6 +313,12 @@ void Engine::add_model_to_scene(const std::string& path) {
 void Engine::add_primitive_to_scene(const std::string& type) {
     vulkan_context_.wait_idle();
 
+    // Empty node: no mesh
+    if (type == "empty") {
+        selected_id_ = scene_.add_empty();
+        return;
+    }
+
     // Sprite objects: plane primitive with a sprite component
     if (type == "sprite") {
         auto model_handle = resource_manager_->create_primitive("plane");

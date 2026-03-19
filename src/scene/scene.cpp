@@ -48,6 +48,17 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
     return id;
 }
 
+uint32_t Scene::add_empty(Transform transform, const std::string& name) {
+    uint32_t id = next_id_++;
+    SceneNode obj{};
+    obj.id = id;
+    obj.transform = transform;
+    obj.name = name;
+    objects_.push_back(std::move(obj));
+    dirty_ = true;
+    return id;
+}
+
 void Scene::remove(uint32_t id) {
     // Orphan children first
     for (auto& obj : objects_) {
@@ -368,41 +379,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             if (jobj.contains("color")) color_json = jobj["color"];
         }
 
-        ModelHandle model_handle;
-        if (source.starts_with("primitive:")) {
-            std::string type = source.substr(10);
-            model_handle = resources.create_primitive(type);
-        } else if (!source.empty()) {
-            model_handle = resources.load_model(base_path::resolve_asset(source, project));
-        }
-
-        if (!model_handle.valid()) continue;
-
-        MaterialHandle mat_handle;
-        if (mat_name.ends_with(".fjmat")) {
-            std::string mat_path = base_path::resolve_asset(mat_name, project);
-            mat_handle = resources.load_material_asset(mat_path, project);
-        } else if (!color_json.is_null()) {
-            auto& c = color_json;
-            PbrParams params{};
-            float alpha = c.size() > 3 ? c[3].get<float>() : 1.0f;
-            params.base_color_factor = {c[0].get<float>(), c[1].get<float>(),
-                                        c[2].get<float>(), alpha};
-            std::string color_mat_name = mat_name + "_color_" + std::to_string(jobj.value("id", 0));
-            mat_handle = resources.create_material(color_mat_name,
-                resources.default_white_handle(), {}, {}, {}, params);
-        } else {
-            mat_handle = resources.create_material(mat_name, default_tex);
-        }
-
-        auto* model = resources.get(model_handle);
-        if (!mat_name.ends_with(".fjmat") &&
-            !source.starts_with("primitive:") && model && !model->textures().empty()) {
-            mat_handle = resources.create_material_from_texture(
-                source + "_mat",
-                const_cast<Texture*>(model->textures()[0].get()));
-        }
-
         Transform transform;
         if (jobj.contains("position")) {
             auto& p = jobj["position"];
@@ -417,8 +393,51 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             transform.scale = {s[0].get<float>(), s[1].get<float>(), s[2].get<float>()};
         }
 
-        uint32_t id = scene.add(model_handle, mat_handle, resources,
-                                transform, name, source, mat_name);
+        // Empty nodes have no source and no mesh
+        bool has_mesh = !source.empty() || jobj.contains("mesh") || jobj.contains("material");
+        uint32_t id = 0;
+
+        if (has_mesh) {
+            ModelHandle model_handle;
+            if (source.starts_with("primitive:")) {
+                std::string type = source.substr(10);
+                model_handle = resources.create_primitive(type);
+            } else if (!source.empty()) {
+                model_handle = resources.load_model(base_path::resolve_asset(source, project));
+            }
+
+            if (!model_handle.valid()) continue;
+
+            MaterialHandle mat_handle;
+            if (mat_name.ends_with(".fjmat")) {
+                std::string mat_path = base_path::resolve_asset(mat_name, project);
+                mat_handle = resources.load_material_asset(mat_path, project);
+            } else if (!color_json.is_null()) {
+                auto& c = color_json;
+                PbrParams params{};
+                float alpha = c.size() > 3 ? c[3].get<float>() : 1.0f;
+                params.base_color_factor = {c[0].get<float>(), c[1].get<float>(),
+                                            c[2].get<float>(), alpha};
+                std::string color_mat_name = mat_name + "_color_" + std::to_string(jobj.value("id", 0));
+                mat_handle = resources.create_material(color_mat_name,
+                    resources.default_white_handle(), {}, {}, {}, params);
+            } else {
+                mat_handle = resources.create_material(mat_name, default_tex);
+            }
+
+            auto* model = resources.get(model_handle);
+            if (!mat_name.ends_with(".fjmat") &&
+                !source.starts_with("primitive:") && model && !model->textures().empty()) {
+                mat_handle = resources.create_material_from_texture(
+                    source + "_mat",
+                    const_cast<Texture*>(model->textures()[0].get()));
+            }
+
+            id = scene.add(model_handle, mat_handle, resources,
+                           transform, name, source, mat_name);
+        } else {
+            id = scene.add_empty(transform, name);
+        }
 
         // Override with loaded ID if present (backward compat: use assigned ID)
         uint32_t loaded_id = jobj.value("id", 0u);

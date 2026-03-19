@@ -111,6 +111,8 @@ public:
                  const std::string& name = "Object",
                  const std::string& source = "",
                  const std::string& material_name = "default");
+    uint32_t add_empty(Transform transform = {},
+                       const std::string& name = "Empty");
     void remove(uint32_t id);
     [[nodiscard]] SceneNode extract(uint32_t id);
     void restore(SceneNode obj);

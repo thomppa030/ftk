@@ -39,6 +39,7 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Sphere") && add_primitive_cb_) add_primitive_cb_("sphere");
             ImGui::Separator();
             if (ImGui::MenuItem("Sprite") && add_primitive_cb_) add_primitive_cb_("sprite");
+            if (ImGui::MenuItem("Empty Node") && add_primitive_cb_) add_primitive_cb_("empty");
             ImGui::EndPopup();
         }
 
@@ -83,6 +84,7 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Add Sphere") && add_primitive_cb_) add_primitive_cb_("sphere");
             ImGui::Separator();
             if (ImGui::MenuItem("Add Sprite") && add_primitive_cb_) add_primitive_cb_("sprite");
+            if (ImGui::MenuItem("Add Empty Node") && add_primitive_cb_) add_primitive_cb_("empty");
             ImGui::EndPopup();
         }
 

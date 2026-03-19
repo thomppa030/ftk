@@ -135,92 +135,179 @@ void PropertiesPanel::draw() {
             ImGui::RadioButton("Scl (R)", gizmo_op_, 2);
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Source: %s", obj->source.c_str());
+            if (!obj->source.empty()) {
+                ImGui::TextDisabled("Source: %s", obj->source.c_str());
+            }
 
-            // Rigidbody
+            // ── Components ────────────────────────────────────────────
             ImGui::Spacing();
             ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Rigidbody");
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
+
+            // Mesh
+            if (obj->mesh) {
+                if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::TextDisabled("Model: %s", obj->source.empty() ? "(none)" : obj->source.c_str());
+                    ImGui::TextDisabled("Material: %s", obj->mesh->material_name.c_str());
+                    draw_material_inspector(*obj);
+                    if (ImGui::SmallButton("Remove Mesh")) {
+                        obj->mesh.reset();
+                        scene_->mark_dirty();
+                    }
+                }
+            }
+
+            // Rigidbody
             if (obj->rigidbody) {
-                auto& rb = *obj->rigidbody;
-                static const char* body_type_labels[] = {"Static", "Kinematic", "Dynamic"};
-                int bt = static_cast<int>(rb.body_type);
-                ImGui::Text("Body Type");
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::Combo("##BodyType", &bt, body_type_labels, 3)) {
-                    rb.body_type = static_cast<BodyType>(bt);
-                }
-                ImGui::Text("Mass");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
-                ImGui::Text("Friction");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##Friction", &rb.friction, 0.01f, 0.0f, 2.0f);
-                ImGui::Text("Restitution");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##Restitution", &rb.restitution, 0.01f, 0.0f, 2.0f);
-                ImGui::Text("Linear Damping");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##LinearDamping", &rb.linear_damping, 0.01f, 0.0f, 10.0f);
-                ImGui::Text("Angular Damping");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat("##AngularDamping", &rb.angular_damping, 0.01f, 0.0f, 10.0f);
-                ImGui::Checkbox("Gravity", &rb.gravity_enabled);
-                if (ImGui::SmallButton("Remove Rigidbody")) {
-                    obj->rigidbody.reset();
-                }
-            } else {
-                if (ImGui::Button("Add Rigidbody", {-1, 0})) {
-                    obj->rigidbody = RigidbodyDesc{};
+                if (ImGui::CollapsingHeader("Rigidbody", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto& rb = *obj->rigidbody;
+                    static const char* body_type_labels[] = {"Static", "Kinematic", "Dynamic"};
+                    int bt = static_cast<int>(rb.body_type);
+                    ImGui::Text("Body Type");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::Combo("##BodyType", &bt, body_type_labels, 3)) {
+                        rb.body_type = static_cast<BodyType>(bt);
+                    }
+                    ImGui::Text("Mass");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##Mass", &rb.mass, 0.1f, 0.01f, 1000.0f);
+                    ImGui::Text("Friction");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##Friction", &rb.friction, 0.01f, 0.0f, 2.0f);
+                    ImGui::Text("Restitution");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##Restitution", &rb.restitution, 0.01f, 0.0f, 2.0f);
+                    ImGui::Text("Linear Damping");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##LinearDamping", &rb.linear_damping, 0.01f, 0.0f, 10.0f);
+                    ImGui::Text("Angular Damping");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##AngularDamping", &rb.angular_damping, 0.01f, 0.0f, 10.0f);
+                    ImGui::Checkbox("Gravity", &rb.gravity_enabled);
+                    if (ImGui::SmallButton("Remove Rigidbody")) {
+                        obj->rigidbody.reset();
+                    }
                 }
             }
 
             // Collider
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Collider");
             if (obj->collider) {
-                auto& col = *obj->collider;
-                static const char* shape_labels[] = {"Box", "Sphere", "Capsule", "Mesh"};
-                int sh = static_cast<int>(col.shape);
-                ImGui::Text("Shape");
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::Combo("##Shape", &sh, shape_labels, 4)) {
-                    col.shape = static_cast<ColliderShape>(sh);
+                if (ImGui::CollapsingHeader("Collider", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto& col = *obj->collider;
+                    static const char* shape_labels[] = {"Box", "Sphere", "Capsule", "Mesh"};
+                    int sh = static_cast<int>(col.shape);
+                    ImGui::Text("Shape");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::Combo("##Shape", &sh, shape_labels, 4)) {
+                        col.shape = static_cast<ColliderShape>(sh);
+                    }
+                    switch (col.shape) {
+                        case ColliderShape::Box:
+                            ImGui::Text("Half Extents");
+                            ImGui::SetNextItemWidth(-1);
+                            ImGui::DragFloat3("##HalfExtents", &col.half_extents.x, 0.05f, 0.01f, 100.0f);
+                            break;
+                        case ColliderShape::Sphere:
+                            ImGui::Text("Radius");
+                            ImGui::SetNextItemWidth(-1);
+                            ImGui::DragFloat("##Radius", &col.radius, 0.05f, 0.01f, 100.0f);
+                            break;
+                        case ColliderShape::Capsule:
+                            ImGui::Text("Radius");
+                            ImGui::SetNextItemWidth(-1);
+                            ImGui::DragFloat("##RadiusCap", &col.radius, 0.05f, 0.01f, 100.0f);
+                            ImGui::Text("Height");
+                            ImGui::SetNextItemWidth(-1);
+                            ImGui::DragFloat("##Height", &col.height, 0.05f, 0.01f, 100.0f);
+                            break;
+                        case ColliderShape::Mesh:
+                            ImGui::TextDisabled("Uses model collision mesh");
+                            break;
+                    }
+                    ImGui::Text("Offset");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat3("##Offset", &col.offset.x, 0.05f);
+                    if (ImGui::SmallButton("Remove Collider")) {
+                        obj->collider.reset();
+                    }
                 }
-                switch (col.shape) {
-                    case ColliderShape::Box:
-                        ImGui::Text("Half Extents");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat3("##HalfExtents", &col.half_extents.x, 0.05f, 0.01f, 100.0f);
-                        break;
-                    case ColliderShape::Sphere:
-                        ImGui::Text("Radius");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat("##Radius", &col.radius, 0.05f, 0.01f, 100.0f);
-                        break;
-                    case ColliderShape::Capsule:
-                        ImGui::Text("Radius");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat("##RadiusCap", &col.radius, 0.05f, 0.01f, 100.0f);
-                        ImGui::Text("Height");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat("##Height", &col.height, 0.05f, 0.01f, 100.0f);
-                        break;
-                    case ColliderShape::Mesh:
-                        ImGui::TextDisabled("Uses model collision mesh");
-                        break;
+            }
+
+            // Particle Emitter
+            if (obj->emitter) {
+                if (ImGui::CollapsingHeader("Particle Emitter", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto& em = *obj->emitter;
+                    if (ImGui::DragFloat("Emit Rate", &em.emission_rate, 1.0f, 0.0f, 10000.0f)) scene_->mark_dirty();
+                    if (ImGui::DragFloat("Lifetime Min", &em.lifetime_min, 0.1f, 0.01f, 30.0f)) scene_->mark_dirty();
+                    if (ImGui::DragFloat("Lifetime Max", &em.lifetime_max, 0.1f, 0.01f, 30.0f)) scene_->mark_dirty();
+                    int max_p = static_cast<int>(em.max_particles);
+                    if (ImGui::DragInt("Max Particles", &max_p, 100, 100, 100000)) {
+                        em.max_particles = static_cast<uint32_t>(max_p);
+                        scene_->mark_dirty();
+                    }
+                    if (ImGui::DragFloat3("Velocity Min", &em.velocity_min.x, 0.1f)) scene_->mark_dirty();
+                    if (ImGui::DragFloat3("Velocity Max", &em.velocity_max.x, 0.1f)) scene_->mark_dirty();
+                    if (ImGui::DragFloat3("Gravity", &em.gravity.x, 0.1f)) scene_->mark_dirty();
+                    if (ImGui::ColorEdit4("Color Start", &em.color_start.r)) scene_->mark_dirty();
+                    if (ImGui::ColorEdit4("Color End", &em.color_end.r)) scene_->mark_dirty();
+                    if (ImGui::DragFloat("Size Start", &em.size_start, 0.01f, 0.001f, 10.0f)) scene_->mark_dirty();
+                    if (ImGui::DragFloat("Size End", &em.size_end, 0.01f, 0.001f, 10.0f)) scene_->mark_dirty();
+                    static const char* blend_labels[] = {"Additive", "Alpha"};
+                    int bm = static_cast<int>(em.blend_mode);
+                    if (ImGui::Combo("Blend Mode", &bm, blend_labels, 2)) {
+                        em.blend_mode = static_cast<ParticleBlendMode>(bm);
+                        scene_->mark_dirty();
+                    }
+                    if (ImGui::SmallButton("Remove Emitter")) {
+                        obj->emitter.reset();
+                        scene_->mark_dirty();
+                    }
                 }
-                ImGui::Text("Offset");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::DragFloat3("##Offset", &col.offset.x, 0.05f);
-                if (ImGui::SmallButton("Remove Collider")) {
-                    obj->collider.reset();
+            }
+
+            // Sprite
+            if (obj->sprite) {
+                if (ImGui::CollapsingHeader("Sprite", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    auto& sp = *obj->sprite;
+
+                    char tex_buf[256];
+                    std::strncpy(tex_buf, sp.texture_path.c_str(), sizeof(tex_buf) - 1);
+                    tex_buf[sizeof(tex_buf) - 1] = '\0';
+                    ImGui::Text("Texture");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::InputText("##SpriteTexture", tex_buf, sizeof(tex_buf));
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        sp.texture_path = tex_buf;
+                        sp.texture_loaded = false;
+                        scene_->mark_dirty();
+                    }
+
+                    ImGui::Text("Tint");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::ColorEdit4("##SpriteTint", &sp.tint.r)) scene_->mark_dirty();
+
+                    ImGui::Text("Opacity");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##SpriteOpacity", &sp.opacity, 0.01f, 0.0f, 1.0f)) scene_->mark_dirty();
+
+                    if (ImGui::SmallButton("Remove Sprite")) {
+                        obj->sprite.reset();
+                        scene_->mark_dirty();
+                    }
                 }
-            } else {
-                if (ImGui::Button("Add Collider", {-1, 0})) {
+            }
+
+            // Add Component popup — lists types not already present
+            if (ImGui::Button("Add Component", {-1, 0})) {
+                ImGui::OpenPopup("##AddBuiltinComponent");
+            }
+            if (ImGui::BeginPopup("##AddBuiltinComponent")) {
+                if (!obj->rigidbody && ImGui::MenuItem("Rigidbody")) {
+                    obj->rigidbody = RigidbodyDesc{};
+                    scene_->mark_dirty();
+                }
+                if (!obj->collider && ImGui::MenuItem("Collider")) {
                     ColliderDesc col{};
-                    // Auto-detect shape from primitive source
                     if (obj->source == "primitive:cube") {
                         col.shape = ColliderShape::Box;
                     } else if (obj->source == "primitive:sphere") {
@@ -230,87 +317,18 @@ void PropertiesPanel::draw() {
                         col.shape = ColliderShape::Box;
                     }
                     obj->collider = col;
-                }
-            }
-
-            // Particle Emitter
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Particle Emitter");
-            if (obj->emitter) {
-                auto& em = *obj->emitter;
-                if (ImGui::DragFloat("Emit Rate", &em.emission_rate, 1.0f, 0.0f, 10000.0f)) scene_->mark_dirty();
-                if (ImGui::DragFloat("Lifetime Min", &em.lifetime_min, 0.1f, 0.01f, 30.0f)) scene_->mark_dirty();
-                if (ImGui::DragFloat("Lifetime Max", &em.lifetime_max, 0.1f, 0.01f, 30.0f)) scene_->mark_dirty();
-                int max_p = static_cast<int>(em.max_particles);
-                if (ImGui::DragInt("Max Particles", &max_p, 100, 100, 100000)) {
-                    em.max_particles = static_cast<uint32_t>(max_p);
                     scene_->mark_dirty();
                 }
-                if (ImGui::DragFloat3("Velocity Min", &em.velocity_min.x, 0.1f)) scene_->mark_dirty();
-                if (ImGui::DragFloat3("Velocity Max", &em.velocity_max.x, 0.1f)) scene_->mark_dirty();
-                if (ImGui::DragFloat3("Gravity", &em.gravity.x, 0.1f)) scene_->mark_dirty();
-                if (ImGui::ColorEdit4("Color Start", &em.color_start.r)) scene_->mark_dirty();
-                if (ImGui::ColorEdit4("Color End", &em.color_end.r)) scene_->mark_dirty();
-                if (ImGui::DragFloat("Size Start", &em.size_start, 0.01f, 0.001f, 10.0f)) scene_->mark_dirty();
-                if (ImGui::DragFloat("Size End", &em.size_end, 0.01f, 0.001f, 10.0f)) scene_->mark_dirty();
-                static const char* blend_labels[] = {"Additive", "Alpha"};
-                int bm = static_cast<int>(em.blend_mode);
-                if (ImGui::Combo("Blend Mode", &bm, blend_labels, 2)) {
-                    em.blend_mode = static_cast<ParticleBlendMode>(bm);
-                    scene_->mark_dirty();
-                }
-                if (ImGui::SmallButton("Remove Emitter")) {
-                    obj->emitter.reset();
-                    scene_->mark_dirty();
-                }
-            } else {
-                if (ImGui::Button("Add Particle Emitter", {-1, 0})) {
+                if (!obj->emitter && ImGui::MenuItem("Particle Emitter")) {
                     obj->emitter = ParticleEmitter{};
                     scene_->mark_dirty();
                 }
-            }
-
-            // Sprite
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Sprite");
-            if (obj->sprite) {
-                auto& sp = *obj->sprite;
-
-                char tex_buf[256];
-                std::strncpy(tex_buf, sp.texture_path.c_str(), sizeof(tex_buf) - 1);
-                tex_buf[sizeof(tex_buf) - 1] = '\0';
-                ImGui::Text("Texture");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::InputText("##SpriteTexture", tex_buf, sizeof(tex_buf));
-                if (ImGui::IsItemDeactivatedAfterEdit()) {
-                    sp.texture_path = tex_buf;
-                    sp.texture_loaded = false;
-                    scene_->mark_dirty();
-                }
-
-                ImGui::Text("Tint");
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::ColorEdit4("##SpriteTint", &sp.tint.r)) scene_->mark_dirty();
-
-                ImGui::Text("Opacity");
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::DragFloat("##SpriteOpacity", &sp.opacity, 0.01f, 0.0f, 1.0f)) scene_->mark_dirty();
-
-                if (ImGui::SmallButton("Remove Sprite")) {
-                    obj->sprite.reset();
-                    scene_->mark_dirty();
-                }
-            } else {
-                if (ImGui::Button("Add Sprite", {-1, 0})) {
+                if (!obj->sprite && ImGui::MenuItem("Sprite")) {
                     obj->sprite = SpriteDesc{};
                     scene_->mark_dirty();
                 }
+                ImGui::EndPopup();
             }
-
-            // Material
-            draw_material_inspector(*obj);
 
             // Scripts
             ImGui::Spacing();
@@ -433,9 +451,6 @@ void PropertiesPanel::draw_material_inspector(SceneNode& obj) {
         }
     }
 
-    ImGui::Spacing();
-    ImGui::Separator();
-    ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Material");
     ImGui::TextDisabled("Shader: %s", mat->shader_path().c_str());
 
     // UV scale (available on all materials)
