@@ -36,6 +36,31 @@ void colored_separator(const ImVec4& color) {
     ImGui::Dummy({0.0f, 4.0f});
 }
 
+// Asset path field: InputText + drag-and-drop target from content browser
+// Returns true if the path was changed.
+bool asset_path_field(const char* label, const char* id, std::string& path) {
+    bool changed = false;
+    char buf[256];
+    std::strncpy(buf, path.c_str(), sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    ImGui::Text("%s", label);
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputText(id, buf, sizeof(buf));
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        path = buf;
+        changed = true;
+    }
+    // Drop target for ASSET_PATH from content browser
+    if (ImGui::BeginDragDropTarget()) {
+        if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            path = std::string(static_cast<const char*>(payload->Data));
+            changed = true;
+        }
+        ImGui::EndDragDropTarget();
+    }
+    return changed;
+}
+
 bool remove_button(const char* label) {
     ImGui::Spacing();
     ImGui::PushStyleColor(ImGuiCol_Button, {0.5f, 0.15f, 0.15f, 0.6f});
@@ -303,14 +328,7 @@ void PropertiesPanel::draw() {
                 if (ImGui::CollapsingHeader("Sprite", ImGuiTreeNodeFlags_DefaultOpen)) {
                     auto& sp = *obj->sprite;
 
-                    char tex_buf[256];
-                    std::strncpy(tex_buf, sp.texture_path.c_str(), sizeof(tex_buf) - 1);
-                    tex_buf[sizeof(tex_buf) - 1] = '\0';
-                    ImGui::Text("Texture");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::InputText("##SpriteTexture", tex_buf, sizeof(tex_buf));
-                    if (ImGui::IsItemDeactivatedAfterEdit()) {
-                        sp.texture_path = tex_buf;
+                    if (asset_path_field("Texture", "##SpriteTexture", sp.texture_path)) {
                         sp.texture_loaded = false;
                         scene_->mark_dirty();
                     }
@@ -412,14 +430,8 @@ void PropertiesPanel::draw() {
                 if (ImGui::CollapsingHeader("Audio Source", ImGuiTreeNodeFlags_DefaultOpen)) {
                     auto& au = *obj->audio;
 
-                    char clip_buf[256];
-                    std::strncpy(clip_buf, au.clip_path.c_str(), sizeof(clip_buf) - 1);
-                    clip_buf[sizeof(clip_buf) - 1] = '\0';
-                    ImGui::Text("Clip");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::InputText("##AudioClip", clip_buf, sizeof(clip_buf));
-                    if (ImGui::IsItemDeactivatedAfterEdit()) {
-                        au.clip_path = clip_buf;
+                    if (asset_path_field("Clip", "##AudioClip", au.clip_path)) {
+                        au.sound_loaded = false;
                         scene_->mark_dirty();
                     }
 

@@ -501,17 +501,35 @@ void ContentBrowser::draw_file_grid() {
             }
         }
 
-        // Drag source for moving files
+        // Drag source — carries relative asset path
         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-            ImGui::SetDragDropPayload("CB_FILE", &i, sizeof(i));
+            std::string rel_path;
+            if (!root_.empty()) {
+                rel_path = std::filesystem::relative(entry.path, root_).string();
+            } else {
+                rel_path = entry.path.string();
+            }
+            ImGui::SetDragDropPayload("ASSET_PATH", rel_path.c_str(),
+                                       rel_path.size() + 1);
             ImGui::Text("%s", entry.name.c_str());
             ImGui::EndDragDropSource();
         }
 
         // Drop target on folders
         if (entry.is_directory && ImGui::BeginDragDropTarget()) {
-            if (const auto* payload = ImGui::AcceptDragDropPayload("CB_FILE")) {
-                int src_idx = *static_cast<const int*>(payload->Data);
+            if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                // Find the source entry by matching the dropped path
+                std::string dropped_path(static_cast<const char*>(payload->Data));
+                int src_idx = -1;
+                for (int si = 0; si < static_cast<int>(entries_.size()); ++si) {
+                    std::string rel;
+                    if (!root_.empty()) {
+                        rel = std::filesystem::relative(entries_[si].path, root_).string();
+                    } else {
+                        rel = entries_[si].path.string();
+                    }
+                    if (rel == dropped_path) { src_idx = si; break; }
+                }
                 if (src_idx >= 0 && src_idx < static_cast<int>(entries_.size()) && src_idx != i) {
                     auto& src = entries_[src_idx];
                     auto dest = entry.path / src.path.filename();
