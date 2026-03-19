@@ -8,10 +8,16 @@
 namespace fjell {
 
 void StyleResolver::resolve(UiNode& root, const Stylesheet& sheet) {
-    resolve_node(root, sheet);
+    resolve_node(root, sheet, nullptr);
 }
 
-void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet) {
+void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
+                                  const UiComputedStyle* parent_style) {
+    // Inherit from parent first (before applying rules)
+    if (parent_style) {
+        inherit_properties(node.style, *parent_style);
+    }
+
     // Collect matching rules with specificity
     struct Match {
         uint32_t specificity;
@@ -36,32 +42,34 @@ void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet) {
         }
     }
 
-    // Also apply inline style from attributes
+    // Inline style attributes (style-*)
     for (const auto& [name, value] : node.attributes) {
         if (name == "id" || name == "class" || name == "style") continue;
-        // Check if this looks like a style property
         if (name.find("style-") == 0) {
             apply_property(node.style, name.substr(6), value);
         }
     }
 
-    // Recurse to children
+    // Recurse to children with this node's computed style as parent
     for (auto& child : node.children) {
-        resolve_node(*child, sheet);
+        resolve_node(*child, sheet, &node.style);
     }
 }
 
+void StyleResolver::inherit_properties(UiComputedStyle& style, const UiComputedStyle& parent) {
+    // CSS inherited properties: color, font-size, line-height, opacity
+    style.color = parent.color;
+    style.font_size = parent.font_size;
+    style.line_height = parent.line_height;
+    // Opacity compounds: child opacity is relative to parent
+    style.opacity = parent.opacity;
+}
+
 bool StyleResolver::selector_matches(const UiNode& node, const StyleSelector& sel) const {
-    // ID match
     if (!sel.id.empty() && node.id != sel.id) return false;
-
-    // Class match
     if (!sel.class_.empty() && !node.has_class(sel.class_)) return false;
-
-    // Tag match
     if (!sel.tag.empty() && node.tag != sel.tag) return false;
 
-    // Ancestor match (descendant combinator)
     if (!sel.parent.empty()) {
         bool found = false;
         for (auto* p = node.parent; p != nullptr; p = p->parent) {
@@ -191,13 +199,35 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
         return;
     }
 
-    // Border
+    // Border shorthand: "2px solid #333" or "1 #666"
+    if (name == "border") {
+        std::istringstream iss(value);
+        std::string token;
+        while (iss >> token) {
+            if (token == "solid" || token == "none" || token == "dashed") continue;
+            if (token[0] == '#' || token.find("rgb") == 0 ||
+                token == "transparent" || token == "white" || token == "black" ||
+                token == "red" || token == "green" || token == "blue") {
+                style.border_color = parse_color(token);
+            } else {
+                style.border_width = parse_px(token);
+            }
+        }
+        return;
+    }
+
+    // Border individual
     if (name == "border-color") { style.border_color = parse_color(value); return; }
     if (name == "border-width") { style.border_width = parse_px(value); return; }
     if (name == "border-radius") { style.border_radius = parse_corners(value); return; }
 
     // Opacity
     if (name == "opacity") { style.opacity = parse_px(value); return; }
+
+    // Text
+    if (name == "color") { style.color = parse_color(value); return; }
+    if (name == "font-size") { style.font_size = parse_px(value); return; }
+    if (name == "line-height") { style.line_height = parse_px(value); return; }
 }
 
 UiColor StyleResolver::parse_color(const std::string& value) {
@@ -207,7 +237,6 @@ UiColor StyleResolver::parse_color(const std::string& value) {
     if (value[0] == '#') {
         std::string hex = value.substr(1);
         if (hex.size() == 3) {
-            // Expand #RGB to #RRGGBB
             std::string expanded;
             for (char c : hex) { expanded += c; expanded += c; }
             hex = expanded;
@@ -222,13 +251,38 @@ UiColor StyleResolver::parse_color(const std::string& value) {
         return UiColor::from_hex(val);
     }
 
+    // rgba(r, g, b, a) — values 0-255 for rgb, 0.0-1.0 for alpha
+    if (value.find("rgba(") == 0) {
+        auto inner = value.substr(5, value.size() - 6); // strip "rgba(" and ")"
+        std::istringstream iss(inner);
+        float r = 0, g = 0, b = 0, a = 1;
+        char comma;
+        iss >> r >> comma >> g >> comma >> b >> comma >> a;
+        return {r / 255.0f, g / 255.0f, b / 255.0f, a};
+    }
+
+    // rgb(r, g, b)
+    if (value.find("rgb(") == 0) {
+        auto inner = value.substr(4, value.size() - 5);
+        std::istringstream iss(inner);
+        float r = 0, g = 0, b = 0;
+        char comma;
+        iss >> r >> comma >> g >> comma >> b;
+        return {r / 255.0f, g / 255.0f, b / 255.0f, 1.0f};
+    }
+
     // Named colors
     if (value == "transparent") return {0, 0, 0, 0};
     if (value == "white") return {1, 1, 1, 1};
     if (value == "black") return {0, 0, 0, 1};
     if (value == "red") return {1, 0, 0, 1};
-    if (value == "green") return {0, 1, 0, 1};
+    if (value == "green") return {0, 0.5f, 0, 1};
     if (value == "blue") return {0, 0, 1, 1};
+    if (value == "yellow") return {1, 1, 0, 1};
+    if (value == "cyan") return {0, 1, 1, 1};
+    if (value == "magenta") return {1, 0, 1, 1};
+    if (value == "gray" || value == "grey") return {0.5f, 0.5f, 0.5f, 1};
+    if (value == "orange") return {1, 0.647f, 0, 1};
 
     return {};
 }

@@ -11,7 +11,9 @@ public:
     void resolve(UiNode& root, const Stylesheet& sheet);
 
 private:
-    void resolve_node(UiNode& node, const Stylesheet& sheet);
+    void resolve_node(UiNode& node, const Stylesheet& sheet,
+                      const UiComputedStyle* parent_style);
+    void inherit_properties(UiComputedStyle& style, const UiComputedStyle& parent);
     [[nodiscard]] bool selector_matches(const UiNode& node, const StyleSelector& sel) const;
     void apply_property(UiComputedStyle& style, const std::string& name, const std::string& value);
 
