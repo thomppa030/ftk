@@ -4,6 +4,7 @@
 #include "scene/scene.hpp"
 
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <string>
 #include <utility>
@@ -35,12 +36,30 @@ public:
         }
     }
     [[nodiscard]] std::string description() const override {
-        bool moved = old_transform_.position != new_transform_.position;
-        bool rotated = old_transform_.rotation != new_transform_.rotation;
-        bool scaled = old_transform_.scale != new_transform_.scale;
-        if (moved && !rotated && !scaled) return "Move " + name_;
-        if (!moved && rotated && !scaled) return "Rotate " + name_;
-        if (!moved && !rotated && scaled) return "Scale " + name_;
+        auto close = [](float a, float b) { return std::abs(a - b) < 0.001f; };
+        auto vec3_close = [&](const glm::vec3& a, const glm::vec3& b) {
+            return close(a.x, b.x) && close(a.y, b.y) && close(a.z, b.z);
+        };
+
+        bool moved = !vec3_close(old_transform_.position, new_transform_.position);
+        bool scaled = !vec3_close(old_transform_.scale, new_transform_.scale);
+        bool rotated = !moved && !scaled; // if nothing else changed, assume rotation
+
+        auto fmt_vec3 = [](const glm::vec3& v) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "(%.1f, %.1f, %.1f)", v.x, v.y, v.z);
+            return std::string(buf);
+        };
+
+        if (moved && !scaled) {
+            return "Move " + name_ + " \x01" + fmt_vec3(old_transform_.position)
+                   + "\x02 -> \x03" + fmt_vec3(new_transform_.position) + "\x04";
+        }
+        if (scaled && !moved) {
+            return "Scale " + name_ + " \x01" + fmt_vec3(old_transform_.scale)
+                   + "\x02 -> \x03" + fmt_vec3(new_transform_.scale) + "\x04";
+        }
+        if (rotated) return "Rotate " + name_;
         return "Transform " + name_;
     }
 
