@@ -7,30 +7,20 @@
 
 #include <vulkan/vulkan.h>
 
+#include "platform/platform.hpp"
+
 #include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
-#include <unistd.h>
 
 static constexpr int HUB_WIDTH = 480;
 static constexpr int HUB_HEIGHT = 760;
 
 static void launch_editor(const std::string& project_path) {
-    pid_t pid = fork();
-    if (pid == 0) {
-        char self[4096];
-        auto len = readlink("/proc/self/exe", self, sizeof(self) - 1);
-        if (len <= 0) _exit(1);
-        self[len] = '\0';
-
-        std::string hub_path(self);
-        auto pos = hub_path.rfind('/');
-        std::string editor_path = hub_path.substr(0, pos + 1) + "fjell";
-
-        execl(editor_path.c_str(), "fjell", project_path.c_str(), nullptr);
-        _exit(1);
-    }
+    auto exe = fjell::platform::executable_path();
+    auto editor_path = exe.parent_path() / "fjell";
+    fjell::platform::spawn_detached({editor_path.string(), project_path});
 }
 
 static void transition_image(VkCommandBuffer cmd, VkImage image,

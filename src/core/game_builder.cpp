@@ -2,12 +2,10 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project.hpp"
+#include "platform/platform.hpp"
 
 #include <nlohmann/json.hpp>
 
-#include <unistd.h>
-
-#include <array>
 #include <fstream>
 
 namespace fjell {
@@ -20,14 +18,7 @@ bool GameBuilder::build(const Project& project,
         fs::create_directories(output_dir);
 
         // Copy engine binary
-        std::array<char, 4096> buf{};
-        auto len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
-        if (len <= 0) {
-            FJELL_CORE_ERROR("Failed to read /proc/self/exe");
-            return false;
-        }
-        buf[len] = '\0';
-        auto exe_path = fs::path(buf.data());
+        auto exe_path = platform::executable_path();
         auto dest_exe = output_dir / project.config().name;
         fs::copy_file(exe_path, dest_exe,
                       fs::copy_options::overwrite_existing);
