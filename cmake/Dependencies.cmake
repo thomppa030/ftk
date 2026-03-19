@@ -89,7 +89,23 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga)
+set(MSDFGEN_CORE_ONLY OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_BUILD_STANDALONE OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_USE_SKIA OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_USE_OPENMP OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_INSTALL OFF CACHE BOOL "" FORCE)
+set(MSDFGEN_DISABLE_SVG TRUE CACHE BOOL "" FORCE)
+set(MSDFGEN_DISABLE_PNG TRUE CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    msdfgen
+    GIT_REPOSITORY https://github.com/Chlumsky/msdfgen.git
+    GIT_TAG        v1.12
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
+
+FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga msdfgen)
 
 # miniaudio — header-only, just populate
 FetchContent_GetProperties(miniaudio)
@@ -116,3 +132,4 @@ if(NOT imnodes_POPULATED)
 endif()
 
 find_package(Vulkan REQUIRED)
+find_package(Freetype REQUIRED)

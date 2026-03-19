@@ -88,6 +88,8 @@ add_executable(fjell
     ui/game_ui/ui_layout.cpp
     ui/game_ui/ui_renderer.cpp
     ui/game_ui/game_ui.cpp
+    ui/game_ui/font_atlas.cpp
+    ui/game_ui/text_shaper.cpp
 
     # ImGui sources
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -129,6 +131,9 @@ target_link_libraries(fjell PRIVATE
     spdlog::spdlog
     Vulkan::Vulkan
     yogacore
+    msdfgen::msdfgen-core
+    msdfgen::msdfgen-ext
+    Freetype::Freetype
     ${VTERM_LIB}
     util
     ${CMAKE_DL_LIBS}
@@ -151,6 +156,12 @@ target_include_directories(fjell SYSTEM PRIVATE ${JOLT_INCLUDE_DIRS})
 # Treat Yoga headers as system headers to suppress warnings from them
 get_target_property(YOGA_INCLUDE_DIRS yogacore INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(fjell SYSTEM PRIVATE ${YOGA_INCLUDE_DIRS})
+
+# Treat msdfgen headers as system headers to suppress warnings from them
+get_target_property(MSDFGEN_CORE_DIRS msdfgen-core INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(fjell SYSTEM PRIVATE ${MSDFGEN_CORE_DIRS})
+get_target_property(MSDFGEN_EXT_DIRS msdfgen-ext INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(fjell SYSTEM PRIVATE ${MSDFGEN_EXT_DIRS})
 
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
