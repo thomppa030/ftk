@@ -188,6 +188,10 @@ private:
     std::unique_ptr<IndirectBatch> indirect_batch_;
     DrawDataDescriptor draw_data_descriptor_;
 
+    // Shadow-specific batch (built from all shadow casters, not camera-culled)
+    std::unique_ptr<IndirectBatch> shadow_batch_;
+    DrawDataDescriptor shadow_draw_data_;
+
     // Meshlet GPU buffers + descriptor + passes
     std::unique_ptr<MeshletBuffer> meshlet_buffer_;
     MeshletDescriptor meshlet_descriptor_;

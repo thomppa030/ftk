@@ -87,6 +87,16 @@ struct Frustum {
         return f;
     }
 
+    // Create a shadow caster frustum: same as the light frustum but without
+    // the near plane, so objects behind the cascade (toward the light) are
+    // included as potential shadow casters.
+    [[nodiscard]] Frustum without_near_plane() const {
+        Frustum f = *this;
+        // Push near plane to -infinity (always passes)
+        f.planes[4] = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        return f;
+    }
+
     // Conservative AABB intersection — positive vertex test
     [[nodiscard]] bool intersects(const AABB& aabb) const {
         for (const auto& plane : planes) {

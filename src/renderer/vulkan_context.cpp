@@ -40,6 +40,10 @@ VulkanContext::VulkanContext(Window& window)
         device_.handle(), device_.physical_device());
     draw_data_descriptor_.create(device_.handle());
 
+    shadow_batch_ = std::make_unique<IndirectBatch>(
+        device_.handle(), device_.physical_device());
+    shadow_draw_data_.create(device_.handle());
+
     // Meshlet buffers + descriptor (uploaded at model load time)
     if (device_.mesh_shader_supported()) {
         meshlet_buffer_ = std::make_unique<MeshletBuffer>(
@@ -404,32 +408,39 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
                                     ThreadPool& pool) {
     // Build render queue with parallel frustum culling
+    std::vector<DrawCommand> shadow_commands;
     if (scene) {
         render_queue_.clear();
         Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
+
+        // Build per-cascade shadow caster frustums from light matrices.
+        // Near plane removed so objects behind the cascade (toward the light)
+        // are included — they may cast shadows into the visible area.
+        std::array<Frustum, ShadowPass::CASCADE_COUNT> shadow_frustums;
+        for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
+            shadow_frustums[c] = Frustum::from_vp_matrix_zo(
+                shadow_pass_.light_matrices()[c]).without_near_plane();
+        }
+
         const auto& objects = scene->objects();
         auto object_count = static_cast<uint32_t>(objects.size());
 
         uint32_t num_chunks = pool.thread_count() + 1;
         std::vector<std::vector<DrawCommand>> local_commands(num_chunks);
+        std::vector<std::vector<DrawCommand>> local_shadow_commands(num_chunks);
         std::vector<uint32_t> local_total(num_chunks, 0);
         std::vector<uint32_t> local_culled(num_chunks, 0);
 
         pool.parallel_for(0, object_count,
             [&](uint32_t chunk_id, uint32_t begin, uint32_t end) {
                 auto& commands = local_commands[chunk_id];
+                auto& shadow_cmds = local_shadow_commands[chunk_id];
 
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
                     if (!obj.model) continue;
 
                     local_total[chunk_id]++;
-
-                    AABB world_aabb = obj.model->local_aabb().transform(obj.world_matrix_);
-                    if (!camera_frustum.intersects(world_aabb)) {
-                        local_culled[chunk_id]++;
-                        continue;
-                    }
 
                     DrawCommand dc{};
                     dc.world_matrix = obj.world_matrix_;
@@ -441,6 +452,27 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                         dc.transparent = (obj.material->params().base_color_factor.w < 1.0f);
                     }
                     dc.model = obj.model;
+
+                    AABB world_aabb = obj.model->local_aabb().transform(obj.world_matrix_);
+
+                    // Shadow cull: include if visible to any cascade's
+                    // expanded frustum (near plane removed to catch casters
+                    // behind the cascade along the light direction)
+                    if (!dc.transparent) {
+                        for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
+                            if (shadow_frustums[c].intersects(world_aabb)) {
+                                shadow_cmds.push_back(dc);
+                                break;
+                            }
+                        }
+                    }
+
+                    // Camera cull
+                    if (!camera_frustum.intersects(world_aabb)) {
+                        local_culled[chunk_id]++;
+                        continue;
+                    }
+
                     commands.push_back(dc);
                 }
             });
@@ -451,6 +483,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             render_stats_->objects_culled += local_culled[i];
             for (const auto& dc : local_commands[i]) {
                 render_queue_.push(dc);
+            }
+            for (const auto& dc : local_shadow_commands[i]) {
+                shadow_commands.push_back(dc);
             }
         }
         render_queue_.sort(camera_position_);
@@ -465,11 +500,23 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                            render_queue_.transparent_commands(),
                            current_frame_);
 
+    // Build shadow indirect batch from all shadow casters (not camera-culled)
+    std::vector<DrawCommand> empty_transparent;
+    shadow_batch_->build(shadow_commands, empty_transparent, current_frame_);
+
     // Update draw data descriptor for this frame
     if (indirect_batch_->draw_data_count(current_frame_) > 0) {
         draw_data_descriptor_.update(
             indirect_batch_->draw_data_buffer(current_frame_),
             indirect_batch_->draw_data_size(current_frame_),
+            current_frame_);
+    }
+
+    // Update shadow draw data descriptor
+    if (shadow_batch_->draw_data_count(current_frame_) > 0) {
+        shadow_draw_data_.update(
+            shadow_batch_->draw_data_buffer(current_frame_),
+            shadow_batch_->draw_data_size(current_frame_),
             current_frame_);
     }
 
@@ -515,10 +562,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }
     graph.begin_frame();
 
-    // Shadow pass (uses its own images — no graph tracking needed)
+    // Shadow pass — uses its own batch with per-cascade culled objects
     graph.add_pass("shadow", [&](VkCommandBuffer cb) {
         FrameContext local = ctx;
         local.cmd = cb;
+        local.indirect_batch = shadow_batch_.get();
+        local.draw_data_set = shadow_draw_data_.descriptor_set(current_frame_);
         shadow_pass_.record(local);
     }, {}, 1);
 
