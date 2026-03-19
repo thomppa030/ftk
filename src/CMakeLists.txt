@@ -32,6 +32,7 @@ add_executable(fjell
     renderer/primitives.cpp
     renderer/bindless.cpp
     renderer/frame_graph.cpp
+    renderer/thread_command_pools.cpp
     renderer/particle_system.cpp
     renderer/pass/bloom_pass.cpp
     renderer/pass/grid_pass.cpp

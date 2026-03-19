@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/renderer_constants.hpp"
+#include "renderer/thread_command_pools.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/draw_data_descriptor.hpp"
@@ -137,6 +138,8 @@ private:
     Swapchain swapchain_;
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
+    ThreadCommandPools secondary_pools_;
+    bool secondary_pools_initialized_{false};
 
     // Descriptors
     std::unique_ptr<DescriptorSetLayout> global_set_layout_;

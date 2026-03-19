@@ -171,6 +171,7 @@ VulkanContext::~VulkanContext() {
         if (in_flight_[i] != VK_NULL_HANDLE)
             vkDestroyFence(vk_device, in_flight_[i], nullptr);
     }
+    secondary_pools_.destroy();
     if (command_pool_ != VK_NULL_HANDLE)
         vkDestroyCommandPool(vk_device, command_pool_, nullptr);
 }
@@ -508,18 +509,25 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     graph.begin_frame();
 
     // Shadow pass (uses its own images — no graph tracking needed)
-    graph.add_pass("shadow", [&] { shadow_pass_.record(ctx); }, {});
+    graph.add_pass("shadow", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        shadow_pass_.record(local);
+    }, {}, 1);
 
     // Depth pre-pass (writes MSAA depth when MSAA active, otherwise single-sample)
     auto& depth_pass = use_mesh_shaders_ ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
                                           : static_cast<RenderPass&>(depth_prepass_);
     if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
         // With MSAA: depth prepass writes MSAA depth, then resolve to single-sample for compute
-        graph.add_pass("depth_prepass", [&] { depth_pass.record(ctx); },
-                       {{msaa_depth_id, ImageUsage::depth_attachment}});
+        graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            depth_pass.record(local);
+        }, {{msaa_depth_id, ImageUsage::depth_attachment}}, 1);
 
         // Depth resolve: begin a rendering scope with MSAA depth loaded + resolve target
-        graph.add_pass("depth_resolve", [&] {
+        graph.add_pass("depth_resolve", [&](VkCommandBuffer cb) {
             VkRenderingAttachmentInfo depth_attachment{};
             depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
             depth_attachment.imageView = target.msaa_depth_view();
@@ -536,19 +544,22 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             ri.layerCount = 1;
             ri.pDepthAttachment = &depth_attachment;
 
-            vkCmdBeginRendering(cmd, &ri);
-            vkCmdEndRendering(cmd);
+            vkCmdBeginRendering(cb, &ri);
+            vkCmdEndRendering(cb);
         }, {{msaa_depth_id, ImageUsage::depth_attachment_read},
             {depth_id, ImageUsage::depth_attachment}});
     } else {
-        graph.add_pass("depth_prepass", [&] { depth_pass.record(ctx); },
-                       {{depth_id, ImageUsage::depth_attachment}});
+        graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            depth_pass.record(local);
+        }, {{depth_id, ImageUsage::depth_attachment}}, 1);
     }
 
     // Light cull compute pass (reads resolved depth, writes tile light lists)
-    graph.add_pass("light_cull", [&] {
+    graph.add_pass("light_cull", [&](VkCommandBuffer cb) {
         auto extent = target.extent();
-        light_cull_pass_.dispatch(cmd, global_descriptor_sets_[current_frame_],
+        light_cull_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
                                    extent.width, extent.height);
 
         // Memory barrier: compute SSBO write → fragment SSBO read
@@ -563,20 +574,20 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &mem_barrier;
-        vkCmdPipelineBarrier2(cmd, &dep);
+        vkCmdPipelineBarrier2(cb, &dep);
     }, {{depth_id, ImageUsage::compute_read}});
 
     // Particle compute (before rendering so particles are ready to draw)
-    graph.add_pass("particle_compute", [&] {
+    graph.add_pass("particle_compute", [&](VkCommandBuffer cb) {
         if (scene) {
             particle_system_.sync_emitters(*scene);
-            particle_system_.dispatch_compute(cmd, dt, *scene);
-            particle_system_.insert_barriers(cmd);
+            particle_system_.dispatch_compute(cb, dt, *scene);
+            particle_system_.insert_barriers(cb);
         }
     }, {});
 
     // Color pass (opaques + sky + debug + transparent + particles in one rendering scope)
-    graph.add_pass("color", [&] {
+    graph.add_pass("color", [&](VkCommandBuffer cb) {
         VkRenderingAttachmentInfo color_attachment{};
         color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         color_attachment.imageView = target.msaa_color_view();
@@ -612,35 +623,38 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         ri.pColorAttachments = &color_attachment;
         ri.pDepthAttachment = &depth_attachment;
 
-        vkCmdBeginRendering(cmd, &ri);
+        vkCmdBeginRendering(cb, &ri);
 
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->handle());
+        FrameContext local = ctx;
+        local.cmd = cb;
+
+        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->handle());
 
         VkViewport vp{};
         vp.width = static_cast<float>(target.extent().width);
         vp.height = static_cast<float>(target.extent().height);
         vp.maxDepth = 1.0f;
-        vkCmdSetViewport(cmd, 0, 1, &vp);
+        vkCmdSetViewport(cb, 0, 1, &vp);
 
         VkRect2D sc{};
         sc.extent = target.extent();
-        vkCmdSetScissor(cmd, 0, 1, &sc);
+        vkCmdSetScissor(cb, 0, 1, &sc);
 
         std::array descriptor_sets = {global_descriptor_sets_[current_frame_],
                                      bindless_textures_.descriptor_set(),
                                      draw_data_descriptor_.descriptor_set(current_frame_)};
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
+        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
                                 0, static_cast<uint32_t>(descriptor_sets.size()),
                                 descriptor_sets.data(), 0, nullptr);
 
         if (scene) {
             if (use_mesh_shaders_) {
-                mesh_shader_pass_.record(ctx);
+                mesh_shader_pass_.record(local);
                 render_stats_->meshlets_dispatched += meshlet_buffer_
                     ? meshlet_buffer_->total_meshlets() : 0;
             } else {
-                mega_buffer_->bind(cmd);
-                indirect_batch_->draw(cmd, current_frame_);
+                mega_buffer_->bind(cb);
+                indirect_batch_->draw(cb, current_frame_);
             }
             render_stats_->draw_calls += indirect_batch_->opaque_draw_count(current_frame_);
             render_stats_->triangle_count += indirect_batch_->total_triangles(current_frame_);
@@ -649,56 +663,88 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             }
         }
 
-        sky_pass_.record(ctx);
-        grid_pass_.record(ctx);
-        debug_pass_.record(ctx);
-        draw_outline(cmd, ctx);
-        transparent_pass_.record(ctx);
-        particle_system_.record_render(ctx);
+        sky_pass_.record(local);
+        grid_pass_.record(local);
+        debug_pass_.record(local);
+        draw_outline(cb, local);
+        transparent_pass_.record(local);
+        particle_system_.record_render(local);
 
-        vkCmdEndRendering(cmd);
+        vkCmdEndRendering(cb);
     }, {{msaa_color_id, ImageUsage::color_attachment},
         {color_id, ImageUsage::color_attachment},
         {msaa_depth_id, ImageUsage::depth_attachment_read},
         {depth_id, ImageUsage::depth_attachment}});
 
     // Post-processing reads the color buffer
-    graph.add_pass("bloom", [&] { bloom_pass_.record(ctx); },
-                   {{color_id, ImageUsage::shader_read}});
+    graph.add_pass("bloom", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        bloom_pass_.record(local);
+    }, {{color_id, ImageUsage::shader_read}});
 
-    graph.add_pass("tonemap", [&] {
+    graph.add_pass("tonemap", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
         tonemap_pass_.set_source_view(target.color_view());
-        tonemap_pass_.record(ctx);
+        tonemap_pass_.record(local);
     }, {{color_id, ImageUsage::shader_read}});
 
     // Utility passes
-    graph.add_pass("depth_viz", [&] { depth_viz_pass_.record(ctx); },
-                   {{depth_id, ImageUsage::shader_read}});
+    graph.add_pass("depth_viz", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        depth_viz_pass_.record(local);
+    }, {{depth_id, ImageUsage::shader_read}});
 
-    graph.add_pass("wireframe", [&] { wireframe_pass_.record(ctx); }, {});
-    graph.add_pass("normals", [&] { normal_pass_.record(ctx); }, {});
-    graph.add_pass("overdraw", [&] { overdraw_pass_.record(ctx); }, {});
-    graph.add_pass("uv_viz", [&] { uv_viz_pass_.record(ctx); }, {});
-
-    // Light visualization passes (read tile SSBO written by light_cull)
-    graph.add_pass("light_heatmap", [&] {
-        light_heatmap_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
-                                           tile_light_ssbo_[current_frame_]->size());
-        light_heatmap_pass_.record(ctx);
+    graph.add_pass("wireframe", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        wireframe_pass_.record(local);
+    }, {});
+    graph.add_pass("normals", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        normal_pass_.record(local);
+    }, {});
+    graph.add_pass("overdraw", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        overdraw_pass_.record(local);
+    }, {});
+    graph.add_pass("uv_viz", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        uv_viz_pass_.record(local);
     }, {});
 
-    graph.add_pass("light_grid", [&] {
+    // Light visualization passes (read tile SSBO written by light_cull)
+    graph.add_pass("light_heatmap", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        light_heatmap_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
+                                           tile_light_ssbo_[current_frame_]->size());
+        light_heatmap_pass_.record(local);
+    }, {});
+
+    graph.add_pass("light_grid", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
         light_grid_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
                                         tile_light_ssbo_[current_frame_]->size());
-        light_grid_pass_.record(ctx);
+        light_grid_pass_.record(local);
     }, {});
 
     // Meshlet visualization (mesh shader debug view)
-    graph.add_pass("meshlet_viz", [&] { meshlet_viz_pass_.record(ctx); }, {});
+    graph.add_pass("meshlet_viz", [&](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        meshlet_viz_pass_.record(local);
+    }, {});
 
     // ── Execute ─────────────────────────────────────────────────────────
 
-    graph.execute(cmd);
+    graph.execute(cmd, &pool, &secondary_pools_, current_frame_);
 }
 
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
@@ -853,6 +899,16 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
 
     vkWaitForFences(vk_device, 1, &in_flight_[current_frame_], VK_TRUE,
                     std::numeric_limits<uint64_t>::max());
+
+    // Lazy-init per-thread command pools (needs thread count from pool)
+    if (!secondary_pools_initialized_ && pool.thread_count() > 0) {
+        secondary_pools_.create(vk_device, graphics_family(),
+                                pool.thread_count() + 1);
+        secondary_pools_initialized_ = true;
+    }
+    if (secondary_pools_initialized_) {
+        secondary_pools_.reset_frame(current_frame_);
+    }
 
     uint32_t image_index;
     VkResult result = vkAcquireNextImageKHR(vk_device, swapchain_.handle(),

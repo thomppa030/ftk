@@ -5,10 +5,12 @@
 #include <cstdint>
 #include <functional>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace fjell {
+
+class ThreadPool;
+class ThreadCommandPools;
 
 // How a pass uses an image
 enum class ImageUsage : uint8_t {
@@ -33,8 +35,9 @@ struct TrackedImage {
 // A pass declaration: what images it reads and writes
 struct PassDecl {
     std::string name;
-    std::function<void()> execute;
+    std::function<void(VkCommandBuffer)> execute;
     std::vector<std::pair<uint32_t, ImageUsage>> image_uses; // image_id, usage
+    uint32_t parallel_group{0}; // 0 = sequential, >0 = parallel group ID
 };
 
 // Lightweight frame graph that tracks image layouts and inserts barriers.
@@ -49,12 +52,17 @@ public:
     // Start a new frame — reset all layouts to UNDEFINED
     void begin_frame();
 
-    // Add a pass that uses images. The execute callback records the actual commands.
-    void add_pass(const std::string& name, std::function<void()> execute,
-                  std::initializer_list<std::pair<uint32_t, ImageUsage>> uses);
+    // Add a pass that uses images. The execute callback records commands into
+    // the provided command buffer (primary for sequential, secondary for parallel).
+    void add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
+                  std::initializer_list<std::pair<uint32_t, ImageUsage>> uses,
+                  uint32_t parallel_group = 0);
 
-    // Execute all passes, inserting barriers between them
-    void execute(VkCommandBuffer cmd);
+    // Execute all passes, inserting barriers between them.
+    // Passes with the same parallel_group > 0 are recorded in parallel on
+    // secondary command buffers via the thread pool.
+    void execute(VkCommandBuffer primary, ThreadPool* pool,
+                 ThreadCommandPools* cmd_pools, uint32_t frame_index);
 
 private:
     static VkImageLayout layout_for(ImageUsage usage, VkImageAspectFlags aspect);
@@ -65,6 +73,8 @@ private:
                         VkImageLayout new_layout,
                         VkPipelineStageFlags2 dst_stage,
                         VkAccessFlags2 dst_access);
+
+    void emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass);
 
     std::vector<TrackedImage> images_;
     std::vector<PassDecl> passes_;

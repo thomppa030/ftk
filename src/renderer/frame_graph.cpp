@@ -1,4 +1,8 @@
 #include "renderer/frame_graph.hpp"
+#include "renderer/thread_command_pools.hpp"
+#include "core/thread_pool.hpp"
+
+#include <latch>
 
 namespace fjell {
 
@@ -23,12 +27,14 @@ void FrameGraph::begin_frame() {
     }
 }
 
-void FrameGraph::add_pass(const std::string& name, std::function<void()> execute,
-                           std::initializer_list<std::pair<uint32_t, ImageUsage>> uses) {
+void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
+                           std::initializer_list<std::pair<uint32_t, ImageUsage>> uses,
+                           uint32_t parallel_group) {
     PassDecl pass;
     pass.name = name;
     pass.execute = std::move(execute);
     pass.image_uses = uses;
+    pass.parallel_group = parallel_group;
     passes_.push_back(std::move(pass));
 }
 
@@ -119,19 +125,80 @@ void FrameGraph::insert_barrier(VkCommandBuffer cmd, TrackedImage& img,
     img.last_access = dst_access;
 }
 
-void FrameGraph::execute(VkCommandBuffer cmd) {
-    for (auto& pass : passes_) {
-        // Insert barriers for all images this pass uses
-        for (const auto& [img_id, usage] : pass.image_uses) {
-            auto& img = images_[img_id];
-            auto needed_layout = layout_for(usage, img.aspect);
-            auto needed_stage = stage_for(usage);
-            auto needed_access = access_for(usage);
-            insert_barrier(cmd, img, needed_layout, needed_stage, needed_access);
+void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass) {
+    for (const auto& [img_id, usage] : pass.image_uses) {
+        auto& img = images_[img_id];
+        auto needed_layout = layout_for(usage, img.aspect);
+        auto needed_stage = stage_for(usage);
+        auto needed_access = access_for(usage);
+        insert_barrier(cmd, img, needed_layout, needed_stage, needed_access);
+    }
+}
+
+void FrameGraph::execute(VkCommandBuffer primary, ThreadPool* pool,
+                          ThreadCommandPools* cmd_pools, uint32_t frame_index) {
+    bool can_parallelize = pool && cmd_pools && pool->thread_count() > 0;
+
+    size_t i = 0;
+    while (i < passes_.size()) {
+        auto& pass = passes_[i];
+
+        if (pass.parallel_group == 0 || !can_parallelize) {
+            // Sequential pass — same as before
+            emit_barriers_for_pass(primary, pass);
+            pass.execute(primary);
+            ++i;
+            continue;
         }
 
-        // Execute the pass
-        pass.execute();
+        // Collect consecutive passes with the same parallel group
+        uint32_t group = pass.parallel_group;
+        size_t group_begin = i;
+        while (i < passes_.size() && passes_[i].parallel_group == group) {
+            ++i;
+        }
+        size_t group_size = i - group_begin;
+
+        // Emit all barriers for the group on the primary first
+        for (size_t p = group_begin; p < group_begin + group_size; ++p) {
+            emit_barriers_for_pass(primary, passes_[p]);
+        }
+
+        // Record each pass on a secondary command buffer, in parallel
+        std::vector<VkCommandBuffer> secondaries(group_size);
+        std::latch done(static_cast<ptrdiff_t>(group_size));
+
+        for (size_t p = 0; p < group_size; ++p) {
+            auto thread_idx = static_cast<uint32_t>(p % (pool->thread_count() + 1));
+            VkCommandBuffer secondary = cmd_pools->allocate_secondary(thread_idx, frame_index);
+            secondaries[p] = secondary;
+
+            auto record = [&passes = passes_, group_begin, p, secondary, &done]() {
+                VkCommandBufferInheritanceInfo inheritance{};
+                inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+
+                VkCommandBufferBeginInfo begin_info{};
+                begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                begin_info.pInheritanceInfo = &inheritance;
+
+                vkBeginCommandBuffer(secondary, &begin_info);
+                passes[group_begin + p].execute(secondary);
+                vkEndCommandBuffer(secondary);
+                done.count_down();
+            };
+
+            // Use the calling thread for the last task, submit the rest to the pool
+            if (p < group_size - 1) {
+                (void)pool->submit(std::move(record));
+            } else {
+                record();
+            }
+        }
+
+        done.wait();
+
+        vkCmdExecuteCommands(primary, static_cast<uint32_t>(group_size), secondaries.data());
     }
 }
 
