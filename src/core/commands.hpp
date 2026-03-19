@@ -86,7 +86,7 @@ public:
         : scene_{scene}, id_{id}, selected_id_{selected_id} {
         // Snapshot immediately — the object already exists in the scene
         if (auto* obj = scene_.find(id_)) {
-            snapshot_ = obj->clone_flat();
+            snapshot_ = obj->clone();
             name_ = obj->name;
         }
     }
@@ -99,7 +99,7 @@ public:
         scene_.restore(std::move(snapshot_));
         // Re-snapshot for next redo cycle
         if (auto* obj = scene_.find(id_)) {
-            snapshot_ = obj->clone_flat();
+            snapshot_ = obj->clone();
         }
         *selected_id_ = id_;
     }
@@ -115,7 +115,7 @@ private:
     Scene& scene_;
     uint32_t id_;
     uint32_t* selected_id_;
-    SceneNode snapshot_;
+    std::unique_ptr<SceneNode> snapshot_;
     std::string name_;
     bool first_{true};
 };
@@ -133,8 +133,8 @@ public:
             name_ = obj->name;
         }
         for (const auto& obj : scene_.objects()) {
-            if (obj.parent_id == static_cast<int32_t>(id_)) {
-                orphaned_children_.push_back({obj.id, obj.parent_id});
+            if (obj->parent_id == static_cast<int32_t>(id_)) {
+                orphaned_children_.push_back({obj->id, obj->parent_id});
             }
         }
     }
@@ -148,7 +148,7 @@ public:
         scene_.restore(std::move(snapshot_));
         // Re-snapshot for next execute cycle
         if (auto* obj = scene_.find(id_)) {
-            snapshot_ = obj->clone_flat();
+            snapshot_ = obj->clone();
         }
         // Restore child parent links
         for (const auto& [child_id, parent_id] : orphaned_children_) {
@@ -167,7 +167,7 @@ private:
     uint32_t id_;
     uint32_t* selected_id_;
     std::function<void()> pre_remove_;
-    SceneNode snapshot_;
+    std::unique_ptr<SceneNode> snapshot_;
     std::string name_;
     std::vector<std::pair<uint32_t, int32_t>> orphaned_children_;
 };

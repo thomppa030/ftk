@@ -157,10 +157,10 @@ void ScriptManager::unload(Scene& scene) {
     serialize_all(scene);
 
     for (auto& obj : scene.objects()) {
-        for (auto& comp : obj.scripts) {
+        for (auto& comp : obj->scripts) {
             comp.instance.reset();
         }
-        obj.actor.reset();
+        obj->actor.reset();
     }
 
     dlclose(handle_);
@@ -289,11 +289,11 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     float dt = clock.delta_time();
 
     for (auto& obj : scene.objects()) {
-        if (obj.actor) {
-            obj.actor->world_ = &world_;
-            obj.actor->tick(dt);
+        if (obj->actor) {
+            obj->actor->world_ = &world_;
+            obj->actor->tick(dt);
         }
-        for (auto& comp : obj.scripts) {
+        for (auto& comp : obj->scripts) {
             if (comp.instance) {
                 comp.instance->tick(dt);
             }
@@ -305,11 +305,11 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
 
 void ScriptManager::call_begin_play(Scene& scene) {
     for (auto& obj : scene.objects()) {
-        if (obj.actor) {
-            obj.actor->world_ = &world_;
-            obj.actor->begin_play();
+        if (obj->actor) {
+            obj->actor->world_ = &world_;
+            obj->actor->begin_play();
         }
-        for (auto& comp : obj.scripts) {
+        for (auto& comp : obj->scripts) {
             if (comp.instance) {
                 comp.instance->begin_play();
             }
@@ -319,13 +319,13 @@ void ScriptManager::call_begin_play(Scene& scene) {
 
 void ScriptManager::call_end_play(Scene& scene) {
     for (auto& obj : scene.objects()) {
-        for (auto& comp : obj.scripts) {
+        for (auto& comp : obj->scripts) {
             if (comp.instance) {
                 comp.instance->end_play();
             }
         }
-        if (obj.actor) {
-            obj.actor->end_play();
+        if (obj->actor) {
+            obj->actor->end_play();
         }
     }
 }
@@ -424,7 +424,7 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
 
 void ScriptManager::serialize_all(Scene& scene) {
     for (auto& obj : scene.objects()) {
-        for (auto& comp : obj.scripts) {
+        for (auto& comp : obj->scripts) {
             if (!comp.instance) continue;
             const auto* type = find_script_type(comp.type_name);
             if (!type) continue;
@@ -438,35 +438,35 @@ void ScriptManager::serialize_all(Scene& scene) {
 void ScriptManager::deserialize_all(Scene& scene) {
     for (auto& obj : scene.objects()) {
         // Actor
-        if (!obj.actor_type_name.empty()) {
-            const auto* atype = find_actor_type(obj.actor_type_name);
+        if (!obj->actor_type_name.empty()) {
+            const auto* atype = find_actor_type(obj->actor_type_name);
             if (atype && atype->loaded && atype->create) {
-                obj.actor.reset(atype->create());
-                obj.actor->id_ = obj.id;
-                obj.actor->parent_id_ = obj.parent_id;
-                obj.actor->name_ = obj.name.c_str();
-                obj.actor->world_ = &world_;
-                obj.actor->transform_ = &obj.transform;
+                obj->actor.reset(atype->create());
+                obj->actor->id_ = obj->id;
+                obj->actor->parent_id_ = obj->parent_id;
+                obj->actor->name_ = obj->name.c_str();
+                obj->actor->world_ = &world_;
+                obj->actor->transform_ = &obj->transform;
             }
         }
 
         // Ensure a default Actor exists if there are components
-        if (!obj.scripts.empty() && !obj.actor) {
-            obj.actor = std::make_unique<Actor>();
-            obj.actor->id_ = obj.id;
-            obj.actor->parent_id_ = obj.parent_id;
-            obj.actor->name_ = obj.name.c_str();
-            obj.actor->world_ = &world_;
-            obj.actor->transform_ = &obj.transform;
+        if (!obj->scripts.empty() && !obj->actor) {
+            obj->actor = std::make_unique<Actor>();
+            obj->actor->id_ = obj->id;
+            obj->actor->parent_id_ = obj->parent_id;
+            obj->actor->name_ = obj->name.c_str();
+            obj->actor->world_ = &world_;
+            obj->actor->transform_ = &obj->transform;
         }
 
         // Components
-        for (auto& comp : obj.scripts) {
+        for (auto& comp : obj->scripts) {
             const auto* ctype = find_script_type(comp.type_name);
             if (!ctype || !ctype->loaded || !ctype->create) continue;
 
             comp.instance.reset(ctype->create());
-            comp.instance->owner_ = obj.actor.get();
+            comp.instance->owner_ = obj->actor.get();
 
             if (!comp.serialized.empty()) {
                 auto_deserialize_fields(ctype->fields, comp.instance.get(), comp.serialized);

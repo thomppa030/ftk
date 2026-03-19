@@ -47,8 +47,8 @@ void HierarchyPanel::draw() {
 
         // Draw root objects
         for (auto& obj : scene_->objects()) {
-            if (obj.parent_id == -1) {
-                draw_node(obj);
+            if (obj->parent_id == -1) {
+                draw_node(*obj);
             }
         }
 
@@ -101,7 +101,7 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
 
     bool has_children = false;
     for (const auto& other : objects) {
-        if (other.parent_id == static_cast<int32_t>(obj.id)) {
+        if (other->parent_id == static_cast<int32_t>(obj.id)) {
             has_children = true;
             break;
         }
@@ -220,8 +220,8 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
     // Recurse children
     if (has_children && node_open) {
         for (auto& child : objects) {
-            if (child.parent_id == static_cast<int32_t>(obj.id)) {
-                draw_node(child);
+            if (child->parent_id == static_cast<int32_t>(obj.id)) {
+                draw_node(*child);
             }
         }
         ImGui::TreePop();

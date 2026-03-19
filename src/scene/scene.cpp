@@ -27,22 +27,45 @@ SceneNode::~SceneNode() = default;
 SceneNode::SceneNode(SceneNode&&) noexcept = default;
 SceneNode& SceneNode::operator=(SceneNode&&) noexcept = default;
 
+std::unique_ptr<SceneNode> SceneNode::clone() const {
+    auto copy = std::make_unique<SceneNode>();
+    copy->id = id;
+    copy->parent_id = parent_id;
+    copy->world_matrix_ = world_matrix_;
+    copy->transform = transform;
+    copy->name = name;
+    copy->source = source;
+    copy->mesh = mesh;
+    copy->actor_type_name = actor_type_name;
+    for (const auto& s : scripts) {
+        ScriptEntry entry;
+        entry.type_name = s.type_name;
+        entry.serialized = s.serialized;
+        copy->scripts.push_back(std::move(entry));
+    }
+    copy->rigidbody = rigidbody;
+    copy->collider = collider;
+    copy->emitter = emitter;
+    copy->sprite = sprite;
+    return copy;
+}
+
 uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
                     ResourceManager& resources, Transform transform,
                     const std::string& name, const std::string& source,
                     const std::string& material_name) {
     uint32_t id = next_id_++;
-    SceneNode obj{};
-    obj.id = id;
-    obj.mesh = MeshComponent{};
-    obj.mesh->model_handle = model_handle;
-    obj.mesh->material_handle = material_handle;
-    obj.mesh->model = resources.get(model_handle);
-    obj.mesh->material = resources.get(material_handle);
-    obj.mesh->material_name = material_name;
-    obj.transform = transform;
-    obj.name = name;
-    obj.source = source;
+    auto obj = std::make_unique<SceneNode>();
+    obj->id = id;
+    obj->mesh = MeshComponent{};
+    obj->mesh->model_handle = model_handle;
+    obj->mesh->material_handle = material_handle;
+    obj->mesh->model = resources.get(model_handle);
+    obj->mesh->material = resources.get(material_handle);
+    obj->mesh->material_name = material_name;
+    obj->transform = transform;
+    obj->name = name;
+    obj->source = source;
     objects_.push_back(std::move(obj));
     dirty_ = true;
     return id;
@@ -50,11 +73,20 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
 
 uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     uint32_t id = next_id_++;
-    SceneNode obj{};
-    obj.id = id;
-    obj.transform = transform;
-    obj.name = name;
+    auto obj = std::make_unique<SceneNode>();
+    obj->id = id;
+    obj->transform = transform;
+    obj->name = name;
     objects_.push_back(std::move(obj));
+    dirty_ = true;
+    return id;
+}
+
+uint32_t Scene::add_node(std::unique_ptr<SceneNode> node) {
+    if (node->id == 0) node->id = next_id_++;
+    if (node->id >= next_id_) next_id_ = node->id + 1;
+    uint32_t id = node->id;
+    objects_.push_back(std::move(node));
     dirty_ = true;
     return id;
 }
@@ -62,36 +94,36 @@ uint32_t Scene::add_empty(Transform transform, const std::string& name) {
 void Scene::remove(uint32_t id) {
     // Orphan children first
     for (auto& obj : objects_) {
-        if (obj.parent_id == static_cast<int32_t>(id)) {
-            obj.parent_id = -1;
+        if (obj->parent_id == static_cast<int32_t>(id)) {
+            obj->parent_id = -1;
         }
     }
     auto it = std::find_if(objects_.begin(), objects_.end(),
-                           [id](const SceneNode& o) { return o.id == id; });
+                           [id](const auto& o) { return o->id == id; });
     if (it != objects_.end()) {
         objects_.erase(it);
         dirty_ = true;
     }
 }
 
-SceneNode Scene::extract(uint32_t id) {
+std::unique_ptr<SceneNode> Scene::extract(uint32_t id) {
     // Orphan children
     for (auto& obj : objects_) {
-        if (obj.parent_id == static_cast<int32_t>(id)) {
-            obj.parent_id = -1;
+        if (obj->parent_id == static_cast<int32_t>(id)) {
+            obj->parent_id = -1;
         }
     }
     auto it = std::find_if(objects_.begin(), objects_.end(),
-                           [id](const SceneNode& o) { return o.id == id; });
-    SceneNode result = std::move(*it);
+                           [id](const auto& o) { return o->id == id; });
+    auto result = std::move(*it);
     objects_.erase(it);
     dirty_ = true;
     return result;
 }
 
-void Scene::restore(SceneNode obj) {
-    if (obj.id >= next_id_) next_id_ = obj.id + 1;
-    objects_.push_back(std::move(obj));
+void Scene::restore(std::unique_ptr<SceneNode> node) {
+    if (node->id >= next_id_) next_id_ = node->id + 1;
+    objects_.push_back(std::move(node));
     dirty_ = true;
 }
 
@@ -123,21 +155,21 @@ void Scene::clear() {
 
 SceneNode* Scene::find(uint32_t id) {
     for (auto& obj : objects_) {
-        if (obj.id == id) return &obj;
+        if (obj->id == id) return obj.get();
     }
     return nullptr;
 }
 
 const SceneNode* Scene::find(uint32_t id) const {
     for (const auto& obj : objects_) {
-        if (obj.id == id) return &obj;
+        if (obj->id == id) return obj.get();
     }
     return nullptr;
 }
 
 int Scene::index_of(uint32_t id) const {
     for (int i = 0; i < static_cast<int>(objects_.size()); ++i) {
-        if (objects_[i].id == id) return i;
+        if (objects_[i]->id == id) return i;
     }
     return -1;
 }
@@ -148,8 +180,8 @@ void Scene::compute_world_matrices() {
 
     // Pass 1: roots
     for (std::size_t i = 0; i < objects_.size(); ++i) {
-        if (objects_[i].parent_id == -1) {
-            objects_[i].world_matrix_ = objects_[i].transform.matrix();
+        if (objects_[i]->parent_id == -1) {
+            objects_[i]->world_matrix_ = objects_[i]->transform.matrix();
             computed[i] = true;
             --remaining;
         }
@@ -160,16 +192,16 @@ void Scene::compute_world_matrices() {
         auto prev = remaining;
         for (std::size_t i = 0; i < objects_.size(); ++i) {
             if (computed[i]) continue;
-            int pi = index_of(static_cast<uint32_t>(objects_[i].parent_id));
+            int pi = index_of(static_cast<uint32_t>(objects_[i]->parent_id));
             if (pi < 0) {
                 // Orphaned reference — treat as root
-                objects_[i].parent_id = -1;
-                objects_[i].world_matrix_ = objects_[i].transform.matrix();
+                objects_[i]->parent_id = -1;
+                objects_[i]->world_matrix_ = objects_[i]->transform.matrix();
                 computed[i] = true;
                 --remaining;
             } else if (computed[pi]) {
-                objects_[i].world_matrix_ =
-                    objects_[pi].world_matrix_ * objects_[i].transform.matrix();
+                objects_[i]->world_matrix_ =
+                    objects_[pi]->world_matrix_ * objects_[i]->transform.matrix();
                 computed[i] = true;
                 --remaining;
             }
@@ -178,8 +210,8 @@ void Scene::compute_world_matrices() {
             // Cycle — break all remaining
             for (std::size_t i = 0; i < objects_.size(); ++i) {
                 if (!computed[i]) {
-                    objects_[i].parent_id = -1;
-                    objects_[i].world_matrix_ = objects_[i].transform.matrix();
+                    objects_[i]->parent_id = -1;
+                    objects_[i]->world_matrix_ = objects_[i]->transform.matrix();
                 }
             }
             break;
@@ -213,15 +245,15 @@ void Scene::save(const std::string& path) {
 
     for (const auto& obj : objects_) {
         nlohmann::json jobj;
-        jobj["id"] = obj.id;
-        jobj["parent_id"] = obj.parent_id;
-        jobj["name"] = obj.name;
-        jobj["source"] = obj.source;
-        if (obj.mesh) {
+        jobj["id"] = obj->id;
+        jobj["parent_id"] = obj->parent_id;
+        jobj["name"] = obj->name;
+        jobj["source"] = obj->source;
+        if (obj->mesh) {
             nlohmann::json jmesh;
-            jmesh["material"] = obj.mesh->material_name;
-            if (obj.mesh->material) {
-                const auto& bcf = obj.mesh->material->params().base_color_factor;
+            jmesh["material"] = obj->mesh->material_name;
+            if (obj->mesh->material) {
+                const auto& bcf = obj->mesh->material->params().base_color_factor;
                 if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f || bcf.a != 1.0f) {
                     if (bcf.a < 1.0f) {
                         jmesh["color"] = {bcf.r, bcf.g, bcf.b, bcf.a};
@@ -232,15 +264,15 @@ void Scene::save(const std::string& path) {
             }
             jobj["mesh"] = jmesh;
         }
-        jobj["position"] = {obj.transform.position.x, obj.transform.position.y, obj.transform.position.z};
+        jobj["position"] = {obj->transform.position.x, obj->transform.position.y, obj->transform.position.z};
         {
-            auto euler = obj.transform.euler_degrees();
+            auto euler = obj->transform.euler_degrees();
             jobj["rotation"] = {euler.x, euler.y, euler.z};
         }
-        jobj["scale"] = {obj.transform.scale.x, obj.transform.scale.y, obj.transform.scale.z};
+        jobj["scale"] = {obj->transform.scale.x, obj->transform.scale.y, obj->transform.scale.z};
 
-        if (obj.rigidbody) {
-            auto& rb = *obj.rigidbody;
+        if (obj->rigidbody) {
+            auto& rb = *obj->rigidbody;
             jobj["rigidbody"] = {
                 {"body_type", static_cast<int>(rb.body_type)},
                 {"mass", rb.mass},
@@ -251,8 +283,8 @@ void Scene::save(const std::string& path) {
                 {"gravity_enabled", rb.gravity_enabled}
             };
         }
-        if (obj.collider) {
-            auto& col = *obj.collider;
+        if (obj->collider) {
+            auto& col = *obj->collider;
             jobj["collider"] = {
                 {"shape", static_cast<int>(col.shape)},
                 {"half_extents", {col.half_extents.x, col.half_extents.y, col.half_extents.z}},
@@ -262,8 +294,8 @@ void Scene::save(const std::string& path) {
             };
         }
 
-        if (obj.emitter) {
-            auto& em = *obj.emitter;
+        if (obj->emitter) {
+            auto& em = *obj->emitter;
             jobj["emitter"] = {
                 {"emission_rate", em.emission_rate},
                 {"lifetime_min", em.lifetime_min},
@@ -280,8 +312,8 @@ void Scene::save(const std::string& path) {
             };
         }
 
-        if (obj.sprite) {
-            auto& sp = *obj.sprite;
+        if (obj->sprite) {
+            auto& sp = *obj->sprite;
             jobj["sprite"] = {
                 {"texture", sp.texture_path},
                 {"tint", {sp.tint.r, sp.tint.g, sp.tint.b, sp.tint.a}},
@@ -289,9 +321,9 @@ void Scene::save(const std::string& path) {
             };
         }
 
-        if (!obj.scripts.empty()) {
+        if (!obj->scripts.empty()) {
             jobj["components"] = nlohmann::json::array();
-            for (const auto& comp : obj.scripts) {
+            for (const auto& comp : obj->scripts) {
                 nlohmann::json jcomp;
                 jcomp["type"] = comp.type_name;
                 jcomp["data"] = comp.serialized;
@@ -442,16 +474,17 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Override with loaded ID if present (backward compat: use assigned ID)
         uint32_t loaded_id = jobj.value("id", 0u);
         int32_t loaded_parent = jobj.value("parent_id", -1);
-        if (loaded_id > 0) {
-            scene.objects().back().id = loaded_id;
+        auto* node = scene.find(id);
+        if (loaded_id > 0 && node) {
+            node->id = loaded_id;
             if (loaded_id > max_id) max_id = loaded_id;
         } else {
             if (id > max_id) max_id = id;
         }
-        scene.objects().back().parent_id = loaded_parent;
+        if (node) node->parent_id = loaded_parent;
 
         // Load rigidbody descriptor
-        if (jobj.contains("rigidbody")) {
+        if (jobj.contains("rigidbody") && node) {
             auto& jrb = jobj["rigidbody"];
             RigidbodyComponent rb;
             rb.body_type = static_cast<BodyType>(jrb.value("body_type", 2));
@@ -461,10 +494,10 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             rb.linear_damping = jrb.value("linear_damping", 0.05f);
             rb.angular_damping = jrb.value("angular_damping", 0.05f);
             rb.gravity_enabled = jrb.value("gravity_enabled", true);
-            scene.objects().back().rigidbody = rb;
+            node->rigidbody = rb;
         }
         // Load collider descriptor
-        if (jobj.contains("collider")) {
+        if (jobj.contains("collider") && node) {
             auto& jcol = jobj["collider"];
             ColliderComponent col;
             col.shape = static_cast<ColliderShape>(jcol.value("shape", 0));
@@ -478,11 +511,11 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                 auto& o = jcol["offset"];
                 col.offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()};
             }
-            scene.objects().back().collider = col;
+            node->collider = col;
         }
 
         // Load particle emitter
-        if (jobj.contains("emitter")) {
+        if (jobj.contains("emitter") && node) {
             auto& jem = jobj["emitter"];
             EmitterComponent em;
             em.emission_rate = jem.value("emission_rate", 50.0f);
@@ -512,11 +545,11 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             em.size_start = jem.value("size_start", 0.1f);
             em.size_end = jem.value("size_end", 0.02f);
             em.blend_mode = static_cast<ParticleBlendMode>(jem.value("blend_mode", 0));
-            scene.objects().back().emitter = em;
+            node->emitter = em;
         }
 
         // Load sprite
-        if (jobj.contains("sprite")) {
+        if (jobj.contains("sprite") && node) {
             auto& jsp = jobj["sprite"];
             SpriteComponent sp;
             sp.texture_path = jsp.value("texture", "");
@@ -525,18 +558,18 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                 sp.tint = {t[0].get<float>(), t[1].get<float>(), t[2].get<float>(), t[3].get<float>()};
             }
             sp.opacity = jsp.value("opacity", 1.0f);
-            scene.objects().back().sprite = sp;
+            node->sprite = sp;
         }
 
         // Load component data as raw JSON (ScriptManager will instantiate later)
-        if (jobj.contains("components")) {
+        if (jobj.contains("components") && node) {
             for (const auto& jcomp : jobj["components"]) {
                 ScriptEntry comp;
                 comp.type_name = jcomp.value("type", "");
                 if (jcomp.contains("data")) {
                     comp.serialized = jcomp["data"];
                 }
-                scene.objects().back().scripts.push_back(std::move(comp));
+                node->scripts.push_back(std::move(comp));
             }
         }
     }

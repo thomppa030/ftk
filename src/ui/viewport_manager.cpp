@@ -350,10 +350,10 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             uint32_t hit_id = 0;
 
             for (const auto& obj : scene.objects()) {
-                if (!obj.mesh || !obj.mesh->model) continue;
-                if (!obj.mesh->model->local_aabb().valid()) continue;
+                if (!obj->mesh || !obj->mesh->model) continue;
+                if (!obj->mesh->model->local_aabb().valid()) continue;
 
-                AABB world_aabb = obj.mesh->model->local_aabb().transform(obj.world_matrix_);
+                AABB world_aabb = obj->mesh->model->local_aabb().transform(obj->world_matrix_);
                 glm::vec3 aabb_min = world_aabb.min;
                 glm::vec3 aabb_max = world_aabb.max;
 
@@ -369,7 +369,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                     float t = t_enter >= 0.0f ? t_enter : t_exit;
                     if (t < closest_t) {
                         closest_t = t;
-                        hit_id = obj.id;
+                        hit_id = obj->id;
                     }
                 }
             }

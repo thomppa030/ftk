@@ -452,23 +452,23 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
-                    if (!obj.mesh || !obj.mesh->model || obj.sprite) continue;
+                    if (!obj->mesh || !obj->mesh->model || obj->sprite) continue;
 
                     local_total[chunk_id]++;
 
                     DrawCommand dc{};
-                    dc.world_matrix = obj.world_matrix_;
-                    dc.push.model = obj.world_matrix_;
-                    if (obj.mesh->material) {
-                        dc.push.material_id = obj.mesh->material->material_id();
-                        dc.pipeline_id = obj.mesh->material->pipeline_id();
+                    dc.world_matrix = obj->world_matrix_;
+                    dc.push.model = obj->world_matrix_;
+                    if (obj->mesh->material) {
+                        dc.push.material_id = obj->mesh->material->material_id();
+                        dc.pipeline_id = obj->mesh->material->pipeline_id();
                         dc.sort_key = RenderQueue::make_sort_key(
-                            dc.pipeline_id, obj.mesh->material->material_id(), obj.id);
-                        dc.transparent = (obj.mesh->material->params().base_color_factor.w < 1.0f);
+                            dc.pipeline_id, obj->mesh->material->material_id(), obj->id);
+                        dc.transparent = (obj->mesh->material->params().base_color_factor.w < 1.0f);
                     }
-                    dc.model = obj.mesh->model;
+                    dc.model = obj->mesh->model;
 
-                    AABB world_aabb = obj.mesh->model->local_aabb().transform(obj.world_matrix_);
+                    AABB world_aabb = obj->mesh->model->local_aabb().transform(obj->world_matrix_);
 
                     // Shadow cull: include if visible to any cascade's
                     // expanded frustum (near plane removed to catch casters

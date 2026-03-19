@@ -74,33 +74,13 @@ struct SceneNode {
     std::vector<ScriptEntry> scripts;
 
     SceneNode();
-    ~SceneNode();
+    virtual ~SceneNode();
     SceneNode(SceneNode&&) noexcept;
     SceneNode& operator=(SceneNode&&) noexcept;
 
     // Deep clone for snapshotting — copies flat data, leaves unique_ptrs null
-    [[nodiscard]] SceneNode clone_flat() const {
-        SceneNode copy{};
-        copy.id = id;
-        copy.parent_id = parent_id;
-        copy.world_matrix_ = world_matrix_;
-        copy.transform = transform;
-        copy.name = name;
-        copy.source = source;
-        copy.mesh = mesh;
-        copy.actor_type_name = actor_type_name;
-        for (const auto& s : scripts) {
-            ScriptEntry entry;
-            entry.type_name = s.type_name;
-            entry.serialized = s.serialized;
-            copy.scripts.push_back(std::move(entry));
-        }
-        copy.rigidbody = rigidbody;
-        copy.collider = collider;
-        copy.emitter = emitter;
-        copy.sprite = sprite;
-        return copy;
-    }
+    // Virtual so derived node types (LightNode, etc.) can clone their extra fields
+    [[nodiscard]] virtual std::unique_ptr<SceneNode> clone() const;
 };
 
 class Scene {
@@ -113,9 +93,10 @@ public:
                  const std::string& material_name = "default");
     uint32_t add_empty(Transform transform = {},
                        const std::string& name = "Empty");
+    uint32_t add_node(std::unique_ptr<SceneNode> node);
     void remove(uint32_t id);
-    [[nodiscard]] SceneNode extract(uint32_t id);
-    void restore(SceneNode obj);
+    [[nodiscard]] std::unique_ptr<SceneNode> extract(uint32_t id);
+    void restore(std::unique_ptr<SceneNode> node);
     void clear();
 
     void compute_world_matrices();
@@ -134,8 +115,8 @@ public:
                       const Project* project = nullptr);
 
     [[nodiscard]] int object_count() const { return static_cast<int>(objects_.size()); }
-    [[nodiscard]] std::vector<SceneNode>& objects() { return objects_; }
-    [[nodiscard]] const std::vector<SceneNode>& objects() const { return objects_; }
+    [[nodiscard]] auto& objects() { return objects_; }
+    [[nodiscard]] const auto& objects() const { return objects_; }
 
     [[nodiscard]] uint32_t next_id() const { return next_id_; }
     void set_next_id(uint32_t id) { next_id_ = id; }
@@ -154,7 +135,7 @@ public:
     void remove_spot_light(int index);
 
 private:
-    std::vector<SceneNode> objects_;
+    std::vector<std::unique_ptr<SceneNode>> objects_;
     std::vector<PointLight> point_lights_;
     std::vector<SpotLight> spot_lights_;
     uint32_t next_id_{1};

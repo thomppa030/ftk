@@ -27,7 +27,7 @@ public:
 
 private:
     FlyCamera camera_;
-    std::vector<SceneNode> scene_snapshot_;
+    std::vector<std::unique_ptr<SceneNode>> scene_snapshot_;
     uint32_t next_id_snapshot_;
     std::unique_ptr<PhysicsWorld> physics_world_;
 };

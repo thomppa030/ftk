@@ -215,21 +215,21 @@ void Engine::save_material_assets() {
     if (!cache) return;
 
     for (auto& obj : scene_.objects()) {
-        if (!obj.mesh || !obj.mesh->material) continue;
-        if (!obj.mesh->material_name.ends_with(".fjmat")) continue;
+        if (!obj->mesh || !obj->mesh->material) continue;
+        if (!obj->mesh->material_name.ends_with(".fjmat")) continue;
 
-        uint32_t pid = obj.mesh->material->pipeline_id();
+        uint32_t pid = obj->mesh->material->pipeline_id();
         if (pid >= cache->shader_count()) continue;
 
         const auto& meta = cache->metadata(pid);
-        uint32_t param_count = obj.mesh->material->custom_param_count();
+        uint32_t param_count = obj->mesh->material->custom_param_count();
         if (param_count == 0) continue;
 
-        const auto& gpu = bindless.material_at(obj.mesh->material->material_id());
+        const auto& gpu = bindless.material_at(obj->mesh->material->material_id());
 
         // Read current params back from CPU buffer
         std::string mat_path = base_path::resolve_asset(
-            obj.mesh->material_name, active_project());
+            obj->mesh->material_name, active_project());
 
         MaterialAsset asset;
         try {

@@ -96,23 +96,23 @@ void DebugDraw::update(const Scene& scene) {
     draw_commands_.clear();
 
     for (const auto& obj : scene.objects()) {
-        if (!obj.collider) continue;
-        const auto& col = *obj.collider;
+        if (!obj->collider) continue;
+        const auto& col = *obj->collider;
 
         uint32_t first = static_cast<uint32_t>(vertices_.size());
 
         switch (col.shape) {
             case ColliderShape::Box:
-                generate_box(col.half_extents * obj.transform.scale);
+                generate_box(col.half_extents * obj->transform.scale);
                 break;
             case ColliderShape::Sphere:
-                generate_sphere(col.radius * std::max({obj.transform.scale.x,
-                                                        obj.transform.scale.y,
-                                                        obj.transform.scale.z}));
+                generate_sphere(col.radius * std::max({obj->transform.scale.x,
+                                                        obj->transform.scale.y,
+                                                        obj->transform.scale.z}));
                 break;
             case ColliderShape::Capsule:
-                generate_capsule(col.radius * std::max(obj.transform.scale.x, obj.transform.scale.z),
-                                 col.height * obj.transform.scale.y);
+                generate_capsule(col.radius * std::max(obj->transform.scale.x, obj->transform.scale.z),
+                                 col.height * obj->transform.scale.y);
                 break;
             case ColliderShape::Mesh:
                 // Mesh collider wireframe not visualized (too many lines)
@@ -124,14 +124,14 @@ void DebugDraw::update(const Scene& scene) {
 
         // Model matrix = object position + rotation + collider offset (rotated).
         // Scale is already baked into the shape dimensions, so strip it.
-        glm::mat3 rot(glm::normalize(glm::vec3(obj.world_matrix_[0])),
-                      glm::normalize(glm::vec3(obj.world_matrix_[1])),
-                      glm::normalize(glm::vec3(obj.world_matrix_[2])));
+        glm::mat3 rot(glm::normalize(glm::vec3(obj->world_matrix_[0])),
+                      glm::normalize(glm::vec3(obj->world_matrix_[1])),
+                      glm::normalize(glm::vec3(obj->world_matrix_[2])));
         glm::vec3 world_offset = rot * col.offset;
         glm::mat4 model(glm::vec4(rot[0], 0.0f),
                          glm::vec4(rot[1], 0.0f),
                          glm::vec4(rot[2], 0.0f),
-                         glm::vec4(glm::vec3(obj.world_matrix_[3]) + world_offset, 1.0f));
+                         glm::vec4(glm::vec3(obj->world_matrix_[3]) + world_offset, 1.0f));
         draw_commands_.push_back({model, first, count});
     }
 

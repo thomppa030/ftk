@@ -14,7 +14,7 @@ PlaySession::PlaySession(Scene& scene, glm::vec3 camera_pos, float yaw, float pi
 {
     scene_snapshot_.reserve(scene.objects().size());
     for (const auto& obj : scene.objects()) {
-        scene_snapshot_.push_back(obj.clone_flat());
+        scene_snapshot_.push_back(obj->clone());
     }
     physics_world_ = std::make_unique<PhysicsWorld>();
     physics_world_->create_bodies(scene);

@@ -185,7 +185,7 @@ void PhysicsWorld::create_bodies(Scene& scene) {
     auto& bi = impl_->physics_system->GetBodyInterface();
 
     for (auto& obj : scene.objects()) {
-        if (!obj.collider) continue;
+        if (!obj->collider) continue;
 
         // Default to static if no rigidbody descriptor
         static const auto default_static = [] {
@@ -193,12 +193,12 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             rb.body_type = BodyType::Static;
             return rb;
         }();
-        const auto& rb = obj.rigidbody ? *obj.rigidbody : default_static;
-        const auto& col = *obj.collider;
+        const auto& rb = obj->rigidbody ? *obj->rigidbody : default_static;
+        const auto& col = *obj->collider;
 
         // Create shape, scaling by object's scale
         JPH::ShapeRefC shape;
-        glm::vec3 s = obj.transform.scale;
+        glm::vec3 s = obj->transform.scale;
 
         switch (col.shape) {
             case ColliderShape::Box: {
@@ -219,13 +219,13 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             }
             case ColliderShape::Mesh: {
                 // Mesh colliders require CPU vertex data from the model
-                if (!obj.mesh || !obj.mesh->model || obj.mesh->model->collision_vertices().empty()) {
+                if (!obj->mesh || !obj->mesh->model || obj->mesh->model->collision_vertices().empty()) {
                     FJELL_CORE_WARN("Object '{}' has Mesh collider but no collision mesh data",
-                                    obj.name);
+                                    obj->name);
                     continue;
                 }
-                const auto& verts = obj.mesh->model->collision_vertices();
-                const auto& idxs = obj.mesh->model->collision_indices();
+                const auto& verts = obj->mesh->model->collision_vertices();
+                const auto& idxs = obj->mesh->model->collision_indices();
 
                 JPH::TriangleList triangles;
                 triangles.reserve(idxs.size() / 3);
@@ -243,7 +243,7 @@ void PhysicsWorld::create_bodies(Scene& scene) {
                 auto mesh_result = mesh_settings.Create();
                 if (mesh_result.HasError()) {
                     FJELL_CORE_ERROR("Failed to create mesh collider for '{}': {}",
-                                     obj.name, mesh_result.GetError().c_str());
+                                     obj->name, mesh_result.GetError().c_str());
                     continue;
                 }
                 shape = mesh_result.Get();
@@ -279,8 +279,8 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 
         JPH::BodyCreationSettings body_settings(
             shape,
-            to_jolt(obj.transform.position),
-            to_jolt_quat(obj.transform.rotation),
+            to_jolt(obj->transform.position),
+            to_jolt_quat(obj->transform.rotation),
             motion, layer);
 
         body_settings.mFriction = rb.friction;
@@ -299,12 +299,12 @@ void PhysicsWorld::create_bodies(Scene& scene) {
                                              : JPH::EActivation::Activate);
 
         if (body_id.IsInvalid()) {
-            FJELL_CORE_ERROR("Failed to create physics body for '{}'", obj.name);
+            FJELL_CORE_ERROR("Failed to create physics body for '{}'", obj->name);
             continue;
         }
 
-        impl_->object_to_body[obj.id] = body_id;
-        impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = obj.id;
+        impl_->object_to_body[obj->id] = body_id;
+        impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = obj->id;
     }
 
     FJELL_CORE_INFO("Physics: created {} bodies", impl_->object_to_body.size());
@@ -317,15 +317,15 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 
     // Sync kinematic bodies: push engine transforms -> Jolt
     for (auto& obj : scene.objects()) {
-        if (!obj.rigidbody) continue;
-        if (obj.rigidbody->body_type != BodyType::Kinematic) continue;
+        if (!obj->rigidbody) continue;
+        if (obj->rigidbody->body_type != BodyType::Kinematic) continue;
 
-        auto it = impl_->object_to_body.find(obj.id);
+        auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;
 
         bi.MoveKinematic(it->second,
-                         to_jolt(obj.transform.position),
-                         to_jolt_quat(obj.transform.rotation),
+                         to_jolt(obj->transform.position),
+                         to_jolt_quat(obj->transform.rotation),
                          dt);
     }
 
@@ -337,17 +337,17 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 
     // Sync dynamic bodies: pull Jolt transforms -> engine
     for (auto& obj : scene.objects()) {
-        if (!obj.rigidbody) continue;
-        if (obj.rigidbody->body_type != BodyType::Dynamic) continue;
+        if (!obj->rigidbody) continue;
+        if (obj->rigidbody->body_type != BodyType::Dynamic) continue;
 
-        auto it = impl_->object_to_body.find(obj.id);
+        auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;
 
         auto pos = bi.GetPosition(it->second);
         auto rot = bi.GetRotation(it->second);
 
-        obj.transform.position = to_glm(pos);
-        obj.transform.rotation = to_glm_quat(rot);
+        obj->transform.position = to_glm(pos);
+        obj->transform.rotation = to_glm_quat(rot);
     }
 }
 
