@@ -57,8 +57,23 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     uint32_t draw_index = 0;
     uint32_t triangles = 0;
 
-    // Write opaque draw commands
+    // Write opaque draw commands, tracking per-pipeline ranges
+    auto& ranges = pipeline_ranges_[frame_index];
+    ranges.clear();
+
+    uint32_t current_pipeline = UINT32_MAX;
+    uint32_t range_start = 0;
+
     for (const auto& dc : opaque_commands) {
+        // Start a new range when pipeline changes
+        if (dc.pipeline_id != current_pipeline) {
+            if (current_pipeline != UINT32_MAX && draw_index > range_start) {
+                ranges.push_back({current_pipeline, range_start, draw_index - range_start});
+            }
+            current_pipeline = dc.pipeline_id;
+            range_start = draw_index;
+        }
+
         const auto& entries = dc.model->mega_entries();
         for (const auto& entry : entries) {
             VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
@@ -78,6 +93,11 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             triangles += entry.index_count / 3;
             draw_index++;
         }
+    }
+
+    // Close the last range
+    if (current_pipeline != UINT32_MAX && draw_index > range_start) {
+        ranges.push_back({current_pipeline, range_start, draw_index - range_start});
     }
 
     opaque_counts_[frame_index] = draw_index;

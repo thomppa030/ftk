@@ -24,6 +24,7 @@ struct PassResources {
 
 class IndirectBatch;
 class MegaBuffer;
+class PipelineCache;
 
 // Shared state that every pass can read during recording.
 struct FrameContext {
@@ -44,6 +45,7 @@ struct FrameContext {
     MegaBuffer* mega_buffer{nullptr};
     VkDescriptorSet meshlet_set{VK_NULL_HANDLE};
     bool use_mesh_shaders{false};
+    PipelineCache* pipeline_cache{nullptr};
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

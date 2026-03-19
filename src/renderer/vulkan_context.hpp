@@ -34,6 +34,7 @@
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
 #include "renderer/pipeline.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/swapchain.hpp"
 #include "renderer/viewport_source.hpp"
@@ -108,6 +109,7 @@ public:
     [[nodiscard]] DebugDraw& debug_draw() { return *debug_draw_; }
     [[nodiscard]] MegaBuffer* mega_buffer() { return mega_buffer_.get(); }
     [[nodiscard]] MeshletBuffer* meshlet_buffer() { return meshlet_buffer_.get(); }
+    [[nodiscard]] PipelineCache* pipeline_cache() { return pipeline_cache_.get(); }
 
 private:
     void create_descriptor_resources();
@@ -153,6 +155,7 @@ private:
 
     // Pipelines / passes
     std::unique_ptr<Pipeline> pipeline_;
+    std::unique_ptr<PipelineCache> pipeline_cache_;
     DepthPrePass depth_prepass_;
     ShadowPass shadow_pass_;
     DebugPass debug_pass_;

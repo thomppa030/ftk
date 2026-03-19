@@ -4,6 +4,7 @@
 #include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/shader_utils.hpp"
 #include "renderer/uniform_types.hpp"
@@ -159,21 +160,38 @@ void TransparentPass::record(const FrameContext& ctx) {
     if (!ctx.queue || !ctx.queue->has_transparent()) return;
     if (!ctx.indirect_batch || !ctx.mega_buffer) return;
 
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-    std::array descriptor_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, static_cast<uint32_t>(descriptor_sets.size()),
-                            descriptor_sets.data(), 0, nullptr);
+    // Use pipeline cache transparent pipelines if available, otherwise fallback
+    VkPipelineLayout active_layout = ctx.pipeline_cache
+        ? ctx.pipeline_cache->layout() : layout_;
 
-    // Mega-buffer already bound from color pass scope, but rebind to be safe
+    uint32_t current_pipeline_id = UINT32_MAX;
+
+    if (!ctx.pipeline_cache) {
+        // Fallback: old single-pipeline transparent pass
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        std::array descriptor_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
+                                0, static_cast<uint32_t>(descriptor_sets.size()),
+                                descriptor_sets.data(), 0, nullptr);
+        active_layout = layout_;
+    }
+
     ctx.mega_buffer->bind(ctx.cmd);
 
-    // Transparent objects: individual draws with firstInstance indexing into SSBO.
-    // The opaque draws already occupied indices [0, opaque_count). Transparent
-    // draw data is appended starting at opaque_count.
     uint32_t base_index = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
 
     for (const auto& dc : ctx.queue->transparent_commands()) {
+        // Switch pipeline if draw uses a different shader
+        if (ctx.pipeline_cache && dc.pipeline_id != current_pipeline_id) {
+            current_pipeline_id = dc.pipeline_id;
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                              ctx.pipeline_cache->transparent_pipeline(current_pipeline_id));
+            std::array descriptor_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
+            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, active_layout,
+                                    0, static_cast<uint32_t>(descriptor_sets.size()),
+                                    descriptor_sets.data(), 0, nullptr);
+        }
+
         const auto& entries = dc.model->mega_entries();
         for (const auto& entry : entries) {
             vkCmdDrawIndexed(ctx.cmd, entry.index_count, 1,

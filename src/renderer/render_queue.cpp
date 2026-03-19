@@ -64,8 +64,11 @@ void RenderQueue::execute_transparent(VkCommandBuffer cmd, VkPipelineLayout layo
     execute_list(transparent_, cmd, layout, stats);
 }
 
-uint64_t RenderQueue::make_sort_key(uint32_t material_id, uint32_t mesh_id) {
-    return (static_cast<uint64_t>(material_id) << 32) | mesh_id;
+uint64_t RenderQueue::make_sort_key(uint32_t pipeline_id, uint32_t material_id, uint32_t mesh_id) {
+    // [pipeline_id:16][material_id:24][mesh_id:24]
+    return (static_cast<uint64_t>(pipeline_id & 0xFFFF) << 48) |
+           (static_cast<uint64_t>(material_id & 0xFFFFFF) << 24) |
+           (static_cast<uint64_t>(mesh_id & 0xFFFFFF));
 }
 
 } // namespace fjell

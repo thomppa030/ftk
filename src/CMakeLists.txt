@@ -20,7 +20,9 @@ add_executable(fjell
     renderer/device.cpp
     renderer/image.cpp
     renderer/indirect_batch.cpp
+    renderer/fjsl_parser.cpp
     renderer/material.cpp
+    renderer/material_asset.cpp
     renderer/mega_buffer.cpp
     renderer/mesh.cpp
     renderer/meshlet.cpp
@@ -29,6 +31,7 @@ add_executable(fjell
     renderer/model.cpp
     renderer/offscreen_pass.cpp
     renderer/pipeline.cpp
+    renderer/pipeline_cache.cpp
     renderer/primitives.cpp
     renderer/bindless.cpp
     renderer/frame_graph.cpp
@@ -138,6 +141,18 @@ target_include_directories(fjell SYSTEM PRIVATE ${JOLT_INCLUDE_DIRS})
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
 compile_shaders(fjell ${SHADER_DIR} ${SHADER_OUTPUT_DIR})
+
+# Copy shader includes and .fjsl files to build dir (needed at runtime for FJSL compilation)
+file(GLOB FJSL_SHADER_FILES "${SHADER_DIR}/*.fjsl")
+file(GLOB SHADER_INCLUDE_FILES "${SHADER_DIR}/include/*.glsl")
+add_custom_target(fjell_shader_resources ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${SHADER_OUTPUT_DIR}/include"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${SHADER_OUTPUT_DIR}/generated"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FJSL_SHADER_FILES} "${SHADER_OUTPUT_DIR}/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SHADER_INCLUDE_FILES} "${SHADER_OUTPUT_DIR}/include/"
+    COMMENT "Copying FJSL shaders and includes to build directory"
+)
+add_dependencies(fjell fjell_shader_resources)
 
 # Symlink assets into build dir so the executable finds them during development
 file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBOLIC)

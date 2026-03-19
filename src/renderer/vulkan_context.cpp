@@ -65,6 +65,11 @@ VulkanContext::VulkanContext(Window& window)
         global_set_layout_->handle(), bindless_textures_.layout(),
         draw_data_descriptor_.layout(), msaa_samples_);
 
+    pipeline_cache_ = std::make_unique<PipelineCache>(
+        device_, OffscreenPass::COLOR_FORMAT, depth_format,
+        global_set_layout_->handle(), bindless_textures_.layout(),
+        draw_data_descriptor_.layout(), msaa_samples_);
+
     PassResources pass_resources{};
     pass_resources.global_set_layout = global_set_layout_->handle();
     pass_resources.material_set_layout = bindless_textures_.layout();
@@ -170,6 +175,7 @@ VulkanContext::~VulkanContext() {
     global_pool_.reset();
     global_set_layout_.reset();
     bindless_textures_.destroy();
+    pipeline_cache_.reset();
     pipeline_.reset();
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (image_available_[i] != VK_NULL_HANDLE)
@@ -447,8 +453,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     dc.push.model = obj.world_matrix_;
                     if (obj.material) {
                         dc.push.material_id = obj.material->material_id();
+                        dc.pipeline_id = obj.material->pipeline_id();
                         dc.sort_key = RenderQueue::make_sort_key(
-                            obj.material->material_id(), obj.id);
+                            dc.pipeline_id, obj.material->material_id(), obj.id);
                         dc.transparent = (obj.material->params().base_color_factor.w < 1.0f);
                     }
                     dc.model = obj.model;
@@ -542,6 +549,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.indirect_batch = indirect_batch_.get();
     ctx.mega_buffer = mega_buffer_.get();
     ctx.use_mesh_shaders = use_mesh_shaders_;
+    ctx.pipeline_cache = pipeline_cache_.get();
     if (use_mesh_shaders_) {
         ctx.meshlet_set = meshlet_descriptor_.descriptor_set(current_frame_);
     }
@@ -691,8 +699,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         FrameContext local = ctx;
         local.cmd = cb;
 
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->handle());
-
         VkViewport vp{};
         vp.width = static_cast<float>(target.extent().width);
         vp.height = static_cast<float>(target.extent().height);
@@ -706,24 +712,47 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         std::array descriptor_sets = {global_descriptor_sets_[current_frame_],
                                      bindless_textures_.descriptor_set(),
                                      draw_data_descriptor_.descriptor_set(current_frame_)};
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_->layout(),
-                                0, static_cast<uint32_t>(descriptor_sets.size()),
-                                descriptor_sets.data(), 0, nullptr);
 
         if (scene) {
-            if (use_mesh_shaders_) {
+            // Use mesh shaders only when all objects use the standard pipeline (ID 0).
+            // Custom FJSL shaders require the indirect draw path with per-pipeline switching.
+            bool can_use_mesh_shaders = use_mesh_shaders_ &&
+                pipeline_cache_->shader_count() <= 1;
+
+            if (can_use_mesh_shaders) {
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                  pipeline_cache_->opaque_pipeline(0));
+                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        pipeline_cache_->layout(),
+                                        0, static_cast<uint32_t>(descriptor_sets.size()),
+                                        descriptor_sets.data(), 0, nullptr);
                 mesh_shader_pass_.record(local);
                 render_stats_->meshlets_dispatched += meshlet_buffer_
                     ? meshlet_buffer_->total_meshlets() : 0;
             } else {
                 mega_buffer_->bind(cb);
-                indirect_batch_->draw(cb, current_frame_);
+
+                // Draw per-pipeline ranges
+                const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
+                for (const auto& range : ranges) {
+                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                      pipeline_cache_->opaque_pipeline(range.pipeline_id));
+                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                            pipeline_cache_->layout(),
+                                            0, static_cast<uint32_t>(descriptor_sets.size()),
+                                            descriptor_sets.data(), 0, nullptr);
+
+                    VkDeviceSize offset = range.first_draw *
+                                          sizeof(VkDrawIndexedIndirectCommand);
+                    vkCmdDrawIndexedIndirect(cb,
+                                             indirect_batch_->indirect_buffer(current_frame_),
+                                             offset, range.draw_count,
+                                             sizeof(VkDrawIndexedIndirectCommand));
+                    render_stats_->indirect_draws++;
+                }
             }
             render_stats_->draw_calls += indirect_batch_->opaque_draw_count(current_frame_);
             render_stats_->triangle_count += indirect_batch_->total_triangles(current_frame_);
-            if (indirect_batch_->opaque_draw_count(current_frame_) > 0) {
-                render_stats_->indirect_draws++;
-            }
         }
 
         sky_pass_.record(local);
@@ -1254,6 +1283,7 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
 
 void VulkanContext::reload_pipeline() {
     pipeline_->recreate();
+    pipeline_cache_->recreate_all();
 
     VkFormat depth_format = device_.find_depth_format();
     PassResources pass_resources{};

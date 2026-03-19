@@ -27,6 +27,13 @@ struct GpuDrawData {
 
 static_assert(sizeof(GpuDrawData) == 80, "GpuDrawData must be 80 bytes for std430");
 
+// A contiguous range of indirect draw commands sharing the same pipeline.
+struct PipelineDrawRange {
+    uint32_t pipeline_id{0};
+    uint32_t first_draw{0};   // offset into indirect buffer (in commands)
+    uint32_t draw_count{0};
+};
+
 class IndirectBatch {
 public:
     IndirectBatch(VkDevice device, VkPhysicalDevice physical_device);
@@ -54,6 +61,14 @@ public:
         return total_triangles_[frame_index];
     }
 
+    [[nodiscard]] const std::vector<PipelineDrawRange>& pipeline_ranges(uint32_t frame_index) const {
+        return pipeline_ranges_[frame_index];
+    }
+
+    [[nodiscard]] VkBuffer indirect_buffer(uint32_t frame_index) const {
+        return indirect_buffers_[frame_index]->handle();
+    }
+
 private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
 
@@ -66,6 +81,7 @@ private:
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> draw_data_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_triangles_{};
+    std::array<std::vector<PipelineDrawRange>, MAX_FRAMES_IN_FLIGHT> pipeline_ranges_;
 };
 
 } // namespace fjell
