@@ -4,11 +4,10 @@
 
 #include <cstdint>
 #include <memory>
-#include <string>
-#include <unordered_map>
 
 namespace fjell {
 
+class Project;
 class Scene;
 
 class AudioEngine {
@@ -26,12 +25,12 @@ public:
                 const glm::vec3& listener_forward, const glm::vec3& listener_up);
 
     // Play/stop individual sources
-    void play(uint32_t node_id, Scene& scene);
+    void play(uint32_t node_id, Scene& scene, const Project* project = nullptr);
     void stop(uint32_t node_id);
     void stop_all();
 
     // Trigger play_on_start sources (called when entering play mode)
-    void start_play(Scene& scene);
+    void start_play(Scene& scene, const Project* project = nullptr);
 
     // Stop everything (called when exiting play mode)
     void stop_play();

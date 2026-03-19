@@ -72,7 +72,7 @@ void AudioEngine::update(Scene& scene, const glm::vec3& listener_pos,
     }
 }
 
-void AudioEngine::play(uint32_t node_id, Scene& scene) {
+void AudioEngine::play(uint32_t node_id, Scene& scene, const Project* project) {
     if (!is_initialized()) return;
 
     auto* node = scene.find(node_id);
@@ -86,7 +86,7 @@ void AudioEngine::play(uint32_t node_id, Scene& scene) {
 
     auto& entry = impl_->sounds[node_id];
 
-    std::string resolved = base_path::resolve_asset(audio.clip_path, nullptr);
+    std::string resolved = base_path::resolve_asset(audio.clip_path, project);
     ma_result result = ma_sound_init_from_file(
         &impl_->engine, resolved.c_str(),
         MA_SOUND_FLAG_DECODE, nullptr, nullptr, &entry.sound);
@@ -130,10 +130,10 @@ void AudioEngine::stop_all() {
     impl_->sounds.clear();
 }
 
-void AudioEngine::start_play(Scene& scene) {
+void AudioEngine::start_play(Scene& scene, const Project* project) {
     for (auto& obj : scene.objects()) {
         if (obj->audio && obj->audio->play_on_start) {
-            play(obj->id, scene);
+            play(obj->id, scene, project);
         }
     }
 }

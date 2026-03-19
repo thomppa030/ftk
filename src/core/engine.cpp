@@ -947,7 +947,7 @@ void Engine::start_play() {
     script_manager_.prepare(scene_, input_, clock_, play_session_->physics_world());
     script_manager_.deserialize_all(scene_);
     script_manager_.call_begin_play(scene_);
-    audio_engine_.start_play(scene_);
+    audio_engine_.start_play(scene_, active_project());
     vulkan_context_.set_playing(true);
     input_.set_cursor_captured(window_.handle(), true);
     selected_id_ = 0;
