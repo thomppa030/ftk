@@ -13,18 +13,22 @@ namespace fjell {
 
 class Texture;
 
-// Material data as stored in the GPU storage buffer.
+// Material data as stored in the GPU storage buffer (96 bytes).
 // Indexed by material ID from push constants.
+// Layout is shader-driven: texture_indices and params are mapped by
+// the FJSL parser based on uniform declarations. For the built-in
+// standard shader, the mapping is:
+//   texture_indices[0] = base_color
+//   texture_indices[1] = normal_map
+//   texture_indices[2] = metallic_roughness
+//   texture_indices[3] = emissive
+//   params[0..3]       = base_color_factor (vec4)
+//   params[4]          = metallic_factor
+//   params[5]          = roughness_factor
+//   params[6]          = has_normal_map
 struct GpuMaterial {
-    uint32_t base_color_idx{0};
-    uint32_t normal_idx{0};
-    uint32_t metallic_roughness_idx{0};
-    uint32_t emissive_idx{0};
-    float base_color_factor[4]{1.0f, 1.0f, 1.0f, 1.0f};
-    float metallic_factor{1.0f};
-    float roughness_factor{1.0f};
-    float has_normal_map{0.0f};
-    float padding{0.0f};
+    uint32_t texture_indices[8]{};   // 32 bytes — up to 8 texture slots
+    float params[16]{};              // 64 bytes — up to 16 scalar params
 };
 
 // Manages a single large descriptor set containing all textures and materials

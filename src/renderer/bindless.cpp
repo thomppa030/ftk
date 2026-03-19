@@ -90,7 +90,7 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
         throw std::runtime_error("Failed to allocate bindless descriptor set");
     }
 
-    // Pre-allocate material SSBO (48 bytes per material * 1024 = 48 KB)
+    // Pre-allocate material SSBO (96 bytes per material * 1024 = 96 KB)
     VkDeviceSize ssbo_size = sizeof(GpuMaterial) * MAX_MATERIALS;
     material_ssbo_ = std::make_unique<Buffer>(
         device_, physical_device_, ssbo_size,
