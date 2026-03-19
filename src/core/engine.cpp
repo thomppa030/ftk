@@ -6,6 +6,7 @@
 #include "core/log.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
+#include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
@@ -317,6 +318,14 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     // Empty node: no mesh
     if (type == "empty") {
         selected_id_ = scene_.add_empty();
+        return;
+    }
+
+    // Camera node
+    if (type == "camera") {
+        auto node = std::make_unique<CameraNode>();
+        node->name = "Camera";
+        selected_id_ = scene_.add_node(std::move(node));
         return;
     }
 
@@ -921,11 +930,7 @@ void Engine::draw_ui() {
 void Engine::start_play() {
     command_history_.clear();
     script_manager_.serialize_all(scene_);
-    auto* cam = viewport_manager_.active_camera();
-    Camera fallback_cam;
-    if (!cam) cam = &fallback_cam;
-    play_session_ = std::make_unique<PlaySession>(
-        scene_, cam->position(), cam->yaw() + 180.0f, -cam->pitch());
+    play_session_ = std::make_unique<PlaySession>(scene_);
     script_manager_.prepare(scene_, input_, clock_, play_session_->physics_world());
     script_manager_.deserialize_all(scene_);
     script_manager_.call_begin_play(scene_);
@@ -1029,7 +1034,6 @@ void Engine::run() {
         float dt = clock_.delta_time();
 
         if (is_playing()) {
-            play_session_->update(input_, dt);
             script_manager_.update(scene_, input_, clock_, play_session_->physics_world());
             play_session_->physics_step(dt, scene_);
             if (play_session_->wants_stop(input_)) {
@@ -1056,12 +1060,17 @@ void Engine::run() {
 
         auto requests = viewport_manager_.build_render_requests();
 
-        // In play mode, override the active viewport's camera with the play camera
+        // In play mode, override the active viewport's camera with the scene CameraNode
         if (is_playing() && !requests.empty()) {
-            float aspect = viewport_manager_.active_aspect();
-            requests[0].view = play_session_->camera().view_matrix();
-            requests[0].projection = play_session_->camera().projection_matrix(aspect);
-            requests[0].camera_position = play_session_->camera().position();
+            for (const auto& obj : scene_.objects()) {
+                if (auto* cam_node = dynamic_cast<const CameraNode*>(obj.get())) {
+                    float aspect = viewport_manager_.active_aspect();
+                    requests[0].view = cam_node->view_matrix();
+                    requests[0].projection = cam_node->projection_matrix(aspect);
+                    requests[0].camera_position = cam_node->position();
+                    break;
+                }
+            }
         }
 
         vulkan_context_.sync_sprite_textures(scene_, *resource_manager_);

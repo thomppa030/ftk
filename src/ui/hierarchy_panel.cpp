@@ -41,6 +41,8 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Sprite") && add_primitive_cb_) add_primitive_cb_("sprite");
             if (ImGui::MenuItem("Empty Node") && add_primitive_cb_) add_primitive_cb_("empty");
             ImGui::Separator();
+            if (ImGui::MenuItem("Camera") && add_primitive_cb_) add_primitive_cb_("camera");
+            ImGui::Separator();
             if (ImGui::MenuItem("Directional Light") && add_primitive_cb_) add_primitive_cb_("light:directional");
             if (ImGui::MenuItem("Point Light") && add_primitive_cb_) add_primitive_cb_("light:point");
             if (ImGui::MenuItem("Spot Light") && add_primitive_cb_) add_primitive_cb_("light:spot");
@@ -89,6 +91,8 @@ void HierarchyPanel::draw() {
             ImGui::Separator();
             if (ImGui::MenuItem("Add Sprite") && add_primitive_cb_) add_primitive_cb_("sprite");
             if (ImGui::MenuItem("Add Empty Node") && add_primitive_cb_) add_primitive_cb_("empty");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Add Camera") && add_primitive_cb_) add_primitive_cb_("camera");
             ImGui::Separator();
             if (ImGui::MenuItem("Add Directional Light") && add_primitive_cb_) add_primitive_cb_("light:directional");
             if (ImGui::MenuItem("Add Point Light") && add_primitive_cb_) add_primitive_cb_("light:point");

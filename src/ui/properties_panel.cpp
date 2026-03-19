@@ -11,6 +11,7 @@
 #include "renderer/sprite_desc.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "physics/physics_types.hpp"
+#include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "scripting/script_manager.hpp"
 
@@ -295,6 +296,21 @@ void PropertiesPanel::draw() {
                         obj->sprite.reset();
                         scene_->mark_dirty();
                     }
+                }
+            }
+
+            // Camera properties
+            if (auto* cam = dynamic_cast<CameraNode*>(obj)) {
+                if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text("FOV");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##CamFOV", &cam->fov, 0.5f, 1.0f, 179.0f);
+                    ImGui::Text("Near Plane");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##CamNear", &cam->near_plane, 0.01f, 0.001f, 100.0f);
+                    ImGui::Text("Far Plane");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##CamFar", &cam->far_plane, 10.0f, 1.0f, 100000.0f);
                 }
             }
 

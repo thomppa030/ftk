@@ -1,16 +1,13 @@
 #include "core/play_session.hpp"
 #include "core/input.hpp"
 #include "physics/physics_world.hpp"
-#include "scripting/fjell_actor.hpp"
-#include "scripting/fjell_component.hpp"
 
 #include <GLFW/glfw3.h>
 
 namespace fjell {
 
-PlaySession::PlaySession(Scene& scene, glm::vec3 camera_pos, float yaw, float pitch)
-    : camera_{camera_pos, yaw, pitch}
-    , next_id_snapshot_{scene.next_id()}
+PlaySession::PlaySession(Scene& scene)
+    : next_id_snapshot_{scene.next_id()}
 {
     scene_snapshot_.reserve(scene.objects().size());
     for (const auto& obj : scene.objects()) {
@@ -18,10 +15,6 @@ PlaySession::PlaySession(Scene& scene, glm::vec3 camera_pos, float yaw, float pi
     }
     physics_world_ = std::make_unique<PhysicsWorld>();
     physics_world_->create_bodies(scene);
-}
-
-void PlaySession::update(const Input& input, float dt) {
-    camera_.update(input, dt);
 }
 
 void PlaySession::physics_step(float dt, Scene& scene) {

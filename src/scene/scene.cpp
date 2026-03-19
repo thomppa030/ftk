@@ -6,6 +6,7 @@
 #include "scripting/fjell_actor.hpp"
 #include "scripting/fjell_component.hpp"
 #include "core/base_path.hpp"
+#include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "core/log.hpp"
 
@@ -336,8 +337,15 @@ void Scene::save(const std::string& path) {
             }
         }
 
-        // Light node data
-        if (auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
+        // Typed node data
+        if (auto* cam = dynamic_cast<const CameraNode*>(obj.get())) {
+            jobj["node_type"] = "camera";
+            jobj["camera"] = {
+                {"fov", cam->fov},
+                {"near", cam->near_plane},
+                {"far", cam->far_plane}
+            };
+        } else if (auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
             jobj["node_type"] = "directional_light";
             jobj["light"] = {
                 {"direction", {dl->direction.x, dl->direction.y, dl->direction.z}},
@@ -463,7 +471,16 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         std::string node_type = jobj.value("node_type", "");
         if (!node_type.empty()) {
             std::unique_ptr<SceneNode> node;
-            if (node_type == "directional_light") {
+            if (node_type == "camera") {
+                auto cam = std::make_unique<CameraNode>();
+                if (jobj.contains("camera")) {
+                    auto& jc = jobj["camera"];
+                    cam->fov = jc.value("fov", 45.0f);
+                    cam->near_plane = jc.value("near", 0.1f);
+                    cam->far_plane = jc.value("far", 1000.0f);
+                }
+                node = std::move(cam);
+            } else if (node_type == "directional_light") {
                 auto dl = std::make_unique<DirectionalLightNode>();
                 if (jobj.contains("light")) {
                     auto& jl = jobj["light"];
