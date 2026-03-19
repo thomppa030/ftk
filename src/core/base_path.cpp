@@ -1,26 +1,19 @@
 #include "core/base_path.hpp"
 #include "core/project.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
 
-#include <unistd.h>
-
-#include <array>
 #include <stdexcept>
 
 namespace fjell::base_path {
 
 static std::filesystem::path compute_dir() {
-    std::array<char, 4096> buf{};
-    auto len = readlink("/proc/self/exe", buf.data(), buf.size() - 1);
-    if (len <= 0) {
-        throw std::runtime_error("Failed to read /proc/self/exe");
-    }
-    buf[len] = '\0';
+    auto exe = platform::executable_path();
 
     // Walk up from the executable directory until we find "shaders/"
     // This handles both the dev layout (build/src/fjell → build/)
     // and the install layout (Fjell/fjell → Fjell/)
-    auto dir = std::filesystem::path(buf.data()).parent_path();
+    auto dir = exe.parent_path();
     for (int i = 0; i < 3; ++i) {
         if (std::filesystem::is_directory(dir / "shaders")) {
             FJELL_CORE_INFO("Base path: {}", dir.string());
