@@ -1,0 +1,14 @@
+{
+    "shader": "shaders/pbr_custom.fjsl",
+    "textures": {
+        "base_color": "assets/textures/pbr_test/base_color.png",
+        "normal_map": "assets/textures/pbr_test/normal.png",
+        "metallic_roughness": "assets/textures/pbr_test/metallic_roughness.png",
+        "emissive": "assets/textures/pbr_test/emissive.png"
+    },
+    "params": {
+        "tint": [1.0, 0.9, 0.8],
+        "roughness_override": 0.6,
+        "emission_strength": 2.0
+    }
+}

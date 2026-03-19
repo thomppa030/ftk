@@ -211,6 +211,7 @@ MaterialHandle ResourceManager::load_material_asset(const std::string& path,
     uint32_t em_idx = bindless_index(em);
 
     PbrParams params;
+    params.has_normal_map = asset.textures.contains("normal_map");
     auto material = std::make_unique<Material>(0, bc_idx, nm_idx, mr_idx, em_idx, params);
     material->set_pipeline_id(pipeline_id);
     material->set_shader_path(asset.shader);

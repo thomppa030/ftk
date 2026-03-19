@@ -1,0 +1,10 @@
+{
+    "shader": "shaders/standard.fjsl",
+    "textures": {
+        "base_color": "assets/textures/pbr_test/base_color.png",
+        "normal_map": "assets/textures/pbr_test/normal.png",
+        "metallic_roughness": "assets/textures/pbr_test/metallic_roughness.png",
+        "emissive": "assets/textures/pbr_test/emissive.png"
+    },
+    "params": {}
+}
