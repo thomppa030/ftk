@@ -41,21 +41,22 @@ public:
 private:
     struct GpuUiQuad {
         glm::vec4 rect;          // x, y, w, h (pixels)
-        glm::vec4 color;         // background RGBA
+        glm::vec4 color;         // background RGBA (or gradient start)
         glm::vec4 border_color;  // border RGBA
         glm::vec4 corners;       // border-radius (tl, tr, br, bl)
-        glm::vec4 params;        // border_width, opacity, texture_index, flags
+        glm::vec4 params;        // border_width, opacity, flags, gradient_angle
         glm::vec4 clip_rect;     // overflow:hidden scissor
+        glm::vec4 gradient_to;   // gradient end color RGBA
         glm::vec2 viewport_size; // for px->NDC
-        glm::vec2 _pad;          // align to 16 bytes
+        glm::vec2 shadow_params; // blur_radius, spread
     };
-    static_assert(sizeof(GpuUiQuad) == 112);
+    static_assert(sizeof(GpuUiQuad) == 128);
 
     struct GpuUiGlyph {
         glm::vec4 rect;          // x, y, w, h (pixels)
         glm::vec4 uv_rect;       // uv_x0, uv_y0, uv_x1, uv_y1
         glm::vec4 color;         // text color RGBA
-        glm::vec4 params;        // opacity, atlas_index, font_size, reserved
+        glm::vec4 params;        // opacity, atlas_index, px_range, reserved
         glm::vec4 clip_rect;     // overflow:hidden scissor
         glm::vec2 viewport_size; // for px->NDC
         glm::vec2 _pad;
@@ -95,8 +96,8 @@ private:
 
     static constexpr uint32_t MAX_UI_QUADS = 4096;
     static constexpr uint32_t MAX_TEXT_GLYPHS = 8192;
-    static constexpr VkDeviceSize SSBO_SIZE = MAX_UI_QUADS * sizeof(GpuUiQuad);
-    static constexpr VkDeviceSize TEXT_SSBO_SIZE = MAX_TEXT_GLYPHS * sizeof(GpuUiGlyph);
+    static constexpr VkDeviceSize SSBO_SIZE = MAX_UI_QUADS * 128; // sizeof(GpuUiQuad)
+    static constexpr VkDeviceSize TEXT_SSBO_SIZE = MAX_TEXT_GLYPHS * 96; // sizeof(GpuUiGlyph)
 };
 
 } // namespace fjell

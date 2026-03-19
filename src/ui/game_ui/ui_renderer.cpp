@@ -262,8 +262,7 @@ void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
 
     auto* dst = static_cast<GpuUiGlyph*>(text_ssbos_[frame_index]->mapped()) + existing;
 
-    // Default text color: white. Will be styled in Phase 3.
-    float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
+    const auto& tc = source_node.style.color;
 
     for (uint32_t i = 0; i < count; ++i) {
         const auto& pg = glyphs[i];
@@ -272,7 +271,7 @@ void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
                    source_node.layout_rect.y + pg.y,
                    pg.w, pg.h};
         gg.uv_rect = {pg.uv_x0, pg.uv_y0, pg.uv_x1, pg.uv_y1};
-        gg.color = {r, g, b, a};
+        gg.color = {tc.r, tc.g, tc.b, tc.a};
         gg.params = {source_node.style.opacity,
                      static_cast<float>(atlas_index), pixel_range, 0.0f};
         gg.clip_rect = {source_node.clip_rect.x, source_node.clip_rect.y,
@@ -289,21 +288,57 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
     if (node.style.display == UiDisplay::none) return;
     if (node.layout_rect.w <= 0 || node.layout_rect.h <= 0) return;
 
-    bool has_bg = node.style.background_color.a > 0.0f;
-    bool has_border = node.style.border_width > 0.0f && node.style.border_color.a > 0.0f;
+    const auto& s = node.style;
+    bool has_bg = s.background_color.a > 0.0f || s.gradient.active();
+    bool has_border = s.border_width > 0.0f && s.border_color.a > 0.0f;
+    bool has_shadow = s.box_shadow.active();
+
+    // Emit shadow quad first (behind the main quad)
+    if (has_shadow) {
+        const auto& sh = s.box_shadow;
+        float expand = sh.blur + sh.spread;
+        GpuUiQuad shadow{};
+        shadow.rect = {node.layout_rect.x + sh.offset_x - expand,
+                       node.layout_rect.y + sh.offset_y - expand,
+                       node.layout_rect.w + 2.0f * expand,
+                       node.layout_rect.h + 2.0f * expand};
+        shadow.color = {sh.color.r, sh.color.g, sh.color.b, sh.color.a};
+        shadow.corners = {s.border_radius.top_left + expand,
+                          s.border_radius.top_right + expand,
+                          s.border_radius.bottom_right + expand,
+                          s.border_radius.bottom_left + expand};
+        // flags bit 1 = shadow quad; shadow_params = blur, spread
+        shadow.params = {0.0f, s.opacity, 2.0f, 0.0f};
+        shadow.clip_rect = {node.clip_rect.x, node.clip_rect.y,
+                            node.clip_rect.w, node.clip_rect.h};
+        shadow.viewport_size = {viewport_width, viewport_height};
+        shadow.shadow_params = {sh.blur, sh.spread};
+        quads.push_back(shadow);
+    }
+
     if (has_bg || has_border) {
+        // flags: 0 = normal, 1 = gradient
+        float flags = s.gradient.active() ? 1.0f : 0.0f;
+
         GpuUiQuad quad{};
         quad.rect = {node.layout_rect.x, node.layout_rect.y,
                      node.layout_rect.w, node.layout_rect.h};
-        quad.color = {node.style.background_color.r, node.style.background_color.g,
-                      node.style.background_color.b, node.style.background_color.a};
-        quad.border_color = {node.style.border_color.r, node.style.border_color.g,
-                             node.style.border_color.b, node.style.border_color.a};
-        quad.corners = {node.style.border_radius.top_left, node.style.border_radius.top_right,
-                        node.style.border_radius.bottom_right, node.style.border_radius.bottom_left};
-        quad.params = {node.style.border_width, node.style.opacity, 0.0f, 0.0f};
+        quad.color = {s.background_color.r, s.background_color.g,
+                      s.background_color.b, s.background_color.a};
+        quad.border_color = {s.border_color.r, s.border_color.g,
+                             s.border_color.b, s.border_color.a};
+        quad.corners = {s.border_radius.top_left, s.border_radius.top_right,
+                        s.border_radius.bottom_right, s.border_radius.bottom_left};
+        quad.params = {s.border_width, s.opacity, flags, s.gradient.angle};
         quad.clip_rect = {node.clip_rect.x, node.clip_rect.y,
                           node.clip_rect.w, node.clip_rect.h};
+        if (s.gradient.active()) {
+            // For gradient: color = from, gradient_to = to
+            quad.color = {s.gradient.from.r, s.gradient.from.g,
+                          s.gradient.from.b, s.gradient.from.a};
+            quad.gradient_to = {s.gradient.to.r, s.gradient.to.g,
+                                s.gradient.to.b, s.gradient.to.a};
+        }
         quad.viewport_size = {viewport_width, viewport_height};
         quads.push_back(quad);
     }

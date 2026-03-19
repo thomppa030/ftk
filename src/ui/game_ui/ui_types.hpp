@@ -104,4 +104,22 @@ struct UiCorners {
     float bottom_left{0.0f};
 };
 
+struct UiBoxShadow {
+    float offset_x{0.0f};
+    float offset_y{0.0f};
+    float blur{0.0f};
+    float spread{0.0f};
+    UiColor color{0.0f, 0.0f, 0.0f, 0.0f};
+
+    [[nodiscard]] bool active() const { return color.a > 0.0f && (blur > 0.0f || spread > 0.0f); }
+};
+
+struct UiGradient {
+    UiColor from{0.0f, 0.0f, 0.0f, 0.0f};
+    UiColor to{0.0f, 0.0f, 0.0f, 0.0f};
+    float angle{180.0f}; // degrees, 0=right, 90=down, 180=left, 270=up
+
+    [[nodiscard]] bool active() const { return from.a > 0.0f || to.a > 0.0f; }
+};
+
 } // namespace fjell

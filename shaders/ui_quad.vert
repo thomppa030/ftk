@@ -2,13 +2,14 @@
 
 struct UiQuad {
     vec4 rect;          // x, y, w, h (pixels)
-    vec4 color;         // background RGBA
+    vec4 color;         // background RGBA (or gradient start)
     vec4 border_color;  // border RGBA
     vec4 corners;       // border-radius (tl, tr, br, bl)
-    vec4 params;        // border_width, opacity, texture_index, flags
+    vec4 params;        // border_width, opacity, flags, gradient_angle
     vec4 clip_rect;     // overflow:hidden scissor
+    vec4 gradient_to;   // gradient end color RGBA
     vec2 viewport_size; // for px->NDC
-    vec2 _pad;
+    vec2 shadow_params; // blur_radius, spread
 };
 
 layout(std430, set = 2, binding = 0) readonly buffer UiQuadBuffer {
@@ -24,7 +25,6 @@ void main() {
 
     UiQuad q = quads[quad_index];
 
-    // 6 vertices per quad: two triangles
     vec2 offsets[6] = vec2[](
         vec2(0, 0), vec2(1, 0), vec2(0, 1),
         vec2(0, 1), vec2(1, 0), vec2(1, 1)
@@ -34,7 +34,6 @@ void main() {
     frag_uv = uv;
     frag_quad_index = quad_index;
 
-    // Convert pixel position to NDC
     vec2 pos = q.rect.xy + uv * q.rect.zw;
     vec2 ndc = (pos / q.viewport_size) * 2.0 - 1.0;
 

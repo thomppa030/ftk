@@ -41,6 +41,15 @@ struct UiComputedStyle {
     float border_width{0.0f};
     UiCorners border_radius{};
     float opacity{1.0f};
+
+    // Text
+    UiColor color{1.0f, 1.0f, 1.0f, 1.0f};
+    float font_size{16.0f};
+    float line_height{0.0f}; // 0 = use font metric default
+
+    // Effects
+    UiBoxShadow box_shadow{};
+    UiGradient gradient{};
 };
 
 } // namespace fjell

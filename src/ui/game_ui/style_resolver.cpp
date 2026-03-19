@@ -193,8 +193,51 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
     if (name == "row-gap") { style.row_gap = parse_px(value); return; }
     if (name == "column-gap") { style.column_gap = parse_px(value); return; }
 
-    // Background color
+    // Background: gradient or solid color
     if (name == "background-color" || name == "background") {
+        // Check for linear-gradient first
+        if (value.find("linear-gradient(") == 0) {
+            auto inner = value.substr(16, value.size() - 17);
+            std::vector<std::string> parts;
+            std::string part;
+            int paren_depth = 0;
+            for (char c : inner) {
+                if (c == '(') paren_depth++;
+                if (c == ')') paren_depth--;
+                if (c == ',' && paren_depth == 0) {
+                    parts.push_back(part);
+                    part.clear();
+                } else {
+                    part += c;
+                }
+            }
+            if (!part.empty()) parts.push_back(part);
+
+            for (auto& p : parts) {
+                auto s = p.find_first_not_of(" \t");
+                auto e = p.find_last_not_of(" \t");
+                if (s != std::string::npos) p = p.substr(s, e - s + 1);
+            }
+
+            if (parts.size() >= 3) {
+                float angle = 180.0f;
+                if (parts[0].find("deg") != std::string::npos) {
+                    angle = parse_px(parts[0]);
+                } else if (parts[0] == "to bottom") { angle = 180.0f; }
+                else if (parts[0] == "to top") { angle = 0.0f; }
+                else if (parts[0] == "to right") { angle = 90.0f; }
+                else if (parts[0] == "to left") { angle = 270.0f; }
+
+                style.gradient.angle = angle;
+                style.gradient.from = parse_color(parts[1]);
+                style.gradient.to = parse_color(parts[2]);
+            } else if (parts.size() == 2) {
+                style.gradient.angle = 180.0f;
+                style.gradient.from = parse_color(parts[0]);
+                style.gradient.to = parse_color(parts[1]);
+            }
+            return;
+        }
         style.background_color = parse_color(value);
         return;
     }
@@ -228,6 +271,45 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
     if (name == "color") { style.color = parse_color(value); return; }
     if (name == "font-size") { style.font_size = parse_px(value); return; }
     if (name == "line-height") { style.line_height = parse_px(value); return; }
+
+    // Box shadow: "offset_x offset_y blur spread #color"
+    // e.g. "0 4 8 0 rgba(0, 0, 0, 0.3)" or "2 2 6 #00000080"
+    if (name == "box-shadow") {
+        if (value == "none") { style.box_shadow = {}; return; }
+        std::istringstream iss(value);
+        std::string token;
+        std::vector<std::string> tokens;
+        while (iss >> token) tokens.push_back(token);
+
+        // Rejoin rgba(...) tokens that got split
+        std::vector<std::string> merged;
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            if (tokens[i].find("rgba(") == 0 || tokens[i].find("rgb(") == 0) {
+                std::string joined = tokens[i];
+                while (i + 1 < tokens.size() && joined.back() != ')') {
+                    ++i;
+                    joined += " " + tokens[i];
+                }
+                merged.push_back(joined);
+            } else {
+                merged.push_back(tokens[i]);
+            }
+        }
+
+        if (merged.size() >= 4) {
+            style.box_shadow.offset_x = parse_px(merged[0]);
+            style.box_shadow.offset_y = parse_px(merged[1]);
+            style.box_shadow.blur = parse_px(merged[2]);
+            if (merged.size() >= 5 && (merged[3][0] != '#' && merged[3].find("rgb") != 0)) {
+                style.box_shadow.spread = parse_px(merged[3]);
+                style.box_shadow.color = parse_color(merged[4]);
+            } else {
+                style.box_shadow.color = parse_color(merged[3]);
+            }
+        }
+        return;
+    }
+
 }
 
 UiColor StyleResolver::parse_color(const std::string& value) {
