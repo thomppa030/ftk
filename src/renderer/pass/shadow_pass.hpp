@@ -16,7 +16,7 @@ class Camera;
 class ShadowPass : public RenderPass {
 public:
     static constexpr uint32_t CASCADE_COUNT = 3;
-    static constexpr uint32_t MAP_SIZE = 2048;
+    static constexpr uint32_t MAP_SIZE = 4096;
     static constexpr VkFormat DEPTH_FORMAT = VK_FORMAT_D32_SFLOAT;
 
     void create(Device& device, const PassResources& resources) override;

@@ -114,7 +114,18 @@ static glm::mat4 compute_light_matrix(const glm::mat4& inv_view_proj,
     // glm::orthoZO handles the sign correctly as clip planes.
     glm::mat4 light_proj = glm::orthoZO(min_x, max_x, min_y, max_y, -max_z, -min_z);
 
-    return light_proj * light_view;
+    // Snap to texel grid to prevent shadow shimmer when the camera moves.
+    // The shadow map origin shifts by sub-texel amounts as the camera orbits,
+    // causing shadow edges to crawl. Rounding to texel boundaries fixes this.
+    glm::mat4 shadow_matrix = light_proj * light_view;
+    float half_map = static_cast<float>(ShadowPass::MAP_SIZE) * 0.5f;
+    glm::vec4 origin = shadow_matrix * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    float offset_x = std::round(origin.x * half_map) / half_map - origin.x;
+    float offset_y = std::round(origin.y * half_map) / half_map - origin.y;
+    shadow_matrix[3][0] += offset_x;
+    shadow_matrix[3][1] += offset_y;
+
+    return shadow_matrix;
 }
 
 void ShadowPass::update(const glm::mat4& view, const glm::mat4& projection,
