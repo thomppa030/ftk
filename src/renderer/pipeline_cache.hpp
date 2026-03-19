@@ -14,7 +14,7 @@ namespace fjell {
 
 class Device;
 
-// Manages one VkPipeline (opaque + transparent) per unique .fjsl shader.
+// Manages one VkPipeline (opaque + transparent + mesh shader) per unique .fjsl shader.
 // All pipelines share the same VkPipelineLayout — only the fragment module differs.
 // Pipeline ID 0 is always standard.fjsl (identical to the old mesh.frag).
 class PipelineCache {
@@ -24,7 +24,8 @@ public:
                   VkDescriptorSetLayout global_layout,
                   VkDescriptorSetLayout material_layout,
                   VkDescriptorSetLayout draw_data_layout,
-                  VkSampleCountFlagBits samples);
+                  VkSampleCountFlagBits samples,
+                  VkDescriptorSetLayout meshlet_layout = VK_NULL_HANDLE);
     ~PipelineCache();
 
     PipelineCache(const PipelineCache&) = delete;
@@ -41,8 +42,11 @@ public:
 
     [[nodiscard]] VkPipeline opaque_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline transparent_pipeline(uint32_t id) const;
+    [[nodiscard]] VkPipeline mesh_pipeline(uint32_t id) const;
     [[nodiscard]] const ShaderMetadata& metadata(uint32_t id) const;
     [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
+    [[nodiscard]] VkPipelineLayout mesh_layout() const { return mesh_layout_; }
+    [[nodiscard]] bool has_mesh_shaders() const { return meshlet_layout_ != VK_NULL_HANDLE; }
     [[nodiscard]] uint32_t shader_count() const { return static_cast<uint32_t>(entries_.size()); }
 
     // Recreate all pipelines (e.g. after hot-reload of shared shaders)
@@ -55,6 +59,7 @@ private:
         ShaderMetadata metadata;
         VkPipeline opaque{VK_NULL_HANDLE};
         VkPipeline transparent{VK_NULL_HANDLE};
+        VkPipeline mesh{VK_NULL_HANDLE};
     };
 
     void create_layout();
@@ -72,9 +77,11 @@ private:
     VkDescriptorSetLayout global_layout_;
     VkDescriptorSetLayout material_layout_;
     VkDescriptorSetLayout draw_data_layout_;
+    VkDescriptorSetLayout meshlet_layout_;
     VkSampleCountFlagBits samples_;
 
     VkPipelineLayout layout_{VK_NULL_HANDLE};
+    VkPipelineLayout mesh_layout_{VK_NULL_HANDLE};
     std::vector<Entry> entries_;
     std::unordered_map<std::string, uint32_t> path_to_id_;
     std::string template_source_;

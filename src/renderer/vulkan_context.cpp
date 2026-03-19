@@ -68,7 +68,8 @@ VulkanContext::VulkanContext(Window& window)
     pipeline_cache_ = std::make_unique<PipelineCache>(
         device_, OffscreenPass::COLOR_FORMAT, depth_format,
         global_set_layout_->handle(), bindless_textures_.layout(),
-        draw_data_descriptor_.layout(), msaa_samples_);
+        draw_data_descriptor_.layout(), msaa_samples_,
+        use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE);
 
     PassResources pass_resources{};
     pass_resources.global_set_layout = global_set_layout_->handle();
@@ -714,25 +715,38 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                      draw_data_descriptor_.descriptor_set(current_frame_)};
 
         if (scene) {
-            // Use mesh shaders only when all objects use the standard pipeline (ID 0).
-            // Custom FJSL shaders require the indirect draw path with per-pipeline switching.
-            bool can_use_mesh_shaders = use_mesh_shaders_ &&
-                pipeline_cache_->shader_count() <= 1;
+            if (use_mesh_shaders_ && pipeline_cache_->has_mesh_shaders()) {
+                // Mesh shader path: dispatch per-pipeline ranges with mesh shader pipelines
+                const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
+                std::array mesh_descriptor_sets = {global_descriptor_sets_[current_frame_],
+                                                   bindless_textures_.descriptor_set(),
+                                                   draw_data_descriptor_.descriptor_set(current_frame_),
+                                                   meshlet_descriptor_.descriptor_set(current_frame_)};
 
-            if (can_use_mesh_shaders) {
-                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  pipeline_cache_->opaque_pipeline(0));
-                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        pipeline_cache_->layout(),
-                                        0, static_cast<uint32_t>(descriptor_sets.size()),
-                                        descriptor_sets.data(), 0, nullptr);
-                mesh_shader_pass_.record(local);
+                auto draw_mesh_tasks = device_.draw_mesh_tasks_fn();
+
+                for (const auto& range : ranges) {
+                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                      pipeline_cache_->mesh_pipeline(range.pipeline_id));
+                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                            pipeline_cache_->mesh_layout(),
+                                            0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
+                                            mesh_descriptor_sets.data(), 0, nullptr);
+
+                    for (uint32_t i = 0; i < range.draw_count; ++i) {
+                        uint32_t draw_idx = range.first_draw + i;
+                        vkCmdPushConstants(cb, pipeline_cache_->mesh_layout(),
+                                           VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
+                                           0, sizeof(uint32_t), &draw_idx);
+                        draw_mesh_tasks(cb, 1, 1, 1);
+                    }
+                }
                 render_stats_->meshlets_dispatched += meshlet_buffer_
                     ? meshlet_buffer_->total_meshlets() : 0;
             } else {
                 mega_buffer_->bind(cb);
 
-                // Draw per-pipeline ranges
+                // Draw per-pipeline ranges with vertex pipelines
                 const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
                 for (const auto& range : ranges) {
                     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
