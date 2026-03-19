@@ -1,0 +1,10 @@
+{
+    "shader": "shaders/tint.fjsl",
+    "textures": {
+        "base_color": "assets/textures/test.png"
+    },
+    "params": {
+        "tint": [0.8, 0.6, 0.4],
+        "tint_strength": 0.3
+    }
+}

@@ -7,7 +7,9 @@
 
 namespace fjell {
 
+class BindlessTextures;
 class CommandHistory;
+class PipelineCache;
 class Scene;
 class ScriptManager;
 struct DirectionalLight;
@@ -17,11 +19,15 @@ class PropertiesPanel {
 public:
     void init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
               DirectionalLight* light, ScriptManager* scripts,
-              CommandHistory* history, GridSettings* grid_settings = nullptr);
+              CommandHistory* history, GridSettings* grid_settings = nullptr,
+              PipelineCache* pipeline_cache = nullptr,
+              BindlessTextures* bindless = nullptr);
 
     void draw();
 
 private:
+    void draw_material_inspector(struct RenderObject& obj);
+
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
     int* gizmo_op_{nullptr};
@@ -29,6 +35,8 @@ private:
     ScriptManager* scripts_{nullptr};
     CommandHistory* history_{nullptr};
     GridSettings* grid_settings_{nullptr};
+    PipelineCache* pipeline_cache_{nullptr};
+    BindlessTextures* bindless_{nullptr};
 
     // Drag coalescing
     Transform drag_start_transform_;

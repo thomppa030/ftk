@@ -2,6 +2,10 @@
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
 #include "scene/scene.hpp"
+#include "renderer/bindless.hpp"
+#include "renderer/fjsl_parser.hpp"
+#include "renderer/material.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/particle_emitter.hpp"
 #include "renderer/pass/grid_pass.hpp"
@@ -26,7 +30,9 @@ static glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
 
 void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
                            DirectionalLight* light, ScriptManager* scripts,
-                           CommandHistory* history, GridSettings* grid_settings) {
+                           CommandHistory* history, GridSettings* grid_settings,
+                           PipelineCache* pipeline_cache,
+                           BindlessTextures* bindless) {
     scene_ = scene;
     selected_id_ = selected_id;
     gizmo_op_ = gizmo_op;
@@ -34,6 +40,8 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
     scripts_ = scripts;
     history_ = history;
     grid_settings_ = grid_settings;
+    pipeline_cache_ = pipeline_cache;
+    bindless_ = bindless;
 }
 
 void PropertiesPanel::draw() {
@@ -262,6 +270,9 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            // Material
+            draw_material_inspector(*obj);
+
             // Components
             ImGui::Spacing();
             ImGui::Separator();
@@ -363,6 +374,116 @@ void PropertiesPanel::draw() {
         }
     }
     ImGui::End();
+}
+
+void PropertiesPanel::draw_material_inspector(RenderObject& obj) {
+    if (!obj.material || !pipeline_cache_ || !bindless_) return;
+
+    uint32_t pid = obj.material->pipeline_id();
+    if (pid >= pipeline_cache_->shader_count()) return;
+
+    const auto& meta = pipeline_cache_->metadata(pid);
+
+    // Only show if shader has custom uniforms
+    bool has_custom = false;
+    for (const auto& u : meta.uniforms) {
+        if (u.type != UniformType::Sampler2D) {
+            has_custom = true;
+            break;
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Material");
+    ImGui::TextDisabled("Shader: %s", obj.material->shader_path().c_str());
+
+    if (!has_custom) return;
+
+    uint32_t param_count = obj.material->custom_param_count();
+    if (param_count == 0) return;
+
+    const auto& gpu = bindless_->material_at(obj.material->material_id());
+    bool changed = false;
+
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+
+        uint32_t fcount = uniform_float_count(u.type);
+        if (u.slot + fcount > param_count) continue;
+
+        uint32_t abs_offset = gpu.param_offset + u.slot;
+
+        ImGui::PushID(u.name.c_str());
+        ImGui::Text("%s", u.name.c_str());
+        ImGui::SetNextItemWidth(-1);
+
+        // Read current values from CPU-side params buffer
+        float temp[4]{};
+        for (uint32_t i = 0; i < fcount; ++i) {
+            temp[i] = bindless_->read_param(abs_offset + i);
+        }
+
+        switch (u.type) {
+            case UniformType::Float:
+                if (u.hint == UniformHint::None && u.range.max > u.range.min) {
+                    if (ImGui::SliderFloat("##val", temp, u.range.min, u.range.max)) {
+                        bindless_->write_params(abs_offset, temp, 1);
+                        changed = true;
+                    }
+                } else {
+                    if (ImGui::DragFloat("##val", temp, 0.01f)) {
+                        bindless_->write_params(abs_offset, temp, 1);
+                        changed = true;
+                    }
+                }
+                break;
+
+            case UniformType::Vec3:
+                if (u.hint == UniformHint::Color) {
+                    if (ImGui::ColorEdit3("##val", temp)) {
+                        bindless_->write_params(abs_offset, temp, 3);
+                        changed = true;
+                    }
+                } else {
+                    if (ImGui::DragFloat3("##val", temp, 0.01f)) {
+                        bindless_->write_params(abs_offset, temp, 3);
+                        changed = true;
+                    }
+                }
+                break;
+
+            case UniformType::Vec4:
+                if (u.hint == UniformHint::Color) {
+                    if (ImGui::ColorEdit4("##val", temp)) {
+                        bindless_->write_params(abs_offset, temp, 4);
+                        changed = true;
+                    }
+                } else {
+                    if (ImGui::DragFloat4("##val", temp, 0.01f)) {
+                        bindless_->write_params(abs_offset, temp, 4);
+                        changed = true;
+                    }
+                }
+                break;
+
+            case UniformType::Vec2:
+                if (ImGui::DragFloat2("##val", temp, 0.01f)) {
+                    bindless_->write_params(abs_offset, temp, 2);
+                    changed = true;
+                }
+                break;
+
+            default:
+                break;
+        }
+
+        ImGui::PopID();
+    }
+
+    if (changed) {
+        scene_->mark_dirty();
+    }
 }
 
 } // namespace fjell

@@ -82,7 +82,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_.device(), vulkan_context_.physical_device(),
         vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
         vulkan_context_.bindless_textures(), vulkan_context_.mega_buffer(),
-        vulkan_context_.meshlet_buffer());
+        vulkan_context_.meshlet_buffer(), vulkan_context_.pipeline_cache());
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));
@@ -152,7 +152,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     properties_panel_.init(&scene_, &selected_id_, &gizmo_op_, &light_,
                            &script_manager_, &command_history_,
-                           &vulkan_context_.grid_pass().settings());
+                           &vulkan_context_.grid_pass().settings(),
+                           vulkan_context_.pipeline_cache(),
+                           &vulkan_context_.bindless_textures());
 
     stats_panel_.init(&vulkan_context_);
 
@@ -917,6 +919,7 @@ void Engine::run() {
             vulkan_context_.reload_pipeline();
         }
 #endif
+
 
         float dt = clock_.delta_time();
 
