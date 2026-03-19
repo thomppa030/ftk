@@ -923,7 +923,7 @@ void Engine::draw_ui() {
 
     draw_menu_bar();
     setup_dockspace();
-    viewport_manager_.draw(vulkan_context_, scene_, selected_id_, input_, clock_.delta_time(), gizmo_op_);
+    viewport_manager_.draw(vulkan_context_, scene_, selected_id_, input_, clock_.delta_time(), gizmo_op_, &command_history_);
     viewport_hovered_ = viewport_manager_.any_hovered();
     hierarchy_panel_.draw();
     properties_panel_.draw();

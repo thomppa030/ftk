@@ -1,4 +1,6 @@
 #include "ui/viewport_manager.hpp"
+#include "core/command_history.hpp"
+#include "core/commands.hpp"
 #include "renderer/model.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/scene.hpp"
@@ -76,10 +78,10 @@ bool ViewportManager::any_hovered() const {
 
 void ViewportManager::draw(VulkanContext& ctx, Scene& scene,
                            uint32_t& selected_id, const Input& input, float dt,
-                           int gizmo_op) {
+                           int gizmo_op, CommandHistory* history) {
     bool any_closing = false;
     for (auto it = panels_.begin(); it != panels_.end();) {
-        draw_viewport_panel(*it, ctx, scene, selected_id, input, dt, gizmo_op);
+        draw_viewport_panel(*it, ctx, scene, selected_id, input, dt, gizmo_op, history);
 
         if (!it->open) {
             any_closing = true;
@@ -203,7 +205,8 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
 
 void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                                            Scene& scene, uint32_t& selected_id,
-                                           const Input& input, float dt, int gizmo_op) {
+                                           const Input& input, float dt, int gizmo_op,
+                                           CommandHistory* history) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
     ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0f, 0.0f, 0.0f, 0.0f});
 
@@ -448,6 +451,12 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             } else if (panel.gizmo_dragging) {
                 panel.gizmo_dragging = false;
                 apply_gizmo();
+                if (history) {
+                    history->execute(std::make_unique<TransformCommand>(
+                        scene, obj->id,
+                        panel.gizmo_start_transform, obj->transform,
+                        obj->name));
+                }
             }
         }
     }

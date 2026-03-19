@@ -15,6 +15,7 @@
 
 namespace fjell {
 
+class CommandHistory;
 class VulkanContext;
 class Device;
 class Scene;
@@ -47,7 +48,7 @@ public:
                       const std::string& title = "");
     void draw(VulkanContext& ctx, Scene& scene,
               uint32_t& selected_id, const Input& input, float dt,
-              int gizmo_op = 0);
+              int gizmo_op = 0, CommandHistory* history = nullptr);
 
     // The active viewport is the last one that was focused.
     // Its camera drives the scene render.
@@ -73,7 +74,8 @@ public:
 private:
     void draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                              Scene& scene, uint32_t& selected_id,
-                             const Input& input, float dt, int gizmo_op);
+                             const Input& input, float dt, int gizmo_op,
+                             CommandHistory* history);
 
     Device* device_{nullptr};
     VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};

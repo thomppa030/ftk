@@ -35,6 +35,12 @@ public:
         }
     }
     [[nodiscard]] std::string description() const override {
+        bool moved = old_transform_.position != new_transform_.position;
+        bool rotated = old_transform_.rotation != new_transform_.rotation;
+        bool scaled = old_transform_.scale != new_transform_.scale;
+        if (moved && !rotated && !scaled) return "Move " + name_;
+        if (!moved && rotated && !scaled) return "Rotate " + name_;
+        if (!moved && !rotated && scaled) return "Scale " + name_;
         return "Transform " + name_;
     }
 
