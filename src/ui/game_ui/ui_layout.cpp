@@ -182,8 +182,14 @@ void UiLayout::read_layout(UiNode& node, float offset_x, float offset_y) {
 
     node.layout_rect = {x, y, w, h};
 
+    // Apply scroll offset for overflow:scroll containers
+    float child_offset_y = y;
+    if (node.style.overflow == UiOverflow::scroll) {
+        child_offset_y -= node.scroll_offset_y;
+    }
+
     for (auto& child : node.children) {
-        read_layout(*child, x, y);
+        read_layout(*child, x, child_offset_y);
     }
 }
 

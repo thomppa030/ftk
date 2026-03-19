@@ -87,6 +87,10 @@ add_executable(fjell
     ui/game_ui/style_resolver.cpp
     ui/game_ui/ui_layout.cpp
     ui/game_ui/ui_renderer.cpp
+    ui/game_ui/ui_input.cpp
+    ui/game_ui/ui_data_bind.cpp
+    ui/game_ui/ui_animation.cpp
+    ui/game_ui/ui_watcher.cpp
     ui/game_ui/game_ui.cpp
     ui/game_ui/font_atlas.cpp
     ui/game_ui/text_shaper.cpp

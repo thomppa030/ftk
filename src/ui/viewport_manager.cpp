@@ -76,6 +76,13 @@ bool ViewportManager::any_hovered() const {
     return false;
 }
 
+glm::vec2 ViewportManager::active_viewport_pos() const {
+    for (const auto& panel : panels_) {
+        if (panel.id == active_id_) return panel.pos;
+    }
+    return {0.0f, 0.0f};
+}
+
 void ViewportManager::draw(VulkanContext& ctx, Scene& scene,
                            uint32_t& selected_id, const Input& input, float dt,
                            int gizmo_op, CommandHistory* history) {

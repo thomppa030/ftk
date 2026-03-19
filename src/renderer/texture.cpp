@@ -30,9 +30,9 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
 Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
                  VkCommandPool command_pool, VkQueue queue,
                  const uint8_t* pixels, uint32_t width, uint32_t height,
-                 VkFormat format, uint32_t mip_levels)
+                 VkFormat format, uint32_t mip_levels, bool clamp_to_edge)
     : device_{device} {
-    upload(physical_device, command_pool, queue, pixels, width, height, format, mip_levels);
+    upload(physical_device, command_pool, queue, pixels, width, height, format, mip_levels, clamp_to_edge);
 
     FJELL_GFX_DEBUG("Texture loaded from memory: {}x{}", width, height);
 }
@@ -45,7 +45,7 @@ Texture::~Texture() {
 
 void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_pool,
                      VkQueue queue, const void* pixels, uint32_t width, uint32_t height,
-                     VkFormat format, uint32_t mip_levels_override) {
+                     VkFormat format, uint32_t mip_levels_override, bool clamp_to_edge) {
     VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * 4;
     uint32_t mip_levels = mip_levels_override > 0 ? mip_levels_override :
         static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
@@ -121,11 +121,14 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     sampler_info.magFilter = VK_FILTER_LINEAR;
     sampler_info.minFilter = VK_FILTER_LINEAR;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_info.anisotropyEnable = VK_TRUE;
-    sampler_info.maxAnisotropy = props.limits.maxSamplerAnisotropy;
+    VkSamplerAddressMode addr_mode = clamp_to_edge
+        ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
+        : VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_info.addressModeU = addr_mode;
+    sampler_info.addressModeV = addr_mode;
+    sampler_info.addressModeW = addr_mode;
+    sampler_info.anisotropyEnable = clamp_to_edge ? VK_FALSE : VK_TRUE;
+    sampler_info.maxAnisotropy = clamp_to_edge ? 1.0f : props.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;

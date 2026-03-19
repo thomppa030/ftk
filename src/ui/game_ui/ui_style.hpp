@@ -50,6 +50,9 @@ struct UiComputedStyle {
     // Effects
     UiBoxShadow box_shadow{};
     UiGradient gradient{};
+
+    // Transition spec (parsed by UiAnimation)
+    std::string transition;
 };
 
 } // namespace fjell

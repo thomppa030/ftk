@@ -72,7 +72,8 @@ public:
     void draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                     const struct DirectionalLight& light,
                     Scene* scene, float dt,
-                    uint32_t selected_id, ThreadPool& pool);
+                    uint32_t selected_id, ThreadPool& pool,
+                    const Input* input = nullptr);
     void update_light_ssbo(uint32_t frame_index, Scene* scene);
     void wait_idle();
     void reload_pipeline();
@@ -118,6 +119,9 @@ public:
     [[nodiscard]] PipelineCache* pipeline_cache() { return pipeline_cache_.get(); }
     [[nodiscard]] GameUi& game_ui() { return game_ui_; }
 
+    /// Set by ViewportManager each frame — top-left of the active viewport in window pixels.
+    void set_viewport_offset(glm::vec2 offset) { viewport_offset_ = offset; }
+
 private:
     void create_descriptor_resources();
     void create_command_pool();
@@ -128,10 +132,11 @@ private:
                                const std::vector<ViewportRenderRequest>& viewports,
                                const struct DirectionalLight& light,
                                Scene* scene, float dt,
-                               uint32_t selected_id, ThreadPool& pool);
+                               uint32_t selected_id, ThreadPool& pool,
+                               const Input* input);
     void render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                          Scene* scene, float dt, uint32_t selected_id,
-                         ThreadPool& pool);
+                         ThreadPool& pool, const Input* input);
     void update_uniform_buffer(uint32_t frame_index,
                                const glm::mat4& view, const glm::mat4& projection,
                                const glm::vec3& camera_position,
@@ -229,6 +234,7 @@ private:
 
     // Game UI
     GameUi game_ui_;
+    glm::vec2 viewport_offset_{0.0f, 0.0f};
 
     // Selection outline
     VkPipelineLayout outline_layout_{VK_NULL_HANDLE};

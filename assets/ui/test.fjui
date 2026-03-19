@@ -1,15 +1,20 @@
 <panel id="hud" class="overlay">
     <div class="health-bar-container">
-        <text class="label">Health</text>
+        <text class="label">HP: {player.health} / {player.max_health}</text>
         <div class="health-bar-bg">
-            <div class="health-bar-fill"/>
+            <bar class="health-bar-fill" value="{player.health}" max="{player.max_health}"/>
         </div>
     </div>
 
+    <div class="debug-info" if="show_debug">
+        <text class="debug-text">FPS: {fps}</text>
+        <text class="debug-text">Pos: {player.pos}</text>
+    </div>
+
     <div class="bottom-panel">
-        <div class="slot"/>
-        <div class="slot active"/>
-        <div class="slot"/>
-        <div class="slot"/>
+        <div class="slot" on:click="select_slot_1" class:active="active_slot==1"/>
+        <div class="slot" on:click="select_slot_2" class:active="active_slot==2"/>
+        <div class="slot" on:click="select_slot_3" class:active="active_slot==3"/>
+        <div class="slot" on:click="select_slot_4" class:active="active_slot==4"/>
     </div>
 </panel>

@@ -57,7 +57,7 @@ StyleSelector FjssParser::parse_selector() {
     StyleSelector sel;
     skip_whitespace();
 
-    // Parse selector parts: tag, .class, #id, or ancestor descendant
+    // Parse selector parts: tag, .class, #id, :pseudo, or ancestor descendant
     std::string current;
     bool parsing = true;
     while (!at_end() && parsing) {
@@ -84,6 +84,18 @@ StyleSelector FjssParser::parse_selector() {
                 current += advance();
             }
             sel.class_ = current;
+            current.clear();
+            break;
+        }
+        case ':': {
+            if (!current.empty() && sel.tag.empty()) sel.tag = current;
+            current.clear();
+            advance(); // :
+            while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) ||
+                   peek() == '-' || peek() == '_')) {
+                current += advance();
+            }
+            sel.pseudo = current;
             current.clear();
             break;
         }

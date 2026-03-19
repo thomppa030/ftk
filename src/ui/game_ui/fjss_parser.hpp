@@ -13,11 +13,13 @@ struct StyleSelector {
     std::string id;       // e.g. "health-bar" (without #)
     std::string class_;   // e.g. "panel" (without .)
     std::string parent;   // ancestor tag for descendant combinator
+    std::string pseudo;   // e.g. "hover", "active", "focus" (without :)
 
     [[nodiscard]] uint32_t specificity() const {
         uint32_t s = 0;
         if (!id.empty()) s += 100;
         if (!class_.empty()) s += 10;
+        if (!pseudo.empty()) s += 10;
         if (!tag.empty()) s += 1;
         return s;
     }

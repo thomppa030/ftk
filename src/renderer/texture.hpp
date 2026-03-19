@@ -20,7 +20,8 @@ public:
             VkCommandPool command_pool, VkQueue queue,
             const uint8_t* pixels, uint32_t width, uint32_t height,
             VkFormat format = VK_FORMAT_R8G8B8A8_SRGB,
-            uint32_t mip_levels = 0);
+            uint32_t mip_levels = 0,
+            bool clamp_to_edge = false);
 
     ~Texture();
 
@@ -36,7 +37,8 @@ private:
     void upload(VkPhysicalDevice physical_device, VkCommandPool command_pool,
                 VkQueue queue, const void* pixels, uint32_t width, uint32_t height,
                 VkFormat format = VK_FORMAT_R8G8B8A8_SRGB,
-                uint32_t mip_levels = 0);
+                uint32_t mip_levels = 0,
+                bool clamp_to_edge = false);
 
     VkDevice device_;
     std::unique_ptr<Image> image_;

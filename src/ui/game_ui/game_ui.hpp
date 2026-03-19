@@ -3,12 +3,20 @@
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/font_atlas.hpp"
 #include "ui/game_ui/text_shaper.hpp"
+#include "ui/game_ui/ui_animation.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/game_ui/ui_data_bind.hpp"
+#include "ui/game_ui/ui_input.hpp"
 #include "ui/game_ui/ui_layout.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/style_resolver.hpp"
 
+#ifndef NDEBUG
+#include "ui/game_ui/ui_watcher.hpp"
+#endif
+
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 #include <memory>
@@ -18,6 +26,7 @@ namespace fjell {
 
 class Device;
 class BindlessTextures;
+class Input;
 struct PassResources;
 
 /// Orchestrator for the game UI system.
@@ -34,8 +43,12 @@ public:
     /// Load a .fjui + .fjss pair from disk.
     void load(const std::string& fjui_path, const std::string& fjss_path);
 
-    /// Re-resolve styles, compute layout, shape text.
-    void update(float viewport_width, float viewport_height, uint32_t frame_index);
+    /// Re-resolve styles, compute layout, shape text, process input.
+    /// viewport_offset is the top-left of the viewport in window pixels (for input mapping).
+    void update(float viewport_width, float viewport_height,
+                uint32_t frame_index, float dt = 0.0f,
+                const Input* input = nullptr,
+                glm::vec2 viewport_offset = {0.0f, 0.0f});
 
     /// Record Vulkan draw commands.
     void record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
@@ -47,6 +60,7 @@ public:
 private:
     void shape_text_nodes(UiNode& node, float viewport_width, float viewport_height,
                           uint32_t frame_index);
+    void init_text_templates(UiNode& node);
 
     std::unique_ptr<UiNode> root_;
     Stylesheet stylesheet_;
@@ -54,9 +68,17 @@ private:
     UiLayout layout_;
     UiContext context_;
     UiRenderer renderer_;
+    UiInput ui_input_;
+    UiDataBind data_bind_;
+    UiAnimation animation_;
     FontAtlas font_atlas_;
-    float default_font_size_{16.0f};
     bool dirty_{true};
+
+#ifndef NDEBUG
+    std::unique_ptr<UiWatcher> watcher_;
+    std::string loaded_fjui_path_;
+    std::string loaded_fjss_path_;
+#endif
 };
 
 } // namespace fjell

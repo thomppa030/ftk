@@ -21,14 +21,15 @@ struct ShapedText {
     float height;          // total text height
 };
 
-/// Takes a string + font + size + max width → positioned glyph list.
-/// Handles word-wrap and basic kerning.
+/// Takes a string + font + size + max width -> positioned glyph list.
+/// Handles word-wrap and kerning.
 class TextShaper {
 public:
     [[nodiscard]] static ShapedText shape(const std::string& text,
                                           const FontAtlas& font,
                                           float font_size,
-                                          float max_width = 0.0f);
+                                          float max_width = 0.0f,
+                                          float line_height_override = 0.0f);
 };
 
 } // namespace fjell

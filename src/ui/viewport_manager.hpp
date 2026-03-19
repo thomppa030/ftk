@@ -55,6 +55,7 @@ public:
     [[nodiscard]] Camera* active_camera();
     [[nodiscard]] float active_aspect() const;
     [[nodiscard]] bool any_hovered() const;
+    [[nodiscard]] glm::vec2 active_viewport_pos() const;
 
     // Build per-viewport render requests for VulkanContext::draw_frame
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests();

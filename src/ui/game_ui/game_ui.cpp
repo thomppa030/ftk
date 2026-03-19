@@ -1,6 +1,7 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/fjui_parser.hpp"
 #include "renderer/device.hpp"
+#include "core/input.hpp"
 #include "core/log.hpp"
 
 #include <filesystem>
@@ -51,22 +52,70 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
         stylesheet_ = FjssParser::parse(fjss_ss.str());
     }
 
+    // Initialize text templates: save original text_content as template
+    // before data binding resolves {key} placeholders
+    init_text_templates(*root_);
+
     dirty_ = true;
+
+#ifndef NDEBUG
+    loaded_fjui_path_ = fjui_path;
+    loaded_fjss_path_ = fjss_path;
+    watcher_ = std::make_unique<UiWatcher>(fjui_path, fjss_path,
+        [this](const std::string& ui_path, const std::string& css_path) {
+            // Reset watcher before reloading to avoid re-entrancy
+            watcher_.reset();
+            load(ui_path, css_path);
+        });
+#endif
+
     FJELL_CORE_INFO("GameUi: loaded {} ({} style rules)", fjui_path, stylesheet_.rules.size());
 }
 
-void GameUi::update(float viewport_width, float viewport_height, uint32_t frame_index) {
+void GameUi::update(float viewport_width, float viewport_height,
+                    uint32_t frame_index, float dt, const Input* input,
+                    glm::vec2 viewport_offset) {
     if (!root_) return;
 
+#ifndef NDEBUG
+    if (watcher_) {
+        (void)watcher_->poll();
+    }
+#endif
+
+    // 1. Data binding: resolve {key} templates and if directives
+    bool bind_changed = data_bind_.resolve(*root_, context_);
+    if (bind_changed) dirty_ = true;
+
+    // 2. Full style resolve (on first frame or when bindings changed)
     if (dirty_) {
         style_resolver_.resolve(*root_, stylesheet_);
         dirty_ = false;
     }
 
+    // 3. Process input: hit test, update hover/active/focus state
+    if (input != nullptr) {
+        bool input_changed = ui_input_.process(*root_, *input, context_,
+                                                viewport_width, viewport_height,
+                                                viewport_offset);
+        // 4. Re-resolve only dirty nodes (state changed by input)
+        if (input_changed) {
+            for (auto* node : ui_input_.dirty_nodes()) {
+                style_resolver_.resolve_single(*node, stylesheet_);
+            }
+        }
+    }
+
+    // 5. Animate transitions
+    animation_.update(*root_, dt);
+
+    // 6. Compute flexbox layout
     layout_.compute(*root_, viewport_width, viewport_height);
+
+    // 7. Flatten quads to SSBO
     renderer_.update(*root_, viewport_width, viewport_height, frame_index);
 
-    // Shape and upload text for all text nodes
+    // 8. Shape and upload text for all text nodes
     if (font_atlas_.valid()) {
         shape_text_nodes(*root_, viewport_width, viewport_height, frame_index);
     }
@@ -74,12 +123,16 @@ void GameUi::update(float viewport_width, float viewport_height, uint32_t frame_
 
 void GameUi::shape_text_nodes(UiNode& node, float viewport_width, float viewport_height,
                                uint32_t frame_index) {
+    if (node.hidden_by_if) return;
+
     if (!node.text_content.empty() && node.type == UiNodeType::text) {
         UiNode* layout_node = node.parent ? node.parent : &node;
         float max_width = layout_node->layout_rect.w;
+        float font_size = layout_node->style.font_size;
+        float line_height = layout_node->style.line_height;
 
         auto shaped = TextShaper::shape(node.text_content, font_atlas_,
-                                        default_font_size_, max_width);
+                                        font_size, max_width, line_height);
         renderer_.update_text(shaped.glyphs, *layout_node,
                               font_atlas_.atlas_bindless_index(),
                               font_atlas_.pixel_range(),
@@ -88,6 +141,18 @@ void GameUi::shape_text_nodes(UiNode& node, float viewport_width, float viewport
 
     for (auto& child : node.children) {
         shape_text_nodes(*child, viewport_width, viewport_height, frame_index);
+    }
+}
+
+void GameUi::init_text_templates(UiNode& node) {
+    if (node.type == UiNodeType::text && !node.text_content.empty()) {
+        // If text contains {key} placeholders, save as template
+        if (node.text_content.find('{') != std::string::npos) {
+            node.text_template = node.text_content;
+        }
+    }
+    for (auto& child : node.children) {
+        init_text_templates(*child);
     }
 }
 

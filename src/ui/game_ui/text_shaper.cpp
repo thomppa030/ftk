@@ -2,31 +2,54 @@
 #include "ui/game_ui/font_atlas.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace fjell {
 
+static constexpr float TAB_STOP_SPACES = 4.0f;
+
 ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
-                             float font_size, float max_width) {
+                             float font_size, float max_width,
+                             float line_height_override) {
     ShapedText result{};
-    float scale = font_size; // em-normalized × font_size = pixels
+    float scale = font_size;
     float cursor_x = 0.0f;
-    // cursor_y tracks the baseline position from the top of the text box.
-    // First baseline = ascender distance from top.
     float baseline_y = font.metrics().ascender * scale;
-    float line_height = font.metrics().line_height * scale;
+    float line_height = (line_height_override > 0.0f)
+        ? line_height_override
+        : font.metrics().line_height * scale;
     float max_x = 0.0f;
 
     size_t word_start_glyph = 0;
     float word_start_x = 0.0f;
+    uint32_t prev_cp = 0;
+
+    // Get space advance for tab stops
+    const auto* space_gi = font.glyph(' ');
+    float space_adv = space_gi ? space_gi->advance * scale : font_size * 0.25f;
 
     for (size_t i = 0; i < text.size(); ++i) {
         char c = text[i];
+
+        // Carriage return: skip (handle \r\n as just \n)
+        if (c == '\r') continue;
 
         if (c == '\n') {
             cursor_x = 0.0f;
             baseline_y += line_height;
             word_start_glyph = result.glyphs.size();
             word_start_x = 0.0f;
+            prev_cp = 0;
+            continue;
+        }
+
+        if (c == '\t') {
+            float tab_width = space_adv * TAB_STOP_SPACES;
+            cursor_x = std::ceil(cursor_x / tab_width + 1.0f) * tab_width;
+            max_x = std::max(max_x, cursor_x);
+            word_start_glyph = result.glyphs.size();
+            word_start_x = cursor_x;
+            prev_cp = 0;
             continue;
         }
 
@@ -37,6 +60,11 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
             if (!gi) continue;
         }
 
+        // Kerning adjustment
+        if (prev_cp != 0) {
+            cursor_x += font.kerning(prev_cp, cp) * scale;
+        }
+
         float adv = gi->advance * scale;
 
         // Space: advance cursor, track word boundary, don't emit glyph
@@ -45,6 +73,7 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
             max_x = std::max(max_x, cursor_x);
             word_start_glyph = result.glyphs.size();
             word_start_x = cursor_x;
+            prev_cp = cp;
             continue;
         }
 
@@ -64,12 +93,10 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
             }
             word_start_glyph = result.glyphs.size();
             word_start_x = 0.0f;
+            prev_cp = 0;
         }
 
-        // Emit glyph quad covering the full MSDF cell.
-        // quad_x: left edge relative to cursor (em, includes SDF padding)
-        // quad_y: top edge relative to baseline (em, Y-up, positive = above baseline)
-        // Screen Y is Y-down, so quad top in screen = baseline_y - quad_y * scale
+        // Emit glyph quad
         if (gi->quad_w > 0 && gi->quad_h > 0) {
             PositionedGlyph pg{};
             pg.x = cursor_x + gi->quad_x * scale;
@@ -85,6 +112,7 @@ ShapedText TextShaper::shape(const std::string& text, const FontAtlas& font,
 
         cursor_x += adv;
         max_x = std::max(max_x, cursor_x);
+        prev_cp = cp;
     }
 
     result.width = max_x;

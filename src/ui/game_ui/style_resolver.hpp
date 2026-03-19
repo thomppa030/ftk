@@ -10,6 +10,13 @@ public:
     /// Apply stylesheet rules to a UI node tree, computing styles per node.
     void resolve(UiNode& root, const Stylesheet& sheet);
 
+    /// Re-resolve a single node (e.g. when interaction state changes).
+    /// Resets non-inherited properties and re-applies matching rules.
+    void resolve_single(UiNode& node, const Stylesheet& sheet);
+
+    /// Store the active stylesheet for targeted re-resolves.
+    void set_stylesheet(const Stylesheet& sheet) { active_sheet_ = &sheet; }
+
 private:
     void resolve_node(UiNode& node, const Stylesheet& sheet,
                       const UiComputedStyle* parent_style);
@@ -21,6 +28,8 @@ private:
     static float parse_px(const std::string& value);
     static UiEdges parse_edges(const std::string& value);
     static UiCorners parse_corners(const std::string& value);
+
+    const Stylesheet* active_sheet_{nullptr};
 };
 
 } // namespace fjell

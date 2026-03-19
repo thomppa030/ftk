@@ -178,13 +178,26 @@ void FontAtlas::create(const std::string& font_path,
         glyphs_[cp] = gi;
     }
 
+    // Build kerning table for all codepoint pairs that have non-zero kerning
+    for (uint32_t a = FIRST_CHAR; a <= LAST_CHAR; ++a) {
+        for (uint32_t b = FIRST_CHAR; b <= LAST_CHAR; ++b) {
+            double kern = 0.0;
+            if (msdfgen::getKerning(kern, font, static_cast<msdfgen::unicode_t>(a),
+                                    static_cast<msdfgen::unicode_t>(b),
+                                    msdfgen::FONT_SCALING_EM_NORMALIZED) && kern != 0.0) {
+                kerning_[{a, b}] = static_cast<float>(kern);
+            }
+        }
+    }
+
     msdfgen::destroyFont(font);
     msdfgen::deinitializeFreetype(ft);
 
+    // CLAMP_TO_EDGE prevents sampling outside the atlas; no anisotropic filtering for MSDF
     atlas_texture_ = std::make_unique<Texture>(
         device, physical_device, command_pool, queue,
         atlas.data(), atlas_width_, atlas_height_,
-        VK_FORMAT_R8G8B8A8_UNORM, 1);
+        VK_FORMAT_R8G8B8A8_UNORM, 1, true);
     atlas_index_ = bindless.add(*atlas_texture_);
 
     FJELL_GFX_INFO("Font atlas created: {}x{}, {} glyphs, {}px cells, pxRange={}",
@@ -194,6 +207,11 @@ void FontAtlas::create(const std::string& font_path,
 const GlyphInfo* FontAtlas::glyph(uint32_t codepoint) const {
     auto it = glyphs_.find(codepoint);
     return it != glyphs_.end() ? &it->second : nullptr;
+}
+
+float FontAtlas::kerning(uint32_t left, uint32_t right) const {
+    auto it = kerning_.find({left, right});
+    return it != kerning_.end() ? it->second : 0.0f;
 }
 
 } // namespace fjell

@@ -30,10 +30,23 @@
 }
 
 .health-bar-fill {
-    width: 140;
+    width: 200;
     height: 20;
+    color: #44cc44;
     background: linear-gradient(90deg, #22aa22, #66dd44);
     border-radius: 4;
+}
+
+.debug-info {
+    align-self: flex-start;
+    padding: 8;
+    gap: 2;
+}
+
+.debug-text {
+    height: 16;
+    font-size: 12;
+    color: #aaaaaa;
 }
 
 .bottom-panel {
@@ -51,10 +64,26 @@
     border-radius: 6;
     border: 2 solid #555555;
     box-shadow: 0 2 6 0 rgba(0, 0, 0, 0.3);
+    transition: all 0.15s ease-in-out;
+}
+
+.slot:hover {
+    border-color: #888888;
+    background-color: rgba(50, 50, 50, 0.9);
+    box-shadow: 0 2 10 0 rgba(255, 255, 255, 0.1);
+}
+
+.slot:active {
+    background-color: rgba(60, 60, 60, 1.0);
 }
 
 .active {
     border-color: #d4a054;
     background: linear-gradient(180deg, #444444, #333333);
     box-shadow: 0 2 8 0 rgba(212, 160, 84, 0.3);
+}
+
+.active:hover {
+    border-color: #e8b868;
+    box-shadow: 0 2 12 0 rgba(212, 160, 84, 0.5);
 }

@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vulkan/vulkan.h>
 
 namespace fjell {
@@ -53,6 +54,7 @@ public:
     void destroy();
 
     [[nodiscard]] const GlyphInfo* glyph(uint32_t codepoint) const;
+    [[nodiscard]] float kerning(uint32_t left, uint32_t right) const;
     [[nodiscard]] const FontMetrics& metrics() const { return metrics_; }
     [[nodiscard]] uint32_t atlas_bindless_index() const { return atlas_index_; }
     [[nodiscard]] uint32_t atlas_width() const { return atlas_width_; }
@@ -61,7 +63,15 @@ public:
     [[nodiscard]] bool valid() const { return atlas_texture_ != nullptr; }
 
 private:
+    struct PairHash {
+        std::size_t operator()(std::pair<uint32_t, uint32_t> p) const {
+            return std::hash<uint64_t>{}(
+                (static_cast<uint64_t>(p.first) << 32) | p.second);
+        }
+    };
+
     std::unordered_map<uint32_t, GlyphInfo> glyphs_;
+    std::unordered_map<std::pair<uint32_t, uint32_t>, float, PairHash> kerning_;
     FontMetrics metrics_{};
     std::unique_ptr<Texture> atlas_texture_;
     uint32_t atlas_index_{0};

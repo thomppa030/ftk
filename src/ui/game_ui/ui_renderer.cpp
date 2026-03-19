@@ -286,6 +286,7 @@ void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
 void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads,
                                 float viewport_width, float viewport_height) {
     if (node.style.display == UiDisplay::none) return;
+    if (node.hidden_by_if) return;
     if (node.layout_rect.w <= 0 || node.layout_rect.h <= 0) return;
 
     const auto& s = node.style;
@@ -320,9 +321,21 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
         // flags: 0 = normal, 1 = gradient
         float flags = s.gradient.active() ? 1.0f : 0.0f;
 
+        float rect_w = node.layout_rect.w;
+
+        // Bar element: shrink background quad to fill percentage
+        if (node.tag == "bar") {
+            auto pct_it = node.attributes.find("_fill_pct");
+            if (pct_it != node.attributes.end()) {
+                float pct = 0.0f;
+                try { pct = std::stof(pct_it->second); } catch (...) {}
+                rect_w *= pct;
+            }
+        }
+
         GpuUiQuad quad{};
         quad.rect = {node.layout_rect.x, node.layout_rect.y,
-                     node.layout_rect.w, node.layout_rect.h};
+                     rect_w, node.layout_rect.h};
         quad.color = {s.background_color.r, s.background_color.g,
                       s.background_color.b, s.background_color.a};
         quad.border_color = {s.border_color.r, s.border_color.g,

@@ -8,7 +8,47 @@
 namespace fjell {
 
 void StyleResolver::resolve(UiNode& root, const Stylesheet& sheet) {
+    active_sheet_ = &sheet;
     resolve_node(root, sheet, nullptr);
+}
+
+void StyleResolver::resolve_single(UiNode& node, const Stylesheet& sheet) {
+    // Reset to defaults, then re-inherit from parent
+    UiComputedStyle fresh{};
+    if (node.parent) {
+        inherit_properties(fresh, node.parent->style);
+    }
+    node.style = fresh;
+
+    // Collect and apply matching rules
+    struct Match {
+        uint32_t specificity;
+        const std::unordered_map<std::string, std::string>* props;
+    };
+    std::vector<Match> matches;
+
+    for (const auto& rule : sheet.rules) {
+        if (selector_matches(node, rule.selector)) {
+            matches.push_back({rule.selector.specificity(), &rule.properties});
+        }
+    }
+
+    std::sort(matches.begin(), matches.end(),
+              [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
+
+    for (const auto& match : matches) {
+        for (const auto& [name, value] : *match.props) {
+            apply_property(node.style, name, value);
+        }
+    }
+
+    // Inline style attributes
+    for (const auto& [name, value] : node.attributes) {
+        if (name == "id" || name == "class" || name == "style") continue;
+        if (name.find("style-") == 0) {
+            apply_property(node.style, name.substr(6), value);
+        }
+    }
 }
 
 void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
@@ -69,6 +109,13 @@ bool StyleResolver::selector_matches(const UiNode& node, const StyleSelector& se
     if (!sel.id.empty() && node.id != sel.id) return false;
     if (!sel.class_.empty() && !node.has_class(sel.class_)) return false;
     if (!sel.tag.empty() && node.tag != sel.tag) return false;
+
+    // Check pseudo-class against interaction state
+    if (!sel.pseudo.empty()) {
+        if (sel.pseudo == "hover" && !node.is_hovered()) return false;
+        if (sel.pseudo == "active" && !node.is_active()) return false;
+        if (sel.pseudo == "focus" && !node.is_focused()) return false;
+    }
 
     if (!sel.parent.empty()) {
         bool found = false;
@@ -271,6 +318,9 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
     if (name == "color") { style.color = parse_color(value); return; }
     if (name == "font-size") { style.font_size = parse_px(value); return; }
     if (name == "line-height") { style.line_height = parse_px(value); return; }
+
+    // Transition: stored for UiAnimation to process
+    if (name == "transition") { style.transition = value; return; }
 
     // Box shadow: "offset_x offset_y blur spread #color"
     // e.g. "0 4 8 0 rgba(0, 0, 0, 0.3)" or "2 2 6 #00000080"

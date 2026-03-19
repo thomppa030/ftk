@@ -426,11 +426,13 @@ void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
-                                    ThreadPool& pool) {
+                                    ThreadPool& pool, const Input* input) {
     // Build render queue with parallel frustum culling
     std::vector<DrawCommand> shadow_commands;
     if (scene) {
         render_queue_.clear();
+        render_queue_.reserve(scene->objects().size());
+        shadow_commands.reserve(scene->objects().size());
         Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
 
         // Build per-cascade shadow caster frustums from light matrices.
@@ -492,6 +494,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     if (!camera_frustum.intersects(world_aabb)) {
                         local_culled[chunk_id]++;
                         continue;
+                    }
+
+                    // Precompute distance for transparent sort (avoid sqrt in sort comparator)
+                    if (dc.transparent) {
+                        glm::vec3 obj_pos = glm::vec3(dc.world_matrix[3]);
+                        dc.camera_distance = glm::length(camera_position_ - obj_pos);
                     }
 
                     commands.push_back(dc);
@@ -824,7 +832,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         if (tm_extent.width == 0 || tm_extent.height == 0) return;
 
         game_ui_.update(static_cast<float>(tm_extent.width),
-                        static_cast<float>(tm_extent.height), current_frame_);
+                        static_cast<float>(tm_extent.height), current_frame_, dt, input,
+                        viewport_offset_);
 
         // Transition tonemap output: SHADER_READ_ONLY → COLOR_ATTACHMENT
         transition_image(cb, tonemap_pass_.output_image(),
@@ -923,7 +932,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                                           const std::vector<ViewportRenderRequest>& viewports,
                                           const DirectionalLight& light,
                                           Scene* scene, float dt,
-                                          uint32_t selected_id, ThreadPool& pool) {
+                                          uint32_t selected_id, ThreadPool& pool,
+                                          const Input* input) {
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -943,7 +953,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
                               vp.camera_position, light, scene, vp.target->extent());
         update_light_ssbo(current_frame_, scene);
-        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool);
+        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, input);
     }
 
     // --- Render ImGui to swapchain ---
@@ -1111,7 +1121,8 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
 void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                                const DirectionalLight& light,
                                Scene* scene, float dt,
-                               uint32_t selected_id, ThreadPool& pool) {
+                               uint32_t selected_id, ThreadPool& pool,
+                               const Input* input) {
     auto vk_device = device_.handle();
 
     vkWaitForFences(vk_device, 1, &in_flight_[current_frame_], VK_TRUE,
@@ -1183,7 +1194,7 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
 
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
     record_command_buffer(command_buffers_[current_frame_], image_index,
-                          viewports, light, scene, dt, selected_id, pool);
+                          viewports, light, scene, dt, selected_id, pool, input);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 

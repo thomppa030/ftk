@@ -183,6 +183,31 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         auto css_path = ui_path.substr(0, ui_path.size() - 5) + ".fjss";
         if (std::filesystem::exists(ui_path)) {
             vulkan_context_.game_ui().load(ui_path, css_path);
+
+            // Seed demo context values for the test HUD
+            auto& ctx = vulkan_context_.game_ui().context();
+            ctx.set("player.health", "72");
+            ctx.set("player.max_health", "100");
+            ctx.set("show_debug", "1");
+            ctx.set("fps", "60");
+            ctx.set("player.pos", "0, 0, 0");
+            ctx.set("active_slot", "2"); // slot 2 starts active
+            ctx.bind_action("select_slot_1", [&ctx] {
+                FJELL_CORE_INFO("UI: slot 1 clicked");
+                ctx.set("active_slot", "1");
+            });
+            ctx.bind_action("select_slot_2", [&ctx] {
+                FJELL_CORE_INFO("UI: slot 2 clicked");
+                ctx.set("active_slot", "2");
+            });
+            ctx.bind_action("select_slot_3", [&ctx] {
+                FJELL_CORE_INFO("UI: slot 3 clicked");
+                ctx.set("active_slot", "3");
+            });
+            ctx.bind_action("select_slot_4", [&ctx] {
+                FJELL_CORE_INFO("UI: slot 4 clicked");
+                ctx.set("active_slot", "4");
+            });
         }
     }
 
@@ -1116,7 +1141,8 @@ void Engine::run() {
         }
 
         vulkan_context_.sync_sprite_textures(scene_, *resource_manager_);
-        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_);
+        vulkan_context_.set_viewport_offset(viewport_manager_.active_viewport_pos());
+        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, &input_);
     }
     FJELL_CORE_INFO("Exiting main loop");
 }
