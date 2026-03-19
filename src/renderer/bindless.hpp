@@ -15,20 +15,22 @@ class Texture;
 
 // Material data as stored in the GPU storage buffer (96 bytes).
 // Indexed by material ID from push constants.
-// Layout is shader-driven: texture_indices and params are mapped by
-// the FJSL parser based on uniform declarations. For the built-in
-// standard shader, the mapping is:
-//   texture_indices[0] = base_color
-//   texture_indices[1] = normal_map
-//   texture_indices[2] = metallic_roughness
-//   texture_indices[3] = emissive
-//   params[0..3]       = base_color_factor (vec4)
-//   params[4]          = metallic_factor
-//   params[5]          = roughness_factor
-//   params[6]          = has_normal_map
+// Layout:
+//   texture_indices[0-3]: fixed PBR (base_color, normal, metallic_roughness, emissive)
+//   texture_indices[4-7]: custom shader textures
+//   base_params[0..3]:  base_color_factor (vec4)
+//   base_params[4]:     metallic_factor
+//   base_params[5]:     roughness_factor
+//   base_params[6]:     has_normal_map
+//   base_params[7..11]: reserved
+//   param_offset:       offset into custom params SSBO (in floats)
+//   param_count:        number of custom floats
 struct GpuMaterial {
-    uint32_t texture_indices[8]{};   // 32 bytes — up to 8 texture slots
-    float params[16]{};              // 64 bytes — up to 16 scalar params
+    uint32_t texture_indices[8]{};   // 32 bytes — slots 0-3: PBR, 4-7: custom
+    float base_params[12]{};         // 48 bytes — PBR params
+    uint32_t param_offset{0};        // 4 bytes  — offset into params SSBO (in floats)
+    uint32_t param_count{0};         // 4 bytes  — number of custom floats
+    uint32_t padding[2]{};           // 8 bytes  — align to 96
 };
 
 // Manages a single large descriptor set containing all textures and materials
@@ -50,6 +52,16 @@ public:
     // Register a material and get its index for push constants.
     uint32_t add_material(const GpuMaterial& mat);
 
+    // Update an existing material in the SSBO.
+    void update_material(uint32_t index, const GpuMaterial& mat);
+
+    // Allocate a contiguous range of floats in the custom params SSBO.
+    // Returns the offset (in floats) into the params buffer.
+    uint32_t allocate_params(uint32_t count);
+
+    // Write custom param values into the params SSBO at a given offset.
+    void write_params(uint32_t offset, const float* data, uint32_t count);
+
     // Flush pending texture descriptor writes.
     void update_descriptors();
 
@@ -58,8 +70,16 @@ public:
 
     [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_; }
     [[nodiscard]] VkDescriptorSet descriptor_set() const { return set_; }
+    [[nodiscard]] const GpuMaterial& material_at(uint32_t index) const { return materials_[index]; }
+
+    // Read a custom param value by absolute offset (for UI readback)
+    [[nodiscard]] float read_param(uint32_t offset) const {
+        return offset < params_.size() ? params_[offset] : 0.0f;
+    }
 
 private:
+    static constexpr uint32_t INITIAL_PARAMS_CAPACITY = 4096; // floats
+
     VkDevice device_{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
 
@@ -77,10 +97,15 @@ private:
     std::unordered_map<VkImageView, uint32_t> view_to_index_;
     uint32_t tex_dirty_from_{0};
 
-    // Material SSBO
+    // Material SSBO (binding 1)
     std::vector<GpuMaterial> materials_;
     std::unique_ptr<Buffer> material_ssbo_;
     bool materials_dirty_{false};
+
+    // Custom params SSBO (binding 2)
+    std::vector<float> params_;
+    std::unique_ptr<Buffer> params_ssbo_;
+    bool params_dirty_{false};
 };
 
 } // namespace fjell

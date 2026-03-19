@@ -4,8 +4,11 @@
 #include "fjell_common.glsl"
 
 struct GpuMaterial {
-    uint texture_indices[8];   // 32 bytes — up to 8 texture slots
-    float params[16];          // 64 bytes — up to 16 scalar params
+    uint texture_indices[8];   // 32 bytes — slots 0-3: PBR, 4-7: custom
+    float base_params[12];     // 48 bytes — PBR params
+    uint param_offset;         // 4 bytes  — offset into params SSBO (in floats)
+    uint param_count;          // 4 bytes  — number of custom floats
+    uint padding[2];           // 8 bytes  — align to 96
 };
 
 layout(set = 0, binding = 0) uniform GlobalUbo {
@@ -56,6 +59,10 @@ layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
 };
 
+layout(set = 1, binding = 2) readonly buffer ParamsBuffer {
+    float custom_params[];
+};
+
 struct DrawData {
     mat4 model;
     uint material_id;
@@ -85,15 +92,15 @@ void main() {
     uint material_id = draws[frag_draw_index].material_id;
     GpuMaterial mat = materials[material_id];
 
-    // Unpack standard PBR layout from generic arrays
+    // Unpack standard PBR layout
     uint base_color_idx         = mat.texture_indices[0];
     uint normal_idx             = mat.texture_indices[1];
     uint metallic_roughness_idx = mat.texture_indices[2];
     uint emissive_idx           = mat.texture_indices[3];
-    vec4 base_color_factor      = vec4(mat.params[0], mat.params[1], mat.params[2], mat.params[3]);
-    float metallic_factor       = mat.params[4];
-    float roughness_factor      = mat.params[5];
-    float has_normal_map        = mat.params[6];
+    vec4 base_color_factor      = vec4(mat.base_params[0], mat.base_params[1], mat.base_params[2], mat.base_params[3]);
+    float metallic_factor       = mat.base_params[4];
+    float roughness_factor      = mat.base_params[5];
+    float has_normal_map        = mat.base_params[6];
 
     // Base color
     vec4 base_color = texture(textures[nonuniformEXT(base_color_idx)], frag_tex_coord) *

@@ -26,8 +26,9 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
         throw std::runtime_error("Failed to create bindless default sampler");
     }
 
-    // Descriptor set layout: binding 0 = texture array, binding 1 = material SSBO
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    // Descriptor set layout: binding 0 = texture array, binding 1 = material SSBO,
+    // binding 2 = custom params SSBO
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
 
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -39,11 +40,17 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    // Partially bound + update-after-bind on textures, update-after-bind on SSBO
-    std::array<VkDescriptorBindingFlags, 2> bind_flags{};
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    // Partially bound + update-after-bind on textures, update-after-bind on SSBOs
+    std::array<VkDescriptorBindingFlags, 3> bind_flags{};
     bind_flags[0] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
                     VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
     bind_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+    bind_flags[2] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo flags_ci{};
     flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
@@ -61,12 +68,12 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
         throw std::runtime_error("Failed to create bindless descriptor set layout");
     }
 
-    // Descriptor pool: sampler array + storage buffer
+    // Descriptor pool: sampler array + 2 storage buffers
     std::array<VkDescriptorPoolSize, 2> pool_sizes{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     pool_sizes[0].descriptorCount = MAX_TEXTURES;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_sizes[1].descriptorCount = 1;
+    pool_sizes[1].descriptorCount = 2;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -79,7 +86,7 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
         throw std::runtime_error("Failed to create bindless descriptor pool");
     }
 
-    // Allocate descriptor set (no variable count — we use partially-bound instead)
+    // Allocate descriptor set
     VkDescriptorSetAllocateInfo alloc_ci{};
     alloc_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     alloc_ci.descriptorPool = pool_;
@@ -91,35 +98,62 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
     }
 
     // Pre-allocate material SSBO (96 bytes per material * 1024 = 96 KB)
-    VkDeviceSize ssbo_size = sizeof(GpuMaterial) * MAX_MATERIALS;
+    VkDeviceSize mat_ssbo_size = sizeof(GpuMaterial) * MAX_MATERIALS;
     material_ssbo_ = std::make_unique<Buffer>(
-        device_, physical_device_, ssbo_size,
+        device_, physical_device_, mat_ssbo_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     material_ssbo_->map();
 
-    // Write SSBO descriptor (binding 1)
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = material_ssbo_->handle();
-    buffer_info.offset = 0;
-    buffer_info.range = ssbo_size;
+    // Pre-allocate custom params SSBO
+    VkDeviceSize params_ssbo_size = INITIAL_PARAMS_CAPACITY * sizeof(float);
+    params_ssbo_ = std::make_unique<Buffer>(
+        device_, physical_device_, params_ssbo_size,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    params_ssbo_->map();
+    // Initialize with a single zero so the buffer is never empty
+    params_.push_back(0.0f);
+    std::memcpy(params_ssbo_->mapped(), params_.data(), sizeof(float));
 
-    VkWriteDescriptorSet ssbo_write{};
-    ssbo_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    ssbo_write.dstSet = set_;
-    ssbo_write.dstBinding = 1;
-    ssbo_write.dstArrayElement = 0;
-    ssbo_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    ssbo_write.descriptorCount = 1;
-    ssbo_write.pBufferInfo = &buffer_info;
+    // Write SSBO descriptors (binding 1 = materials, binding 2 = params)
+    VkDescriptorBufferInfo mat_buffer_info{};
+    mat_buffer_info.buffer = material_ssbo_->handle();
+    mat_buffer_info.offset = 0;
+    mat_buffer_info.range = mat_ssbo_size;
 
-    vkUpdateDescriptorSets(device_, 1, &ssbo_write, 0, nullptr);
+    VkDescriptorBufferInfo params_buffer_info{};
+    params_buffer_info.buffer = params_ssbo_->handle();
+    params_buffer_info.offset = 0;
+    params_buffer_info.range = params_ssbo_size;
+
+    std::array<VkWriteDescriptorSet, 2> ssbo_writes{};
+    ssbo_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    ssbo_writes[0].dstSet = set_;
+    ssbo_writes[0].dstBinding = 1;
+    ssbo_writes[0].dstArrayElement = 0;
+    ssbo_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    ssbo_writes[0].descriptorCount = 1;
+    ssbo_writes[0].pBufferInfo = &mat_buffer_info;
+
+    ssbo_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    ssbo_writes[1].dstSet = set_;
+    ssbo_writes[1].dstBinding = 2;
+    ssbo_writes[1].dstArrayElement = 0;
+    ssbo_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    ssbo_writes[1].descriptorCount = 1;
+    ssbo_writes[1].pBufferInfo = &params_buffer_info;
+
+    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(ssbo_writes.size()),
+                           ssbo_writes.data(), 0, nullptr);
 
     FJELL_GFX_DEBUG("Bindless registry created (max {} textures, {} materials)",
                     MAX_TEXTURES, MAX_MATERIALS);
 }
 
 void BindlessTextures::destroy() {
+    params_ssbo_.reset();
+    params_.clear();
     material_ssbo_.reset();
     materials_.clear();
     if (pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, pool_, nullptr); pool_ = VK_NULL_HANDLE; }
@@ -159,6 +193,30 @@ uint32_t BindlessTextures::add_material(const GpuMaterial& mat) {
     return index;
 }
 
+void BindlessTextures::update_material(uint32_t index, const GpuMaterial& mat) {
+    if (index < materials_.size()) {
+        materials_[index] = mat;
+        materials_dirty_ = true;
+    }
+}
+
+uint32_t BindlessTextures::allocate_params(uint32_t count) {
+    if (count == 0) return 0;
+    uint32_t offset = static_cast<uint32_t>(params_.size());
+    params_.resize(params_.size() + count, 0.0f);
+    params_dirty_ = true;
+    return offset;
+}
+
+void BindlessTextures::write_params(uint32_t offset, const float* data, uint32_t count) {
+    if (count == 0) return;
+    if (offset + count > params_.size()) {
+        params_.resize(offset + count, 0.0f);
+    }
+    std::memcpy(params_.data() + offset, data, count * sizeof(float));
+    params_dirty_ = true;
+}
+
 void BindlessTextures::update_descriptors() {
     if (entries_.empty() || tex_dirty_from_ >= entries_.size()) return;
 
@@ -191,11 +249,43 @@ void BindlessTextures::update_descriptors() {
 }
 
 void BindlessTextures::update_material_buffer() {
-    if (!materials_dirty_ || materials_.empty()) return;
+    if (materials_dirty_ && !materials_.empty()) {
+        std::memcpy(material_ssbo_->mapped(), materials_.data(),
+                    materials_.size() * sizeof(GpuMaterial));
+        materials_dirty_ = false;
+    }
 
-    std::memcpy(material_ssbo_->mapped(), materials_.data(),
-                materials_.size() * sizeof(GpuMaterial));
-    materials_dirty_ = false;
+    if (params_dirty_ && !params_.empty()) {
+        VkDeviceSize needed = params_.size() * sizeof(float);
+        if (needed > params_ssbo_->size()) {
+            // Grow the params SSBO and re-bind descriptor
+            VkDeviceSize new_size = needed * 2;
+            params_ssbo_ = std::make_unique<Buffer>(
+                device_, physical_device_, new_size,
+                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            params_ssbo_->map();
+
+            VkDescriptorBufferInfo params_info{};
+            params_info.buffer = params_ssbo_->handle();
+            params_info.offset = 0;
+            params_info.range = new_size;
+
+            VkWriteDescriptorSet write{};
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = set_;
+            write.dstBinding = 2;
+            write.dstArrayElement = 0;
+            write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write.descriptorCount = 1;
+            write.pBufferInfo = &params_info;
+
+            vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+        }
+
+        std::memcpy(params_ssbo_->mapped(), params_.data(), needed);
+        params_dirty_ = false;
+    }
 }
 
 } // namespace fjell
