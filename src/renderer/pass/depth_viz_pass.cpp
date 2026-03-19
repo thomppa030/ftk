@@ -3,6 +3,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/shader_utils.hpp"
+#include "renderer/vk_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -31,17 +32,7 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
     }
 
     // Output sampler
-    VkSamplerCreateInfo out_sampler_info{};
-    out_sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    out_sampler_info.magFilter = VK_FILTER_LINEAR;
-    out_sampler_info.minFilter = VK_FILTER_LINEAR;
-    out_sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    out_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    out_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-
-    if (vkCreateSampler(device_, &out_sampler_info, nullptr, &sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create depth viz output sampler");
-    }
+    sampler_ = vk_utils::create_linear_clamp_sampler(device_);
 
     // Descriptor set layout: one depth sampler
     VkDescriptorSetLayoutBinding binding{};
@@ -317,40 +308,12 @@ void DepthVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || view_ == VK_NULL_HANDLE) return;
 
     // Update descriptor: point at the target's depth view (resolved single-sample when MSAA)
-    VkDescriptorImageInfo depth_info{};
-    depth_info.sampler = depth_sampler_;
-    depth_info.imageView = ctx.target->depth_view();
-    depth_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = depth_sets_[ctx.frame_index];
-    write.dstBinding = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.descriptorCount = 1;
-    write.pImageInfo = &depth_info;
-
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    vk_utils::write_image_descriptor(device_, depth_sets_[ctx.frame_index], 0,
+                                     ctx.target->depth_view(), depth_sampler_,
+                                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
 
     // Transition output image
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    barrier.srcAccessMask = 0;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image_;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(ctx.cmd, &dep);
+    vk_utils::prepare_color_attachment(ctx.cmd, image_);
 
     // Render
     VkRenderingAttachmentInfo color_attachment{};
@@ -395,14 +358,7 @@ void DepthVizPass::record(const FrameContext& ctx) {
     vkCmdEndRendering(ctx.cmd);
 
     // Transition output to shader-readable
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    vkCmdPipelineBarrier2(ctx.cmd, &dep);
+    vk_utils::finish_color_attachment(ctx.cmd, image_);
 }
 
 } // namespace fjell

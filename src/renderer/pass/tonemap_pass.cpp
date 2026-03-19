@@ -3,6 +3,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/shader_utils.hpp"
+#include "renderer/vk_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -17,29 +18,8 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
 
-    // Input sampler (reads HDR)
-    VkSamplerCreateInfo in_sampler_ci{};
-    in_sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    in_sampler_ci.magFilter = VK_FILTER_LINEAR;
-    in_sampler_ci.minFilter = VK_FILTER_LINEAR;
-    in_sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    in_sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    in_sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(device_, &in_sampler_ci, nullptr, &input_sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap input sampler");
-    }
-
-    // Output sampler
-    VkSamplerCreateInfo out_sampler_ci{};
-    out_sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    out_sampler_ci.magFilter = VK_FILTER_LINEAR;
-    out_sampler_ci.minFilter = VK_FILTER_LINEAR;
-    out_sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    out_sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    out_sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(device_, &out_sampler_ci, nullptr, &sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap output sampler");
-    }
+    input_sampler_ = vk_utils::create_linear_clamp_sampler(device_);
+    sampler_ = vk_utils::create_linear_clamp_sampler(device_);
 
     // Descriptor
     VkDescriptorSetLayoutBinding binding{};
@@ -80,7 +60,7 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
         throw std::runtime_error("Failed to allocate tonemap descriptor sets");
     }
 
-    // Pipeline (no push constants needed)
+    // Pipeline layout
     VkPipelineLayoutCreateInfo pipe_layout_ci{};
     pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipe_layout_ci.setLayoutCount = 1;
@@ -89,91 +69,17 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
         throw std::runtime_error("Failed to create tonemap pipeline layout");
     }
 
-    // Shaders
-    auto vert_code = read_spirv(base_path::resolve("shaders/depth_viz.vert.spv"));
-    auto frag_code = read_spirv(base_path::resolve("shaders/tonemap.frag.spv"));
+    // Pipeline
+    auto vert_module = create_shader_module(device_, read_spirv(base_path::resolve("shaders/depth_viz.vert.spv")));
+    auto frag_module = create_shader_module(device_, read_spirv(base_path::resolve("shaders/tonemap.frag.spv")));
 
-    auto vert_module = create_shader_module(device_, vert_code);
-    auto frag_module = create_shader_module(device_, frag_code);
-
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vert_module;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = frag_module;
-    stages[1].pName = "main";
-
-    VkPipelineVertexInputStateCreateInfo vertex_input{};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-
-    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
-    dynamic_state.pDynamicStates = dynamic_states.data();
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkPipelineColorBlendAttachmentState blend{};
-    blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 1;
-    color_blending.pAttachments = &blend;
-
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-
-    // Output is LDR sRGB
-    VkFormat color_format = VK_FORMAT_R8G8B8A8_SRGB;
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachmentFormats = &color_format;
-
-    VkGraphicsPipelineCreateInfo pipeline_ci{};
-    pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_ci.pNext = &rendering_info;
-    pipeline_ci.stageCount = 2;
-    pipeline_ci.pStages = stages.data();
-    pipeline_ci.pVertexInputState = &vertex_input;
-    pipeline_ci.pInputAssemblyState = &input_assembly;
-    pipeline_ci.pViewportState = &viewport_state;
-    pipeline_ci.pRasterizationState = &rasterizer;
-    pipeline_ci.pMultisampleState = &multisampling;
-    pipeline_ci.pDepthStencilState = &depth_stencil;
-    pipeline_ci.pColorBlendState = &color_blending;
-    pipeline_ci.pDynamicState = &dynamic_state;
-    pipeline_ci.layout = layout_;
-
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
-                                   nullptr, &pipeline_) != VK_SUCCESS) {
-        vkDestroyShaderModule(device_, vert_module, nullptr);
-        vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create tonemap pipeline");
-    }
+    pipeline_ = vk_utils::create_fullscreen_pipeline({
+        .device = device_,
+        .layout = layout_,
+        .vert_module = vert_module,
+        .frag_module = frag_module,
+        .color_format = VK_FORMAT_R8G8B8A8_SRGB,
+    });
 
     vkDestroyShaderModule(device_, frag_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
@@ -271,38 +177,11 @@ void TonemapPass::record(const FrameContext& ctx) {
     auto cmd = ctx.cmd;
 
     // Update input descriptor
-    VkDescriptorImageInfo img_info{};
-    img_info.sampler = input_sampler_;
-    img_info.imageView = source_view_;
-    img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    vk_utils::write_image_descriptor(device_, input_sets_[ctx.frame_index], 0,
+                                     source_view_, input_sampler_);
 
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = input_sets_[ctx.frame_index];
-    write.dstBinding = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    write.descriptorCount = 1;
-    write.pImageInfo = &img_info;
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-
-    // Transition output
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image_;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    // Transition output to writable
+    vk_utils::prepare_color_attachment(cmd, image_);
 
     // Render
     VkRenderingAttachmentInfo color_attachment{};
@@ -341,13 +220,7 @@ void TonemapPass::record(const FrameContext& ctx) {
     vkCmdEndRendering(cmd);
 
     // Transition to readable
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    vk_utils::finish_color_attachment(cmd, image_);
 }
 
 } // namespace fjell

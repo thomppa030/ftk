@@ -3,6 +3,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/shader_utils.hpp"
+#include "renderer/vk_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -18,17 +19,7 @@ void LightVizPass::create(Device& device, const PassResources& /*resources*/) {
     physical_device_ = device.physical_device();
 
     // Output sampler
-    VkSamplerCreateInfo out_sampler_info{};
-    out_sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    out_sampler_info.magFilter = VK_FILTER_LINEAR;
-    out_sampler_info.minFilter = VK_FILTER_LINEAR;
-    out_sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    out_sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    out_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-
-    if (vkCreateSampler(device_, &out_sampler_info, nullptr, &sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create light viz output sampler");
-    }
+    sampler_ = vk_utils::create_linear_clamp_sampler(device_);
 
     // Descriptor set layout: one storage buffer (tile light data)
     VkDescriptorSetLayoutBinding binding{};
@@ -306,40 +297,11 @@ void LightVizPass::record(const FrameContext& ctx) {
     if (tile_buffer_ == VK_NULL_HANDLE) return;
 
     // Update descriptor: point at the tile light SSBO
-    VkDescriptorBufferInfo buffer_info{};
-    buffer_info.buffer = tile_buffer_;
-    buffer_info.offset = 0;
-    buffer_info.range = tile_buffer_size_;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = tile_sets_[ctx.frame_index];
-    write.dstBinding = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    write.descriptorCount = 1;
-    write.pBufferInfo = &buffer_info;
-
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+    vk_utils::write_buffer_descriptor(device_, tile_sets_[ctx.frame_index], 0,
+                                      tile_buffer_, tile_buffer_size_);
 
     // Transition output image
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    barrier.srcAccessMask = 0;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image_;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(ctx.cmd, &dep);
+    vk_utils::prepare_color_attachment(ctx.cmd, image_);
 
     // Render
     VkRenderingAttachmentInfo color_attachment{};
@@ -389,14 +351,7 @@ void LightVizPass::record(const FrameContext& ctx) {
     vkCmdEndRendering(ctx.cmd);
 
     // Transition output to shader-readable
-    barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    vkCmdPipelineBarrier2(ctx.cmd, &dep);
+    vk_utils::finish_color_attachment(ctx.cmd, image_);
 }
 
 } // namespace fjell
