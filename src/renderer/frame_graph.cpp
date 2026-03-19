@@ -52,6 +52,8 @@ VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect
                 return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
             }
             return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        case ImageUsage::compute_write:
+            return VK_IMAGE_LAYOUT_GENERAL;
     }
     return VK_IMAGE_LAYOUT_UNDEFINED;
 }
@@ -67,6 +69,7 @@ VkPipelineStageFlags2 FrameGraph::stage_for(ImageUsage usage) {
         case ImageUsage::shader_read:
             return VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
         case ImageUsage::compute_read:
+        case ImageUsage::compute_write:
             return VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     }
     return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
@@ -83,6 +86,8 @@ VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
         case ImageUsage::shader_read:
         case ImageUsage::compute_read:
             return VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        case ImageUsage::compute_write:
+            return VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     }
     return 0;
 }

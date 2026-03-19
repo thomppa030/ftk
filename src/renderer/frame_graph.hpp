@@ -19,6 +19,7 @@ enum class ImageUsage : uint8_t {
     depth_attachment_read,  // read depth (no write) during rendering
     shader_read,            // sample in a fragment shader
     compute_read,           // sample in a compute shader
+    compute_write,          // write as a storage image in a compute shader
 };
 
 // Image tracked by the frame graph
