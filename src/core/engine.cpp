@@ -1069,7 +1069,7 @@ void Engine::run() {
             for (const auto& obj : scene_.objects()) {
                 if (auto* cam_node = dynamic_cast<const CameraNode*>(obj.get())) {
                     glm::vec3 pos = cam_node->position();
-                    glm::vec3 fwd = -glm::normalize(glm::vec3(cam_node->world_matrix_[2]));
+                    glm::vec3 fwd = glm::normalize(glm::vec3(cam_node->world_matrix_[2]));
                     glm::vec3 up = glm::normalize(glm::vec3(cam_node->world_matrix_[1]));
                     audio_engine_.update(scene_, pos, fwd, up);
                     break;
