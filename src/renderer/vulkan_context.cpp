@@ -127,7 +127,10 @@ VulkanContext::VulkanContext(Window& window)
     light_grid_pass_.create(device_, pass_resources);
     particle_system_.create(device_, pass_resources);
     sprite_renderer_.create(device_, pass_resources);
-    game_ui_.create(device_, pass_resources, VK_FORMAT_R8G8B8A8_SRGB);
+    game_ui_.create(device_, pass_resources, bindless_textures_,
+                    command_pool_, device_.graphics_queue(),
+                    base_path::resolve("assets/fonts/Inter-Regular.ttf"),
+                    VK_FORMAT_R8G8B8A8_SRGB);
     create_outline_pipeline();
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 

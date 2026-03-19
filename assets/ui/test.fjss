@@ -10,6 +10,11 @@
     align-self: flex-start;
     width: 200;
     padding: 4;
+    gap: 4;
+}
+
+.label {
+    height: 18;
 }
 
 .health-bar-bg {
