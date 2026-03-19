@@ -143,7 +143,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         content_browser_.set_root(project_->root());
     }
 
-    hierarchy_panel_.init(&scene_, &viewport_manager_, &selected_id_, &command_history_);
+    hierarchy_panel_.init(&scene_, &viewport_manager_, &selected_id_, &command_history_,
+                          icon_cache_.get());
     hierarchy_panel_.set_add_primitive_callback(
         [this](const std::string& type) {
             add_primitive_to_scene(type);

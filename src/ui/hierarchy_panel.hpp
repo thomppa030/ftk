@@ -7,6 +7,7 @@
 namespace fjell {
 
 class CommandHistory;
+class IconCache;
 class Scene;
 class ViewportManager;
 struct SceneNode;
@@ -17,7 +18,7 @@ public:
     using RemoveObjectCallback = std::function<void(uint32_t)>;
 
     void init(Scene* scene, ViewportManager* viewports, uint32_t* selected_id,
-              CommandHistory* history);
+              CommandHistory* history, IconCache* icons = nullptr);
     void set_add_primitive_callback(AddPrimitiveCallback cb) { add_primitive_cb_ = std::move(cb); }
     void set_remove_object_callback(RemoveObjectCallback cb) { remove_object_cb_ = std::move(cb); }
 
@@ -31,6 +32,7 @@ private:
     uint32_t* selected_id_{nullptr};
     CommandHistory* history_{nullptr};
 
+    IconCache* icons_{nullptr};
     uint32_t remove_pending_id_{0};
 
     AddPrimitiveCallback add_primitive_cb_;

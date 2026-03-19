@@ -2,6 +2,9 @@
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
 #include "scene/scene.hpp"
+#include "scene/camera_node.hpp"
+#include "scene/light_node.hpp"
+#include "ui/icon_cache.hpp"
 #include "ui/viewport_manager.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/model.hpp"
@@ -14,12 +17,40 @@
 
 namespace fjell {
 
+namespace {
+
+struct NodeVisuals {
+    ImVec4 border_color;
+    const char* icon_name;
+};
+
+NodeVisuals node_visuals(const SceneNode& obj) {
+    if (dynamic_cast<const DirectionalLightNode*>(&obj) ||
+        dynamic_cast<const PointLightNode*>(&obj) ||
+        dynamic_cast<const SpotLightNode*>(&obj)) {
+        const char* icon = "point_light";
+        if (dynamic_cast<const DirectionalLightNode*>(&obj)) icon = "dir_light";
+        return {{0.96f, 0.78f, 0.26f, 1.0f}, icon};
+    }
+    if (dynamic_cast<const CameraNode*>(&obj)) {
+        return {{0.31f, 0.79f, 0.63f, 1.0f}, "camera"};
+    }
+    if (obj.mesh) {
+        return {{0.36f, 0.55f, 0.94f, 1.0f}, "mesh"};
+    }
+    return {{0.50f, 0.50f, 0.50f, 1.0f}, "node"};
+}
+
+} // namespace
+
 void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
-                          uint32_t* selected_id, CommandHistory* history) {
+                          uint32_t* selected_id, CommandHistory* history,
+                          IconCache* icons) {
     scene_ = scene;
     viewports_ = viewports;
     selected_id_ = selected_id;
     history_ = history;
+    icons_ = icons;
 }
 
 void HierarchyPanel::draw() {
@@ -136,19 +167,52 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
 
+    // Determine visuals for this node type
+    auto visuals = node_visuals(obj);
+
     // Row styling — equal vertical padding for centered text
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.0f, 4.0f});
-    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 1.0f});
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.0f, 6.0f});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 2.0f});
 
     if (is_selected) {
         ImGui::PushStyleColor(ImGuiCol_Header, {0.22f, 0.27f, 0.58f, 1.0f});
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.26f, 0.32f, 0.65f, 1.0f});
+        ImGui::PushStyleColor(ImGuiCol_Text, {0.95f, 0.95f, 0.95f, 1.0f});
     }
 
-    bool node_open = ImGui::TreeNodeEx(obj.name.c_str(), flags);
+    float icon_size = ImGui::GetTextLineHeight() * 1.6f;
+    std::string padded_label = "          " + obj.name;
+
+    bool node_open = ImGui::TreeNodeEx(padded_label.c_str(), flags);
+
+    // Draw left border stripe
+    {
+        ImVec2 item_min = ImGui::GetItemRectMin();
+        ImVec2 item_max = ImGui::GetItemRectMax();
+        ImU32 border_col = ImGui::ColorConvertFloat4ToU32(visuals.border_color);
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            {item_min.x, item_min.y},
+            {item_min.x + 3.0f, item_max.y},
+            border_col);
+    }
+
+    // Draw icon over the padded space
+    if (icons_) {
+        auto icon_desc = icons_->icon(visuals.icon_name);
+        if (icon_desc) {
+            ImVec2 item_min = ImGui::GetItemRectMin();
+            // Position icon after the tree arrow indent
+            float indent = ImGui::GetTreeNodeToLabelSpacing();
+            ImVec2 icon_pos = {item_min.x + indent + 2.0f,
+                               item_min.y + (ImGui::GetItemRectSize().y - icon_size) * 0.5f};
+            ImGui::GetWindowDrawList()->AddImage(
+                icon_desc, icon_pos,
+                {icon_pos.x + icon_size, icon_pos.y + icon_size});
+        }
+    }
 
     if (is_selected) {
-        ImGui::PopStyleColor(2);
+        ImGui::PopStyleColor(3);
     }
 
     ImGui::PopStyleVar(2);
