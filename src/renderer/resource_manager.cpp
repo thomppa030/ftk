@@ -212,6 +212,10 @@ MaterialHandle ResourceManager::load_material_asset(const std::string& path,
 
     PbrParams params;
     params.has_normal_map = asset.textures.contains("normal_map");
+    auto uv_it = asset.params.find("uv_scale");
+    if (uv_it != asset.params.end() && uv_it->second.size() >= 2) {
+        params.uv_scale = {uv_it->second[0], uv_it->second[1]};
+    }
     auto material = std::make_unique<Material>(0, bc_idx, nm_idx, mr_idx, em_idx, params);
     material->set_pipeline_id(pipeline_id);
     material->set_shader_path(asset.shader);

@@ -237,7 +237,7 @@ void Engine::save_material_assets() {
             continue;
         }
 
-        // Update param values from live buffer
+        // Update custom param values from live buffer
         for (const auto& u : meta.uniforms) {
             if (u.type == UniformType::Sampler2D) continue;
             uint32_t fcount = uniform_float_count(u.type);
@@ -246,6 +246,15 @@ void Engine::save_material_assets() {
                 vals[i] = bindless.read_param(gpu.param_offset + u.slot + i);
             }
             asset.params[u.name] = vals;
+        }
+
+        // Save uv_scale from base params
+        float uv_x = gpu.base_params[7];
+        float uv_y = gpu.base_params[8];
+        if (uv_x != 1.0f || uv_y != 1.0f) {
+            asset.params["uv_scale"] = {uv_x, uv_y};
+        } else {
+            asset.params.erase("uv_scale");
         }
 
         save_material_asset(mat_path, asset);

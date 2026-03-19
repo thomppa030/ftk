@@ -35,6 +35,8 @@ GpuMaterial Material::gpu_material() const {
     m.base_params[4] = params_.metallic_factor;
     m.base_params[5] = params_.roughness_factor;
     m.base_params[6] = params_.has_normal_map ? 1.0f : 0.0f;
+    m.base_params[7] = params_.uv_scale.x;
+    m.base_params[8] = params_.uv_scale.y;
 
     // Custom params reference
     m.param_offset = custom_param_offset_;

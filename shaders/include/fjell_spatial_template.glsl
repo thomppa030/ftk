@@ -96,7 +96,10 @@ void main() {
     GpuMaterial mat = materials[material_id];
 
     // ── Built-in PBR inputs ──
-    vec2 UV = frag_tex_coord;
+    vec2 uv_scale = vec2(mat.base_params[7], mat.base_params[8]);
+    if (uv_scale.x == 0.0) uv_scale.x = 1.0;
+    if (uv_scale.y == 0.0) uv_scale.y = 1.0;
+    vec2 UV = frag_tex_coord * uv_scale;
     vec3 WORLD_POS = frag_world_pos;
     vec3 WORLD_NORMAL = frag_world_normal;
     mat3 TBN = frag_TBN;

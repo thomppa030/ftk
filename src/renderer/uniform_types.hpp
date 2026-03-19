@@ -73,6 +73,7 @@ struct PbrParams {
     float metallic_factor{1.0f};
     float roughness_factor{1.0f};
     bool has_normal_map{false};
+    glm::vec2 uv_scale{1.0f, 1.0f};
 };
 
 } // namespace fjell

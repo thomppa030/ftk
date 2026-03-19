@@ -398,12 +398,26 @@ void PropertiesPanel::draw_material_inspector(RenderObject& obj) {
     ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Material");
     ImGui::TextDisabled("Shader: %s", obj.material->shader_path().c_str());
 
+    // UV scale (available on all materials)
+    const auto& gpu = bindless_->material_at(obj.material->material_id());
+    float uv_sc[2] = {gpu.base_params[7], gpu.base_params[8]};
+    if (uv_sc[0] == 0.0f) uv_sc[0] = 1.0f;
+    if (uv_sc[1] == 0.0f) uv_sc[1] = 1.0f;
+    ImGui::Text("UV Scale");
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::DragFloat2("##UVScale", uv_sc, 0.1f, 0.01f, 100.0f)) {
+        GpuMaterial updated = gpu;
+        updated.base_params[7] = uv_sc[0];
+        updated.base_params[8] = uv_sc[1];
+        bindless_->update_material(obj.material->material_id(), updated);
+        scene_->mark_dirty();
+    }
+
     if (!has_custom) return;
 
     uint32_t param_count = obj.material->custom_param_count();
     if (param_count == 0) return;
 
-    const auto& gpu = bindless_->material_at(obj.material->material_id());
     bool changed = false;
 
     for (const auto& u : meta.uniforms) {

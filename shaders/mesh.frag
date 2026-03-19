@@ -102,14 +102,20 @@ void main() {
     float roughness_factor      = mat.base_params[5];
     float has_normal_map        = mat.base_params[6];
 
+    // UV tiling
+    vec2 uv_scale = vec2(mat.base_params[7], mat.base_params[8]);
+    if (uv_scale.x == 0.0) uv_scale.x = 1.0;
+    if (uv_scale.y == 0.0) uv_scale.y = 1.0;
+    vec2 uv = frag_tex_coord * uv_scale;
+
     // Base color
-    vec4 base_color = texture(textures[nonuniformEXT(base_color_idx)], frag_tex_coord) *
+    vec4 base_color = texture(textures[nonuniformEXT(base_color_idx)], uv) *
                       base_color_factor *
                       vec4(frag_color, 1.0);
     vec3 albedo = base_color.rgb;
 
     // Metallic / roughness
-    vec4 mr_sample = texture(textures[nonuniformEXT(metallic_roughness_idx)], frag_tex_coord);
+    vec4 mr_sample = texture(textures[nonuniformEXT(metallic_roughness_idx)], uv);
     float metallic = mr_sample.b * metallic_factor;
     float roughness = mr_sample.g * roughness_factor;
     roughness = clamp(roughness, 0.04, 1.0);
@@ -124,14 +130,14 @@ void main() {
 
     vec3 N;
     if (has_normal_map > 0.5) {
-        vec3 tangent_normal = texture(textures[nonuniformEXT(normal_idx)], frag_tex_coord).rgb * 2.0 - 1.0;
+        vec3 tangent_normal = texture(textures[nonuniformEXT(normal_idx)], uv).rgb * 2.0 - 1.0;
         N = normalize(frag_TBN * tangent_normal);
     } else {
         N = normalize(frag_world_normal);
     }
 
     // Emissive
-    vec3 emissive = texture(textures[nonuniformEXT(emissive_idx)], frag_tex_coord).rgb;
+    vec3 emissive = texture(textures[nonuniformEXT(emissive_idx)], uv).rgb;
 
     // Lighting vectors
     vec3 V = normalize(ubo.camera_position.xyz - frag_world_pos);

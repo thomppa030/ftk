@@ -22,7 +22,9 @@ class Texture;
 //   base_params[4]:     metallic_factor
 //   base_params[5]:     roughness_factor
 //   base_params[6]:     has_normal_map
-//   base_params[7..11]: reserved
+//   base_params[7]:     uv_scale_x (default 1.0)
+//   base_params[8]:     uv_scale_y (default 1.0)
+//   base_params[9..11]: reserved
 //   param_offset:       offset into custom params SSBO (in floats)
 //   param_count:        number of custom floats
 struct GpuMaterial {

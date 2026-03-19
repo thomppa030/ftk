@@ -6,5 +6,7 @@
         "metallic_roughness": "assets/textures/pbr_test/metallic_roughness.png",
         "emissive": "assets/textures/pbr_test/emissive.png"
     },
-    "params": {}
+    "params": {
+        "uv_scale": [4.0, 4.0]
+    }
 }
