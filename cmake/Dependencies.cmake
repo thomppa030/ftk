@@ -81,7 +81,15 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics)
+FetchContent_Declare(
+    yoga
+    GIT_REPOSITORY https://github.com/facebook/yoga.git
+    GIT_TAG        v3.2.1
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
+
+FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga)
 
 # miniaudio — header-only, just populate
 FetchContent_GetProperties(miniaudio)

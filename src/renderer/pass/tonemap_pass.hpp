@@ -22,6 +22,11 @@ public:
     // Set the HDR source to read from (bloom output or raw scene color)
     void set_source_view(VkImageView view) { source_view_ = view; }
 
+    // Output image accessors (for overlays rendered after tonemap)
+    [[nodiscard]] VkImage output_image() const { return image_; }
+    [[nodiscard]] VkImageView output_view() const { return view_; }
+    [[nodiscard]] VkExtent2D output_extent() const { return extent_; }
+
 private:
     void create_image(uint32_t width, uint32_t height);
     void destroy_image();

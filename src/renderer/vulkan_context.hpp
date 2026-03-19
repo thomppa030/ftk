@@ -11,6 +11,7 @@
 #include "renderer/meshlet_descriptor.hpp"
 #include "renderer/particle_system.hpp"
 #include "renderer/sprite_renderer.hpp"
+#include "ui/game_ui/game_ui.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/device.hpp"
@@ -115,6 +116,7 @@ public:
     [[nodiscard]] MegaBuffer* mega_buffer() { return mega_buffer_.get(); }
     [[nodiscard]] MeshletBuffer* meshlet_buffer() { return meshlet_buffer_.get(); }
     [[nodiscard]] PipelineCache* pipeline_cache() { return pipeline_cache_.get(); }
+    [[nodiscard]] GameUi& game_ui() { return game_ui_; }
 
 private:
     void create_descriptor_resources();
@@ -224,6 +226,9 @@ private:
 
     // Sprites
     SpriteRenderer sprite_renderer_;
+
+    // Game UI
+    GameUi game_ui_;
 
     // Selection outline
     VkPipelineLayout outline_layout_{VK_NULL_HANDLE};

@@ -127,6 +127,7 @@ VulkanContext::VulkanContext(Window& window)
     light_grid_pass_.create(device_, pass_resources);
     particle_system_.create(device_, pass_resources);
     sprite_renderer_.create(device_, pass_resources);
+    game_ui_.create(device_, pass_resources, VK_FORMAT_R8G8B8A8_SRGB);
     create_outline_pipeline();
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 
@@ -141,6 +142,7 @@ VulkanContext::~VulkanContext() {
     debug_draw_.reset();
     if (outline_pipeline_) { vkDestroyPipeline(vk_device, outline_pipeline_, nullptr); outline_pipeline_ = VK_NULL_HANDLE; }
     if (outline_layout_) { vkDestroyPipelineLayout(vk_device, outline_layout_, nullptr); outline_layout_ = VK_NULL_HANDLE; }
+    game_ui_.destroy();
     sprite_renderer_.destroy();
     particle_system_.destroy();
     light_grid_pass_.destroy();
@@ -810,6 +812,52 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         tonemap_pass_.set_source_view(target.color_view());
         tonemap_pass_.record(local);
     }, {{color_id, ImageUsage::shader_read}});
+
+    // Game UI overlay (renders into tonemap output image, after tonemap)
+    graph.add_pass("game_ui", [&](VkCommandBuffer cb) {
+        if (!game_ui_.loaded()) return;
+
+        auto tm_extent = tonemap_pass_.output_extent();
+        if (tm_extent.width == 0 || tm_extent.height == 0) return;
+
+        game_ui_.update(static_cast<float>(tm_extent.width),
+                        static_cast<float>(tm_extent.height), current_frame_);
+
+        // Transition tonemap output: SHADER_READ_ONLY → COLOR_ATTACHMENT
+        transition_image(cb, tonemap_pass_.output_image(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+
+        VkRenderingAttachmentInfo ui_color{};
+        ui_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        ui_color.imageView = tonemap_pass_.output_view();
+        ui_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        ui_color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        ui_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        VkRenderingInfo ri{};
+        ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+        ri.renderArea.extent = tm_extent;
+        ri.layerCount = 1;
+        ri.colorAttachmentCount = 1;
+        ri.pColorAttachments = &ui_color;
+
+        vkCmdBeginRendering(cb, &ri);
+        game_ui_.record(cb, global_descriptor_sets_[current_frame_],
+                        bindless_textures_.descriptor_set(), tm_extent, current_frame_);
+        vkCmdEndRendering(cb);
+
+        // Transition back: COLOR_ATTACHMENT → SHADER_READ_ONLY (for ImGui sampling)
+        transition_image(cb, tonemap_pass_.output_image(),
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    }, {});
 
     // Utility passes
     graph.add_pass("depth_viz", [&](VkCommandBuffer cb) {

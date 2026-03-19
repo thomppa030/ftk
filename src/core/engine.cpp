@@ -175,6 +175,17 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     viewport_manager_.init(vulkan_context_.device_ref(), vulkan_context_.msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
 
+    // Load game UI — check project first, then fall back to engine assets
+    {
+        auto proj_ui = base_path::resolve_asset("assets/ui/test.fjui", active_project());
+        auto engine_ui = base_path::resolve("assets/ui/test.fjui");
+        auto ui_path = std::filesystem::exists(proj_ui) ? proj_ui : engine_ui;
+        auto css_path = ui_path.substr(0, ui_path.size() - 5) + ".fjss";
+        if (std::filesystem::exists(ui_path)) {
+            vulkan_context_.game_ui().load(ui_path, css_path);
+        }
+    }
+
     FJELL_CORE_INFO("Engine initialized");
 }
 

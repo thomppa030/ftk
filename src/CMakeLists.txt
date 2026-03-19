@@ -82,6 +82,12 @@ add_executable(fjell
     ui/stats_panel.cpp
     ui/node_editor_panel.cpp
     ui/viewport_manager.cpp
+    ui/game_ui/fjui_parser.cpp
+    ui/game_ui/fjss_parser.cpp
+    ui/game_ui/style_resolver.cpp
+    ui/game_ui/ui_layout.cpp
+    ui/game_ui/ui_renderer.cpp
+    ui/game_ui/game_ui.cpp
 
     # ImGui sources
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -122,6 +128,7 @@ target_link_libraries(fjell PRIVATE
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     Vulkan::Vulkan
+    yogacore
     ${VTERM_LIB}
     util
     ${CMAKE_DL_LIBS}
@@ -140,6 +147,10 @@ target_include_directories(fjell SYSTEM PRIVATE ${FASTGLTF_INCLUDE_DIRS})
 # Treat Jolt headers as system headers to suppress warnings from them
 get_target_property(JOLT_INCLUDE_DIRS Jolt INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(fjell SYSTEM PRIVATE ${JOLT_INCLUDE_DIRS})
+
+# Treat Yoga headers as system headers to suppress warnings from them
+get_target_property(YOGA_INCLUDE_DIRS yogacore INTERFACE_INCLUDE_DIRECTORIES)
+target_include_directories(fjell SYSTEM PRIVATE ${YOGA_INCLUDE_DIRS})
 
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
