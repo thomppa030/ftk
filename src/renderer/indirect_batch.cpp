@@ -60,6 +60,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     // Write opaque draw commands, tracking per-pipeline ranges
     auto& ranges = pipeline_ranges_[frame_index];
     ranges.clear();
+    ranges.reserve(16);
 
     uint32_t current_pipeline = UINT32_MAX;
     uint32_t range_start = 0;

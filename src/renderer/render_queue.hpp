@@ -26,6 +26,7 @@ struct DrawCommand {
 class RenderQueue {
 public:
     void clear();
+    void reserve(size_t count);
     void push(const DrawCommand& cmd);
     void sort(const glm::vec3& camera_pos);
     void execute(VkCommandBuffer cmd, VkPipelineLayout layout,

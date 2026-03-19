@@ -11,6 +11,11 @@ void RenderQueue::clear() {
     transparent_.clear();
 }
 
+void RenderQueue::reserve(size_t count) {
+    opaque_.reserve(count);
+    transparent_.reserve(count / 4); // transparent is typically a small fraction
+}
+
 void RenderQueue::push(const DrawCommand& cmd) {
     if (cmd.transparent) {
         transparent_.push_back(cmd);
@@ -19,18 +24,14 @@ void RenderQueue::push(const DrawCommand& cmd) {
     }
 }
 
-void RenderQueue::sort(const glm::vec3& camera_pos) {
+void RenderQueue::sort(const glm::vec3& /*camera_pos*/) {
     // Opaque: sort by material to minimize descriptor rebinds
     std::sort(opaque_.begin(), opaque_.end(),
               [](const DrawCommand& a, const DrawCommand& b) {
                   return a.sort_key < b.sort_key;
               });
 
-    // Transparent: compute distance and sort back-to-front
-    for (auto& dc : transparent_) {
-        glm::vec3 obj_pos = glm::vec3(dc.world_matrix[3]);
-        dc.camera_distance = glm::length(camera_pos - obj_pos);
-    }
+    // Transparent: sort back-to-front (distance precomputed during culling)
     std::sort(transparent_.begin(), transparent_.end(),
               [](const DrawCommand& a, const DrawCommand& b) {
                   return a.camera_distance > b.camera_distance;
