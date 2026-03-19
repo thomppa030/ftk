@@ -18,15 +18,19 @@ class BindlessTextures;
 class MegaBuffer;
 class MeshletBuffer;
 class Model;
+class PipelineCache;
+class Project;
 class Texture;
 class Material;
+struct MaterialAsset;
 
 class ResourceManager {
 public:
     ResourceManager(VkDevice device, VkPhysicalDevice physical_device,
                     VkCommandPool command_pool, VkQueue queue,
                     BindlessTextures& bindless, MegaBuffer* mega_buffer = nullptr,
-                    MeshletBuffer* meshlet_buffer = nullptr);
+                    MeshletBuffer* meshlet_buffer = nullptr,
+                    PipelineCache* pipeline_cache = nullptr);
 
     ModelHandle load_model(const std::string& path);
     ModelHandle create_primitive(const std::string& type);
@@ -43,6 +47,11 @@ public:
     MaterialHandle create_material_from_texture(const std::string& name,
                                                 Texture* base_color,
                                                 PbrParams params = {});
+
+    // Load a .fjmat material asset, resolving shader + textures + params.
+    // If project is provided, asset paths inside .fjmat are resolved relative to it.
+    MaterialHandle load_material_asset(const std::string& path,
+                                       const Project* project = nullptr);
 
     [[nodiscard]] Model* get(ModelHandle handle) const;
     [[nodiscard]] Texture* get(TextureHandle handle) const;
@@ -73,6 +82,7 @@ private:
     BindlessTextures& bindless_;
     MegaBuffer* mega_buffer_;
     MeshletBuffer* meshlet_buffer_;
+    PipelineCache* pipeline_cache_;
 
     Pool<Model, ModelHandle> models_;
     Pool<Texture, TextureHandle> textures_;

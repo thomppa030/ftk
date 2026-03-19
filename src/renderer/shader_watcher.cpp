@@ -65,9 +65,12 @@ bool ShaderWatcher::poll() {
         if (event->len > 0) {
             std::string filename{event->name};
             auto ext = std::filesystem::path(filename).extension().string();
-            if (ext == ".vert" || ext == ".frag" || ext == ".comp") {
+            if (ext == ".vert" || ext == ".frag" || ext == ".comp" || ext == ".fjsl") {
                 FJELL_GFX_INFO("Shader changed: {}", filename);
-                if (recompile(filename)) {
+                if (ext == ".fjsl") {
+                    // FJSL files trigger a pipeline cache reload (not glslc)
+                    changed = true;
+                } else if (recompile(filename)) {
                     changed = true;
                 }
             }

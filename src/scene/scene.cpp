@@ -354,7 +354,10 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         if (!model_handle.valid()) continue;
 
         MaterialHandle mat_handle;
-        if (jobj.contains("color")) {
+        if (mat_name.ends_with(".fjmat")) {
+            std::string mat_path = base_path::resolve_asset(mat_name, project);
+            mat_handle = resources.load_material_asset(mat_path, project);
+        } else if (jobj.contains("color")) {
             auto& c = jobj["color"];
             PbrParams params{};
             float alpha = c.size() > 3 ? c[3].get<float>() : 1.0f;
@@ -368,7 +371,8 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         }
 
         auto* model = resources.get(model_handle);
-        if (!source.starts_with("primitive:") && model && !model->textures().empty()) {
+        if (!mat_name.ends_with(".fjmat") &&
+            !source.starts_with("primitive:") && model && !model->textures().empty()) {
             mat_handle = resources.create_material_from_texture(
                 source + "_mat",
                 const_cast<Texture*>(model->textures()[0].get()));

@@ -1,10 +1,15 @@
 #include "renderer/resource_manager.hpp"
 #include "renderer/bindless.hpp"
+#include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
+#include "renderer/material_asset.hpp"
 #include "renderer/model.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/primitives.hpp"
 #include "renderer/texture.hpp"
+#include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/project.hpp"
 
 namespace fjell {
 
@@ -43,14 +48,16 @@ template struct ResourceManager::Pool<Material, MaterialHandle>;
 ResourceManager::ResourceManager(VkDevice device, VkPhysicalDevice physical_device,
                                  VkCommandPool command_pool, VkQueue queue,
                                  BindlessTextures& bindless, MegaBuffer* mega_buffer,
-                                 MeshletBuffer* meshlet_buffer)
+                                 MeshletBuffer* meshlet_buffer,
+                                 PipelineCache* pipeline_cache)
     : device_{device}
     , physical_device_{physical_device}
     , command_pool_{command_pool}
     , queue_{queue}
     , bindless_{bindless}
     , mega_buffer_{mega_buffer}
-    , meshlet_buffer_{meshlet_buffer} {
+    , meshlet_buffer_{meshlet_buffer}
+    , pipeline_cache_{pipeline_cache} {
     // Create default 1x1 textures and register them in the bindless array.
     // These occupy bindless indices 0-3.
     const std::array<uint8_t, 4> white = {255, 255, 255, 255};
@@ -165,6 +172,121 @@ MaterialHandle ResourceManager::create_material_from_texture(const std::string& 
     material = std::make_unique<Material>(mat_id, bc_idx, nm_idx, mr_idx, em_idx, params);
 
     return materials_.insert(name, std::move(material));
+}
+
+MaterialHandle ResourceManager::load_material_asset(const std::string& path,
+                                                     const Project* project) {
+    auto it = materials_.name_to_handle.find(path);
+    if (it != materials_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    auto asset = fjell::load_material_asset(path);
+
+    // Register shader in pipeline cache
+    uint32_t pipeline_id = 0;
+    const ShaderMetadata* shader_meta = nullptr;
+    if (pipeline_cache_) {
+        pipeline_id = pipeline_cache_->register_shader(asset.shader);
+        shader_meta = &pipeline_cache_->metadata(pipeline_id);
+    }
+
+    // Resolve PBR textures
+    auto resolve_tex = [&](const std::string& name, TextureHandle fallback) -> TextureHandle {
+        auto tex_it = asset.textures.find(name);
+        if (tex_it != asset.textures.end()) {
+            return load_texture(base_path::resolve_asset(tex_it->second, project));
+        }
+        return fallback;
+    };
+
+    auto bc = resolve_tex("base_color", default_white_handle_);
+    auto nm = resolve_tex("normal_map", default_normal_handle_);
+    auto mr = resolve_tex("metallic_roughness", default_mr_handle_);
+    auto em = resolve_tex("emissive", default_black_handle_);
+
+    uint32_t bc_idx = bindless_index(bc);
+    uint32_t nm_idx = bindless_index(nm);
+    uint32_t mr_idx = bindless_index(mr);
+    uint32_t em_idx = bindless_index(em);
+
+    PbrParams params;
+    auto material = std::make_unique<Material>(0, bc_idx, nm_idx, mr_idx, em_idx, params);
+    material->set_pipeline_id(pipeline_id);
+    material->set_shader_path(asset.shader);
+
+    // Resolve custom textures and params from shader metadata
+    if (shader_meta) {
+        for (const auto& u : shader_meta->uniforms) {
+            if (u.type != UniformType::Sampler2D) continue;
+            auto tex_it = asset.textures.find(u.name);
+            if (tex_it != asset.textures.end()) {
+                auto tex_handle = load_texture(base_path::resolve_asset(tex_it->second, project));
+                material->set_custom_texture(u.slot, bindless_index(tex_handle));
+            } else {
+                TextureHandle default_tex = default_white_handle_;
+                if (u.hint == UniformHint::Black) default_tex = default_black_handle_;
+                else if (u.hint == UniformHint::Normal) default_tex = default_normal_handle_;
+                else if (u.hint == UniformHint::DefaultMr) default_tex = default_mr_handle_;
+                material->set_custom_texture(u.slot, bindless_index(default_tex));
+            }
+        }
+
+        if (shader_meta->custom_param_count > 0) {
+            uint32_t offset = bindless_.allocate_params(shader_meta->custom_param_count);
+            material->set_custom_params(offset, shader_meta->custom_param_count);
+
+            std::vector<float> param_data(shader_meta->custom_param_count, 0.0f);
+            for (const auto& u : shader_meta->uniforms) {
+                if (u.type == UniformType::Sampler2D) continue;
+                uint32_t count = uniform_float_count(u.type);
+
+                auto param_it = asset.params.find(u.name);
+                if (param_it != asset.params.end()) {
+                    for (uint32_t i = 0; i < count && i < param_it->second.size(); ++i) {
+                        param_data[u.slot + i] = param_it->second[i];
+                    }
+                } else if (!u.default_value.empty()) {
+                    for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
+                        param_data[u.slot + i] = u.default_value[i];
+                    }
+                }
+            }
+            bindless_.write_params(offset, param_data.data(), shader_meta->custom_param_count);
+        }
+    }
+
+    // Register GPU material — the first material object has param_offset/count set correctly
+    GpuMaterial first_gpu = material->gpu_material();
+    uint32_t mat_id = bindless_.add_material(first_gpu);
+
+    // Reconstruct with correct mat_id (Material stores it immutably in ctor)
+    material = std::make_unique<Material>(mat_id, bc_idx, nm_idx, mr_idx, em_idx, params);
+    material->set_pipeline_id(pipeline_id);
+    material->set_shader_path(asset.shader);
+    material->set_custom_params(first_gpu.param_offset, first_gpu.param_count);
+
+    // Re-apply custom texture settings
+    if (shader_meta) {
+        for (const auto& u : shader_meta->uniforms) {
+            if (u.type != UniformType::Sampler2D) continue;
+            auto tex_it = asset.textures.find(u.name);
+            if (tex_it != asset.textures.end()) {
+                auto tex_handle = load_texture(base_path::resolve_asset(tex_it->second, project));
+                material->set_custom_texture(u.slot, bindless_index(tex_handle));
+            } else {
+                TextureHandle default_tex = default_white_handle_;
+                if (u.hint == UniformHint::Black) default_tex = default_black_handle_;
+                else if (u.hint == UniformHint::Normal) default_tex = default_normal_handle_;
+                else if (u.hint == UniformHint::DefaultMr) default_tex = default_mr_handle_;
+                material->set_custom_texture(u.slot, bindless_index(default_tex));
+            }
+        }
+        // Update GPU material with final state (custom textures applied)
+        bindless_.update_material(mat_id, material->gpu_material());
+    }
+
+    return materials_.insert(path, std::move(material));
 }
 
 uint32_t ResourceManager::bindless_index(TextureHandle handle) const {
