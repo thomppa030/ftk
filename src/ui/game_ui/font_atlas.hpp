@@ -1,0 +1,73 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vulkan/vulkan.h>
+
+namespace fjell {
+
+class Texture;
+class BindlessTextures;
+
+struct GlyphInfo {
+    float uv_x0, uv_y0;   // top-left UV in atlas
+    float uv_x1, uv_y1;   // bottom-right UV in atlas
+    float quad_x;          // quad left offset from cursor (em-normalized, includes SDF padding)
+    float quad_y;          // quad top offset from baseline (em-normalized, includes SDF padding)
+    float quad_w;          // full quad width (em-normalized, includes SDF padding)
+    float quad_h;          // full quad height (em-normalized, includes SDF padding)
+    float advance;         // horizontal advance to next glyph (em-normalized)
+};
+
+struct FontMetrics {
+    float ascender;        // distance from baseline to top (em-normalized)
+    float descender;       // distance from baseline to bottom (em-normalized, negative)
+    float line_height;     // recommended line spacing (em-normalized)
+};
+
+/// Loads a TTF font via FreeType, generates MSDF per glyph via msdfgen,
+/// packs into a single atlas texture, and registers it in the bindless system.
+///
+/// Glyph metrics are stored in em-normalized space — multiply by font_size
+/// to get pixel coordinates at render time.
+///
+/// The atlas stores MSDF data in RGB channels (UNORM, no gamma, no mipmaps).
+/// The fragment shader must apply the median-of-three + screenPxRange formula.
+class FontAtlas {
+public:
+    FontAtlas() = default;
+    ~FontAtlas();
+
+    FontAtlas(const FontAtlas&) = delete;
+    FontAtlas& operator=(const FontAtlas&) = delete;
+    FontAtlas(FontAtlas&&) = delete;
+    FontAtlas& operator=(FontAtlas&&) = delete;
+
+    void create(const std::string& font_path,
+                VkDevice device, VkPhysicalDevice physical_device,
+                VkCommandPool command_pool, VkQueue queue,
+                BindlessTextures& bindless);
+
+    void destroy();
+
+    [[nodiscard]] const GlyphInfo* glyph(uint32_t codepoint) const;
+    [[nodiscard]] const FontMetrics& metrics() const { return metrics_; }
+    [[nodiscard]] uint32_t atlas_bindless_index() const { return atlas_index_; }
+    [[nodiscard]] uint32_t atlas_width() const { return atlas_width_; }
+    [[nodiscard]] uint32_t atlas_height() const { return atlas_height_; }
+    [[nodiscard]] float pixel_range() const { return pixel_range_; }
+    [[nodiscard]] bool valid() const { return atlas_texture_ != nullptr; }
+
+private:
+    std::unordered_map<uint32_t, GlyphInfo> glyphs_;
+    FontMetrics metrics_{};
+    std::unique_ptr<Texture> atlas_texture_;
+    uint32_t atlas_index_{0};
+    uint32_t atlas_width_{0};
+    uint32_t atlas_height_{0};
+    float pixel_range_{0.0f};
+};
+
+} // namespace fjell
