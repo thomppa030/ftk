@@ -1,12 +1,28 @@
 # --- Platform abstraction (shared between fjell and fjell-hub) ---
-add_library(fjell-platform STATIC
-    platform/linux/platform_linux.cpp
-    platform/linux/file_watcher_linux.cpp
-    platform/linux/shared_library_linux.cpp
-)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    set(FJELL_PLATFORM_SOURCES
+        platform/linux/platform_linux.cpp
+        platform/linux/file_watcher_linux.cpp
+        platform/linux/shared_library_linux.cpp
+    )
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(FJELL_PLATFORM_SOURCES
+        platform/windows/platform_windows.cpp
+        platform/windows/file_watcher_windows.cpp
+        platform/windows/shared_library_windows.cpp
+    )
+else()
+    message(FATAL_ERROR "Unsupported platform: ${CMAKE_SYSTEM_NAME}")
+endif()
+
+add_library(fjell-platform STATIC ${FJELL_PLATFORM_SOURCES})
 target_include_directories(fjell-platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(fjell-platform PRIVATE spdlog::spdlog ${CMAKE_DL_LIBS})
-target_compile_options(fjell-platform PRIVATE -Wall -Wextra -Wpedantic -Werror)
+if(MSVC)
+    target_compile_options(fjell-platform PRIVATE /W4 /WX)
+else()
+    target_compile_options(fjell-platform PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 # --- Main engine ---
 add_executable(fjell
@@ -135,7 +151,20 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${miniaudio_SOURCE_DIR}
 )
 
-find_library(VTERM_LIB vterm REQUIRED)
+# Nvim panel requires libvterm + libutil (Linux-only, will be removed)
+option(FJELL_ENABLE_NVIM_PANEL "Enable embedded neovim terminal panel" ON)
+if(FJELL_ENABLE_NVIM_PANEL)
+    find_library(VTERM_LIB vterm)
+    if(VTERM_LIB)
+        set(FJELL_NVIM_LIBS ${VTERM_LIB} util)
+    else()
+        message(WARNING "libvterm not found — disabling nvim panel")
+        set(FJELL_ENABLE_NVIM_PANEL OFF)
+    endif()
+endif()
+if(FJELL_ENABLE_NVIM_PANEL)
+    target_compile_definitions(fjell PRIVATE FJELL_HAS_NVIM_PANEL)
+endif()
 
 target_link_libraries(fjell PRIVATE
     fjell-platform
@@ -149,17 +178,20 @@ target_link_libraries(fjell PRIVATE
     yogacore
     msdfgen::msdfgen-core
     msdfgen::msdfgen-ext
-    Freetype::Freetype
-    ${VTERM_LIB}
-    util
+    freetype
+    ${FJELL_NVIM_LIBS}
     ${CMAKE_DL_LIBS}
 )
 
-target_link_options(fjell PRIVATE -rdynamic)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_link_options(fjell PRIVATE -rdynamic)
+endif()
 
-target_compile_options(fjell PRIVATE
-    -Wall -Wextra -Wpedantic -Werror
-)
+if(MSVC)
+    target_compile_options(fjell PRIVATE /W4 /WX)
+else()
+    target_compile_options(fjell PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 # Treat fastgltf headers as system headers to suppress warnings from them
 get_target_property(FASTGLTF_INCLUDE_DIRS fastgltf::fastgltf INTERFACE_INCLUDE_DIRECTORIES)
@@ -253,9 +285,11 @@ target_link_libraries(fjell-hub PRIVATE
     spdlog::spdlog
     Vulkan::Vulkan
 )
-target_compile_options(fjell-hub PRIVATE
-    -Wall -Wextra -Wpedantic -Werror
-)
+if(MSVC)
+    target_compile_options(fjell-hub PRIVATE /W4 /WX)
+else()
+    target_compile_options(fjell-hub PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 # --- Install rules ---
 install(TARGETS fjell fjell-hub RUNTIME DESTINATION .)

@@ -89,6 +89,21 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
+# FreeType — fetched so we don't depend on a system package.
+# msdfgen picks this up automatically via its `if(NOT TARGET Freetype::Freetype)` check.
+set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    freetype
+    GIT_REPOSITORY https://github.com/freetype/freetype.git
+    GIT_TAG        VER-2-13-3
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
+
 set(MSDFGEN_CORE_ONLY OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_BUILD_STANDALONE OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
@@ -105,7 +120,7 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga msdfgen)
+FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype msdfgen)
 
 # miniaudio — header-only, just populate
 FetchContent_GetProperties(miniaudio)
@@ -132,4 +147,3 @@ if(NOT imnodes_POPULATED)
 endif()
 
 find_package(Vulkan REQUIRED)
-find_package(Freetype REQUIRED)
