@@ -12,6 +12,9 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
         "${SHADER_DIR}/*.task"
     )
 
+    # Collect include files so shaders recompile when includes change
+    file(GLOB SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl")
+
     foreach(SHADER ${SHADERS})
         get_filename_component(SHADER_NAME ${SHADER} NAME)
         set(SPIRV_OUTPUT "${OUTPUT_DIR}/${SHADER_NAME}.spv")
@@ -19,8 +22,10 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
         add_custom_command(
             OUTPUT ${SPIRV_OUTPUT}
             COMMAND ${CMAKE_COMMAND} -E make_directory ${OUTPUT_DIR}
-            COMMAND ${GLSLC} --target-env=vulkan1.3 ${SHADER} -o ${SPIRV_OUTPUT}
-            DEPENDS ${SHADER}
+            COMMAND ${GLSLC} --target-env=vulkan1.3
+                    -I ${SHADER_DIR}/include
+                    ${SHADER} -o ${SPIRV_OUTPUT}
+            DEPENDS ${SHADER} ${SHADER_INCLUDES}
             COMMENT "Compiling shader: ${SHADER_NAME}"
             VERBATIM
         )
