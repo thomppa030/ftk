@@ -74,7 +74,7 @@ private:
 
     // Parameters
     float radius_{1.0f};
-    float intensity_{2.0f};
+    float intensity_{1.5f};
     float thickness_{0.5f};
     bool enabled_{true};
 };

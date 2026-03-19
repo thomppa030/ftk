@@ -23,7 +23,7 @@ struct DirectionalLight {
     glm::vec3 color{1.0f, 1.0f, 0.95f};
     float intensity{1.5f};
     glm::vec3 ambient_color{0.1f, 0.1f, 0.12f};
-    float ambient_intensity{1.0f};
+    float ambient_intensity{0.4f};
 };
 
 struct PointLight {
