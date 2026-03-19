@@ -11,6 +11,7 @@
 #include "renderer/sprite_desc.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "physics/physics_types.hpp"
+#include "scene/light_node.hpp"
 #include "scripting/script_manager.hpp"
 
 #include <imgui.h>
@@ -297,6 +298,63 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            // Light properties (for light nodes)
+            if (auto* dl = dynamic_cast<DirectionalLightNode*>(obj)) {
+                if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text("Direction");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat3("##LightDir", &dl->direction.x, 0.01f, -1.0f, 1.0f);
+                    ImGui::Text("Color");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::ColorEdit3("##LightColor", &dl->color.x);
+                    ImGui::Text("Intensity");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##LightIntensity", &dl->intensity, 0.05f, 0.0f, 10.0f);
+                    ImGui::Spacing();
+                    ImGui::Text("Ambient");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::ColorEdit3("##AmbientColor", &dl->ambient_color.x);
+                    ImGui::Text("Ambient Intensity");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##AmbientIntensity", &dl->ambient_intensity, 0.05f, 0.0f, 2.0f);
+                }
+            }
+            if (auto* pl = dynamic_cast<PointLightNode*>(obj)) {
+                if (ImGui::CollapsingHeader("Point Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text("Color");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::ColorEdit3("##PLColor", &pl->color.x);
+                    ImGui::Text("Intensity");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##PLIntensity", &pl->intensity, 0.1f, 0.0f, 100.0f);
+                    ImGui::Text("Radius");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##PLRadius", &pl->radius, 0.5f, 0.1f, 500.0f);
+                }
+            }
+            if (auto* sl = dynamic_cast<SpotLightNode*>(obj)) {
+                if (ImGui::CollapsingHeader("Spot Light", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text("Direction");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat3("##SLDir", &sl->direction.x, 0.01f, -1.0f, 1.0f);
+                    ImGui::Text("Color");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::ColorEdit3("##SLColor", &sl->color.x);
+                    ImGui::Text("Intensity");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##SLIntensity", &sl->intensity, 0.1f, 0.0f, 100.0f);
+                    ImGui::Text("Radius");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##SLRadius", &sl->radius, 0.5f, 0.1f, 500.0f);
+                    ImGui::Text("Inner Angle");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##SLInner", &sl->inner_angle, 0.5f, 0.0f, 90.0f);
+                    ImGui::Text("Outer Angle");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##SLOuter", &sl->outer_angle, 0.5f, 0.0f, 90.0f);
+                }
+            }
+
             // Add Component popup — lists types not already present
             if (ImGui::Button("Add Component", {-1, 0})) {
                 ImGui::OpenPopup("##AddBuiltinComponent");
@@ -354,81 +412,6 @@ void PropertiesPanel::draw() {
             ImGui::TextDisabled("No object selected");
         }
 
-        ImGui::Spacing();
-        ImGui::Separator();
-        if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-            ImGui::Text("Direction");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat3("##Direction", &light_->direction.x, 0.01f, -1.0f, 1.0f);
-            ImGui::Text("Color");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::ColorEdit3("##Color", &light_->color.x);
-            ImGui::Text("Intensity");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat("##Intensity", &light_->intensity, 0.05f, 0.0f, 10.0f);
-            ImGui::Spacing();
-            ImGui::Text("Ambient");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::ColorEdit3("##Ambient", &light_->ambient_color.x);
-            ImGui::Text("Ambient Intensity");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::DragFloat("##AmbientIntensity", &light_->ambient_intensity, 0.05f, 0.0f, 2.0f);
-        }
-
-        if (ImGui::CollapsingHeader("Point Lights", ImGuiTreeNodeFlags_DefaultOpen)) {
-            auto& point_lights = scene_->point_lights();
-            int remove_idx = -1;
-            for (int i = 0; i < static_cast<int>(point_lights.size()); ++i) {
-                ImGui::PushID(i);
-                auto& pl = point_lights[i];
-                bool open = ImGui::TreeNode("##pl", "Point Light %d", i);
-                if (open) {
-                    ImGui::DragFloat3("Position", &pl.position.x, 0.1f);
-                    ImGui::ColorEdit3("Color", &pl.color.x);
-                    ImGui::DragFloat("Intensity", &pl.intensity, 0.1f, 0.0f, 100.0f);
-                    ImGui::DragFloat("Radius", &pl.radius, 0.5f, 0.1f, 500.0f);
-                    if (ImGui::SmallButton("Remove")) remove_idx = i;
-                    ImGui::TreePop();
-                }
-                ImGui::PopID();
-            }
-            if (remove_idx >= 0) {
-                point_lights.erase(point_lights.begin() + remove_idx);
-                scene_->mark_dirty();
-            }
-            if (ImGui::Button("Add Point Light", {-1, 0})) {
-                scene_->add_point_light();
-            }
-        }
-
-        if (ImGui::CollapsingHeader("Spot Lights")) {
-            auto& spot_lights = scene_->spot_lights();
-            int remove_idx = -1;
-            for (int i = 0; i < static_cast<int>(spot_lights.size()); ++i) {
-                ImGui::PushID(1000 + i);
-                auto& sl = spot_lights[i];
-                bool open = ImGui::TreeNode("##sl", "Spot Light %d", i);
-                if (open) {
-                    ImGui::DragFloat3("Position", &sl.position.x, 0.1f);
-                    ImGui::DragFloat3("Direction", &sl.direction.x, 0.01f, -1.0f, 1.0f);
-                    ImGui::ColorEdit3("Color", &sl.color.x);
-                    ImGui::DragFloat("Intensity", &sl.intensity, 0.1f, 0.0f, 100.0f);
-                    ImGui::DragFloat("Radius", &sl.radius, 0.5f, 0.1f, 500.0f);
-                    ImGui::DragFloat("Inner Angle", &sl.inner_angle, 0.5f, 0.0f, 90.0f);
-                    ImGui::DragFloat("Outer Angle", &sl.outer_angle, 0.5f, 0.0f, 90.0f);
-                    if (ImGui::SmallButton("Remove")) remove_idx = i;
-                    ImGui::TreePop();
-                }
-                ImGui::PopID();
-            }
-            if (remove_idx >= 0) {
-                spot_lights.erase(spot_lights.begin() + remove_idx);
-                scene_->mark_dirty();
-            }
-            if (ImGui::Button("Add Spot Light", {-1, 0})) {
-                scene_->add_spot_light();
-            }
-        }
     }
     ImGui::End();
 }

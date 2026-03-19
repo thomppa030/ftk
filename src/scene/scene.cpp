@@ -6,6 +6,7 @@
 #include "scripting/fjell_actor.hpp"
 #include "scripting/fjell_component.hpp"
 #include "core/base_path.hpp"
+#include "scene/light_node.hpp"
 #include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
@@ -27,26 +28,30 @@ SceneNode::~SceneNode() = default;
 SceneNode::SceneNode(SceneNode&&) noexcept = default;
 SceneNode& SceneNode::operator=(SceneNode&&) noexcept = default;
 
-std::unique_ptr<SceneNode> SceneNode::clone() const {
-    auto copy = std::make_unique<SceneNode>();
-    copy->id = id;
-    copy->parent_id = parent_id;
-    copy->world_matrix_ = world_matrix_;
-    copy->transform = transform;
-    copy->name = name;
-    copy->source = source;
-    copy->mesh = mesh;
-    copy->actor_type_name = actor_type_name;
+void SceneNode::clone_base_into(SceneNode& target) const {
+    target.id = id;
+    target.parent_id = parent_id;
+    target.world_matrix_ = world_matrix_;
+    target.transform = transform;
+    target.name = name;
+    target.source = source;
+    target.mesh = mesh;
+    target.actor_type_name = actor_type_name;
     for (const auto& s : scripts) {
         ScriptEntry entry;
         entry.type_name = s.type_name;
         entry.serialized = s.serialized;
-        copy->scripts.push_back(std::move(entry));
+        target.scripts.push_back(std::move(entry));
     }
-    copy->rigidbody = rigidbody;
-    copy->collider = collider;
-    copy->emitter = emitter;
-    copy->sprite = sprite;
+    target.rigidbody = rigidbody;
+    target.collider = collider;
+    target.emitter = emitter;
+    target.sprite = sprite;
+}
+
+std::unique_ptr<SceneNode> SceneNode::clone() const {
+    auto copy = std::make_unique<SceneNode>();
+    clone_base_into(*copy);
     return copy;
 }
 
@@ -331,6 +336,35 @@ void Scene::save(const std::string& path) {
             }
         }
 
+        // Light node data
+        if (auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
+            jobj["node_type"] = "directional_light";
+            jobj["light"] = {
+                {"direction", {dl->direction.x, dl->direction.y, dl->direction.z}},
+                {"color", {dl->color.x, dl->color.y, dl->color.z}},
+                {"intensity", dl->intensity},
+                {"ambient_color", {dl->ambient_color.x, dl->ambient_color.y, dl->ambient_color.z}},
+                {"ambient_intensity", dl->ambient_intensity}
+            };
+        } else if (auto* pl = dynamic_cast<const PointLightNode*>(obj.get())) {
+            jobj["node_type"] = "point_light";
+            jobj["light"] = {
+                {"color", {pl->color.x, pl->color.y, pl->color.z}},
+                {"intensity", pl->intensity},
+                {"radius", pl->radius}
+            };
+        } else if (auto* sl = dynamic_cast<const SpotLightNode*>(obj.get())) {
+            jobj["node_type"] = "spot_light";
+            jobj["light"] = {
+                {"direction", {sl->direction.x, sl->direction.y, sl->direction.z}},
+                {"color", {sl->color.x, sl->color.y, sl->color.z}},
+                {"intensity", sl->intensity},
+                {"radius", sl->radius},
+                {"inner_angle", sl->inner_angle},
+                {"outer_angle", sl->outer_angle}
+            };
+        }
+
         j["objects"].push_back(jobj);
     }
 
@@ -423,6 +457,77 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         if (jobj.contains("scale")) {
             auto& s = jobj["scale"];
             transform.scale = {s[0].get<float>(), s[1].get<float>(), s[2].get<float>()};
+        }
+
+        // Light nodes
+        std::string node_type = jobj.value("node_type", "");
+        if (!node_type.empty()) {
+            std::unique_ptr<SceneNode> node;
+            if (node_type == "directional_light") {
+                auto dl = std::make_unique<DirectionalLightNode>();
+                if (jobj.contains("light")) {
+                    auto& jl = jobj["light"];
+                    if (jl.contains("direction")) {
+                        auto& d = jl["direction"];
+                        dl->direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
+                    }
+                    if (jl.contains("color")) {
+                        auto& c = jl["color"];
+                        dl->color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    }
+                    dl->intensity = jl.value("intensity", 1.5f);
+                    if (jl.contains("ambient_color")) {
+                        auto& c = jl["ambient_color"];
+                        dl->ambient_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    }
+                    dl->ambient_intensity = jl.value("ambient_intensity", 1.0f);
+                }
+                node = std::move(dl);
+            } else if (node_type == "point_light") {
+                auto pl = std::make_unique<PointLightNode>();
+                if (jobj.contains("light")) {
+                    auto& jl = jobj["light"];
+                    if (jl.contains("color")) {
+                        auto& c = jl["color"];
+                        pl->color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    }
+                    pl->intensity = jl.value("intensity", 1.0f);
+                    pl->radius = jl.value("radius", 10.0f);
+                }
+                node = std::move(pl);
+            } else if (node_type == "spot_light") {
+                auto sl = std::make_unique<SpotLightNode>();
+                if (jobj.contains("light")) {
+                    auto& jl = jobj["light"];
+                    if (jl.contains("direction")) {
+                        auto& d = jl["direction"];
+                        sl->direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
+                    }
+                    if (jl.contains("color")) {
+                        auto& c = jl["color"];
+                        sl->color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    }
+                    sl->intensity = jl.value("intensity", 1.0f);
+                    sl->radius = jl.value("radius", 10.0f);
+                    sl->inner_angle = jl.value("inner_angle", 20.0f);
+                    sl->outer_angle = jl.value("outer_angle", 30.0f);
+                }
+                node = std::move(sl);
+            }
+
+            if (node) {
+                node->name = name;
+                node->transform = transform;
+                uint32_t loaded_id = jobj.value("id", 0u);
+                int32_t loaded_parent = jobj.value("parent_id", -1);
+                if (loaded_id > 0) {
+                    node->id = loaded_id;
+                    if (loaded_id > max_id) max_id = loaded_id;
+                }
+                node->parent_id = loaded_parent;
+                scene.add_node(std::move(node));
+                continue;
+            }
         }
 
         // Empty nodes have no source and no mesh

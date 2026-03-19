@@ -12,6 +12,7 @@
 #include "core/thread_pool.hpp"
 #include "core/window.hpp"
 #include "scene/scene.hpp"
+#include "scene/light_node.hpp"
 
 #include <glm/glm.hpp>
 
@@ -952,10 +953,35 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     GlobalUbo ubo{};
     ubo.view = view;
     ubo.projection = projection;
-    ubo.light_direction = glm::vec4(glm::normalize(-light.direction), light.intensity);
-    ubo.light_color = glm::vec4(light.color, 0.0f);
+    // Find directional light from scene nodes, fall back to passed-in light
+    DirectionalLight dir_light = light;
+    uint32_t point_count = 0;
+    uint32_t spot_count = 0;
+    if (scene) {
+        for (const auto& obj : scene->objects()) {
+            if (auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
+                dir_light.direction = dl->direction;
+                dir_light.color = dl->color;
+                dir_light.intensity = dl->intensity;
+                dir_light.ambient_color = dl->ambient_color;
+                dir_light.ambient_intensity = dl->ambient_intensity;
+            } else if (dynamic_cast<const PointLightNode*>(obj.get())) {
+                ++point_count;
+            } else if (dynamic_cast<const SpotLightNode*>(obj.get())) {
+                ++spot_count;
+            }
+        }
+        // Also count legacy lights
+        point_count += static_cast<uint32_t>(scene->point_lights().size());
+        spot_count += static_cast<uint32_t>(scene->spot_lights().size());
+    }
+    point_count = std::min(point_count, 1024u);
+    spot_count = std::min(spot_count, 1024u);
+
+    ubo.light_direction = glm::vec4(glm::normalize(-dir_light.direction), dir_light.intensity);
+    ubo.light_color = glm::vec4(dir_light.color, 0.0f);
     ubo.camera_position = glm::vec4(camera_position, 0.0f);
-    ubo.ambient_color = glm::vec4(light.ambient_color, light.ambient_intensity);
+    ubo.ambient_color = glm::vec4(dir_light.ambient_color, dir_light.ambient_intensity);
 
     const auto& matrices = shadow_pass_.light_matrices();
     const auto& splits = shadow_pass_.cascade_splits();
@@ -967,10 +993,6 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     // Forward+ tile info
     uint32_t tiles_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     uint32_t tiles_y = (extent.height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
-    uint32_t point_count = scene ? static_cast<uint32_t>(scene->point_lights().size()) : 0;
-    uint32_t spot_count = scene ? static_cast<uint32_t>(scene->spot_lights().size()) : 0;
-    point_count = std::min(point_count, 1024u);
-    spot_count = std::min(spot_count, 1024u);
     ubo.tile_info = glm::uvec4(tiles_x, tiles_y, point_count, spot_count);
     ubo.inv_projection = glm::inverse(projection);
 
@@ -980,34 +1002,58 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
 void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     if (!scene) return;
 
-    const auto& point_lights = scene->point_lights();
-    const auto& spot_lights = scene->spot_lights();
-
-    auto point_count = std::min(static_cast<uint32_t>(point_lights.size()), 1024u);
-    auto spot_count = std::min(static_cast<uint32_t>(spot_lights.size()), 1024u);
-
     auto* dst = static_cast<uint8_t*>(light_ssbo_[frame_index]->mapped());
+    uint32_t point_count = 0;
+    uint32_t spot_count = 0;
 
-    // Write point lights
-    for (uint32_t i = 0; i < point_count; ++i) {
-        const auto& pl = point_lights[i];
+    // Gather lights from scene nodes (position from world transform)
+    for (const auto& obj : scene->objects()) {
+        if (auto* pl = dynamic_cast<const PointLightNode*>(obj.get())) {
+            if (point_count >= 1024) continue;
+            GpuPointLight gpu{};
+            glm::vec3 pos = glm::vec3(pl->world_matrix_[3]);
+            gpu.position_radius = glm::vec4(pos, pl->radius);
+            gpu.color_intensity = glm::vec4(pl->color, pl->intensity);
+            std::memcpy(dst + point_count * sizeof(GpuPointLight), &gpu, sizeof(GpuPointLight));
+            ++point_count;
+        } else if (auto* sl = dynamic_cast<const SpotLightNode*>(obj.get())) {
+            if (spot_count >= 1024) continue;
+            GpuSpotLight gpu{};
+            glm::vec3 pos = glm::vec3(sl->world_matrix_[3]);
+            gpu.position_radius = glm::vec4(pos, sl->radius);
+            gpu.direction_inner_cos = glm::vec4(glm::normalize(sl->direction),
+                                                 std::cos(glm::radians(sl->inner_angle)));
+            gpu.color_intensity = glm::vec4(sl->color, sl->intensity);
+            gpu.outer_cos = std::cos(glm::radians(sl->outer_angle));
+            auto* spot_dst = dst + 1024 * sizeof(GpuPointLight);
+            std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
+            ++spot_count;
+        }
+    }
+
+    // Legacy: also include lights from the old separate vectors
+    const auto& old_point_lights = scene->point_lights();
+    for (uint32_t i = 0; i < static_cast<uint32_t>(old_point_lights.size()) && point_count < 1024; ++i) {
+        const auto& pl = old_point_lights[i];
         GpuPointLight gpu{};
         gpu.position_radius = glm::vec4(pl.position, pl.radius);
         gpu.color_intensity = glm::vec4(pl.color, pl.intensity);
-        std::memcpy(dst + i * sizeof(GpuPointLight), &gpu, sizeof(GpuPointLight));
+        std::memcpy(dst + point_count * sizeof(GpuPointLight), &gpu, sizeof(GpuPointLight));
+        ++point_count;
     }
 
-    // Write spot lights after the point light array (offset = 1024 * sizeof(GpuPointLight))
+    const auto& old_spot_lights = scene->spot_lights();
     auto* spot_dst = dst + 1024 * sizeof(GpuPointLight);
-    for (uint32_t i = 0; i < spot_count; ++i) {
-        const auto& sl = spot_lights[i];
+    for (uint32_t i = 0; i < static_cast<uint32_t>(old_spot_lights.size()) && spot_count < 1024; ++i) {
+        const auto& sl = old_spot_lights[i];
         GpuSpotLight gpu{};
         gpu.position_radius = glm::vec4(sl.position, sl.radius);
         gpu.direction_inner_cos = glm::vec4(glm::normalize(sl.direction),
                                              std::cos(glm::radians(sl.inner_angle)));
         gpu.color_intensity = glm::vec4(sl.color, sl.intensity);
         gpu.outer_cos = std::cos(glm::radians(sl.outer_angle));
-        std::memcpy(spot_dst + i * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
+        std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
+        ++spot_count;
     }
 }
 

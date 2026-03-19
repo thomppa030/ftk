@@ -81,6 +81,10 @@ struct SceneNode {
     // Deep clone for snapshotting — copies flat data, leaves unique_ptrs null
     // Virtual so derived node types (LightNode, etc.) can clone their extra fields
     [[nodiscard]] virtual std::unique_ptr<SceneNode> clone() const;
+
+protected:
+    // Copy base fields into a derived node's clone
+    void clone_base_into(SceneNode& target) const;
 };
 
 class Scene {

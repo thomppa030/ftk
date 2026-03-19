@@ -6,6 +6,7 @@
 #include "core/log.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
+#include "scene/light_node.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
@@ -316,6 +317,26 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     // Empty node: no mesh
     if (type == "empty") {
         selected_id_ = scene_.add_empty();
+        return;
+    }
+
+    // Light nodes
+    if (type == "light:directional") {
+        auto node = std::make_unique<DirectionalLightNode>();
+        node->name = "Directional Light";
+        selected_id_ = scene_.add_node(std::move(node));
+        return;
+    }
+    if (type == "light:point") {
+        auto node = std::make_unique<PointLightNode>();
+        node->name = "Point Light";
+        selected_id_ = scene_.add_node(std::move(node));
+        return;
+    }
+    if (type == "light:spot") {
+        auto node = std::make_unique<SpotLightNode>();
+        node->name = "Spot Light";
+        selected_id_ = scene_.add_node(std::move(node));
         return;
     }
 
