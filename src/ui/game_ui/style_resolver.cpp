@@ -1,0 +1,293 @@
+#include "ui/game_ui/style_resolver.hpp"
+
+#include <algorithm>
+#include <charconv>
+#include <cstdlib>
+#include <sstream>
+
+namespace fjell {
+
+void StyleResolver::resolve(UiNode& root, const Stylesheet& sheet) {
+    resolve_node(root, sheet);
+}
+
+void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet) {
+    // Collect matching rules with specificity
+    struct Match {
+        uint32_t specificity;
+        const std::unordered_map<std::string, std::string>* props;
+    };
+    std::vector<Match> matches;
+
+    for (const auto& rule : sheet.rules) {
+        if (selector_matches(node, rule.selector)) {
+            matches.push_back({rule.selector.specificity(), &rule.properties});
+        }
+    }
+
+    // Sort by specificity (lower first, so higher specificity wins)
+    std::sort(matches.begin(), matches.end(),
+              [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
+
+    // Apply properties in order (higher specificity overwrites)
+    for (const auto& match : matches) {
+        for (const auto& [name, value] : *match.props) {
+            apply_property(node.style, name, value);
+        }
+    }
+
+    // Also apply inline style from attributes
+    for (const auto& [name, value] : node.attributes) {
+        if (name == "id" || name == "class" || name == "style") continue;
+        // Check if this looks like a style property
+        if (name.find("style-") == 0) {
+            apply_property(node.style, name.substr(6), value);
+        }
+    }
+
+    // Recurse to children
+    for (auto& child : node.children) {
+        resolve_node(*child, sheet);
+    }
+}
+
+bool StyleResolver::selector_matches(const UiNode& node, const StyleSelector& sel) const {
+    // ID match
+    if (!sel.id.empty() && node.id != sel.id) return false;
+
+    // Class match
+    if (!sel.class_.empty() && !node.has_class(sel.class_)) return false;
+
+    // Tag match
+    if (!sel.tag.empty() && node.tag != sel.tag) return false;
+
+    // Ancestor match (descendant combinator)
+    if (!sel.parent.empty()) {
+        bool found = false;
+        for (auto* p = node.parent; p != nullptr; p = p->parent) {
+            if (p->tag == sel.parent || p->has_class(sel.parent) || p->id == sel.parent) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) return false;
+    }
+
+    return true;
+}
+
+void StyleResolver::apply_property(UiComputedStyle& style, const std::string& name,
+                                   const std::string& value) {
+    // Display
+    if (name == "display") {
+        if (value == "flex") style.display = UiDisplay::flex;
+        else if (value == "none") style.display = UiDisplay::none;
+        return;
+    }
+
+    // Flex direction
+    if (name == "flex-direction") {
+        if (value == "row") style.flex_direction = UiFlexDirection::row;
+        else if (value == "column") style.flex_direction = UiFlexDirection::column;
+        else if (value == "row-reverse") style.flex_direction = UiFlexDirection::row_reverse;
+        else if (value == "column-reverse") style.flex_direction = UiFlexDirection::column_reverse;
+        return;
+    }
+
+    // Justify content
+    if (name == "justify-content") {
+        if (value == "flex-start") style.justify_content = UiJustify::flex_start;
+        else if (value == "flex-end") style.justify_content = UiJustify::flex_end;
+        else if (value == "center") style.justify_content = UiJustify::center;
+        else if (value == "space-between") style.justify_content = UiJustify::space_between;
+        else if (value == "space-around") style.justify_content = UiJustify::space_around;
+        else if (value == "space-evenly") style.justify_content = UiJustify::space_evenly;
+        return;
+    }
+
+    // Align items
+    if (name == "align-items") {
+        if (value == "flex-start") style.align_items = UiAlign::flex_start;
+        else if (value == "flex-end") style.align_items = UiAlign::flex_end;
+        else if (value == "center") style.align_items = UiAlign::center;
+        else if (value == "stretch") style.align_items = UiAlign::stretch;
+        else if (value == "baseline") style.align_items = UiAlign::baseline;
+        return;
+    }
+
+    // Align self
+    if (name == "align-self") {
+        if (value == "auto") style.align_self = UiAlign::auto_;
+        else if (value == "flex-start") style.align_self = UiAlign::flex_start;
+        else if (value == "flex-end") style.align_self = UiAlign::flex_end;
+        else if (value == "center") style.align_self = UiAlign::center;
+        else if (value == "stretch") style.align_self = UiAlign::stretch;
+        return;
+    }
+
+    // Flex wrap
+    if (name == "flex-wrap") {
+        if (value == "nowrap") style.flex_wrap = UiFlexWrap::no_wrap;
+        else if (value == "wrap") style.flex_wrap = UiFlexWrap::wrap;
+        else if (value == "wrap-reverse") style.flex_wrap = UiFlexWrap::wrap_reverse;
+        return;
+    }
+
+    // Position
+    if (name == "position") {
+        if (value == "relative") style.position = UiPosition::relative;
+        else if (value == "absolute") style.position = UiPosition::absolute;
+        return;
+    }
+
+    // Overflow
+    if (name == "overflow") {
+        if (value == "visible") style.overflow = UiOverflow::visible;
+        else if (value == "hidden") style.overflow = UiOverflow::hidden;
+        else if (value == "scroll") style.overflow = UiOverflow::scroll;
+        return;
+    }
+
+    // Flex grow / shrink
+    if (name == "flex-grow") { style.flex_grow = parse_px(value); return; }
+    if (name == "flex-shrink") { style.flex_shrink = parse_px(value); return; }
+
+    // Dimensions
+    if (name == "width") { style.width = parse_px(value); return; }
+    if (name == "height") { style.height = parse_px(value); return; }
+    if (name == "min-width") { style.min_width = parse_px(value); return; }
+    if (name == "min-height") { style.min_height = parse_px(value); return; }
+    if (name == "max-width") { style.max_width = parse_px(value); return; }
+    if (name == "max-height") { style.max_height = parse_px(value); return; }
+
+    // Margin (shorthand)
+    if (name == "margin") { style.margin = parse_edges(value); return; }
+    if (name == "margin-top") { style.margin.top = parse_px(value); return; }
+    if (name == "margin-right") { style.margin.right = parse_px(value); return; }
+    if (name == "margin-bottom") { style.margin.bottom = parse_px(value); return; }
+    if (name == "margin-left") { style.margin.left = parse_px(value); return; }
+
+    // Padding (shorthand)
+    if (name == "padding") { style.padding = parse_edges(value); return; }
+    if (name == "padding-top") { style.padding.top = parse_px(value); return; }
+    if (name == "padding-right") { style.padding.right = parse_px(value); return; }
+    if (name == "padding-bottom") { style.padding.bottom = parse_px(value); return; }
+    if (name == "padding-left") { style.padding.left = parse_px(value); return; }
+
+    // Position insets
+    if (name == "top") { style.inset.top = parse_px(value); return; }
+    if (name == "right") { style.inset.right = parse_px(value); return; }
+    if (name == "bottom") { style.inset.bottom = parse_px(value); return; }
+    if (name == "left") { style.inset.left = parse_px(value); return; }
+
+    // Gap
+    if (name == "gap") { style.row_gap = style.column_gap = parse_px(value); return; }
+    if (name == "row-gap") { style.row_gap = parse_px(value); return; }
+    if (name == "column-gap") { style.column_gap = parse_px(value); return; }
+
+    // Background color
+    if (name == "background-color" || name == "background") {
+        style.background_color = parse_color(value);
+        return;
+    }
+
+    // Border
+    if (name == "border-color") { style.border_color = parse_color(value); return; }
+    if (name == "border-width") { style.border_width = parse_px(value); return; }
+    if (name == "border-radius") { style.border_radius = parse_corners(value); return; }
+
+    // Opacity
+    if (name == "opacity") { style.opacity = parse_px(value); return; }
+}
+
+UiColor StyleResolver::parse_color(const std::string& value) {
+    if (value.empty()) return {};
+
+    // Hex color: #RGB, #RRGGBB, #RRGGBBAA
+    if (value[0] == '#') {
+        std::string hex = value.substr(1);
+        if (hex.size() == 3) {
+            // Expand #RGB to #RRGGBB
+            std::string expanded;
+            for (char c : hex) { expanded += c; expanded += c; }
+            hex = expanded;
+        }
+
+        uint32_t val = 0;
+        std::from_chars(hex.data(), hex.data() + hex.size(), val, 16);
+
+        if (hex.size() == 8) {
+            return UiColor::from_hex_alpha(val);
+        }
+        return UiColor::from_hex(val);
+    }
+
+    // Named colors
+    if (value == "transparent") return {0, 0, 0, 0};
+    if (value == "white") return {1, 1, 1, 1};
+    if (value == "black") return {0, 0, 0, 1};
+    if (value == "red") return {1, 0, 0, 1};
+    if (value == "green") return {0, 1, 0, 1};
+    if (value == "blue") return {0, 0, 1, 1};
+
+    return {};
+}
+
+float StyleResolver::parse_px(const std::string& value) {
+    if (value == "auto") return -1.0f;
+    float result = 0.0f;
+    std::from_chars(value.data(), value.data() + value.size(), result);
+    return result;
+}
+
+UiEdges StyleResolver::parse_edges(const std::string& value) {
+    std::vector<float> values;
+    std::istringstream iss(value);
+    std::string token;
+    while (iss >> token) {
+        values.push_back(parse_px(token));
+    }
+
+    UiEdges edges{};
+    if (values.size() == 1) {
+        edges.top = edges.right = edges.bottom = edges.left = values[0];
+    } else if (values.size() == 2) {
+        edges.top = edges.bottom = values[0];
+        edges.right = edges.left = values[1];
+    } else if (values.size() == 3) {
+        edges.top = values[0];
+        edges.right = edges.left = values[1];
+        edges.bottom = values[2];
+    } else if (values.size() >= 4) {
+        edges.top = values[0];
+        edges.right = values[1];
+        edges.bottom = values[2];
+        edges.left = values[3];
+    }
+    return edges;
+}
+
+UiCorners StyleResolver::parse_corners(const std::string& value) {
+    std::vector<float> values;
+    std::istringstream iss(value);
+    std::string token;
+    while (iss >> token) {
+        values.push_back(parse_px(token));
+    }
+
+    UiCorners corners{};
+    if (values.size() == 1) {
+        corners.top_left = corners.top_right = corners.bottom_right = corners.bottom_left = values[0];
+    } else if (values.size() == 2) {
+        corners.top_left = corners.bottom_right = values[0];
+        corners.top_right = corners.bottom_left = values[1];
+    } else if (values.size() >= 4) {
+        corners.top_left = values[0];
+        corners.top_right = values[1];
+        corners.bottom_right = values[2];
+        corners.bottom_left = values[3];
+    }
+    return corners;
+}
+
+} // namespace fjell
