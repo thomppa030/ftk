@@ -135,6 +135,28 @@ void DebugDraw::update(const Scene& scene) {
         draw_commands_.push_back({model, first, count});
     }
 
+    // Draw arrows for nodes with ArrowComponent
+    for (const auto& obj : scene.objects()) {
+        if (!obj->arrow) continue;
+        const auto& arr = *obj->arrow;
+
+        uint32_t first = static_cast<uint32_t>(vertices_.size());
+
+        // Arrow shaft: local -Z direction (forward)
+        glm::vec3 tip{0.0f, 0.0f, -arr.length};
+        add_line({0.0f, 0.0f, 0.0f}, tip);
+
+        // Arrowhead: two angled lines
+        float head = arr.length * 0.2f;
+        add_line(tip, {head * 0.3f, 0.0f, -arr.length + head});
+        add_line(tip, {-head * 0.3f, 0.0f, -arr.length + head});
+        add_line(tip, {0.0f, head * 0.3f, -arr.length + head});
+        add_line(tip, {0.0f, -head * 0.3f, -arr.length + head});
+
+        uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
+        draw_commands_.push_back({obj->world_matrix_, first, count});
+    }
+
     if (vertices_.empty()) return;
 
     // Upload to GPU

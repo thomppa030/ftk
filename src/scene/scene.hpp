@@ -1,6 +1,7 @@
 #pragma once
 
 #include "audio/audio_component.hpp"
+#include "renderer/arrow_component.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/particle_emitter.hpp"
 #include "renderer/sprite_desc.hpp"
@@ -69,6 +70,7 @@ struct SceneNode {
     std::optional<EmitterComponent> emitter;
     std::optional<SpriteComponent> sprite;
     std::optional<AudioSourceComponent> audio;
+    std::optional<ArrowComponent> arrow;
 
     // Scripting
     std::unique_ptr<Actor> actor;

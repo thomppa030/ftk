@@ -48,6 +48,7 @@ void SceneNode::clone_base_into(SceneNode& target) const {
     target.collider = collider;
     target.emitter = emitter;
     target.sprite = sprite;
+    target.arrow = arrow;
     if (audio) {
         target.audio = AudioSourceComponent{};
         target.audio->clip_path = audio->clip_path;
@@ -350,6 +351,14 @@ void Scene::save(const std::string& path) {
                 {"loop", au.loop},
                 {"spatial", au.spatial},
                 {"play_on_start", au.play_on_start}
+            };
+        }
+
+        if (obj->arrow) {
+            auto& arr = *obj->arrow;
+            jobj["arrow"] = {
+                {"length", arr.length},
+                {"color", {arr.color.x, arr.color.y, arr.color.z}}
             };
         }
 
@@ -723,6 +732,18 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             au.spatial = jau.value("spatial", true);
             au.play_on_start = jau.value("play_on_start", false);
             node->audio = au;
+        }
+
+        // Load arrow
+        if (jobj.contains("arrow") && node) {
+            auto& jar = jobj["arrow"];
+            ArrowComponent arr;
+            arr.length = jar.value("length", 2.0f);
+            if (jar.contains("color")) {
+                auto& c = jar["color"];
+                arr.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+            }
+            node->arrow = arr;
         }
 
         // Load component data as raw JSON (ScriptManager will instantiate later)
