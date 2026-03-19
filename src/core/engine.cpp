@@ -6,8 +6,12 @@
 #include "core/log.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
+#include "renderer/bindless.hpp"
+#include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
+#include "renderer/material_asset.hpp"
 #include "renderer/model.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/texture.hpp"
 
 #include <imgui.h>
@@ -202,6 +206,50 @@ void Engine::scan_models() {
     }
     std::sort(available_models_.begin(), available_models_.end());
     FJELL_CORE_INFO("Found {} model(s) in assets/models/", available_models_.size());
+}
+
+void Engine::save_material_assets() {
+    auto* cache = vulkan_context_.pipeline_cache();
+    auto& bindless = vulkan_context_.bindless_textures();
+    if (!cache) return;
+
+    for (auto& obj : scene_.objects()) {
+        if (!obj.material) continue;
+        if (!obj.material_name.ends_with(".fjmat")) continue;
+
+        uint32_t pid = obj.material->pipeline_id();
+        if (pid >= cache->shader_count()) continue;
+
+        const auto& meta = cache->metadata(pid);
+        uint32_t param_count = obj.material->custom_param_count();
+        if (param_count == 0) continue;
+
+        const auto& gpu = bindless.material_at(obj.material->material_id());
+
+        // Read current params back from CPU buffer
+        std::string mat_path = base_path::resolve_asset(
+            obj.material_name, active_project());
+
+        MaterialAsset asset;
+        try {
+            asset = load_material_asset(mat_path);
+        } catch (...) {
+            continue;
+        }
+
+        // Update param values from live buffer
+        for (const auto& u : meta.uniforms) {
+            if (u.type == UniformType::Sampler2D) continue;
+            uint32_t fcount = uniform_float_count(u.type);
+            std::vector<float> vals(fcount);
+            for (uint32_t i = 0; i < fcount; ++i) {
+                vals[i] = bindless.read_param(gpu.param_offset + u.slot + i);
+            }
+            asset.params[u.name] = vals;
+        }
+
+        save_material_asset(mat_path, asset);
+    }
 }
 
 void Engine::create_default_scene() {
@@ -420,6 +468,7 @@ void Engine::draw_menu_bar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Save Scene")) {
+                save_material_assets();
                 scene_.save(current_scene_path_);
             }
             if (ImGui::MenuItem("Load Scene") && !current_scene_path_.empty()) {
@@ -763,6 +812,7 @@ void Engine::draw_ui() {
 
     // Global shortcuts
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+        save_material_assets();
         scene_.save(current_scene_path_);
     }
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space)) {

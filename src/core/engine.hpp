@@ -58,6 +58,7 @@ private:
     void add_model_to_scene(const std::string& path);
     void add_primitive_to_scene(const std::string& type);
     void create_default_scene();
+    void save_material_assets();
 
     void draw_ui();
     void setup_dockspace();
