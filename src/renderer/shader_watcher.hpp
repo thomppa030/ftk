@@ -2,6 +2,8 @@
 
 #ifndef NDEBUG
 
+#include "platform/file_watcher.hpp"
+
 #include <string>
 
 namespace fjell {
@@ -9,7 +11,7 @@ namespace fjell {
 class ShaderWatcher {
 public:
     ShaderWatcher(const std::string& source_dir, const std::string& output_dir);
-    ~ShaderWatcher();
+    ~ShaderWatcher() = default;
 
     ShaderWatcher(const ShaderWatcher&) = delete;
     ShaderWatcher& operator=(const ShaderWatcher&) = delete;
@@ -23,8 +25,8 @@ private:
 
     std::string source_dir_;
     std::string output_dir_;
-    int inotify_fd_{-1};
-    int watch_fd_{-1};
+    platform::FileWatcher watcher_;
+    bool changed_{false};
 };
 
 } // namespace fjell
