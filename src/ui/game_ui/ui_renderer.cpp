@@ -10,42 +10,13 @@
 
 namespace fjell {
 
-void UiRenderer::create(Device& device, const PassResources& resources,
-                        VkFormat output_format) {
-    device_ = device.handle();
-    physical_device_ = device.physical_device();
-    global_set_layout_ = resources.global_set_layout;
-    bindless_set_layout_ = resources.material_set_layout;
-    color_format_ = (output_format != VK_FORMAT_UNDEFINED) ? output_format : resources.color_format;
-
-    // UI quad SSBO descriptor set layout (set 2, binding 0)
-    VkDescriptorSetLayoutBinding ssbo_binding{};
-    ssbo_binding.binding = 0;
-    ssbo_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    ssbo_binding.descriptorCount = 1;
-    ssbo_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    VkDescriptorSetLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 1;
-    layout_ci.pBindings = &ssbo_binding;
-    if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &quad_set_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create UI quad set layout");
-    }
-
-    // Pipeline layout: set 0 = global, set 1 = bindless textures, set 2 = UI quad SSBO
-    VkDescriptorSetLayout sets[] = {global_set_layout_, bindless_set_layout_, quad_set_layout_};
-    VkPipelineLayoutCreateInfo pipe_layout_ci{};
-    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipe_layout_ci.setLayoutCount = 3;
-    pipe_layout_ci.pSetLayouts = sets;
-    if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create UI pipeline layout");
-    }
-
-    // Shaders
-    auto vert_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/ui_quad.vert.spv")));
-    auto frag_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/ui_quad.frag.spv")));
+// Helper to create a pipeline with given shaders and shared state
+static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
+                                      VkFormat color_format,
+                                      const std::string& vert_path,
+                                      const std::string& frag_path) {
+    auto vert_mod = create_shader_module(device, read_spirv(vert_path));
+    auto frag_mod = create_shader_module(device, read_spirv(frag_path));
 
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -84,14 +55,13 @@ void UiRenderer::create(Device& device, const PassResources& resources,
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT; // UI renders post-resolve
+    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depth_stencil.depthTestEnable = VK_FALSE;
     depth_stencil.depthWriteEnable = VK_FALSE;
 
-    // Premultiplied alpha blending
     VkPipelineColorBlendAttachmentState blend{};
     blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -108,11 +78,10 @@ void UiRenderer::create(Device& device, const PassResources& resources,
     color_blending.attachmentCount = 1;
     color_blending.pAttachments = &blend;
 
-    // Dynamic rendering (no render pass objects)
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachmentFormats = &color_format_;
+    rendering_info.pColorAttachmentFormats = &color_format;
 
     VkGraphicsPipelineCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -127,19 +96,69 @@ void UiRenderer::create(Device& device, const PassResources& resources,
     ci.pDepthStencilState = &depth_stencil;
     ci.pColorBlendState = &color_blending;
     ci.pDynamicState = &dynamic_state;
-    ci.layout = layout_;
+    ci.layout = layout;
 
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create UI quad pipeline");
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create UI pipeline");
     }
 
-    vkDestroyShaderModule(device_, vert_mod, nullptr);
-    vkDestroyShaderModule(device_, frag_mod, nullptr);
+    vkDestroyShaderModule(device, vert_mod, nullptr);
+    vkDestroyShaderModule(device, frag_mod, nullptr);
+    return pipeline;
+}
 
-    // Descriptor pool for 2 quad SSBO sets
+void UiRenderer::create(Device& device, const PassResources& resources,
+                        VkFormat output_format) {
+    device_ = device.handle();
+    physical_device_ = device.physical_device();
+    global_set_layout_ = resources.global_set_layout;
+    bindless_set_layout_ = resources.material_set_layout;
+    color_format_ = (output_format != VK_FORMAT_UNDEFINED) ? output_format : resources.color_format;
+
+    // Set 2: binding 0 = quad SSBO, binding 1 = glyph SSBO
+    VkDescriptorSetLayoutBinding bindings[2]{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layout_ci{};
+    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layout_ci.bindingCount = 2;
+    layout_ci.pBindings = bindings;
+    if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &quad_set_layout_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create UI set layout");
+    }
+
+    // Pipeline layout: set 0 = global, set 1 = bindless, set 2 = UI SSBOs
+    VkDescriptorSetLayout sets[] = {global_set_layout_, bindless_set_layout_, quad_set_layout_};
+    VkPipelineLayoutCreateInfo pipe_layout_ci{};
+    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipe_layout_ci.setLayoutCount = 3;
+    pipe_layout_ci.pSetLayouts = sets;
+    if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create UI pipeline layout");
+    }
+
+    // Quad pipeline
+    pipeline_ = create_ui_pipeline(device_, layout_, color_format_,
+        base_path::resolve("shaders/ui_quad.vert.spv"),
+        base_path::resolve("shaders/ui_quad.frag.spv"));
+
+    // Text pipeline
+    text_pipeline_ = create_ui_pipeline(device_, layout_, color_format_,
+        base_path::resolve("shaders/ui_text.vert.spv"),
+        base_path::resolve("shaders/ui_text.frag.spv"));
+
+    // Descriptor pool: 2 sets × 2 SSBOs each = 4 storage buffer descriptors
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = 2;
+    pool_size.descriptorCount = 4;
 
     VkDescriptorPoolCreateInfo desc_pool_ci{};
     desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -158,6 +177,12 @@ void UiRenderer::create(Device& device, const PassResources& resources,
             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         quad_ssbos_[i]->map();
 
+        text_ssbos_[i] = std::make_unique<Buffer>(
+            device_, physical_device_, TEXT_SSBO_SIZE,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        text_ssbos_[i]->map();
+
         VkDescriptorSetAllocateInfo alloc{};
         alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc.descriptorPool = pool_;
@@ -167,18 +192,29 @@ void UiRenderer::create(Device& device, const PassResources& resources,
             throw std::runtime_error("Failed to allocate UI descriptor set");
         }
 
-        VkDescriptorBufferInfo buf_info{quad_ssbos_[i]->handle(), 0, SSBO_SIZE};
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = quad_sets_[i];
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        write.descriptorCount = 1;
-        write.pBufferInfo = &buf_info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+        // Write both bindings
+        VkDescriptorBufferInfo quad_buf{quad_ssbos_[i]->handle(), 0, SSBO_SIZE};
+        VkDescriptorBufferInfo text_buf{text_ssbos_[i]->handle(), 0, TEXT_SSBO_SIZE};
+
+        VkWriteDescriptorSet writes[2]{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = quad_sets_[i];
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo = &quad_buf;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = quad_sets_[i];
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo = &text_buf;
+
+        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
     }
 
-    FJELL_GFX_DEBUG("UI renderer created");
+    FJELL_GFX_DEBUG("UI renderer created (quad + text pipelines)");
 }
 
 void UiRenderer::destroy() {
@@ -187,7 +223,9 @@ void UiRenderer::destroy() {
     };
 
     for (auto& ssbo : quad_ssbos_) ssbo.reset();
+    for (auto& ssbo : text_ssbos_) ssbo.reset();
     safe_destroy(pool_, vkDestroyDescriptorPool);
+    safe_destroy(text_pipeline_, vkDestroyPipeline);
     safe_destroy(pipeline_, vkDestroyPipeline);
     safe_destroy(layout_, vkDestroyPipelineLayout);
     safe_destroy(quad_set_layout_, vkDestroyDescriptorSetLayout);
@@ -205,15 +243,52 @@ void UiRenderer::update(const UiNode& root, float viewport_width, float viewport
         auto* dst = static_cast<GpuUiQuad*>(quad_ssbos_[frame_index]->mapped());
         std::memcpy(dst, quads.data(), count * sizeof(GpuUiQuad));
     }
+
+    // Reset text count (will be filled by update_text calls)
+    text_counts_[frame_index] = 0;
+}
+
+void UiRenderer::update_text(const std::vector<PositionedGlyph>& glyphs,
+                              const UiNode& source_node,
+                              uint32_t atlas_index, float pixel_range,
+                              float viewport_width, float viewport_height,
+                              uint32_t frame_index) {
+    if (glyphs.empty()) return;
+
+    uint32_t existing = text_counts_[frame_index];
+    uint32_t count = std::min(static_cast<uint32_t>(glyphs.size()),
+                              MAX_TEXT_GLYPHS - existing);
+    if (count == 0) return;
+
+    auto* dst = static_cast<GpuUiGlyph*>(text_ssbos_[frame_index]->mapped()) + existing;
+
+    // Default text color: white. Will be styled in Phase 3.
+    float r = 1.0f, g = 1.0f, b = 1.0f, a = 1.0f;
+
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto& pg = glyphs[i];
+        GpuUiGlyph gg{};
+        gg.rect = {source_node.layout_rect.x + pg.x,
+                   source_node.layout_rect.y + pg.y,
+                   pg.w, pg.h};
+        gg.uv_rect = {pg.uv_x0, pg.uv_y0, pg.uv_x1, pg.uv_y1};
+        gg.color = {r, g, b, a};
+        gg.params = {source_node.style.opacity,
+                     static_cast<float>(atlas_index), pixel_range, 0.0f};
+        gg.clip_rect = {source_node.clip_rect.x, source_node.clip_rect.y,
+                        source_node.clip_rect.w, source_node.clip_rect.h};
+        gg.viewport_size = {viewport_width, viewport_height};
+        dst[i] = gg;
+    }
+
+    text_counts_[frame_index] = existing + count;
 }
 
 void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads,
                                 float viewport_width, float viewport_height) {
-    // Skip invisible nodes
     if (node.style.display == UiDisplay::none) return;
     if (node.layout_rect.w <= 0 || node.layout_rect.h <= 0) return;
 
-    // Only emit a quad if the node has a visible background or border
     bool has_bg = node.style.background_color.a > 0.0f;
     bool has_border = node.style.border_width > 0.0f && node.style.border_color.a > 0.0f;
     if (has_bg || has_border) {
@@ -233,7 +308,6 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
         quads.push_back(quad);
     }
 
-    // Recurse to children (front-to-back for correct painter's order)
     for (const auto& child : node.children) {
         collect_quads(*child, quads, viewport_width, viewport_height);
     }
@@ -241,9 +315,9 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
 
 void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
                          VkExtent2D extent, uint32_t frame_index) {
-    if (quad_counts_[frame_index] == 0) return;
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    bool has_quads = quad_counts_[frame_index] > 0;
+    bool has_text = text_counts_[frame_index] > 0;
+    if (!has_quads && !has_text) return;
 
     VkViewport vp{};
     vp.width = static_cast<float>(extent.width);
@@ -255,12 +329,22 @@ void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescr
     sc.extent = extent;
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
-    // Bind set 0 = global, set 1 = bindless, set 2 = UI quad SSBO
+    // Bind shared descriptor sets
     VkDescriptorSet sets[] = {global_set, bindless_set, quad_sets_[frame_index]};
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 3, sets, 0, nullptr);
 
-    vkCmdDraw(cmd, quad_counts_[frame_index] * 6, 1, 0, 0);
+    // Draw quads
+    if (has_quads) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        vkCmdDraw(cmd, quad_counts_[frame_index] * 6, 1, 0, 0);
+    }
+
+    // Draw text glyphs
+    if (has_text) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, text_pipeline_);
+        vkCmdDraw(cmd, text_counts_[frame_index] * 6, 1, 0, 0);
+    }
 }
 
 } // namespace fjell

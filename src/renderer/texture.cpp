@@ -29,9 +29,10 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
 
 Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
                  VkCommandPool command_pool, VkQueue queue,
-                 const uint8_t* pixels, uint32_t width, uint32_t height)
+                 const uint8_t* pixels, uint32_t width, uint32_t height,
+                 VkFormat format, uint32_t mip_levels)
     : device_{device} {
-    upload(physical_device, command_pool, queue, pixels, width, height);
+    upload(physical_device, command_pool, queue, pixels, width, height, format, mip_levels);
 
     FJELL_GFX_DEBUG("Texture loaded from memory: {}x{}", width, height);
 }
@@ -43,10 +44,11 @@ Texture::~Texture() {
 }
 
 void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_pool,
-                     VkQueue queue, const void* pixels, uint32_t width, uint32_t height) {
+                     VkQueue queue, const void* pixels, uint32_t width, uint32_t height,
+                     VkFormat format, uint32_t mip_levels_override) {
     VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * 4;
-    uint32_t mip_levels = static_cast<uint32_t>(
-        std::floor(std::log2(std::max(width, height)))) + 1;
+    uint32_t mip_levels = mip_levels_override > 0 ? mip_levels_override :
+        static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 
     Buffer staging{device_, physical_device, image_size,
                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -56,7 +58,7 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
 
     image_ = std::make_unique<Image>(
         device_, physical_device, width, height,
-        VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
+        format, VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
         VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mip_levels);
@@ -90,7 +92,12 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
     vkCmdCopyBufferToImage(cmd, staging.handle(), image_->handle(),
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-    image_->generate_mipmaps(cmd, physical_device, width, height, mip_levels);
+    if (mip_levels > 1) {
+        image_->generate_mipmaps(cmd, physical_device, width, height, mip_levels);
+    } else {
+        image_->transition_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
+    }
 
     vk_check(vkEndCommandBuffer(cmd),
              "Failed to end texture upload command buffer");
@@ -105,7 +112,7 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
 
     vkFreeCommandBuffers(device_, command_pool, 1, &cmd);
 
-    image_->create_view(VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
+    image_->create_view(format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
 
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device, &props);
