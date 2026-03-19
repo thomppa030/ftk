@@ -1,0 +1,51 @@
+/* Game HUD test stylesheet */
+
+#hud {
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 16;
+}
+
+.health-bar-container {
+    align-self: flex-start;
+    width: 200;
+    padding: 4;
+}
+
+.health-bar-bg {
+    width: 200;
+    height: 20;
+    background-color: #333333;
+    border-radius: 4;
+    border-width: 1;
+    border-color: #666666;
+}
+
+.health-bar-fill {
+    width: 140;
+    height: 20;
+    background-color: #44bb44;
+    border-radius: 4;
+}
+
+.bottom-panel {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 8;
+    padding: 8;
+}
+
+.slot {
+    width: 48;
+    height: 48;
+    background-color: #222222cc;
+    border-radius: 6;
+    border-width: 2;
+    border-color: #555555;
+}
+
+.active {
+    border-color: #d4a054;
+    background-color: #333333cc;
+}

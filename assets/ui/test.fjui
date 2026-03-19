@@ -1,0 +1,14 @@
+<panel id="hud" class="overlay">
+    <div class="health-bar-container">
+        <div class="health-bar-bg">
+            <div class="health-bar-fill"/>
+        </div>
+    </div>
+
+    <div class="bottom-panel">
+        <div class="slot"/>
+        <div class="slot active"/>
+        <div class="slot"/>
+        <div class="slot"/>
+    </div>
+</panel>

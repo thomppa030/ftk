@@ -16,9 +16,10 @@ These run every frame (in order), though some are skipped depending on the activ
 | 8 | Debug passes | Only recorded if the viewport requests a debug visualization (see below) |
 | 9 | Bloom | CoD-style progressive downscale chain, then upsample composite back to full resolution |
 | 10 | Tone mapping | AgX, runs as its own fullscreen pass |
-| 11 | Outline | Selection outline for hovered/selected objects |
-| 12 | MSAA resolve | Resolves multisampled color and depth to single-sample targets for post-process and display |
-| 13 | ImGui | UI overlay rendered directly to the swapchain image |
+| 11 | Game UI | .fjui/.fjss overlay — SSBO quads with SDF rounded rects, no depth, alpha blended |
+| 12 | Outline | Selection outline for hovered/selected objects |
+| 13 | MSAA resolve | Resolves multisampled color and depth to single-sample targets for post-process and display |
+| 14 | ImGui | UI overlay rendered directly to the swapchain image |
 
 ## Debug Visualizations
 
