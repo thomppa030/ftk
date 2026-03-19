@@ -453,7 +453,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Load rigidbody descriptor
         if (jobj.contains("rigidbody")) {
             auto& jrb = jobj["rigidbody"];
-            RigidbodyDesc rb;
+            RigidbodyComponent rb;
             rb.body_type = static_cast<BodyType>(jrb.value("body_type", 2));
             rb.mass = jrb.value("mass", 1.0f);
             rb.friction = jrb.value("friction", 0.5f);
@@ -466,7 +466,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Load collider descriptor
         if (jobj.contains("collider")) {
             auto& jcol = jobj["collider"];
-            ColliderDesc col;
+            ColliderComponent col;
             col.shape = static_cast<ColliderShape>(jcol.value("shape", 0));
             if (jcol.contains("half_extents")) {
                 auto& he = jcol["half_extents"];
@@ -484,7 +484,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Load particle emitter
         if (jobj.contains("emitter")) {
             auto& jem = jobj["emitter"];
-            ParticleEmitter em;
+            EmitterComponent em;
             em.emission_rate = jem.value("emission_rate", 50.0f);
             em.lifetime_min = jem.value("lifetime_min", 1.0f);
             em.lifetime_max = jem.value("lifetime_max", 3.0f);
@@ -518,7 +518,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Load sprite
         if (jobj.contains("sprite")) {
             auto& jsp = jobj["sprite"];
-            SpriteDesc sp;
+            SpriteComponent sp;
             sp.texture_path = jsp.value("texture", "");
             if (jsp.contains("tint")) {
                 auto& t = jsp["tint"];

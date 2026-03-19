@@ -332,7 +332,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
                                   {}, "Sprite", "primitive:plane");
         auto* obj = scene_.find(selected_id_);
         if (obj) {
-            obj->sprite = SpriteDesc{};
+            obj->sprite = SpriteComponent{};
         }
         return;
     }

@@ -67,8 +67,8 @@ public:
     void shutdown();
     void draw();
 
-    [[nodiscard]] ParticleEmitter build_emitter() const;
-    void load_from_emitter(const ParticleEmitter& e);
+    [[nodiscard]] EmitterComponent build_emitter() const;
+    void load_from_emitter(const EmitterComponent& e);
 
 private:
     int next_id();

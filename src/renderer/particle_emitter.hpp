@@ -1,5 +1,7 @@
 #pragma once
 
+#include "scene/node_component.hpp"
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -11,7 +13,7 @@ enum class ParticleBlendMode : uint8_t {
     alpha,      // smoke, dust
 };
 
-struct ParticleEmitter {
+struct EmitterComponent : NodeComponent {
     // Emission
     float emission_rate{50.0f};       // particles per second
     float lifetime_min{1.0f};

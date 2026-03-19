@@ -187,7 +187,7 @@ Node* NodeEditorPanel::find_node(NodeType type) {
     return nullptr;
 }
 
-void NodeEditorPanel::load_from_emitter(const ParticleEmitter& e) {
+void NodeEditorPanel::load_from_emitter(const EmitterComponent& e) {
     if (auto* n = find_node(NodeType::emitter)) {
         n->emission_rate = e.emission_rate;
         n->lifetime_min  = e.lifetime_min;
@@ -217,7 +217,7 @@ void NodeEditorPanel::apply_to_selected() {
     auto* obj = scene_->find(*selected_id_);
     if (!obj) return;
 
-    ParticleEmitter built = build_emitter();
+    EmitterComponent built = build_emitter();
     if (!obj->emitter) {
         obj->emitter = built;
     } else {
@@ -354,8 +354,8 @@ void NodeEditorPanel::draw() {
     ImGui::End();
 }
 
-ParticleEmitter NodeEditorPanel::build_emitter() const {
-    ParticleEmitter e{};
+EmitterComponent NodeEditorPanel::build_emitter() const {
+    EmitterComponent e{};
 
     // Find output node and trace back through links
     const Node* output = nullptr;

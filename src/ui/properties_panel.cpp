@@ -303,11 +303,11 @@ void PropertiesPanel::draw() {
             }
             if (ImGui::BeginPopup("##AddBuiltinComponent")) {
                 if (!obj->rigidbody && ImGui::MenuItem("Rigidbody")) {
-                    obj->rigidbody = RigidbodyDesc{};
+                    obj->rigidbody = RigidbodyComponent{};
                     scene_->mark_dirty();
                 }
                 if (!obj->collider && ImGui::MenuItem("Collider")) {
-                    ColliderDesc col{};
+                    ColliderComponent col{};
                     if (obj->source == "primitive:cube") {
                         col.shape = ColliderShape::Box;
                     } else if (obj->source == "primitive:sphere") {
@@ -320,11 +320,11 @@ void PropertiesPanel::draw() {
                     scene_->mark_dirty();
                 }
                 if (!obj->emitter && ImGui::MenuItem("Particle Emitter")) {
-                    obj->emitter = ParticleEmitter{};
+                    obj->emitter = EmitterComponent{};
                     scene_->mark_dirty();
                 }
                 if (!obj->sprite && ImGui::MenuItem("Sprite")) {
-                    obj->sprite = SpriteDesc{};
+                    obj->sprite = SpriteComponent{};
                     scene_->mark_dirty();
                 }
                 ImGui::EndPopup();

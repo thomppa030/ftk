@@ -188,7 +188,11 @@ void PhysicsWorld::create_bodies(Scene& scene) {
         if (!obj.collider) continue;
 
         // Default to static if no rigidbody descriptor
-        static constexpr RigidbodyDesc default_static{BodyType::Static};
+        static const auto default_static = [] {
+            RigidbodyComponent rb;
+            rb.body_type = BodyType::Static;
+            return rb;
+        }();
         const auto& rb = obj.rigidbody ? *obj.rigidbody : default_static;
         const auto& col = *obj.collider;
 

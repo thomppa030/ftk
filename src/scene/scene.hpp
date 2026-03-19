@@ -63,10 +63,10 @@ struct SceneNode {
 
     // Components — built-in (typed access) + script (polymorphic)
     std::optional<MeshComponent> mesh;
-    std::optional<RigidbodyDesc> rigidbody;
-    std::optional<ColliderDesc> collider;
-    std::optional<ParticleEmitter> emitter;
-    std::optional<SpriteDesc> sprite;
+    std::optional<RigidbodyComponent> rigidbody;
+    std::optional<ColliderComponent> collider;
+    std::optional<EmitterComponent> emitter;
+    std::optional<SpriteComponent> sprite;
 
     // Scripting
     std::unique_ptr<Actor> actor;

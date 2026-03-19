@@ -1,5 +1,7 @@
 #pragma once
 
+#include "scene/node_component.hpp"
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -9,7 +11,7 @@ namespace fjell {
 enum class BodyType : uint8_t { Static, Kinematic, Dynamic };
 enum class ColliderShape : uint8_t { Box, Sphere, Capsule, Mesh };
 
-struct RigidbodyDesc {
+struct RigidbodyComponent : NodeComponent {
     BodyType body_type{BodyType::Dynamic};
     float mass{1.0f};
     float friction{0.5f};
@@ -19,7 +21,7 @@ struct RigidbodyDesc {
     bool gravity_enabled{true};
 };
 
-struct ColliderDesc {
+struct ColliderComponent : NodeComponent {
     ColliderShape shape{ColliderShape::Box};
     glm::vec3 half_extents{0.5f};
     float radius{0.5f};
