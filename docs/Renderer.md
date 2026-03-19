@@ -6,11 +6,31 @@ Fjell uses Vulkan 1.3 with dynamic rendering — no `VkRenderPass` or `VkFramebu
 
 MSAA is configurable (2x, 4x, or 8x). Multisampled color and depth are resolved before post-processing.
 
-## Bindless Textures
+## Bindless Textures + Material System
 
-All loaded textures live in a single descriptor array. Materials are stored in an SSBO and reference textures by their array index. Shaders sample via `textures[nonuniformEXT(index)]` and read material properties via `materials[material_id]`.
+All loaded textures live in a single descriptor array (set 1, binding 0). Materials are stored in an SSBO (set 1, binding 1) and reference textures by their array index. A second SSBO (set 1, binding 2) holds custom shader parameters as a flat `float[]` buffer. Shaders sample via `textures[nonuniformEXT(index)]` and read material properties via `materials[material_id]`.
 
 There are no per-material descriptor sets. Every draw just pushes a `material_id`.
+
+### GpuMaterial (96 bytes)
+
+```
+texture_indices[0-3]  — PBR textures (base_color, normal, metallic_roughness, emissive)
+texture_indices[4-7]  — custom shader textures (up to 4 per material)
+base_params[0-11]     — PBR params (base_color_factor, metallic, roughness, has_normal_map)
+param_offset          — offset into custom params SSBO (in floats)
+param_count           — number of custom floats
+```
+
+### Custom Shaders (.fjsl)
+
+Godot-style spatial shaders. A `.fjsl` file declares uniforms and a `fragment()` body that writes to built-in outputs (`ALBEDO`, `ROUGHNESS`, `METALLIC`, `NORMAL`, `EMISSION`, `AO`, `ALPHA`). The FJSL parser generates a complete fragment shader from a template, compiles it to SPIR-V via `glslc`, and the `PipelineCache` creates opaque + transparent + mesh shader pipeline variants per shader.
+
+Materials are defined in `.fjmat` JSON files that reference a shader, textures, and param values. The properties panel reads shader metadata to render per-uniform inspector controls (color pickers, sliders, drag floats) with live preview. Params are saved back to `.fjmat` on scene save.
+
+### Pipeline Cache
+
+One pipeline set (opaque + transparent + mesh shader) per unique `.fjsl`. All share the same descriptor layout — only the fragment module differs. Pipeline ID 0 is always `standard.fjsl` (empty fragment = standard PBR). Draw commands are sorted by `[pipeline_id:16][material_id:24][mesh_id:24]` and split into per-pipeline draw ranges.
 
 ## MegaBuffer
 
@@ -18,7 +38,7 @@ A single large vertex + index buffer holds all loaded geometry. When a model is 
 
 ## Multi-Draw Indirect
 
-Opaque draws are batched into `VkDrawIndexedIndirectCommand` arrays. The CPU builds the indirect buffer each frame after frustum culling, and the GPU executes all opaque draws in one `vkCmdDrawIndexedIndirect` call.
+Opaque draws are batched into `VkDrawIndexedIndirectCommand` arrays. The CPU builds the indirect buffer each frame after frustum culling and groups draws by pipeline ID. Each pipeline range gets its own `vkCmdDrawIndexedIndirect` call with the appropriate pipeline bound.
 
 Each draw has a corresponding `GpuDrawData` entry in an SSBO (set 2), containing the model matrix, material ID, and meshlet info. Shaders read per-object data via `gl_DrawID`.
 
@@ -30,7 +50,7 @@ Each draw has a corresponding `GpuDrawData` entry in an SSBO (set 2), containing
 - **Mesh shader** — one workgroup per meshlet. Fetches vertex indices from the meshlet data, transforms vertices, and outputs up to 64 vertices / 124 triangles.
 - **Fragment shader** — same PBR fragment shader as the vertex path.
 
-Falls back to the traditional vertex pipeline if the device doesn't support mesh shaders or the user disables them.
+Each `.fjsl` shader gets its own mesh shader pipeline variant (same task + mesh modules, different fragment module). Falls back to the traditional vertex pipeline if the device doesn't support mesh shaders or the user disables them.
 
 ## Meshlets
 
@@ -71,13 +91,14 @@ Particles render as camera-facing billboard quads with additive or alpha blendin
 VulkanContext
   ├── Device               Instance, physical/logical device, queues
   ├── Swapchain            Presentation images
-  ├── BindlessTextures     Global texture array + material SSBO
+  ├── BindlessTextures     Global texture array + material SSBO + custom params SSBO
   ├── MegaBuffer           Shared vertex + index storage
   ├── MeshletBuffer        Meshlet data (4 SSBOs)
-  ├── IndirectBatch        MDI command + draw data buffers
+  ├── IndirectBatch        MDI command + draw data buffers, per-pipeline draw ranges
   │
-  ├── Pipeline             Traditional vertex pipeline (PBR)
-  ├── MeshShaderPass       Mesh shader color pipeline
+  ├── PipelineCache        Per-shader pipeline variants (opaque + transparent + mesh)
+  ├── Pipeline             Traditional vertex pipeline (PBR, used by depth/shadow passes)
+  ├── MeshShaderPass       Mesh shader color pipeline (legacy, replaced by PipelineCache)
   ├── DepthPrepass         Depth-only (traditional)
   ├── MeshShaderDepthPass  Depth-only (mesh shader)
   ├── ShadowPass           CSM, 3 cascades at 2048x2048
@@ -118,7 +139,7 @@ VulkanContext
 | Set | Content |
 |-----|---------|
 | 0 | Global UBO — view, projection, inverse projection, light direction/color, camera position, ambient, cascade view-projections, cascade splits, tile info |
-| 1 | Bindless texture array (up to 1024 textures) + material SSBO (up to 1024 materials) |
+| 1 | Bindless texture array (up to 1024 textures) + material SSBO (up to 1024 materials) + custom params SSBO (flat float buffer) |
 | 2 | `GpuDrawData` SSBO — per-object model matrix, material ID, meshlet offset/count, vertex offset |
 | 3 | Meshlet data — meshlets, bounds, vertex indices, triangles (4 SSBOs) |
 
@@ -132,4 +153,4 @@ Types: `ModelHandle`, `MaterialHandle`, `TextureHandle`.
 
 ## Shader Hot-Reload
 
-Debug builds only. `ShaderWatcher` uses inotify to watch the `shaders/` directory. When a shader source file changes, SPIR-V recompilation is triggered and the affected pipeline is destroyed and rebuilt.
+Debug builds only. `ShaderWatcher` uses inotify to watch the `shaders/` directory. When a GLSL source file changes, SPIR-V recompilation is triggered and the affected pipeline is destroyed and rebuilt. When a `.fjsl` file changes, the `PipelineCache` re-parses the shader, regenerates the fragment GLSL, recompiles to SPIR-V, and recreates all pipeline variants.

@@ -62,6 +62,7 @@ Inspector for the selected object:
 - **Rigidbody** — body type, mass, friction, restitution, damping, gravity toggle
 - **Collider** — shape with shape-specific parameters, offset
 - **Particle Emitter** — emitter settings for the VFX system
+- **Material** — shows shader path and per-uniform controls from shader metadata. `hint_color` renders a color picker, `hint_range` renders a slider, scalar/vector types render drag floats. Edits write directly to the GPU params buffer for live preview and are saved back to `.fjmat` on scene save.
 - **Components** — per-component inspector UI, right-click to remove
 - **Add Component** — dropdown of available component types from loaded .so
 - **Directional Light** — direction, color, intensity, ambient

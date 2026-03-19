@@ -32,7 +32,8 @@ Quick map of the source tree. If you're looking for something specific, this sho
 | `vulkan_context` | Top-level rendering orchestrator — owns all passes, runs the frame |
 | `device` | Vulkan instance, physical/logical device, queues |
 | `swapchain` | Swapchain images, views, depth buffer |
-| `pipeline` | PBR graphics pipeline (traditional vertex path) |
+| `pipeline` | PBR graphics pipeline (traditional vertex path, used by depth/shadow passes) |
+| `pipeline_cache` | Per-shader pipeline variants — compiles `.fjsl` at runtime |
 | `offscreen_pass` | Off-screen render target for viewports |
 | `frame_graph` | Frame graph for pass ordering and resource transitions |
 
@@ -40,19 +41,22 @@ Quick map of the source tree. If you're looking for something specific, this sho
 
 | File | What it does |
 |---|---|
-| `resource_manager` | Handle-based pools for models, textures, materials |
+| `resource_manager` | Handle-based pools for models, textures, materials; `.fjmat` loading |
 | `resource_handle` | Generational `Handle<Tag>` template |
 | `model` | glTF model loading via fastgltf |
 | `mesh` | Vertex/index buffer data |
 | `meshlet` / `meshlet_buffer` / `meshlet_descriptor` | Meshlet generation, GPU buffers, and descriptor setup |
-| `material` | PBR material with texture references |
+| `material` | PBR material with texture references, pipeline ID, custom params |
+| `material_asset` | `.fjmat` JSON load/save |
 | `texture` | Texture loading and Vulkan image creation |
 | `image` | VkImage wrapper |
 | `buffer` | VkBuffer wrapper |
 | `mega_buffer` | Large shared buffer for bindless vertex/index data |
-| `bindless` | Bindless descriptor set management |
+| `bindless` | Bindless descriptor set — texture array + material SSBO + custom params SSBO |
 | `descriptor` | Descriptor set/pool helpers |
 | `draw_data_descriptor` | Per-draw data descriptor layout |
+| `fjsl_parser` | Parse `.fjsl` shaders, extract metadata, generate GLSL from spatial template |
+| `pipeline_cache` | Per-shader VkPipeline cache (opaque + transparent + mesh shader per `.fjsl`) |
 | `stb_image` | stb_image include wrapper |
 
 **Rendering pipeline:**
@@ -73,7 +77,7 @@ Quick map of the source tree. If you're looking for something specific, this sho
 | File | What it does |
 |---|---|
 | `render_stats` | Per-frame draw call and triangle count tracking |
-| `shader_watcher` | inotify-based GLSL hot-reload (debug builds only) |
+| `shader_watcher` | inotify-based GLSL/FJSL hot-reload (debug builds only) |
 | `uniform_types` | Shared uniform buffer struct definitions |
 | `vertex` | Vertex format definition |
 | `viewport_source` | Enum for which visualization a viewport displays |
@@ -139,7 +143,7 @@ All panels use Dear ImGui. Each is a self-contained class.
 | `theme` | Editor color theme (amber/dark) |
 | `viewport_manager` | Multiple viewports, each with its own viz source |
 | `hierarchy_panel` | Scene tree — add, delete, drag-to-reparent |
-| `properties_panel` | Object inspector — transform, physics, lights, components |
+| `properties_panel` | Object inspector — transform, physics, lights, material params, components |
 | `stats_panel` | FPS, draw calls, GPU info |
 | `history_panel` | Undo/redo history list |
 | `content_browser` | File browser with icon thumbnails (overlay panel) |
@@ -150,7 +154,13 @@ All panels use Dear ImGui. Each is a self-contained class.
 
 ## Shaders — `shaders/`
 
-Compiled to SPIR-V at build time into `build/shaders/`.
+GLSL shaders compiled to SPIR-V at build time into `build/shaders/`. `.fjsl` shaders and include files are copied to `build/shaders/` for runtime compilation.
+
+**Material shaders (`.fjsl`):**
+- `standard.fjsl` — default PBR (empty fragment = standard PBR, pipeline ID 0)
+- `tint.fjsl` — example custom shader with tint color and strength
+- `include/fjell_spatial_template.glsl` — template that wraps user `.fjsl` code in the full PBR pipeline
+- `include/fjell_pbr.glsl`, `fjell_shadow.glsl`, `fjell_lighting.glsl`, `fjell_common.glsl` — shared includes
 
 **Main rendering:**
 - `mesh.vert`, `mesh.frag` — traditional vertex pipeline
@@ -185,4 +195,5 @@ Compiled to SPIR-V at build time into `build/shaders/`.
 - `fonts/` — UI fonts (Inter, JetBrains Mono)
 - `textures/` — Engine default textures
 - `models/` — Built-in models
+- `materials/` — `.fjmat` material asset files
 - `icons/` — PNG icons for the content browser

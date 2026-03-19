@@ -17,6 +17,7 @@ Vulkan game engine written in C++23, targeting Linux.
 - [Engine Overview](Engine-Overview.md)
 - [Main Loop](Main-Loop.md)
 - [Renderer](Renderer.md)
+- [Materials](Materials.md)
 - [Render Passes](Render-Passes.md)
 - [Scene System](Scene-System.md)
 - [Physics](Physics.md)
