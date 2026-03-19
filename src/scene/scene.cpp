@@ -171,7 +171,20 @@ void Scene::clear() {
     spot_lights_.clear();
 }
 
+void Scene::rebuild_id_index() {
+    id_to_index_.clear();
+    id_to_index_.reserve(objects_.size());
+    for (int i = 0; i < static_cast<int>(objects_.size()); ++i) {
+        id_to_index_[objects_[i]->id] = i;
+    }
+}
+
 SceneNode* Scene::find(uint32_t id) {
+    auto it = id_to_index_.find(id);
+    if (it != id_to_index_.end() && it->second < static_cast<int>(objects_.size())) {
+        return objects_[it->second].get();
+    }
+    // Fallback: linear scan (index may be stale after remove)
     for (auto& obj : objects_) {
         if (obj->id == id) return obj.get();
     }
@@ -179,6 +192,10 @@ SceneNode* Scene::find(uint32_t id) {
 }
 
 const SceneNode* Scene::find(uint32_t id) const {
+    auto it = id_to_index_.find(id);
+    if (it != id_to_index_.end() && it->second < static_cast<int>(objects_.size())) {
+        return objects_[it->second].get();
+    }
     for (const auto& obj : objects_) {
         if (obj->id == id) return obj.get();
     }
@@ -186,17 +203,21 @@ const SceneNode* Scene::find(uint32_t id) const {
 }
 
 int Scene::index_of(uint32_t id) const {
-    for (int i = 0; i < static_cast<int>(objects_.size()); ++i) {
-        if (objects_[i]->id == id) return i;
-    }
+    auto it = id_to_index_.find(id);
+    if (it != id_to_index_.end()) return it->second;
     return -1;
 }
 
 void Scene::compute_world_matrices() {
+    // Rebuild O(1) id→index lookup
+    rebuild_id_index();
+
+    // Single-pass topological traversal: process each node once its parent is done.
+    // Most scenes are shallow (depth 2-4), so this converges in 2-3 passes max.
     std::vector<bool> computed(objects_.size(), false);
     auto remaining = objects_.size();
 
-    // Pass 1: roots
+    // Pass 1: roots (no parent)
     for (std::size_t i = 0; i < objects_.size(); ++i) {
         if (objects_[i]->parent_id == -1) {
             objects_[i]->world_matrix_ = objects_[i]->transform.matrix();
@@ -205,14 +226,13 @@ void Scene::compute_world_matrices() {
         }
     }
 
-    // Subsequent passes: children whose parent is already computed
+    // Subsequent passes: children whose parent is already computed (O(1) lookup)
     while (remaining > 0) {
         auto prev = remaining;
         for (std::size_t i = 0; i < objects_.size(); ++i) {
             if (computed[i]) continue;
             int pi = index_of(static_cast<uint32_t>(objects_[i]->parent_id));
             if (pi < 0) {
-                // Orphaned reference — treat as root
                 objects_[i]->parent_id = -1;
                 objects_[i]->world_matrix_ = objects_[i]->transform.matrix();
                 computed[i] = true;
@@ -225,7 +245,6 @@ void Scene::compute_world_matrices() {
             }
         }
         if (remaining == prev) {
-            // Cycle — break all remaining
             for (std::size_t i = 0; i < objects_.size(); ++i) {
                 if (!computed[i]) {
                     objects_[i]->parent_id = -1;

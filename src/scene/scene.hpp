@@ -18,6 +18,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -126,6 +127,8 @@ public:
     [[nodiscard]] auto& objects() { return objects_; }
     [[nodiscard]] const auto& objects() const { return objects_; }
 
+    void rebuild_id_index();
+
     [[nodiscard]] uint32_t next_id() const { return next_id_; }
     void set_next_id(uint32_t id) { next_id_ = id; }
 
@@ -144,6 +147,7 @@ public:
 
 private:
     std::vector<std::unique_ptr<SceneNode>> objects_;
+    std::unordered_map<uint32_t, int> id_to_index_;
     std::vector<PointLight> point_lights_;
     std::vector<SpotLight> spot_lights_;
     uint32_t next_id_{1};
