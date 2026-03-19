@@ -1,3 +1,14 @@
+# --- Platform abstraction (shared between fjell and fjell-hub) ---
+add_library(fjell-platform STATIC
+    platform/linux/platform_linux.cpp
+    platform/linux/file_watcher_linux.cpp
+    platform/linux/shared_library_linux.cpp
+)
+target_include_directories(fjell-platform PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(fjell-platform PRIVATE spdlog::spdlog ${CMAKE_DL_LIBS})
+target_compile_options(fjell-platform PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+# --- Main engine ---
 add_executable(fjell
     main.cpp
     core/base_path.cpp
@@ -95,11 +106,6 @@ add_executable(fjell
     ui/game_ui/font_atlas.cpp
     ui/game_ui/text_shaper.cpp
 
-    # Platform abstraction
-    platform/linux/platform_linux.cpp
-    platform/linux/file_watcher_linux.cpp
-    platform/linux/shared_library_linux.cpp
-
     # ImGui sources
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
@@ -132,6 +138,7 @@ target_include_directories(fjell SYSTEM PRIVATE
 find_library(VTERM_LIB vterm REQUIRED)
 
 target_link_libraries(fjell PRIVATE
+    fjell-platform
     fastgltf::fastgltf
     glfw
     glm::glm
@@ -240,6 +247,7 @@ target_include_directories(fjell-hub SYSTEM PRIVATE
     ${imguizmo_SOURCE_DIR}
 )
 target_link_libraries(fjell-hub PRIVATE
+    fjell-platform
     glfw
     nlohmann_json::nlohmann_json
     spdlog::spdlog
