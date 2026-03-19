@@ -23,6 +23,31 @@
 
 namespace fjell {
 
+namespace {
+
+void colored_separator(const ImVec4& color) {
+    ImGui::Spacing();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float w = ImGui::GetContentRegionAvail().x;
+    ImGui::GetWindowDrawList()->AddRectFilled(
+        p, {p.x + w, p.y + 2.0f},
+        ImGui::ColorConvertFloat4ToU32(color));
+    ImGui::Dummy({0.0f, 4.0f});
+}
+
+bool remove_button(const char* label) {
+    ImGui::Spacing();
+    ImGui::PushStyleColor(ImGuiCol_Button, {0.5f, 0.15f, 0.15f, 0.6f});
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.7f, 0.2f, 0.2f, 0.8f});
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.8f, 0.15f, 0.15f, 1.0f});
+    bool pressed = ImGui::Button(label, {-1, 0});
+    ImGui::PopStyleColor(3);
+    ImGui::Spacing();
+    return pressed;
+}
+
+} // namespace
+
 static glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
     return {
         std::round(pos.x / cell_size) * cell_size,
@@ -148,11 +173,12 @@ void PropertiesPanel::draw() {
 
             // Mesh
             if (obj->mesh) {
+                colored_separator({0.36f, 0.55f, 0.94f, 1.0f});
                 if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
                     ImGui::TextDisabled("Model: %s", obj->source.empty() ? "(none)" : obj->source.c_str());
                     ImGui::TextDisabled("Material: %s", obj->mesh->material_name.c_str());
                     draw_material_inspector(*obj);
-                    if (ImGui::SmallButton("Remove Mesh")) {
+                    if (remove_button("Remove Mesh")) {
                         obj->mesh.reset();
                         scene_->mark_dirty();
                     }
@@ -161,6 +187,7 @@ void PropertiesPanel::draw() {
 
             // Rigidbody
             if (obj->rigidbody) {
+                colored_separator({0.85f, 0.45f, 0.25f, 1.0f});
                 if (ImGui::CollapsingHeader("Rigidbody", ImGuiTreeNodeFlags_DefaultOpen)) {
                     auto& rb = *obj->rigidbody;
                     static const char* body_type_labels[] = {"Static", "Kinematic", "Dynamic"};
@@ -186,7 +213,7 @@ void PropertiesPanel::draw() {
                     ImGui::SetNextItemWidth(-1);
                     ImGui::DragFloat("##AngularDamping", &rb.angular_damping, 0.01f, 0.0f, 10.0f);
                     ImGui::Checkbox("Gravity", &rb.gravity_enabled);
-                    if (ImGui::SmallButton("Remove Rigidbody")) {
+                    if (remove_button("Remove Rigidbody")) {
                         obj->rigidbody.reset();
                     }
                 }
@@ -194,6 +221,7 @@ void PropertiesPanel::draw() {
 
             // Collider
             if (obj->collider) {
+                colored_separator({0.85f, 0.45f, 0.25f, 1.0f});
                 if (ImGui::CollapsingHeader("Collider", ImGuiTreeNodeFlags_DefaultOpen)) {
                     auto& col = *obj->collider;
                     static const char* shape_labels[] = {"Box", "Sphere", "Capsule", "Mesh"};
@@ -229,7 +257,7 @@ void PropertiesPanel::draw() {
                     ImGui::Text("Offset");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::DragFloat3("##Offset", &col.offset.x, 0.05f);
-                    if (ImGui::SmallButton("Remove Collider")) {
+                    if (remove_button("Remove Collider")) {
                         obj->collider.reset();
                     }
                 }
@@ -237,6 +265,7 @@ void PropertiesPanel::draw() {
 
             // Particle Emitter
             if (obj->emitter) {
+                colored_separator({0.78f, 0.55f, 0.85f, 1.0f});
                 if (ImGui::CollapsingHeader("Particle Emitter", ImGuiTreeNodeFlags_DefaultOpen)) {
                     auto& em = *obj->emitter;
                     if (ImGui::DragFloat("Emit Rate", &em.emission_rate, 1.0f, 0.0f, 10000.0f)) scene_->mark_dirty();
@@ -260,7 +289,7 @@ void PropertiesPanel::draw() {
                         em.blend_mode = static_cast<ParticleBlendMode>(bm);
                         scene_->mark_dirty();
                     }
-                    if (ImGui::SmallButton("Remove Emitter")) {
+                    if (remove_button("Remove Emitter")) {
                         obj->emitter.reset();
                         scene_->mark_dirty();
                     }
@@ -269,6 +298,7 @@ void PropertiesPanel::draw() {
 
             // Sprite
             if (obj->sprite) {
+                colored_separator({0.40f, 0.75f, 0.40f, 1.0f});
                 if (ImGui::CollapsingHeader("Sprite", ImGuiTreeNodeFlags_DefaultOpen)) {
                     auto& sp = *obj->sprite;
 
@@ -292,7 +322,7 @@ void PropertiesPanel::draw() {
                     ImGui::SetNextItemWidth(-1);
                     if (ImGui::DragFloat("##SpriteOpacity", &sp.opacity, 0.01f, 0.0f, 1.0f)) scene_->mark_dirty();
 
-                    if (ImGui::SmallButton("Remove Sprite")) {
+                    if (remove_button("Remove Sprite")) {
                         obj->sprite.reset();
                         scene_->mark_dirty();
                     }
@@ -301,6 +331,7 @@ void PropertiesPanel::draw() {
 
             // Camera properties
             if (auto* cam = dynamic_cast<CameraNode*>(obj)) {
+                colored_separator({0.31f, 0.79f, 0.63f, 1.0f});
                 if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
                     ImGui::Text("FOV");
                     ImGui::SetNextItemWidth(-1);
@@ -314,8 +345,9 @@ void PropertiesPanel::draw() {
                 }
             }
 
-            // Light properties (for light nodes)
+            // Light properties
             if (auto* dl = dynamic_cast<DirectionalLightNode*>(obj)) {
+                colored_separator({0.96f, 0.78f, 0.26f, 1.0f});
                 if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
                     ImGui::Text("Direction");
                     ImGui::SetNextItemWidth(-1);
@@ -336,6 +368,7 @@ void PropertiesPanel::draw() {
                 }
             }
             if (auto* pl = dynamic_cast<PointLightNode*>(obj)) {
+                colored_separator({0.96f, 0.78f, 0.26f, 1.0f});
                 if (ImGui::CollapsingHeader("Point Light", ImGuiTreeNodeFlags_DefaultOpen)) {
                     ImGui::Text("Color");
                     ImGui::SetNextItemWidth(-1);
@@ -349,6 +382,7 @@ void PropertiesPanel::draw() {
                 }
             }
             if (auto* sl = dynamic_cast<SpotLightNode*>(obj)) {
+                colored_separator({0.96f, 0.78f, 0.26f, 1.0f});
                 if (ImGui::CollapsingHeader("Spot Light", ImGuiTreeNodeFlags_DefaultOpen)) {
                     ImGui::Text("Direction");
                     ImGui::SetNextItemWidth(-1);

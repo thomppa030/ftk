@@ -180,36 +180,10 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
         ImGui::PushStyleColor(ImGuiCol_Text, {0.95f, 0.95f, 0.95f, 1.0f});
     }
 
-    float icon_size = ImGui::GetTextLineHeight() * 1.6f;
     std::string padded_label = "          " + obj.name;
+    float tree_indent = ImGui::GetTreeNodeToLabelSpacing();
 
     bool node_open = ImGui::TreeNodeEx(padded_label.c_str(), flags);
-
-    // Draw left border stripe
-    {
-        ImVec2 item_min = ImGui::GetItemRectMin();
-        ImVec2 item_max = ImGui::GetItemRectMax();
-        ImU32 border_col = ImGui::ColorConvertFloat4ToU32(visuals.border_color);
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            {item_min.x, item_min.y},
-            {item_min.x + 3.0f, item_max.y},
-            border_col);
-    }
-
-    // Draw icon over the padded space
-    if (icons_) {
-        auto icon_desc = icons_->icon(visuals.icon_name);
-        if (icon_desc) {
-            ImVec2 item_min = ImGui::GetItemRectMin();
-            // Position icon after the tree arrow indent
-            float indent = ImGui::GetTreeNodeToLabelSpacing();
-            ImVec2 icon_pos = {item_min.x + indent + 2.0f,
-                               item_min.y + (ImGui::GetItemRectSize().y - icon_size) * 0.5f};
-            ImGui::GetWindowDrawList()->AddImage(
-                icon_desc, icon_pos,
-                {icon_pos.x + icon_size, icon_pos.y + icon_size});
-        }
-    }
 
     if (is_selected) {
         ImGui::PopStyleColor(3);
@@ -217,7 +191,67 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
 
     ImGui::PopStyleVar(2);
 
+    // Capture row rect and hover state
+    ImVec2 row_min = ImGui::GetItemRectMin();
+    ImVec2 row_max = ImGui::GetItemRectMax();
+    float row_h = row_max.y - row_min.y;
     bool row_hovered = ImGui::IsItemHovered();
+
+    // Icon size based on actual row height
+    float icon_size = row_h * 0.8f;
+
+    // Draw left border stripe
+    {
+        ImU32 border_col = ImGui::ColorConvertFloat4ToU32(visuals.border_color);
+        ImGui::GetWindowDrawList()->AddRectFilled(
+            {row_min.x, row_min.y},
+            {row_min.x + 3.0f, row_max.y},
+            border_col);
+    }
+
+    // Draw icon over the padded space
+    if (icons_) {
+        auto icon_desc = icons_->icon(visuals.icon_name);
+        if (icon_desc) {
+            ImVec2 icon_pos = {row_min.x + tree_indent + 2.0f,
+                               row_min.y + (row_h - icon_size) * 0.5f};
+            ImGui::GetWindowDrawList()->AddImage(
+                icon_desc, icon_pos,
+                {icon_pos.x + icon_size, icon_pos.y + icon_size});
+        }
+    }
+
+    // Delete "button" — drawn manually, click detected via mouse pos
+    if (row_hovered || is_selected) {
+        float btn_size = 14.0f;
+        float margin = 8.0f;
+        ImVec2 btn_min = {row_max.x - btn_size - margin,
+                          row_min.y + (row_max.y - row_min.y - btn_size) * 0.5f};
+        ImVec2 btn_max = {btn_min.x + btn_size, btn_min.y + btn_size};
+
+        ImVec2 mouse = ImGui::GetMousePos();
+        bool btn_hovered = mouse.x >= btn_min.x && mouse.x <= btn_max.x &&
+                           mouse.y >= btn_min.y && mouse.y <= btn_max.y;
+
+        ImU32 bg_col = btn_hovered
+            ? ImGui::ColorConvertFloat4ToU32({0.8f, 0.2f, 0.2f, 0.6f})
+            : IM_COL32(0, 0, 0, 0);
+        ImU32 text_col = ImGui::ColorConvertFloat4ToU32({0.7f, 0.7f, 0.7f, 1.0f});
+
+        auto* draw_list = ImGui::GetWindowDrawList();
+        if (btn_hovered) {
+            draw_list->AddRectFilled(btn_min, btn_max, bg_col, 2.0f);
+        }
+        // Center the "X" text in the button rect
+        ImVec2 text_size = ImGui::CalcTextSize("X");
+        ImVec2 text_pos = {btn_min.x + (btn_size - text_size.x) * 0.5f,
+                           btn_min.y + (btn_size - text_size.y) * 0.5f};
+        draw_list->AddText(text_pos, text_col, "X");
+
+        if (btn_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            remove_pending_id_ = obj.id;
+        }
+    }
 
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
         *selected_id_ = obj.id;
@@ -276,21 +310,6 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
             }
         }
         ImGui::EndDragDropTarget();
-    }
-
-    // Delete button — always present to avoid layout shift, hidden when not relevant
-    ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 20);
-    if (row_hovered || is_selected) {
-        ImGui::PushStyleColor(ImGuiCol_Button, {0.0f, 0.0f, 0.0f, 0.0f});
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.8f, 0.2f, 0.2f, 0.6f});
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.9f, 0.1f, 0.1f, 0.8f});
-        ImGui::PushStyleColor(ImGuiCol_Text, {0.7f, 0.7f, 0.7f, 1.0f});
-        if (ImGui::SmallButton("X")) {
-            remove_pending_id_ = obj.id;
-        }
-        ImGui::PopStyleColor(4);
-    } else {
-        ImGui::Dummy({20.0f, 0.0f});
     }
 
     // Recurse children
