@@ -3,6 +3,11 @@
 #include "scripting/fjell_api.h"
 #include "scripting/fjell_registry.hpp"
 #include "scripting/fjell_world.hpp"
+#include "platform/shared_library.hpp"
+
+#ifndef NDEBUG
+#include "platform/file_watcher.hpp"
+#endif
 
 #include <nlohmann/json.hpp>
 
@@ -83,7 +88,7 @@ public:
     [[nodiscard]] const std::vector<OwnedActorType>& actor_types() const { return actor_type_list_; }
     [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }
 
-    [[nodiscard]] bool is_loaded() const { return handle_ != nullptr; }
+    [[nodiscard]] bool is_loaded() const { return library_.is_loaded(); }
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
 #ifndef NDEBUG
@@ -101,7 +106,7 @@ private:
     void auto_deserialize_fields(const std::vector<OwnedFieldDesc>& fields,
                                  void* base, const nlohmann::json& in) const;
 
-    void* handle_{nullptr};
+    platform::SharedLibrary library_;
     std::filesystem::path so_path_;
     std::filesystem::path loaded_temp_path_;
 
@@ -113,8 +118,8 @@ private:
     World world_{};
 
 #ifndef NDEBUG
-    int inotify_fd_{-1};
-    int watch_fd_{-1};
+    platform::FileWatcher watcher_;
+    bool reload_pending_{false};
 #endif
 };
 

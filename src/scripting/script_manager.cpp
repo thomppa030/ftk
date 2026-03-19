@@ -9,14 +9,6 @@
 
 #include <imgui.h>
 
-#include <dlfcn.h>
-
-#ifndef NDEBUG
-#include <sys/inotify.h>
-#include <unistd.h>
-#include <poll.h>
-#endif
-
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -93,27 +85,13 @@ uint32_t ScriptManager::hash_type_name(const std::string& name) {
 
 // ── Constructor / Destructor ────────────────────────────────────────────
 
-ScriptManager::ScriptManager() {
-#ifndef NDEBUG
-    inotify_fd_ = inotify_init1(IN_NONBLOCK);
-#endif
-}
+ScriptManager::ScriptManager() = default;
 
 ScriptManager::~ScriptManager() {
-    if (handle_) {
-        dlclose(handle_);
-    }
+    library_.unload();
     if (!loaded_temp_path_.empty()) {
         std::filesystem::remove(loaded_temp_path_);
     }
-#ifndef NDEBUG
-    if (watch_fd_ >= 0) {
-        inotify_rm_watch(inotify_fd_, watch_fd_);
-    }
-    if (inotify_fd_ >= 0) {
-        close(inotify_fd_);
-    }
-#endif
 }
 
 // ── Load / Unload / Reload ──────────────────────────────────────────────
@@ -129,14 +107,12 @@ bool ScriptManager::load(const std::filesystem::path& so_path) {
     std::filesystem::copy_file(so_path, temp,
                                std::filesystem::copy_options::overwrite_existing);
 
-    void* h = dlopen(temp.c_str(), RTLD_NOW);
-    if (!h) {
-        FJELL_CORE_ERROR("dlopen failed: {}", dlerror());
+    if (!library_.load(temp)) {
+        FJELL_CORE_ERROR("Failed to load script library: {}", library_.error());
         std::filesystem::remove(temp);
         return false;
     }
 
-    handle_ = h;
     so_path_ = so_path;
 
     if (!loaded_temp_path_.empty()) {
@@ -152,7 +128,7 @@ bool ScriptManager::load(const std::filesystem::path& so_path) {
 }
 
 void ScriptManager::unload(Scene& scene) {
-    if (!handle_) return;
+    if (!library_.is_loaded()) return;
 
     serialize_all(scene);
 
@@ -163,8 +139,7 @@ void ScriptManager::unload(Scene& scene) {
         obj->actor.reset();
     }
 
-    dlclose(handle_);
-    handle_ = nullptr;
+    library_.unload();
 
     for (auto& t : actor_type_list_) t.loaded = false;
     for (auto& t : script_type_list_) t.loaded = false;
@@ -193,7 +168,7 @@ void ScriptManager::build_registry() {
     script_type_map_.clear();
 
     using RegFn = void (*)(FjellTypeRegistry*);
-    auto* reg_fn = reinterpret_cast<RegFn>(dlsym(handle_, "fjell_register"));
+    auto* reg_fn = library_.symbol_as<RegFn>("fjell_register");
     if (!reg_fn) {
         FJELL_CORE_WARN("No fjell_register symbol found in .so");
         return;
@@ -580,51 +555,26 @@ void ScriptManager::draw_inspector(SceneNode& obj) {
 #ifndef NDEBUG
 
 void ScriptManager::watch(const std::filesystem::path& so_path) {
-    if (inotify_fd_ < 0) return;
-
-    if (watch_fd_ >= 0) {
-        inotify_rm_watch(inotify_fd_, watch_fd_);
-        watch_fd_ = -1;
-    }
-
-    auto dir = so_path.parent_path().string();
-    watch_fd_ = inotify_add_watch(inotify_fd_, dir.c_str(),
-                                  IN_CLOSE_WRITE | IN_MOVED_TO);
-    if (watch_fd_ < 0) {
-        FJELL_CORE_WARN("Failed to watch script directory: {}", dir);
-    } else {
-        FJELL_CORE_INFO("Script hot-reload watching: {}", dir);
-    }
+    watcher_.clear();
     so_path_ = so_path;
+
+    auto target_name = so_path.filename();
+    watcher_.watch(so_path.parent_path(), [this, target_name](const std::filesystem::path& path) {
+        if (path.filename() == target_name) {
+            reload_pending_ = true;
+        }
+    });
+
+    FJELL_CORE_INFO("Script hot-reload watching: {}", so_path.parent_path().string());
 }
 
 bool ScriptManager::poll_reload(Scene& scene) {
-    if (inotify_fd_ < 0 || so_path_.empty()) return false;
+    if (so_path_.empty()) return false;
 
-    pollfd pfd{};
-    pfd.fd = inotify_fd_;
-    pfd.events = POLLIN;
+    reload_pending_ = false;
+    (void)watcher_.poll();
 
-    if (::poll(&pfd, 1, 0) <= 0) return false;
-
-    bool changed = false;
-    alignas(inotify_event) std::array<char, 4096> buf{};
-    auto len = read(inotify_fd_, buf.data(), buf.size());
-    if (len <= 0) return false;
-
-    const char* ptr = buf.data();
-    while (ptr < buf.data() + len) {
-        const auto* event = reinterpret_cast<const inotify_event*>(ptr);
-        if (event->len > 0) {
-            std::string filename{event->name};
-            if (filename == so_path_.filename().string()) {
-                changed = true;
-            }
-        }
-        ptr += sizeof(inotify_event) + event->len;
-    }
-
-    if (changed) {
+    if (reload_pending_) {
         return reload(scene, so_path_);
     }
     return false;

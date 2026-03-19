@@ -95,6 +95,11 @@ add_executable(fjell
     ui/game_ui/font_atlas.cpp
     ui/game_ui/text_shaper.cpp
 
+    # Platform abstraction
+    platform/linux/platform_linux.cpp
+    platform/linux/file_watcher_linux.cpp
+    platform/linux/shared_library_linux.cpp
+
     # ImGui sources
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
