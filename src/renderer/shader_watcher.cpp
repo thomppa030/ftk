@@ -65,7 +65,7 @@ bool ShaderWatcher::poll() {
         if (event->len > 0) {
             std::string filename{event->name};
             auto ext = std::filesystem::path(filename).extension().string();
-            if (ext == ".vert" || ext == ".frag") {
+            if (ext == ".vert" || ext == ".frag" || ext == ".comp") {
                 FJELL_GFX_INFO("Shader changed: {}", filename);
                 if (recompile(filename)) {
                     changed = true;
@@ -83,7 +83,7 @@ bool ShaderWatcher::recompile(const std::string& filename) {
     auto src = source_dir_ + "/" + filename;
     auto dst = output_dir_ + "/" + filename + ".spv";
 
-    std::string cmd = "glslc " + src + " -o " + dst + " 2>&1";
+    std::string cmd = "glslc --target-env=vulkan1.3 -I " + source_dir_ + "/include " + src + " -o " + dst + " 2>&1";
     auto* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         FJELL_GFX_ERROR("Failed to run glslc");
