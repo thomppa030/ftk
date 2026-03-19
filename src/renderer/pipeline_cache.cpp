@@ -5,9 +5,8 @@
 #include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
 
-#include <array>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -176,18 +175,8 @@ std::string PipelineCache::compile_glsl(const std::string& frag_path,
     std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir +
                       " " + frag_path + " -o " + spv_path + " 2>&1";
 
-    auto* pipe = popen(cmd.c_str(), "r");
-    if (!pipe) {
-        throw std::runtime_error("Failed to run glslc for FJSL compilation");
-    }
-
     std::string output;
-    std::array<char, 512> line{};
-    while (fgets(line.data(), static_cast<int>(line.size()), pipe)) {
-        output += line.data();
-    }
-
-    int status = pclose(pipe);
+    int status = platform::run_command(cmd, output);
     if (status != 0) {
         FJELL_GFX_ERROR("FJSL shader compilation failed:\n{}", output);
         throw std::runtime_error("FJSL shader compilation failed for: " + frag_path);

@@ -4,6 +4,7 @@
 #include "core/game_builder.hpp"
 #include "core/layer.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
 #include "scene/camera_node.hpp"
@@ -25,6 +26,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 namespace fjell {
 
@@ -726,27 +728,23 @@ void Engine::draw_menu_bar() {
 
                 FJELL_CORE_INFO("Building scripts...");
 
-                FILE* pipe = popen(cmd.c_str(), "r");
-                bool success = false;
-                if (pipe) {
-                    std::array<char, 512> line{};
-                    while (fgets(line.data(), static_cast<int>(line.size()), pipe)) {
-                        std::string s{line.data()};
-                        while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
-                            s.pop_back();
-                        }
-                        if (!s.empty()) {
-                            if (s.find("error") != std::string::npos) {
-                                FJELL_CORE_ERROR("[build] {}", s);
-                            } else if (s.find("warning") != std::string::npos) {
-                                FJELL_CORE_WARN("[build] {}", s);
-                            } else {
-                                FJELL_CORE_INFO("[build] {}", s);
-                            }
-                        }
+                std::string build_output;
+                int ret = platform::run_command(cmd, build_output);
+                bool success = (ret == 0);
+
+                // Log each line with appropriate severity
+                std::istringstream iss(build_output);
+                std::string s;
+                while (std::getline(iss, s)) {
+                    while (!s.empty() && (s.back() == '\r')) s.pop_back();
+                    if (s.empty()) continue;
+                    if (s.find("error") != std::string::npos) {
+                        FJELL_CORE_ERROR("[build] {}", s);
+                    } else if (s.find("warning") != std::string::npos) {
+                        FJELL_CORE_WARN("[build] {}", s);
+                    } else {
+                        FJELL_CORE_INFO("[build] {}", s);
                     }
-                    int ret = pclose(pipe);
-                    success = (ret == 0);
                 }
 
                 if (success) {
