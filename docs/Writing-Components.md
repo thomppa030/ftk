@@ -6,7 +6,7 @@
 #include "scripting/fjell_registry.hpp"
 #include "scripting/fjell_world.hpp"
 
-class Spinner : public fjell::Component {
+class Spinner : public fjell::ScriptComponent {
     FJELL_COMPONENT(Spinner)
 
     float speed = 90.0f;
@@ -141,7 +141,7 @@ Messages appear in the editor console and stdout, prefixed with `[script]`.
 Define a static `reflect()` method that returns an array of field descriptors:
 
 ```cpp
-class PlayerController : public fjell::Component {
+class PlayerController : public fjell::ScriptComponent {
     FJELL_COMPONENT(PlayerController)
 
     float move_speed = 5.0f;
@@ -188,13 +188,13 @@ static auto reflect() {
 Each just needs its own `FJELL_COMPONENT` macro:
 
 ```cpp
-class Health : public fjell::Component {
+class Health : public fjell::ScriptComponent {
     FJELL_COMPONENT(Health)
     float hp = 100.0f;
     // ...
 };
 
-class DamageFlash : public fjell::Component {
+class DamageFlash : public fjell::ScriptComponent {
     FJELL_COMPONENT(DamageFlash)
     // ...
 };
@@ -218,7 +218,7 @@ FJELL_REGISTER()
 #include "scripting/fjell_world.hpp"
 #include <GLFW/glfw3.h>
 
-class FPSController : public fjell::Component {
+class FPSController : public fjell::ScriptComponent {
     FJELL_COMPONENT(FPSController)
 
     float move_speed = 8.0f;

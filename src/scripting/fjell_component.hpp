@@ -1,4 +1,4 @@
-// fjell_component.hpp — Component base class for Fjell game code
+// fjell_component.hpp — ScriptComponent base class for Fjell game code
 // Shipped to game projects alongside fjell_api.h.
 
 #pragma once
@@ -7,9 +7,9 @@
 
 namespace fjell {
 
-class Component {
+class ScriptComponent {
 public:
-    virtual ~Component() = default;
+    virtual ~ScriptComponent() = default;
 
     virtual void begin_play() {}
     virtual void tick(float dt) { (void)dt; }

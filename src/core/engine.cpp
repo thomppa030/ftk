@@ -12,6 +12,7 @@
 #include "renderer/material_asset.hpp"
 #include "renderer/model.hpp"
 #include "renderer/pipeline_cache.hpp"
+#include "renderer/sprite_desc.hpp"
 #include "renderer/texture.hpp"
 
 #include <imgui.h>
@@ -214,21 +215,21 @@ void Engine::save_material_assets() {
     if (!cache) return;
 
     for (auto& obj : scene_.objects()) {
-        if (!obj.material) continue;
-        if (!obj.material_name.ends_with(".fjmat")) continue;
+        if (!obj.mesh || !obj.mesh->material) continue;
+        if (!obj.mesh->material_name.ends_with(".fjmat")) continue;
 
-        uint32_t pid = obj.material->pipeline_id();
+        uint32_t pid = obj.mesh->material->pipeline_id();
         if (pid >= cache->shader_count()) continue;
 
         const auto& meta = cache->metadata(pid);
-        uint32_t param_count = obj.material->custom_param_count();
+        uint32_t param_count = obj.mesh->material->custom_param_count();
         if (param_count == 0) continue;
 
-        const auto& gpu = bindless.material_at(obj.material->material_id());
+        const auto& gpu = bindless.material_at(obj.mesh->material->material_id());
 
         // Read current params back from CPU buffer
         std::string mat_path = base_path::resolve_asset(
-            obj.material_name, active_project());
+            obj.mesh->material_name, active_project());
 
         MaterialAsset asset;
         try {
@@ -311,6 +312,24 @@ void Engine::add_model_to_scene(const std::string& path) {
 
 void Engine::add_primitive_to_scene(const std::string& type) {
     vulkan_context_.wait_idle();
+
+    // Sprite objects: plane primitive with a sprite component
+    if (type == "sprite") {
+        auto model_handle = resource_manager_->create_primitive("plane");
+        if (!model_handle.valid()) return;
+
+        auto tex = resource_manager_->load_texture(
+            base_path::resolve_asset("assets/textures/test.png", active_project()));
+        auto mat = resource_manager_->create_material("default", tex);
+
+        selected_id_ = scene_.add(model_handle, mat, *resource_manager_,
+                                  {}, "Sprite", "primitive:plane");
+        auto* obj = scene_.find(selected_id_);
+        if (obj) {
+            obj->sprite = SpriteDesc{};
+        }
+        return;
+    }
 
     auto model_handle = resource_manager_->create_primitive(type);
     if (!model_handle.valid()) return;
@@ -570,7 +589,7 @@ void Engine::draw_menu_bar() {
         }
 
         if (project_ && ImGui::BeginMenu("Scripts")) {
-            if (ImGui::MenuItem("New Component...")) {
+            if (ImGui::MenuItem("New Script...")) {
                 show_new_script_popup_ = true;
                 std::memset(new_script_name_, 0, sizeof(new_script_name_));
             }
@@ -709,12 +728,12 @@ void Engine::draw_menu_bar() {
         ImGui::EndPopup();
     }
 
-    // New Component script popup
+    // New Script popup
     if (show_new_script_popup_) {
-        ImGui::OpenPopup("New Component");
+        ImGui::OpenPopup("New Script");
         show_new_script_popup_ = false;
     }
-    if (ImGui::BeginPopupModal("New Component", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (ImGui::BeginPopupModal("New Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Class Name:");
         ImGui::SetNextItemWidth(300.0f);
         bool enter = ImGui::InputText("##ClassName", new_script_name_, sizeof(new_script_name_),
@@ -744,7 +763,7 @@ void Engine::draw_menu_bar() {
                      << "#include <array>\n"
                      << "#include <cmath>\n"
                      << "\n"
-                     << "class " << name << " : public fjell::Component {\n"
+                     << "class " << name << " : public fjell::ScriptComponent {\n"
                      << "  FJELL_COMPONENT(" << name << ")\n"
                      << "\n"
                      << "  // Fields here show up in Properties. Types: FJELL_FIELD_FLOAT, _VEC3, _INT\n"
@@ -1018,6 +1037,7 @@ void Engine::run() {
             requests[0].camera_position = play_session_->camera().position();
         }
 
+        vulkan_context_.sync_sprite_textures(scene_, *resource_manager_);
         vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_);
     }
     FJELL_CORE_INFO("Exiting main loop");

@@ -4,6 +4,7 @@
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
 #include "renderer/render_stats.hpp"
+#include "renderer/resource_manager.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
@@ -124,6 +125,7 @@ VulkanContext::VulkanContext(Window& window)
     light_grid_pass_.set_mode(1);
     light_grid_pass_.create(device_, pass_resources);
     particle_system_.create(device_, pass_resources);
+    sprite_renderer_.create(device_, pass_resources);
     create_outline_pipeline();
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 
@@ -138,6 +140,7 @@ VulkanContext::~VulkanContext() {
     debug_draw_.reset();
     if (outline_pipeline_) { vkDestroyPipeline(vk_device, outline_pipeline_, nullptr); outline_pipeline_ = VK_NULL_HANDLE; }
     if (outline_layout_) { vkDestroyPipelineLayout(vk_device, outline_layout_, nullptr); outline_layout_ = VK_NULL_HANDLE; }
+    sprite_renderer_.destroy();
     particle_system_.destroy();
     light_grid_pass_.destroy();
     light_heatmap_pass_.destroy();
@@ -187,6 +190,10 @@ VulkanContext::~VulkanContext() {
     secondary_pools_.destroy();
     if (command_pool_ != VK_NULL_HANDLE)
         vkDestroyCommandPool(vk_device, command_pool_, nullptr);
+}
+
+void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources) {
+    sprite_renderer_.sync_textures(scene, resources);
 }
 
 void VulkanContext::create_descriptor_resources() {
@@ -445,23 +452,23 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
-                    if (!obj.model) continue;
+                    if (!obj.mesh || !obj.mesh->model || obj.sprite) continue;
 
                     local_total[chunk_id]++;
 
                     DrawCommand dc{};
                     dc.world_matrix = obj.world_matrix_;
                     dc.push.model = obj.world_matrix_;
-                    if (obj.material) {
-                        dc.push.material_id = obj.material->material_id();
-                        dc.pipeline_id = obj.material->pipeline_id();
+                    if (obj.mesh->material) {
+                        dc.push.material_id = obj.mesh->material->material_id();
+                        dc.pipeline_id = obj.mesh->material->pipeline_id();
                         dc.sort_key = RenderQueue::make_sort_key(
-                            dc.pipeline_id, obj.material->material_id(), obj.id);
-                        dc.transparent = (obj.material->params().base_color_factor.w < 1.0f);
+                            dc.pipeline_id, obj.mesh->material->material_id(), obj.id);
+                        dc.transparent = (obj.mesh->material->params().base_color_factor.w < 1.0f);
                     }
-                    dc.model = obj.model;
+                    dc.model = obj.mesh->model;
 
-                    AABB world_aabb = obj.model->local_aabb().transform(obj.world_matrix_);
+                    AABB world_aabb = obj.mesh->model->local_aabb().transform(obj.world_matrix_);
 
                     // Shadow cull: include if visible to any cascade's
                     // expanded frustum (near plane removed to catch casters
@@ -531,6 +538,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Update meshlet descriptor (set 3) if mesh shaders are available
     if (meshlet_buffer_ && meshlet_buffer_->total_meshlets() > 0) {
         meshlet_descriptor_.update(*meshlet_buffer_, *mega_buffer_, current_frame_);
+    }
+
+    // Update sprite SSBO for this frame
+    if (scene) {
+        sprite_renderer_.update(*scene, projection_matrix_ * view_matrix_,
+                                camera_position_, current_frame_);
     }
 
     FrameContext ctx{};
@@ -773,6 +786,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         grid_pass_.record(local);
         debug_pass_.record(local);
         draw_outline(cb, local);
+        sprite_renderer_.record_render(local);
         transparent_pass_.record(local);
         particle_system_.record_render(local);
 
@@ -1260,7 +1274,7 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
     if (ctx.selected_id == 0 || !ctx.scene) return;
 
     const auto* obj = ctx.scene->find(ctx.selected_id);
-    if (!obj || !obj->model) return;
+    if (!obj || !obj->mesh || !obj->mesh->model) return;
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, outline_pipeline_);
 
@@ -1292,7 +1306,7 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
                        0, sizeof(push), &push);
 
     mega_buffer_->bind(cmd);
-    obj->model->draw(cmd);
+    obj->mesh->model->draw(cmd);
 }
 
 void VulkanContext::reload_pipeline() {

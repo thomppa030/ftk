@@ -22,7 +22,7 @@ struct FjellActorType {
 
 struct FjellComponentTypeOOP {
     const char* name;
-    fjell::Component* (*create)();
+    fjell::ScriptComponent* (*create)();
     const FjellFieldDesc* fields;
     uint32_t field_count;
 };
@@ -76,7 +76,7 @@ void register_component(FjellTypeRegistry* reg) {
     static FjellComponentTypeOOP desc{};
 
     desc.name = T::type_name;
-    desc.create = []() -> Component* { return new T(); };
+    desc.create = []() -> ScriptComponent* { return new T(); };
 
     if constexpr (detail::has_reflect<T>::value) {
         auto arr = T::reflect();

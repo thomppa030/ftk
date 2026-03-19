@@ -4,7 +4,7 @@ Components are C++ classes compiled into a shared library (`.so`). The engine lo
 
 ## How It Works
 
-1. Write a component class that extends `fjell::Component`
+1. Write a component class that extends `fjell::ScriptComponent`
 2. Use the `FJELL_COMPONENT` macro to register it
 3. Hit **Scripts > Build & Reload** in the editor
 4. Attach the component to any object in the inspector

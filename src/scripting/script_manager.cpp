@@ -26,7 +26,7 @@
 
 struct FjellTypeRegistry {
     std::vector<fjell::OwnedActorType> actors;
-    std::vector<fjell::OwnedComponentType> component_types;
+    std::vector<fjell::OwnedScriptType> scripts;
 };
 
 namespace fjell {
@@ -67,7 +67,7 @@ extern "C" void fjell_reg_actor(FjellTypeRegistry* reg, const FjellActorType* de
 
 extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc) {
     if (!reg || !desc) return;
-    fjell::OwnedComponentType owned;
+    fjell::OwnedScriptType owned;
     owned.name = desc->name;
     owned.type_id = fjell::ScriptManager::hash_type_name(owned.name);
     owned.create = desc->create;
@@ -75,7 +75,7 @@ extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponent
     for (uint32_t i = 0; i < desc->field_count; ++i) {
         owned.fields.push_back(fjell::copy_field(desc->fields[i]));
     }
-    reg->component_types.push_back(std::move(owned));
+    reg->scripts.push_back(std::move(owned));
 }
 
 namespace fjell {
@@ -146,7 +146,7 @@ bool ScriptManager::load(const std::filesystem::path& so_path) {
 
     build_registry();
 
-    int total = static_cast<int>(actor_type_list_.size() + component_type_list_.size());
+    int total = static_cast<int>(actor_type_list_.size() + script_type_list_.size());
     FJELL_CORE_INFO("Scripts loaded: {} type(s)", total);
     return true;
 }
@@ -157,7 +157,7 @@ void ScriptManager::unload(Scene& scene) {
     serialize_all(scene);
 
     for (auto& obj : scene.objects()) {
-        for (auto& comp : obj.components) {
+        for (auto& comp : obj.scripts) {
             comp.instance.reset();
         }
         obj.actor.reset();
@@ -167,7 +167,7 @@ void ScriptManager::unload(Scene& scene) {
     handle_ = nullptr;
 
     for (auto& t : actor_type_list_) t.loaded = false;
-    for (auto& t : component_type_list_) t.loaded = false;
+    for (auto& t : script_type_list_) t.loaded = false;
 }
 
 bool ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
@@ -189,8 +189,8 @@ bool ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
 void ScriptManager::build_registry() {
     actor_type_list_.clear();
     actor_type_map_.clear();
-    component_type_list_.clear();
-    component_type_map_.clear();
+    script_type_list_.clear();
+    script_type_map_.clear();
 
     using RegFn = void (*)(FjellTypeRegistry*);
     auto* reg_fn = reinterpret_cast<RegFn>(dlsym(handle_, "fjell_register"));
@@ -206,9 +206,9 @@ void ScriptManager::build_registry() {
         actor_type_map_[at.type_id] = actor_type_list_.size();
         actor_type_list_.push_back(std::move(at));
     }
-    for (auto& ct : registry.component_types) {
-        component_type_map_[ct.type_id] = component_type_list_.size();
-        component_type_list_.push_back(std::move(ct));
+    for (auto& ct : registry.scripts) {
+        script_type_map_[ct.type_id] = script_type_list_.size();
+        script_type_list_.push_back(std::move(ct));
     }
 }
 
@@ -221,17 +221,17 @@ const OwnedActorType* ScriptManager::find_actor_type(const std::string& name) co
     return &actor_type_list_[it->second];
 }
 
-const OwnedComponentType* ScriptManager::find_component_type(const std::string& name) const {
+const OwnedScriptType* ScriptManager::find_script_type(const std::string& name) const {
     auto id = hash_type_name(name);
-    auto it = component_type_map_.find(id);
-    if (it == component_type_map_.end()) return nullptr;
-    return &component_type_list_[it->second];
+    auto it = script_type_map_.find(id);
+    if (it == script_type_map_.end()) return nullptr;
+    return &script_type_list_[it->second];
 }
 
 // ── Component management ────────────────────────────────────────────────
 
-bool ScriptManager::add_component(RenderObject& obj, const std::string& type_name) {
-    const auto* type = find_component_type(type_name);
+bool ScriptManager::add_script(SceneNode& obj, const std::string& type_name) {
+    const auto* type = find_script_type(type_name);
     if (!type || !type->loaded || !type->create) return false;
 
     // Ensure the object has an Actor
@@ -244,20 +244,20 @@ bool ScriptManager::add_component(RenderObject& obj, const std::string& type_nam
         obj.actor->transform_ = &obj.transform;
     }
 
-    ComponentEntry entry;
+    ScriptEntry entry;
     entry.type_name = type->name;
     entry.instance.reset(type->create());
     entry.instance->owner_ = obj.actor.get();
 
-    obj.components.push_back(std::move(entry));
+    obj.scripts.push_back(std::move(entry));
     return true;
 }
 
-void ScriptManager::remove_component(RenderObject& obj, const std::string& type_name) {
-    auto it = std::find_if(obj.components.begin(), obj.components.end(),
-                           [&type_name](const ComponentEntry& c) { return c.type_name == type_name; });
-    if (it == obj.components.end()) return;
-    obj.components.erase(it);
+void ScriptManager::remove_script(SceneNode& obj, const std::string& type_name) {
+    auto it = std::find_if(obj.scripts.begin(), obj.scripts.end(),
+                           [&type_name](const ScriptEntry& c) { return c.type_name == type_name; });
+    if (it == obj.scripts.end()) return;
+    obj.scripts.erase(it);
 }
 
 // ── World population ────────────────────────────────────────────────────
@@ -293,7 +293,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
             obj.actor->world_ = &world_;
             obj.actor->tick(dt);
         }
-        for (auto& comp : obj.components) {
+        for (auto& comp : obj.scripts) {
             if (comp.instance) {
                 comp.instance->tick(dt);
             }
@@ -309,7 +309,7 @@ void ScriptManager::call_begin_play(Scene& scene) {
             obj.actor->world_ = &world_;
             obj.actor->begin_play();
         }
-        for (auto& comp : obj.components) {
+        for (auto& comp : obj.scripts) {
             if (comp.instance) {
                 comp.instance->begin_play();
             }
@@ -319,7 +319,7 @@ void ScriptManager::call_begin_play(Scene& scene) {
 
 void ScriptManager::call_end_play(Scene& scene) {
     for (auto& obj : scene.objects()) {
-        for (auto& comp : obj.components) {
+        for (auto& comp : obj.scripts) {
             if (comp.instance) {
                 comp.instance->end_play();
             }
@@ -424,9 +424,9 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
 
 void ScriptManager::serialize_all(Scene& scene) {
     for (auto& obj : scene.objects()) {
-        for (auto& comp : obj.components) {
+        for (auto& comp : obj.scripts) {
             if (!comp.instance) continue;
-            const auto* type = find_component_type(comp.type_name);
+            const auto* type = find_script_type(comp.type_name);
             if (!type) continue;
 
             comp.serialized = nlohmann::json::object();
@@ -451,7 +451,7 @@ void ScriptManager::deserialize_all(Scene& scene) {
         }
 
         // Ensure a default Actor exists if there are components
-        if (!obj.components.empty() && !obj.actor) {
+        if (!obj.scripts.empty() && !obj.actor) {
             obj.actor = std::make_unique<Actor>();
             obj.actor->id_ = obj.id;
             obj.actor->parent_id_ = obj.parent_id;
@@ -461,8 +461,8 @@ void ScriptManager::deserialize_all(Scene& scene) {
         }
 
         // Components
-        for (auto& comp : obj.components) {
-            const auto* ctype = find_component_type(comp.type_name);
+        for (auto& comp : obj.scripts) {
+            const auto* ctype = find_script_type(comp.type_name);
             if (!ctype || !ctype->loaded || !ctype->create) continue;
 
             comp.instance.reset(ctype->create());
@@ -535,7 +535,7 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
     }
 }
 
-void ScriptManager::draw_inspector(RenderObject& obj) {
+void ScriptManager::draw_inspector(SceneNode& obj) {
     // Actor fields
     if (obj.actor && !obj.actor_type_name.empty()) {
         const auto* atype = find_actor_type(obj.actor_type_name);
@@ -548,8 +548,8 @@ void ScriptManager::draw_inspector(RenderObject& obj) {
 
     // Component fields
     std::string remove_name;
-    for (auto& comp : obj.components) {
-        const auto* ctype = find_component_type(comp.type_name);
+    for (auto& comp : obj.scripts) {
+        const auto* ctype = find_script_type(comp.type_name);
         const char* label = ctype ? ctype->name.c_str() : comp.type_name.c_str();
 
         ImGui::PushID(comp.type_name.c_str());
@@ -571,7 +571,7 @@ void ScriptManager::draw_inspector(RenderObject& obj) {
     }
 
     if (!remove_name.empty()) {
-        remove_component(obj, remove_name);
+        remove_script(obj, remove_name);
     }
 }
 

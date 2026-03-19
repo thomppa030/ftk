@@ -215,13 +215,13 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             }
             case ColliderShape::Mesh: {
                 // Mesh colliders require CPU vertex data from the model
-                if (!obj.model || obj.model->collision_vertices().empty()) {
+                if (!obj.mesh || !obj.mesh->model || obj.mesh->model->collision_vertices().empty()) {
                     FJELL_CORE_WARN("Object '{}' has Mesh collider but no collision mesh data",
                                     obj.name);
                     continue;
                 }
-                const auto& verts = obj.model->collision_vertices();
-                const auto& idxs = obj.model->collision_indices();
+                const auto& verts = obj.mesh->model->collision_vertices();
+                const auto& idxs = obj.mesh->model->collision_indices();
 
                 JPH::TriangleList triangles;
                 triangles.reserve(idxs.size() / 3);

@@ -460,7 +460,7 @@ void ParticleSystem::destroy_emitter_gpu(EmitterGpu& gpu) {
 }
 
 void ParticleSystem::sync_emitters(const Scene& scene) {
-    std::unordered_map<uint32_t, const RenderObject*> active;
+    std::unordered_map<uint32_t, const SceneNode*> active;
     for (const auto& obj : scene.objects()) {
         if (obj.emitter) active[obj.id] = &obj;
     }

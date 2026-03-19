@@ -236,7 +236,7 @@ void NodeEditorPanel::draw() {
         // Toolbar
         {
             bool has_selection = selected_id_ && *selected_id_ != 0;
-            RenderObject* obj = has_selection ? scene_->find(*selected_id_) : nullptr;
+            SceneNode* obj = has_selection ? scene_->find(*selected_id_) : nullptr;
             bool has_emitter = obj && obj->emitter.has_value();
 
             if (ImGui::Button("Apply to Selected") && obj) {

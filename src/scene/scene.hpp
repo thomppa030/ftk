@@ -2,8 +2,10 @@
 
 #include "physics/physics_types.hpp"
 #include "renderer/particle_emitter.hpp"
+#include "renderer/sprite_desc.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
+#include "scene/node_component.hpp"
 #include "scene/transform.hpp"
 
 #include <glm/glm.hpp>
@@ -19,79 +21,84 @@
 namespace fjell {
 
 class Actor;
-class Component;
+class ScriptComponent;
 class Model;
 class Material;
 class Project;
 class ResourceManager;
 
-// ── Component entry ─────────────────────────────────────────────────────
+// ── Script entry ────────────────────────────────────────────────────────
 
-struct ComponentEntry {
-    std::unique_ptr<Component> instance;
+struct ScriptEntry {
+    std::unique_ptr<ScriptComponent> instance;
     std::string type_name;
     nlohmann::json serialized;
 
-    ComponentEntry();
-    ~ComponentEntry();
-    ComponentEntry(ComponentEntry&&) noexcept;
-    ComponentEntry& operator=(ComponentEntry&&) noexcept;
+    ScriptEntry();
+    ~ScriptEntry();
+    ScriptEntry(ScriptEntry&&) noexcept;
+    ScriptEntry& operator=(ScriptEntry&&) noexcept;
 };
 
-// ── Scene object ────────────────────────────────────────────────────────
+// ── Mesh component ──────────────────────────────────────────────────────
 
-struct RenderObject {
-    uint32_t id{0};
-    int32_t parent_id{-1};
-    glm::mat4 world_matrix_{1.0f};
-
+struct MeshComponent : NodeComponent {
     ModelHandle model_handle;
     MaterialHandle material_handle;
     Model* model{nullptr};
     Material* material{nullptr};
+    std::string material_name;
+};
+
+// ── Scene node ──────────────────────────────────────────────────────────
+
+struct SceneNode {
+    uint32_t id{0};
+    int32_t parent_id{-1};
+    glm::mat4 world_matrix_{1.0f};
+
     Transform transform;
     std::string name;
     std::string source;
-    std::string material_name;
 
-    // Actor/component system
-    std::unique_ptr<Actor> actor;
-    std::string actor_type_name;
-    std::vector<ComponentEntry> components;
-
+    // Components — built-in (typed access) + script (polymorphic)
+    std::optional<MeshComponent> mesh;
     std::optional<RigidbodyDesc> rigidbody;
     std::optional<ColliderDesc> collider;
     std::optional<ParticleEmitter> emitter;
+    std::optional<SpriteDesc> sprite;
 
-    RenderObject();
-    ~RenderObject();
-    RenderObject(RenderObject&&) noexcept;
-    RenderObject& operator=(RenderObject&&) noexcept;
+    // Scripting
+    std::unique_ptr<Actor> actor;
+    std::string actor_type_name;
+    std::vector<ScriptEntry> scripts;
+
+    SceneNode();
+    ~SceneNode();
+    SceneNode(SceneNode&&) noexcept;
+    SceneNode& operator=(SceneNode&&) noexcept;
 
     // Deep clone for snapshotting — copies flat data, leaves unique_ptrs null
-    [[nodiscard]] RenderObject clone_flat() const {
-        RenderObject copy{};
+    [[nodiscard]] SceneNode clone_flat() const {
+        SceneNode copy{};
         copy.id = id;
         copy.parent_id = parent_id;
         copy.world_matrix_ = world_matrix_;
-        copy.model_handle = model_handle;
-        copy.material_handle = material_handle;
-        copy.model = model;
-        copy.material = material;
         copy.transform = transform;
         copy.name = name;
         copy.source = source;
-        copy.material_name = material_name;
+        copy.mesh = mesh;
         copy.actor_type_name = actor_type_name;
-        for (const auto& comp : components) {
-            ComponentEntry entry;
-            entry.type_name = comp.type_name;
-            entry.serialized = comp.serialized;
-            copy.components.push_back(std::move(entry));
+        for (const auto& s : scripts) {
+            ScriptEntry entry;
+            entry.type_name = s.type_name;
+            entry.serialized = s.serialized;
+            copy.scripts.push_back(std::move(entry));
         }
         copy.rigidbody = rigidbody;
         copy.collider = collider;
         copy.emitter = emitter;
+        copy.sprite = sprite;
         return copy;
     }
 };
@@ -105,15 +112,15 @@ public:
                  const std::string& source = "",
                  const std::string& material_name = "default");
     void remove(uint32_t id);
-    [[nodiscard]] RenderObject extract(uint32_t id);
-    void restore(RenderObject obj);
+    [[nodiscard]] SceneNode extract(uint32_t id);
+    void restore(SceneNode obj);
     void clear();
 
     void compute_world_matrices();
     void reparent(uint32_t child_id, int32_t new_parent_id);
 
-    [[nodiscard]] RenderObject* find(uint32_t id);
-    [[nodiscard]] const RenderObject* find(uint32_t id) const;
+    [[nodiscard]] SceneNode* find(uint32_t id);
+    [[nodiscard]] const SceneNode* find(uint32_t id) const;
     [[nodiscard]] int index_of(uint32_t id) const;
 
     void save(const std::string& path);
@@ -125,8 +132,8 @@ public:
                       const Project* project = nullptr);
 
     [[nodiscard]] int object_count() const { return static_cast<int>(objects_.size()); }
-    [[nodiscard]] std::vector<RenderObject>& objects() { return objects_; }
-    [[nodiscard]] const std::vector<RenderObject>& objects() const { return objects_; }
+    [[nodiscard]] std::vector<SceneNode>& objects() { return objects_; }
+    [[nodiscard]] const std::vector<SceneNode>& objects() const { return objects_; }
 
     [[nodiscard]] uint32_t next_id() const { return next_id_; }
     void set_next_id(uint32_t id) { next_id_ = id; }
@@ -145,7 +152,7 @@ public:
     void remove_spot_light(int index);
 
 private:
-    std::vector<RenderObject> objects_;
+    std::vector<SceneNode> objects_;
     std::vector<PointLight> point_lights_;
     std::vector<SpotLight> spot_lights_;
     uint32_t next_id_{1};

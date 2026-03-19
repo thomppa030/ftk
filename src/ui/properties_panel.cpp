@@ -8,6 +8,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/particle_emitter.hpp"
+#include "renderer/sprite_desc.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "physics/physics_types.hpp"
 #include "scripting/script_manager.hpp"
@@ -270,24 +271,62 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            // Sprite
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Sprite");
+            if (obj->sprite) {
+                auto& sp = *obj->sprite;
+
+                char tex_buf[256];
+                std::strncpy(tex_buf, sp.texture_path.c_str(), sizeof(tex_buf) - 1);
+                tex_buf[sizeof(tex_buf) - 1] = '\0';
+                ImGui::Text("Texture");
+                ImGui::SetNextItemWidth(-1);
+                ImGui::InputText("##SpriteTexture", tex_buf, sizeof(tex_buf));
+                if (ImGui::IsItemDeactivatedAfterEdit()) {
+                    sp.texture_path = tex_buf;
+                    sp.texture_loaded = false;
+                    scene_->mark_dirty();
+                }
+
+                ImGui::Text("Tint");
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::ColorEdit4("##SpriteTint", &sp.tint.r)) scene_->mark_dirty();
+
+                ImGui::Text("Opacity");
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::DragFloat("##SpriteOpacity", &sp.opacity, 0.01f, 0.0f, 1.0f)) scene_->mark_dirty();
+
+                if (ImGui::SmallButton("Remove Sprite")) {
+                    obj->sprite.reset();
+                    scene_->mark_dirty();
+                }
+            } else {
+                if (ImGui::Button("Add Sprite", {-1, 0})) {
+                    obj->sprite = SpriteDesc{};
+                    scene_->mark_dirty();
+                }
+            }
+
             // Material
             draw_material_inspector(*obj);
 
-            // Components
+            // Scripts
             ImGui::Spacing();
             ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
+            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Scripts");
             scripts_->draw_inspector(*obj);
 
-            // Add component button
-            if (scripts_->is_loaded() && !scripts_->component_types().empty()) {
-                if (ImGui::Button("Add Component", {-1, 0})) {
-                    ImGui::OpenPopup("##AddComponent");
+            // Add script button
+            if (scripts_->is_loaded() && !scripts_->script_types().empty()) {
+                if (ImGui::Button("Add Script", {-1, 0})) {
+                    ImGui::OpenPopup("##AddScript");
                 }
-                if (ImGui::BeginPopup("##AddComponent")) {
-                    for (const auto& type : scripts_->component_types()) {
+                if (ImGui::BeginPopup("##AddScript")) {
+                    for (const auto& type : scripts_->script_types()) {
                         if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
-                            scripts_->add_component(*obj, type.name);
+                            scripts_->add_script(*obj, type.name);
                         }
                     }
                     ImGui::EndPopup();
@@ -376,10 +415,11 @@ void PropertiesPanel::draw() {
     ImGui::End();
 }
 
-void PropertiesPanel::draw_material_inspector(RenderObject& obj) {
-    if (!obj.material || !pipeline_cache_ || !bindless_) return;
+void PropertiesPanel::draw_material_inspector(SceneNode& obj) {
+    if (!obj.mesh || !obj.mesh->material || !pipeline_cache_ || !bindless_) return;
 
-    uint32_t pid = obj.material->pipeline_id();
+    auto* mat = obj.mesh->material;
+    uint32_t pid = mat->pipeline_id();
     if (pid >= pipeline_cache_->shader_count()) return;
 
     const auto& meta = pipeline_cache_->metadata(pid);
@@ -396,10 +436,10 @@ void PropertiesPanel::draw_material_inspector(RenderObject& obj) {
     ImGui::Spacing();
     ImGui::Separator();
     ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Material");
-    ImGui::TextDisabled("Shader: %s", obj.material->shader_path().c_str());
+    ImGui::TextDisabled("Shader: %s", mat->shader_path().c_str());
 
     // UV scale (available on all materials)
-    const auto& gpu = bindless_->material_at(obj.material->material_id());
+    const auto& gpu = bindless_->material_at(mat->material_id());
     float uv_sc[2] = {gpu.base_params[7], gpu.base_params[8]};
     if (uv_sc[0] == 0.0f) uv_sc[0] = 1.0f;
     if (uv_sc[1] == 0.0f) uv_sc[1] = 1.0f;
@@ -409,13 +449,13 @@ void PropertiesPanel::draw_material_inspector(RenderObject& obj) {
         GpuMaterial updated = gpu;
         updated.base_params[7] = uv_sc[0];
         updated.base_params[8] = uv_sc[1];
-        bindless_->update_material(obj.material->material_id(), updated);
+        bindless_->update_material(mat->material_id(), updated);
         scene_->mark_dirty();
     }
 
     if (!has_custom) return;
 
-    uint32_t param_count = obj.material->custom_param_count();
+    uint32_t param_count = mat->custom_param_count();
     if (param_count == 0) return;
 
     bool changed = false;

@@ -8,7 +8,6 @@
 
 #include <cstdint>
 #include <filesystem>
-#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -16,12 +15,12 @@
 namespace fjell {
 
 class Actor;
-class Component;
+class ScriptComponent;
 class Scene;
 class Input;
 class Clock;
 class PhysicsWorld;
-struct RenderObject;
+struct SceneNode;
 
 struct OwnedFieldDesc {
     std::string name;
@@ -42,10 +41,10 @@ struct OwnedActorType {
     bool loaded{true};
 };
 
-struct OwnedComponentType {
+struct OwnedScriptType {
     std::string name;
     uint32_t type_id;
-    Component* (*create)();
+    ScriptComponent* (*create)();
     std::vector<OwnedFieldDesc> fields;
     bool loaded{true};
 };
@@ -69,9 +68,9 @@ public:
     void update(Scene& scene, const Input& input, const Clock& clock,
                 PhysicsWorld* physics = nullptr);
 
-    bool add_component(RenderObject& obj, const std::string& type_name);
-    void remove_component(RenderObject& obj, const std::string& type_name);
-    void draw_inspector(RenderObject& obj);
+    bool add_script(SceneNode& obj, const std::string& type_name);
+    void remove_script(SceneNode& obj, const std::string& type_name);
+    void draw_inspector(SceneNode& obj);
 
     void serialize_all(Scene& scene);
     void deserialize_all(Scene& scene);
@@ -80,9 +79,9 @@ public:
     void call_end_play(Scene& scene);
 
     [[nodiscard]] const OwnedActorType* find_actor_type(const std::string& name) const;
-    [[nodiscard]] const OwnedComponentType* find_component_type(const std::string& name) const;
+    [[nodiscard]] const OwnedScriptType* find_script_type(const std::string& name) const;
     [[nodiscard]] const std::vector<OwnedActorType>& actor_types() const { return actor_type_list_; }
-    [[nodiscard]] const std::vector<OwnedComponentType>& component_types() const { return component_type_list_; }
+    [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }
 
     [[nodiscard]] bool is_loaded() const { return handle_ != nullptr; }
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
@@ -108,8 +107,8 @@ private:
 
     std::unordered_map<uint32_t, std::size_t> actor_type_map_;
     std::vector<OwnedActorType> actor_type_list_;
-    std::unordered_map<uint32_t, std::size_t> component_type_map_;
-    std::vector<OwnedComponentType> component_type_list_;
+    std::unordered_map<uint32_t, std::size_t> script_type_map_;
+    std::vector<OwnedScriptType> script_type_list_;
 
     World world_{};
 

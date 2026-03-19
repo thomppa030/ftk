@@ -115,7 +115,7 @@ private:
     Scene& scene_;
     uint32_t id_;
     uint32_t* selected_id_;
-    RenderObject snapshot_;
+    SceneNode snapshot_;
     std::string name_;
     bool first_{true};
 };
@@ -167,7 +167,7 @@ private:
     uint32_t id_;
     uint32_t* selected_id_;
     std::function<void()> pre_remove_;
-    RenderObject snapshot_;
+    SceneNode snapshot_;
     std::string name_;
     std::vector<std::pair<uint32_t, int32_t>> orphaned_children_;
 };

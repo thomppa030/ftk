@@ -26,7 +26,7 @@ public:
     void draw();
 
 private:
-    void draw_material_inspector(struct RenderObject& obj);
+    void draw_material_inspector(struct SceneNode& obj);
 
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};

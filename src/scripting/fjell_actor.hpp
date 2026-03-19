@@ -9,7 +9,7 @@
 
 namespace fjell {
 
-class Component;
+class ScriptComponent;
 class ScriptManager;
 struct World;
 

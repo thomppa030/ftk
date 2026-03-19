@@ -37,6 +37,8 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Cube") && add_primitive_cb_) add_primitive_cb_("cube");
             if (ImGui::MenuItem("Plane") && add_primitive_cb_) add_primitive_cb_("plane");
             if (ImGui::MenuItem("Sphere") && add_primitive_cb_) add_primitive_cb_("sphere");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Sprite") && add_primitive_cb_) add_primitive_cb_("sprite");
             ImGui::EndPopup();
         }
 
@@ -79,6 +81,8 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Add Cube") && add_primitive_cb_) add_primitive_cb_("cube");
             if (ImGui::MenuItem("Add Plane") && add_primitive_cb_) add_primitive_cb_("plane");
             if (ImGui::MenuItem("Add Sphere") && add_primitive_cb_) add_primitive_cb_("sphere");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Add Sprite") && add_primitive_cb_) add_primitive_cb_("sprite");
             ImGui::EndPopup();
         }
 
@@ -90,7 +94,7 @@ void HierarchyPanel::draw() {
     ImGui::End();
 }
 
-void HierarchyPanel::draw_node(RenderObject& obj) {
+void HierarchyPanel::draw_node(SceneNode& obj) {
     auto& objects = scene_->objects();
 
     bool has_children = false;
@@ -144,9 +148,9 @@ void HierarchyPanel::draw_node(RenderObject& obj) {
         *selected_id_ = obj.id;
         glm::vec3 center = glm::vec3(obj.world_matrix_[3]);
         float radius = 1.0f;
-        if (obj.model && !obj.model->collision_vertices().empty()) {
+        if (obj.mesh && obj.mesh->model && !obj.mesh->model->collision_vertices().empty()) {
             float max_r2 = 0.0f;
-            for (const auto& v : obj.model->collision_vertices()) {
+            for (const auto& v : obj.mesh->model->collision_vertices()) {
                 auto wv = glm::vec3(obj.world_matrix_ * glm::vec4(v, 1.0f));
                 max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
             }

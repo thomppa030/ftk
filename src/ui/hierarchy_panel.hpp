@@ -9,7 +9,7 @@ namespace fjell {
 class CommandHistory;
 class Scene;
 class ViewportManager;
-struct RenderObject;
+struct SceneNode;
 
 class HierarchyPanel {
 public:
@@ -24,7 +24,7 @@ public:
     void draw();
 
 private:
-    void draw_node(RenderObject& obj);
+    void draw_node(SceneNode& obj);
 
     Scene* scene_{nullptr};
     ViewportManager* viewports_{nullptr};

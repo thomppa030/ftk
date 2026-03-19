@@ -350,10 +350,10 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             uint32_t hit_id = 0;
 
             for (const auto& obj : scene.objects()) {
-                if (!obj.model) continue;
-                if (!obj.model->local_aabb().valid()) continue;
+                if (!obj.mesh || !obj.mesh->model) continue;
+                if (!obj.mesh->model->local_aabb().valid()) continue;
 
-                AABB world_aabb = obj.model->local_aabb().transform(obj.world_matrix_);
+                AABB world_aabb = obj.mesh->model->local_aabb().transform(obj.world_matrix_);
                 glm::vec3 aabb_min = world_aabb.min;
                 glm::vec3 aabb_max = world_aabb.max;
 
@@ -380,9 +380,10 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                     if (auto* hit_obj = scene.find(hit_id)) {
                         glm::vec3 center = glm::vec3(hit_obj->world_matrix_[3]);
                         float radius = 1.0f;
-                        if (hit_obj->model && !hit_obj->model->collision_vertices().empty()) {
+                        if (hit_obj->mesh && hit_obj->mesh->model &&
+                            !hit_obj->mesh->model->collision_vertices().empty()) {
                             float max_r2 = 0.0f;
-                            for (const auto& v : hit_obj->model->collision_vertices()) {
+                            for (const auto& v : hit_obj->mesh->model->collision_vertices()) {
                                 auto wv = glm::vec3(hit_obj->world_matrix_ * glm::vec4(v, 1.0f));
                                 max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
                             }

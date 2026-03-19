@@ -17,31 +17,32 @@ namespace fjell {
 
 // ── Out-of-line special members (need complete Actor/Component types) ───
 
-ComponentEntry::ComponentEntry() = default;
-ComponentEntry::~ComponentEntry() = default;
-ComponentEntry::ComponentEntry(ComponentEntry&&) noexcept = default;
-ComponentEntry& ComponentEntry::operator=(ComponentEntry&&) noexcept = default;
+ScriptEntry::ScriptEntry() = default;
+ScriptEntry::~ScriptEntry() = default;
+ScriptEntry::ScriptEntry(ScriptEntry&&) noexcept = default;
+ScriptEntry& ScriptEntry::operator=(ScriptEntry&&) noexcept = default;
 
-RenderObject::RenderObject() = default;
-RenderObject::~RenderObject() = default;
-RenderObject::RenderObject(RenderObject&&) noexcept = default;
-RenderObject& RenderObject::operator=(RenderObject&&) noexcept = default;
+SceneNode::SceneNode() = default;
+SceneNode::~SceneNode() = default;
+SceneNode::SceneNode(SceneNode&&) noexcept = default;
+SceneNode& SceneNode::operator=(SceneNode&&) noexcept = default;
 
 uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
                     ResourceManager& resources, Transform transform,
                     const std::string& name, const std::string& source,
                     const std::string& material_name) {
     uint32_t id = next_id_++;
-    RenderObject obj{};
+    SceneNode obj{};
     obj.id = id;
-    obj.model_handle = model_handle;
-    obj.material_handle = material_handle;
-    obj.model = resources.get(model_handle);
-    obj.material = resources.get(material_handle);
+    obj.mesh = MeshComponent{};
+    obj.mesh->model_handle = model_handle;
+    obj.mesh->material_handle = material_handle;
+    obj.mesh->model = resources.get(model_handle);
+    obj.mesh->material = resources.get(material_handle);
+    obj.mesh->material_name = material_name;
     obj.transform = transform;
     obj.name = name;
     obj.source = source;
-    obj.material_name = material_name;
     objects_.push_back(std::move(obj));
     dirty_ = true;
     return id;
@@ -55,14 +56,14 @@ void Scene::remove(uint32_t id) {
         }
     }
     auto it = std::find_if(objects_.begin(), objects_.end(),
-                           [id](const RenderObject& o) { return o.id == id; });
+                           [id](const SceneNode& o) { return o.id == id; });
     if (it != objects_.end()) {
         objects_.erase(it);
         dirty_ = true;
     }
 }
 
-RenderObject Scene::extract(uint32_t id) {
+SceneNode Scene::extract(uint32_t id) {
     // Orphan children
     for (auto& obj : objects_) {
         if (obj.parent_id == static_cast<int32_t>(id)) {
@@ -70,14 +71,14 @@ RenderObject Scene::extract(uint32_t id) {
         }
     }
     auto it = std::find_if(objects_.begin(), objects_.end(),
-                           [id](const RenderObject& o) { return o.id == id; });
-    RenderObject result = std::move(*it);
+                           [id](const SceneNode& o) { return o.id == id; });
+    SceneNode result = std::move(*it);
     objects_.erase(it);
     dirty_ = true;
     return result;
 }
 
-void Scene::restore(RenderObject obj) {
+void Scene::restore(SceneNode obj) {
     if (obj.id >= next_id_) next_id_ = obj.id + 1;
     objects_.push_back(std::move(obj));
     dirty_ = true;
@@ -109,14 +110,14 @@ void Scene::clear() {
     spot_lights_.clear();
 }
 
-RenderObject* Scene::find(uint32_t id) {
+SceneNode* Scene::find(uint32_t id) {
     for (auto& obj : objects_) {
         if (obj.id == id) return &obj;
     }
     return nullptr;
 }
 
-const RenderObject* Scene::find(uint32_t id) const {
+const SceneNode* Scene::find(uint32_t id) const {
     for (const auto& obj : objects_) {
         if (obj.id == id) return &obj;
     }
@@ -205,16 +206,20 @@ void Scene::save(const std::string& path) {
         jobj["parent_id"] = obj.parent_id;
         jobj["name"] = obj.name;
         jobj["source"] = obj.source;
-        jobj["material"] = obj.material_name;
-        if (obj.material) {
-            const auto& bcf = obj.material->params().base_color_factor;
-            if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f || bcf.a != 1.0f) {
-                if (bcf.a < 1.0f) {
-                    jobj["color"] = {bcf.r, bcf.g, bcf.b, bcf.a};
-                } else {
-                    jobj["color"] = {bcf.r, bcf.g, bcf.b};
+        if (obj.mesh) {
+            nlohmann::json jmesh;
+            jmesh["material"] = obj.mesh->material_name;
+            if (obj.mesh->material) {
+                const auto& bcf = obj.mesh->material->params().base_color_factor;
+                if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f || bcf.a != 1.0f) {
+                    if (bcf.a < 1.0f) {
+                        jmesh["color"] = {bcf.r, bcf.g, bcf.b, bcf.a};
+                    } else {
+                        jmesh["color"] = {bcf.r, bcf.g, bcf.b};
+                    }
                 }
             }
+            jobj["mesh"] = jmesh;
         }
         jobj["position"] = {obj.transform.position.x, obj.transform.position.y, obj.transform.position.z};
         {
@@ -264,9 +269,18 @@ void Scene::save(const std::string& path) {
             };
         }
 
-        if (!obj.components.empty()) {
+        if (obj.sprite) {
+            auto& sp = *obj.sprite;
+            jobj["sprite"] = {
+                {"texture", sp.texture_path},
+                {"tint", {sp.tint.r, sp.tint.g, sp.tint.b, sp.tint.a}},
+                {"opacity", sp.opacity}
+            };
+        }
+
+        if (!obj.scripts.empty()) {
             jobj["components"] = nlohmann::json::array();
-            for (const auto& comp : obj.components) {
+            for (const auto& comp : obj.scripts) {
                 nlohmann::json jcomp;
                 jcomp["type"] = comp.type_name;
                 jcomp["data"] = comp.serialized;
@@ -341,7 +355,18 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
     for (const auto& jobj : j["objects"]) {
         std::string name = jobj.value("name", "Object");
         std::string source = jobj.value("source", "");
-        std::string mat_name = jobj.value("material", "default");
+
+        // Read mesh fields from "mesh" key or fall back to top-level (backward compat)
+        std::string mat_name = "default";
+        nlohmann::json color_json;
+        if (jobj.contains("mesh")) {
+            const auto& jmesh = jobj["mesh"];
+            mat_name = jmesh.value("material", "default");
+            if (jmesh.contains("color")) color_json = jmesh["color"];
+        } else {
+            mat_name = jobj.value("material", "default");
+            if (jobj.contains("color")) color_json = jobj["color"];
+        }
 
         ModelHandle model_handle;
         if (source.starts_with("primitive:")) {
@@ -357,8 +382,8 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         if (mat_name.ends_with(".fjmat")) {
             std::string mat_path = base_path::resolve_asset(mat_name, project);
             mat_handle = resources.load_material_asset(mat_path, project);
-        } else if (jobj.contains("color")) {
-            auto& c = jobj["color"];
+        } else if (!color_json.is_null()) {
+            auto& c = color_json;
             PbrParams params{};
             float alpha = c.size() > 3 ? c[3].get<float>() : 1.0f;
             params.base_color_factor = {c[0].get<float>(), c[1].get<float>(),
@@ -471,15 +496,28 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             scene.objects().back().emitter = em;
         }
 
+        // Load sprite
+        if (jobj.contains("sprite")) {
+            auto& jsp = jobj["sprite"];
+            SpriteDesc sp;
+            sp.texture_path = jsp.value("texture", "");
+            if (jsp.contains("tint")) {
+                auto& t = jsp["tint"];
+                sp.tint = {t[0].get<float>(), t[1].get<float>(), t[2].get<float>(), t[3].get<float>()};
+            }
+            sp.opacity = jsp.value("opacity", 1.0f);
+            scene.objects().back().sprite = sp;
+        }
+
         // Load component data as raw JSON (ScriptManager will instantiate later)
         if (jobj.contains("components")) {
             for (const auto& jcomp : jobj["components"]) {
-                ComponentEntry comp;
+                ScriptEntry comp;
                 comp.type_name = jcomp.value("type", "");
                 if (jcomp.contains("data")) {
                     comp.serialized = jcomp["data"];
                 }
-                scene.objects().back().components.push_back(std::move(comp));
+                scene.objects().back().scripts.push_back(std::move(comp));
             }
         }
     }
