@@ -4,7 +4,8 @@ namespace fjell {
 
 void CommandHistory::execute(CommandPtr cmd) {
     // Truncate any undone commands
-    commands_.erase(commands_.begin() + current_ + 1, commands_.end());
+    // Parenthesise to avoid UB: (begin() + negative) is invalid on MSVC debug iterators
+    commands_.erase(commands_.begin() + (current_ + 1), commands_.end());
     commands_.push_back(std::move(cmd));
     current_ = static_cast<int>(commands_.size()) - 1;
     commands_[current_]->execute();
