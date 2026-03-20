@@ -18,4 +18,8 @@ compile_commands.json
 
 CLAUDE.md
 
+imgui.ini
+*.ppm
+ui_plan.md
+
 website/
