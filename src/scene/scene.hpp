@@ -66,6 +66,7 @@ struct SceneNode {
     glm::mat4 local_matrix_{1.0f};
     Transform prev_transform_{}; // snapshot for dirty detection
     bool transform_dirty_{true}; // true = local_matrix_ needs recompute
+    bool world_dirty_{true};     // true = world_matrix_ needs recompute this frame
     std::string name;
     std::string source;
 
