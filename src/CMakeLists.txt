@@ -187,6 +187,16 @@ target_link_libraries(fjell PRIVATE
     ${CMAKE_DL_LIBS}
 )
 
+# Tracy profiler — link and suppress warnings when enabled
+if(FJELL_ENABLE_TRACY)
+    target_link_libraries(fjell PRIVATE TracyClient)
+    target_compile_definitions(fjell PRIVATE FJELL_ENABLE_TRACY)
+    get_target_property(TRACY_INCLUDE_DIRS TracyClient INTERFACE_INCLUDE_DIRECTORIES)
+    if(TRACY_INCLUDE_DIRS)
+        target_include_directories(fjell SYSTEM PRIVATE ${TRACY_INCLUDE_DIRS})
+    endif()
+endif()
+
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(fjell PRIVATE -rdynamic)
 endif()
