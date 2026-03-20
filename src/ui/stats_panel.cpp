@@ -29,6 +29,10 @@ void StatsPanel::draw(float dt) {
     if (ImGui::Begin("Stats")) {
         ImGui::Text("GPU: %s", ctx_->gpu_name().c_str());
         ImGui::SameLine(0, 20);
+#ifdef FJELL_ENABLE_TRACY
+        ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Tracy");
+        ImGui::SameLine(0, 20);
+#endif
         ImGui::Text("FPS: %.0f", fps_);
         ImGui::SameLine(0, 20);
         ImGui::Text("Frame: %.2f ms", frame_time_);
