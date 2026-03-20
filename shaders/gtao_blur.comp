@@ -13,10 +13,16 @@ layout(set = 1, binding = 0, r8) uniform writeonly image2D blur_output;
 layout(set = 1, binding = 1) uniform sampler2D ao_input;
 
 layout(push_constant) uniform PushConstants {
-    uvec2 viewport_size;
-    uint direction; // 0 = horizontal, 1 = vertical
+    uvec2 viewport_size;      // half-res (AO image dimensions)
+    uint direction;           // 0 = horizontal, 1 = vertical
     float depth_threshold;
 };
+
+// Map half-res coord to full-res depth coord
+ivec2 to_full_res(ivec2 half_coord) {
+    ivec2 full_size = textureSize(depth_texture, 0);
+    return clamp(half_coord * 2 + 1, ivec2(0), full_size - 1);
+}
 
 const int KERNEL_RADIUS = 3;
 
@@ -32,7 +38,7 @@ void main() {
     ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
     if (coord.x >= int(viewport_size.x) || coord.y >= int(viewport_size.y)) return;
 
-    float center_depth = texelFetch(depth_texture, coord, 0).r;
+    float center_depth = texelFetch(depth_texture, to_full_res(coord), 0).r;
     float center_ao = texelFetch(ao_input, coord, 0).r;
 
     if (center_depth >= 1.0) {
@@ -53,7 +59,7 @@ void main() {
             if (sample_coord.x < 0 || sample_coord.x >= int(viewport_size.x) ||
                 sample_coord.y < 0 || sample_coord.y >= int(viewport_size.y)) continue;
 
-            float sample_depth = texelFetch(depth_texture, sample_coord, 0).r;
+            float sample_depth = texelFetch(depth_texture, to_full_res(sample_coord), 0).r;
 
             // Depth-aware rejection: skip samples across depth discontinuities
             float depth_diff = abs(center_depth - sample_depth);

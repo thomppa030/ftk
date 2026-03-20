@@ -174,7 +174,7 @@ void main() {
     Lo += accumulate_tile_lights(frag_world_pos, N, V, NdotV, albedo, metallic, roughness, F0);
 
     // Ambient occlusion — affects ambient and diffuse, not specular
-    vec2 ao_uv = gl_FragCoord.xy / vec2(textureSize(ao_texture, 0));
+    vec2 ao_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);
     float ao = texture(ao_texture, ao_uv).r;
 
     // Ambient

@@ -6,6 +6,7 @@
 
 #include <imgui_impl_vulkan.h>
 
+#include <algorithm>
 #include <array>
 #include <stdexcept>
 
@@ -21,6 +22,8 @@ struct GtaoPushConstants {
     float max_pixel_radius;
     uint32_t viewport_width;
     uint32_t viewport_height;
+    uint32_t full_viewport_width;
+    uint32_t full_viewport_height;
 };
 
 struct BlurPushConstants {
@@ -293,12 +296,16 @@ void GtaoPass::destroy_images() {
 
 void GtaoPass::resize(uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
-    if (extent_.width == width && extent_.height == height) return;
+
+    // AO images are half resolution
+    uint32_t half_w = std::max(1u, width / 2);
+    uint32_t half_h = std::max(1u, height / 2);
+    if (extent_.width == half_w && extent_.height == half_h) return;
 
     vkDeviceWaitIdle(device_);
     invalidate_imgui_texture();
     destroy_images();
-    create_images(width, height);
+    create_images(half_w, half_h);
 }
 
 void GtaoPass::update_descriptors() {
@@ -473,8 +480,11 @@ void GtaoPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
         return;
     }
 
-    uint32_t groups_x = (width + TILE_SIZE - 1) / TILE_SIZE;
-    uint32_t groups_y = (height + TILE_SIZE - 1) / TILE_SIZE;
+    // Compute at half resolution
+    uint32_t half_w = extent_.width;
+    uint32_t half_h = extent_.height;
+    uint32_t groups_x = (half_w + TILE_SIZE - 1) / TILE_SIZE;
+    uint32_t groups_y = (half_h + TILE_SIZE - 1) / TILE_SIZE;
 
     // ── Transition both images to GENERAL for compute write ─────────────
     // ao_image_ may be in SHADER_READ_ONLY from previous frame's final barrier.
@@ -521,9 +531,11 @@ void GtaoPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
     push.radius = radius_;
     push.intensity = intensity_;
     push.thickness = thickness_;
-    push.max_pixel_radius = 256.0f;
-    push.viewport_width = width;
-    push.viewport_height = height;
+    push.max_pixel_radius = 128.0f; // half-res pixel budget
+    push.viewport_width = half_w;
+    push.viewport_height = half_h;
+    push.full_viewport_width = width;
+    push.full_viewport_height = height;
 
     vkCmdPushConstants(cmd, gtao_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
@@ -556,8 +568,8 @@ void GtaoPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
                             1, 1, &blur_h_set_, 0, nullptr);
 
     BlurPushConstants blur_push{};
-    blur_push.viewport_width = width;
-    blur_push.viewport_height = height;
+    blur_push.viewport_width = half_w;
+    blur_push.viewport_height = half_h;
     blur_push.direction = 0;
     blur_push.depth_threshold = 0.1f;
 

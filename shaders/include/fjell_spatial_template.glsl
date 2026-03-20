@@ -183,7 +183,7 @@ void main() {
     Lo += accumulate_tile_lights(WORLD_POS, N, V, NdotV, ALBEDO, METALLIC, ROUGHNESS, F0);
 
     // Screen-space AO from GTAO pass
-    vec2 ao_uv = gl_FragCoord.xy / vec2(textureSize(ao_texture, 0));
+    vec2 ao_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);
     float screen_ao = texture(ao_texture, ao_uv).r;
     // Combine screen-space AO with material AO output
     float final_ao = screen_ao * AO;
