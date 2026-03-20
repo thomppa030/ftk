@@ -4,6 +4,7 @@
 #include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "scene/scene.hpp"
 
 #include <cstring>
@@ -460,6 +461,7 @@ void ParticleSystem::destroy_emitter_gpu(EmitterGpu& gpu) {
 }
 
 void ParticleSystem::sync_emitters(const Scene& scene) {
+    FJELL_PROFILE_SCOPE_N("particle_sync_emitters");
     std::unordered_map<uint32_t, const SceneNode*> active;
     for (const auto& obj : scene.objects()) {
         if (obj->emitter) active[obj->id] = obj.get();
@@ -490,6 +492,7 @@ void ParticleSystem::sync_emitters(const Scene& scene) {
 }
 
 void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene) {
+    FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
     ++frame_seed_;
 
@@ -591,6 +594,7 @@ void ParticleSystem::insert_barriers(VkCommandBuffer cmd) {
 }
 
 void ParticleSystem::record_render(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("particle_record_render");
     if (emitters_.empty()) return;
 
     // Bind global descriptor set at set 0

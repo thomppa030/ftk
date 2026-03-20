@@ -7,6 +7,7 @@
 #include "scene/camera_node.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 
 #include <unordered_map>
 
@@ -52,6 +53,7 @@ bool AudioEngine::is_initialized() const {
 
 void AudioEngine::update(Scene& scene, const glm::vec3& listener_pos,
                          const glm::vec3& listener_forward, const glm::vec3& listener_up) {
+    FJELL_PROFILE_SCOPE_N("audio_update");
     if (!is_initialized()) return;
 
     // Update listener

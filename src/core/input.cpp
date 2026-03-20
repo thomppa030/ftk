@@ -1,4 +1,5 @@
 #include "core/input.hpp"
+#include "core/profiler.hpp"
 #include "core/window.hpp"
 
 #include <GLFW/glfw3.h>
@@ -13,6 +14,7 @@ void Input::attach(GLFWwindow* window) {
 }
 
 void Input::update() {
+    FJELL_PROFILE_SCOPE_N("input_update");
     for (auto& key : keys_) {
         if (key == KeyState::Pressed) {
             key = KeyState::Held;

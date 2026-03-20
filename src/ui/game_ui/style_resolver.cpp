@@ -1,4 +1,5 @@
 #include "ui/game_ui/style_resolver.hpp"
+#include "core/profiler.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -8,6 +9,7 @@
 namespace fjell {
 
 void StyleResolver::resolve(UiNode& root, const Stylesheet& sheet) {
+    FJELL_PROFILE_SCOPE_N("style_resolve");
     active_sheet_ = &sheet;
     resolve_node(root, sheet, nullptr);
 }

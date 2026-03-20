@@ -4,6 +4,7 @@
 #include "core/clock.hpp"
 #include "core/input.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "physics/physics_world.hpp"
 #include "scene/scene.hpp"
 
@@ -257,6 +258,7 @@ void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock
 
 void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
                            PhysicsWorld* physics) {
+    FJELL_PROFILE_SCOPE_N("script_update");
     if (!is_loaded()) return;
 
     populate_world(scene, input, clock, physics);
@@ -279,6 +281,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
 // ── Lifecycle ───────────────────────────────────────────────────────────
 
 void ScriptManager::call_begin_play(Scene& scene) {
+    FJELL_PROFILE_SCOPE_N("script_begin_play");
     for (auto& obj : scene.objects()) {
         if (obj->actor) {
             obj->actor->world_ = &world_;
@@ -293,6 +296,7 @@ void ScriptManager::call_begin_play(Scene& scene) {
 }
 
 void ScriptManager::call_end_play(Scene& scene) {
+    FJELL_PROFILE_SCOPE_N("script_end_play");
     for (auto& obj : scene.objects()) {
         for (auto& comp : obj->scripts) {
             if (comp.instance) {
@@ -569,6 +573,7 @@ void ScriptManager::watch(const std::filesystem::path& so_path) {
 }
 
 bool ScriptManager::poll_reload(Scene& scene) {
+    FJELL_PROFILE_SCOPE_N("script_poll_reload");
     if (so_path_.empty()) return false;
 
     reload_pending_ = false;

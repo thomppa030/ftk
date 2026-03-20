@@ -1,6 +1,7 @@
 #include "ui/game_ui/ui_input.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "core/input.hpp"
+#include "core/profiler.hpp"
 
 #include <GLFW/glfw3.h>
 
@@ -9,6 +10,7 @@ namespace fjell {
 bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
                       float viewport_width, float viewport_height,
                       glm::vec2 viewport_offset) {
+    FJELL_PROFILE_SCOPE_N("ui_input_process");
     dirty_nodes_.clear();
 
     auto mouse = input.mouse_position();

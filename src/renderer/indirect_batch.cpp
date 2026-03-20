@@ -1,4 +1,5 @@
 #include "renderer/indirect_batch.hpp"
+#include "core/profiler.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
@@ -54,6 +55,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
 void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           const std::vector<DrawCommand>& transparent_commands,
                           uint32_t frame_index) {
+    FJELL_PROFILE_SCOPE_N("indirect_batch_build");
     // Count total mesh entries across all draw commands (opaque + transparent)
     uint32_t total_draws = 0;
     for (const auto& dc : opaque_commands) {

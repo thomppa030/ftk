@@ -1,5 +1,6 @@
 #include "physics/physics_world.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "renderer/model.hpp"
 #include "scene/scene.hpp"
 
@@ -313,6 +314,7 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 // ── Step ────────────────────────────────────────────────────────────────
 
 void PhysicsWorld::step(float dt, Scene& scene) {
+    FJELL_PROFILE_SCOPE_N("physics_step");
     auto& bi = impl_->physics_system->GetBodyInterface();
 
     // Sync kinematic bodies: push engine transforms -> Jolt

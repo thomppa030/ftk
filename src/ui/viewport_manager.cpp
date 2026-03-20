@@ -1,6 +1,7 @@
 #include "ui/viewport_manager.hpp"
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
+#include "core/profiler.hpp"
 #include "renderer/model.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/scene.hpp"
@@ -86,6 +87,7 @@ glm::vec2 ViewportManager::active_viewport_pos() const {
 void ViewportManager::draw(VulkanContext& ctx, Scene& scene,
                            uint32_t& selected_id, const Input& input, float dt,
                            int gizmo_op, CommandHistory* history) {
+    FJELL_PROFILE_SCOPE_N("viewport_draw");
     bool any_closing = false;
     for (auto it = panels_.begin(); it != panels_.end();) {
         draw_viewport_panel(*it, ctx, scene, selected_id, input, dt, gizmo_op, history);
@@ -117,6 +119,7 @@ void ViewportManager::draw(VulkanContext& ctx, Scene& scene,
 }
 
 void ViewportManager::apply_resize(VulkanContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("viewport_apply_resize");
     for (auto& panel : panels_) {
         if (!panel.offscreen) continue;
         auto vp_w = static_cast<uint32_t>(panel.size.x);
@@ -140,6 +143,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
 }
 
 std::vector<ViewportRenderRequest> ViewportManager::build_render_requests() {
+    FJELL_PROFILE_SCOPE_N("build_render_requests");
     std::vector<ViewportRenderRequest> requests;
     requests.reserve(panels_.size());
     for (auto& panel : panels_) {

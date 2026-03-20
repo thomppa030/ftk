@@ -1,11 +1,13 @@
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "core/profiler.hpp"
 
 #include <algorithm>
 
 namespace fjell {
 
 bool UiDataBind::resolve(UiNode& root, const UiContext& context) {
+    FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
     bool changed = false;
     resolve_node(root, context, changed);
     return changed;

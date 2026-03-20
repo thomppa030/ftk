@@ -1,6 +1,7 @@
 #include "renderer/debug_draw.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/uniform_types.hpp"
+#include "core/profiler.hpp"
 #include "scene/scene.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -92,6 +93,7 @@ void DebugDraw::generate_capsule(float radius, float height, uint32_t segments) 
 // ── Update ──────────────────────────────────────────────────────────────
 
 void DebugDraw::update(const Scene& scene) {
+    FJELL_PROFILE_SCOPE_N("debug_draw_update");
     vertices_.clear();
     draw_commands_.clear();
 

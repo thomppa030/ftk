@@ -1,4 +1,5 @@
 #include "ui/game_ui/ui_layout.hpp"
+#include "core/profiler.hpp"
 
 #include <yoga/Yoga.h>
 
@@ -21,6 +22,7 @@ UiLayout::~UiLayout() {
 }
 
 void UiLayout::compute(UiNode& root, float viewport_width, float viewport_height) {
+    FJELL_PROFILE_SCOPE_N("ui_layout_compute");
     // Tear down previous tree
     if (root_yg_) {
         YGNodeFreeRecursive(root_yg_);

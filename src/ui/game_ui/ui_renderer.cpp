@@ -4,6 +4,7 @@
 #include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -233,6 +234,7 @@ void UiRenderer::destroy() {
 
 void UiRenderer::update(const UiNode& root, float viewport_width, float viewport_height,
                          uint32_t frame_index) {
+    FJELL_PROFILE_SCOPE_N("ui_renderer_update");
     std::vector<GpuUiQuad> quads;
     collect_quads(root, quads, viewport_width, viewport_height);
 
@@ -363,6 +365,7 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
 
 void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
                          VkExtent2D extent, uint32_t frame_index) {
+    FJELL_PROFILE_SCOPE_N("ui_renderer_record");
     bool has_quads = quad_counts_[frame_index] > 0;
     bool has_text = text_counts_[frame_index] > 0;
     if (!has_quads && !has_text) return;

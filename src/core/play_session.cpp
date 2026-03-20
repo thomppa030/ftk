@@ -1,5 +1,6 @@
 #include "core/play_session.hpp"
 #include "core/input.hpp"
+#include "core/profiler.hpp"
 #include "physics/physics_world.hpp"
 
 #include <GLFW/glfw3.h>
@@ -18,6 +19,7 @@ PlaySession::PlaySession(Scene& scene)
 }
 
 void PlaySession::physics_step(float dt, Scene& scene) {
+    FJELL_PROFILE_SCOPE_N("play_session_physics_step");
     physics_world_->step(dt, scene);
 }
 

@@ -1,6 +1,7 @@
 #include "ui/game_ui/ui_animation.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_style.hpp"
+#include "core/profiler.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -109,6 +110,7 @@ static const std::vector<std::string>& animatable_props() {
 }
 
 bool UiAnimation::update(UiNode& root, float dt) {
+    FJELL_PROFILE_SCOPE_N("ui_animation_update");
     bool any_active = false;
     update_node(root, dt, any_active);
     return any_active;

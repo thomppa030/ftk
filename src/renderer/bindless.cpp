@@ -1,6 +1,7 @@
 #include "renderer/bindless.hpp"
 #include "renderer/texture.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 
 #include <array>
 #include <cstring>
@@ -218,6 +219,7 @@ void BindlessTextures::write_params(uint32_t offset, const float* data, uint32_t
 }
 
 void BindlessTextures::update_descriptors() {
+    FJELL_PROFILE_SCOPE_N("bindless_update_descriptors");
     if (entries_.empty() || tex_dirty_from_ >= entries_.size()) return;
 
     uint32_t count = static_cast<uint32_t>(entries_.size()) - tex_dirty_from_;
@@ -249,6 +251,7 @@ void BindlessTextures::update_descriptors() {
 }
 
 void BindlessTextures::update_material_buffer() {
+    FJELL_PROFILE_SCOPE_N("bindless_update_materials");
     if (materials_dirty_ && !materials_.empty()) {
         std::memcpy(material_ssbo_->mapped(), materials_.data(),
                     materials_.size() * sizeof(GpuMaterial));

@@ -7,6 +7,7 @@
 #include "renderer/frustum.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "scene/scene.hpp"
 
 #include <algorithm>
@@ -201,6 +202,7 @@ void SpriteRenderer::destroy() {
 }
 
 void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources) {
+    FJELL_PROFILE_SCOPE_N("sprite_sync_textures");
     for (auto& obj : scene.objects()) {
         if (!obj->sprite || obj->sprite->texture_loaded) continue;
 
@@ -221,6 +223,7 @@ void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources) {
 void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection,
                             const glm::vec3& camera_position, uint32_t frame_index,
                             bool playing) {
+    FJELL_PROFILE_SCOPE_N("sprite_update");
     Frustum frustum = Frustum::from_vp_matrix(view_projection);
 
     // Gather visible sprites
@@ -278,6 +281,7 @@ void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection
 }
 
 void SpriteRenderer::record_render(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("sprite_record_render");
     if (sprite_counts_[ctx.frame_index] == 0) return;
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
