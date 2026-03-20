@@ -1467,13 +1467,59 @@ void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
               font_path, output_format);
 }
 
-void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewports,
-                               const DirectionalLight& light,
-                               Scene* scene, float dt,
-                               uint32_t selected_id, ThreadPool& pool,
-                               bool playing) {
+void VulkanContext::submit_and_present() {
+    if (!has_recorded_frame_) return;
+
+    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+    auto& render_finished = swapchain_.render_finished_semaphores();
+
+    VkSubmitInfo submit_info{};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &image_available_[recorded_frame_];
+    submit_info.pWaitDstStageMask = &wait_stage;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffers_[recorded_frame_];
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &render_finished[recorded_image_index_];
+
+    if (vkQueueSubmit(device_.graphics_queue(), 1, &submit_info, in_flight_[recorded_frame_]) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to submit draw command buffer");
+    }
+
+    VkPresentInfoKHR present_info{};
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &render_finished[recorded_image_index_];
+    present_info.swapchainCount = 1;
+    VkSwapchainKHR swapchain_handle = swapchain_.handle();
+    present_info.pSwapchains = &swapchain_handle;
+    present_info.pImageIndices = &recorded_image_index_;
+
+    VkResult result = vkQueuePresentKHR(device_.present_queue(), &present_info);
+
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
+        window_.was_resized()) {
+        window_.reset_resized();
+        swapchain_.recreate();
+    } else if (result != VK_SUCCESS) {
+        throw std::runtime_error("Failed to present swapchain image");
+    }
+
+    has_recorded_frame_ = false;
+}
+
+void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& viewports,
+                                    const DirectionalLight& light,
+                                    Scene* scene, float dt,
+                                    uint32_t selected_id, ThreadPool& pool,
+                                    bool playing) {
     FJELL_PROFILE_SCOPE_N("draw_frame");
     auto vk_device = device_.handle();
+
+    // Advance to next frame slot
+    current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
 
     vkWaitForFences(vk_device, 1, &in_flight_[current_frame_], VK_TRUE,
                     std::numeric_limits<uint64_t>::max());
@@ -1496,6 +1542,7 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         swapchain_.recreate();
+        has_recorded_frame_ = false;
         return;
     }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
@@ -1546,44 +1593,9 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
     record_command_buffer(command_buffers_[current_frame_], image_index,
                           viewports, light, scene, dt, selected_id, pool, playing);
 
-    VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-    auto& render_finished = swapchain_.render_finished_semaphores();
-
-    VkSubmitInfo submit_info{};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &image_available_[current_frame_];
-    submit_info.pWaitDstStageMask = &wait_stage;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffers_[current_frame_];
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &render_finished[image_index];
-
-    if (vkQueueSubmit(device_.graphics_queue(), 1, &submit_info, in_flight_[current_frame_]) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to submit draw command buffer");
-    }
-
-    VkPresentInfoKHR present_info{};
-    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &render_finished[image_index];
-    present_info.swapchainCount = 1;
-    VkSwapchainKHR swapchain_handle = swapchain_.handle();
-    present_info.pSwapchains = &swapchain_handle;
-    present_info.pImageIndices = &image_index;
-
-    result = vkQueuePresentKHR(device_.present_queue(), &present_info);
-
-    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
-        window_.was_resized()) {
-        window_.reset_resized();
-        swapchain_.recreate();
-    } else if (result != VK_SUCCESS) {
-        throw std::runtime_error("Failed to present swapchain image");
-    }
-
-    current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
+    recorded_frame_ = current_frame_;
+    recorded_image_index_ = image_index;
+    has_recorded_frame_ = true;
 }
 
 void VulkanContext::wait_idle() {

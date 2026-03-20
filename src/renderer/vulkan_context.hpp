@@ -76,10 +76,17 @@ public:
   VulkanContext &operator=(VulkanContext &&) = delete;
 
   void sync_sprite_textures(Scene &scene, ResourceManager &resources);
-  void draw_frame(const std::vector<ViewportRenderRequest> &viewports,
-                  const struct DirectionalLight &light, Scene *scene, float dt,
-                  uint32_t selected_id, ThreadPool &pool,
-                  bool playing = false);
+
+  /// Submit the previously recorded frame and present it.
+  /// No-op on the first call (nothing recorded yet).
+  void submit_and_present();
+
+  /// Wait for the next frame slot, acquire swapchain image, record commands.
+  void wait_and_record(const std::vector<ViewportRenderRequest> &viewports,
+                       const struct DirectionalLight &light, Scene *scene,
+                       float dt, uint32_t selected_id, ThreadPool &pool,
+                       bool playing = false);
+
   void update_light_ssbo(uint32_t frame_index, Scene *scene);
   void wait_idle();
   void reload_pipeline();
@@ -242,7 +249,12 @@ private:
 
   std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
   std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
-  uint32_t current_frame_{0};
+  uint32_t current_frame_{MAX_FRAMES_IN_FLIGHT - 1};
+
+  // Split-frame state: carried from wait_and_record to submit_and_present
+  uint32_t recorded_frame_{0};
+  uint32_t recorded_image_index_{0};
+  bool has_recorded_frame_{false};
 
   std::unique_ptr<RenderStats> render_stats_;
   RenderQueue render_queue_;
