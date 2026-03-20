@@ -22,11 +22,13 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
 
     auto task_code = read_spirv(base_path::resolve("shaders/depth_mesh.task.spv"));
     auto mesh_code = read_spirv(base_path::resolve("shaders/depth_mesh.mesh.spv"));
+    auto frag_code = read_spirv(base_path::resolve("shaders/depth_only.frag.spv"));
 
     auto task_module = create_shader_module(device_, task_code);
     auto mesh_module = create_shader_module(device_, mesh_code);
+    auto frag_module = create_shader_module(device_, frag_code);
 
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+    std::array<VkPipelineShaderStageCreateInfo, 3> stages{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
     stages[0].module = task_module;
@@ -36,6 +38,11 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
     stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
     stages[1].module = mesh_module;
     stages[1].pName = "main";
+
+    stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[2].module = frag_module;
+    stages[2].pName = "main";
 
     // No vertex input for mesh shaders
     VkPipelineViewportStateCreateInfo viewport_state{};
@@ -89,6 +96,7 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, task_module, nullptr);
         vkDestroyShaderModule(device_, mesh_module, nullptr);
+        vkDestroyShaderModule(device_, frag_module, nullptr);
         throw std::runtime_error("Failed to create mesh shader depth pipeline layout");
     }
 
@@ -116,11 +124,13 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, task_module, nullptr);
         vkDestroyShaderModule(device_, mesh_module, nullptr);
+        vkDestroyShaderModule(device_, frag_module, nullptr);
         throw std::runtime_error("Failed to create mesh shader depth pipeline");
     }
 
     vkDestroyShaderModule(device_, task_module, nullptr);
     vkDestroyShaderModule(device_, mesh_module, nullptr);
+    vkDestroyShaderModule(device_, frag_module, nullptr);
     FJELL_GFX_DEBUG("Mesh shader depth pass created");
 }
 

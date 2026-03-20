@@ -266,13 +266,19 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
     create_images();
 
     auto vert_code = read_spirv(base_path::resolve("shaders/shadow.vert.spv"));
+    auto frag_code = read_spirv(base_path::resolve("shaders/depth_only.frag.spv"));
     auto vert_module = create_shader_module(device_, vert_code);
+    auto frag_module = create_shader_module(device_, frag_code);
 
-    VkPipelineShaderStageCreateInfo vert_stage{};
-    vert_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    vert_stage.stage = VK_SHADER_STAGE_VERTEX_BIT;
-    vert_stage.module = vert_module;
-    vert_stage.pName = "main";
+    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert_module;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag_module;
+    stages[1].pName = "main";
 
     auto binding_desc = Vertex::get_binding_description();
     auto attrib_descs = Vertex::get_attribute_descriptions();
@@ -346,6 +352,7 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
 
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
+        vkDestroyShaderModule(device_, frag_module, nullptr);
         throw std::runtime_error("Failed to create shadow pipeline layout");
     }
 
@@ -357,8 +364,8 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
     VkGraphicsPipelineCreateInfo pipeline_info{};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipeline_info.pNext = &rendering_info;
-    pipeline_info.stageCount = 1;
-    pipeline_info.pStages = &vert_stage;
+    pipeline_info.stageCount = static_cast<uint32_t>(stages.size());
+    pipeline_info.pStages = stages.data();
     pipeline_info.pVertexInputState = &vertex_input;
     pipeline_info.pInputAssemblyState = &input_assembly;
     pipeline_info.pViewportState = &viewport_state;
@@ -373,10 +380,12 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
     if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
+        vkDestroyShaderModule(device_, frag_module, nullptr);
         throw std::runtime_error("Failed to create shadow pipeline");
     }
 
     vkDestroyShaderModule(device_, vert_module, nullptr);
+    vkDestroyShaderModule(device_, frag_module, nullptr);
     FJELL_GFX_DEBUG("Shadow pass pipeline created");
 }
 

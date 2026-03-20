@@ -164,6 +164,8 @@ if(FJELL_ENABLE_NVIM_PANEL)
 endif()
 if(FJELL_ENABLE_NVIM_PANEL)
     target_compile_definitions(fjell PRIVATE FJELL_HAS_NVIM_PANEL)
+else()
+    set_source_files_properties(ui/nvim_panel.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
 endif()
 
 target_link_libraries(fjell PRIVATE
@@ -178,7 +180,7 @@ target_link_libraries(fjell PRIVATE
     yogacore
     msdfgen::msdfgen-core
     msdfgen::msdfgen-ext
-    freetype
+    Freetype::Freetype
     ${FJELL_NVIM_LIBS}
     ${CMAKE_DL_LIBS}
 )
@@ -189,6 +191,9 @@ endif()
 
 if(MSVC)
     target_compile_options(fjell PRIVATE /W4 /WX)
+    target_compile_definitions(fjell PRIVATE _CRT_SECURE_NO_WARNINGS)
+    # Suppress warnings in third-party ImGuizmo source
+    set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
     target_compile_options(fjell PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
@@ -287,6 +292,8 @@ target_link_libraries(fjell-hub PRIVATE
 )
 if(MSVC)
     target_compile_options(fjell-hub PRIVATE /W4 /WX)
+    target_compile_definitions(fjell-hub PRIVATE _CRT_SECURE_NO_WARNINGS)
+    set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
     target_compile_options(fjell-hub PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()

@@ -51,10 +51,11 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                const std::filesystem::path& project_path)
     : window_{title, width, height}
     , vulkan_context_{window_}
-#ifndef NDEBUG
-    , shader_watcher_{base_path::resolve("../shaders"), base_path::resolve("shaders")}
-#endif
 {
+#ifndef NDEBUG
+    shader_watcher_.emplace(base_path::resolve("../shaders"), base_path::resolve("shaders"));
+#endif
+
     // Check for game mode (game.fjell next to binary)
     auto game_config_path = base_path::resolve("game.fjell");
     if (std::filesystem::exists(game_config_path)) {
@@ -95,7 +96,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve_asset("assets/textures/test.png", active_project()));
-
     scan_models();
 
     // Determine which scene to load
@@ -131,8 +131,13 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
         base_path::resolve("assets/icons"));
 
+#ifdef FJELL_HAS_NVIM_PANEL
     content_browser_.init(icon_cache_.get(), &nvim_panel_,
                           &vulkan_context_, resource_manager_.get());
+#else
+    content_browser_.init(icon_cache_.get(), nullptr,
+                          &vulkan_context_, resource_manager_.get());
+#endif
     content_browser_.set_add_model_callback(
         [this](const std::string& path) {
             add_model_to_scene(path);
@@ -509,9 +514,10 @@ void Engine::draw_console() {
 }
 
 void Engine::draw_code_editor() {
+#ifdef FJELL_HAS_NVIM_PANEL
     nvim_panel_.poll();
     nvim_panel_.draw();
-
+#endif
 }
 
 void Engine::open_project(const std::filesystem::path& path) {
@@ -1077,7 +1083,7 @@ void Engine::run() {
         clock_.tick();
 
 #ifndef NDEBUG
-        if (shader_watcher_.poll()) {
+        if (shader_watcher_ && shader_watcher_->poll()) {
             vulkan_context_.reload_pipeline();
         }
 #endif

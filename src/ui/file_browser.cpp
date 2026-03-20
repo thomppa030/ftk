@@ -19,6 +19,9 @@ void FileBrowser::open(const std::string& title) {
 
     // Start in home directory
     const char* home = std::getenv("HOME");
+#ifdef _WIN32
+    if (!home) home = std::getenv("USERPROFILE");
+#endif
     navigate(home ? std::filesystem::path(home) : std::filesystem::path("/"));
 }
 

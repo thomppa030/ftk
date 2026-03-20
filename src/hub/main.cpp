@@ -58,12 +58,9 @@ int main() {
         fjell::Swapchain swapchain{device, window};
 
         // Resolve font dir from executable location
-        char exe_buf[4096];
-        auto exe_len = readlink("/proc/self/exe", exe_buf, sizeof(exe_buf) - 1);
         std::string font_dir;
-        if (exe_len > 0) {
-            exe_buf[exe_len] = '\0';
-            auto exe_dir = std::filesystem::path(exe_buf).parent_path();
+        {
+            auto exe_dir = fjell::platform::executable_path().parent_path();
             for (int i = 0; i < 3; ++i) {
                 if (std::filesystem::is_directory(exe_dir / "assets" / "fonts")) {
                     font_dir = (exe_dir / "assets" / "fonts").string();

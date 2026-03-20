@@ -57,7 +57,7 @@ void UiLayout::build_yoga_tree(UiNode& node, YGNode* parent) {
 
     apply_style(yg, node.style);
 
-    uint32_t index = YGNodeGetChildCount(parent);
+    auto index = YGNodeGetChildCount(parent);
     YGNodeInsertChild(parent, yg, index);
 
     for (auto& child : node.children) {

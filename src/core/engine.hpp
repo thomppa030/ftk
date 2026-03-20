@@ -25,7 +25,9 @@
 #include "ui/stats_panel.hpp"
 #include "ui/viewport_manager.hpp"
 #include "ui/node_editor_panel.hpp"
+#ifdef FJELL_HAS_NVIM_PANEL
 #include "ui/nvim_panel.hpp"
+#endif
 
 #ifndef NDEBUG
 #include "renderer/shader_watcher.hpp"
@@ -92,7 +94,9 @@ private:
     std::unique_ptr<ResourceManager> resource_manager_;
     Scene scene_;
     ScriptManager script_manager_;
+#ifdef FJELL_HAS_NVIM_PANEL
     NvimPanel nvim_panel_;
+#endif
     std::unique_ptr<IconCache> icon_cache_;
     ContentBrowser content_browser_;
     CommandHistory command_history_;
@@ -103,7 +107,7 @@ private:
     NodeEditorPanel node_editor_panel_;
 
 #ifndef NDEBUG
-    ShaderWatcher shader_watcher_;
+    std::optional<ShaderWatcher> shader_watcher_;
 #endif
 
     // Project

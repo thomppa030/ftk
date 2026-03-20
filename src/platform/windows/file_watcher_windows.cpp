@@ -9,6 +9,7 @@
 #define NOMINMAX
 #include <Windows.h>
 
+#include <array>
 #include <unordered_map>
 
 namespace fjell::platform {

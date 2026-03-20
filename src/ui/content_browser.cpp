@@ -1,6 +1,8 @@
 #include "ui/content_browser.hpp"
 #include "ui/icon_cache.hpp"
+#ifdef FJELL_HAS_NVIM_PANEL
 #include "ui/nvim_panel.hpp"
+#endif
 #include "core/log.hpp"
 
 #include <imgui.h>
@@ -621,10 +623,12 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::script:
                 case FileType::shader:
                     if (ImGui::MenuItem("Open")) {
+#ifdef FJELL_HAS_NVIM_PANEL
                         if (nvim_) {
                             nvim_->open(entry.path.string());
                             ImGui::SetWindowFocus("Code Editor");
                         }
+#endif
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::Separator();
@@ -736,10 +740,12 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
 
         case FileType::script:
         case FileType::shader:
+#ifdef FJELL_HAS_NVIM_PANEL
             if (nvim_) {
                 nvim_->open(entry.path.string());
                 ImGui::SetWindowFocus("Code Editor");
             }
+#endif
             break;
 
         case FileType::model:

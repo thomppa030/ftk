@@ -1,5 +1,8 @@
 include(FetchContent)
 
+# Ensure all dependencies use the same MSVC runtime (dynamic CRT by default).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "" FORCE)
+
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -67,6 +70,7 @@ FetchContent_Declare(
 )
 
 set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
+set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     JoltPhysics
     GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
@@ -104,6 +108,7 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
+set(MSDFGEN_DYNAMIC_RUNTIME ON CACHE BOOL "" FORCE)
 set(MSDFGEN_CORE_ONLY OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_BUILD_STANDALONE OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
@@ -120,7 +125,22 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype msdfgen)
+FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype)
+
+# Bridge FetchContent'd FreeType for msdfgen's find_package(Freetype) call.
+# FindFreetype.cmake does filesystem searches and won't see the target, so we
+# pre-set the variables it expects and create the imported-target alias.
+if(TARGET freetype)
+    set(FREETYPE_FOUND TRUE CACHE BOOL "" FORCE)
+    set(FREETYPE_INCLUDE_DIRS "${freetype_SOURCE_DIR}/include" CACHE PATH "" FORCE)
+    set(FREETYPE_LIBRARY freetype CACHE STRING "" FORCE)
+    set(FREETYPE_LIBRARIES freetype CACHE STRING "" FORCE)
+    if(NOT TARGET Freetype::Freetype)
+        add_library(Freetype::Freetype ALIAS freetype)
+    endif()
+endif()
+
+FetchContent_MakeAvailable(msdfgen)
 
 # miniaudio — header-only, just populate
 FetchContent_GetProperties(miniaudio)

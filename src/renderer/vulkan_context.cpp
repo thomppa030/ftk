@@ -126,14 +126,19 @@ VulkanContext::VulkanContext(Window& window)
     light_grid_pass_.set_mode(1);
     light_grid_pass_.create(device_, pass_resources);
     particle_system_.create(device_, pass_resources);
+    FJELL_GFX_DEBUG("Creating sprite renderer");
     sprite_renderer_.create(device_, pass_resources);
+    FJELL_GFX_DEBUG("Creating game UI");
     game_ui_.create(device_, pass_resources, bindless_textures_,
                     command_pool_, device_.graphics_queue(),
                     base_path::resolve("assets/fonts/Inter-Regular.ttf"),
                     VK_FORMAT_R8G8B8A8_SRGB);
+    FJELL_GFX_DEBUG("Creating outline pipeline");
     create_outline_pipeline();
+    FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
 
+    FJELL_GFX_DEBUG("Creating command buffers and sync objects");
     create_command_buffers();
     create_sync_objects();
     FJELL_GFX_INFO("Vulkan context ready");
