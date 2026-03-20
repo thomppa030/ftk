@@ -26,4 +26,7 @@ private:
     Actor* owner_{nullptr};
 };
 
+// Short alias for game scripts
+using Component = ScriptComponent;
+
 } // namespace fjell
