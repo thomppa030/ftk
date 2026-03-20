@@ -1,0 +1,30 @@
+#version 460
+
+// SSR composite: blend reflection color into scene color.
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 1, binding = 0) uniform sampler2D ssr_texture;
+layout(set = 1, binding = 1, rgba16f) uniform image2D scene_color;
+
+layout(push_constant) uniform PushConstants {
+    uint viewport_width;
+    uint viewport_height;
+    float intensity;
+    float pad;
+};
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(viewport_width) || coord.y >= int(viewport_height)) return;
+
+    vec4 ssr = texelFetch(ssr_texture, coord, 0);
+    if (ssr.a <= 0.001) return;
+
+    vec4 color = imageLoad(scene_color, coord);
+
+    // Additive Fresnel-weighted blend (F0 = 0.04 for dielectrics)
+    color.rgb += ssr.rgb * ssr.a * intensity;
+
+    imageStore(scene_color, coord, color);
+}

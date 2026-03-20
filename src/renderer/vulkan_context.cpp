@@ -125,6 +125,7 @@ VulkanContext::VulkanContext(Window& window)
     transparent_pass_.create(device_, pass_resources);
     tonemap_pass_.create(device_, pass_resources);
     gtao_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
+    ssr_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
     light_cull_pass_.create(device_.handle(), global_set_layout_->handle());
     light_heatmap_pass_.set_mode(0);
     light_heatmap_pass_.create(device_, pass_resources);
@@ -172,6 +173,19 @@ VulkanContext::~VulkanContext() {
     light_grid_pass_.destroy();
     light_heatmap_pass_.destroy();
     gtao_pass_.destroy();
+    ssr_pass_.destroy();
+
+    // Previous frame color for SSR
+    if (prev_frame_color_view_ != VK_NULL_HANDLE) {
+        vkDestroyImageView(vk_device, prev_frame_color_view_, nullptr);
+    }
+    if (prev_frame_color_ != VK_NULL_HANDLE) {
+        vkDestroyImage(vk_device, prev_frame_color_, nullptr);
+    }
+    if (prev_frame_color_memory_ != VK_NULL_HANDLE) {
+        vkFreeMemory(vk_device, prev_frame_color_memory_, nullptr);
+    }
+
     light_cull_pass_.destroy();
     sky_pass_.destroy();
     transparent_pass_.destroy();
@@ -458,6 +472,107 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
                                     ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
+
+    // Lazily create / resize previous-frame color buffer for SSR
+    {
+        auto ext = target.extent();
+        if (prev_frame_color_ == VK_NULL_HANDLE ||
+            ext.width != prev_frame_extent_.width ||
+            ext.height != prev_frame_extent_.height) {
+            auto vk = device_.handle();
+            vkDeviceWaitIdle(vk);
+
+            if (prev_frame_color_view_ != VK_NULL_HANDLE) {
+                vkDestroyImageView(vk, prev_frame_color_view_, nullptr);
+                prev_frame_color_view_ = VK_NULL_HANDLE;
+            }
+            if (prev_frame_color_ != VK_NULL_HANDLE) {
+                vkDestroyImage(vk, prev_frame_color_, nullptr);
+                prev_frame_color_ = VK_NULL_HANDLE;
+            }
+            if (prev_frame_color_memory_ != VK_NULL_HANDLE) {
+                vkFreeMemory(vk, prev_frame_color_memory_, nullptr);
+                prev_frame_color_memory_ = VK_NULL_HANDLE;
+            }
+
+            prev_frame_extent_ = ext;
+
+            VkImageCreateInfo ci{};
+            ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            ci.imageType = VK_IMAGE_TYPE_2D;
+            ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+            ci.extent = {ext.width, ext.height, 1};
+            ci.mipLevels = 1;
+            ci.arrayLayers = 1;
+            ci.samples = VK_SAMPLE_COUNT_1_BIT;
+            ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+            ci.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            vkCreateImage(vk, &ci, nullptr, &prev_frame_color_);
+
+            VkMemoryRequirements reqs;
+            vkGetImageMemoryRequirements(vk, prev_frame_color_, &reqs);
+
+            VkMemoryAllocateInfo alloc{};
+            alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            alloc.allocationSize = reqs.size;
+            alloc.memoryTypeIndex = Buffer::find_memory_type(
+                device_.physical_device(), reqs.memoryTypeBits,
+                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            vkAllocateMemory(vk, &alloc, nullptr, &prev_frame_color_memory_);
+            vkBindImageMemory(vk, prev_frame_color_, prev_frame_color_memory_, 0);
+
+            VkImageViewCreateInfo vi{};
+            vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            vi.image = prev_frame_color_;
+            vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+            vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            vkCreateImageView(vk, &vi, nullptr, &prev_frame_color_view_);
+
+            ssr_pass_.resize(ext.width, ext.height);
+
+            // Clear prev_frame to black and transition to SHADER_READ_ONLY
+            // so first-frame SSR reads valid (black) data.
+            VkCommandBuffer init_cmd;
+            VkCommandBufferAllocateInfo cmd_ai{};
+            cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            cmd_ai.commandPool = command_pool_;
+            cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            cmd_ai.commandBufferCount = 1;
+            vkAllocateCommandBuffers(vk, &cmd_ai, &init_cmd);
+
+            VkCommandBufferBeginInfo begin{};
+            begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(init_cmd, &begin);
+
+            transition_image(init_cmd, prev_frame_color_,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+            VkClearColorValue black{};
+            VkImageSubresourceRange clear_range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            vkCmdClearColorImage(init_cmd, prev_frame_color_,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &clear_range);
+
+            transition_image(init_cmd, prev_frame_color_,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+            vkEndCommandBuffer(init_cmd);
+
+            VkSubmitInfo submit{};
+            submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            submit.commandBufferCount = 1;
+            submit.pCommandBuffers = &init_cmd;
+            vkQueueSubmit(device_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
+            vkQueueWaitIdle(device_.graphics_queue());
+            vkFreeCommandBuffers(vk, command_pool_, 1, &init_cmd);
+        }
+    }
     // Build render queue with parallel frustum culling
     std::vector<DrawCommand> shadow_commands;
     if (scene) {
@@ -967,6 +1082,19 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         {msaa_depth_id, ImageUsage::depth_attachment_read},
         {depth_id, ImageUsage::depth_attachment}});
 
+    // Screen-space reflections (reads depth + prev frame color, writes into scene color)
+    graph.add_pass("ssr", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "SSR");
+#endif
+        auto ext = target.extent();
+        ssr_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
+                           target.depth_view(), target.color_view(),
+                           prev_frame_color_view_,
+                           ext.width, ext.height);
+    }, {{depth_id, ImageUsage::compute_read},
+        {color_id, ImageUsage::compute_write}});
+
     // Post-processing reads the color buffer
     graph.add_pass("bloom", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -1048,6 +1176,38 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // ── Execute ─────────────────────────────────────────────────────────
 
     graph.execute(cmd, &pool, &secondary_pools_, current_frame_);
+
+    // Copy scene color to prev_frame_color for next frame's SSR
+    if (ssr_pass_.enabled() && prev_frame_color_ != VK_NULL_HANDLE) {
+        auto ext = target.extent();
+
+        // color is in SHADER_READ_ONLY (after bloom/tonemap read it) → TRANSFER_SRC
+        transition_image(cmd, target.color_image(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+
+        // prev_frame → TRANSFER_DST
+        transition_image(cmd, prev_frame_color_,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+        VkImageCopy region{};
+        region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.extent = {ext.width, ext.height, 1};
+        vkCmdCopyImage(cmd,
+            target.color_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            prev_frame_color_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            1, &region);
+
+        // prev_frame → SHADER_READ_ONLY for next frame's SSR trace
+        transition_image(cmd, prev_frame_color_,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    }
 }
 
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,

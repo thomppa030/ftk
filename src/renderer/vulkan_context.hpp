@@ -20,6 +20,7 @@
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
+#include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
@@ -126,6 +127,7 @@ public:
   [[nodiscard]] UvVizPass &uv_viz_pass() { return uv_viz_pass_; }
   [[nodiscard]] BloomPass &bloom_pass() { return bloom_pass_; }
   [[nodiscard]] GtaoPass &gtao_pass() { return gtao_pass_; }
+  [[nodiscard]] SsrPass &ssr_pass() { return ssr_pass_; }
   [[nodiscard]] TonemapPass &tonemap_pass() { return tonemap_pass_; }
   [[nodiscard]] LightVizPass &light_heatmap_pass() {
     return light_heatmap_pass_;
@@ -268,6 +270,15 @@ private:
 
   // GT-VBAO ambient occlusion
   GtaoPass gtao_pass_;
+
+  // Screen-space reflections
+  SsrPass ssr_pass_;
+
+  // Previous frame color for SSR (copied after each frame)
+  VkImage prev_frame_color_{VK_NULL_HANDLE};
+  VkDeviceMemory prev_frame_color_memory_{VK_NULL_HANDLE};
+  VkImageView prev_frame_color_view_{VK_NULL_HANDLE};
+  VkExtent2D prev_frame_extent_{};
 
   // Forward+ light culling + visualization
   LightCullPass light_cull_pass_;

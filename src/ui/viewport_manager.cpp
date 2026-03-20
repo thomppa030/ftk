@@ -133,6 +133,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             ctx.uv_viz_pass().resize(vp_w, vp_h);
             ctx.bloom_pass().resize(vp_w, vp_h);
             ctx.gtao_pass().resize(vp_w, vp_h);
+            ctx.ssr_pass().resize(vp_w, vp_h);
             ctx.tonemap_pass().resize(vp_w, vp_h);
             ctx.light_heatmap_pass().resize(vp_w, vp_h);
             ctx.light_grid_pass().resize(vp_w, vp_h);

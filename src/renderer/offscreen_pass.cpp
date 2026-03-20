@@ -108,7 +108,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     color_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     color_info.usage = msaa
         ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
-        : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+          VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     color_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (vkCreateImage(vk, &color_info, nullptr, &color_image_) != VK_SUCCESS) {
@@ -152,7 +153,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         resolve_info.arrayLayers = 1;
         resolve_info.samples = VK_SAMPLE_COUNT_1_BIT;
         resolve_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-        resolve_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        resolve_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         resolve_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
         if (vkCreateImage(vk, &resolve_info, nullptr, &resolve_color_image_) != VK_SUCCESS) {
