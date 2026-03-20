@@ -65,7 +65,7 @@ vec3 fetch_normal(uint vi) {
 }
 
 layout(push_constant) uniform PushConstants {
-    uint draw_index;
+    uint first_draw;
 } push;
 
 struct TaskPayload {
@@ -103,7 +103,7 @@ void main() {
     uint meshlet_idx = payload.meshlet_indices[gl_WorkGroupID.x];
     Meshlet m = meshlets[meshlet_idx];
 
-    DrawData dd = draws[push.draw_index];
+    DrawData dd = draws[payload.draw_index];
     mat4 model = dd.model;
     mat3 normal_matrix = transpose(inverse(mat3(model)));
 

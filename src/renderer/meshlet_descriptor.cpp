@@ -28,7 +28,7 @@ void MeshletDescriptor::create(VkDevice device) {
     layout_ = std::make_unique<DescriptorSetLayout>(
         device_, std::span{bindings});
 
-    // Pool: 5 SSBOs per frame, 2 frames
+    // Pool: 5 SSBOs per frame
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     pool_size.descriptorCount = 5 * MAX_FRAMES_IN_FLIGHT;

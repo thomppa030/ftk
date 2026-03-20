@@ -51,7 +51,7 @@ layout(set = 3, binding = 1) readonly buffer BoundsBuffer {
 };
 
 layout(push_constant) uniform PushConstants {
-    uint draw_index;
+    uint first_draw;
 } push;
 
 struct TaskPayload {
@@ -62,7 +62,7 @@ struct TaskPayload {
 taskPayloadSharedEXT TaskPayload payload;
 
 void main() {
-    uint draw_idx = push.draw_index;
+    uint draw_idx = push.first_draw + gl_DrawID;
     DrawData dd = draws[draw_idx];
 
     uint meshlet_count = dd.meshlet_count;

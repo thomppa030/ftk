@@ -748,16 +748,17 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
         if (scene) {
             if (use_mesh_shaders_ && pipeline_cache_->has_mesh_shaders()) {
-                // Mesh shader path: dispatch per-pipeline ranges with mesh shader pipelines
+                // Mesh shader path: indirect count dispatch per pipeline range
                 const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
                 std::array mesh_descriptor_sets = {global_descriptor_sets_[current_frame_],
                                                    bindless_textures_.descriptor_set(),
                                                    draw_data_descriptor_.descriptor_set(current_frame_),
                                                    meshlet_descriptor_.descriptor_set(current_frame_)};
 
-                auto draw_mesh_tasks = device_.draw_mesh_tasks_fn();
+                auto draw_indirect_count = device_.draw_mesh_tasks_indirect_count_fn();
 
-                for (const auto& range : ranges) {
+                for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
+                    const auto& range = ranges[r];
                     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                       pipeline_cache_->mesh_pipeline(range.pipeline_id));
                     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -765,13 +766,23 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                             0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
                                             mesh_descriptor_sets.data(), 0, nullptr);
 
-                    for (uint32_t i = 0; i < range.draw_count; ++i) {
-                        uint32_t draw_idx = range.first_draw + i;
-                        vkCmdPushConstants(cb, pipeline_cache_->mesh_layout(),
-                                           VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
-                                           0, sizeof(uint32_t), &draw_idx);
-                        draw_mesh_tasks(cb, 1, 1, 1);
-                    }
+                    uint32_t first_draw = range.first_draw;
+                    vkCmdPushConstants(cb, pipeline_cache_->mesh_layout(),
+                                       VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
+                                       0, sizeof(uint32_t), &first_draw);
+
+                    VkDeviceSize cmd_offset = first_draw *
+                                              sizeof(VkDrawMeshTasksIndirectCommandEXT);
+                    VkDeviceSize count_offset = r * sizeof(uint32_t);
+
+                    draw_indirect_count(
+                        cb,
+                        indirect_batch_->mesh_indirect_buffer(current_frame_),
+                        cmd_offset,
+                        indirect_batch_->mesh_count_buffer(current_frame_),
+                        count_offset,
+                        range.draw_count,
+                        sizeof(VkDrawMeshTasksIndirectCommandEXT));
                 }
                 render_stats_->meshlets_dispatched += meshlet_buffer_
                     ? meshlet_buffer_->total_meshlets() : 0;

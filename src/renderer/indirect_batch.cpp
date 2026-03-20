@@ -33,6 +33,23 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     draw_data_buffers_[frame_index]->map();
 
+    // Mesh shader indirect dispatch buffers
+    mesh_indirect_buffers_[frame_index] = std::make_unique<Buffer>(
+        device_, physical_device_,
+        new_cap * sizeof(VkDrawMeshTasksIndirectCommandEXT),
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    mesh_indirect_buffers_[frame_index]->map();
+
+    // Count buffer: one uint32_t per pipeline range
+    uint32_t max_ranges = std::max(new_cap, 64u);
+    mesh_count_buffers_[frame_index] = std::make_unique<Buffer>(
+        device_, physical_device_,
+        max_ranges * sizeof(uint32_t),
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    mesh_count_buffers_[frame_index]->map();
+
     capacities_[frame_index] = new_cap;
 }
 
@@ -121,6 +138,27 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     draw_data_counts_[frame_index] = draw_index;
     total_triangles_[frame_index] = triangles;
+
+    // Populate mesh shader indirect dispatch buffers
+    uint32_t opaque_count = opaque_counts_[frame_index];
+    if (opaque_count > 0) {
+        auto* mesh_cmds = static_cast<VkDrawMeshTasksIndirectCommandEXT*>(
+            mesh_indirect_buffers_[frame_index]->mapped());
+        auto* counts = static_cast<uint32_t*>(
+            mesh_count_buffers_[frame_index]->mapped());
+
+        // Fill indirect commands: each draw dispatches 1 task workgroup
+        for (uint32_t i = 0; i < opaque_count; ++i) {
+            mesh_cmds[i].groupCountX = 1;
+            mesh_cmds[i].groupCountY = 1;
+            mesh_cmds[i].groupCountZ = 1;
+        }
+
+        // Per-range draw counts
+        for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
+            counts[r] = ranges[r].draw_count;
+        }
+    }
 }
 
 void IndirectBatch::draw(VkCommandBuffer cmd, uint32_t frame_index) const {

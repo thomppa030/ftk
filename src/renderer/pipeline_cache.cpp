@@ -87,7 +87,7 @@ void PipelineCache::create_layout() {
         throw std::runtime_error("Failed to create pipeline cache layout");
     }
 
-    // Mesh shader layout: set 0/1/2/3 with task+mesh push constants
+    // Mesh shader layout: set 0/1/2/3 + first_draw push constant
     if (meshlet_layout_ != VK_NULL_HANDLE) {
         std::array mesh_set_layouts = {global_layout_, material_layout_,
                                        draw_data_layout_, meshlet_layout_};

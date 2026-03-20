@@ -155,14 +155,14 @@ void UiRenderer::create(Device& device, const PassResources& resources,
         base_path::resolve("shaders/ui_text.vert.spv"),
         base_path::resolve("shaders/ui_text.frag.spv"));
 
-    // Descriptor pool: 2 sets × 2 SSBOs each = 4 storage buffer descriptors
+    // N sets × 2 SSBOs each = 2N storage buffer descriptors
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = 4;
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
 
     VkDescriptorPoolCreateInfo desc_pool_ci{};
     desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    desc_pool_ci.maxSets = 2;
+    desc_pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
     desc_pool_ci.poolSizeCount = 1;
     desc_pool_ci.pPoolSizes = &pool_size;
     if (vkCreateDescriptorPool(device_, &desc_pool_ci, nullptr, &pool_) != VK_SUCCESS) {
@@ -170,7 +170,7 @@ void UiRenderer::create(Device& device, const PassResources& resources,
     }
 
     // Double-buffered SSBOs + descriptor sets
-    for (uint32_t i = 0; i < 2; ++i) {
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         quad_ssbos_[i] = std::make_unique<Buffer>(
             device_, physical_device_, SSBO_SIZE,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,

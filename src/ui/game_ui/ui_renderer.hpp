@@ -2,6 +2,7 @@
 
 #include "renderer/buffer.hpp"
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/renderer_constants.hpp"
 #include "ui/game_ui/text_shaper.hpp"
 
 #include <glm/glm.hpp>
@@ -78,12 +79,12 @@ private:
     VkPipeline text_pipeline_{VK_NULL_HANDLE};
 
     // Double-buffered SSBOs (quads)
-    std::array<std::unique_ptr<Buffer>, 2> quad_ssbos_;
-    std::array<VkDescriptorSet, 2> quad_sets_{};
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> quad_ssbos_;
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> quad_sets_{};
     VkDescriptorPool pool_{VK_NULL_HANDLE};
 
     // Double-buffered SSBOs (text glyphs)
-    std::array<std::unique_ptr<Buffer>, 2> text_ssbos_;
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> text_ssbos_;
 
     // Cached layouts from PassResources
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
@@ -91,8 +92,8 @@ private:
     VkFormat color_format_{VK_FORMAT_UNDEFINED};
 
     // Per-frame counts
-    std::array<uint32_t, 2> quad_counts_{};
-    std::array<uint32_t, 2> text_counts_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> quad_counts_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> text_counts_{};
 
     static constexpr uint32_t MAX_UI_QUADS = 4096;
     static constexpr uint32_t MAX_TEXT_GLYPHS = 8192;

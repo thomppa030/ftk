@@ -69,6 +69,13 @@ public:
         return indirect_buffers_[frame_index]->handle();
     }
 
+    [[nodiscard]] VkBuffer mesh_indirect_buffer(uint32_t frame_index) const {
+        return mesh_indirect_buffers_[frame_index] ? mesh_indirect_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkBuffer mesh_count_buffer(uint32_t frame_index) const {
+        return mesh_count_buffers_[frame_index] ? mesh_count_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
+    }
+
 private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
 
@@ -77,6 +84,8 @@ private:
 
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> indirect_buffers_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> draw_data_buffers_;
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> mesh_indirect_buffers_;
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> mesh_count_buffers_;
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> capacities_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> draw_data_counts_{};

@@ -15,6 +15,7 @@ namespace fjell {
 void MeshShaderPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
+    draw_mesh_tasks_indirect_count_ = device.draw_mesh_tasks_indirect_count_fn();
     draw_data_layout_ = resources.draw_data_layout;
     meshlet_layout_ = resources.meshlet_layout;
 
@@ -162,12 +163,26 @@ void MeshShaderPass::record(const FrameContext& ctx) {
                             0, static_cast<uint32_t>(descriptor_sets.size()),
                             descriptor_sets.data(), 0, nullptr);
 
-    if (ctx.indirect_batch) {
-        uint32_t draw_count = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
-        for (uint32_t i = 0; i < draw_count; ++i) {
-            vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
-                               0, sizeof(uint32_t), &i);
-            draw_mesh_tasks_(ctx.cmd, 1, 1, 1);
+    if (ctx.indirect_batch && draw_mesh_tasks_indirect_count_) {
+        const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
+        for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
+            uint32_t first_draw = ranges[r].first_draw;
+            vkCmdPushConstants(ctx.cmd, layout_,
+                               VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
+                               0, sizeof(uint32_t), &first_draw);
+
+            VkDeviceSize cmd_offset = first_draw *
+                                      sizeof(VkDrawMeshTasksIndirectCommandEXT);
+            VkDeviceSize count_offset = r * sizeof(uint32_t);
+
+            draw_mesh_tasks_indirect_count_(
+                ctx.cmd,
+                ctx.indirect_batch->mesh_indirect_buffer(ctx.frame_index),
+                cmd_offset,
+                ctx.indirect_batch->mesh_count_buffer(ctx.frame_index),
+                count_offset,
+                ranges[r].draw_count,
+                sizeof(VkDrawMeshTasksIndirectCommandEXT));
         }
     }
 }
