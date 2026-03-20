@@ -82,9 +82,16 @@ void HierarchyPanel::draw() {
 
         ImGui::Separator();
 
-        // Draw root objects
+        // Build parent→children map once per frame (O(n) instead of O(n²) per node)
+        children_map_.clear();
         for (auto& obj : scene_->objects()) {
-            if (obj->parent_id == -1) {
+            children_map_[obj->parent_id].push_back(obj.get());
+        }
+
+        // Draw root objects
+        auto it = children_map_.find(-1);
+        if (it != children_map_.end()) {
+            for (auto* obj : it->second) {
                 draw_node(*obj);
             }
         }
@@ -140,15 +147,8 @@ void HierarchyPanel::draw() {
 }
 
 void HierarchyPanel::draw_node(SceneNode& obj) {
-    auto& objects = scene_->objects();
-
-    bool has_children = false;
-    for (const auto& other : objects) {
-        if (other->parent_id == static_cast<int32_t>(obj.id)) {
-            has_children = true;
-            break;
-        }
-    }
+    auto child_it = children_map_.find(static_cast<int32_t>(obj.id));
+    bool has_children = child_it != children_map_.end() && !child_it->second.empty();
 
     ImGui::PushID(static_cast<int>(obj.id));
 
@@ -157,7 +157,6 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
     ImGuiTreeNodeFlags flags =
         ImGuiTreeNodeFlags_OpenOnArrow |
         ImGuiTreeNodeFlags_SpanAvailWidth |
-        ImGuiTreeNodeFlags_DefaultOpen |
         ImGuiTreeNodeFlags_FramePadding;
 
     if (!has_children) {
@@ -314,10 +313,8 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
 
     // Recurse children
     if (has_children && node_open) {
-        for (auto& child : objects) {
-            if (child->parent_id == static_cast<int32_t>(obj.id)) {
-                draw_node(*child);
-            }
+        for (auto* child : child_it->second) {
+            draw_node(*child);
         }
         ImGui::TreePop();
     }

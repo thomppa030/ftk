@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace fjell {
 
@@ -37,6 +39,9 @@ private:
 
     AddPrimitiveCallback add_primitive_cb_;
     RemoveObjectCallback remove_object_cb_;
+
+    // Per-frame parent→children lookup (avoids O(n²) scans)
+    std::unordered_map<int32_t, std::vector<SceneNode*>> children_map_;
 };
 
 } // namespace fjell
