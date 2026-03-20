@@ -142,6 +142,13 @@ void GameUi::update(float viewport_width, float viewport_height,
     bool animating = animation_.update(*root_, dt);
     if (animating) needs_redraw_ = true;
 
+    // When something changes, flush all in-flight SSBO slots
+    if (needs_redraw_) {
+        redraw_countdown_ = MAX_FRAMES_IN_FLIGHT;
+    }
+    if (redraw_countdown_ == 0) return;
+    --redraw_countdown_;
+
     // 6. Compute flexbox layout
     layout_.compute(*root_, viewport_width, viewport_height);
 

@@ -80,6 +80,7 @@ private:
     FontAtlas font_atlas_;
     bool dirty_{true};
     bool needs_redraw_{true};
+    uint32_t redraw_countdown_{0}; // force N frames of redraw after a change
 
     ResourceManager* resource_manager_{nullptr};
     BindlessTextures* bindless_{nullptr};
