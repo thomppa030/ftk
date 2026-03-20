@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "ui/game_ui/game_ui.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/material.hpp"
@@ -9,6 +10,7 @@
 #include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 #include "core/window.hpp"
 #include "scene/scene.hpp"
@@ -131,11 +133,6 @@ VulkanContext::VulkanContext(Window& window)
     particle_system_.create(device_, pass_resources);
     FJELL_GFX_DEBUG("Creating sprite renderer");
     sprite_renderer_.create(device_, pass_resources);
-    FJELL_GFX_DEBUG("Creating game UI");
-    game_ui_.create(device_, pass_resources, bindless_textures_,
-                    command_pool_, device_.graphics_queue(),
-                    base_path::resolve("assets/fonts/Inter-Regular.ttf"),
-                    VK_FORMAT_R8G8B8A8_SRGB);
     FJELL_GFX_DEBUG("Creating outline pipeline");
     create_outline_pipeline();
     FJELL_GFX_DEBUG("Creating debug draw");
@@ -144,6 +141,23 @@ VulkanContext::VulkanContext(Window& window)
     FJELL_GFX_DEBUG("Creating command buffers and sync objects");
     create_command_buffers();
     create_sync_objects();
+
+#ifdef FJELL_ENABLE_TRACY
+    {
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.commandPool = command_pool_;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandBufferCount = 1;
+        VkCommandBuffer tracy_cmd;
+        vkAllocateCommandBuffers(device_.handle(), &alloc_info, &tracy_cmd);
+        tracy_vk_ctx_ = TracyVkContext(
+            device_.physical_device(), device_.handle(),
+            device_.graphics_queue(), tracy_cmd);
+        TracyVkContextName(tracy_vk_ctx_, "Fjell GPU", 9);
+    }
+#endif
+
     FJELL_GFX_INFO("Vulkan context ready");
 }
 
@@ -153,7 +167,6 @@ VulkanContext::~VulkanContext() {
     debug_draw_.reset();
     if (outline_pipeline_) { vkDestroyPipeline(vk_device, outline_pipeline_, nullptr); outline_pipeline_ = VK_NULL_HANDLE; }
     if (outline_layout_) { vkDestroyPipelineLayout(vk_device, outline_layout_, nullptr); outline_layout_ = VK_NULL_HANDLE; }
-    game_ui_.destroy();
     sprite_renderer_.destroy();
     particle_system_.destroy();
     light_grid_pass_.destroy();
@@ -203,6 +216,13 @@ VulkanContext::~VulkanContext() {
         if (in_flight_[i] != VK_NULL_HANDLE)
             vkDestroyFence(vk_device, in_flight_[i], nullptr);
     }
+#ifdef FJELL_ENABLE_TRACY
+    if (tracy_vk_ctx_) {
+        TracyVkDestroy(tracy_vk_ctx_);
+        tracy_vk_ctx_ = nullptr;
+    }
+#endif
+
     secondary_pools_.destroy();
     if (command_pool_ != VK_NULL_HANDLE)
         vkDestroyCommandPool(vk_device, command_pool_, nullptr);
@@ -436,7 +456,8 @@ void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
-                                    ThreadPool& pool, const Input* input) {
+                                    ThreadPool& pool) {
+    FJELL_PROFILE_SCOPE_N("render_scene_to");
     // Build render queue with parallel frustum culling
     std::vector<DrawCommand> shadow_commands;
     if (scene) {
@@ -624,6 +645,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Shadow pass — uses its own batch with per-cascade culled objects
     graph.add_pass("shadow", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Shadow Pass");
+#endif
         FrameContext local = ctx;
         local.cmd = cb;
         local.indirect_batch = shadow_batch_.get();
@@ -637,6 +661,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
         // With MSAA: depth prepass writes MSAA depth, then resolve to single-sample for compute
         graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+            TracyVkZone(tracy_vk_ctx_, cb, "Depth Prepass");
+#endif
             FrameContext local = ctx;
             local.cmd = cb;
             depth_pass.record(local);
@@ -666,6 +693,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             {depth_id, ImageUsage::depth_attachment}});
     } else {
         graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+            TracyVkZone(tracy_vk_ctx_, cb, "Depth Prepass");
+#endif
             FrameContext local = ctx;
             local.cmd = cb;
             depth_pass.record(local);
@@ -674,6 +704,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // GT-VBAO ambient occlusion (reads depth, writes AO texture)
     graph.add_pass("gtao", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "GTAO");
+#endif
         auto extent = target.extent();
         gtao_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
                                extent.width, extent.height);
@@ -681,6 +714,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Light cull compute pass (reads resolved depth, writes tile light lists)
     graph.add_pass("light_cull", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Light Cull");
+#endif
         auto extent = target.extent();
         light_cull_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
                                    extent.width, extent.height);
@@ -702,6 +738,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Particle compute (before rendering so particles are ready to draw)
     graph.add_pass("particle_compute", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Particle Compute");
+#endif
         if (scene) {
             particle_system_.sync_emitters(*scene);
             particle_system_.dispatch_compute(cb, dt, *scene);
@@ -711,6 +750,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // GPU frustum culling (mesh shader path only)
     graph.add_pass("gpu_cull", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "GPU Cull");
+#endif
         if (use_mesh_shaders_ && cull_pass_.enabled()) {
             uint32_t opaque_count = indirect_batch_->opaque_draw_count(current_frame_);
             if (opaque_count > 0 && indirect_batch_->mesh_indirect_buffer(current_frame_)) {
@@ -739,6 +781,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Color pass (opaques + sky + debug + transparent + particles in one rendering scope)
     graph.add_pass("color", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Color Pass");
+#endif
         VkRenderingAttachmentInfo color_attachment{};
         color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
         color_attachment.imageView = target.msaa_color_view();
@@ -794,6 +839,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                      draw_data_descriptor_.descriptor_set(current_frame_)};
 
         if (scene) {
+#ifdef FJELL_ENABLE_TRACY
+            { TracyVkZone(tracy_vk_ctx_, cb, "Opaques");
+#endif
             if (use_mesh_shaders_ && pipeline_cache_->has_mesh_shaders()) {
                 // Mesh shader path: indirect count dispatch per pipeline range
                 const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
@@ -858,15 +906,60 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             }
             render_stats_->draw_calls += indirect_batch_->opaque_draw_count(current_frame_);
             render_stats_->triangle_count += indirect_batch_->total_triangles(current_frame_);
+#ifdef FJELL_ENABLE_TRACY
+            }
+#endif
         }
 
+#ifdef FJELL_ENABLE_TRACY
+        { TracyVkZone(tracy_vk_ctx_, cb, "Sky");
+#endif
         sky_pass_.record(local);
+#ifdef FJELL_ENABLE_TRACY
+        }
+#endif
+#ifdef FJELL_ENABLE_TRACY
+        { TracyVkZone(tracy_vk_ctx_, cb, "Grid");
+#endif
         grid_pass_.record(local);
+#ifdef FJELL_ENABLE_TRACY
+        }
+#endif
+#ifdef FJELL_ENABLE_TRACY
+        { TracyVkZone(tracy_vk_ctx_, cb, "Debug");
+#endif
         debug_pass_.record(local);
+#ifdef FJELL_ENABLE_TRACY
+        }
+#endif
+#ifdef FJELL_ENABLE_TRACY
+        { TracyVkZone(tracy_vk_ctx_, cb, "Outline");
+#endif
         draw_outline(cb, local);
+#ifdef FJELL_ENABLE_TRACY
+        }
+#endif
+#ifdef FJELL_ENABLE_TRACY
+        { TracyVkZone(tracy_vk_ctx_, cb, "Sprites");
+#endif
         sprite_renderer_.record_render(local);
+#ifdef FJELL_ENABLE_TRACY
+        }
+#endif
+#ifdef FJELL_ENABLE_TRACY
+        { TracyVkZone(tracy_vk_ctx_, cb, "Transparent");
+#endif
         transparent_pass_.record(local);
+#ifdef FJELL_ENABLE_TRACY
+        }
+#endif
+#ifdef FJELL_ENABLE_TRACY
+        { TracyVkZone(tracy_vk_ctx_, cb, "Particles");
+#endif
         particle_system_.record_render(local);
+#ifdef FJELL_ENABLE_TRACY
+        }
+#endif
 
         vkCmdEndRendering(cb);
     }, {{msaa_color_id, ImageUsage::color_attachment},
@@ -876,64 +969,23 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Post-processing reads the color buffer
     graph.add_pass("bloom", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Bloom");
+#endif
         FrameContext local = ctx;
         local.cmd = cb;
         bloom_pass_.record(local);
     }, {{color_id, ImageUsage::shader_read}});
 
     graph.add_pass("tonemap", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Tonemap");
+#endif
         FrameContext local = ctx;
         local.cmd = cb;
         tonemap_pass_.set_source_view(target.color_view());
         tonemap_pass_.record(local);
     }, {{color_id, ImageUsage::shader_read}});
-
-    // Game UI overlay (renders into tonemap output image, after tonemap)
-    graph.add_pass("game_ui", [&](VkCommandBuffer cb) {
-        if (!game_ui_.loaded()) return;
-
-        auto tm_extent = tonemap_pass_.output_extent();
-        if (tm_extent.width == 0 || tm_extent.height == 0) return;
-
-        game_ui_.update(static_cast<float>(tm_extent.width),
-                        static_cast<float>(tm_extent.height), current_frame_, dt, input,
-                        viewport_offset_);
-
-        // Transition tonemap output: SHADER_READ_ONLY → COLOR_ATTACHMENT
-        transition_image(cb, tonemap_pass_.output_image(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-        VkRenderingAttachmentInfo ui_color{};
-        ui_color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        ui_color.imageView = tonemap_pass_.output_view();
-        ui_color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        ui_color.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        ui_color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        VkRenderingInfo ri{};
-        ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        ri.renderArea.extent = tm_extent;
-        ri.layerCount = 1;
-        ri.colorAttachmentCount = 1;
-        ri.pColorAttachments = &ui_color;
-
-        vkCmdBeginRendering(cb, &ri);
-        game_ui_.record(cb, global_descriptor_sets_[current_frame_],
-                        bindless_textures_.descriptor_set(), tm_extent, current_frame_);
-        vkCmdEndRendering(cb);
-
-        // Transition back: COLOR_ATTACHMENT → SHADER_READ_ONLY (for ImGui sampling)
-        transition_image(cb, tonemap_pass_.output_image(),
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
-    }, {});
 
     // Utility / visualization passes — only run when their viewport source is active
     graph.add_pass("depth_viz", [&](VkCommandBuffer cb) {
@@ -1003,7 +1055,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                                           const DirectionalLight& light,
                                           Scene* scene, float dt,
                                           uint32_t selected_id, ThreadPool& pool,
-                                          const Input* input) {
+                                          bool playing) {
+    FJELL_PROFILE_SCOPE_N("record_command_buffer");
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -1023,7 +1076,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
                               vp.camera_position, light, scene, vp.target->extent());
         update_light_ssbo(current_frame_, scene);
-        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, input);
+        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool);
     }
 
     // --- Render ImGui to swapchain ---
@@ -1057,6 +1110,13 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
             overlay_callback_(cmd);
         }
 
+        // Game UI renders to swapchain in play mode, after ImGui
+        if (playing && game_ui_callback_) {
+            game_ui_callback_(cmd, global_descriptor_sets_[current_frame_],
+                              bindless_textures_.descriptor_set(),
+                              swapchain_.extent(), current_frame_);
+        }
+
         vkCmdEndRendering(cmd);
 
         // Transition swapchain image: COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
@@ -1066,6 +1126,10 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
             VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
     }
+
+#ifdef FJELL_ENABLE_TRACY
+    TracyVkCollect(tracy_vk_ctx_, cmd);
+#endif
 
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
         throw std::runtime_error("Failed to record command buffer");
@@ -1078,6 +1142,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::vec3& camera_position,
                                           const DirectionalLight& light,
                                           Scene* scene, VkExtent2D extent) {
+    FJELL_PROFILE_SCOPE_N("update_uniform_buffer");
     camera_position_ = camera_position;
     view_matrix_ = view;
     projection_matrix_ = projection;
@@ -1131,6 +1196,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
 }
 
 void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
+    FJELL_PROFILE_SCOPE_N("update_light_ssbo");
     if (!scene) return;
 
     auto* dst = static_cast<uint8_t*>(light_ssbo_[frame_index]->mapped());
@@ -1188,11 +1254,28 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     }
 }
 
+void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
+                                VkFormat output_format) {
+    PassResources res{};
+    res.global_set_layout = global_set_layout_->handle();
+    res.material_set_layout = bindless_textures_.layout();
+    res.draw_data_layout = draw_data_descriptor_.layout();
+    res.meshlet_layout = use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
+    res.depth_format = device_.find_depth_format();
+    res.color_format = OffscreenPass::COLOR_FORMAT;
+    res.sample_count = msaa_samples_;
+
+    ui.create(device_, res, bindless_textures_,
+              command_pool_, device_.graphics_queue(),
+              font_path, output_format);
+}
+
 void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewports,
                                const DirectionalLight& light,
                                Scene* scene, float dt,
                                uint32_t selected_id, ThreadPool& pool,
-                               const Input* input) {
+                               bool playing) {
+    FJELL_PROFILE_SCOPE_N("draw_frame");
     auto vk_device = device_.handle();
 
     vkWaitForFences(vk_device, 1, &in_flight_[current_frame_], VK_TRUE,
@@ -1264,7 +1347,7 @@ void VulkanContext::draw_frame(const std::vector<ViewportRenderRequest>& viewpor
 
     vkResetCommandBuffer(command_buffers_[current_frame_], 0);
     record_command_buffer(command_buffers_[current_frame_], image_index,
-                          viewports, light, scene, dt, selected_id, pool, input);
+                          viewports, light, scene, dt, selected_id, pool, playing);
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 

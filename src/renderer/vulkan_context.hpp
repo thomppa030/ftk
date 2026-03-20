@@ -41,10 +41,12 @@
 #include "renderer/swapchain.hpp"
 #include "renderer/thread_command_pools.hpp"
 #include "renderer/viewport_source.hpp"
-#include "ui/game_ui/game_ui.hpp"
-
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
+
+#ifdef FJELL_ENABLE_TRACY
+#include <tracy/TracyVulkan.hpp>
+#endif
 
 #include <array>
 #include <cstdint>
@@ -56,6 +58,7 @@ namespace fjell {
 
 class Window;
 class Scene;
+class Input;
 class ResourceManager;
 class ThreadPool;
 struct RenderStats;
@@ -74,7 +77,7 @@ public:
   void draw_frame(const std::vector<ViewportRenderRequest> &viewports,
                   const struct DirectionalLight &light, Scene *scene, float dt,
                   uint32_t selected_id, ThreadPool &pool,
-                  const Input *input = nullptr);
+                  bool playing = false);
   void update_light_ssbo(uint32_t frame_index, Scene *scene);
   void wait_idle();
   void reload_pipeline();
@@ -93,6 +96,9 @@ public:
   [[nodiscard]] VkInstance instance() const { return device_.instance(); }
   [[nodiscard]] VkFormat swapchain_format() const {
     return swapchain_.format();
+  }
+  [[nodiscard]] VkExtent2D swapchain_extent() const {
+    return swapchain_.extent();
   }
   [[nodiscard]] uint32_t image_count() const {
     return swapchain_.image_count();
@@ -146,7 +152,16 @@ public:
   [[nodiscard]] PipelineCache *pipeline_cache() {
     return pipeline_cache_.get();
   }
-  [[nodiscard]] GameUi &game_ui() { return game_ui_; }
+  /// Initialize a GameUi instance using renderer resources.
+  /// Ownership stays with the caller.
+  void init_game_ui(class GameUi& ui, const std::string& font_path,
+                    VkFormat output_format = VK_FORMAT_R8G8B8A8_SRGB);
+
+  /// Callback for game UI rendering. Set by the game layer.
+  /// Receives: cmd, global_set, bindless_set, extent, frame_index.
+  using GameUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
+                                            VkDescriptorSet, VkExtent2D, uint32_t)>;
+  void set_game_ui_callback(GameUiCallback cb) { game_ui_callback_ = std::move(cb); }
 
   /// Set by ViewportManager each frame — top-left of the active viewport in
   /// window pixels.
@@ -167,10 +182,9 @@ private:
                         const std::vector<ViewportRenderRequest> &viewports,
                         const struct DirectionalLight &light, Scene *scene,
                         float dt, uint32_t selected_id, ThreadPool &pool,
-                        const Input *input);
+                        bool playing);
   void render_scene_to(VkCommandBuffer cmd, OffscreenPass &target, Scene *scene,
-                       float dt, uint32_t selected_id, ThreadPool &pool,
-                       const Input *input);
+                       float dt, uint32_t selected_id, ThreadPool &pool);
   void update_uniform_buffer(uint32_t frame_index, const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3 &camera_position,
@@ -269,8 +283,8 @@ private:
   // Sprites
   SpriteRenderer sprite_renderer_;
 
-  // Game UI
-  GameUi game_ui_;
+  // Game UI callback (owned by game layer)
+  GameUiCallback game_ui_callback_;
   glm::vec2 viewport_offset_{0.0f, 0.0f};
 
   // Selection outline
@@ -284,6 +298,10 @@ private:
   bool show_colliders_{true};
   bool playing_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
+
+#ifdef FJELL_ENABLE_TRACY
+  tracy::VkCtx* tracy_vk_ctx_{nullptr};
+#endif
 };
 
 } // namespace fjell

@@ -3,6 +3,7 @@
 #include "renderer/device.hpp"
 #include "core/input.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -75,6 +76,7 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
 void GameUi::update(float viewport_width, float viewport_height,
                     uint32_t frame_index, float dt, const Input* input,
                     glm::vec2 viewport_offset) {
+    FJELL_PROFILE_SCOPE_N("game_ui_update");
     if (!root_) return;
 
 #ifndef NDEBUG
@@ -158,6 +160,7 @@ void GameUi::init_text_templates(UiNode& node) {
 
 void GameUi::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
                     VkExtent2D extent, uint32_t frame_index) {
+    FJELL_PROFILE_SCOPE_N("game_ui_record");
     renderer_.record(cmd, global_set, bindless_set, extent, frame_index);
 }
 

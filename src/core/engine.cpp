@@ -4,6 +4,7 @@
 #include "core/game_builder.hpp"
 #include "core/layer.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 #include "platform/platform.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
@@ -87,6 +88,31 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     vulkan_context_.set_overlay_callback([this](VkCommandBuffer cmd) {
         imgui_layer_->render(cmd);
     });
+
+    // Initialize game UI (owned by Engine, rendered via callback)
+    vulkan_context_.init_game_ui(game_ui_,
+        base_path::resolve("assets/fonts/Inter-Regular.ttf"),
+        vulkan_context_.swapchain_format());
+
+    vulkan_context_.set_game_ui_callback(
+        [this, fps_timer = 0.0f, fps_value = 0](
+               VkCommandBuffer cmd, VkDescriptorSet global_set,
+               VkDescriptorSet bindless_set, VkExtent2D extent,
+               uint32_t frame_index) mutable {
+            if (game_ui_.loaded()) {
+                fps_timer += clock_.delta_time();
+                if (fps_timer >= 0.5f) {
+                    fps_value = static_cast<int>(1.0f / clock_.delta_time());
+                    game_ui_.context().set("fps", std::to_string(fps_value));
+                    fps_timer = 0.0f;
+                }
+                game_ui_.update(static_cast<float>(extent.width),
+                                static_cast<float>(extent.height),
+                                frame_index, clock_.delta_time(), &input_);
+                game_ui_.record(cmd, global_set, bindless_set, extent,
+                                frame_index);
+            }
+        });
 
     resource_manager_ = std::make_unique<ResourceManager>(
         vulkan_context_.device(), vulkan_context_.physical_device(),
@@ -189,10 +215,10 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         auto ui_path = std::filesystem::exists(proj_ui) ? proj_ui : engine_ui;
         auto css_path = ui_path.substr(0, ui_path.size() - 5) + ".fjss";
         if (std::filesystem::exists(ui_path)) {
-            vulkan_context_.game_ui().load(ui_path, css_path);
+            game_ui_.load(ui_path, css_path);
 
             // Seed demo context values for the test HUD
-            auto& ctx = vulkan_context_.game_ui().context();
+            auto& ctx = game_ui_.context();
             ctx.set("player.health", "72");
             ctx.set("player.max_health", "100");
             ctx.set("show_debug", "1");
@@ -224,6 +250,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 Engine::~Engine() {
     vulkan_context_.wait_idle();
     vulkan_context_.set_overlay_callback(nullptr);
+    vulkan_context_.set_game_ui_callback(nullptr);
+    game_ui_.destroy();
     node_editor_panel_.shutdown();
     scene_ = {};
     resource_manager_.reset();
@@ -920,6 +948,7 @@ void Engine::draw_menu_bar() {
 }
 
 void Engine::draw_ui() {
+    FJELL_PROFILE_SCOPE_N("draw_ui");
     // Update window title with unsaved indicator
     {
         std::string title = "Fjell";
@@ -990,6 +1019,7 @@ void Engine::start_play() {
     script_manager_.call_begin_play(scene_);
     audio_engine_.start_play(scene_, active_project());
     vulkan_context_.set_playing(true);
+    game_ui_.mark_dirty();
     input_.set_cursor_captured(window_.handle(), true);
     selected_id_ = 0;
     FJELL_CORE_INFO("Play mode started");
@@ -1147,7 +1177,9 @@ void Engine::run() {
         vulkan_context_.sync_sprite_textures(scene_, *resource_manager_);
         vulkan_context_.set_viewport_offset(viewport_manager_.active_viewport_pos());
         vulkan_context_.set_active_sources(viewport_manager_.active_source_mask());
-        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, &input_);
+        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, is_playing());
+
+        FJELL_PROFILE_FRAME;
     }
     FJELL_CORE_INFO("Exiting main loop");
 }

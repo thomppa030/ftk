@@ -12,6 +12,7 @@
 #include "renderer/resource_manager.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/game_ui/game_ui.hpp"
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"
 #include "core/command_history.hpp"
@@ -130,6 +131,9 @@ private:
 
     // Play mode
     std::unique_ptr<PlaySession> play_session_;
+
+    // Game UI (owned by game layer, rendered via callback)
+    GameUi game_ui_;
 
     // Layer stack for input routing
     LayerStack layer_stack_;

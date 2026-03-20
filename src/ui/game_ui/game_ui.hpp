@@ -56,6 +56,7 @@ public:
 
     [[nodiscard]] UiContext& context() { return context_; }
     [[nodiscard]] bool loaded() const { return root_ != nullptr; }
+    void mark_dirty() { dirty_ = true; }
 
 private:
     void shape_text_nodes(UiNode& node, float viewport_width, float viewport_height,
