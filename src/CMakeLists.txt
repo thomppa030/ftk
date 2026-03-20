@@ -248,21 +248,34 @@ add_dependencies(fjell fjell_shader_resources)
 
 # Symlink assets into build dir so the executable finds them during development
 file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBOLIC)
+file(CREATE_LINK "${CMAKE_SOURCE_DIR}/engine_assets" "${CMAKE_BINARY_DIR}/engine_assets" SYMBOLIC)
 
-# Copy scripting headers into build dir for project scaffolding
-file(COPY
-    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_api.h"
-    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_actor.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_component.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_world.hpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_registry.hpp"
-    DESTINATION "${CMAKE_BINARY_DIR}/scripting")
-file(COPY
-    "${CMAKE_CURRENT_SOURCE_DIR}/scene/transform.hpp"
-    DESTINATION "${CMAKE_BINARY_DIR}/scene")
-file(COPY
-    "${CMAKE_CURRENT_SOURCE_DIR}/core/input.hpp"
-    DESTINATION "${CMAKE_BINARY_DIR}/core")
+# Stage SDK headers into build/sdk/fjell/ with clean names
+set(FJELL_SDK_DIR "${CMAKE_BINARY_DIR}/sdk/fjell")
+file(MAKE_DIRECTORY "${FJELL_SDK_DIR}")
+
+# SDK source → destination mapping (fjell_ prefix stripped for clean includes)
+set(FJELL_SDK_HEADERS
+    "scripting/fjell_api.h:api.h"
+    "scripting/fjell_actor.hpp:actor.hpp"
+    "scripting/fjell_component.hpp:component.hpp"
+    "scripting/fjell_world.hpp:world.hpp"
+    "scripting/fjell_registry.hpp:registry.hpp"
+    "scripting/fjell_transform.hpp:transform.hpp"
+    "scripting/fjell_input.hpp:input.hpp"
+)
+
+foreach(mapping ${FJELL_SDK_HEADERS})
+    string(REPLACE ":" ";" parts "${mapping}")
+    list(GET parts 0 src_rel)
+    list(GET parts 1 dst_name)
+    set(src_file "${CMAKE_CURRENT_SOURCE_DIR}/${src_rel}")
+    set(dst_file "${FJELL_SDK_DIR}/${dst_name}")
+    # Read, rewrite fjell_ prefixed includes to clean names, write
+    file(READ "${src_file}" _content)
+    string(REGEX REPLACE "#include \"fjell_([^\"]+)\"" "#include \"\\1\"" _content "${_content}")
+    file(WRITE "${dst_file}" "${_content}")
+endforeach()
 
 # --- Fjell Hub (launcher) ---
 add_executable(fjell-hub
@@ -317,4 +330,5 @@ install(TARGETS fjell fjell-hub RUNTIME DESTINATION .)
 install(DIRECTORY "${SHADER_OUTPUT_DIR}/" DESTINATION shaders
         FILES_MATCHING PATTERN "*.spv")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/" DESTINATION assets)
-install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell_api.h" DESTINATION scripting)
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/engine_assets/" DESTINATION engine_assets)
+install(DIRECTORY "${CMAKE_BINARY_DIR}/sdk/" DESTINATION sdk)

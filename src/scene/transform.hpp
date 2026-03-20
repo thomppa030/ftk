@@ -1,4 +1,5 @@
-#pragma once
+#ifndef FJELL_TRANSFORM_HPP
+#define FJELL_TRANSFORM_HPP
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -50,3 +51,5 @@ struct Transform {
 }
 
 } // namespace fjell
+
+#endif // FJELL_TRANSFORM_HPP

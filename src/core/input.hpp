@@ -1,4 +1,5 @@
-#pragma once
+#ifndef FJELL_INPUT_HPP
+#define FJELL_INPUT_HPP
 
 #include <glm/glm.hpp>
 
@@ -52,3 +53,5 @@ private:
 };
 
 } // namespace fjell
+
+#endif // FJELL_INPUT_HPP

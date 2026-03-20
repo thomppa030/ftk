@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "core/input.hpp"
+#include "fjell_input.hpp"
 
 namespace fjell {
 

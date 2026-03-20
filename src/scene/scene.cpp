@@ -240,6 +240,9 @@ void Scene::compute_world_matrices() {
             obj.local_matrix_ = obj.transform.matrix();
             obj.prev_transform_ = obj.transform;
             obj.transform_dirty_ = false;
+            obj.world_dirty_ = true;
+        } else {
+            obj.world_dirty_ = false;
         }
     }
 
@@ -251,7 +254,9 @@ void Scene::compute_world_matrices() {
     // Pass 1: roots (no parent)
     for (std::size_t i = 0; i < n; ++i) {
         if (objects_[i]->parent_id == -1) {
-            objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+            if (objects_[i]->world_dirty_) {
+                objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+            }
             computed_buf_[i] = 1;
             --remaining;
         }
@@ -265,12 +270,20 @@ void Scene::compute_world_matrices() {
             int pi = index_of(static_cast<uint32_t>(objects_[i]->parent_id));
             if (pi < 0) {
                 objects_[i]->parent_id = -1;
-                objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+                if (objects_[i]->world_dirty_) {
+                    objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+                }
                 computed_buf_[i] = 1;
                 --remaining;
             } else if (computed_buf_[pi]) {
-                objects_[i]->world_matrix_ =
-                    objects_[pi]->world_matrix_ * objects_[i]->local_matrix_;
+                // Propagate parent dirtiness to children
+                if (objects_[pi]->world_dirty_) {
+                    objects_[i]->world_dirty_ = true;
+                }
+                if (objects_[i]->world_dirty_) {
+                    objects_[i]->world_matrix_ =
+                        objects_[pi]->world_matrix_ * objects_[i]->local_matrix_;
+                }
                 computed_buf_[i] = 1;
                 --remaining;
             }
@@ -280,6 +293,7 @@ void Scene::compute_world_matrices() {
                 if (!computed_buf_[i]) {
                     objects_[i]->parent_id = -1;
                     objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+                    objects_[i]->world_dirty_ = true;
                 }
             }
             break;
@@ -529,7 +543,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
 
     Scene scene;
     auto default_tex = resources.load_texture(
-        base_path::resolve_asset("assets/textures/test.png", project));
+        base_path::resolve("engine_assets/textures/test.png"));
 
     uint32_t max_id = 0;
 
@@ -787,6 +801,11 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             auto& jsp = jobj["sprite"];
             SpriteComponent sp;
             sp.texture_path = jsp.value("texture", "");
+            // Migrate old asset paths
+            if (sp.texture_path.starts_with("assets/icons/")) {
+                sp.texture_path = "engine_assets/icons/" +
+                    sp.texture_path.substr(13);
+            }
             if (jsp.contains("tint")) {
                 auto& t = jsp["tint"];
                 sp.tint = {t[0].get<float>(), t[1].get<float>(), t[2].get<float>(), t[3].get<float>()};

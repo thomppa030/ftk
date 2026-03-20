@@ -37,6 +37,9 @@ public:
     // Re-copy engine scripting headers into the project's include/ dir
     static void refresh_headers(const Project& project);
 
+    // Write/overwrite the engine-managed scripts/CMakeLists.txt
+    static void write_scripts_cmake(const Project& project);
+
     static constexpr const char* MANIFEST_NAME = "project.fjell";
 
 private:

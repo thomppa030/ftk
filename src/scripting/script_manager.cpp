@@ -103,6 +103,18 @@ bool ScriptManager::load(const std::filesystem::path& so_path) {
         return false;
     }
 
+    // Clean up stale temp .so files from previous loads or crashes
+    namespace fs = std::filesystem;
+    for (const auto& entry : fs::directory_iterator(so_path.parent_path())) {
+        if (entry.is_regular_file()) {
+            auto name = entry.path().filename().string();
+            if (name.starts_with("game_") && name.ends_with(".so") &&
+                entry.path() != loaded_temp_path_) {
+                fs::remove(entry.path());
+            }
+        }
+    }
+
     auto temp = so_path.parent_path() /
         ("game_" + std::to_string(std::time(nullptr)) + ".so");
     std::filesystem::copy_file(so_path, temp,
@@ -156,6 +168,11 @@ bool ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
     }
 
     deserialize_all(scene);
+
+#ifndef NDEBUG
+    last_reload_time_ = std::chrono::steady_clock::now();
+#endif
+
     FJELL_CORE_INFO("Scripts reloaded");
     return true;
 }
@@ -580,6 +597,12 @@ bool ScriptManager::poll_reload(Scene& scene) {
     (void)watcher_.poll();
 
     if (reload_pending_) {
+        // Suppress watcher events shortly after an explicit reload
+        // to avoid double-reloading from Build & Reload + file watcher
+        auto elapsed = std::chrono::steady_clock::now() - last_reload_time_;
+        if (elapsed < std::chrono::seconds(2)) {
+            return false;
+        }
         return reload(scene, so_path_);
     }
     return false;

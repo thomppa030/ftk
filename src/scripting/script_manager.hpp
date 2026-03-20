@@ -11,6 +11,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -120,6 +121,7 @@ private:
 #ifndef NDEBUG
     platform::FileWatcher watcher_;
     bool reload_pending_{false};
+    std::chrono::steady_clock::time_point last_reload_time_{};
 #endif
 };
 
