@@ -56,6 +56,8 @@ public:
     Engine& operator=(Engine&&) = delete;
 
     void run();
+    void set_play_immediate(bool v) { play_immediate_ = v; }
+    void set_scene_override(const std::string& scene_name);
 
 private:
     void scan_models();
@@ -131,6 +133,7 @@ private:
 
     // Play mode
     std::unique_ptr<PlaySession> play_session_;
+    bool play_immediate_{false};
 
     // Game UI (owned by game layer, rendered via callback)
     GameUi game_ui_;
@@ -151,6 +154,8 @@ private:
     std::string pending_layout_load_;
     bool has_saved_layout_{false};
     bool focus_viewport_{false};
+    float fps_accum_{0.0f};
+    int fps_count_{0};
 
     // Viewports
     ViewportManager viewport_manager_;

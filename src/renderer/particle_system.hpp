@@ -4,14 +4,40 @@
 #include "renderer/particle_emitter.hpp"
 #include "renderer/pass/render_pass.hpp"
 
+#include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
 #include <memory>
-#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace fjell {
+
+// GPU-side emitter metadata (128 bytes, matches GLSL EmitterData)
+struct GpuEmitterData {
+    glm::vec3 emitter_position; float dt;
+    glm::vec3 gravity;          uint32_t max_particles;
+    glm::vec4 color_start;
+    glm::vec4 color_end;
+    float size_start, size_end, lifetime_min, lifetime_max;
+    glm::vec3 velocity_min;     uint32_t emit_count;
+    glm::vec3 velocity_max;     uint32_t random_seed;
+    uint32_t base_offset;
+    uint32_t counter_offset;
+    uint32_t dead_list_offset;
+    uint32_t pad0;
+};
+static_assert(sizeof(GpuEmitterData) == 128);
+
+// Push constants for all compute shaders (16 bytes)
+struct ParticleComputePush {
+    float dt;
+    uint32_t random_seed;
+    uint32_t emitter_count;
+    uint32_t total_max_particles;
+};
+static_assert(sizeof(ParticleComputePush) == 16);
 
 class Device;
 class Scene;
@@ -21,66 +47,60 @@ public:
     void create(Device& device, const PassResources& resources);
     void destroy();
 
-    // Sync GPU emitter data with scene emitters (create/destroy as needed)
     void sync_emitters(const Scene& scene);
-
-    // Dispatch compute shaders for all emitters
     void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene);
-
-    // Insert SSBO barriers between compute and render
     void insert_barriers(VkCommandBuffer cmd);
-
-    // Record particle billboard rendering
     void record_render(const FrameContext& ctx);
 
 private:
     struct EmitterGpu {
         uint32_t object_id{0};
         uint32_t max_particles{0};
-
-        std::unique_ptr<Buffer> particle_buffer;
-        std::unique_ptr<Buffer> counter_buffer;
-        std::unique_ptr<Buffer> dead_list_buffer;
-        std::unique_ptr<Buffer> indirect_buffer;
-
-        VkDescriptorSet compute_set{VK_NULL_HANDLE};
-        VkDescriptorSet indirect_set{VK_NULL_HANDLE};
-        VkDescriptorSet render_set{VK_NULL_HANDLE};
-
-        bool initialized{false};
+        uint32_t base_offset{0};
+        ParticleBlendMode blend_mode{ParticleBlendMode::additive};
     };
 
-    void create_emitter_gpu(EmitterGpu& gpu, uint32_t max_particles);
-    void destroy_emitter_gpu(EmitterGpu& gpu);
-    void init_dead_list(EmitterGpu& gpu);
+    void rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count);
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     VkQueue queue_{VK_NULL_HANDLE};
 
-    // Compute pipelines (shared)
+    // Compute pipeline (shared set layout for all 3 shaders)
     VkDescriptorSetLayout compute_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout compute_layout_{VK_NULL_HANDLE};
     VkPipeline emit_pipeline_{VK_NULL_HANDLE};
     VkPipeline sim_pipeline_{VK_NULL_HANDLE};
-
-    // Indirect prepare pipeline
-    VkDescriptorSetLayout indirect_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout indirect_layout_{VK_NULL_HANDLE};
     VkPipeline indirect_pipeline_{VK_NULL_HANDLE};
 
-    // Render pipelines (shared)
+    // Render pipeline
     VkDescriptorSetLayout render_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout render_layout_{VK_NULL_HANDLE};
     VkPipeline render_additive_{VK_NULL_HANDLE};
     VkPipeline render_alpha_{VK_NULL_HANDLE};
 
-    // Descriptor pool for all emitters
+    // Descriptor pool + single sets
     VkDescriptorPool pool_{VK_NULL_HANDLE};
+    VkDescriptorSet compute_set_{VK_NULL_HANDLE};
+    VkDescriptorSet render_set_{VK_NULL_HANDLE};
 
-    // Per-emitter GPU data
+    // Mega buffers
+    std::unique_ptr<Buffer> mega_particle_buffer_;
+    std::unique_ptr<Buffer> mega_counter_buffer_;
+    std::unique_ptr<Buffer> mega_dead_list_buffer_;
+    std::unique_ptr<Buffer> mega_indirect_buffer_;
+    std::unique_ptr<Buffer> emitter_data_buffer_;  // HOST_VISIBLE, mapped
+
+    // Emitter tracking
     std::vector<EmitterGpu> emitters_;
+    std::unordered_set<uint32_t> emitter_id_set_;
+    std::vector<GpuEmitterData> emitter_data_cache_;
+
+    // Capacity
+    uint32_t total_particle_capacity_{0};
+    uint32_t emitter_capacity_{0};
+    uint32_t additive_count_{0};
 
     // Cached layouts
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};

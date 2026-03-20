@@ -21,7 +21,7 @@ struct Particle {
     vec4  color;
     float size;
     float size_end;
-    float pad0;
+    uint  emitter_index;
     float pad1;
 };
 
@@ -33,7 +33,9 @@ layout(location = 0) out vec2 frag_uv;
 layout(location = 1) out vec4 frag_color;
 
 void main() {
-    uint particle_index = gl_VertexIndex / 6;
+    // base_offset comes from firstInstance in VkDrawIndirectCommand
+    uint base_offset = gl_InstanceIndex;
+    uint particle_index = base_offset + gl_VertexIndex / 6;
     uint corner = gl_VertexIndex % 6;
 
     Particle p = particles[particle_index];

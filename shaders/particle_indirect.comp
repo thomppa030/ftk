@@ -1,23 +1,38 @@
 #version 460
 
-layout(local_size_x = 1) in;
+#include "include/particle_common.glsl"
 
-layout(std430, set = 0, binding = 0) buffer Counters {
-    uint alive_count;
-    uint dead_count;
+layout(local_size_x = 256) in;
+
+layout(std430, set = 0, binding = 1) readonly buffer Counters {
+    uint counters[];
 };
 
-// VkDrawIndirectCommand layout
-layout(std430, set = 0, binding = 1) buffer IndirectDraw {
-    uint vertex_count;
-    uint instance_count;
-    uint first_vertex;
-    uint first_instance;
+layout(std430, set = 0, binding = 3) readonly buffer EmitterBuffer {
+    EmitterData emitters[];
+};
+
+// VkDrawIndirectCommand array
+layout(std430, set = 0, binding = 4) writeonly buffer IndirectDraw {
+    uint indirect_cmds[];  // 4 uints per command
+};
+
+layout(push_constant) uniform PushConstants {
+    float dt;
+    uint  random_seed;
+    uint  emitter_count;
+    uint  total_max_particles;
 };
 
 void main() {
-    vertex_count = alive_count * 6;
-    instance_count = 1;
-    first_vertex = 0;
-    first_instance = 0;
+    uint eidx = gl_GlobalInvocationID.x;
+    if (eidx >= emitter_count) return;
+
+    EmitterData em = emitters[eidx];
+
+    // VkDrawIndirectCommand: vertexCount, instanceCount, firstVertex, firstInstance
+    indirect_cmds[eidx * 4 + 0] = em.max_particles * 6;  // draw all slots
+    indirect_cmds[eidx * 4 + 1] = 1;
+    indirect_cmds[eidx * 4 + 2] = 0;
+    indirect_cmds[eidx * 4 + 3] = em.base_offset;         // -> gl_InstanceIndex
 }

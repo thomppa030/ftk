@@ -83,7 +83,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_.physical_device(), vulkan_context_.device(),
         vulkan_context_.graphics_family(), vulkan_context_.graphics_queue(),
         vulkan_context_.swapchain_format(), vulkan_context_.image_count(),
-        base_path::resolve("assets/fonts"));
+        base_path::resolve("engine_assets/fonts"));
 
     vulkan_context_.set_overlay_callback([this](VkCommandBuffer cmd) {
         imgui_layer_->render(cmd);
@@ -91,20 +91,22 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     // Initialize game UI (owned by Engine, rendered via callback)
     vulkan_context_.init_game_ui(game_ui_,
-        base_path::resolve("assets/fonts/Inter-Regular.ttf"),
+        base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"),
         vulkan_context_.swapchain_format());
 
     vulkan_context_.set_game_ui_callback(
-        [this, fps_timer = 0.0f, fps_value = 0](
+        [this](
                VkCommandBuffer cmd, VkDescriptorSet global_set,
                VkDescriptorSet bindless_set, VkExtent2D extent,
-               uint32_t frame_index) mutable {
+               uint32_t frame_index) {
             if (game_ui_.loaded()) {
-                fps_timer += clock_.delta_time();
-                if (fps_timer >= 0.5f) {
-                    fps_value = static_cast<int>(1.0f / clock_.delta_time());
-                    game_ui_.context().set("fps", std::to_string(fps_value));
-                    fps_timer = 0.0f;
+                fps_accum_ += clock_.delta_time();
+                ++fps_count_;
+                if (fps_accum_ >= 0.5f) {
+                    int fps = static_cast<int>(static_cast<float>(fps_count_) / fps_accum_ + 0.5f);
+                    game_ui_.context().set("fps", std::to_string(fps));
+                    fps_accum_ = 0.0f;
+                    fps_count_ = 0;
                 }
                 game_ui_.update(static_cast<float>(extent.width),
                                 static_cast<float>(extent.height),
@@ -121,7 +123,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_.meshlet_buffer(), vulkan_context_.pipeline_cache());
 
     default_texture_ = resource_manager_->load_texture(
-        base_path::resolve_asset("assets/textures/test.png", active_project()));
+        base_path::resolve("engine_assets/textures/test.png"));
     scan_models();
 
     // Determine which scene to load
@@ -155,7 +157,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     icon_cache_ = std::make_unique<IconCache>(
         vulkan_context_.device(), vulkan_context_.physical_device(),
         vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
-        base_path::resolve("assets/icons"));
+        base_path::resolve("engine_assets/icons"));
 
 #ifdef FJELL_HAS_NVIM_PANEL
     content_browser_.init(icon_cache_.get(), &nvim_panel_,
@@ -339,7 +341,7 @@ void Engine::save_material_assets() {
 void Engine::create_default_scene() {
     vulkan_context_.wait_idle();
     auto tex = resource_manager_->load_texture(
-        base_path::resolve_asset("assets/textures/test.png", active_project()));
+        base_path::resolve("engine_assets/textures/test.png"));
     auto mat = resource_manager_->create_material("default", tex);
 
     auto plane = resource_manager_->create_primitive("plane");
@@ -366,7 +368,7 @@ void Engine::add_model_to_scene(const std::string& path) {
     auto model_handle = resource_manager_->load_model(
         base_path::resolve_asset(path, active_project()));
     auto tex = resource_manager_->load_texture(
-        base_path::resolve_asset("assets/textures/test.png", active_project()));
+        base_path::resolve("engine_assets/textures/test.png"));
     auto mat_handle = resource_manager_->create_material("default", tex);
     std::string mat_name = "default";
 
@@ -398,7 +400,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         auto node = std::make_unique<CameraNode>();
         node->name = "Camera";
         node->sprite = SpriteComponent{};
-        node->sprite->texture_path = "assets/icons/icon_camera.png";
+        node->sprite->texture_path = "engine_assets/icons/icon_camera.png";
         node->sprite->editor_only = true;
         node->arrow = ArrowComponent{};
         selected_id_ = scene_.add_node(std::move(node));
@@ -410,7 +412,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         auto node = std::make_unique<DirectionalLightNode>();
         node->name = "Directional Light";
         node->sprite = SpriteComponent{};
-        node->sprite->texture_path = "assets/icons/icon_dir_light.png";
+        node->sprite->texture_path = "engine_assets/icons/icon_dir_light.png";
         node->sprite->editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
@@ -419,7 +421,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         auto node = std::make_unique<PointLightNode>();
         node->name = "Point Light";
         node->sprite = SpriteComponent{};
-        node->sprite->texture_path = "assets/icons/icon_point_light.png";
+        node->sprite->texture_path = "engine_assets/icons/icon_point_light.png";
         node->sprite->editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
@@ -428,7 +430,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         auto node = std::make_unique<SpotLightNode>();
         node->name = "Spot Light";
         node->sprite = SpriteComponent{};
-        node->sprite->texture_path = "assets/icons/icon_point_light.png";
+        node->sprite->texture_path = "engine_assets/icons/icon_point_light.png";
         node->sprite->editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
@@ -446,7 +448,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         if (!model_handle.valid()) return;
 
         auto tex = resource_manager_->load_texture(
-            base_path::resolve_asset("assets/textures/test.png", active_project()));
+            base_path::resolve("engine_assets/textures/test.png"));
         auto mat = resource_manager_->create_material("default", tex);
 
         selected_id_ = scene_.add(model_handle, mat, *resource_manager_,
@@ -462,7 +464,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     if (!model_handle.valid()) return;
 
     auto tex = resource_manager_->load_texture(
-        base_path::resolve_asset("assets/textures/test.png", active_project()));
+        base_path::resolve("engine_assets/textures/test.png"));
     auto mat = resource_manager_->create_material("default", tex);
 
     std::string name = type;
@@ -756,10 +758,14 @@ void Engine::draw_menu_bar() {
                     std::ofstream reg(scripts_dir / "register_all.cpp");
                     if (reg.is_open()) {
                         reg << "// Auto-generated — do not edit.\n";
-                        reg << "#include \"scripting/fjell_registry.hpp\"\n\n";
+                        reg << "#include \"fjell/registry.hpp\"\n\n";
                         reg << "FJELL_REGISTER()\n";
                     }
                 }
+
+                // Refresh SDK headers and CMakeLists before building
+                Project::refresh_headers(*project_);
+                Project::write_scripts_cmake(*project_);
 
                 // Reconfigure to pick up new/removed .cpp files, then build
                 auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
@@ -882,8 +888,8 @@ void Engine::draw_menu_bar() {
 
             std::ofstream file(path);
             if (file.is_open()) {
-                file << "#include \"scripting/fjell_registry.hpp\"\n"
-                     << "#include \"scripting/fjell_world.hpp\"\n"
+                file << "#include \"fjell/registry.hpp\"\n"
+                     << "#include \"fjell/world.hpp\"\n"
                      << "#include <array>\n"
                      << "#include <cmath>\n"
                      << "\n"
@@ -1105,15 +1111,37 @@ void Engine::draw_play_overlay() {
     ImGui::End(); // ##PlayView
 }
 
+void Engine::set_scene_override(const std::string& scene_name) {
+    std::string filename = scene_name;
+    if (!filename.ends_with(".fjell")) filename += ".fjell";
+    std::string path;
+    if (project_) {
+        path = project_->resolve("scenes/" + filename);
+    } else {
+        path = base_path::resolve("scenes/" + filename);
+    }
+    if (std::filesystem::exists(path)) {
+        load_scene(path);
+    } else {
+        FJELL_CORE_ERROR("Scene not found: {}", path);
+    }
+}
+
 void Engine::run() {
     FJELL_CORE_INFO("Entering main loop");
 
-    // Game mode: start playing immediately
-    if (game_mode_) {
+    // Game mode or --play: start playing immediately
+    if (game_mode_ || play_immediate_) {
         start_play();
     }
 
     while (!window_.should_close()) {
+        // Phase 1: Submit previous frame to GPU (non-blocking)
+        vulkan_context_.submit_and_present();
+
+        FJELL_PROFILE_FRAME;
+
+        // Phase 2: CPU work (overlaps with GPU executing the submitted frame)
         input_.update();
         window_.poll_events();
         clock_.tick();
@@ -1123,7 +1151,6 @@ void Engine::run() {
             vulkan_context_.reload_pipeline();
         }
 #endif
-
 
         float dt = clock_.delta_time();
 
@@ -1183,10 +1210,13 @@ void Engine::run() {
         vulkan_context_.sync_sprite_textures(scene_, *resource_manager_);
         vulkan_context_.set_viewport_offset(viewport_manager_.active_viewport_pos());
         vulkan_context_.set_active_sources(viewport_manager_.active_source_mask());
-        vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, is_playing());
 
-        FJELL_PROFILE_FRAME;
+        // Phase 3: Wait for frame slot, record commands
+        vulkan_context_.wait_and_record(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, is_playing());
     }
+
+    // Submit the last recorded frame before shutting down
+    vulkan_context_.submit_and_present();
     FJELL_CORE_INFO("Exiting main loop");
 }
 

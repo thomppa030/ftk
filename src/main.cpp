@@ -34,12 +34,23 @@ int main(int argc, char* argv[]) {
     fjell::log::init();
 
     std::filesystem::path project_path;
-    if (argc > 1) {
-        project_path = argv[1];
+    bool play_immediate = false;
+    std::string scene_override;
+
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--play") == 0) {
+            play_immediate = true;
+        } else if (std::strcmp(argv[i], "--scene") == 0 && i + 1 < argc) {
+            scene_override = argv[++i];
+        } else {
+            project_path = argv[i];
+        }
     }
 
     try {
         fjell::Engine engine{"Fjell Engine", 2560, 1440, project_path};
+        if (!scene_override.empty()) engine.set_scene_override(scene_override);
+        if (play_immediate) engine.set_play_immediate(true);
         engine.run();
     } catch (const std::exception& e) {
         FJELL_CORE_CRITICAL("Fatal: {}", safe_what(e));

@@ -7,7 +7,7 @@
     </div>
 
     <div class="debug-info" if="show_debug">
-        <text class="debug-text">FPS: {fps}</text>
+        <text class="fps-display">FPS: {fps}</text>
         <text class="debug-text">Pos: {player.pos}</text>
     </div>
 

@@ -43,6 +43,12 @@
     gap: 2;
 }
 
+.fps-display {
+    height: 56;
+    font-size: 50;
+    color: #eeeeee;
+}
+
 .debug-text {
     height: 16;
     font-size: 12;
