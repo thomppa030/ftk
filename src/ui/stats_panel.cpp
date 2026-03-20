@@ -49,6 +49,11 @@ void StatsPanel::draw(float dt) {
             if (mesh_on) {
                 ImGui::SameLine(0, 10);
                 ImGui::Text("Meshlets: %u", stats.meshlets_dispatched);
+                ImGui::SameLine(0, 10);
+                bool gpu_cull = ctx_->cull_pass().enabled();
+                if (ImGui::Checkbox("GPU Cull", &gpu_cull)) {
+                    ctx_->cull_pass().set_enabled(gpu_cull);
+                }
             }
         }
 

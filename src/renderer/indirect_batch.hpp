@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/buffer.hpp"
+#include "renderer/pass/cull_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
@@ -76,6 +77,10 @@ public:
         return mesh_count_buffers_[frame_index] ? mesh_count_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
     }
 
+    [[nodiscard]] const GpuDrawAABB* aabb_data(uint32_t frame_index) const {
+        return aabb_data_[frame_index].empty() ? nullptr : aabb_data_[frame_index].data();
+    }
+
 private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
 
@@ -91,6 +96,7 @@ private:
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> draw_data_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_triangles_{};
     std::array<std::vector<PipelineDrawRange>, MAX_FRAMES_IN_FLIGHT> pipeline_ranges_;
+    std::array<std::vector<GpuDrawAABB>, MAX_FRAMES_IN_FLIGHT> aabb_data_;
 };
 
 } // namespace fjell

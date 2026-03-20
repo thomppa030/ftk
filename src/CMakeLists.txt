@@ -66,6 +66,8 @@ add_executable(fjell
     renderer/particle_system.cpp
     renderer/sprite_renderer.cpp
     renderer/pass/bloom_pass.cpp
+    renderer/pass/cull_pass.cpp
+    renderer/pass/cull_viz_pass.cpp
     renderer/pass/gtao_pass.cpp
     renderer/pass/grid_pass.cpp
     renderer/pass/debug_pass.cpp

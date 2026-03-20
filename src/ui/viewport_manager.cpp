@@ -134,6 +134,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             ctx.light_heatmap_pass().resize(vp_w, vp_h);
             ctx.light_grid_pass().resize(vp_w, vp_h);
             ctx.meshlet_viz_pass().resize(vp_w, vp_h);
+            ctx.cull_viz_pass().resize(vp_w, vp_h);
         }
     }
 }
@@ -204,10 +205,20 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
                 return ctx.meshlet_viz_pass().imgui_texture();
             case ViewportSource::ao:
                 return ctx.gtao_pass().imgui_texture();
+            case ViewportSource::gpu_cull:
+                return ctx.cull_viz_pass().imgui_texture();
         }
         return panel.offscreen->imgui_texture();
     }
     return VK_NULL_HANDLE;
+}
+
+uint32_t ViewportManager::active_source_mask() const {
+    uint32_t mask = 0;
+    for (const auto& panel : panels_) {
+        mask |= (1u << static_cast<uint32_t>(panel.source));
+    }
+    return mask;
 }
 
 void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
@@ -316,6 +327,9 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                     break;
                 case ViewportSource::ao:
                     tex = ctx.gtao_pass().imgui_texture();
+                    break;
+                case ViewportSource::gpu_cull:
+                    tex = ctx.cull_viz_pass().imgui_texture();
                     break;
             }
         }

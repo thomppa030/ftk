@@ -72,6 +72,9 @@ public:
     // Release all offscreen ImGui textures (call before destroying ImGui)
     void release_textures();
 
+    // Bitmask of which ViewportSource values are active across all panels
+    [[nodiscard]] uint32_t active_source_mask() const;
+
 private:
     void draw_viewport_panel(ViewportPanel& panel, VulkanContext& ctx,
                              Scene& scene, uint32_t& selected_id,

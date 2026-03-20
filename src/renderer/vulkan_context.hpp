@@ -13,6 +13,8 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/particle_system.hpp"
 #include "renderer/pass/bloom_pass.hpp"
+#include "renderer/pass/cull_pass.hpp"
+#include "renderer/pass/cull_viz_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
@@ -124,6 +126,8 @@ public:
   }
   [[nodiscard]] LightVizPass &light_grid_pass() { return light_grid_pass_; }
   [[nodiscard]] MeshletVizPass &meshlet_viz_pass() { return meshlet_viz_pass_; }
+  [[nodiscard]] CullVizPass &cull_viz_pass() { return cull_viz_pass_; }
+  [[nodiscard]] CullPass &cull_pass() { return cull_pass_; }
   using OverlayCallback = std::function<void(VkCommandBuffer)>;
   void set_overlay_callback(OverlayCallback callback) {
     overlay_callback_ = std::move(callback);
@@ -147,6 +151,10 @@ public:
   /// Set by ViewportManager each frame — top-left of the active viewport in
   /// window pixels.
   void set_viewport_offset(glm::vec2 offset) { viewport_offset_ = offset; }
+
+  /// Bitmask of ViewportSource values currently displayed. Viz passes skip
+  /// recording when their source bit is not set.
+  void set_active_sources(uint32_t mask) { active_sources_ = mask; }
 
 private:
   void create_descriptor_resources();
@@ -240,6 +248,8 @@ private:
   MeshShaderDepthPass mesh_shader_depth_pass_;
   MeshShaderPass mesh_shader_pass_;
   MeshletVizPass meshlet_viz_pass_;
+  CullPass cull_pass_;
+  CullVizPass cull_viz_pass_;
   bool use_mesh_shaders_{false};
 
   // GT-VBAO ambient occlusion
@@ -273,6 +283,7 @@ private:
   std::unique_ptr<DebugDraw> debug_draw_;
   bool show_colliders_{true};
   bool playing_{false};
+  uint32_t active_sources_{~0u}; // all enabled by default
 };
 
 } // namespace fjell

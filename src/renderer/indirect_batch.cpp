@@ -1,10 +1,8 @@
 #include "renderer/indirect_batch.hpp"
+#include "renderer/frustum.hpp"
 #include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
 #include "renderer/render_queue.hpp"
-#include "core/log.hpp"
-
-#include <cstring>
 
 namespace fjell {
 
@@ -37,7 +35,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
     mesh_indirect_buffers_[frame_index] = std::make_unique<Buffer>(
         device_, physical_device_,
         new_cap * sizeof(VkDrawMeshTasksIndirectCommandEXT),
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     mesh_indirect_buffers_[frame_index]->map();
 
@@ -74,6 +72,10 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     uint32_t draw_index = 0;
     uint32_t triangles = 0;
 
+    // Prepare AABB storage for GPU culling
+    auto& aabbs = aabb_data_[frame_index];
+    aabbs.resize(total_draws);
+
     // Write opaque draw commands, tracking per-pipeline ranges
     auto& ranges = pipeline_ranges_[frame_index];
     ranges.clear();
@@ -107,6 +109,17 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             data.meshlet_offset = entry.meshlet_offset;
             data.meshlet_count = entry.meshlet_count;
             data.vertex_offset = entry.vertex_offset;
+
+            // Compute world-space AABB for GPU culling
+            AABB world_aabb = dc.model->local_aabb().transform(dc.push.model);
+            aabbs[draw_index].min_x = world_aabb.min.x;
+            aabbs[draw_index].min_y = world_aabb.min.y;
+            aabbs[draw_index].min_z = world_aabb.min.z;
+            aabbs[draw_index].pad0 = 0.0f;
+            aabbs[draw_index].max_x = world_aabb.max.x;
+            aabbs[draw_index].max_y = world_aabb.max.y;
+            aabbs[draw_index].max_z = world_aabb.max.z;
+            aabbs[draw_index].pad1 = 0.0f;
 
             triangles += entry.index_count / 3;
             draw_index++;

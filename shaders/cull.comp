@@ -1,0 +1,105 @@
+#version 460
+
+layout(local_size_x = 64) in;
+
+// Per-draw AABB data (CPU-uploaded, world-space)
+struct DrawAABB {
+    vec4 aabb_min; // .xyz = min, .w unused
+    vec4 aabb_max; // .xyz = max, .w unused
+};
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+} ubo;
+
+// Input: per-draw world-space AABBs
+layout(set = 1, binding = 0) readonly buffer AABBBuffer {
+    DrawAABB aabbs[];
+};
+
+// Output: mesh indirect commands — set groupCountX to 0 (culled) or 1 (visible)
+// Layout: 3 uint32 per command (groupCountX, groupCountY, groupCountZ)
+layout(set = 1, binding = 1) buffer IndirectCmds {
+    uint indirect_cmds[];
+};
+
+// Output: visibility flags for viz (1 = visible, 0 = culled)
+layout(set = 1, binding = 2) writeonly buffer VisibilityBuffer {
+    uint visibility[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint total_draws;
+} push;
+
+shared vec4 shared_planes[6];
+
+void extract_frustum() {
+    mat4 vp = ubo.projection * ubo.view;
+
+    shared_planes[0] = vec4(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0],
+                            vp[2][3] + vp[2][0], vp[3][3] + vp[3][0]); // left
+    shared_planes[1] = vec4(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0],
+                            vp[2][3] - vp[2][0], vp[3][3] - vp[3][0]); // right
+    shared_planes[2] = vec4(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1],
+                            vp[2][3] + vp[2][1], vp[3][3] + vp[3][1]); // bottom
+    shared_planes[3] = vec4(vp[0][3] - vp[0][1], vp[1][3] - vp[1][1],
+                            vp[2][3] - vp[2][1], vp[3][3] - vp[3][1]); // top
+    shared_planes[4] = vec4(vp[0][3] + vp[0][2], vp[1][3] + vp[1][2],
+                            vp[2][3] + vp[2][2], vp[3][3] + vp[3][2]); // near
+    shared_planes[5] = vec4(vp[0][3] - vp[0][2], vp[1][3] - vp[1][2],
+                            vp[2][3] - vp[2][2], vp[3][3] - vp[3][2]); // far
+
+    for (int i = 0; i < 6; ++i) {
+        float len = length(shared_planes[i].xyz);
+        shared_planes[i] /= len;
+    }
+}
+
+bool frustum_test(vec3 aabb_min, vec3 aabb_max) {
+    for (int i = 0; i < 6; ++i) {
+        vec4 plane = shared_planes[i];
+        // Positive vertex: corner furthest along the plane normal
+        vec3 p;
+        p.x = (plane.x >= 0.0) ? aabb_max.x : aabb_min.x;
+        p.y = (plane.y >= 0.0) ? aabb_max.y : aabb_min.y;
+        p.z = (plane.z >= 0.0) ? aabb_max.z : aabb_min.z;
+
+        if (dot(plane.xyz, p) + plane.w < 0.0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void main() {
+    if (gl_LocalInvocationIndex == 0) {
+        extract_frustum();
+    }
+    barrier();
+
+    uint draw_id = gl_GlobalInvocationID.x;
+    if (draw_id >= push.total_draws) return;
+
+    vec3 bb_min = aabbs[draw_id].aabb_min.xyz;
+    vec3 bb_max = aabbs[draw_id].aabb_max.xyz;
+
+    bool visible = frustum_test(bb_min, bb_max);
+
+    // Write indirect command: visible draws get 1 workgroup, culled get 0
+    uint base = draw_id * 3;
+    indirect_cmds[base + 0] = visible ? 1 : 0;
+    indirect_cmds[base + 1] = 1;
+    indirect_cmds[base + 2] = 1;
+
+    visibility[draw_id] = visible ? 1 : 0;
+}

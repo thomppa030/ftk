@@ -86,6 +86,9 @@ VulkanContext::VulkanContext(Window& window)
         mesh_shader_depth_pass_.create(device_, pass_resources);
         mesh_shader_pass_.create(device_, pass_resources);
         meshlet_viz_pass_.create(device_, pass_resources);
+        cull_pass_.create(device_.handle(), device_.physical_device(),
+                          global_set_layout_->handle());
+        cull_viz_pass_.create(device_, pass_resources);
     }
     shadow_pass_.create(device_, pass_resources);
     depth_viz_pass_.create(device_, pass_resources);
@@ -173,6 +176,8 @@ VulkanContext::~VulkanContext() {
     mesh_shader_depth_pass_.destroy();
     mesh_shader_pass_.destroy();
     meshlet_viz_pass_.destroy();
+    cull_viz_pass_.destroy();
+    cull_pass_.destroy();
 
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
@@ -554,6 +559,15 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             current_frame_);
     }
 
+    // Upload world-space AABBs for GPU frustum culling
+    if (use_mesh_shaders_ && cull_pass_.enabled()) {
+        uint32_t opaque_count = indirect_batch_->opaque_draw_count(current_frame_);
+        const auto* aabbs = indirect_batch_->aabb_data(current_frame_);
+        if (opaque_count > 0 && aabbs) {
+            cull_pass_.upload_aabbs(aabbs, opaque_count, current_frame_);
+        }
+    }
+
     // Update meshlet descriptor (set 3) if mesh shaders are available
     if (meshlet_buffer_ && meshlet_buffer_->total_meshlets() > 0) {
         meshlet_descriptor_.update(*meshlet_buffer_, *mega_buffer_, current_frame_);
@@ -588,6 +602,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     // ── Frame graph: declare image usage per pass ────────────────────────
+
+    // Check which viewport sources are active to skip unused viz passes
+    auto source_active = [&](ViewportSource s) {
+        return (active_sources_ & (1u << static_cast<uint32_t>(s))) != 0;
+    };
 
     FrameGraph graph;
     // When MSAA: track the resolve image (read by post-process) and the MSAA image (render target)
@@ -690,6 +709,34 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         }
     }, {});
 
+    // GPU frustum culling (mesh shader path only)
+    graph.add_pass("gpu_cull", [&](VkCommandBuffer cb) {
+        if (use_mesh_shaders_ && cull_pass_.enabled()) {
+            uint32_t opaque_count = indirect_batch_->opaque_draw_count(current_frame_);
+            if (opaque_count > 0 && indirect_batch_->mesh_indirect_buffer(current_frame_)) {
+                cull_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
+                                   indirect_batch_->mesh_indirect_buffer(current_frame_),
+                                   opaque_count, current_frame_);
+                cull_pass_.insert_barrier(cb);
+            }
+        }
+    }, {});
+
+    // Cull visualization (debug view: green=visible, red=culled)
+    graph.add_pass("cull_viz", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::gpu_cull)) return;
+        if (use_mesh_shaders_ && cull_pass_.enabled()) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            uint32_t opaque_count = indirect_batch_->opaque_draw_count(current_frame_);
+            if (opaque_count > 0) {
+                cull_viz_pass_.record(local,
+                    cull_pass_.visibility_buffer(current_frame_),
+                    cull_pass_.visibility_buffer_size(current_frame_));
+            }
+        }
+    }, {});
+
     // Color pass (opaques + sky + debug + transparent + particles in one rendering scope)
     graph.add_pass("color", [&](VkCommandBuffer cb) {
         VkRenderingAttachmentInfo color_attachment{};
@@ -786,6 +833,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                 }
                 render_stats_->meshlets_dispatched += meshlet_buffer_
                     ? meshlet_buffer_->total_meshlets() : 0;
+                render_stats_->gpu_cull_active = cull_pass_.enabled();
             } else {
                 mega_buffer_->bind(cb);
 
@@ -887,36 +935,41 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
     }, {});
 
-    // Utility passes
+    // Utility / visualization passes — only run when their viewport source is active
     graph.add_pass("depth_viz", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::depth)) return;
         FrameContext local = ctx;
         local.cmd = cb;
         depth_viz_pass_.record(local);
     }, {{depth_id, ImageUsage::shader_read}});
 
     graph.add_pass("wireframe", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::wireframe)) return;
         FrameContext local = ctx;
         local.cmd = cb;
         wireframe_pass_.record(local);
     }, {});
     graph.add_pass("normals", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::normals)) return;
         FrameContext local = ctx;
         local.cmd = cb;
         normal_pass_.record(local);
     }, {});
     graph.add_pass("overdraw", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::overdraw)) return;
         FrameContext local = ctx;
         local.cmd = cb;
         overdraw_pass_.record(local);
     }, {});
     graph.add_pass("uv_viz", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::uv)) return;
         FrameContext local = ctx;
         local.cmd = cb;
         uv_viz_pass_.record(local);
     }, {});
 
-    // Light visualization passes (read tile SSBO written by light_cull)
     graph.add_pass("light_heatmap", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::light_heatmap)) return;
         FrameContext local = ctx;
         local.cmd = cb;
         light_heatmap_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
@@ -925,6 +978,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }, {});
 
     graph.add_pass("light_grid", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::light_grid)) return;
         FrameContext local = ctx;
         local.cmd = cb;
         light_grid_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
@@ -932,8 +986,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         light_grid_pass_.record(local);
     }, {});
 
-    // Meshlet visualization (mesh shader debug view)
     graph.add_pass("meshlet_viz", [&](VkCommandBuffer cb) {
+        if (!source_active(ViewportSource::meshlet_viz)) return;
         FrameContext local = ctx;
         local.cmd = cb;
         meshlet_viz_pass_.record(local);

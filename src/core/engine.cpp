@@ -1146,6 +1146,7 @@ void Engine::run() {
 
         vulkan_context_.sync_sprite_textures(scene_, *resource_manager_);
         vulkan_context_.set_viewport_offset(viewport_manager_.active_viewport_pos());
+        vulkan_context_.set_active_sources(viewport_manager_.active_source_mask());
         vulkan_context_.draw_frame(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, &input_);
     }
     FJELL_CORE_INFO("Exiting main loop");

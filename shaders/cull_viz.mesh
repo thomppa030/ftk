@@ -1,0 +1,126 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+layout(local_size_x = 64) in;
+layout(triangles, max_vertices = 64, max_primitives = 124) out;
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+} ubo;
+
+struct DrawData {
+    mat4 model;
+    uint material_id;
+    uint meshlet_offset;
+    uint meshlet_count;
+    uint vertex_offset;
+};
+
+layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
+    DrawData draws[];
+};
+
+struct Meshlet {
+    uint vertex_offset;
+    uint triangle_offset;
+    uint vertex_count;
+    uint triangle_count;
+};
+
+layout(set = 3, binding = 0) readonly buffer MeshletBuffer {
+    Meshlet meshlets[];
+};
+
+layout(set = 3, binding = 2) readonly buffer MeshletVertexBuffer {
+    uint meshlet_vertices[];
+};
+
+layout(set = 3, binding = 3) readonly buffer MeshletTriangleBuffer {
+    uint meshlet_triangles_packed[];
+};
+
+layout(set = 3, binding = 4) readonly buffer VertexBuffer {
+    float vertex_data[];
+};
+
+// Visibility buffer from GPU cull pass
+layout(set = 4, binding = 0) readonly buffer VisibilityBuffer {
+    uint visibility[];
+};
+
+const uint VERTEX_STRIDE = 15;
+
+vec3 fetch_position(uint vi) {
+    uint b = vi * VERTEX_STRIDE;
+    return vec3(vertex_data[b], vertex_data[b+1], vertex_data[b+2]);
+}
+
+vec3 fetch_normal(uint vi) {
+    uint b = vi * VERTEX_STRIDE + 8;
+    return vec3(vertex_data[b], vertex_data[b+1], vertex_data[b+2]);
+}
+
+layout(push_constant) uniform PushConstants {
+    uint draw_index;
+} push;
+
+struct TaskPayload {
+    uint draw_index;
+    uint meshlet_indices[32];
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+uint get_triangle_index(uint meshlet_tri_offset, uint local_tri, uint vertex_in_tri) {
+    uint byte_offset = (meshlet_tri_offset * 3) + (local_tri * 3) + vertex_in_tri;
+    uint word = meshlet_triangles_packed[byte_offset / 4];
+    uint byte_in_word = byte_offset % 4;
+    return (word >> (byte_in_word * 8)) & 0xFF;
+}
+
+layout(location = 0) out vec3 frag_color[];
+layout(location = 1) out vec3 frag_world_normal[];
+
+void main() {
+    uint meshlet_idx = payload.meshlet_indices[gl_WorkGroupID.x];
+    Meshlet m = meshlets[meshlet_idx];
+
+    uint draw_idx = payload.draw_index;
+    DrawData dd = draws[draw_idx];
+    mat4 model = dd.model;
+    mat3 normal_matrix = transpose(inverse(mat3(model)));
+
+    // Green = visible after GPU cull, red = would be culled
+    bool visible = (visibility[draw_idx] != 0);
+    vec3 color = visible ? vec3(0.2, 0.8, 0.3) : vec3(0.9, 0.15, 0.1);
+
+    SetMeshOutputsEXT(m.vertex_count, m.triangle_count);
+
+    uint tid = gl_LocalInvocationIndex;
+
+    if (tid < m.vertex_count) {
+        uint global_vertex = meshlet_vertices[m.vertex_offset + tid] + dd.vertex_offset;
+        vec3 pos = fetch_position(global_vertex);
+        vec4 world_pos = model * vec4(pos, 1.0);
+        gl_MeshVerticesEXT[tid].gl_Position = ubo.projection * ubo.view * world_pos;
+
+        frag_color[tid] = color;
+        frag_world_normal[tid] = normal_matrix * fetch_normal(global_vertex);
+    }
+
+    for (uint t = tid; t < m.triangle_count; t += 64) {
+        uint i0 = get_triangle_index(m.triangle_offset, t, 0);
+        uint i1 = get_triangle_index(m.triangle_offset, t, 1);
+        uint i2 = get_triangle_index(m.triangle_offset, t, 2);
+        gl_PrimitiveTriangleIndicesEXT[t] = uvec3(i0, i1, i2);
+    }
+}
