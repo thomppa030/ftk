@@ -1,0 +1,76 @@
+#version 460
+
+// Volumetric fog: front-to-back Frostbite energy-conserving integration
+
+#include "fjell_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler3D scatter_volume;
+layout(set = 0, binding = 1, rgba16f) uniform writeonly image3D integrated_volume;
+
+layout(push_constant) uniform PushConstants {
+    uvec4 volume_dims;
+    float near_plane;
+    float far_plane;
+    float density;
+    float height;
+    float height_falloff;
+    float scattering;
+    float anisotropy;
+    float temporal_blend;
+    uint viewport_width;
+    uint viewport_height;
+    float fog_color_r;
+    float fog_color_g;
+    float fog_color_b;
+    float jitter_x;
+    float jitter_y;
+    float jitter_z;
+    float padding;
+} pc;
+
+float slice_to_depth(float t) {
+    return pc.near_plane * pow(pc.far_plane / pc.near_plane, t);
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(pc.volume_dims.x) || coord.y >= int(pc.volume_dims.y)) return;
+
+    vec3 accumulated_light = vec3(0.0);
+    float transmittance = 1.0;
+
+    int depth_slices = int(pc.volume_dims.z);
+
+    float prev_depth = pc.near_plane;
+
+    for (int z = 0; z < depth_slices; ++z) {
+        // Sample scattering and extinction
+        vec3 uvw = (vec3(coord, z) + 0.5) / vec3(pc.volume_dims.xyz);
+        vec4 scatter_ext = texture(scatter_volume, uvw);
+
+        vec3 in_scattering = scatter_ext.rgb;
+        float extinction = scatter_ext.a;
+
+        // Compute slice thickness
+        float t0 = float(z) / float(depth_slices);
+        float t1 = float(z + 1) / float(depth_slices);
+        float d0 = slice_to_depth(t0);
+        float d1 = slice_to_depth(t1);
+        float slice_thickness = d1 - d0;
+
+        // Frostbite energy-conserving integration
+        float dt = extinction * slice_thickness;
+        float tr = exp(-dt);
+
+        // Integral: scattering * (1 - exp(-extinction * thickness)) / extinction
+        vec3 slice_light = in_scattering * (1.0 - tr) / max(extinction, 1e-7);
+
+        accumulated_light += transmittance * slice_light;
+        transmittance *= tr;
+
+        imageStore(integrated_volume, ivec3(coord, z),
+                   vec4(accumulated_light, transmittance));
+    }
+}

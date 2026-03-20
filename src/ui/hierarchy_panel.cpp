@@ -32,6 +32,9 @@ NodeVisuals node_visuals(const SceneNode& obj) {
         if (dynamic_cast<const DirectionalLightNode*>(&obj)) icon = "dir_light";
         return {{0.96f, 0.78f, 0.26f, 1.0f}, icon};
     }
+    if (dynamic_cast<const VolumetricFogNode*>(&obj)) {
+        return {{0.55f, 0.70f, 0.85f, 1.0f}, "node"};
+    }
     if (dynamic_cast<const CameraNode*>(&obj)) {
         return {{0.31f, 0.79f, 0.63f, 1.0f}, "camera"};
     }
@@ -77,6 +80,8 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Directional Light") && add_primitive_cb_) add_primitive_cb_("light:directional");
             if (ImGui::MenuItem("Point Light") && add_primitive_cb_) add_primitive_cb_("light:point");
             if (ImGui::MenuItem("Spot Light") && add_primitive_cb_) add_primitive_cb_("light:spot");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Volumetric Fog") && add_primitive_cb_) add_primitive_cb_("volumetric_fog");
             ImGui::EndPopup();
         }
 
@@ -135,6 +140,8 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Add Directional Light") && add_primitive_cb_) add_primitive_cb_("light:directional");
             if (ImGui::MenuItem("Add Point Light") && add_primitive_cb_) add_primitive_cb_("light:point");
             if (ImGui::MenuItem("Add Spot Light") && add_primitive_cb_) add_primitive_cb_("light:spot");
+            ImGui::Separator();
+            if (ImGui::MenuItem("Add Volumetric Fog") && add_primitive_cb_) add_primitive_cb_("volumetric_fog");
             ImGui::EndPopup();
         }
 

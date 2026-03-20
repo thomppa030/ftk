@@ -425,6 +425,33 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            if (auto* vf = dynamic_cast<VolumetricFogNode*>(obj)) {
+                colored_separator({0.55f, 0.70f, 0.85f, 1.0f});
+                if (ImGui::CollapsingHeader("Volumetric Fog", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text("Density");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##FogDensity", &vf->density, 0.001f, 0.2f, "%.4f");
+                    ImGui::Text("Height Falloff");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##FogFalloff", &vf->height_falloff, 0.01f, 5.0f);
+                    ImGui::Text("Scattering");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##FogScatter", &vf->scattering, 0.0f, 1.0f);
+                    ImGui::Text("Anisotropy (Godrays)");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##FogAniso", &vf->anisotropy, -0.99f, 0.99f);
+                    ImGui::Text("Max Distance");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##FogDist", &vf->max_distance, 10.0f, 1000.0f);
+                    ImGui::Text("Temporal Blend");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##FogTemporal", &vf->temporal_blend, 0.0f, 0.99f);
+                    ImGui::Text("Fog Color");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::ColorEdit3("##FogColor", &vf->fog_color.r);
+                }
+            }
+
             // Audio Source
             if (obj->audio) {
                 colored_separator({0.55f, 0.70f, 0.85f, 1.0f});

@@ -456,6 +456,17 @@ void Scene::save(const std::string& path) {
                 {"inner_angle", sl->inner_angle},
                 {"outer_angle", sl->outer_angle}
             };
+        } else if (auto* vf = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
+            jobj["node_type"] = "volumetric_fog";
+            jobj["fog"] = {
+                {"density", vf->density},
+                {"height_falloff", vf->height_falloff},
+                {"scattering", vf->scattering},
+                {"anisotropy", vf->anisotropy},
+                {"max_distance", vf->max_distance},
+                {"temporal_blend", vf->temporal_blend},
+                {"color", {vf->fog_color.r, vf->fog_color.g, vf->fog_color.b}}
+            };
         }
 
         j["objects"].push_back(jobj);
@@ -615,6 +626,22 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                     sl->outer_angle = jl.value("outer_angle", 30.0f);
                 }
                 node = std::move(sl);
+            } else if (node_type == "volumetric_fog") {
+                auto vf = std::make_unique<VolumetricFogNode>();
+                if (jobj.contains("fog")) {
+                    auto& jf = jobj["fog"];
+                    vf->density = jf.value("density", 0.003f);
+                    vf->height_falloff = jf.value("height_falloff", 0.5f);
+                    vf->scattering = jf.value("scattering", 0.5f);
+                    vf->anisotropy = jf.value("anisotropy", 0.7f);
+                    vf->max_distance = jf.value("max_distance", 130.0f);
+                    vf->temporal_blend = jf.value("temporal_blend", 0.9f);
+                    if (jf.contains("color")) {
+                        auto& c = jf["color"];
+                        vf->fog_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    }
+                }
+                node = std::move(vf);
             }
 
             if (node) {

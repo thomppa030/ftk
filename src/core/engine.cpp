@@ -433,6 +433,12 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
+    if (type == "volumetric_fog") {
+        auto node = std::make_unique<VolumetricFogNode>();
+        node->name = "Volumetric Fog";
+        selected_id_ = scene_.add_node(std::move(node));
+        return;
+    }
 
     // Sprite objects: plane primitive with a sprite component
     if (type == "sprite") {

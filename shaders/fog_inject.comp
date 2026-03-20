@@ -1,0 +1,144 @@
+#version 460
+
+// Volumetric fog: density injection + directional light scattering per froxel
+
+#include "fjell_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;   // xyz = toward light, w = intensity
+    vec4 light_color;       // xyz = rgb
+    vec4 camera_position;   // xyz = world pos
+    vec4 ambient_color;     // xyz = rgb, w = intensity
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;    // xyz = split distances
+    uvec4 tile_info;
+    mat4 inv_projection;
+    mat4 inv_view_proj;
+    mat4 prev_view_proj;
+} ubo;
+
+layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
+
+layout(set = 1, binding = 0, rgba16f) uniform writeonly image3D scatter_volume;
+
+layout(push_constant) uniform PushConstants {
+    uvec4 volume_dims;      // xyz = froxel grid, w = frame_index
+    float near_plane;
+    float far_plane;
+    float density;
+    float height;
+    float height_falloff;
+    float scattering;
+    float anisotropy;
+    float temporal_blend;
+    uint viewport_width;
+    uint viewport_height;
+    float fog_color_r;
+    float fog_color_g;
+    float fog_color_b;
+    float jitter_x;         // precomputed Halton jitter from CPU
+    float jitter_y;
+    float jitter_z;
+    float padding;
+} pc;
+
+// Exponential depth distribution
+float slice_to_depth(float t) {
+    return pc.near_plane * pow(pc.far_plane / pc.near_plane, t);
+}
+
+// Henyey-Greenstein phase function
+float henyey_greenstein(float g, float cos_theta) {
+    float g2 = g * g;
+    float denom = 1.0 + g2 - 2.0 * g * cos_theta;
+    return (1.0 - g2) / (4.0 * 3.14159265 * denom * sqrt(denom));
+}
+
+// Simple single-tap shadow for volumetric (no PCF needed at froxel resolution)
+float sample_shadow(vec3 world_pos) {
+    float view_depth = -(ubo.view * vec4(world_pos, 1.0)).z;
+
+    int cascade = 2;
+    for (int i = 0; i < 3; ++i) {
+        if (view_depth < ubo.cascade_splits[i]) {
+            cascade = i;
+            break;
+        }
+    }
+
+    vec4 lp = ubo.cascade_vp[cascade] * vec4(world_pos, 1.0);
+    vec3 proj = lp.xyz / lp.w;
+    vec2 suv = proj.xy * 0.5 + 0.5;
+
+    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0 ||
+        proj.z < 0.0 || proj.z > 1.0) {
+        return 1.0;
+    }
+
+    float bias = 0.005 * (1.0 + float(cascade));
+    return texture(shadow_map, vec4(suv, float(cascade), proj.z - bias));
+}
+
+void main() {
+    ivec3 coord = ivec3(gl_GlobalInvocationID.xyz);
+    if (any(greaterThanEqual(coord, ivec3(pc.volume_dims.xyz)))) return;
+
+    // Froxel UV with precomputed Halton jitter for temporal stability
+    vec3 froxel_uv = (vec3(coord) + 0.5 + vec3(pc.jitter_x, pc.jitter_y, pc.jitter_z))
+                     / vec3(pc.volume_dims.xyz);
+
+    // Reconstruct world position from froxel coordinates
+    float linear_depth = slice_to_depth(froxel_uv.z);
+    vec2 ndc_xy = froxel_uv.xy * 2.0 - 1.0;
+
+    // Get world-space ray from camera through this froxel
+    vec4 near_world = ubo.inv_view_proj * vec4(ndc_xy, 0.0, 1.0);
+    near_world /= near_world.w;
+    vec4 far_world = ubo.inv_view_proj * vec4(ndc_xy, 1.0, 1.0);
+    far_world /= far_world.w;
+    vec3 ray_dir = normalize(far_world.xyz - near_world.xyz);
+
+    // Scale along the ray by linear depth (depth along view Z axis)
+    vec3 view_forward = -vec3(ubo.view[0][2], ubo.view[1][2], ubo.view[2][2]);
+    float cos_angle = dot(ray_dir, view_forward);
+    float ray_dist = linear_depth / max(cos_angle, 1e-6);
+    vec3 world_pos = ubo.camera_position.xyz + ray_dir * ray_dist;
+
+    // Height fog density: exponential falloff above base height
+    float h = world_pos.y - pc.height;
+    float fog_density = pc.density * exp(-pc.height_falloff * max(h, 0.0));
+
+    // Add some density below the base height too (denser near ground)
+    if (h < 0.0) {
+        fog_density = pc.density * (1.0 + abs(h) * pc.height_falloff * 0.5);
+    }
+
+    // Early out for negligible density
+    if (fog_density < 1e-6) {
+        imageStore(scatter_volume, coord, vec4(0.0));
+        return;
+    }
+
+    float extinction = fog_density * pc.scattering;
+
+    // Directional light contribution
+    vec3 cam_to_froxel = normalize(world_pos - ubo.camera_position.xyz);
+    float cos_theta = dot(cam_to_froxel, ubo.light_direction.xyz);
+    float phase = henyey_greenstein(pc.anisotropy, cos_theta);
+
+    float shadow = sample_shadow(world_pos);
+
+    vec3 fog_color = vec3(pc.fog_color_r, pc.fog_color_g, pc.fog_color_b);
+    vec3 light_contrib = ubo.light_color.xyz * ubo.light_direction.w * phase * shadow;
+
+    // Ambient contribution (isotropic)
+    vec3 ambient = ubo.ambient_color.xyz * ubo.ambient_color.w;
+
+    vec3 in_scattered = fog_color * extinction * (light_contrib + ambient);
+
+    imageStore(scatter_volume, coord, vec4(in_scattered, extinction));
+}

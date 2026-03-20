@@ -21,6 +21,7 @@
 #include "renderer/pass/grid_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
+#include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
@@ -128,6 +129,7 @@ public:
   [[nodiscard]] BloomPass &bloom_pass() { return bloom_pass_; }
   [[nodiscard]] GtaoPass &gtao_pass() { return gtao_pass_; }
   [[nodiscard]] SsrPass &ssr_pass() { return ssr_pass_; }
+  [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return volumetric_fog_pass_; }
   [[nodiscard]] TonemapPass &tonemap_pass() { return tonemap_pass_; }
   [[nodiscard]] LightVizPass &light_heatmap_pass() {
     return light_heatmap_pass_;
@@ -247,6 +249,7 @@ private:
   glm::vec3 camera_position_{0.0f};
   glm::mat4 view_matrix_{1.0f};
   glm::mat4 projection_matrix_{1.0f};
+  glm::mat4 prev_view_proj_{1.0f};
   VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
 
   // Multi-draw indirect
@@ -273,6 +276,9 @@ private:
 
   // Screen-space reflections
   SsrPass ssr_pass_;
+
+  // Volumetric fog
+  VolumetricFogPass volumetric_fog_pass_;
 
   // Previous frame color for SSR (copied after each frame)
   VkImage prev_frame_color_{VK_NULL_HANDLE};

@@ -63,4 +63,29 @@ struct SpotLightNode : SceneNode {
     }
 };
 
+// ── Environment nodes ────────────────────────────────────────────────────
+
+struct VolumetricFogNode : SceneNode {
+    float density{0.003f};
+    float height_falloff{0.5f};
+    float scattering{0.5f};
+    float anisotropy{0.7f};        // HG phase g: positive = godrays
+    float max_distance{130.0f};
+    float temporal_blend{0.9f};
+    glm::vec3 fog_color{0.8f, 0.85f, 0.9f};
+
+    [[nodiscard]] std::unique_ptr<SceneNode> clone() const override {
+        auto copy = std::make_unique<VolumetricFogNode>();
+        clone_base_into(*copy);
+        copy->density = density;
+        copy->height_falloff = height_falloff;
+        copy->scattering = scattering;
+        copy->anisotropy = anisotropy;
+        copy->max_distance = max_distance;
+        copy->temporal_blend = temporal_blend;
+        copy->fog_color = fog_color;
+        return copy;
+    }
+};
+
 } // namespace fjell

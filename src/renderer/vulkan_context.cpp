@@ -126,6 +126,7 @@ VulkanContext::VulkanContext(Window& window)
     tonemap_pass_.create(device_, pass_resources);
     gtao_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
     ssr_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
+    volumetric_fog_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
     light_cull_pass_.create(device_.handle(), global_set_layout_->handle());
     light_heatmap_pass_.set_mode(0);
     light_heatmap_pass_.create(device_, pass_resources);
@@ -174,6 +175,7 @@ VulkanContext::~VulkanContext() {
     light_heatmap_pass_.destroy();
     gtao_pass_.destroy();
     ssr_pass_.destroy();
+    volumetric_fog_pass_.destroy();
 
     // Previous frame color for SSR
     if (prev_frame_color_view_ != VK_NULL_HANDLE) {
@@ -263,7 +265,7 @@ void VulkanContext::create_descriptor_resources() {
     global_bindings[1].binding = 1;
     global_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     global_bindings[1].descriptorCount = 1;
-    global_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    global_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 
     global_bindings[2].binding = 2;
     global_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1095,6 +1097,18 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }, {{depth_id, ImageUsage::compute_read},
         {color_id, ImageUsage::compute_write}});
 
+    // Volumetric fog (reads depth + shadow map via global set, writes into scene color)
+    graph.add_pass("volumetric_fog", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Volumetric Fog");
+#endif
+        auto ext = target.extent();
+        volumetric_fog_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
+                                      target.depth_view(), target.color_view(),
+                                      ext.width, ext.height, current_frame_);
+    }, {{depth_id, ImageUsage::compute_read},
+        {color_id, ImageUsage::compute_write}});
+
     // Post-processing reads the color buffer
     graph.add_pass("bloom", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -1230,6 +1244,25 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                             light, 0.1f, 1000.0f);
     }
 
+    // Scan for volumetric fog node once per frame (before viewports)
+    volumetric_fog_pass_.enabled_ = false;
+    if (scene) {
+        for (const auto& obj : scene->objects()) {
+            if (auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
+                volumetric_fog_pass_.enabled_ = true;
+                volumetric_fog_pass_.density_ = fog->density;
+                volumetric_fog_pass_.height_ = glm::vec3(fog->world_matrix_[3]).y;
+                volumetric_fog_pass_.height_falloff_ = fog->height_falloff;
+                volumetric_fog_pass_.scattering_ = fog->scattering;
+                volumetric_fog_pass_.anisotropy_ = fog->anisotropy;
+                volumetric_fog_pass_.max_distance_ = fog->max_distance;
+                volumetric_fog_pass_.temporal_blend_ = fog->temporal_blend;
+                volumetric_fog_pass_.fog_color_ = fog->fog_color;
+                break;
+            }
+        }
+    }
+
     // --- Render scene once per viewport ---
     for (const auto& vp : viewports) {
         if (!vp.target) continue;
@@ -1351,8 +1384,12 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     uint32_t tiles_y = (extent.height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     ubo.tile_info = glm::uvec4(tiles_x, tiles_y, point_count, spot_count);
     ubo.inv_projection = glm::inverse(projection);
+    ubo.inv_view_proj = glm::inverse(projection * view);
+    ubo.prev_view_proj = prev_view_proj_;
 
     uniform_buffers_[frame_index]->write(&ubo, sizeof(ubo));
+
+    prev_view_proj_ = projection * view;
 }
 
 void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {

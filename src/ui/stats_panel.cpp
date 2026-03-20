@@ -65,6 +65,25 @@ void StatsPanel::draw(float dt) {
                          FRAME_TIME_HISTORY_SIZE, frame_time_index_,
                          nullptr, 0.0f, 33.3f,
                          {ImGui::GetContentRegionAvail().x, 35});
+
+        // Post-processing controls
+        if (ImGui::CollapsingHeader("GTAO")) {
+            auto& gtao = ctx_->gtao_pass();
+            bool gtao_on = gtao.enabled();
+            if (ImGui::Checkbox("Enabled##gtao", &gtao_on)) gtao.set_enabled(gtao_on);
+        }
+
+        if (ImGui::CollapsingHeader("SSR")) {
+            auto& ssr = ctx_->ssr_pass();
+            bool ssr_on = ssr.enabled();
+            if (ImGui::Checkbox("Enabled##ssr", &ssr_on)) ssr.set_enabled(ssr_on);
+            if (ssr_on) {
+                float intensity = ssr.intensity();
+                if (ImGui::SliderFloat("Intensity##ssr", &intensity, 0.0f, 2.0f)) ssr.set_intensity(intensity);
+                float thickness = ssr.thickness();
+                if (ImGui::SliderFloat("Thickness##ssr", &thickness, 0.01f, 2.0f)) ssr.set_thickness(thickness);
+            }
+        }
     }
     ImGui::End();
 }
