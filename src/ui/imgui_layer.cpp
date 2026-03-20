@@ -7,6 +7,7 @@
 #include <ImGuizmo.h>
 
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 
 #include <array>
 #include <stdexcept>
@@ -77,6 +78,7 @@ ImGuiLayer::~ImGuiLayer() {
 }
 
 void ImGuiLayer::begin_frame() {
+  FJELL_PROFILE_SCOPE_N("imgui_begin_frame");
   if (ImGui::GetCurrentContext() == nullptr) {
     FJELL_CORE_ERROR("ImGuiLayer::begin_frame() called with no ImGui context");
     return;
@@ -88,9 +90,10 @@ void ImGuiLayer::begin_frame() {
   ImGuizmo::BeginFrame();
 }
 
-void ImGuiLayer::end_frame() { ImGui::Render(); }
+void ImGuiLayer::end_frame() { FJELL_PROFILE_SCOPE_N("imgui_end_frame"); ImGui::Render(); }
 
 void ImGuiLayer::render(VkCommandBuffer cmd) {
+  FJELL_PROFILE_SCOPE_N("imgui_render");
   ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
 }
 

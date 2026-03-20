@@ -1,5 +1,6 @@
 #include "renderer/frame_graph.hpp"
 #include "renderer/thread_command_pools.hpp"
+#include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 
 #include <latch>
@@ -142,6 +143,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
 
 void FrameGraph::execute(VkCommandBuffer primary, ThreadPool* pool,
                           ThreadCommandPools* cmd_pools, uint32_t frame_index) {
+    FJELL_PROFILE_SCOPE_N("frame_graph_execute");
     bool can_parallelize = pool && cmd_pools && pool->thread_count() > 0;
 
     size_t i = 0;
