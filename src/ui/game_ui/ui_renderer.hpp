@@ -50,8 +50,12 @@ private:
         glm::vec4 gradient_to;   // gradient end color RGBA
         glm::vec2 viewport_size; // for px->NDC
         glm::vec2 shadow_params; // blur_radius, spread
+        uint32_t texture_id;     // bindless texture index (0 = none)
+        uint32_t material_id;    // material SSBO index (UINT32_MAX = none)
+        float z_layer;           // depth ordering (0 = far, 1 = near)
+        uint32_t quad_flags;     // bitfield: bit 0 = opaque
     };
-    static_assert(sizeof(GpuUiQuad) == 128);
+    static_assert(sizeof(GpuUiQuad) == 144);
 
     struct GpuUiGlyph {
         glm::vec4 rect;          // x, y, w, h (pixels)
@@ -67,13 +71,30 @@ private:
     void collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads,
                        float viewport_width, float viewport_height);
 
+    // Scissor clip group: a contiguous range of quads sharing the same clip rect
+    struct ClipGroup {
+        glm::vec4 clip_rect;  // x, y, w, h in pixels
+        uint32_t first_vertex;
+        uint32_t vertex_count;
+    };
+
+    // Build contiguous clip groups from a range of quads
+    static std::vector<ClipGroup> build_clip_groups(const GpuUiQuad* quads,
+                                                     uint32_t first_quad,
+                                                     uint32_t quad_count);
+
+    // Per-frame clip groups for opaque and transparent passes
+    std::array<std::vector<ClipGroup>, MAX_FRAMES_IN_FLIGHT> opaque_groups_;
+    std::array<std::vector<ClipGroup>, MAX_FRAMES_IN_FLIGHT> transparent_groups_;
+
     VkDevice device_{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
 
-    // Quad pipeline
+    // Quad pipelines
     VkDescriptorSetLayout quad_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    VkPipeline pipeline_{VK_NULL_HANDLE};           // transparent quads (blend ON, depth write OFF)
+    VkPipeline opaque_pipeline_{VK_NULL_HANDLE};    // opaque quads (blend OFF, depth write ON)
 
     // Text pipeline (shares layout)
     VkPipeline text_pipeline_{VK_NULL_HANDLE};
@@ -90,14 +111,16 @@ private:
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
     VkFormat color_format_{VK_FORMAT_UNDEFINED};
+    VkFormat depth_format_{VK_FORMAT_UNDEFINED};
 
     // Per-frame counts
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> quad_counts_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> text_counts_{};
 
     static constexpr uint32_t MAX_UI_QUADS = 4096;
     static constexpr uint32_t MAX_TEXT_GLYPHS = 8192;
-    static constexpr VkDeviceSize SSBO_SIZE = MAX_UI_QUADS * 128; // sizeof(GpuUiQuad)
+    static constexpr VkDeviceSize SSBO_SIZE = MAX_UI_QUADS * 144; // sizeof(GpuUiQuad)
     static constexpr VkDeviceSize TEXT_SSBO_SIZE = MAX_TEXT_GLYPHS * 96; // sizeof(GpuUiGlyph)
 };
 

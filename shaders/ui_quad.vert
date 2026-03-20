@@ -10,6 +10,10 @@ struct UiQuad {
     vec4 gradient_to;   // gradient end color RGBA
     vec2 viewport_size; // for px->NDC
     vec2 shadow_params; // blur_radius, spread
+    uint texture_id;    // bindless texture index (0 = none)
+    uint material_id;   // material SSBO index (UINT32_MAX = none)
+    float z_layer;      // depth ordering (0 = far, 1 = near)
+    uint quad_flags;    // bitfield: bit 0 = opaque
 };
 
 layout(std430, set = 2, binding = 0) readonly buffer UiQuadBuffer {
@@ -37,5 +41,5 @@ void main() {
     vec2 pos = q.rect.xy + uv * q.rect.zw;
     vec2 ndc = (pos / q.viewport_size) * 2.0 - 1.0;
 
-    gl_Position = vec4(ndc, 0.0, 1.0);
+    gl_Position = vec4(ndc, q.z_layer, 1.0);
 }

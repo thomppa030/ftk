@@ -57,6 +57,8 @@ public:
     [[nodiscard]] Texture* get(TextureHandle handle) const;
     [[nodiscard]] Material* get(MaterialHandle handle) const;
 
+    [[nodiscard]] MaterialHandle find_material(const std::string& name) const;
+
     [[nodiscard]] TextureHandle default_white_handle() const { return default_white_handle_; }
     [[nodiscard]] TextureHandle default_normal_handle() const { return default_normal_handle_; }
     [[nodiscard]] TextureHandle default_metallic_roughness_handle() const { return default_mr_handle_; }

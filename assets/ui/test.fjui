@@ -12,9 +12,15 @@
     </div>
 
     <div class="bottom-panel">
-        <div class="slot" on:click="select_slot_1" class:active="active_slot==1"/>
-        <div class="slot" on:click="select_slot_2" class:active="active_slot==2"/>
-        <div class="slot" on:click="select_slot_3" class:active="active_slot==3"/>
+        <div class="slot" on:click="select_slot_1" class:active="active_slot==1">
+            <div class="slot-icon" src="assets/textures/test.png"/>
+        </div>
+        <div class="slot" on:click="select_slot_2" class:active="active_slot==2">
+            <div class="slot-icon" material="default"/>
+        </div>
+        <div class="slot" on:click="select_slot_3" class:active="active_slot==3">
+            <div class="slot-icon" material="ui_amber"/>
+        </div>
         <div class="slot" on:click="select_slot_4" class:active="active_slot==4"/>
     </div>
 </panel>

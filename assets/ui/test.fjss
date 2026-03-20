@@ -57,9 +57,17 @@
     padding: 8;
 }
 
+.slot-icon {
+    width: 40;
+    height: 40;
+    align-self: center;
+}
+
 .slot {
     width: 48;
     height: 48;
+    align-items: center;
+    justify-content: center;
     background-color: rgba(34, 34, 34, 0.8);
     border-radius: 6;
     border: 2 solid #555555;

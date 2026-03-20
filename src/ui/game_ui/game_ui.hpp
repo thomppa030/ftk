@@ -27,6 +27,7 @@ namespace fjell {
 class Device;
 class BindlessTextures;
 class Input;
+class ResourceManager;
 struct PassResources;
 
 /// Orchestrator for the game UI system.
@@ -54,14 +55,18 @@ public:
     void record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
                 VkExtent2D extent, uint32_t frame_index);
 
+    void set_resource_manager(ResourceManager* rm);
+
     [[nodiscard]] UiContext& context() { return context_; }
     [[nodiscard]] bool loaded() const { return root_ != nullptr; }
-    void mark_dirty() { dirty_ = true; }
+    [[nodiscard]] bool needs_redraw() const;
+    void mark_dirty();
 
 private:
     void shape_text_nodes(UiNode& node, float viewport_width, float viewport_height,
                           uint32_t frame_index);
     void init_text_templates(UiNode& node);
+    void resolve_textures(UiNode& node);
 
     std::unique_ptr<UiNode> root_;
     Stylesheet stylesheet_;
@@ -74,6 +79,10 @@ private:
     UiAnimation animation_;
     FontAtlas font_atlas_;
     bool dirty_{true};
+    bool needs_redraw_{true};
+
+    ResourceManager* resource_manager_{nullptr};
+    BindlessTextures* bindless_{nullptr};
 
 #ifndef NDEBUG
     std::unique_ptr<UiWatcher> watcher_;

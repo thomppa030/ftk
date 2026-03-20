@@ -1,4 +1,5 @@
 #version 460
+#extension GL_EXT_nonuniform_qualifier : require
 
 struct UiQuad {
     vec4 rect;          // x, y, w, h (pixels)
@@ -10,10 +11,28 @@ struct UiQuad {
     vec4 gradient_to;   // gradient end color RGBA
     vec2 viewport_size; // for px->NDC
     vec2 shadow_params; // blur_radius, spread
+    uint texture_id;    // bindless texture index (0 = none)
+    uint material_id;   // material SSBO index (UINT32_MAX = none)
+    float z_layer;      // depth ordering
+    uint quad_flags;    // bitfield: bit 0 = opaque
+};
+
+struct GpuMaterial {
+    uint texture_indices[8];
+    float base_params[12];
+    uint param_offset;
+    uint param_count;
+    uint padding[2];
 };
 
 layout(std430, set = 2, binding = 0) readonly buffer UiQuadBuffer {
     UiQuad quads[];
+};
+
+layout(set = 1, binding = 0) uniform sampler2D textures[];
+
+layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
+    GpuMaterial materials[];
 };
 
 layout(location = 0) in vec2 frag_uv;
@@ -56,7 +75,7 @@ void main() {
     float outer_alpha = 1.0 - smoothstep(-aa, aa, dist);
 
     // Shadow mode (flags == 2): gaussian falloff from SDF distance
-    if (flags > 1.5) {
+    if (flags > 1.5 && flags < 2.5) {
         float blur = max(q.shadow_params.x, 0.001);
         // Gaussian approximation: use smoothstep over blur radius
         float shadow_alpha = 1.0 - smoothstep(-blur, blur * 0.5, dist);
@@ -67,7 +86,22 @@ void main() {
 
     // Determine fill color
     vec4 fill_color;
-    if (flags > 0.5) {
+
+    if (flags > 3.5) {
+        // Material mode (flags == 4): look up material, sample its base_color texture
+        GpuMaterial mat = materials[q.material_id];
+        uint tex_idx = mat.texture_indices[0]; // base_color slot
+        vec4 tex_sample = texture(textures[nonuniformEXT(tex_idx)], frag_uv);
+        vec4 base_color_factor = vec4(mat.base_params[0], mat.base_params[1],
+                                       mat.base_params[2], mat.base_params[3]);
+        // If base_color_factor is zero (unset), treat as white
+        if (base_color_factor == vec4(0.0)) base_color_factor = vec4(1.0);
+        fill_color = q.color * tex_sample * base_color_factor;
+    } else if (flags > 2.5) {
+        // Raw texture mode (flags == 3): sample bindless texture, multiply with fill color
+        vec4 tex_sample = texture(textures[nonuniformEXT(q.texture_id)], frag_uv);
+        fill_color = q.color * tex_sample;
+    } else if (flags > 0.5) {
         // Gradient mode: interpolate between color (from) and gradient_to (to)
         float angle_rad = radians(gradient_angle);
         vec2 dir = vec2(sin(angle_rad), cos(angle_rad));

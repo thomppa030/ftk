@@ -314,4 +314,12 @@ Material* ResourceManager::get(MaterialHandle handle) const {
     return materials_.get(handle);
 }
 
+MaterialHandle ResourceManager::find_material(const std::string& name) const {
+    auto it = materials_.name_to_handle.find(name);
+    if (it != materials_.name_to_handle.end()) {
+        return it->second;
+    }
+    return {};
+}
+
 } // namespace fjell

@@ -11,11 +11,14 @@
 
 namespace fjell {
 
+enum class UiPipelineMode { transparent, opaque };
+
 // Helper to create a pipeline with given shaders and shared state
 static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
-                                      VkFormat color_format,
+                                      VkFormat color_format, VkFormat depth_format,
                                       const std::string& vert_path,
-                                      const std::string& frag_path) {
+                                      const std::string& frag_path,
+                                      UiPipelineMode mode = UiPipelineMode::transparent) {
     auto vert_mod = create_shader_module(device, read_spirv(vert_path));
     auto frag_mod = create_shader_module(device, read_spirv(frag_path));
 
@@ -60,19 +63,34 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_FALSE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
+    bool use_depth = (depth_format != VK_FORMAT_UNDEFINED);
+    if (use_depth) {
+        depth_stencil.depthTestEnable = VK_TRUE;
+        depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+        if (mode == UiPipelineMode::opaque) {
+            depth_stencil.depthWriteEnable = VK_TRUE;
+        } else {
+            depth_stencil.depthWriteEnable = VK_FALSE;
+        }
+    } else {
+        depth_stencil.depthTestEnable = VK_FALSE;
+        depth_stencil.depthWriteEnable = VK_FALSE;
+    }
 
     VkPipelineColorBlendAttachmentState blend{};
     blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    blend.blendEnable = VK_TRUE;
-    blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.colorBlendOp = VK_BLEND_OP_ADD;
-    blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.alphaBlendOp = VK_BLEND_OP_ADD;
+    if (mode == UiPipelineMode::opaque) {
+        blend.blendEnable = VK_FALSE;
+    } else {
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -83,6 +101,9 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     rendering_info.colorAttachmentCount = 1;
     rendering_info.pColorAttachmentFormats = &color_format;
+    if (use_depth) {
+        rendering_info.depthAttachmentFormat = depth_format;
+    }
 
     VkGraphicsPipelineCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -116,6 +137,7 @@ void UiRenderer::create(Device& device, const PassResources& resources,
     global_set_layout_ = resources.global_set_layout;
     bindless_set_layout_ = resources.material_set_layout;
     color_format_ = (output_format != VK_FORMAT_UNDEFINED) ? output_format : resources.color_format;
+    depth_format_ = resources.depth_format;
 
     // Set 2: binding 0 = quad SSBO, binding 1 = glyph SSBO
     VkDescriptorSetLayoutBinding bindings[2]{};
@@ -146,15 +168,23 @@ void UiRenderer::create(Device& device, const PassResources& resources,
         throw std::runtime_error("Failed to create UI pipeline layout");
     }
 
-    // Quad pipeline
-    pipeline_ = create_ui_pipeline(device_, layout_, color_format_,
+    // Transparent quad pipeline (blend ON, depth test ON, depth write OFF)
+    pipeline_ = create_ui_pipeline(device_, layout_, color_format_, depth_format_,
         base_path::resolve("shaders/ui_quad.vert.spv"),
-        base_path::resolve("shaders/ui_quad.frag.spv"));
+        base_path::resolve("shaders/ui_quad.frag.spv"),
+        UiPipelineMode::transparent);
 
-    // Text pipeline
-    text_pipeline_ = create_ui_pipeline(device_, layout_, color_format_,
+    // Opaque quad pipeline (blend OFF, depth test ON, depth write ON)
+    opaque_pipeline_ = create_ui_pipeline(device_, layout_, color_format_, depth_format_,
+        base_path::resolve("shaders/ui_quad.vert.spv"),
+        base_path::resolve("shaders/ui_quad.frag.spv"),
+        UiPipelineMode::opaque);
+
+    // Text pipeline (always transparent)
+    text_pipeline_ = create_ui_pipeline(device_, layout_, color_format_, depth_format_,
         base_path::resolve("shaders/ui_text.vert.spv"),
-        base_path::resolve("shaders/ui_text.frag.spv"));
+        base_path::resolve("shaders/ui_text.frag.spv"),
+        UiPipelineMode::transparent);
 
     // N sets × 2 SSBOs each = 2N storage buffer descriptors
     VkDescriptorPoolSize pool_size{};
@@ -227,9 +257,35 @@ void UiRenderer::destroy() {
     for (auto& ssbo : text_ssbos_) ssbo.reset();
     safe_destroy(pool_, vkDestroyDescriptorPool);
     safe_destroy(text_pipeline_, vkDestroyPipeline);
+    safe_destroy(opaque_pipeline_, vkDestroyPipeline);
     safe_destroy(pipeline_, vkDestroyPipeline);
     safe_destroy(layout_, vkDestroyPipelineLayout);
     safe_destroy(quad_set_layout_, vkDestroyDescriptorSetLayout);
+}
+
+std::vector<UiRenderer::ClipGroup> UiRenderer::build_clip_groups(
+        const GpuUiQuad* quads, uint32_t first_quad, uint32_t quad_count) {
+    std::vector<ClipGroup> groups;
+    if (quad_count == 0) return groups;
+
+    ClipGroup current{};
+    current.clip_rect = quads[first_quad].clip_rect;
+    current.first_vertex = first_quad * 6;
+    current.vertex_count = 6;
+
+    for (uint32_t i = 1; i < quad_count; ++i) {
+        const auto& cr = quads[first_quad + i].clip_rect;
+        if (cr == current.clip_rect) {
+            current.vertex_count += 6;
+        } else {
+            groups.push_back(current);
+            current.clip_rect = cr;
+            current.first_vertex = (first_quad + i) * 6;
+            current.vertex_count = 6;
+        }
+    }
+    groups.push_back(current);
+    return groups;
 }
 
 void UiRenderer::update(const UiNode& root, float viewport_width, float viewport_height,
@@ -238,13 +294,43 @@ void UiRenderer::update(const UiNode& root, float viewport_width, float viewport
     std::vector<GpuUiQuad> quads;
     collect_quads(root, quads, viewport_width, viewport_height);
 
-    uint32_t count = std::min(static_cast<uint32_t>(quads.size()), MAX_UI_QUADS);
+    // Partition into opaque (front-to-back) and transparent (original order)
+    std::vector<GpuUiQuad> opaque;
+    std::vector<GpuUiQuad> transparent;
+    for (auto& q : quads) {
+        if (q.quad_flags & 1u) {
+            opaque.push_back(q);
+        } else {
+            transparent.push_back(q);
+        }
+    }
+
+    // Sort opaque front-to-back (ascending z_layer = near first)
+    std::sort(opaque.begin(), opaque.end(),
+              [](const GpuUiQuad& a, const GpuUiQuad& b) {
+                  return a.z_layer < b.z_layer;
+              });
+
+    // Write opaque first, then transparent
+    std::vector<GpuUiQuad> sorted;
+    sorted.reserve(opaque.size() + transparent.size());
+    sorted.insert(sorted.end(), opaque.begin(), opaque.end());
+    sorted.insert(sorted.end(), transparent.begin(), transparent.end());
+
+    uint32_t count = std::min(static_cast<uint32_t>(sorted.size()), MAX_UI_QUADS);
     quad_counts_[frame_index] = count;
+    uint32_t opaque_count = std::min(static_cast<uint32_t>(opaque.size()), count);
+    opaque_counts_[frame_index] = opaque_count;
+    uint32_t transparent_count = count - opaque_count;
 
     if (count > 0) {
         auto* dst = static_cast<GpuUiQuad*>(quad_ssbos_[frame_index]->mapped());
-        std::memcpy(dst, quads.data(), count * sizeof(GpuUiQuad));
+        std::memcpy(dst, sorted.data(), count * sizeof(GpuUiQuad));
     }
+
+    // Build scissor clip groups for each pass
+    opaque_groups_[frame_index] = build_clip_groups(sorted.data(), 0, opaque_count);
+    transparent_groups_[frame_index] = build_clip_groups(sorted.data(), opaque_count, transparent_count);
 
     // Reset text count (will be filled by update_text calls)
     text_counts_[frame_index] = 0;
@@ -295,6 +381,8 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
     bool has_bg = s.background_color.a > 0.0f || s.gradient.active();
     bool has_border = s.border_width > 0.0f && s.border_color.a > 0.0f;
     bool has_shadow = s.box_shadow.active();
+    bool has_texture = node.resolved_texture_id != 0;
+    bool has_material = node.resolved_material_id != UINT32_MAX;
 
     // Emit shadow quad first (behind the main quad)
     if (has_shadow) {
@@ -316,12 +404,18 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
                             node.clip_rect.w, node.clip_rect.h};
         shadow.viewport_size = {viewport_width, viewport_height};
         shadow.shadow_params = {sh.blur, sh.spread};
+        shadow.texture_id = 0;
+        shadow.material_id = UINT32_MAX;
+        shadow.z_layer = 1.0f - static_cast<float>(quads.size()) / MAX_UI_QUADS;
+        shadow.quad_flags = 0;
         quads.push_back(shadow);
     }
 
-    if (has_bg || has_border) {
-        // flags: 0 = normal, 1 = gradient
+    if (has_bg || has_border || has_texture || has_material) {
+        // flags: 0 = normal, 1 = gradient, 2 = shadow, 3 = raw texture, 4 = material
         float flags = s.gradient.active() ? 1.0f : 0.0f;
+        if (has_texture) flags = 3.0f;
+        if (has_material) flags = 4.0f;
 
         float rect_w = node.layout_rect.w;
 
@@ -338,8 +432,15 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
         GpuUiQuad quad{};
         quad.rect = {node.layout_rect.x, node.layout_rect.y,
                      rect_w, node.layout_rect.h};
-        quad.color = {s.background_color.r, s.background_color.g,
-                      s.background_color.b, s.background_color.a};
+
+        // Default color: use background_color, or white for textured elements
+        if (has_bg) {
+            quad.color = {s.background_color.r, s.background_color.g,
+                          s.background_color.b, s.background_color.a};
+        } else {
+            quad.color = {1.0f, 1.0f, 1.0f, 1.0f};
+        }
+
         quad.border_color = {s.border_color.r, s.border_color.g,
                              s.border_color.b, s.border_color.a};
         quad.corners = {s.border_radius.top_left, s.border_radius.top_right,
@@ -347,7 +448,7 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
         quad.params = {s.border_width, s.opacity, flags, s.gradient.angle};
         quad.clip_rect = {node.clip_rect.x, node.clip_rect.y,
                           node.clip_rect.w, node.clip_rect.h};
-        if (s.gradient.active()) {
+        if (s.gradient.active() && !has_texture && !has_material) {
             // For gradient: color = from, gradient_to = to
             quad.color = {s.gradient.from.r, s.gradient.from.g,
                           s.gradient.from.b, s.gradient.from.a};
@@ -355,6 +456,20 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
                                 s.gradient.to.b, s.gradient.to.a};
         }
         quad.viewport_size = {viewport_width, viewport_height};
+        quad.texture_id = node.resolved_texture_id;
+        quad.material_id = node.resolved_material_id;
+        quad.z_layer = 1.0f - static_cast<float>(quads.size()) / MAX_UI_QUADS;
+
+        // Classify opaque: fully opaque color, no border-radius, not shadow, not textured
+        bool is_opaque = s.opacity >= 1.0f &&
+                         quad.color.a >= 1.0f &&
+                         s.border_radius.top_left == 0.0f &&
+                         s.border_radius.top_right == 0.0f &&
+                         s.border_radius.bottom_right == 0.0f &&
+                         s.border_radius.bottom_left == 0.0f &&
+                         !has_texture && !has_material;
+        quad.quad_flags = is_opaque ? 1u : 0u;
+
         quads.push_back(quad);
     }
 
@@ -366,9 +481,9 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
 void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
                          VkExtent2D extent, uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("ui_renderer_record");
-    bool has_quads = quad_counts_[frame_index] > 0;
+    uint32_t total_quads = quad_counts_[frame_index];
     bool has_text = text_counts_[frame_index] > 0;
-    if (!has_quads && !has_text) return;
+    if (total_quads == 0 && !has_text) return;
 
     VkViewport vp{};
     vp.width = static_cast<float>(extent.width);
@@ -376,23 +491,50 @@ void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescr
     vp.maxDepth = 1.0f;
     vkCmdSetViewport(cmd, 0, 1, &vp);
 
-    VkRect2D sc{};
-    sc.extent = extent;
-    vkCmdSetScissor(cmd, 0, 1, &sc);
+    // Full-extent scissor (default, restored between groups)
+    VkRect2D full_scissor{};
+    full_scissor.extent = extent;
 
     // Bind shared descriptor sets
     VkDescriptorSet sets[] = {global_set, bindless_set, quad_sets_[frame_index]};
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 3, sets, 0, nullptr);
 
-    // Draw quads
-    if (has_quads) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
-        vkCmdDraw(cmd, quad_counts_[frame_index] * 6, 1, 0, 0);
+    // Helper: set scissor from a clip_rect (pixels), clamped to extent
+    auto set_scissor = [&](const glm::vec4& clip) {
+        VkRect2D sc{};
+        sc.offset.x = static_cast<int32_t>(std::max(0.0f, clip.x));
+        sc.offset.y = static_cast<int32_t>(std::max(0.0f, clip.y));
+        float right = std::min(clip.x + clip.z, static_cast<float>(extent.width));
+        float bottom = std::min(clip.y + clip.w, static_cast<float>(extent.height));
+        sc.extent.width = static_cast<uint32_t>(std::max(0.0f, right - static_cast<float>(sc.offset.x)));
+        sc.extent.height = static_cast<uint32_t>(std::max(0.0f, bottom - static_cast<float>(sc.offset.y)));
+        vkCmdSetScissor(cmd, 0, 1, &sc);
+    };
+
+    // Pass 1: Draw opaque quads with per-group scissor
+    const auto& opaque_groups = opaque_groups_[frame_index];
+    if (!opaque_groups.empty()) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, opaque_pipeline_);
+        for (const auto& group : opaque_groups) {
+            set_scissor(group.clip_rect);
+            vkCmdDraw(cmd, group.vertex_count, 1, group.first_vertex, 0);
+        }
     }
 
-    // Draw text glyphs
+    // Pass 2: Draw transparent quads with per-group scissor
+    const auto& transparent_groups = transparent_groups_[frame_index];
+    if (!transparent_groups.empty()) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+        for (const auto& group : transparent_groups) {
+            set_scissor(group.clip_rect);
+            vkCmdDraw(cmd, group.vertex_count, 1, group.first_vertex, 0);
+        }
+    }
+
+    // Draw text glyphs (full scissor, text has its own clip test)
     if (has_text) {
+        vkCmdSetScissor(cmd, 0, 1, &full_scissor);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, text_pipeline_);
         vkCmdDraw(cmd, text_counts_[frame_index] * 6, 1, 0, 0);
     }

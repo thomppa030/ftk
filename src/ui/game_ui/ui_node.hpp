@@ -3,6 +3,8 @@
 #include "ui/game_ui/ui_style.hpp"
 #include "ui/game_ui/ui_types.hpp"
 
+#include <climits>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -40,6 +42,10 @@ struct UiNode {
 
     // Scroll offset for overflow:scroll containers
     float scroll_offset_y{0.0f};
+
+    // Resolved texture/material indices (set during load)
+    uint32_t resolved_texture_id{0};
+    uint32_t resolved_material_id{UINT32_MAX};
 
     std::vector<std::unique_ptr<UiNode>> children;
     UiNode* parent{nullptr};

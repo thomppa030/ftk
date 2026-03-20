@@ -1,6 +1,10 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/fjui_parser.hpp"
+#include "renderer/bindless.hpp"
 #include "renderer/device.hpp"
+#include "renderer/material.hpp"
+#include "renderer/resource_manager.hpp"
+#include "core/base_path.hpp"
 #include "core/input.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -16,12 +20,26 @@ void GameUi::create(Device& device, const PassResources& resources,
                     VkCommandPool command_pool, VkQueue queue,
                     const std::string& font_path,
                     VkFormat output_format) {
+    bindless_ = &bindless;
     renderer_.create(device, resources, output_format);
 
     if (!font_path.empty() && std::filesystem::exists(font_path)) {
         font_atlas_.create(font_path, device.handle(), device.physical_device(),
                            command_pool, queue, bindless);
     }
+}
+
+void GameUi::set_resource_manager(ResourceManager* rm) {
+    resource_manager_ = rm;
+}
+
+bool GameUi::needs_redraw() const {
+    return needs_redraw_;
+}
+
+void GameUi::mark_dirty() {
+    dirty_ = true;
+    needs_redraw_ = true;
 }
 
 void GameUi::destroy() {
@@ -57,6 +75,11 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     // before data binding resolves {key} placeholders
     init_text_templates(*root_);
 
+    // Resolve src/material attributes to bindless indices
+    if (resource_manager_) {
+        resolve_textures(*root_);
+    }
+
     dirty_ = true;
 
 #ifndef NDEBUG
@@ -85,14 +108,20 @@ void GameUi::update(float viewport_width, float viewport_height,
     }
 #endif
 
+    needs_redraw_ = false;
+
     // 1. Data binding: resolve {key} templates and if directives
     bool bind_changed = data_bind_.resolve(*root_, context_);
-    if (bind_changed) dirty_ = true;
+    if (bind_changed) {
+        dirty_ = true;
+        needs_redraw_ = true;
+    }
 
     // 2. Full style resolve (on first frame or when bindings changed)
     if (dirty_) {
         style_resolver_.resolve(*root_, stylesheet_);
         dirty_ = false;
+        needs_redraw_ = true;
     }
 
     // 3. Process input: hit test, update hover/active/focus state
@@ -102,6 +131,7 @@ void GameUi::update(float viewport_width, float viewport_height,
                                                 viewport_offset);
         // 4. Re-resolve only dirty nodes (state changed by input)
         if (input_changed) {
+            needs_redraw_ = true;
             for (auto* node : ui_input_.dirty_nodes()) {
                 style_resolver_.resolve_single(*node, stylesheet_);
             }
@@ -109,7 +139,8 @@ void GameUi::update(float viewport_width, float viewport_height,
     }
 
     // 5. Animate transitions
-    animation_.update(*root_, dt);
+    bool animating = animation_.update(*root_, dt);
+    if (animating) needs_redraw_ = true;
 
     // 6. Compute flexbox layout
     layout_.compute(*root_, viewport_width, viewport_height);
@@ -162,6 +193,34 @@ void GameUi::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescripto
                     VkExtent2D extent, uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("game_ui_record");
     renderer_.record(cmd, global_set, bindless_set, extent, frame_index);
+}
+
+void GameUi::resolve_textures(UiNode& node) {
+    // Resolve src="path" → bindless texture index
+    auto src_it = node.attributes.find("src");
+    if (src_it != node.attributes.end() && !src_it->second.empty()) {
+        auto resolved_path = base_path::resolve(src_it->second);
+        auto tex_handle = resource_manager_->load_texture(resolved_path);
+        if (tex_handle.valid()) {
+            node.resolved_texture_id = resource_manager_->bindless_index(tex_handle);
+        }
+    }
+
+    // Resolve material="name" → material SSBO index
+    auto mat_it = node.attributes.find("material");
+    if (mat_it != node.attributes.end() && !mat_it->second.empty()) {
+        auto mat_handle = resource_manager_->find_material(mat_it->second);
+        if (mat_handle.valid()) {
+            auto* mat = resource_manager_->get(mat_handle);
+            if (mat) {
+                node.resolved_material_id = mat->material_id();
+            }
+        }
+    }
+
+    for (auto& child : node.children) {
+        resolve_textures(*child);
+    }
 }
 
 } // namespace fjell
