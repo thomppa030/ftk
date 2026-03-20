@@ -61,6 +61,11 @@ struct SceneNode {
     glm::mat4 world_matrix_{1.0f};
 
     Transform transform;
+
+    // Cached local matrix — recomputed only when transform changes
+    glm::mat4 local_matrix_{1.0f};
+    Transform prev_transform_{}; // snapshot for dirty detection
+    bool transform_dirty_{true}; // true = local_matrix_ needs recompute
     std::string name;
     std::string source;
 
@@ -152,6 +157,8 @@ private:
     std::vector<SpotLight> spot_lights_;
     uint32_t next_id_{1};
     bool dirty_{false};
+    bool index_dirty_{true};
+    std::vector<uint8_t> computed_buf_; // reusable per-frame scratch
 };
 
 } // namespace fjell

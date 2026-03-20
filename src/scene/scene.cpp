@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "core/profiler.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
 #include "renderer/resource_manager.hpp"
@@ -11,6 +12,8 @@
 #include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
+
+#include <cstring>
 
 #include <algorithm>
 #include <fstream>
@@ -86,6 +89,7 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
     obj->source = source;
     objects_.push_back(std::move(obj));
     dirty_ = true;
+    index_dirty_ = true;
     return id;
 }
 
@@ -97,6 +101,7 @@ uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     obj->name = name;
     objects_.push_back(std::move(obj));
     dirty_ = true;
+    index_dirty_ = true;
     return id;
 }
 
@@ -106,6 +111,7 @@ uint32_t Scene::add_node(std::unique_ptr<SceneNode> node) {
     uint32_t id = node->id;
     objects_.push_back(std::move(node));
     dirty_ = true;
+    index_dirty_ = true;
     return id;
 }
 
@@ -121,6 +127,7 @@ void Scene::remove(uint32_t id) {
     if (it != objects_.end()) {
         objects_.erase(it);
         dirty_ = true;
+        index_dirty_ = true;
     }
 }
 
@@ -136,6 +143,7 @@ std::unique_ptr<SceneNode> Scene::extract(uint32_t id) {
     auto result = std::move(*it);
     objects_.erase(it);
     dirty_ = true;
+    index_dirty_ = true;
     return result;
 }
 
@@ -143,6 +151,7 @@ void Scene::restore(std::unique_ptr<SceneNode> node) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
     objects_.push_back(std::move(node));
     dirty_ = true;
+    index_dirty_ = true;
 }
 
 void Scene::insert_point_light(int index, const PointLight& light) {
@@ -169,6 +178,7 @@ void Scene::clear() {
     objects_.clear();
     point_lights_.clear();
     spot_lights_.clear();
+    index_dirty_ = true;
 }
 
 void Scene::rebuild_id_index() {
@@ -209,19 +219,40 @@ int Scene::index_of(uint32_t id) const {
 }
 
 void Scene::compute_world_matrices() {
-    // Rebuild O(1) id→index lookup
-    rebuild_id_index();
+    FJELL_PROFILE_SCOPE_N("compute_world_matrices");
 
-    // Single-pass topological traversal: process each node once its parent is done.
-    // Most scenes are shallow (depth 2-4), so this converges in 2-3 passes max.
-    std::vector<bool> computed(objects_.size(), false);
-    auto remaining = objects_.size();
+    // Only rebuild id→index map when the object list has changed
+    if (index_dirty_) {
+        rebuild_id_index();
+        index_dirty_ = false;
+    }
+
+    auto n = objects_.size();
+
+    // Detect dirty transforms by comparing against previous snapshot.
+    // This avoids requiring callers to set flags — transform is a public struct.
+    for (std::size_t i = 0; i < n; ++i) {
+        auto& obj = *objects_[i];
+        if (obj.transform_dirty_ ||
+            obj.transform.position != obj.prev_transform_.position ||
+            obj.transform.rotation != obj.prev_transform_.rotation ||
+            obj.transform.scale != obj.prev_transform_.scale) {
+            obj.local_matrix_ = obj.transform.matrix();
+            obj.prev_transform_ = obj.transform;
+            obj.transform_dirty_ = false;
+        }
+    }
+
+    // Reuse scratch buffer — avoid allocation every frame
+    computed_buf_.resize(n);
+    std::memset(computed_buf_.data(), 0, n);
+    auto remaining = n;
 
     // Pass 1: roots (no parent)
-    for (std::size_t i = 0; i < objects_.size(); ++i) {
+    for (std::size_t i = 0; i < n; ++i) {
         if (objects_[i]->parent_id == -1) {
-            objects_[i]->world_matrix_ = objects_[i]->transform.matrix();
-            computed[i] = true;
+            objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+            computed_buf_[i] = 1;
             --remaining;
         }
     }
@@ -229,26 +260,26 @@ void Scene::compute_world_matrices() {
     // Subsequent passes: children whose parent is already computed (O(1) lookup)
     while (remaining > 0) {
         auto prev = remaining;
-        for (std::size_t i = 0; i < objects_.size(); ++i) {
-            if (computed[i]) continue;
+        for (std::size_t i = 0; i < n; ++i) {
+            if (computed_buf_[i]) continue;
             int pi = index_of(static_cast<uint32_t>(objects_[i]->parent_id));
             if (pi < 0) {
                 objects_[i]->parent_id = -1;
-                objects_[i]->world_matrix_ = objects_[i]->transform.matrix();
-                computed[i] = true;
+                objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+                computed_buf_[i] = 1;
                 --remaining;
-            } else if (computed[pi]) {
+            } else if (computed_buf_[pi]) {
                 objects_[i]->world_matrix_ =
-                    objects_[pi]->world_matrix_ * objects_[i]->transform.matrix();
-                computed[i] = true;
+                    objects_[pi]->world_matrix_ * objects_[i]->local_matrix_;
+                computed_buf_[i] = 1;
                 --remaining;
             }
         }
         if (remaining == prev) {
-            for (std::size_t i = 0; i < objects_.size(); ++i) {
-                if (!computed[i]) {
+            for (std::size_t i = 0; i < n; ++i) {
+                if (!computed_buf_[i]) {
                     objects_[i]->parent_id = -1;
-                    objects_[i]->world_matrix_ = objects_[i]->transform.matrix();
+                    objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
                 }
             }
             break;
