@@ -708,8 +708,12 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                 float alpha = c.size() > 3 ? c[3].get<float>() : 1.0f;
                 params.base_color_factor = {c[0].get<float>(), c[1].get<float>(),
                                             c[2].get<float>(), alpha};
-                std::string color_mat_name = mat_name + "_color_" + std::to_string(jobj.value("id", 0));
-                mat_handle = resources.create_material(color_mat_name,
+                // Key by color so identical colors share a material
+                char color_key[64];
+                std::snprintf(color_key, sizeof(color_key), "color_%.3f_%.3f_%.3f_%.3f",
+                              params.base_color_factor.x, params.base_color_factor.y,
+                              params.base_color_factor.z, params.base_color_factor.w);
+                mat_handle = resources.create_material(color_key,
                     resources.default_white_handle(), {}, {}, {}, params);
             } else {
                 mat_handle = resources.create_material(mat_name, default_tex);

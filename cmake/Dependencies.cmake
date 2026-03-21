@@ -163,6 +163,7 @@ set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INJECT_DEBUG_POSTFIX OFF CACHE BOOL "" FORCE)
 set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_MINIZIP TRUE CACHE INTERNAL "" FORCE)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     assimp
     GIT_REPOSITORY https://github.com/assimp/assimp.git
@@ -172,6 +173,11 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype tracy meshoptimizer assimp)
+
+# Assimp has internal warnings that fail with -Werror in Release, suppress them
+if(TARGET assimp)
+    target_compile_options(assimp PRIVATE -Wno-error)
+endif()
 
 # Bridge FetchContent'd FreeType for msdfgen's find_package(Freetype) call.
 # FindFreetype.cmake does filesystem searches and won't see the target, so we
