@@ -114,7 +114,7 @@ public:
     void restore(std::unique_ptr<SceneNode> node);
     void clear();
 
-    void compute_world_matrices();
+    void compute_world_matrices(class ThreadPool* pool = nullptr);
     void reparent(uint32_t child_id, int32_t new_parent_id);
 
     [[nodiscard]] SceneNode* find(uint32_t id);

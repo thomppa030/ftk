@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
@@ -218,7 +219,7 @@ int Scene::index_of(uint32_t id) const {
     return -1;
 }
 
-void Scene::compute_world_matrices() {
+void Scene::compute_world_matrices(ThreadPool* pool) {
     FJELL_PROFILE_SCOPE_N("compute_world_matrices");
 
     // Only rebuild id→index map when the object list has changed
@@ -231,19 +232,28 @@ void Scene::compute_world_matrices() {
 
     // Detect dirty transforms by comparing against previous snapshot.
     // This avoids requiring callers to set flags — transform is a public struct.
-    for (std::size_t i = 0; i < n; ++i) {
-        auto& obj = *objects_[i];
-        if (obj.transform_dirty_ ||
-            obj.transform.position != obj.prev_transform_.position ||
-            obj.transform.rotation != obj.prev_transform_.rotation ||
-            obj.transform.scale != obj.prev_transform_.scale) {
-            obj.local_matrix_ = obj.transform.matrix();
-            obj.prev_transform_ = obj.transform;
-            obj.transform_dirty_ = false;
-            obj.world_dirty_ = true;
-        } else {
-            obj.world_dirty_ = false;
+    // Each node's dirty detection is independent — parallelize across the pool.
+    auto detect_dirty = [&](uint32_t /*chunk*/, uint32_t begin, uint32_t end) {
+        for (uint32_t i = begin; i < end; ++i) {
+            auto& obj = *objects_[i];
+            if (obj.transform_dirty_ ||
+                obj.transform.position != obj.prev_transform_.position ||
+                obj.transform.rotation != obj.prev_transform_.rotation ||
+                obj.transform.scale != obj.prev_transform_.scale) {
+                obj.local_matrix_ = obj.transform.matrix();
+                obj.prev_transform_ = obj.transform;
+                obj.transform_dirty_ = false;
+                obj.world_dirty_ = true;
+            } else {
+                obj.world_dirty_ = false;
+            }
         }
+    };
+
+    if (pool && n > 64) {
+        pool->parallel_for(0, static_cast<uint32_t>(n), detect_dirty);
+    } else {
+        detect_dirty(0, 0, static_cast<uint32_t>(n));
     }
 
     // Reuse scratch buffer — avoid allocation every frame

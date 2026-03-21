@@ -1166,7 +1166,7 @@ void Engine::run() {
         (void)script_manager_.poll_reload(scene_);
 #endif
 
-        scene_.compute_world_matrices();
+        scene_.compute_world_matrices(&thread_pool_);
 
         // Update audio listener from active camera
         if (is_playing()) {
