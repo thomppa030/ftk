@@ -73,6 +73,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     uint32_t draw_index = 0;
     uint32_t triangles = 0;
+    uint32_t total_meshlets = 0;
 
     // Prepare AABB storage for GPU culling
     auto& aabbs = aabb_data_[frame_index];
@@ -123,6 +124,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             aabbs[draw_index].max_z = world_aabb.max.z;
             aabbs[draw_index].pad1 = 0.0f;
 
+            total_meshlets += entry.meshlet_count;
             triangles += entry.index_count / 3;
             draw_index++;
         }
@@ -134,6 +136,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     }
 
     opaque_counts_[frame_index] = draw_index;
+    total_meshlet_instances_[frame_index] = total_meshlets;
 
     // Write transparent draw data (SSBO only, no indirect commands — drawn individually)
     for (const auto& dc : transparent_commands) {

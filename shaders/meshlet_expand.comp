@@ -1,0 +1,47 @@
+#version 460
+
+layout(local_size_x = 64) in;
+
+struct DrawData {
+    mat4 model;
+    uint material_id;
+    uint meshlet_offset;
+    uint meshlet_count;
+    uint vertex_offset;
+};
+
+layout(set = 0, binding = 0) readonly buffer DrawDataBuffer {
+    DrawData draws[];
+};
+
+struct MeshletInstance {
+    uint meshlet_index;
+    uint draw_index;
+};
+
+layout(set = 0, binding = 1) writeonly buffer InstanceBuffer {
+    MeshletInstance instances[];
+};
+
+layout(set = 0, binding = 2) buffer CounterBuffer {
+    uint instance_count;
+};
+
+layout(push_constant) uniform PushConstants {
+    uint total_draws;
+} push;
+
+void main() {
+    uint draw_id = gl_GlobalInvocationID.x;
+    if (draw_id >= push.total_draws) return;
+
+    DrawData dd = draws[draw_id];
+    if (dd.meshlet_count == 0) return;
+
+    uint base = atomicAdd(instance_count, dd.meshlet_count);
+
+    for (uint i = 0; i < dd.meshlet_count; ++i) {
+        instances[base + i].meshlet_index = dd.meshlet_offset + i;
+        instances[base + i].draw_index = draw_id;
+    }
+}

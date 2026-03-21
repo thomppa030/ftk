@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/buffer.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
 
@@ -18,11 +19,13 @@ class MeshletDescriptor {
 public:
     MeshletDescriptor() = default;
 
-    void create(VkDevice device);
+    void create(VkDevice device, VkPhysicalDevice physical_device = VK_NULL_HANDLE);
     void destroy();
 
     void update(const MeshletBuffer& meshlet_buf, const MegaBuffer& mega_buf,
-                uint32_t frame_index);
+                uint32_t frame_index,
+                VkBuffer visible_buffer = VK_NULL_HANDLE,
+                VkDeviceSize visible_size = 0);
 
     [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_->handle(); }
     [[nodiscard]] VkDescriptorSet descriptor_set(uint32_t frame_index) const {
@@ -31,8 +34,10 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
+    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
     std::unique_ptr<DescriptorSetLayout> layout_;
     std::unique_ptr<DescriptorPool> pool_;
+    std::unique_ptr<Buffer> dummy_buffer_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> descriptor_sets_{};
 };
 

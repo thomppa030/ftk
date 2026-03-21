@@ -57,6 +57,9 @@ public:
     [[nodiscard]] uint32_t opaque_draw_count(uint32_t frame_index) const {
         return opaque_counts_[frame_index];
     }
+    [[nodiscard]] uint32_t total_meshlet_instances(uint32_t frame_index) const {
+        return total_meshlet_instances_[frame_index];
+    }
 
     [[nodiscard]] uint32_t total_triangles(uint32_t frame_index) const {
         return total_triangles_[frame_index];
@@ -95,6 +98,7 @@ private:
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> draw_data_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_triangles_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_meshlet_instances_{};
     std::array<std::vector<PipelineDrawRange>, MAX_FRAMES_IN_FLIGHT> pipeline_ranges_;
     std::array<std::vector<GpuDrawAABB>, MAX_FRAMES_IN_FLIGHT> aabb_data_;
 };

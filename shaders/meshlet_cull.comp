@@ -1,0 +1,142 @@
+#version 460
+
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+} ubo;
+
+struct DrawData {
+    mat4 model;
+    uint material_id;
+    uint meshlet_offset;
+    uint meshlet_count;
+    uint vertex_offset;
+};
+
+layout(set = 1, binding = 0) readonly buffer DrawDataBuffer {
+    DrawData draws[];
+};
+
+struct MeshletInstance {
+    uint meshlet_index;
+    uint draw_index;
+};
+
+layout(set = 1, binding = 1) readonly buffer InputInstances {
+    MeshletInstance instances_in[];
+};
+
+layout(set = 1, binding = 2) readonly buffer InputCounter {
+    uint input_count;
+};
+
+// Visible output: compacted array + atomic counter
+// The counter also serves as groupCountX in the indirect dispatch command.
+// Layout of output_cmd: [groupCountX (=visible_count), groupCountY (=1), groupCountZ (=1)]
+layout(set = 1, binding = 3) writeonly buffer OutputInstances {
+    MeshletInstance instances_out[];
+};
+
+layout(set = 1, binding = 4) buffer OutputCmd {
+    uint cmd_group_x;  // visible_count, atomically incremented
+    uint cmd_group_y;  // pre-initialized to 1
+    uint cmd_group_z;  // pre-initialized to 1
+};
+
+struct MeshletBounds {
+    vec4 bounding_sphere; // xyz = center (local space), w = radius
+    vec4 cone_apex;       // xyz = cone apex (local space)
+    vec4 cone_axis_cutoff; // xyz = axis, w = cutoff (cos half-angle)
+};
+
+layout(set = 1, binding = 5) readonly buffer BoundsBuffer {
+    MeshletBounds bounds[];
+};
+
+shared vec4 shared_planes[6];
+
+void extract_frustum() {
+    mat4 vp = ubo.projection * ubo.view;
+
+    shared_planes[0] = vec4(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0],
+                            vp[2][3] + vp[2][0], vp[3][3] + vp[3][0]);
+    shared_planes[1] = vec4(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0],
+                            vp[2][3] - vp[2][0], vp[3][3] - vp[3][0]);
+    shared_planes[2] = vec4(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1],
+                            vp[2][3] + vp[2][1], vp[3][3] + vp[3][1]);
+    shared_planes[3] = vec4(vp[0][3] - vp[0][1], vp[1][3] - vp[1][1],
+                            vp[2][3] - vp[2][1], vp[3][3] - vp[3][1]);
+    shared_planes[4] = vec4(vp[0][3] + vp[0][2], vp[1][3] + vp[1][2],
+                            vp[2][3] + vp[2][2], vp[3][3] + vp[3][2]);
+    shared_planes[5] = vec4(vp[0][3] - vp[0][2], vp[1][3] - vp[1][2],
+                            vp[2][3] - vp[2][2], vp[3][3] - vp[3][2]);
+
+    for (int i = 0; i < 6; ++i) {
+        float len = length(shared_planes[i].xyz);
+        shared_planes[i] /= len;
+    }
+}
+
+bool sphere_frustum_test(vec3 center, float radius) {
+    for (int i = 0; i < 6; ++i) {
+        if (dot(shared_planes[i].xyz, center) + shared_planes[i].w < -radius) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool cone_cull(MeshletBounds b, mat4 model, vec3 camera_pos) {
+    // If cutoff >= 1.0, cone culling is disabled for this meshlet
+    if (b.cone_axis_cutoff.w >= 1.0) return false;
+
+    vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
+    mat3 normal_mat = mat3(model);
+    vec3 axis = normalize(normal_mat * b.cone_axis_cutoff.xyz);
+    float cutoff = b.cone_axis_cutoff.w;
+
+    // If camera is behind the cone, all triangles are backfacing
+    vec3 view_dir = normalize(apex - camera_pos);
+    return dot(view_dir, axis) >= cutoff;
+}
+
+void main() {
+    if (gl_LocalInvocationIndex == 0) {
+        extract_frustum();
+    }
+    barrier();
+
+    uint id = gl_GlobalInvocationID.x;
+    if (id >= input_count) return;
+
+    MeshletInstance inst = instances_in[id];
+    MeshletBounds b = bounds[inst.meshlet_index];
+    DrawData dd = draws[inst.draw_index];
+    mat4 model = dd.model;
+
+    // Transform bounding sphere to world space
+    vec3 center = (model * vec4(b.bounding_sphere.xyz, 1.0)).xyz;
+    // Scale radius by max axis scale
+    vec3 scale = vec3(length(model[0].xyz), length(model[1].xyz), length(model[2].xyz));
+    float radius = b.bounding_sphere.w * max(scale.x, max(scale.y, scale.z));
+
+    bool visible = sphere_frustum_test(center, radius);
+    if (visible) {
+        visible = !cone_cull(b, model, ubo.camera_position.xyz);
+    }
+
+    if (visible) {
+        uint slot = atomicAdd(cmd_group_x, 1);
+        instances_out[slot] = inst;
+    }
+}
