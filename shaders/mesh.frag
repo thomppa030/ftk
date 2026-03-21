@@ -63,13 +63,7 @@ layout(set = 1, binding = 2) readonly buffer ParamsBuffer {
     float custom_params[];
 };
 
-struct DrawData {
-    mat4 model;
-    uint material_id;
-    uint meshlet_offset;
-    uint meshlet_count;
-    uint vertex_offset;
-};
+#include "fjell_draw_data.glsl"
 
 layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];

@@ -24,9 +24,12 @@ struct GpuDrawData {
     uint32_t meshlet_offset;
     uint32_t meshlet_count;
     uint32_t vertex_offset;
+    uint32_t bone_offset{0xFFFFFFFF};   // offset into bone SSBO (0xFFFFFFFF = not skinned)
+    uint32_t bone_count{0};
+    uint32_t pad_[2]{};
 };
 
-static_assert(sizeof(GpuDrawData) == 80, "GpuDrawData must be 80 bytes for std430");
+static_assert(sizeof(GpuDrawData) == 96, "GpuDrawData must be 96 bytes for std430");
 
 // A contiguous range of indirect draw commands sharing the same pipeline.
 struct PipelineDrawRange {

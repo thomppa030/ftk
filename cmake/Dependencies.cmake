@@ -196,6 +196,17 @@ if(TARGET assimp)
     target_compile_options(assimp PRIVATE -Wno-error)
 endif()
 
+# ozz-animation triggers -Wuninitialized in GCC 15 Release builds
+if(TARGET ozz_animation)
+    target_compile_options(ozz_animation PRIVATE -Wno-error)
+endif()
+if(TARGET ozz_base)
+    target_compile_options(ozz_base PRIVATE -Wno-error)
+endif()
+if(TARGET ozz_animation_offline)
+    target_compile_options(ozz_animation_offline PRIVATE -Wno-error)
+endif()
+
 # Bridge FetchContent'd FreeType for msdfgen's find_package(Freetype) call.
 # FindFreetype.cmake does filesystem searches and won't see the target, so we
 # pre-set the variables it expects and create the imported-target alias.
