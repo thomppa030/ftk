@@ -186,6 +186,7 @@ target_link_libraries(fjell PRIVATE
     yogacore
     msdfgen::msdfgen-core
     meshoptimizer
+    ozz_animation
     msdfgen::msdfgen-ext
     Freetype::Freetype
     ${FJELL_NVIM_LIBS}
@@ -226,6 +227,16 @@ target_include_directories(fjell SYSTEM PRIVATE ${JOLT_INCLUDE_DIRS})
 # Treat Yoga headers as system headers to suppress warnings from them
 get_target_property(YOGA_INCLUDE_DIRS yogacore INTERFACE_INCLUDE_DIRECTORIES)
 target_include_directories(fjell SYSTEM PRIVATE ${YOGA_INCLUDE_DIRS})
+
+# Treat ozz-animation headers as system headers to suppress warnings from them
+get_target_property(OZZ_BASE_DIRS ozz_base INTERFACE_INCLUDE_DIRECTORIES)
+if(OZZ_BASE_DIRS)
+    target_include_directories(fjell SYSTEM PRIVATE ${OZZ_BASE_DIRS})
+endif()
+get_target_property(OZZ_ANIM_DIRS ozz_animation INTERFACE_INCLUDE_DIRECTORIES)
+if(OZZ_ANIM_DIRS)
+    target_include_directories(fjell SYSTEM PRIVATE ${OZZ_ANIM_DIRS})
+endif()
 
 # Treat msdfgen headers as system headers to suppress warnings from them
 get_target_property(MSDFGEN_CORE_DIRS msdfgen-core INTERFACE_INCLUDE_DIRECTORIES)

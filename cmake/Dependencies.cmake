@@ -154,6 +154,23 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
+# ozz-animation — skeletal animation runtime
+set(ozz_build_tools OFF CACHE BOOL "" FORCE)
+set(ozz_build_fbx OFF CACHE BOOL "" FORCE)
+set(ozz_build_gltf OFF CACHE BOOL "" FORCE)
+set(ozz_build_samples OFF CACHE BOOL "" FORCE)
+set(ozz_build_howtos OFF CACHE BOOL "" FORCE)
+set(ozz_build_tests OFF CACHE BOOL "" FORCE)
+set(ozz_build_data OFF CACHE BOOL "" FORCE)
+set(ozz_build_simd_ref OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    ozz-animation
+    GIT_REPOSITORY https://github.com/guillaumeblanc/ozz-animation.git
+    GIT_TAG        0.15.0
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
+
 # Assimp — used by fjimport tool only (not linked into engine)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
@@ -172,7 +189,7 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
-FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype tracy meshoptimizer assimp)
+FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype tracy meshoptimizer ozz-animation assimp)
 
 # Assimp has internal warnings that fail with -Werror in Release, suppress them
 if(TARGET assimp)
