@@ -14,6 +14,7 @@
 #include "renderer/particle_system.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/cull_pass.hpp"
+#include "renderer/pass/meshlet_instance_pass.hpp"
 #include "renderer/pass/cull_viz_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
@@ -281,6 +282,7 @@ private:
   MeshletVizPass meshlet_viz_pass_;
   CullPass cull_pass_;
   CullVizPass cull_viz_pass_;
+  MeshletInstancePass meshlet_instance_pass_;
   bool use_mesh_shaders_{false};
 
   // GT-VBAO ambient occlusion

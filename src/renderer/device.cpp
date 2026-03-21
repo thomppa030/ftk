@@ -300,6 +300,8 @@ void Device::create_logical_device() {
     if (mesh_shader_supported_) {
         pfn_draw_mesh_tasks_ = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(
             vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksEXT"));
+        pfn_draw_mesh_tasks_indirect_ = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(
+            vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksIndirectEXT"));
         pfn_draw_mesh_tasks_indirect_count_ = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectCountEXT>(
             vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksIndirectCountEXT"));
     }

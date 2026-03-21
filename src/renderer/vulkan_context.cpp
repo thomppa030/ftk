@@ -52,7 +52,9 @@ VulkanContext::VulkanContext(Window& window)
     if (device_.mesh_shader_supported()) {
         meshlet_buffer_ = std::make_unique<MeshletBuffer>(
             device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
-        meshlet_descriptor_.create(device_.handle());
+        meshlet_descriptor_.create(device_.handle(), device_.physical_device());
+        meshlet_instance_pass_.create(device_.handle(), device_.physical_device(),
+                                       global_set_layout_->handle());
         use_mesh_shaders_ = true;
     }
 
@@ -207,6 +209,7 @@ VulkanContext::~VulkanContext() {
     meshlet_viz_pass_.destroy();
     cull_viz_pass_.destroy();
     cull_pass_.destroy();
+    meshlet_instance_pass_.destroy();
 
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
@@ -706,9 +709,19 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         }
     }
 
+    // Ensure meshlet instance buffers are large enough
+    if (use_mesh_shaders_) {
+        uint32_t total_mi = indirect_batch_->total_meshlet_instances(current_frame_);
+        if (total_mi > 0) {
+            meshlet_instance_pass_.ensure_capacity(current_frame_, total_mi);
+        }
+    }
+
     // Update meshlet descriptor (set 3) if mesh shaders are available
     if (meshlet_buffer_ && meshlet_buffer_->total_meshlets() > 0) {
-        meshlet_descriptor_.update(*meshlet_buffer_, *mega_buffer_, current_frame_);
+        meshlet_descriptor_.update(*meshlet_buffer_, *mega_buffer_, current_frame_,
+                                    meshlet_instance_pass_.visible_buffer(current_frame_),
+                                    meshlet_instance_pass_.visible_buffer_size(current_frame_));
     }
 
     // Update sprite SSBO for this frame
@@ -865,18 +878,33 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         }
     }, {});
 
-    // GPU frustum culling (mesh shader path only)
-    graph.add_pass("gpu_cull", [&](VkCommandBuffer cb) {
+    // GPU-driven meshlet expand + cull (replaces per-draw GPU cull)
+    graph.add_pass("meshlet_expand_cull", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "GPU Cull");
+        TracyVkZone(tracy_vk_ctx_, cb, "Meshlet Expand+Cull");
 #endif
-        if (use_mesh_shaders_ && cull_pass_.enabled()) {
-            uint32_t opaque_count = indirect_batch_->opaque_draw_count(current_frame_);
-            if (opaque_count > 0 && indirect_batch_->mesh_indirect_buffer(current_frame_)) {
-                cull_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
-                                   indirect_batch_->mesh_indirect_buffer(current_frame_),
-                                   opaque_count, current_frame_);
-                cull_pass_.insert_barrier(cb);
+        if (use_mesh_shaders_) {
+            uint32_t total_draws = indirect_batch_->opaque_draw_count(current_frame_);
+            uint32_t total_mi = indirect_batch_->total_meshlet_instances(current_frame_);
+            if (total_draws > 0 && total_mi > 0) {
+                meshlet_instance_pass_.dispatch_expand(
+                    cb,
+                    indirect_batch_->draw_data_buffer(current_frame_),
+                    indirect_batch_->draw_data_size(current_frame_),
+                    total_draws, current_frame_);
+
+                meshlet_instance_pass_.insert_expand_barrier(cb);
+
+                meshlet_instance_pass_.dispatch_cull(
+                    cb,
+                    global_descriptor_sets_[current_frame_],
+                    indirect_batch_->draw_data_buffer(current_frame_),
+                    indirect_batch_->draw_data_size(current_frame_),
+                    meshlet_buffer_ ? meshlet_buffer_->bounds_buffer() : VK_NULL_HANDLE,
+                    meshlet_buffer_ ? meshlet_buffer_->bounds_buffer_size() : 0,
+                    current_frame_);
+
+                meshlet_instance_pass_.insert_cull_barrier(cb);
             }
         }
     }, {});
@@ -960,45 +988,32 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             { TracyVkZone(tracy_vk_ctx_, cb, "Opaques");
 #endif
             if (use_mesh_shaders_ && pipeline_cache_->has_mesh_shaders()) {
-                // Mesh shader path: indirect count dispatch per pipeline range
-                const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
+                // GPU-driven meshlet dispatch: single indirect call from culled visible buffer
                 std::array mesh_descriptor_sets = {global_descriptor_sets_[current_frame_],
                                                    bindless_textures_.descriptor_set(),
                                                    draw_data_descriptor_.descriptor_set(current_frame_),
                                                    meshlet_descriptor_.descriptor_set(current_frame_)};
 
-                auto draw_indirect_count = device_.draw_mesh_tasks_indirect_count_fn();
+                const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
+                auto indirect_buf = meshlet_instance_pass_.indirect_buffer(current_frame_);
 
-                for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
-                    const auto& range = ranges[r];
+                if (indirect_buf && !ranges.empty()) {
+                    // Phase 1: bind first pipeline's GPU-driven variant, dispatch all visible meshlets
                     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                      pipeline_cache_->mesh_pipeline(range.pipeline_id));
+                                      pipeline_cache_->gpu_driven_pipeline(ranges[0].pipeline_id));
                     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                            pipeline_cache_->mesh_layout(),
+                                            pipeline_cache_->gpu_driven_layout(),
                                             0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
                                             mesh_descriptor_sets.data(), 0, nullptr);
 
-                    uint32_t first_draw = range.first_draw;
-                    vkCmdPushConstants(cb, pipeline_cache_->mesh_layout(),
-                                       VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
-                                       0, sizeof(uint32_t), &first_draw);
-
-                    VkDeviceSize cmd_offset = first_draw *
-                                              sizeof(VkDrawMeshTasksIndirectCommandEXT);
-                    VkDeviceSize count_offset = r * sizeof(uint32_t);
-
-                    draw_indirect_count(
-                        cb,
-                        indirect_batch_->mesh_indirect_buffer(current_frame_),
-                        cmd_offset,
-                        indirect_batch_->mesh_count_buffer(current_frame_),
-                        count_offset,
-                        range.draw_count,
-                        sizeof(VkDrawMeshTasksIndirectCommandEXT));
+                    auto draw_indirect = device_.draw_mesh_tasks_indirect_fn();
+                    draw_indirect(cb, indirect_buf, 0, 1,
+                                  sizeof(VkDrawMeshTasksIndirectCommandEXT));
                 }
-                render_stats_->meshlets_dispatched += meshlet_buffer_
-                    ? meshlet_buffer_->total_meshlets() : 0;
-                render_stats_->gpu_cull_active = cull_pass_.enabled();
+
+                render_stats_->meshlets_dispatched +=
+                    indirect_batch_->total_meshlet_instances(current_frame_);
+                render_stats_->gpu_cull_active = true;
             } else {
                 mega_buffer_->bind(cb);
 

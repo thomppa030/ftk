@@ -65,6 +65,10 @@ PipelineCache::~PipelineCache() {
         vkDestroyPipelineLayout(vk, mesh_layout_, nullptr);
         mesh_layout_ = VK_NULL_HANDLE;
     }
+    if (gpu_driven_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(vk, gpu_driven_layout_, nullptr);
+        gpu_driven_layout_ = VK_NULL_HANDLE;
+    }
 }
 
 void PipelineCache::create_layout() {
@@ -106,6 +110,16 @@ void PipelineCache::create_layout() {
 
         if (vkCreatePipelineLayout(device_.handle(), &mesh_ci, nullptr, &mesh_layout_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create mesh shader pipeline layout");
+        }
+
+        // GPU-driven layout: same sets but no push constants (task shader reads from visible buffer)
+        VkPipelineLayoutCreateInfo gpu_ci{};
+        gpu_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        gpu_ci.setLayoutCount = static_cast<uint32_t>(mesh_set_layouts.size());
+        gpu_ci.pSetLayouts = mesh_set_layouts.data();
+
+        if (vkCreatePipelineLayout(device_.handle(), &gpu_ci, nullptr, &gpu_driven_layout_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create GPU-driven pipeline layout");
         }
     }
 }
@@ -360,6 +374,28 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
 
         vkDestroyShaderModule(vk, task_module, nullptr);
         vkDestroyShaderModule(vk, mesh_module, nullptr);
+
+        // GPU-driven mesh pipeline: same frag, different task/mesh shaders, no push constants
+        auto gpu_task_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.task.spv"));
+        auto gpu_mesh_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.mesh.spv"));
+
+        VkShaderModule gpu_task_module = create_shader_module(vk, gpu_task_code);
+        VkShaderModule gpu_mesh_module = create_shader_module(vk, gpu_mesh_code);
+
+        mesh_stages[0].module = gpu_task_module;
+        mesh_stages[1].module = gpu_mesh_module;
+        pipeline_ci.layout = gpu_driven_layout_;
+
+        if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.gpu_driven) != VK_SUCCESS) {
+            vkDestroyShaderModule(vk, gpu_task_module, nullptr);
+            vkDestroyShaderModule(vk, gpu_mesh_module, nullptr);
+            vkDestroyShaderModule(vk, vert_module, nullptr);
+            vkDestroyShaderModule(vk, frag_module, nullptr);
+            throw std::runtime_error("Failed to create GPU-driven pipeline for: " + entry.fjsl_path);
+        }
+
+        vkDestroyShaderModule(vk, gpu_task_module, nullptr);
+        vkDestroyShaderModule(vk, gpu_mesh_module, nullptr);
     }
 
     vkDestroyShaderModule(vk, frag_module, nullptr);
@@ -379,6 +415,10 @@ void PipelineCache::destroy_entry_pipelines(Entry& entry) {
     if (entry.mesh != VK_NULL_HANDLE) {
         vkDestroyPipeline(vk, entry.mesh, nullptr);
         entry.mesh = VK_NULL_HANDLE;
+    }
+    if (entry.gpu_driven != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vk, entry.gpu_driven, nullptr);
+        entry.gpu_driven = VK_NULL_HANDLE;
     }
 }
 
@@ -407,6 +447,10 @@ VkPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
 
 VkPipeline PipelineCache::mesh_pipeline(uint32_t id) const {
     return entries_[id].mesh;
+}
+
+VkPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {
+    return entries_[id].gpu_driven;
 }
 
 const ShaderMetadata& PipelineCache::metadata(uint32_t id) const {

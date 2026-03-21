@@ -54,6 +54,9 @@ public:
     [[nodiscard]] bool mesh_shader_supported() const { return mesh_shader_supported_; }
     [[nodiscard]] uint32_t mesh_shader_max_workgroup_size() const { return mesh_shader_max_workgroup_size_; }
     [[nodiscard]] PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_fn() const { return pfn_draw_mesh_tasks_; }
+    [[nodiscard]] PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect_fn() const {
+        return pfn_draw_mesh_tasks_indirect_;
+    }
     [[nodiscard]] PFN_vkCmdDrawMeshTasksIndirectCountEXT draw_mesh_tasks_indirect_count_fn() const {
         return pfn_draw_mesh_tasks_indirect_count_;
     }
@@ -88,6 +91,7 @@ private:
     bool mesh_shader_supported_{false};
     uint32_t mesh_shader_max_workgroup_size_{0};
     PFN_vkCmdDrawMeshTasksEXT pfn_draw_mesh_tasks_{nullptr};
+    PFN_vkCmdDrawMeshTasksIndirectEXT pfn_draw_mesh_tasks_indirect_{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectCountEXT pfn_draw_mesh_tasks_indirect_count_{nullptr};
 
 #ifdef NDEBUG
