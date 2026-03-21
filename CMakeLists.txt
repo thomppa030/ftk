@@ -10,6 +10,7 @@ include(cmake/Dependencies.cmake)
 include(cmake/CompileShaders.cmake)
 
 add_subdirectory(src)
+add_subdirectory(tools)
 
 # --- Packaging ---
 set(CPACK_PACKAGE_NAME "Fjell")

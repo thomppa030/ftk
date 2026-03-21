@@ -1,5 +1,7 @@
 build/
 out/
+.fjcache/
+vendors/
 
 compile_commands.json
 

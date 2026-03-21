@@ -91,6 +91,7 @@ add_executable(fjell
     renderer/pass/uv_viz_pass.cpp
     renderer/pass/wireframe_pass.cpp
     renderer/render_queue.cpp
+    renderer/asset_loader.cpp
     renderer/resource_manager.cpp
     renderer/shader_watcher.cpp
     renderer/stb_image.cpp

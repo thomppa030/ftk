@@ -8,6 +8,7 @@
 #include "core/play_session.hpp"
 #include "core/project.hpp"
 #include "core/window.hpp"
+#include "renderer/asset_loader.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/uniform_types.hpp"
@@ -95,6 +96,7 @@ private:
     VulkanContext vulkan_context_;
     std::unique_ptr<ImGuiLayer> imgui_layer_;
     std::unique_ptr<ResourceManager> resource_manager_;
+    std::unique_ptr<AssetLoader> asset_loader_;
     Scene scene_;
     ScriptManager script_manager_;
 #ifdef FJELL_HAS_NVIM_PANEL

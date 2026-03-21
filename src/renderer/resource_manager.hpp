@@ -7,6 +7,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -32,9 +33,18 @@ public:
                     MeshletBuffer* meshlet_buffer = nullptr,
                     PipelineCache* pipeline_cache = nullptr);
 
+    void set_cache_dir(const std::filesystem::path& dir) { cache_dir_ = dir; }
+
     ModelHandle load_model(const std::string& path);
     ModelHandle create_primitive(const std::string& type);
     TextureHandle load_texture(const std::string& path);
+
+    // Async loading support
+    [[nodiscard]] ModelHandle find_model(const std::string& path) const;
+    ModelHandle reserve_model(const std::string& path);
+    void emplace_model(ModelHandle handle, std::unique_ptr<Model> model);
+    void fail_model(ModelHandle handle);
+    [[nodiscard]] LoadState model_state(ModelHandle handle) const;
 
     MaterialHandle create_material(const std::string& name,
                                    TextureHandle base_color,
@@ -71,10 +81,20 @@ private:
     struct Pool {
         std::vector<std::unique_ptr<T>> slots;
         std::vector<uint32_t> generations;
+        std::vector<LoadState> states;
         std::unordered_map<std::string, HandleT> name_to_handle;
 
         HandleT insert(const std::string& key, std::unique_ptr<T> resource);
         T* get(HandleT handle) const;
+
+        // Reserve a slot (nullptr + Loading state), returns handle immediately
+        HandleT reserve(const std::string& key);
+
+        // Fill a previously reserved slot
+        void emplace(HandleT handle, std::unique_ptr<T> resource);
+
+        // Query load state
+        [[nodiscard]] LoadState state(HandleT handle) const;
     };
 
     VkDevice device_;
@@ -85,6 +105,7 @@ private:
     MegaBuffer* mega_buffer_;
     MeshletBuffer* meshlet_buffer_;
     PipelineCache* pipeline_cache_;
+    std::filesystem::path cache_dir_;
 
     Pool<Model, ModelHandle> models_;
     Pool<Texture, TextureHandle> textures_;

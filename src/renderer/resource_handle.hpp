@@ -26,4 +26,10 @@ using ModelHandle    = Handle<struct ModelTag>;
 using MaterialHandle = Handle<struct MaterialTag>;
 using TextureHandle  = Handle<struct TextureTag>;
 
+enum class LoadState : uint8_t {
+    Loading,
+    Ready,
+    Failed,
+};
+
 } // namespace fjell

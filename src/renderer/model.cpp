@@ -1,4 +1,5 @@
 #include "renderer/model.hpp"
+#include "renderer/fjmesh.hpp"
 #include "renderer/meshlet.hpp"
 #include "renderer/meshlet_buffer.hpp"
 #include "renderer/primitives.hpp"
@@ -11,9 +12,14 @@
 
 #include <stb_image.h>
 
+#include <cstdio>
 #include <filesystem>
 #include <stdexcept>
 #include <unordered_map>
+
+static_assert(sizeof(fjell::Vertex) == 60, "Vertex layout changed — .fjmesh format incompatible");
+static_assert(sizeof(fjell::Meshlet) == 16, "Meshlet layout changed — .fjmesh format incompatible");
+static_assert(sizeof(fjell::MeshletBounds) == 48, "MeshletBounds layout changed — .fjmesh format incompatible");
 
 namespace fjell {
 
@@ -270,6 +276,167 @@ uint32_t Model::total_meshlet_count() const {
         total += static_cast<uint32_t>(result.meshlets.size());
     }
     return total;
+}
+
+// ── .fjmesh loading ─────────────────────────────────────────────────────
+
+FjMeshData Model::load_fjmesh(const std::string& path) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) {
+        throw std::runtime_error("Failed to open .fjmesh file: " + path);
+    }
+
+    FjMeshHeader header{};
+    if (std::fread(&header, sizeof(header), 1, f) != 1) {
+        std::fclose(f);
+        throw std::runtime_error("Failed to read .fjmesh header: " + path);
+    }
+
+    if (header.magic != FJMESH_MAGIC) {
+        std::fclose(f);
+        throw std::runtime_error("Invalid .fjmesh magic in: " + path);
+    }
+    if (header.version != FJMESH_VERSION) {
+        std::fclose(f);
+        throw std::runtime_error("Unsupported .fjmesh version " +
+            std::to_string(header.version) + " in: " + path);
+    }
+    if (header.max_meshlet_vertices != MAX_MESHLET_VERTICES ||
+        header.max_meshlet_triangles != MAX_MESHLET_TRIANGLES) {
+        std::fclose(f);
+        throw std::runtime_error("Meshlet limits mismatch in: " + path);
+    }
+
+    FjMeshData data;
+    data.aabb.min = header.aabb_min;
+    data.aabb.max = header.aabb_max;
+
+    auto read_section = [&](auto& vec, uint64_t offset, uint32_t count) {
+        using T = typename std::remove_reference_t<decltype(vec)>::value_type;
+        vec.resize(count);
+        if (count == 0) return;
+        std::fseek(f, static_cast<long>(offset), SEEK_SET);
+        if (std::fread(vec.data(), sizeof(T), count, f) != count) {
+            std::fclose(f);
+            throw std::runtime_error("Failed to read .fjmesh section in: " + path);
+        }
+    };
+
+    read_section(data.vertices, header.vertices_offset, header.vertex_count);
+    read_section(data.indices, header.indices_offset, header.index_count);
+    read_section(data.submeshes, header.submeshes_offset, header.submesh_count);
+    read_section(data.meshlets, header.meshlets_offset, header.meshlet_count);
+    read_section(data.bounds, header.meshlet_bounds_offset, header.meshlet_count);
+    read_section(data.meshlet_vertices, header.meshlet_vertices_offset, header.meshlet_vertex_count);
+    read_section(data.meshlet_triangles, header.meshlet_triangles_offset, header.meshlet_triangle_byte_count);
+    read_section(data.collision_vertices, header.collision_vertices_offset, header.collision_vertex_count);
+    read_section(data.collision_indices, header.collision_indices_offset, header.collision_index_count);
+
+    std::fclose(f);
+
+    FJELL_GFX_DEBUG("Loaded .fjmesh: {} ({} verts, {} indices, {} submeshes, {} meshlets)",
+                    path, data.vertices.size(), data.indices.size(),
+                    data.submeshes.size(), data.meshlets.size());
+
+    return data;
+}
+
+Model::Model(VkDevice device, VkPhysicalDevice physical_device,
+             VkCommandPool command_pool, VkQueue queue,
+             FjMeshData&& data, MegaBuffer* mega,
+             MeshletBuffer* meshlet_buf) {
+    collision_vertices_ = std::move(data.collision_vertices);
+    collision_indices_ = std::move(data.collision_indices);
+    local_aabb_ = data.aabb;
+
+    for (const auto& submesh : data.submeshes) {
+        // Build per-submesh vertex and index arrays (rebased to local indices)
+        uint32_t vertex_count = 0;
+        if (submesh.index_count > 0) {
+            // Find the highest index in this submesh to determine vertex count
+            uint32_t max_idx = 0;
+            for (uint32_t i = 0; i < submesh.index_count; ++i) {
+                max_idx = std::max(max_idx, data.indices[submesh.first_index + i]);
+            }
+            vertex_count = max_idx + 1 - submesh.vertex_offset;
+        }
+
+        std::vector<Vertex> sub_vertices(
+            data.vertices.begin() + submesh.vertex_offset,
+            data.vertices.begin() + submesh.vertex_offset + vertex_count);
+
+        std::vector<uint32_t> sub_indices(
+            data.indices.begin() + submesh.first_index,
+            data.indices.begin() + submesh.first_index + submesh.index_count);
+
+        for (auto& idx : sub_indices) {
+            idx -= submesh.vertex_offset;
+        }
+
+        // Rebuild meshlets from the pre-built data for this submesh.
+        // The meshlet vertex indices reference global vertices, so rebase them.
+        MeshletBuildResult meshlet_result;
+        if (submesh.meshlet_count > 0) {
+            uint32_t ml_begin = submesh.first_meshlet;
+            uint32_t ml_end = ml_begin + submesh.meshlet_count;
+
+            // Find the range of meshlet_vertices[] and meshlet_triangles[] used
+            uint32_t mv_begin = data.meshlets[ml_begin].vertex_offset;
+            uint32_t mv_end = mv_begin;
+            uint32_t mt_begin = data.meshlets[ml_begin].triangle_offset;
+            uint32_t mt_end = mt_begin;
+
+            for (uint32_t i = ml_begin; i < ml_end; ++i) {
+                mv_end = std::max(mv_end,
+                    data.meshlets[i].vertex_offset + data.meshlets[i].vertex_count);
+                mt_end = std::max(mt_end,
+                    data.meshlets[i].triangle_offset + data.meshlets[i].triangle_count);
+            }
+
+            // Copy meshlets, rebasing offsets to local
+            for (uint32_t i = ml_begin; i < ml_end; ++i) {
+                Meshlet ml = data.meshlets[i];
+                ml.vertex_offset -= mv_begin;
+                ml.triangle_offset -= mt_begin;
+                meshlet_result.meshlets.push_back(ml);
+            }
+
+            meshlet_result.bounds.assign(
+                data.bounds.begin() + ml_begin,
+                data.bounds.begin() + ml_end);
+
+            meshlet_result.meshlet_vertices.assign(
+                data.meshlet_vertices.begin() + mv_begin,
+                data.meshlet_vertices.begin() + mv_end);
+            for (auto& v : meshlet_result.meshlet_vertices) {
+                v -= submesh.vertex_offset;
+            }
+
+            // Triangle data is stored as 3 bytes per triangle
+            meshlet_result.meshlet_triangles.assign(
+                data.meshlet_triangles.begin() + mt_begin * 3,
+                data.meshlet_triangles.begin() + mt_end * 3);
+        }
+        meshlet_results_.push_back(meshlet_result);
+
+        if (mega) {
+            auto entry = mega->upload(sub_vertices, sub_indices);
+            if (meshlet_buf && !meshlet_result.meshlets.empty()) {
+                auto range = meshlet_buf->upload(meshlet_result, entry.vertex_offset);
+                entry.meshlet_offset = range.meshlet_offset;
+                entry.meshlet_count = range.meshlet_count;
+            }
+            mega_entries_.push_back(entry);
+            meshes_.push_back(std::make_unique<Mesh>(entry));
+        } else {
+            meshes_.push_back(std::make_unique<Mesh>(
+                device, physical_device, command_pool, queue,
+                sub_vertices, sub_indices));
+        }
+    }
+
+    FJELL_GFX_INFO("Model loaded from .fjmesh: {} meshes, {} meshlets",
+                   meshes_.size(), total_meshlet_count());
 }
 
 } // namespace fjell

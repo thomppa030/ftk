@@ -11,7 +11,11 @@
 #include "core/log.hpp"
 #include "core/project.hpp"
 
+#include <filesystem>
+
 namespace fjell {
+
+namespace fs = std::filesystem;
 
 // -- Pool implementation -----------------------------------------------------
 
@@ -22,6 +26,7 @@ HandleT ResourceManager::Pool<T, HandleT>::insert(const std::string& key,
     uint32_t gen = 1;
     slots.push_back(std::move(resource));
     generations.push_back(gen);
+    states.push_back(LoadState::Ready);
     auto handle = HandleT::make(index, gen);
     if (!key.empty()) {
         name_to_handle.emplace(key, handle);
@@ -36,6 +41,38 @@ T* ResourceManager::Pool<T, HandleT>::get(HandleT handle) const {
     if (idx >= slots.size()) return nullptr;
     if (generations[idx] != handle.generation()) return nullptr;
     return slots[idx].get();
+}
+
+template <typename T, typename HandleT>
+HandleT ResourceManager::Pool<T, HandleT>::reserve(const std::string& key) {
+    uint32_t index = static_cast<uint32_t>(slots.size());
+    uint32_t gen = 1;
+    slots.push_back(nullptr);
+    generations.push_back(gen);
+    states.push_back(LoadState::Loading);
+    auto handle = HandleT::make(index, gen);
+    if (!key.empty()) {
+        name_to_handle.emplace(key, handle);
+    }
+    return handle;
+}
+
+template <typename T, typename HandleT>
+void ResourceManager::Pool<T, HandleT>::emplace(HandleT handle, std::unique_ptr<T> resource) {
+    uint32_t idx = handle.index();
+    if (idx < slots.size() && generations[idx] == handle.generation()) {
+        slots[idx] = std::move(resource);
+        states[idx] = LoadState::Ready;
+    }
+}
+
+template <typename T, typename HandleT>
+LoadState ResourceManager::Pool<T, HandleT>::state(HandleT handle) const {
+    if (!handle.valid()) return LoadState::Failed;
+    uint32_t idx = handle.index();
+    if (idx >= states.size()) return LoadState::Failed;
+    if (generations[idx] != handle.generation()) return LoadState::Failed;
+    return states[idx];
 }
 
 // Explicit instantiations
@@ -87,7 +124,40 @@ ModelHandle ResourceManager::load_model(const std::string& path) {
         return it->second;
     }
 
-    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_, path, mega_buffer_, meshlet_buffer_);
+    fs::path file_path(path);
+    auto ext = file_path.extension().string();
+
+    // Direct .fjmesh load
+    if (ext == ".fjmesh") {
+        auto data = Model::load_fjmesh(path);
+        auto model = std::make_unique<Model>(device_, physical_device_, command_pool_,
+                                              queue_, std::move(data), mega_buffer_,
+                                              meshlet_buffer_);
+        return models_.insert(path, std::move(model));
+    }
+
+    // For .glb/.gltf/.fbx — check for a cached .fjmesh first
+    if (!cache_dir_.empty()) {
+        fs::path cached = cache_dir_ / fs::path(path + ".fjmesh");
+        if (fs::exists(cached)) {
+            // Check if cache is newer than source
+            std::error_code ec;
+            auto src_time = fs::last_write_time(file_path, ec);
+            auto cache_time = fs::last_write_time(cached, ec);
+            if (!ec && cache_time >= src_time) {
+                FJELL_GFX_DEBUG("Loading cached .fjmesh for: {}", path);
+                auto data = Model::load_fjmesh(cached.string());
+                auto model = std::make_unique<Model>(device_, physical_device_, command_pool_,
+                                                      queue_, std::move(data), mega_buffer_,
+                                                      meshlet_buffer_);
+                return models_.insert(path, std::move(model));
+            }
+        }
+    }
+
+    // Fall back to glTF loading (existing path)
+    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_,
+                                          path, mega_buffer_, meshlet_buffer_);
     return models_.insert(path, std::move(model));
 }
 
@@ -292,6 +362,33 @@ MaterialHandle ResourceManager::load_material_asset(const std::string& path,
     }
 
     return materials_.insert(path, std::move(material));
+}
+
+ModelHandle ResourceManager::find_model(const std::string& path) const {
+    auto it = models_.name_to_handle.find(path);
+    if (it != models_.name_to_handle.end()) {
+        return it->second;
+    }
+    return {};
+}
+
+ModelHandle ResourceManager::reserve_model(const std::string& path) {
+    return models_.reserve(path);
+}
+
+void ResourceManager::emplace_model(ModelHandle handle, std::unique_ptr<Model> model) {
+    models_.emplace(handle, std::move(model));
+}
+
+void ResourceManager::fail_model(ModelHandle handle) {
+    uint32_t idx = handle.index();
+    if (idx < models_.states.size() && models_.generations[idx] == handle.generation()) {
+        models_.states[idx] = LoadState::Failed;
+    }
+}
+
+LoadState ResourceManager::model_state(ModelHandle handle) const {
+    return models_.state(handle);
 }
 
 uint32_t ResourceManager::bindless_index(TextureHandle handle) const {

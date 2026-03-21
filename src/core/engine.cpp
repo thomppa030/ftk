@@ -122,6 +122,12 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_.bindless_textures(), vulkan_context_.mega_buffer(),
         vulkan_context_.meshlet_buffer(), vulkan_context_.pipeline_cache());
 
+    asset_loader_ = std::make_unique<AssetLoader>(
+        thread_pool_, *resource_manager_,
+        vulkan_context_.device(), vulkan_context_.physical_device(),
+        vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
+        vulkan_context_.mega_buffer(), vulkan_context_.meshlet_buffer());
+
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png"));
     scan_models();
@@ -1142,6 +1148,7 @@ void Engine::run() {
         FJELL_PROFILE_FRAME;
 
         // Phase 2: CPU work (overlaps with GPU executing the submitted frame)
+        asset_loader_->poll();
         input_.update();
         window_.poll_events();
         clock_.tick();
