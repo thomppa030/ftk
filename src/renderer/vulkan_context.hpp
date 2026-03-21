@@ -324,7 +324,7 @@ private:
 
   // Debug collider visualization
   std::unique_ptr<DebugDraw> debug_draw_;
-  bool show_colliders_{true};
+  bool show_colliders_{false};
   bool playing_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
 
