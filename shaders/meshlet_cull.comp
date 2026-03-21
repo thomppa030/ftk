@@ -40,17 +40,14 @@ layout(set = 1, binding = 2) readonly buffer InputCounter {
     uint input_count;
 };
 
-// Visible output: compacted array + atomic counter
-// The counter also serves as groupCountX in the indirect dispatch command.
-// Layout of output_cmd: [groupCountX (=visible_count), groupCountY (=1), groupCountZ (=1)]
+// Visible output: binned by pipeline, each bin is a segment of segment_size entries
 layout(set = 1, binding = 3) writeonly buffer OutputInstances {
     MeshletInstance instances_out[];
 };
 
-layout(set = 1, binding = 4) buffer OutputCmd {
-    uint cmd_group_x;  // visible_count, atomically incremented
-    uint cmd_group_y;  // pre-initialized to 1
-    uint cmd_group_z;  // pre-initialized to 1
+// Per-bin indirect dispatch commands: [groupCountX, groupCountY, groupCountZ] * N
+layout(set = 1, binding = 4) buffer OutputCmds {
+    uint cmds[];
 };
 
 struct MeshletBounds {
@@ -62,6 +59,15 @@ struct MeshletBounds {
 layout(set = 1, binding = 5) readonly buffer BoundsBuffer {
     MeshletBounds bounds[];
 };
+
+// Per-draw pipeline bin index
+layout(set = 1, binding = 6) readonly buffer PipelineBinBuffer {
+    uint pipeline_bin[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint segment_size; // max instances per bin
+} push;
 
 shared vec4 shared_planes[6];
 
@@ -100,14 +106,9 @@ bool cone_cull(MeshletBounds b, mat4 model, vec3 camera_pos) {
     float cutoff = b.cone_axis_cutoff.w;
     if (cutoff >= 1.0 || cutoff <= 0.0) return false; // degenerate or wide cone
 
-    // Apex-based perspective test (meshoptimizer convention).
-    // The stored axis points along the normal cone direction. The apex is
-    // placed so that from any viewpoint behind all triangle planes, the
-    // direction (apex → camera) aligns with the axis.
     vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
     vec3 axis = normalize(mat3(model) * b.cone_axis_cutoff.xyz);
 
-    // Camera sees only backfaces when this is true — safe to cull.
     return dot(normalize(camera_pos - apex), axis) >= cutoff;
 }
 
@@ -127,7 +128,6 @@ void main() {
 
     // Transform bounding sphere to world space
     vec3 center = (model * vec4(b.bounding_sphere.xyz, 1.0)).xyz;
-    // Scale radius by max axis scale
     vec3 scale = vec3(length(model[0].xyz), length(model[1].xyz), length(model[2].xyz));
     float radius = b.bounding_sphere.w * max(scale.x, max(scale.y, scale.z));
 
@@ -137,7 +137,10 @@ void main() {
     }
 
     if (visible) {
-        uint slot = atomicAdd(cmd_group_x, 1);
-        instances_out[slot] = inst;
+        uint bin = pipeline_bin[inst.draw_index];
+        uint slot = atomicAdd(cmds[bin * 3], 1); // increment groupCountX for this bin
+        if (slot < push.segment_size) {
+            instances_out[bin * push.segment_size + slot] = inst;
+        }
     }
 }

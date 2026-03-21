@@ -112,11 +112,18 @@ void PipelineCache::create_layout() {
             throw std::runtime_error("Failed to create mesh shader pipeline layout");
         }
 
-        // GPU-driven layout: same sets but no push constants (task shader reads from visible buffer)
+        // GPU-driven layout: same sets + push constant for bin base offset
+        VkPushConstantRange gpu_push{};
+        gpu_push.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT;
+        gpu_push.offset = 0;
+        gpu_push.size = sizeof(uint32_t); // bin_base_offset
+
         VkPipelineLayoutCreateInfo gpu_ci{};
         gpu_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         gpu_ci.setLayoutCount = static_cast<uint32_t>(mesh_set_layouts.size());
         gpu_ci.pSetLayouts = mesh_set_layouts.data();
+        gpu_ci.pushConstantRangeCount = 1;
+        gpu_ci.pPushConstantRanges = &gpu_push;
 
         if (vkCreatePipelineLayout(device_.handle(), &gpu_ci, nullptr, &gpu_driven_layout_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create GPU-driven pipeline layout");

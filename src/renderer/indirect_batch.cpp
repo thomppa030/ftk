@@ -49,6 +49,13 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     mesh_count_buffers_[frame_index]->map();
 
+    pipeline_bin_buffers_[frame_index] = std::make_unique<Buffer>(
+        device_, physical_device_,
+        new_cap * sizeof(uint32_t),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    pipeline_bin_buffers_[frame_index]->map();
+
     capacities_[frame_index] = new_cap;
 }
 
@@ -137,6 +144,15 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     opaque_counts_[frame_index] = draw_index;
     total_meshlet_instances_[frame_index] = total_meshlets;
+
+    // Fill per-draw pipeline bin mapping
+    auto* bin_data = static_cast<uint32_t*>(
+        pipeline_bin_buffers_[frame_index]->mapped());
+    for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
+        for (uint32_t d = 0; d < ranges[r].draw_count; ++d) {
+            bin_data[ranges[r].first_draw + d] = r;
+        }
+    }
 
     // Write transparent draw data (SSBO only, no indirect commands — drawn individually)
     for (const auto& dc : transparent_commands) {

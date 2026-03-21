@@ -80,6 +80,13 @@ public:
         return mesh_count_buffers_[frame_index] ? mesh_count_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
     }
 
+    [[nodiscard]] VkBuffer pipeline_bin_buffer(uint32_t frame_index) const {
+        return pipeline_bin_buffers_[frame_index] ? pipeline_bin_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkDeviceSize pipeline_bin_size(uint32_t frame_index) const {
+        return opaque_counts_[frame_index] * sizeof(uint32_t);
+    }
+
     [[nodiscard]] const GpuDrawAABB* aabb_data(uint32_t frame_index) const {
         return aabb_data_[frame_index].empty() ? nullptr : aabb_data_[frame_index].data();
     }
@@ -100,6 +107,7 @@ private:
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_triangles_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> total_meshlet_instances_{};
     std::array<std::vector<PipelineDrawRange>, MAX_FRAMES_IN_FLIGHT> pipeline_ranges_;
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> pipeline_bin_buffers_;
     std::array<std::vector<GpuDrawAABB>, MAX_FRAMES_IN_FLIGHT> aabb_data_;
 };
 

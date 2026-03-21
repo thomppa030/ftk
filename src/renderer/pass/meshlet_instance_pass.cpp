@@ -86,11 +86,12 @@ void MeshletInstancePass::create(VkDevice device, VkPhysicalDevice physical_devi
     // binding 1: MeshletInstance[] input (read)
     // binding 2: input counter (read)
     // binding 3: MeshletInstance[] visible output (write)
-    // binding 4: indirect dispatch cmd / output counter (read-write)
+    // binding 4: indirect dispatch cmds / per-bin counters (read-write)
     // binding 5: MeshletBounds[] (read)
+    // binding 6: uint pipeline_bin[] (read) — per-draw bin index
     {
-        std::array<VkDescriptorSetLayoutBinding, 6> bindings{};
-        for (uint32_t i = 0; i < 6; ++i) {
+        std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
+        for (uint32_t i = 0; i < 7; ++i) {
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             bindings[i].descriptorCount = 1;
@@ -100,7 +101,7 @@ void MeshletInstancePass::create(VkDevice device, VkPhysicalDevice physical_devi
 
         VkDescriptorPoolSize pool_size{};
         pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_size.descriptorCount = 6 * MAX_FRAMES_IN_FLIGHT;
+        pool_size.descriptorCount = 7 * MAX_FRAMES_IN_FLIGHT;
         cull_pool_ = std::make_unique<DescriptorPool>(
             device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
 
@@ -109,14 +110,21 @@ void MeshletInstancePass::create(VkDevice device, VkPhysicalDevice physical_devi
         }
     }
 
-    // Cull pipeline layout: set 0 = global UBO, set 1 = cull buffers
+    // Cull pipeline layout: set 0 = global UBO, set 1 = cull buffers, push constant = segment_size
     {
         std::array set_layouts = {global_set_layout, cull_set_layout_->handle()};
+
+        VkPushConstantRange push_range{};
+        push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        push_range.offset = 0;
+        push_range.size = sizeof(uint32_t); // segment_size
 
         VkPipelineLayoutCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         ci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
         ci.pSetLayouts = set_layouts.data();
+        ci.pushConstantRangeCount = 1;
+        ci.pPushConstantRanges = &push_range;
 
         vk_check(vkCreatePipelineLayout(device_, &ci, nullptr, &cull_layout_),
                  "Failed to create meshlet cull pipeline layout");
@@ -181,8 +189,10 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
+    // Visible buffer: N segments, each capable of holding all instances
+    VkDeviceSize visible_size = instance_size * MAX_PIPELINE_BINS;
     visible_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_, instance_size,
+        device_, physical_device_, visible_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
@@ -192,9 +202,10 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    // Indirect dispatch command: VkDrawMeshTasksIndirectCommandEXT = 3 uint32_t
+    // Indirect dispatch commands: one VkDrawMeshTasksIndirectCommandEXT per bin
+    VkDeviceSize indirect_size = MAX_PIPELINE_BINS * sizeof(VkDrawMeshTasksIndirectCommandEXT);
     indirect_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_, 3 * sizeof(uint32_t),
+        device_, physical_device_, indirect_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
         VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
@@ -277,11 +288,26 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
                                          VkDeviceSize draw_data_size,
                                          VkBuffer bounds_buffer,
                                          VkDeviceSize bounds_size,
+                                         VkBuffer pipeline_bin_buffer,
+                                         VkDeviceSize pipeline_bin_size,
+                                         uint32_t num_bins,
                                          uint32_t frame_index) {
-    // Zero the indirect dispatch command (groupCountX=0, Y=1, Z=1)
-    uint32_t init[3] = {0, 1, 1};
-    vkCmdUpdateBuffer(cmd, indirect_buffers_[frame_index]->handle(),
-                      0, sizeof(init), init);
+    // Zero all N indirect dispatch commands: {groupCountX=0, groupCountY=1, groupCountZ=1}
+    uint32_t cmd_count = std::max(num_bins, 1u);
+    VkDeviceSize init_size = cmd_count * sizeof(VkDrawMeshTasksIndirectCommandEXT);
+    vkCmdFillBuffer(cmd, indirect_buffers_[frame_index]->handle(),
+                    0, init_size, 0);
+
+    // Write Y=1, Z=1 for each command
+    for (uint32_t i = 0; i < cmd_count; ++i) {
+        uint32_t one = 1;
+        VkDeviceSize y_offset = i * sizeof(VkDrawMeshTasksIndirectCommandEXT) + sizeof(uint32_t);
+        VkDeviceSize z_offset = y_offset + sizeof(uint32_t);
+        vkCmdUpdateBuffer(cmd, indirect_buffers_[frame_index]->handle(),
+                          y_offset, sizeof(uint32_t), &one);
+        vkCmdUpdateBuffer(cmd, indirect_buffers_[frame_index]->handle(),
+                          z_offset, sizeof(uint32_t), &one);
+    }
 
     // Barrier: transfer → compute
     VkMemoryBarrier2 fill_barrier{};
@@ -297,19 +323,21 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
     dep.pMemoryBarriers = &fill_barrier;
     vkCmdPipelineBarrier2(cmd, &dep);
 
-    // Update cull descriptors
-    std::array<VkDescriptorBufferInfo, 6> buffer_infos{};
+    // Update cull descriptors (7 bindings)
+    std::array<VkDescriptorBufferInfo, 7> buffer_infos{};
     buffer_infos[0] = {draw_data_buffer, 0, std::max(draw_data_size, VkDeviceSize{16})};
     buffer_infos[1] = {instance_buffers_[frame_index]->handle(), 0,
                         instance_buffers_[frame_index]->size()};
     buffer_infos[2] = {expand_counters_[frame_index]->handle(), 0, sizeof(uint32_t)};
     buffer_infos[3] = {visible_buffers_[frame_index]->handle(), 0,
                         visible_buffers_[frame_index]->size()};
-    buffer_infos[4] = {indirect_buffers_[frame_index]->handle(), 0, 3 * sizeof(uint32_t)};
+    buffer_infos[4] = {indirect_buffers_[frame_index]->handle(), 0,
+                        indirect_buffers_[frame_index]->size()};
     buffer_infos[5] = {bounds_buffer, 0, std::max(bounds_size, VkDeviceSize{16})};
+    buffer_infos[6] = {pipeline_bin_buffer, 0, std::max(pipeline_bin_size, VkDeviceSize{16})};
 
-    std::array<VkWriteDescriptorSet, 6> writes{};
-    for (uint32_t i = 0; i < 6; ++i) {
+    std::array<VkWriteDescriptorSet, 7> writes{};
+    for (uint32_t i = 0; i < 7; ++i) {
         writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[i].dstSet = cull_sets_[frame_index];
         writes[i].dstBinding = i;
@@ -317,13 +345,10 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
         writes[i].descriptorCount = 1;
         writes[i].pBufferInfo = &buffer_infos[i];
     }
-    vkUpdateDescriptorSets(device_, 6, writes.data(), 0, nullptr);
+    vkUpdateDescriptorSets(device_, 7, writes.data(), 0, nullptr);
 
-    // The cull shader dispatches based on the expand counter (total meshlet instances).
-    // We use vkCmdDispatchIndirect with the expand counter as dispatch X.
-    // But the expand counter is just a uint32_t, not a VkDispatchIndirectCommand.
-    // Instead, we dispatch with a conservative upper bound from the capacity.
-    uint32_t max_groups = (capacities_[frame_index] + 63) / 64;
+    uint32_t seg_size = capacities_[frame_index];
+    uint32_t max_groups = (seg_size + 63) / 64;
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_pipeline_);
 
@@ -331,6 +356,8 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_layout_,
                             0, static_cast<uint32_t>(desc_sets.size()),
                             desc_sets.data(), 0, nullptr);
+    vkCmdPushConstants(cmd, cull_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(uint32_t), &seg_size);
 
     vkCmdDispatch(cmd, max_groups, 1, 1);
 }

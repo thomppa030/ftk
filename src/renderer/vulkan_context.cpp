@@ -895,6 +895,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
                 meshlet_instance_pass_.insert_expand_barrier(cb);
 
+                auto& ranges_ref = indirect_batch_->pipeline_ranges(current_frame_);
                 meshlet_instance_pass_.dispatch_cull(
                     cb,
                     global_descriptor_sets_[current_frame_],
@@ -902,6 +903,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     indirect_batch_->draw_data_size(current_frame_),
                     meshlet_buffer_ ? meshlet_buffer_->bounds_buffer() : VK_NULL_HANDLE,
                     meshlet_buffer_ ? meshlet_buffer_->bounds_buffer_size() : 0,
+                    indirect_batch_->pipeline_bin_buffer(current_frame_),
+                    indirect_batch_->pipeline_bin_size(current_frame_),
+                    static_cast<uint32_t>(ranges_ref.size()),
                     current_frame_);
 
                 meshlet_instance_pass_.insert_cull_barrier(cb);
@@ -998,17 +1002,26 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                 auto indirect_buf = meshlet_instance_pass_.indirect_buffer(current_frame_);
 
                 if (indirect_buf && !ranges.empty()) {
-                    // Phase 1: bind first pipeline's GPU-driven variant, dispatch all visible meshlets
-                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                      pipeline_cache_->gpu_driven_pipeline(ranges[0].pipeline_id));
-                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                            pipeline_cache_->gpu_driven_layout(),
-                                            0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
-                                            mesh_descriptor_sets.data(), 0, nullptr);
-
                     auto draw_indirect = device_.draw_mesh_tasks_indirect_fn();
-                    draw_indirect(cb, indirect_buf, 0, 1,
-                                  sizeof(VkDrawMeshTasksIndirectCommandEXT));
+                    uint32_t seg_size = meshlet_instance_pass_.segment_size(current_frame_);
+
+                    for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
+                        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                          pipeline_cache_->gpu_driven_pipeline(ranges[bin].pipeline_id));
+                        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                pipeline_cache_->gpu_driven_layout(),
+                                                0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
+                                                mesh_descriptor_sets.data(), 0, nullptr);
+
+                        uint32_t bin_offset = bin * seg_size;
+                        vkCmdPushConstants(cb, pipeline_cache_->gpu_driven_layout(),
+                                          VK_SHADER_STAGE_TASK_BIT_EXT,
+                                          0, sizeof(uint32_t), &bin_offset);
+
+                        VkDeviceSize cmd_offset = bin * sizeof(VkDrawMeshTasksIndirectCommandEXT);
+                        draw_indirect(cb, indirect_buf, cmd_offset, 1,
+                                      sizeof(VkDrawMeshTasksIndirectCommandEXT));
+                    }
                 }
 
                 render_stats_->meshlets_dispatched +=

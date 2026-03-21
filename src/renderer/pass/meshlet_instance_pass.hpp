@@ -35,11 +35,12 @@ public:
     // Barrier: expand write → cull read
     void insert_expand_barrier(VkCommandBuffer cmd);
 
-    // Dispatch cull pass: per-meshlet frustum + cone cull
+    // Dispatch cull pass: per-meshlet frustum + cone cull, binned by pipeline
     void dispatch_cull(VkCommandBuffer cmd, VkDescriptorSet global_set,
                        VkBuffer draw_data_buffer, VkDeviceSize draw_data_size,
                        VkBuffer bounds_buffer, VkDeviceSize bounds_size,
-                       uint32_t frame_index);
+                       VkBuffer pipeline_bin_buffer, VkDeviceSize pipeline_bin_size,
+                       uint32_t num_bins, uint32_t frame_index);
 
     // Barrier: cull write → indirect draw read + task shader read
     void insert_cull_barrier(VkCommandBuffer cmd);
@@ -52,9 +53,14 @@ public:
         return visible_buffers_[frame_index] ? visible_buffers_[frame_index]->size() : 0;
     }
 
-    // Indirect dispatch command buffer (VkDrawMeshTasksIndirectCommandEXT)
+    // Indirect dispatch command buffer (N * VkDrawMeshTasksIndirectCommandEXT)
     [[nodiscard]] VkBuffer indirect_buffer(uint32_t frame_index) const {
         return indirect_buffers_[frame_index] ? indirect_buffers_[frame_index]->handle() : VK_NULL_HANDLE;
+    }
+
+    // Max instances per pipeline bin (segment size in the visible buffer)
+    [[nodiscard]] uint32_t segment_size(uint32_t frame_index) const {
+        return capacities_[frame_index];
     }
 
 private:
@@ -78,8 +84,8 @@ private:
     // Per-frame buffers
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instance_buffers_;   // expand output
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> expand_counters_;    // atomic counter
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> visible_buffers_;    // cull output
-    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> indirect_buffers_;   // dispatch cmd
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> visible_buffers_;    // cull output (binned)
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> indirect_buffers_;   // N dispatch cmds
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> capacities_{};
 };
 
