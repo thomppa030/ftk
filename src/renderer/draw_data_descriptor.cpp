@@ -9,21 +9,28 @@ namespace fjell {
 void DrawDataDescriptor::create(VkDevice device) {
     device_ = device;
 
-    // Layout: binding 0 = storage buffer (draw data SSBO)
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                         VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
+    // Layout: binding 0 = draw data SSBO, binding 1 = bone matrix SSBO
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                             VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
+
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT |
+                             VK_SHADER_STAGE_COMPUTE_BIT;
 
     layout_ = std::make_unique<DescriptorSetLayout>(
-        device_, std::span{&binding, 1});
+        device_, std::span{bindings});
 
-    // Pool
+    // Pool: 2 storage buffer descriptors per frame
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
 
     pool_ = std::make_unique<DescriptorPool>(
         device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
@@ -53,6 +60,27 @@ void DrawDataDescriptor::update(VkBuffer buffer, VkDeviceSize size, uint32_t fra
     write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
     write.dstSet = descriptor_sets_[frame_index];
     write.dstBinding = 0;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    write.descriptorCount = 1;
+    write.pBufferInfo = &buffer_info;
+
+    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+}
+
+void DrawDataDescriptor::update_bones(VkBuffer buffer, VkDeviceSize size,
+                                      uint32_t frame_index) {
+    if (size == 0) return;
+
+    VkDescriptorBufferInfo buffer_info{};
+    buffer_info.buffer = buffer;
+    buffer_info.offset = 0;
+    buffer_info.range = size;
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = descriptor_sets_[frame_index];
+    write.dstBinding = 1;
     write.dstArrayElement = 0;
     write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     write.descriptorCount = 1;
