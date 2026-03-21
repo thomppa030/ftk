@@ -99,31 +99,37 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
             result.aabb.expand(vert.position);
         }
 
-        // Extract indices
-        std::vector<uint32_t> mesh_indices;
-        mesh_indices.reserve(mesh->mNumFaces * 3);
+        // Extract local indices (0-based within this mesh)
+        std::vector<uint32_t> local_indices;
+        local_indices.reserve(mesh->mNumFaces * 3);
         for (unsigned int f = 0; f < mesh->mNumFaces; ++f) {
             const aiFace& face = mesh->mFaces[f];
             for (unsigned int i = 0; i < face.mNumIndices; ++i) {
-                mesh_indices.push_back(face.mIndices[i]);
+                local_indices.push_back(face.mIndices[i]);
             }
         }
 
-        submesh.index_count = static_cast<uint32_t>(mesh_indices.size());
+        submesh.index_count = static_cast<uint32_t>(local_indices.size());
+
+        // Build global indices (offset into the combined vertex array)
+        std::vector<uint32_t> global_indices(local_indices.size());
+        for (size_t i = 0; i < local_indices.size(); ++i) {
+            global_indices[i] = submesh.vertex_offset + local_indices[i];
+        }
 
         // Collision data (global offsets)
         uint32_t collision_base = static_cast<uint32_t>(result.collision_vertices.size());
         for (const auto& v : mesh_vertices) {
             result.collision_vertices.push_back(v.position);
         }
-        for (auto idx : mesh_indices) {
+        for (auto idx : local_indices) {
             result.collision_indices.push_back(collision_base + idx);
         }
 
-        // Build meshlets
+        // Build meshlets from local indices
         auto meshlet_result = fjell::build_meshlets(
             mesh_vertices.data(), static_cast<uint32_t>(mesh_vertices.size()),
-            mesh_indices.data(), static_cast<uint32_t>(mesh_indices.size()));
+            local_indices.data(), static_cast<uint32_t>(local_indices.size()));
 
         submesh.first_meshlet = static_cast<uint32_t>(result.meshlets.size());
         submesh.meshlet_count = static_cast<uint32_t>(meshlet_result.meshlets.size());
@@ -137,9 +143,14 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
             ml.triangle_offset += tri_base;
         }
 
+        // Rebase meshlet vertex indices from local to global
+        for (auto& v : meshlet_result.meshlet_vertices) {
+            v += submesh.vertex_offset;
+        }
+
         // Append to global arrays
         result.vertices.insert(result.vertices.end(), mesh_vertices.begin(), mesh_vertices.end());
-        result.indices.insert(result.indices.end(), mesh_indices.begin(), mesh_indices.end());
+        result.indices.insert(result.indices.end(), global_indices.begin(), global_indices.end());
         result.meshlets.insert(result.meshlets.end(),
                                meshlet_result.meshlets.begin(), meshlet_result.meshlets.end());
         result.bounds.insert(result.bounds.end(),
