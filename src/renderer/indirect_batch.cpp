@@ -5,6 +5,10 @@
 #include "renderer/model.hpp"
 #include "renderer/render_queue.hpp"
 
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+
 namespace fjell {
 
 IndirectBatch::IndirectBatch(VkDevice device, VkPhysicalDevice physical_device)
@@ -61,32 +65,39 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
 
 void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           const std::vector<DrawCommand>& transparent_commands,
-                          uint32_t frame_index) {
+                          uint32_t frame_index,
+                          const glm::mat4& projection,
+                          const glm::vec3& camera_pos) {
     FJELL_PROFILE_SCOPE_N("indirect_batch_build");
+
+    // Precompute projection scale for LOD selection (vertical FOV)
+    float proj_scale = std::abs(projection[1][1]);
+    bool do_lod = proj_scale > 0.0f; // skip LOD for identity projection (shadow batch)
+
     // Count total mesh entries across all draw commands (opaque + transparent)
     uint32_t total_draws = 0;
     for (const auto& dc : opaque_commands) {
         total_draws += dc.model->mega_entry_count();
     }
-    // Transparent objects get one SSBO entry per draw command (not per mesh)
     total_draws += static_cast<uint32_t>(transparent_commands.size());
 
     ensure_capacity(frame_index, total_draws);
 
-    auto* indirect = static_cast<VkDrawIndexedIndirectCommand*>(
-        indirect_buffers_[frame_index]->mapped());
-    auto* draw_data = static_cast<GpuDrawData*>(
-        draw_data_buffers_[frame_index]->mapped());
+    // Stage to CPU-side vectors (L1/L2 cached) to avoid scattered writes
+    // to write-combined GPU memory. Bulk memcpy at the end.
+    staged_indirect_.resize(total_draws);
+    staged_draw_data_.resize(total_draws);
+
+    auto* indirect = staged_indirect_.data();
+    auto* draw_data = staged_draw_data_.data();
 
     uint32_t draw_index = 0;
     uint32_t triangles = 0;
     uint32_t total_meshlets = 0;
 
-    // Prepare AABB storage for GPU culling
     auto& aabbs = aabb_data_[frame_index];
     aabbs.resize(total_draws);
 
-    // Write opaque draw commands, tracking per-pipeline ranges
     auto& ranges = pipeline_ranges_[frame_index];
     ranges.clear();
     ranges.reserve(16);
@@ -95,7 +106,28 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     uint32_t range_start = 0;
 
     for (const auto& dc : opaque_commands) {
-        // Start a new range when pipeline changes
+        // LOD selection using squared distances (avoid sqrt)
+        uint32_t lod = 0;
+        if (do_lod && dc.model->lod_count() > 1) {
+            glm::vec3 diff = camera_pos - glm::vec3(dc.world_matrix[3]);
+            float dist_sq = glm::dot(diff, diff);
+            float radius = dc.model->bounding_radius();
+
+            // Max axis scale squared (avoid 3 sqrts)
+            float sx2 = glm::dot(glm::vec3(dc.world_matrix[0]), glm::vec3(dc.world_matrix[0]));
+            float sy2 = glm::dot(glm::vec3(dc.world_matrix[1]), glm::vec3(dc.world_matrix[1]));
+            float sz2 = glm::dot(glm::vec3(dc.world_matrix[2]), glm::vec3(dc.world_matrix[2]));
+            float max_scale_sq = std::max({sx2, sy2, sz2});
+
+            // screen_size = radius * scale * proj_scale / distance
+            // Compare squared: (radius * scale * proj_scale)^2 vs (threshold * distance)^2
+            float r_proj_sq = radius * radius * max_scale_sq * proj_scale * proj_scale;
+
+            lod = dc.model->select_lod_sq(r_proj_sq, dist_sq);
+
+            if (lod >= dc.model->lod_count()) continue;
+        }
+
         if (dc.pipeline_id != current_pipeline) {
             if (current_pipeline != UINT32_MAX && draw_index > range_start) {
                 ranges.push_back({current_pipeline, range_start, draw_index - range_start});
@@ -104,8 +136,13 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             range_start = draw_index;
         }
 
+        const auto& lod_level = dc.model->lod_levels()[lod];
         const auto& entries = dc.model->mega_entries();
-        for (const auto& entry : entries) {
+        uint32_t entry_begin = lod_level.first_mega_entry;
+        uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
+
+        for (uint32_t e = entry_begin; e < entry_end; ++e) {
+            const auto& entry = entries[e];
             VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
             cmd.indexCount = entry.index_count;
             cmd.instanceCount = 1;
@@ -120,16 +157,18 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             data.meshlet_count = entry.meshlet_count;
             data.vertex_offset = entry.vertex_offset;
 
-            // Compute world-space AABB for GPU culling
-            AABB world_aabb = dc.model->local_aabb().transform(dc.push.model);
-            aabbs[draw_index].min_x = world_aabb.min.x;
-            aabbs[draw_index].min_y = world_aabb.min.y;
-            aabbs[draw_index].min_z = world_aabb.min.z;
-            aabbs[draw_index].pad0 = 0.0f;
-            aabbs[draw_index].max_x = world_aabb.max.x;
-            aabbs[draw_index].max_y = world_aabb.max.y;
-            aabbs[draw_index].max_z = world_aabb.max.z;
-            aabbs[draw_index].pad1 = 0.0f;
+            // AABB only needed for GPU cull (main batch, not shadow)
+            if (do_lod) {
+                const AABB& world_aabb = dc.world_aabb;
+                aabbs[draw_index].min_x = world_aabb.min.x;
+                aabbs[draw_index].min_y = world_aabb.min.y;
+                aabbs[draw_index].min_z = world_aabb.min.z;
+                aabbs[draw_index].pad0 = 0.0f;
+                aabbs[draw_index].max_x = world_aabb.max.x;
+                aabbs[draw_index].max_y = world_aabb.max.y;
+                aabbs[draw_index].max_z = world_aabb.max.z;
+                aabbs[draw_index].pad1 = 0.0f;
+            }
 
             total_meshlets += entry.meshlet_count;
             triangles += entry.index_count / 3;
@@ -173,6 +212,15 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     draw_data_counts_[frame_index] = draw_index;
     total_triangles_[frame_index] = triangles;
 
+    // Bulk copy staged CPU data → write-combined GPU memory (one large memcpy
+    // is much faster than scattered writes to WC memory in the inner loop)
+    std::memcpy(indirect_buffers_[frame_index]->mapped(),
+                staged_indirect_.data(),
+                draw_index * sizeof(VkDrawIndexedIndirectCommand));
+    std::memcpy(draw_data_buffers_[frame_index]->mapped(),
+                staged_draw_data_.data(),
+                draw_index * sizeof(GpuDrawData));
+
     // Populate mesh shader indirect dispatch buffers
     uint32_t opaque_count = opaque_counts_[frame_index];
     if (opaque_count > 0) {
@@ -181,15 +229,13 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         auto* counts = static_cast<uint32_t*>(
             mesh_count_buffers_[frame_index]->mapped());
 
-        // Fill indirect commands: dispatch enough task workgroups to cover all meshlets
         for (uint32_t i = 0; i < opaque_count; ++i) {
-            uint32_t mc = draw_data[i].meshlet_count;
+            uint32_t mc = staged_draw_data_[i].meshlet_count;
             mesh_cmds[i].groupCountX = (mc + 31) / 32;
             mesh_cmds[i].groupCountY = 1;
             mesh_cmds[i].groupCountZ = 1;
         }
 
-        // Per-range draw counts
         for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
             counts[r] = ranges[r].draw_count;
         }

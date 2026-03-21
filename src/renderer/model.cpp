@@ -213,6 +213,15 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
         }
     }
 
+    bounding_radius_ = glm::length(local_aabb_.max - local_aabb_.min) * 0.5f;
+
+    // No LOD data for glTF-loaded models — single LOD 0
+    LodLevel lod0{};
+    lod0.first_mega_entry = 0;
+    lod0.mega_entry_count = static_cast<uint32_t>(mega_entries_.size());
+    lod0.max_screen_size = 1.0f;
+    lod_levels_.push_back(lod0);
+
     FJELL_GFX_INFO("Model loaded: {} meshes, {} textures, {} meshlets",
                    meshes_.size(), textures_.size(), total_meshlet_count());
 }
@@ -246,6 +255,15 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
             device, physical_device, command_pool, queue,
             data.vertices, data.indices));
     }
+
+    bounding_radius_ = glm::length(local_aabb_.max - local_aabb_.min) * 0.5f;
+
+    // Primitives: single LOD 0
+    LodLevel lod0{};
+    lod0.first_mega_entry = 0;
+    lod0.mega_entry_count = static_cast<uint32_t>(mega_entries_.size());
+    lod0.max_screen_size = 1.0f;
+    lod_levels_.push_back(lod0);
 }
 
 void Model::draw(VkCommandBuffer cmd) const {
@@ -268,6 +286,27 @@ uint32_t Model::total_indices() const {
         total += mesh->index_count();
     }
     return total;
+}
+
+uint32_t Model::select_lod(float screen_size) const {
+    for (uint32_t i = 0; i < static_cast<uint32_t>(lod_levels_.size()); ++i) {
+        if (screen_size >= lod_levels_[i].max_screen_size || i == lod_levels_.size() - 1) {
+            return i;
+        }
+    }
+    return static_cast<uint32_t>(lod_levels_.size());
+}
+
+uint32_t Model::select_lod_sq(float r_proj_sq, float dist_sq) const {
+    // screen_size = sqrt(r_proj_sq / dist_sq)
+    // threshold comparison: screen_size >= t  <==>  r_proj_sq >= t*t * dist_sq
+    for (uint32_t i = 0; i < static_cast<uint32_t>(lod_levels_.size()); ++i) {
+        float t = lod_levels_[i].max_screen_size;
+        if (r_proj_sq >= t * t * dist_sq || i == lod_levels_.size() - 1) {
+            return i;
+        }
+    }
+    return static_cast<uint32_t>(lod_levels_.size());
 }
 
 uint32_t Model::total_meshlet_count() const {
@@ -296,7 +335,7 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
         std::fclose(f);
         throw std::runtime_error("Invalid .fjmesh magic in: " + path);
     }
-    if (header.version != FJMESH_VERSION) {
+    if (header.version != FJMESH_VERSION && header.version != 1) {
         std::fclose(f);
         throw std::runtime_error("Unsupported .fjmesh version " +
             std::to_string(header.version) + " in: " + path);
@@ -332,11 +371,23 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     read_section(data.collision_vertices, header.collision_vertices_offset, header.collision_vertex_count);
     read_section(data.collision_indices, header.collision_indices_offset, header.collision_index_count);
 
+    // LOD levels: v2 stores them in the file, v1 gets a synthesized single LOD
+    if (header.version >= 2 && header.lod_count > 0) {
+        read_section(data.lod_levels, header.lod_levels_offset, header.lod_count);
+    } else {
+        // v1 compatibility: treat all submeshes as LOD 0
+        FjMeshLodLevel lod0{};
+        lod0.first_submesh = 0;
+        lod0.submesh_count = header.submesh_count;
+        lod0.max_screen_size = 1.0f;
+        data.lod_levels.push_back(lod0);
+    }
+
     std::fclose(f);
 
-    FJELL_GFX_DEBUG("Loaded .fjmesh: {} ({} verts, {} indices, {} submeshes, {} meshlets)",
+    FJELL_GFX_DEBUG("Loaded .fjmesh: {} ({} verts, {} indices, {} submeshes, {} meshlets, {} LODs)",
                     path, data.vertices.size(), data.indices.size(),
-                    data.submeshes.size(), data.meshlets.size());
+                    data.submeshes.size(), data.meshlets.size(), data.lod_levels.size());
 
     return data;
 }
@@ -348,6 +399,7 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
     collision_vertices_ = std::move(data.collision_vertices);
     collision_indices_ = std::move(data.collision_indices);
     local_aabb_ = data.aabb;
+    bounding_radius_ = glm::length(local_aabb_.max - local_aabb_.min) * 0.5f;
 
     for (const auto& submesh : data.submeshes) {
         // Build per-submesh vertex and index arrays (rebased to local indices)
@@ -435,8 +487,26 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
         }
     }
 
-    FJELL_GFX_INFO("Model loaded from .fjmesh: {} meshes, {} meshlets",
-                   meshes_.size(), total_meshlet_count());
+    // Build LOD levels from file data, mapping submesh indices to mega_entries
+    for (const auto& file_lod : data.lod_levels) {
+        LodLevel lod{};
+        lod.first_mega_entry = file_lod.first_submesh;
+        lod.mega_entry_count = file_lod.submesh_count;
+        lod.max_screen_size = file_lod.max_screen_size;
+        lod_levels_.push_back(lod);
+    }
+
+    // Fallback: if no LOD data, treat everything as LOD 0
+    if (lod_levels_.empty()) {
+        LodLevel lod0{};
+        lod0.first_mega_entry = 0;
+        lod0.mega_entry_count = static_cast<uint32_t>(mega_entries_.size());
+        lod0.max_screen_size = 1.0f;
+        lod_levels_.push_back(lod0);
+    }
+
+    FJELL_GFX_INFO("Model loaded from .fjmesh: {} meshes, {} meshlets, {} LODs",
+                   meshes_.size(), total_meshlet_count(), lod_levels_.size());
 }
 
 } // namespace fjell

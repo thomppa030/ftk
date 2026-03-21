@@ -31,7 +31,15 @@ struct FjMeshData {
     std::vector<uint8_t> meshlet_triangles;
     std::vector<glm::vec3> collision_vertices;
     std::vector<uint32_t> collision_indices;
+    std::vector<FjMeshLodLevel> lod_levels;
     AABB aabb;
+};
+
+// Runtime LOD level: maps to a range of MegaMeshEntries
+struct LodLevel {
+    uint32_t first_mega_entry{0};
+    uint32_t mega_entry_count{0};
+    float max_screen_size{1.0f};
 };
 
 class Model {
@@ -84,6 +92,25 @@ public:
     [[nodiscard]] const std::vector<MeshletBuildResult>& meshlet_results() const { return meshlet_results_; }
     [[nodiscard]] uint32_t total_meshlet_count() const;
 
+    // LOD selection: returns the LOD index for a given screen-space bounding sphere size.
+    // screen_size is the fraction of screen height covered by the object's bounding sphere.
+    // Returns lod_count() for "distance culled" (object too small to draw).
+    [[nodiscard]] uint32_t select_lod(float screen_size) const;
+
+    // Squared-distance LOD selection (avoids sqrt).
+    // r_proj_sq = (radius * scale * proj_scale)^2
+    // dist_sq   = squared distance to camera
+    // Compares r_proj_sq / dist_sq against threshold^2.
+    [[nodiscard]] uint32_t select_lod_sq(float r_proj_sq, float dist_sq) const;
+
+    [[nodiscard]] uint32_t lod_count() const {
+        return static_cast<uint32_t>(lod_levels_.size());
+    }
+    [[nodiscard]] const std::vector<LodLevel>& lod_levels() const { return lod_levels_; }
+
+    // Bounding sphere radius (computed from AABB)
+    [[nodiscard]] float bounding_radius() const { return bounding_radius_; }
+
 private:
     std::vector<std::unique_ptr<Mesh>> meshes_;
     std::vector<std::unique_ptr<Texture>> textures_;
@@ -92,6 +119,8 @@ private:
     AABB local_aabb_;
     std::vector<MegaMeshEntry> mega_entries_;
     std::vector<MeshletBuildResult> meshlet_results_;
+    std::vector<LodLevel> lod_levels_;
+    float bounding_radius_{0.0f};
 };
 
 } // namespace fjell

@@ -68,11 +68,21 @@ layout(set = 1, binding = 6) readonly buffer PipelineBinBuffer {
 // Hi-Z depth pyramid for occlusion culling
 layout(set = 1, binding = 7) uniform sampler2D hiz_pyramid;
 
+// Per-draw pipeline bin index
+layout(set = 1, binding = 8) writeonly buffer CulledInstances {
+    MeshletInstance instances_culled[];
+};
+
+layout(set = 1, binding = 9) buffer CulledCounter {
+    uint culled_count;
+};
+
 layout(push_constant) uniform PushConstants {
     uint segment_size;    // max instances per bin
     uint viewport_width;
     uint viewport_height;
     uint hiz_mip_count;
+    uint is_second_pass;  // 0 = first pass (prev Hi-Z), 1 = second pass (new Hi-Z)
 };
 
 shared vec4 shared_planes[6];
@@ -182,19 +192,31 @@ void main() {
     vec3 scale = vec3(length(model[0].xyz), length(model[1].xyz), length(model[2].xyz));
     float radius = b.bounding_sphere.w * max(scale.x, max(scale.y, scale.z));
 
-    bool visible = sphere_frustum_test(center, radius);
-    if (visible) {
-        visible = !cone_cull(b, model, ubo.camera_position.xyz);
-    }
-    if (visible) {
-        visible = !occlusion_cull(center, radius);
+    bool frustum_visible = sphere_frustum_test(center, radius);
+
+    if (is_second_pass == 0) {
+        // First pass: frustum + cone + occlusion against previous frame's Hi-Z
+        if (!frustum_visible) return;
+        if (cone_cull(b, model, ubo.camera_position.xyz)) return;
+
+        bool occluded = occlusion_cull(center, radius);
+        if (occluded) {
+            // Save to culled buffer for second pass retry
+            uint culled_slot = atomicAdd(culled_count, 1);
+            instances_culled[culled_slot] = inst;
+            return;
+        }
+    } else {
+        // Second pass: skip frustum/cone (already passed in first pass),
+        // test only against the new Hi-Z pyramid
+        bool occluded = occlusion_cull(center, radius);
+        if (occluded) return;
     }
 
-    if (visible) {
-        uint bin = pipeline_bin[inst.draw_index];
-        uint slot = atomicAdd(cmds[bin * 3], 1);
-        if (slot < segment_size) {
-            instances_out[bin * segment_size + slot] = inst;
-        }
+    // Visible — add to binned output
+    uint bin = pipeline_bin[inst.draw_index];
+    uint slot = atomicAdd(cmds[bin * 3], 1);
+    if (slot < segment_size) {
+        instances_out[bin * segment_size + slot] = inst;
     }
 }

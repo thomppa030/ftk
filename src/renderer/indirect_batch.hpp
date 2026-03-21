@@ -41,7 +41,9 @@ public:
 
     void build(const std::vector<DrawCommand>& opaque_commands,
                const std::vector<DrawCommand>& transparent_commands,
-               uint32_t frame_index);
+               uint32_t frame_index,
+               const glm::mat4& projection = glm::mat4(1.0f),
+               const glm::vec3& camera_pos = glm::vec3(0.0f));
 
     void draw(VkCommandBuffer cmd, uint32_t frame_index) const;
 
@@ -114,6 +116,10 @@ private:
     std::array<std::vector<PipelineDrawRange>, MAX_FRAMES_IN_FLIGHT> pipeline_ranges_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> pipeline_bin_buffers_;
     std::array<std::vector<GpuDrawAABB>, MAX_FRAMES_IN_FLIGHT> aabb_data_;
+
+    // CPU-side staging buffers (avoid scattered writes to write-combined GPU memory)
+    std::vector<VkDrawIndexedIndirectCommand> staged_indirect_;
+    std::vector<GpuDrawData> staged_draw_data_;
 };
 
 } // namespace fjell

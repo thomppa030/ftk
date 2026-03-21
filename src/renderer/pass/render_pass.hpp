@@ -46,6 +46,10 @@ struct FrameContext {
     VkDescriptorSet meshlet_set{VK_NULL_HANDLE};
     bool use_mesh_shaders{false};
     PipelineCache* pipeline_cache{nullptr};
+
+    // Two-pass occlusion: GPU-driven dispatch from culled visible buffer
+    VkBuffer gpu_driven_indirect{VK_NULL_HANDLE}; // meshlet_instance_pass indirect cmds
+    uint32_t gpu_driven_segment_size{0};           // instances per pipeline bin
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

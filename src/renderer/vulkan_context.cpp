@@ -627,14 +627,14 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     }
                     dc.model = obj->mesh->model;
 
-                    AABB world_aabb = obj->mesh->model->local_aabb().transform(obj->world_matrix_);
+                    dc.world_aabb = obj->mesh->model->local_aabb().transform(obj->world_matrix_);
 
                     // Shadow cull: include if visible to any cascade's
                     // expanded frustum (near plane removed to catch casters
                     // behind the cascade along the light direction)
                     if (!dc.transparent) {
                         for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
-                            if (shadow_frustums[c].intersects(world_aabb)) {
+                            if (shadow_frustums[c].intersects(dc.world_aabb)) {
                                 shadow_cmds.push_back(dc);
                                 break;
                             }
@@ -642,7 +642,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     }
 
                     // Camera cull
-                    if (!camera_frustum.intersects(world_aabb)) {
+                    if (!camera_frustum.intersects(dc.world_aabb)) {
                         local_culled[chunk_id]++;
                         continue;
                     }
@@ -675,10 +675,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     bindless_textures_.update_descriptors();
     bindless_textures_.update_material_buffer();
 
-    // Build indirect draw commands from opaque + transparent queues
+    // Build indirect draw commands from opaque + transparent queues (with LOD selection)
     indirect_batch_->build(render_queue_.commands(),
                            render_queue_.transparent_commands(),
-                           current_frame_);
+                           current_frame_,
+                           projection_matrix_, camera_position_);
 
     // Build shadow indirect batch from all shadow casters (not camera-culled)
     std::vector<DrawCommand> empty_transparent;
@@ -750,6 +751,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.pipeline_cache = pipeline_cache_.get();
     if (use_mesh_shaders_) {
         ctx.meshlet_set = meshlet_descriptor_.descriptor_set(current_frame_);
+        ctx.gpu_driven_indirect = meshlet_instance_pass_.indirect_buffer(current_frame_);
+        ctx.gpu_driven_segment_size = meshlet_instance_pass_.segment_size(current_frame_);
     }
 
     // ── Frame graph: declare image usage per pass ────────────────────────
@@ -785,21 +788,32 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         shadow_pass_.record(local);
     }, {}, 1);
 
-    // Depth pre-pass (writes MSAA depth when MSAA active, otherwise single-sample)
+    // ── Two-pass occlusion culling pipeline ──
+    // The depth prepass renders ALL meshlets (cheap depth-only writes).
+    // Then Hi-Z is built from this complete depth, and the meshlet cull pass
+    // uses it to filter which meshlets the expensive color pass needs to shade.
+    //
+    // Two-pass cull: first cull with previous frame's Hi-Z, save rejects to
+    // a culled buffer. After Hi-Z rebuild from this frame's depth, second cull
+    // retests the rejects against the new Hi-Z and appends newly visible
+    // meshlets. This catches geometry that was occluded last frame but visible now.
+
+    // Depth prepass: render ALL meshlets (vertex or mesh shader)
     auto& depth_pass = use_mesh_shaders_ ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
                                           : static_cast<RenderPass&>(depth_prepass_);
     if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
-        // With MSAA: depth prepass writes MSAA depth, then resolve to single-sample for compute
         graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
             TracyVkZone(tracy_vk_ctx_, cb, "Depth Prepass");
 #endif
             FrameContext local = ctx;
             local.cmd = cb;
+            // Depth prepass always uses pre-cull dispatch (all meshlets)
+            local.gpu_driven_indirect = VK_NULL_HANDLE;
+            local.gpu_driven_segment_size = 0;
             depth_pass.record(local);
         }, {{msaa_depth_id, ImageUsage::depth_attachment}}, 1);
 
-        // Depth resolve: begin a rendering scope with MSAA depth loaded + resolve target
         graph.add_pass("depth_resolve", [&](VkCommandBuffer cb) {
             VkRenderingAttachmentInfo depth_attachment{};
             depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -828,57 +842,13 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 #endif
             FrameContext local = ctx;
             local.cmd = cb;
+            local.gpu_driven_indirect = VK_NULL_HANDLE;
+            local.gpu_driven_segment_size = 0;
             depth_pass.record(local);
         }, {{depth_id, ImageUsage::depth_attachment}}, 1);
     }
 
-    // GT-VBAO ambient occlusion (reads depth, writes AO texture)
-    graph.add_pass("gtao", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "GTAO");
-#endif
-        auto extent = target.extent();
-        gtao_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
-                               extent.width, extent.height);
-    }, {{depth_id, ImageUsage::compute_read}});
-
-    // Light cull compute pass (reads resolved depth, writes tile light lists)
-    graph.add_pass("light_cull", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Light Cull");
-#endif
-        auto extent = target.extent();
-        light_cull_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
-                                   extent.width, extent.height);
-
-        // Memory barrier: compute SSBO write → fragment SSBO read
-        VkMemoryBarrier2 mem_barrier{};
-        mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        mem_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        mem_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        mem_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        mem_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.memoryBarrierCount = 1;
-        dep.pMemoryBarriers = &mem_barrier;
-        vkCmdPipelineBarrier2(cb, &dep);
-    }, {{depth_id, ImageUsage::compute_read}});
-
-    // Particle compute (before rendering so particles are ready to draw)
-    graph.add_pass("particle_compute", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Particle Compute");
-#endif
-        if (scene) {
-            particle_system_.sync_emitters(*scene);
-            particle_system_.dispatch_compute(cb, dt, *scene);
-            particle_system_.insert_barriers(cb);
-        }
-    }, {});
-
-    // Hi-Z pyramid build (reads resolved depth for occlusion culling)
+    // Hi-Z pyramid build (from depth prepass output)
     graph.add_pass("hiz_build", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
         TracyVkZone(tracy_vk_ctx_, cb, "Hi-Z Build");
@@ -890,7 +860,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         }
     }, {{depth_id, ImageUsage::compute_read}});
 
-    // GPU-driven meshlet expand + cull
+    // GPU-driven meshlet expand + two-pass cull
     graph.add_pass("meshlet_expand_cull", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
         TracyVkZone(tracy_vk_ctx_, cb, "Meshlet Expand+Cull");
@@ -899,17 +869,19 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             uint32_t total_draws = indirect_batch_->opaque_draw_count(current_frame_);
             uint32_t total_mi = indirect_batch_->total_meshlet_instances(current_frame_);
             if (total_draws > 0 && total_mi > 0) {
+                // Expand: scatter draws → flat meshlet instance array
                 meshlet_instance_pass_.dispatch_expand(
                     cb,
                     indirect_batch_->draw_data_buffer(current_frame_),
                     indirect_batch_->draw_data_size(current_frame_),
                     total_draws, current_frame_);
-
                 meshlet_instance_pass_.insert_expand_barrier(cb);
 
                 auto& ranges_ref = indirect_batch_->pipeline_ranges(current_frame_);
                 auto extent = target.extent();
-                meshlet_instance_pass_.dispatch_cull(
+
+                // First cull: frustum + current frame Hi-Z
+                meshlet_instance_pass_.dispatch_cull_first(
                     cb,
                     global_descriptor_sets_[current_frame_],
                     indirect_batch_->draw_data_buffer(current_frame_),
@@ -926,7 +898,55 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     hiz_pass_.ready() ? hiz_pass_.mip_count() : 0);
 
                 meshlet_instance_pass_.insert_cull_barrier(cb);
+                render_stats_->two_pass_occlusion = hiz_pass_.ready();
+
+                // Second cull pass is ready but skipped for now — with current-frame
+                // Hi-Z the culled buffer is empty (first pass already has accurate depth).
+                // Enable when depth prepass is optimized to use previous frame's Hi-Z.
             }
+        }
+    }, {});
+
+    // Post-depth compute passes
+    graph.add_pass("gtao", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "GTAO");
+#endif
+        auto extent = target.extent();
+        gtao_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
+                               extent.width, extent.height);
+    }, {{depth_id, ImageUsage::compute_read}});
+
+    graph.add_pass("light_cull", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Light Cull");
+#endif
+        auto extent = target.extent();
+        light_cull_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
+                                   extent.width, extent.height);
+
+        VkMemoryBarrier2 mem_barrier{};
+        mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        mem_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        mem_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        mem_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        mem_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &mem_barrier;
+        vkCmdPipelineBarrier2(cb, &dep);
+    }, {{depth_id, ImageUsage::compute_read}});
+
+    graph.add_pass("particle_compute", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Particle Compute");
+#endif
+        if (scene) {
+            particle_system_.sync_emitters(*scene);
+            particle_system_.dispatch_compute(cb, dt, *scene);
+            particle_system_.insert_barriers(cb);
         }
     }, {});
 

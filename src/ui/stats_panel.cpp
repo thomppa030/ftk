@@ -58,6 +58,16 @@ void StatsPanel::draw(float dt) {
                 if (ImGui::Checkbox("GPU Cull", &gpu_cull)) {
                     ctx_->cull_pass().set_enabled(gpu_cull);
                 }
+                if (stats.two_pass_occlusion) {
+                    ImGui::SameLine(0, 10);
+                    ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "2-Pass OC");
+                }
+                if (stats.lod1_draws > 0 || stats.lod2_draws > 0 || stats.distance_culled > 0) {
+                    ImGui::SameLine(0, 10);
+                    ImGui::Text("LOD: %u/%u/%u D:%u",
+                                stats.lod0_draws, stats.lod1_draws, stats.lod2_draws,
+                                stats.distance_culled);
+                }
             }
         }
 

@@ -7,6 +7,7 @@
 #include <assimp/Importer.hpp>
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
+#include <meshoptimizer.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -19,8 +20,16 @@
 static_assert(sizeof(fjell::Vertex) == 60, "Vertex layout changed — .fjmesh format incompatible");
 static_assert(sizeof(fjell::Meshlet) == 16, "Meshlet layout changed — .fjmesh format incompatible");
 static_assert(sizeof(fjell::MeshletBounds) == 48, "MeshletBounds layout changed — .fjmesh format incompatible");
+static_assert(sizeof(fjell::FjMeshLodLevel) == 16, "FjMeshLodLevel layout changed — .fjmesh format incompatible");
 
 namespace fs = std::filesystem;
+
+// Per-mesh data before LOD generation (LOD 0 source)
+struct SourceMesh {
+    std::vector<fjell::Vertex> vertices;
+    std::vector<uint32_t> local_indices;
+    uint32_t material_slot;
+};
 
 struct ImportResult {
     std::vector<fjell::Vertex> vertices;
@@ -32,8 +41,72 @@ struct ImportResult {
     std::vector<uint8_t> meshlet_triangles;
     std::vector<glm::vec3> collision_vertices;
     std::vector<uint32_t> collision_indices;
+    std::vector<fjell::FjMeshLodLevel> lod_levels;
     fjell::AABB aabb;
 };
+
+// Append a submesh to the import result from local vertices/indices, building meshlets
+static void append_submesh(ImportResult& result,
+                           const std::vector<fjell::Vertex>& mesh_vertices,
+                           const std::vector<uint32_t>& local_indices,
+                           uint32_t material_slot) {
+    if (local_indices.empty()) return;
+
+    fjell::FjMeshSubmesh submesh{};
+    submesh.vertex_offset = static_cast<uint32_t>(result.vertices.size());
+    submesh.first_index = static_cast<uint32_t>(result.indices.size());
+    submesh.material_slot = material_slot;
+    submesh.index_count = static_cast<uint32_t>(local_indices.size());
+
+    // Build global indices
+    std::vector<uint32_t> global_indices(local_indices.size());
+    for (size_t i = 0; i < local_indices.size(); ++i) {
+        global_indices[i] = submesh.vertex_offset + local_indices[i];
+    }
+
+    // Build meshlets from local indices
+    auto meshlet_result = fjell::build_meshlets(
+        mesh_vertices.data(), static_cast<uint32_t>(mesh_vertices.size()),
+        local_indices.data(), static_cast<uint32_t>(local_indices.size()));
+
+    submesh.first_meshlet = static_cast<uint32_t>(result.meshlets.size());
+    submesh.meshlet_count = static_cast<uint32_t>(meshlet_result.meshlets.size());
+
+    // Rebase meshlet offsets to global arrays
+    uint32_t vert_idx_base = static_cast<uint32_t>(result.meshlet_vertices.size());
+    uint32_t tri_base = static_cast<uint32_t>(result.meshlet_triangles.size()) / 3;
+
+    for (auto& ml : meshlet_result.meshlets) {
+        ml.vertex_offset += vert_idx_base;
+        ml.triangle_offset += tri_base;
+    }
+
+    // Rebase meshlet vertex indices from local to global
+    for (auto& v : meshlet_result.meshlet_vertices) {
+        v += submesh.vertex_offset;
+    }
+
+    // Append to global arrays
+    result.vertices.insert(result.vertices.end(), mesh_vertices.begin(), mesh_vertices.end());
+    result.indices.insert(result.indices.end(), global_indices.begin(), global_indices.end());
+    result.meshlets.insert(result.meshlets.end(),
+                           meshlet_result.meshlets.begin(), meshlet_result.meshlets.end());
+    result.bounds.insert(result.bounds.end(),
+                         meshlet_result.bounds.begin(), meshlet_result.bounds.end());
+    result.meshlet_vertices.insert(result.meshlet_vertices.end(),
+                                   meshlet_result.meshlet_vertices.begin(),
+                                   meshlet_result.meshlet_vertices.end());
+    result.meshlet_triangles.insert(result.meshlet_triangles.end(),
+                                    meshlet_result.meshlet_triangles.begin(),
+                                    meshlet_result.meshlet_triangles.end());
+    result.submeshes.push_back(submesh);
+}
+
+// LOD thresholds: fraction of screen height the bounding sphere should cover
+// to select this LOD. LOD 0 = full detail (threshold 1.0 = always eligible).
+static constexpr float LOD_THRESHOLDS[] = {1.0f, 0.3f, 0.1f};
+static constexpr float LOD_TARGET_RATIOS[] = {1.0f, 0.5f, 0.25f};
+static constexpr float LOD_TARGET_ERROR = 0.02f;
 
 static bool import_mesh(const std::string& input_path, ImportResult& result) {
     Assimp::Importer importer;
@@ -50,18 +123,17 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
         return false;
     }
 
+    // First pass: extract source mesh data
+    std::vector<SourceMesh> source_meshes;
     for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
         const aiMesh* mesh = scene->mMeshes[m];
 
-        fjell::FjMeshSubmesh submesh{};
-        submesh.vertex_offset = static_cast<uint32_t>(result.vertices.size());
-        submesh.first_index = static_cast<uint32_t>(result.indices.size());
-        submesh.material_slot = mesh->mMaterialIndex;
+        SourceMesh src{};
+        src.material_slot = mesh->mMaterialIndex;
+        src.vertices.resize(mesh->mNumVertices);
 
-        // Extract vertices
-        std::vector<fjell::Vertex> mesh_vertices(mesh->mNumVertices);
         for (unsigned int v = 0; v < mesh->mNumVertices; ++v) {
-            auto& vert = mesh_vertices[v];
+            auto& vert = src.vertices[v];
 
             vert.position = {mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z};
 
@@ -72,8 +144,6 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
             }
 
             if (mesh->HasTextureCoords(0)) {
-                // Assimp converts glTF UVs to bottom-left origin; convert back to top-left
-                // (glTF/Vulkan convention: V=0 at top)
                 vert.tex_coord = {mesh->mTextureCoords[0][v].x, 1.0f - mesh->mTextureCoords[0][v].y};
             } else {
                 vert.tex_coord = glm::vec2(0.0f);
@@ -89,7 +159,6 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
                 glm::vec3 t = {mesh->mTangents[v].x, mesh->mTangents[v].y, mesh->mTangents[v].z};
                 glm::vec3 b = {mesh->mBitangents[v].x, mesh->mBitangents[v].y, mesh->mBitangents[v].z};
                 glm::vec3 n = vert.normal;
-                // Handedness: sign of dot(cross(n, t), b)
                 float w = (glm::dot(glm::cross(n, t), b) < 0.0f) ? -1.0f : 1.0f;
                 vert.tangent = glm::vec4(t, w);
             } else {
@@ -99,70 +168,83 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
             result.aabb.expand(vert.position);
         }
 
-        // Extract local indices (0-based within this mesh)
-        std::vector<uint32_t> local_indices;
-        local_indices.reserve(mesh->mNumFaces * 3);
+        src.local_indices.reserve(mesh->mNumFaces * 3);
         for (unsigned int f = 0; f < mesh->mNumFaces; ++f) {
             const aiFace& face = mesh->mFaces[f];
             for (unsigned int i = 0; i < face.mNumIndices; ++i) {
-                local_indices.push_back(face.mIndices[i]);
+                src.local_indices.push_back(face.mIndices[i]);
             }
         }
 
-        submesh.index_count = static_cast<uint32_t>(local_indices.size());
-
-        // Build global indices (offset into the combined vertex array)
-        std::vector<uint32_t> global_indices(local_indices.size());
-        for (size_t i = 0; i < local_indices.size(); ++i) {
-            global_indices[i] = submesh.vertex_offset + local_indices[i];
-        }
-
-        // Collision data (global offsets)
+        // Collision data (from LOD 0 only)
         uint32_t collision_base = static_cast<uint32_t>(result.collision_vertices.size());
-        for (const auto& v : mesh_vertices) {
+        for (const auto& v : src.vertices) {
             result.collision_vertices.push_back(v.position);
         }
-        for (auto idx : local_indices) {
+        for (auto idx : src.local_indices) {
             result.collision_indices.push_back(collision_base + idx);
         }
 
-        // Build meshlets from local indices
-        auto meshlet_result = fjell::build_meshlets(
-            mesh_vertices.data(), static_cast<uint32_t>(mesh_vertices.size()),
-            local_indices.data(), static_cast<uint32_t>(local_indices.size()));
+        source_meshes.push_back(std::move(src));
+    }
 
-        submesh.first_meshlet = static_cast<uint32_t>(result.meshlets.size());
-        submesh.meshlet_count = static_cast<uint32_t>(meshlet_result.meshlets.size());
+    // Generate LOD levels: LOD 0 uses original indices, LOD 1+ use meshopt_simplify
+    uint32_t num_lods = static_cast<uint32_t>(std::size(LOD_THRESHOLDS));
 
-        // Rebase meshlet offsets to global arrays
-        uint32_t vert_idx_base = static_cast<uint32_t>(result.meshlet_vertices.size());
-        uint32_t tri_base = static_cast<uint32_t>(result.meshlet_triangles.size()) / 3;
+    for (uint32_t lod = 0; lod < num_lods; ++lod) {
+        fjell::FjMeshLodLevel level{};
+        level.first_submesh = static_cast<uint32_t>(result.submeshes.size());
+        level.max_screen_size = LOD_THRESHOLDS[lod];
 
-        for (auto& ml : meshlet_result.meshlets) {
-            ml.vertex_offset += vert_idx_base;
-            ml.triangle_offset += tri_base;
+        uint32_t lod_submeshes = 0;
+
+        for (const auto& src : source_meshes) {
+            if (src.local_indices.empty()) continue;
+
+            if (lod == 0) {
+                // LOD 0: use original geometry
+                append_submesh(result, src.vertices, src.local_indices, src.material_slot);
+                lod_submeshes++;
+            } else {
+                // Simplified LOD
+                size_t target_count = static_cast<size_t>(
+                    static_cast<float>(src.local_indices.size()) * LOD_TARGET_RATIOS[lod]);
+                // Round down to multiple of 3
+                target_count = (target_count / 3) * 3;
+                if (target_count < 3) target_count = 3;
+
+                std::vector<uint32_t> simplified(src.local_indices.size());
+                float result_error = 0.0f;
+                size_t simplified_count = meshopt_simplify(
+                    simplified.data(),
+                    src.local_indices.data(),
+                    src.local_indices.size(),
+                    &src.vertices[0].position.x,
+                    src.vertices.size(),
+                    sizeof(fjell::Vertex),
+                    target_count,
+                    LOD_TARGET_ERROR,
+                    0, // options
+                    &result_error);
+
+                simplified.resize(simplified_count);
+
+                // Skip this LOD if simplification didn't reduce enough
+                // (keep it anyway as a valid LOD — it just won't save much)
+                if (!simplified.empty()) {
+                    append_submesh(result, src.vertices, simplified, src.material_slot);
+                    lod_submeshes++;
+                }
+            }
         }
 
-        // Rebase meshlet vertex indices from local to global
-        for (auto& v : meshlet_result.meshlet_vertices) {
-            v += submesh.vertex_offset;
-        }
+        level.submesh_count = lod_submeshes;
+        result.lod_levels.push_back(level);
+    }
 
-        // Append to global arrays
-        result.vertices.insert(result.vertices.end(), mesh_vertices.begin(), mesh_vertices.end());
-        result.indices.insert(result.indices.end(), global_indices.begin(), global_indices.end());
-        result.meshlets.insert(result.meshlets.end(),
-                               meshlet_result.meshlets.begin(), meshlet_result.meshlets.end());
-        result.bounds.insert(result.bounds.end(),
-                             meshlet_result.bounds.begin(), meshlet_result.bounds.end());
-        result.meshlet_vertices.insert(result.meshlet_vertices.end(),
-                                       meshlet_result.meshlet_vertices.begin(),
-                                       meshlet_result.meshlet_vertices.end());
-        result.meshlet_triangles.insert(result.meshlet_triangles.end(),
-                                        meshlet_result.meshlet_triangles.begin(),
-                                        meshlet_result.meshlet_triangles.end());
-
-        result.submeshes.push_back(submesh);
+    // Remove trailing LODs that have 0 submeshes
+    while (!result.lod_levels.empty() && result.lod_levels.back().submesh_count == 0) {
+        result.lod_levels.pop_back();
     }
 
     return true;
@@ -197,6 +279,7 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
     header.collision_index_count = static_cast<uint32_t>(result.collision_indices.size());
     header.max_meshlet_vertices = fjell::MAX_MESHLET_VERTICES;
     header.max_meshlet_triangles = fjell::MAX_MESHLET_TRIANGLES;
+    header.lod_count = static_cast<uint32_t>(result.lod_levels.size());
     header.aabb_min = result.aabb.min;
     header.aabb_max = result.aabb.max;
 
@@ -227,6 +310,9 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
 
     header.collision_indices_offset = align_to(offset, 4);
     offset = header.collision_indices_offset + header.collision_index_count * sizeof(uint32_t);
+
+    header.lod_levels_offset = align_to(offset, 4);
+    offset = header.lod_levels_offset + header.lod_count * sizeof(fjell::FjMeshLodLevel);
 
     uint64_t file_size = offset;
 
@@ -272,17 +358,33 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
     pad_to(header.collision_indices_offset);
     std::fwrite(result.collision_indices.data(), sizeof(uint32_t), result.collision_indices.size(), f);
 
+    pad_to(header.lod_levels_offset);
+    std::fwrite(result.lod_levels.data(), sizeof(fjell::FjMeshLodLevel), result.lod_levels.size(), f);
+
     std::fclose(f);
 
     std::printf("wrote %s (%.1f KB)\n", output_path.c_str(),
                 static_cast<double>(file_size) / 1024.0);
-    std::printf("  %u vertices, %u indices, %u submeshes\n",
-                header.vertex_count, header.index_count, header.submesh_count);
+    std::printf("  %u vertices, %u indices, %u submeshes, %u LODs\n",
+                header.vertex_count, header.index_count, header.submesh_count,
+                header.lod_count);
     std::printf("  %u meshlets, %u meshlet vertices, %u triangle bytes\n",
                 header.meshlet_count, header.meshlet_vertex_count,
                 header.meshlet_triangle_byte_count);
-    std::printf("  %u collision vertices, %u collision indices\n",
-                header.collision_vertex_count, header.collision_index_count);
+
+    // Per-LOD summary
+    for (uint32_t i = 0; i < header.lod_count; ++i) {
+        const auto& lod = result.lod_levels[i];
+        uint32_t lod_meshlets = 0;
+        uint32_t lod_tris = 0;
+        for (uint32_t s = 0; s < lod.submesh_count; ++s) {
+            const auto& sub = result.submeshes[lod.first_submesh + s];
+            lod_meshlets += sub.meshlet_count;
+            lod_tris += sub.index_count / 3;
+        }
+        std::printf("  LOD %u: %u submeshes, %u meshlets, %u triangles (threshold %.2f)\n",
+                    i, lod.submesh_count, lod_meshlets, lod_tris, lod.max_screen_size);
+    }
 
     return true;
 }
