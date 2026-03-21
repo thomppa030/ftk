@@ -22,9 +22,11 @@ struct Handle {
     bool operator==(const Handle&) const = default;
 };
 
-using ModelHandle    = Handle<struct ModelTag>;
-using MaterialHandle = Handle<struct MaterialTag>;
-using TextureHandle  = Handle<struct TextureTag>;
+using ModelHandle         = Handle<struct ModelTag>;
+using MaterialHandle      = Handle<struct MaterialTag>;
+using TextureHandle       = Handle<struct TextureTag>;
+using SkeletonHandle      = Handle<struct SkeletonTag>;
+using AnimationClipHandle = Handle<struct AnimationClipTag>;
 
 enum class LoadState : uint8_t {
     Loading,

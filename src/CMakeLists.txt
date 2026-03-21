@@ -98,6 +98,8 @@ add_executable(fjell
     renderer/texture.cpp
     renderer/viz_image.cpp
     renderer/vulkan_context.cpp
+    animation/skeleton.cpp
+    animation/animation_clip.cpp
     audio/audio_engine.cpp
     physics/physics_world.cpp
     scene/scene.cpp
