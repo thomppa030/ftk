@@ -97,17 +97,8 @@ bool sphere_frustum_test(vec3 center, float radius) {
 }
 
 bool cone_cull(MeshletBounds b, mat4 model, vec3 camera_pos) {
-    // If cutoff >= 1.0, cone culling is disabled for this meshlet
-    if (b.cone_axis_cutoff.w >= 1.0) return false;
-
-    vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
-    mat3 normal_mat = mat3(model);
-    vec3 axis = normalize(normal_mat * b.cone_axis_cutoff.xyz);
-    float cutoff = b.cone_axis_cutoff.w;
-
-    // If camera is behind the cone, all triangles are backfacing
-    vec3 view_dir = normalize(apex - camera_pos);
-    return dot(view_dir, axis) >= cutoff;
+    // TODO: cone backface culling disabled — cutoff math needs work
+    return false;
 }
 
 void main() {

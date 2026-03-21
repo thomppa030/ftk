@@ -116,7 +116,7 @@ static void compute_cone(const Vertex* vertices, const uint32_t* indices,
     float radius = sphere.w;
     cone_apex = glm::vec4(center + axis * radius, 0.0f);
 
-    // Find worst-case dot product (minimum cos angle)
+    // Find worst-case dot product (minimum cos angle between axis and any face normal)
     float min_dot = 1.0f;
     for (uint32_t t = 0; t < triangle_count; ++t) {
         glm::vec3 v0 = vertices[indices[t * 3 + 0]].position;
@@ -126,8 +126,17 @@ static void compute_cone(const Vertex* vertices, const uint32_t* indices,
         min_dot = std::min(min_dot, glm::dot(axis, face_normal));
     }
 
-    // cutoff: if dot(view_dir, axis) > cutoff, all triangles are backfacing
-    cone_axis_cutoff = glm::vec4(axis, min_dot);
+    // If the cone is too wide (> ~168 degrees), disable culling for this meshlet
+    if (min_dot <= 0.1f) {
+        cone_axis_cutoff = glm::vec4(axis, 1.0f); // cutoff=1 means never culled
+        return;
+    }
+
+    // meshoptimizer convention: the cutoff is sin(a) = sqrt(1 - cos²(a))
+    // where a is the half-angle of the normal cone. The test in the shader
+    // checks dot(normalize(center - camera_pos), axis) >= cutoff.
+    float cutoff = std::sqrt(1.0f - min_dot * min_dot);
+    cone_axis_cutoff = glm::vec4(axis, cutoff);
 }
 
 MeshletBuildResult build_meshlets(const Vertex* vertices, uint32_t vertex_count,
