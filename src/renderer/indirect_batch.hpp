@@ -87,6 +87,11 @@ public:
         return opaque_counts_[frame_index] * sizeof(uint32_t);
     }
 
+    [[nodiscard]] uint32_t draw_meshlet_count(uint32_t frame_index, uint32_t draw_index) const {
+        auto* data = static_cast<const GpuDrawData*>(draw_data_buffers_[frame_index]->mapped());
+        return data[draw_index].meshlet_count;
+    }
+
     [[nodiscard]] const GpuDrawAABB* aabb_data(uint32_t frame_index) const {
         return aabb_data_[frame_index].empty() ? nullptr : aabb_data_[frame_index].data();
     }

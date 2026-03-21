@@ -376,7 +376,9 @@ void CullVizPass::record(const FrameContext& ctx, VkBuffer visibility_buffer,
         vkCmdPushConstants(ctx.cmd, layout_,
                            VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
                            0, sizeof(uint32_t), &i);
-        draw_mesh_tasks_(ctx.cmd, 1, 1, 1);
+        uint32_t mc = ctx.indirect_batch->draw_meshlet_count(ctx.frame_index, i);
+        uint32_t workgroups = (mc + 31) / 32;
+        draw_mesh_tasks_(ctx.cmd, workgroups, 1, 1);
     }
 
     vkCmdEndRendering(ctx.cmd);

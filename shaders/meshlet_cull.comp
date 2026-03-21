@@ -115,7 +115,7 @@ bool cone_cull(MeshletBounds b, mat4 model, vec3 camera_pos) {
     vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
     vec3 axis = normalize(mat3(model) * b.cone_axis_cutoff.xyz);
 
-    return dot(normalize(camera_pos - apex), axis) >= cutoff;
+    return dot(normalize(apex - camera_pos), axis) >= cutoff;
 }
 
 bool occlusion_cull(vec3 center, float radius) {

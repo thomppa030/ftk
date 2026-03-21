@@ -181,9 +181,10 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         auto* counts = static_cast<uint32_t*>(
             mesh_count_buffers_[frame_index]->mapped());
 
-        // Fill indirect commands: each draw dispatches 1 task workgroup
+        // Fill indirect commands: dispatch enough task workgroups to cover all meshlets
         for (uint32_t i = 0; i < opaque_count; ++i) {
-            mesh_cmds[i].groupCountX = 1;
+            uint32_t mc = draw_data[i].meshlet_count;
+            mesh_cmds[i].groupCountX = (mc + 31) / 32;
             mesh_cmds[i].groupCountY = 1;
             mesh_cmds[i].groupCountZ = 1;
         }

@@ -37,7 +37,7 @@ void MeshletVizPass::create(Device& device, const PassResources& resources) {
     depth_format_ = device.find_depth_format();
     create_image(64, 64);
 
-    auto task_code = read_spirv(base_path::resolve("shaders/mesh.task.spv"));
+    auto task_code = read_spirv(base_path::resolve("shaders/depth_mesh.task.spv"));
     auto mesh_code = read_spirv(base_path::resolve("shaders/meshlet_viz.mesh.spv"));
     auto frag_code = read_spirv(base_path::resolve("shaders/meshlet_viz.frag.spv"));
 

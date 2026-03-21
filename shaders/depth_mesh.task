@@ -89,13 +89,16 @@ void main() {
     uint meshlet_count = dd.meshlet_count;
     uint meshlet_base = dd.meshlet_offset;
     uint tid = gl_LocalInvocationIndex;
+    uint batch = gl_WorkGroupID.x;
+    uint batch_start = batch * 32;
 
-    // Pass through: each thread handles one meshlet, no culling for now
+    uint batch_count = min(meshlet_count - batch_start, 32u);
+
     payload.draw_index = draw_idx;
 
-    if (tid < meshlet_count) {
-        payload.meshlet_indices[tid] = meshlet_base + tid;
+    if (tid < batch_count) {
+        payload.meshlet_indices[tid] = meshlet_base + batch_start + tid;
     }
 
-    EmitMeshTasksEXT(min(meshlet_count, 32u), 1, 1);
+    EmitMeshTasksEXT(batch_count, 1, 1);
 }

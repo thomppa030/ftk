@@ -42,11 +42,9 @@ public:
 
     [[nodiscard]] VkPipeline opaque_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline transparent_pipeline(uint32_t id) const;
-    [[nodiscard]] VkPipeline mesh_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline gpu_driven_pipeline(uint32_t id) const;
     [[nodiscard]] const ShaderMetadata& metadata(uint32_t id) const;
     [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
-    [[nodiscard]] VkPipelineLayout mesh_layout() const { return mesh_layout_; }
     [[nodiscard]] VkPipelineLayout gpu_driven_layout() const { return gpu_driven_layout_; }
     [[nodiscard]] bool has_mesh_shaders() const { return meshlet_layout_ != VK_NULL_HANDLE; }
     [[nodiscard]] uint32_t shader_count() const { return static_cast<uint32_t>(entries_.size()); }
@@ -61,7 +59,6 @@ private:
         ShaderMetadata metadata;
         VkPipeline opaque{VK_NULL_HANDLE};
         VkPipeline transparent{VK_NULL_HANDLE};
-        VkPipeline mesh{VK_NULL_HANDLE};
         VkPipeline gpu_driven{VK_NULL_HANDLE};
     };
 
@@ -84,7 +81,6 @@ private:
     VkSampleCountFlagBits samples_;
 
     VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipelineLayout mesh_layout_{VK_NULL_HANDLE};
     VkPipelineLayout gpu_driven_layout_{VK_NULL_HANDLE};
     std::vector<Entry> entries_;
     std::unordered_map<std::string, uint32_t> path_to_id_;

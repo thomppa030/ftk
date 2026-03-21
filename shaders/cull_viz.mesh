@@ -102,7 +102,7 @@ bool would_cone_cull(uint meshlet_idx, mat4 model) {
     vec3 axis = normalize(mat3(model) * b.cone_axis_cutoff.xyz);
     vec3 camera_pos = ubo.camera_position.xyz;
 
-    return dot(normalize(camera_pos - apex), axis) >= cutoff;
+    return dot(normalize(apex - camera_pos), axis) >= cutoff;
 }
 
 layout(location = 0) out vec3 frag_color[];

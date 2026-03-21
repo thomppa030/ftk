@@ -61,10 +61,6 @@ PipelineCache::~PipelineCache() {
         vkDestroyPipelineLayout(vk, layout_, nullptr);
         layout_ = VK_NULL_HANDLE;
     }
-    if (mesh_layout_ != VK_NULL_HANDLE) {
-        vkDestroyPipelineLayout(vk, mesh_layout_, nullptr);
-        mesh_layout_ = VK_NULL_HANDLE;
-    }
     if (gpu_driven_layout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(vk, gpu_driven_layout_, nullptr);
         gpu_driven_layout_ = VK_NULL_HANDLE;
@@ -91,28 +87,10 @@ void PipelineCache::create_layout() {
         throw std::runtime_error("Failed to create pipeline cache layout");
     }
 
-    // Mesh shader layout: set 0/1/2/3 + first_draw push constant
+    // GPU-driven mesh shader layout: set 0/1/2/3 + push constant for bin base offset
     if (meshlet_layout_ != VK_NULL_HANDLE) {
         std::array mesh_set_layouts = {global_layout_, material_layout_,
                                        draw_data_layout_, meshlet_layout_};
-
-        VkPushConstantRange mesh_push{};
-        mesh_push.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
-        mesh_push.offset = 0;
-        mesh_push.size = sizeof(uint32_t);
-
-        VkPipelineLayoutCreateInfo mesh_ci{};
-        mesh_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        mesh_ci.setLayoutCount = static_cast<uint32_t>(mesh_set_layouts.size());
-        mesh_ci.pSetLayouts = mesh_set_layouts.data();
-        mesh_ci.pushConstantRangeCount = 1;
-        mesh_ci.pPushConstantRanges = &mesh_push;
-
-        if (vkCreatePipelineLayout(device_.handle(), &mesh_ci, nullptr, &mesh_layout_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create mesh shader pipeline layout");
-        }
-
-        // GPU-driven layout: same sets + push constant for bin base offset
         VkPushConstantRange gpu_push{};
         gpu_push.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT;
         gpu_push.offset = 0;
@@ -340,57 +318,34 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         throw std::runtime_error("Failed to create transparent pipeline for: " + entry.fjsl_path);
     }
 
-    // ── Mesh shader pipeline (if mesh shaders available) ──
-    if (mesh_layout_ != VK_NULL_HANDLE) {
-        auto task_code = read_spirv(base_path::resolve("shaders/mesh.task.spv"));
-        auto mesh_code = read_spirv(base_path::resolve("shaders/mesh.mesh.spv"));
-
-        VkShaderModule task_module = create_shader_module(vk, task_code);
-        VkShaderModule mesh_module = create_shader_module(vk, mesh_code);
-
-        std::array<VkPipelineShaderStageCreateInfo, 3> mesh_stages{};
-        mesh_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        mesh_stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
-        mesh_stages[0].module = task_module;
-        mesh_stages[0].pName = "main";
-        mesh_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        mesh_stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
-        mesh_stages[1].module = mesh_module;
-        mesh_stages[1].pName = "main";
-        mesh_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        mesh_stages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        mesh_stages[2].module = frag_module;
-        mesh_stages[2].pName = "main";
-
-        // Reset to opaque blend state for mesh shader pipeline
-        pipeline_ci.pColorBlendState = &opaque_blending;
-        pipeline_ci.pDepthStencilState = &depth_stencil;
-        pipeline_ci.stageCount = static_cast<uint32_t>(mesh_stages.size());
-        pipeline_ci.pStages = mesh_stages.data();
-        pipeline_ci.pVertexInputState = nullptr;
-        pipeline_ci.pInputAssemblyState = nullptr;
-        pipeline_ci.layout = mesh_layout_;
-
-        if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.mesh) != VK_SUCCESS) {
-            vkDestroyShaderModule(vk, task_module, nullptr);
-            vkDestroyShaderModule(vk, mesh_module, nullptr);
-            vkDestroyShaderModule(vk, vert_module, nullptr);
-            vkDestroyShaderModule(vk, frag_module, nullptr);
-            throw std::runtime_error("Failed to create mesh shader pipeline for: " + entry.fjsl_path);
-        }
-
-        vkDestroyShaderModule(vk, task_module, nullptr);
-        vkDestroyShaderModule(vk, mesh_module, nullptr);
-
-        // GPU-driven mesh pipeline: same frag, different task/mesh shaders, no push constants
+    // ── GPU-driven mesh shader pipeline (if mesh shaders available) ──
+    if (gpu_driven_layout_ != VK_NULL_HANDLE) {
         auto gpu_task_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.task.spv"));
         auto gpu_mesh_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.mesh.spv"));
 
         VkShaderModule gpu_task_module = create_shader_module(vk, gpu_task_code);
         VkShaderModule gpu_mesh_module = create_shader_module(vk, gpu_mesh_code);
 
+        std::array<VkPipelineShaderStageCreateInfo, 3> mesh_stages{};
+        mesh_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        mesh_stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
         mesh_stages[0].module = gpu_task_module;
+        mesh_stages[0].pName = "main";
+        mesh_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        mesh_stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
         mesh_stages[1].module = gpu_mesh_module;
+        mesh_stages[1].pName = "main";
+        mesh_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        mesh_stages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        mesh_stages[2].module = frag_module;
+        mesh_stages[2].pName = "main";
+
+        pipeline_ci.pColorBlendState = &opaque_blending;
+        pipeline_ci.pDepthStencilState = &depth_stencil;
+        pipeline_ci.stageCount = static_cast<uint32_t>(mesh_stages.size());
+        pipeline_ci.pStages = mesh_stages.data();
+        pipeline_ci.pVertexInputState = nullptr;
+        pipeline_ci.pInputAssemblyState = nullptr;
         pipeline_ci.layout = gpu_driven_layout_;
 
         if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.gpu_driven) != VK_SUCCESS) {
@@ -419,10 +374,6 @@ void PipelineCache::destroy_entry_pipelines(Entry& entry) {
         vkDestroyPipeline(vk, entry.transparent, nullptr);
         entry.transparent = VK_NULL_HANDLE;
     }
-    if (entry.mesh != VK_NULL_HANDLE) {
-        vkDestroyPipeline(vk, entry.mesh, nullptr);
-        entry.mesh = VK_NULL_HANDLE;
-    }
     if (entry.gpu_driven != VK_NULL_HANDLE) {
         vkDestroyPipeline(vk, entry.gpu_driven, nullptr);
         entry.gpu_driven = VK_NULL_HANDLE;
@@ -450,10 +401,6 @@ VkPipeline PipelineCache::opaque_pipeline(uint32_t id) const {
 
 VkPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
     return entries_[id].transparent;
-}
-
-VkPipeline PipelineCache::mesh_pipeline(uint32_t id) const {
-    return entries_[id].mesh;
 }
 
 VkPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {

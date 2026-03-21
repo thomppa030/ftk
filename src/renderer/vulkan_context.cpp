@@ -89,7 +89,6 @@ VulkanContext::VulkanContext(Window& window)
     depth_prepass_.create(device_, pass_resources);
     if (use_mesh_shaders_) {
         mesh_shader_depth_pass_.create(device_, pass_resources);
-        mesh_shader_pass_.create(device_, pass_resources);
         meshlet_viz_pass_.create(device_, pass_resources);
         cull_pass_.create(device_.handle(), device_.physical_device(),
                           global_set_layout_->handle());
@@ -206,7 +205,6 @@ VulkanContext::~VulkanContext() {
     shadow_pass_.destroy();
     depth_prepass_.destroy();
     mesh_shader_depth_pass_.destroy();
-    mesh_shader_pass_.destroy();
     meshlet_viz_pass_.destroy();
     cull_viz_pass_.destroy();
     cull_pass_.destroy();

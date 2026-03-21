@@ -27,7 +27,6 @@
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
-#include "renderer/pass/mesh_shader_pass.hpp"
 #include "renderer/pass/meshlet_viz_pass.hpp"
 #include "renderer/pass/normal_pass.hpp"
 #include "renderer/pass/overdraw_pass.hpp"
@@ -279,7 +278,6 @@ private:
   std::unique_ptr<MeshletBuffer> meshlet_buffer_;
   MeshletDescriptor meshlet_descriptor_;
   MeshShaderDepthPass mesh_shader_depth_pass_;
-  MeshShaderPass mesh_shader_pass_;
   MeshletVizPass meshlet_viz_pass_;
   CullPass cull_pass_;
   CullVizPass cull_viz_pass_;
