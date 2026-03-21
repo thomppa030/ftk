@@ -65,9 +65,15 @@ layout(set = 1, binding = 6) readonly buffer PipelineBinBuffer {
     uint pipeline_bin[];
 };
 
+// Hi-Z depth pyramid for occlusion culling
+layout(set = 1, binding = 7) uniform sampler2D hiz_pyramid;
+
 layout(push_constant) uniform PushConstants {
-    uint segment_size; // max instances per bin
-} push;
+    uint segment_size;    // max instances per bin
+    uint viewport_width;
+    uint viewport_height;
+    uint hiz_mip_count;
+};
 
 shared vec4 shared_planes[6];
 
@@ -112,6 +118,54 @@ bool cone_cull(MeshletBounds b, mat4 model, vec3 camera_pos) {
     return dot(normalize(camera_pos - apex), axis) >= cutoff;
 }
 
+bool occlusion_cull(vec3 center, float radius) {
+    if (hiz_mip_count == 0) return false;
+
+    // Project sphere center to clip space
+    vec4 clip = ubo.projection * ubo.view * vec4(center, 1.0);
+    if (clip.w <= 0.0) return false; // behind camera
+
+    vec3 ndc = clip.xyz / clip.w;
+
+    // Screen-space radius (pixels) using vertical projection scale
+    float screen_radius = (radius * abs(ubo.projection[1][1]) / clip.w)
+                          * float(viewport_height) * 0.5;
+
+    // UV-space AABB of the projected sphere
+    vec2 uv_center = ndc.xy * 0.5 + 0.5;
+    vec2 uv_extent = vec2(screen_radius / float(viewport_width),
+                          screen_radius / float(viewport_height));
+
+    vec2 uv_min = uv_center - uv_extent;
+    vec2 uv_max = uv_center + uv_extent;
+
+    // If sphere projects partially outside screen, don't cull (conservative)
+    if (uv_max.x < 0.0 || uv_min.x > 1.0 || uv_max.y < 0.0 || uv_min.y > 1.0)
+        return false;
+
+    uv_min = clamp(uv_min, vec2(0.0), vec2(1.0));
+    uv_max = clamp(uv_max, vec2(0.0), vec2(1.0));
+
+    // Pick mip where the sphere covers ~1 texel.
+    // Hi-Z mip 0 = half-res, so shift by 1.
+    float diameter = max(screen_radius * 2.0, 1.0);
+    float mip = ceil(log2(diameter)) - 1.0;
+    mip = clamp(mip, 0.0, float(hiz_mip_count - 1));
+
+    // Sample Hi-Z at 4 corners of the sphere's screen AABB (conservative max)
+    float d0 = textureLod(hiz_pyramid, uv_min, mip).r;
+    float d1 = textureLod(hiz_pyramid, vec2(uv_max.x, uv_min.y), mip).r;
+    float d2 = textureLod(hiz_pyramid, vec2(uv_min.x, uv_max.y), mip).r;
+    float d3 = textureLod(hiz_pyramid, uv_max, mip).r;
+    float max_depth = max(max(d0, d1), max(d2, d3));
+
+    // Sphere's nearest depth (conservative: center depth minus radius contribution)
+    float sphere_near_z = ndc.z;
+
+    // Occluded if the sphere's nearest point is behind the farthest occluder in the tile
+    return sphere_near_z > max_depth;
+}
+
 void main() {
     if (gl_LocalInvocationIndex == 0) {
         extract_frustum();
@@ -135,12 +189,15 @@ void main() {
     if (visible) {
         visible = !cone_cull(b, model, ubo.camera_position.xyz);
     }
+    if (visible) {
+        visible = !occlusion_cull(center, radius);
+    }
 
     if (visible) {
         uint bin = pipeline_bin[inst.draw_index];
-        uint slot = atomicAdd(cmds[bin * 3], 1); // increment groupCountX for this bin
-        if (slot < push.segment_size) {
-            instances_out[bin * push.segment_size + slot] = inst;
+        uint slot = atomicAdd(cmds[bin * 3], 1);
+        if (slot < segment_size) {
+            instances_out[bin * segment_size + slot] = inst;
         }
     }
 }

@@ -89,21 +89,38 @@ void MeshletInstancePass::create(VkDevice device, VkPhysicalDevice physical_devi
     // binding 4: indirect dispatch cmds / per-bin counters (read-write)
     // binding 5: MeshletBounds[] (read)
     // binding 6: uint pipeline_bin[] (read) — per-draw bin index
+    // binding 7: Hi-Z pyramid sampler (read) — for occlusion culling
     {
-        std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 8> bindings{};
         for (uint32_t i = 0; i < 7; ++i) {
             bindings[i].binding = i;
             bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             bindings[i].descriptorCount = 1;
             bindings[i].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         }
-        cull_set_layout_ = std::make_unique<DescriptorSetLayout>(device_, std::span{bindings});
+        bindings[7].binding = 7;
+        bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[7].descriptorCount = 1;
+        bindings[7].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-        VkDescriptorPoolSize pool_size{};
-        pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_size.descriptorCount = 7 * MAX_FRAMES_IN_FLIGHT;
+        // Allow binding 7 to be unbound when not accessed (shader checks hiz_mip_count)
+        std::array<VkDescriptorBindingFlags, 8> binding_flags{};
+        binding_flags[7] = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+
+        VkDescriptorSetLayoutBindingFlagsCreateInfo flags_ci{};
+        flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+        flags_ci.bindingCount = static_cast<uint32_t>(binding_flags.size());
+        flags_ci.pBindingFlags = binding_flags.data();
+
+        cull_set_layout_ = std::make_unique<DescriptorSetLayout>(
+            device_, std::span{bindings}, &flags_ci);
+
+        std::array<VkDescriptorPoolSize, 2> pool_sizes{};
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 7 * MAX_FRAMES_IN_FLIGHT};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES_IN_FLIGHT};
+
         cull_pool_ = std::make_unique<DescriptorPool>(
-            device_, std::span{&pool_size, 1}, MAX_FRAMES_IN_FLIGHT);
+            device_, std::span{pool_sizes}, MAX_FRAMES_IN_FLIGHT);
 
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             cull_sets_[i] = cull_pool_->allocate(*cull_set_layout_);
@@ -117,7 +134,7 @@ void MeshletInstancePass::create(VkDevice device, VkPhysicalDevice physical_devi
         VkPushConstantRange push_range{};
         push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
         push_range.offset = 0;
-        push_range.size = sizeof(uint32_t); // segment_size
+        push_range.size = 4 * sizeof(uint32_t); // segment_size, vp_width, vp_height, hiz_mips
 
         VkPipelineLayoutCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -291,7 +308,12 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
                                          VkBuffer pipeline_bin_buffer,
                                          VkDeviceSize pipeline_bin_size,
                                          uint32_t num_bins,
-                                         uint32_t frame_index) {
+                                         uint32_t frame_index,
+                                         VkImageView hiz_view,
+                                         VkSampler hiz_sampler,
+                                         uint32_t viewport_width,
+                                         uint32_t viewport_height,
+                                         uint32_t hiz_mip_count) {
     // Zero all N indirect dispatch commands: {groupCountX=0, groupCountY=1, groupCountZ=1}
     uint32_t cmd_count = std::max(num_bins, 1u);
     VkDeviceSize init_size = cmd_count * sizeof(VkDrawMeshTasksIndirectCommandEXT);
@@ -323,7 +345,7 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
     dep.pMemoryBarriers = &fill_barrier;
     vkCmdPipelineBarrier2(cmd, &dep);
 
-    // Update cull descriptors (7 bindings)
+    // Update cull descriptors (7 buffer bindings + 1 image binding)
     std::array<VkDescriptorBufferInfo, 7> buffer_infos{};
     buffer_infos[0] = {draw_data_buffer, 0, std::max(draw_data_size, VkDeviceSize{16})};
     buffer_infos[1] = {instance_buffers_[frame_index]->handle(), 0,
@@ -336,7 +358,7 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
     buffer_infos[5] = {bounds_buffer, 0, std::max(bounds_size, VkDeviceSize{16})};
     buffer_infos[6] = {pipeline_bin_buffer, 0, std::max(pipeline_bin_size, VkDeviceSize{16})};
 
-    std::array<VkWriteDescriptorSet, 7> writes{};
+    std::array<VkWriteDescriptorSet, 8> writes{};
     for (uint32_t i = 0; i < 7; ++i) {
         writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[i].dstSet = cull_sets_[frame_index];
@@ -345,7 +367,25 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
         writes[i].descriptorCount = 1;
         writes[i].pBufferInfo = &buffer_infos[i];
     }
-    vkUpdateDescriptorSets(device_, 7, writes.data(), 0, nullptr);
+
+    // Binding 7: Hi-Z pyramid sampler (partially bound — only write when available)
+    uint32_t write_count = 7;
+    VkDescriptorImageInfo hiz_info{};
+    if (hiz_view != VK_NULL_HANDLE) {
+        hiz_info.sampler = hiz_sampler;
+        hiz_info.imageView = hiz_view;
+        hiz_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[7].dstSet = cull_sets_[frame_index];
+        writes[7].dstBinding = 7;
+        writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[7].descriptorCount = 1;
+        writes[7].pImageInfo = &hiz_info;
+        write_count = 8;
+    }
+
+    vkUpdateDescriptorSets(device_, write_count, writes.data(), 0, nullptr);
 
     uint32_t seg_size = capacities_[frame_index];
     uint32_t max_groups = (seg_size + 63) / 64;
@@ -356,8 +396,10 @@ void MeshletInstancePass::dispatch_cull(VkCommandBuffer cmd,
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_layout_,
                             0, static_cast<uint32_t>(desc_sets.size()),
                             desc_sets.data(), 0, nullptr);
+
+    uint32_t push[4] = {seg_size, viewport_width, viewport_height, hiz_mip_count};
     vkCmdPushConstants(cmd, cull_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(uint32_t), &seg_size);
+                       0, sizeof(push), push);
 
     vkCmdDispatch(cmd, max_groups, 1, 1);
 }

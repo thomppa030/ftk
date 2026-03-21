@@ -55,6 +55,7 @@ VulkanContext::VulkanContext(Window& window)
         meshlet_descriptor_.create(device_.handle(), device_.physical_device());
         meshlet_instance_pass_.create(device_.handle(), device_.physical_device(),
                                        global_set_layout_->handle());
+        hiz_pass_.create(device_.handle(), device_.physical_device());
         use_mesh_shaders_ = true;
     }
 
@@ -210,6 +211,7 @@ VulkanContext::~VulkanContext() {
     cull_viz_pass_.destroy();
     cull_pass_.destroy();
     meshlet_instance_pass_.destroy();
+    hiz_pass_.destroy();
 
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
@@ -878,7 +880,19 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         }
     }, {});
 
-    // GPU-driven meshlet expand + cull (replaces per-draw GPU cull)
+    // Hi-Z pyramid build (reads resolved depth for occlusion culling)
+    graph.add_pass("hiz_build", [&](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(tracy_vk_ctx_, cb, "Hi-Z Build");
+#endif
+        if (use_mesh_shaders_ && hiz_pass_.ready()) {
+            auto extent = target.extent();
+            hiz_pass_.dispatch(cb, target.depth_view(),
+                               extent.width, extent.height);
+        }
+    }, {{depth_id, ImageUsage::compute_read}});
+
+    // GPU-driven meshlet expand + cull
     graph.add_pass("meshlet_expand_cull", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
         TracyVkZone(tracy_vk_ctx_, cb, "Meshlet Expand+Cull");
@@ -896,6 +910,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                 meshlet_instance_pass_.insert_expand_barrier(cb);
 
                 auto& ranges_ref = indirect_batch_->pipeline_ranges(current_frame_);
+                auto extent = target.extent();
                 meshlet_instance_pass_.dispatch_cull(
                     cb,
                     global_descriptor_sets_[current_frame_],
@@ -906,7 +921,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     indirect_batch_->pipeline_bin_buffer(current_frame_),
                     indirect_batch_->pipeline_bin_size(current_frame_),
                     static_cast<uint32_t>(ranges_ref.size()),
-                    current_frame_);
+                    current_frame_,
+                    hiz_pass_.ready() ? hiz_pass_.sampled_view() : VK_NULL_HANDLE,
+                    hiz_pass_.ready() ? hiz_pass_.sampler() : VK_NULL_HANDLE,
+                    extent.width, extent.height,
+                    hiz_pass_.ready() ? hiz_pass_.mip_count() : 0);
 
                 meshlet_instance_pass_.insert_cull_barrier(cb);
             }

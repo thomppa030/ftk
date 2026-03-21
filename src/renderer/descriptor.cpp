@@ -6,10 +6,12 @@ namespace fjell {
 
 DescriptorSetLayout::DescriptorSetLayout(
     VkDevice device,
-    std::span<const VkDescriptorSetLayoutBinding> bindings)
+    std::span<const VkDescriptorSetLayoutBinding> bindings,
+    const void* pNext)
     : device_{device} {
     VkDescriptorSetLayoutCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    create_info.pNext = pNext;
     create_info.bindingCount = static_cast<uint32_t>(bindings.size());
     create_info.pBindings = bindings.data();
 

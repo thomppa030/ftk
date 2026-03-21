@@ -11,7 +11,8 @@ namespace fjell {
 class DescriptorSetLayout {
 public:
     DescriptorSetLayout(VkDevice device,
-                        std::span<const VkDescriptorSetLayoutBinding> bindings);
+                        std::span<const VkDescriptorSetLayoutBinding> bindings,
+                        const void* pNext = nullptr);
     ~DescriptorSetLayout();
 
     DescriptorSetLayout(const DescriptorSetLayout&) = delete;

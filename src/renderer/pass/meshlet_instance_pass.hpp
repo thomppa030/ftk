@@ -35,12 +35,15 @@ public:
     // Barrier: expand write → cull read
     void insert_expand_barrier(VkCommandBuffer cmd);
 
-    // Dispatch cull pass: per-meshlet frustum + cone cull, binned by pipeline
+    // Dispatch cull pass: per-meshlet frustum + cone + occlusion cull, binned by pipeline
     void dispatch_cull(VkCommandBuffer cmd, VkDescriptorSet global_set,
                        VkBuffer draw_data_buffer, VkDeviceSize draw_data_size,
                        VkBuffer bounds_buffer, VkDeviceSize bounds_size,
                        VkBuffer pipeline_bin_buffer, VkDeviceSize pipeline_bin_size,
-                       uint32_t num_bins, uint32_t frame_index);
+                       uint32_t num_bins, uint32_t frame_index,
+                       VkImageView hiz_view, VkSampler hiz_sampler,
+                       uint32_t viewport_width, uint32_t viewport_height,
+                       uint32_t hiz_mip_count);
 
     // Barrier: cull write → indirect draw read + task shader read
     void insert_cull_barrier(VkCommandBuffer cmd);
