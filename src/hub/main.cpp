@@ -62,8 +62,8 @@ int main() {
         {
             auto exe_dir = fjell::platform::executable_path().parent_path();
             for (int i = 0; i < 3; ++i) {
-                if (std::filesystem::is_directory(exe_dir / "assets" / "fonts")) {
-                    font_dir = (exe_dir / "assets" / "fonts").string();
+                if (std::filesystem::is_directory(exe_dir / "engine_assets" / "fonts")) {
+                    font_dir = (exe_dir / "engine_assets" / "fonts").string();
                     break;
                 }
                 exe_dir = exe_dir.parent_path();
