@@ -2,6 +2,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/shader_utils.hpp"
+#include "renderer/vk_check.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -316,56 +317,6 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     emitter_data_buffer_->map();
 
-    // Initialize dead lists via staging
-    {
-        Buffer staging(device_, physical_device_, dead_list_size,
-                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        staging.map();
-        auto* data = static_cast<uint32_t*>(staging.mapped());
-        // Each emitter's range gets local indices [0, max_particles)
-        for (const auto& em : emitters_) {
-            for (uint32_t i = 0; i < em.max_particles; ++i) {
-                data[em.base_offset + i] = i;
-            }
-        }
-        Buffer::copy(device_, command_pool_, queue_, staging, *mega_dead_list_buffer_, dead_list_size);
-    }
-
-    // Initialize counters: alive=0, dead=max_particles per emitter
-    {
-        Buffer staging(device_, physical_device_, counter_size,
-                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        staging.map();
-        auto* data = static_cast<uint32_t*>(staging.mapped());
-        for (size_t i = 0; i < emitters_.size(); ++i) {
-            data[i * 2 + 0] = 0;                    // alive
-            data[i * 2 + 1] = emitters_[i].max_particles; // dead
-        }
-        Buffer::copy(device_, command_pool_, queue_, staging, *mega_counter_buffer_, counter_size);
-    }
-
-    // Zero particles
-    {
-        Buffer staging(device_, physical_device_, particle_size,
-                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        staging.map();
-        std::memset(staging.mapped(), 0, particle_size);
-        Buffer::copy(device_, command_pool_, queue_, staging, *mega_particle_buffer_, particle_size);
-    }
-
-    // Zero indirect
-    {
-        Buffer staging(device_, physical_device_, indirect_size,
-                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        staging.map();
-        std::memset(staging.mapped(), 0, indirect_size);
-        Buffer::copy(device_, command_pool_, queue_, staging, *mega_indirect_buffer_, indirect_size);
-    }
-
     // ── Allocate descriptor sets ──
 
     VkDescriptorSetAllocateInfo alloc{};
@@ -396,7 +347,6 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkWriteDescriptorSet writes[6]{};
     for (auto& w : writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 
-    // Compute set: bindings 0-4
     writes[0].dstSet = compute_set_; writes[0].dstBinding = 0;
     writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[0].descriptorCount = 1; writes[0].pBufferInfo = &particle_info;
@@ -417,7 +367,6 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[4].descriptorCount = 1; writes[4].pBufferInfo = &indirect_info;
 
-    // Render set: binding 0 = mega particle buffer
     writes[5].dstSet = render_set_; writes[5].dstBinding = 0;
     writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[5].descriptorCount = 1; writes[5].pBufferInfo = &particle_info;
@@ -426,6 +375,86 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     FJELL_GFX_DEBUG("Particle mega-buffers rebuilt: {} particles, {} emitters",
                     total_particles, emitter_count);
+}
+
+void ParticleSystem::init_emitter_ranges() {
+    // Initialize all emitter ranges in a single command buffer submission.
+    // Uses vkCmdFillBuffer (zero particles/indirect) + vkCmdUpdateBuffer
+    // (dead lists + counters) to avoid staging buffers and multiple queue waits.
+
+    VkCommandBufferAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandPool = command_pool_;
+    alloc_info.commandBufferCount = 1;
+
+    VkCommandBuffer cmd;
+    vk_check(vkAllocateCommandBuffers(device_, &alloc_info, &cmd),
+             "Failed to allocate particle init command buffer");
+
+    VkCommandBufferBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vk_check(vkBeginCommandBuffer(cmd, &begin_info),
+             "Failed to begin particle init command buffer");
+
+    // Zero particle buffer and indirect buffer in bulk
+    uint32_t total_particles = 0;
+    for (const auto& em : emitters_) total_particles += em.max_particles;
+
+    if (total_particles > 0) {
+        vkCmdFillBuffer(cmd, mega_particle_buffer_->handle(), 0,
+                        static_cast<VkDeviceSize>(total_particles) * 64, 0);
+    }
+    uint32_t emitter_count = static_cast<uint32_t>(emitters_.size());
+    if (emitter_count > 0) {
+        vkCmdFillBuffer(cmd, mega_indirect_buffer_->handle(), 0,
+                        static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t), 0);
+    }
+
+    // Initialize dead lists per emitter using vkCmdUpdateBuffer (max 65536 bytes per call)
+    constexpr VkDeviceSize max_update = 65536;
+    for (const auto& em : emitters_) {
+        // Build local index sequence [0, 1, 2, ... max_particles-1]
+        std::vector<uint32_t> indices(em.max_particles);
+        for (uint32_t i = 0; i < em.max_particles; ++i) indices[i] = i;
+
+        VkDeviceSize offset = static_cast<VkDeviceSize>(em.base_offset) * sizeof(uint32_t);
+        VkDeviceSize remaining = static_cast<VkDeviceSize>(em.max_particles) * sizeof(uint32_t);
+        const auto* src = reinterpret_cast<const char*>(indices.data());
+
+        while (remaining > 0) {
+            VkDeviceSize chunk = std::min(remaining, max_update);
+            vkCmdUpdateBuffer(cmd, mega_dead_list_buffer_->handle(), offset, chunk, src);
+            offset += chunk;
+            src += chunk;
+            remaining -= chunk;
+        }
+    }
+
+    // Initialize counters: alive=0, dead=max_particles per emitter
+    {
+        std::vector<uint32_t> counters(emitter_count * 2);
+        for (size_t i = 0; i < emitters_.size(); ++i) {
+            counters[i * 2 + 0] = 0;
+            counters[i * 2 + 1] = emitters_[i].max_particles;
+        }
+        VkDeviceSize size = static_cast<VkDeviceSize>(emitter_count) * 2 * sizeof(uint32_t);
+        vkCmdUpdateBuffer(cmd, mega_counter_buffer_->handle(), 0, size, counters.data());
+    }
+
+    vk_check(vkEndCommandBuffer(cmd), "Failed to end particle init command buffer");
+
+    VkSubmitInfo submit_info{};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &cmd;
+
+    vk_check(vkQueueSubmit(queue_, 1, &submit_info, VK_NULL_HANDLE),
+             "Failed to submit particle init commands");
+    vkQueueWaitIdle(queue_);
+
+    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
 }
 
 void ParticleSystem::sync_emitters(const Scene& scene) {
@@ -463,8 +492,6 @@ void ParticleSystem::sync_emitters(const Scene& scene) {
 
     if (!changed) return;
 
-    vkDeviceWaitIdle(device_);
-
     // Rebuild emitter list with offsets
     emitters_.clear();
     emitters_.reserve(scene_emitters.size());
@@ -484,17 +511,22 @@ void ParticleSystem::sync_emitters(const Scene& scene) {
     uint32_t total = offset;
     uint32_t count = static_cast<uint32_t>(emitters_.size());
 
-    if (total > total_particle_capacity_ || count > emitter_capacity_) {
-        // Grow with some headroom
+    bool needs_realloc = total > total_particle_capacity_ || count > emitter_capacity_;
+
+    if (needs_realloc) {
+        // Need larger buffers — wait for GPU, reallocate, then init
+        vkDeviceWaitIdle(device_);
         uint32_t new_total = std::max(total, total_particle_capacity_ * 2);
         uint32_t new_count = std::max(count, emitter_capacity_ * 2);
         if (new_total == 0) new_total = total;
         if (new_count == 0) new_count = count;
         rebuild_mega_buffers(new_total, new_count);
     } else {
-        // Same capacity, just reinitialize data
-        rebuild_mega_buffers(total_particle_capacity_, emitter_capacity_);
+        // Capacity sufficient — just wait for previous frame's compute to finish
+        vkQueueWaitIdle(queue_);
     }
+
+    init_emitter_ranges();
 }
 
 void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene) {

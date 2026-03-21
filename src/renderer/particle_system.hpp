@@ -61,6 +61,7 @@ private:
     };
 
     void rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count);
+    void init_emitter_ranges();
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
