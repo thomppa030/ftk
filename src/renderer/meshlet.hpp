@@ -19,7 +19,7 @@ struct Meshlet {
 struct MeshletBounds {
     glm::vec4 bounding_sphere;    // xyz = center (object space), w = radius
     glm::vec4 cone_apex;          // xyz = apex, w = unused
-    glm::vec4 cone_axis_cutoff;   // xyz = axis, w = cutoff (dot threshold for backface)
+    glm::vec4 cone_axis_cutoff;   // xyz = axis, w = cutoff (sin half-angle)
 };
 
 struct MeshletBuildResult {

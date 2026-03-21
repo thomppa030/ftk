@@ -56,7 +56,7 @@ layout(set = 1, binding = 4) buffer OutputCmd {
 struct MeshletBounds {
     vec4 bounding_sphere; // xyz = center (local space), w = radius
     vec4 cone_apex;       // xyz = cone apex (local space)
-    vec4 cone_axis_cutoff; // xyz = axis, w = cutoff (cos half-angle)
+    vec4 cone_axis_cutoff; // xyz = axis, w = cutoff (sin half-angle)
 };
 
 layout(set = 1, binding = 5) readonly buffer BoundsBuffer {
@@ -97,8 +97,18 @@ bool sphere_frustum_test(vec3 center, float radius) {
 }
 
 bool cone_cull(MeshletBounds b, mat4 model, vec3 camera_pos) {
-    // TODO: cone backface culling disabled — cutoff math needs work
-    return false;
+    float cutoff = b.cone_axis_cutoff.w;
+    if (cutoff >= 1.0 || cutoff <= 0.0) return false; // degenerate or wide cone
+
+    // Apex-based perspective test (meshoptimizer convention).
+    // The stored axis points along the normal cone direction. The apex is
+    // placed so that from any viewpoint behind all triangle planes, the
+    // direction (apex → camera) aligns with the axis.
+    vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
+    vec3 axis = normalize(mat3(model) * b.cone_axis_cutoff.xyz);
+
+    // Camera sees only backfaces when this is true — safe to cull.
+    return dot(normalize(camera_pos - apex), axis) >= cutoff;
 }
 
 void main() {

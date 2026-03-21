@@ -184,6 +184,7 @@ target_link_libraries(fjell PRIVATE
     Vulkan::Vulkan
     yogacore
     msdfgen::msdfgen-core
+    meshoptimizer
     msdfgen::msdfgen-ext
     Freetype::Freetype
     ${FJELL_NVIM_LIBS}

@@ -40,6 +40,16 @@ layout(set = 3, binding = 0) readonly buffer MeshletBuffer {
     Meshlet meshlets[];
 };
 
+struct MeshletBounds {
+    vec4 bounding_sphere; // xyz = center, w = radius
+    vec4 cone_apex;       // xyz = apex
+    vec4 cone_axis_cutoff; // xyz = axis, w = cutoff (sin half-angle)
+};
+
+layout(set = 3, binding = 1) readonly buffer BoundsBuffer {
+    MeshletBounds bounds[];
+};
+
 layout(set = 3, binding = 2) readonly buffer MeshletVertexBuffer {
     uint meshlet_vertices[];
 };
@@ -50,11 +60,6 @@ layout(set = 3, binding = 3) readonly buffer MeshletTriangleBuffer {
 
 layout(set = 3, binding = 4) readonly buffer VertexBuffer {
     float vertex_data[];
-};
-
-// Visibility buffer from GPU cull pass
-layout(set = 4, binding = 0) readonly buffer VisibilityBuffer {
-    uint visibility[];
 };
 
 const uint VERTEX_STRIDE = 15;
@@ -87,6 +92,19 @@ uint get_triangle_index(uint meshlet_tri_offset, uint local_tri, uint vertex_in_
     return (word >> (byte_in_word * 8)) & 0xFF;
 }
 
+// Evaluate cone cull test for this meshlet from the current camera
+bool would_cone_cull(uint meshlet_idx, mat4 model) {
+    MeshletBounds b = bounds[meshlet_idx];
+    float cutoff = b.cone_axis_cutoff.w;
+    if (cutoff >= 1.0 || cutoff <= 0.0) return false; // degenerate or wide cone
+
+    vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
+    vec3 axis = normalize(mat3(model) * b.cone_axis_cutoff.xyz);
+    vec3 camera_pos = ubo.camera_position.xyz;
+
+    return dot(normalize(camera_pos - apex), axis) >= cutoff;
+}
+
 layout(location = 0) out vec3 frag_color[];
 layout(location = 1) out vec3 frag_world_normal[];
 
@@ -99,9 +117,19 @@ void main() {
     mat4 model = dd.model;
     mat3 normal_matrix = transpose(inverse(mat3(model)));
 
-    // Green = visible after GPU cull, red = would be culled
-    bool visible = (visibility[draw_idx] != 0);
-    vec3 color = visible ? vec3(0.2, 0.8, 0.3) : vec3(0.9, 0.15, 0.1);
+    // Evaluate cone cull from current camera position
+    bool culled = would_cone_cull(meshlet_idx, model);
+
+    // Green = visible (not culled), red = would be cone-culled
+    vec3 color = culled ? vec3(0.9, 0.15, 0.1) : vec3(0.2, 0.8, 0.3);
+
+    // Mix in cone axis direction as subtle tint for orientation debugging
+    MeshletBounds b = bounds[meshlet_idx];
+    vec3 raw_axis = mat3(model) * b.cone_axis_cutoff.xyz;
+    float axis_len = length(raw_axis);
+    if (axis_len > 1e-6) {
+        color = mix(color, abs(raw_axis / axis_len), 0.15);
+    }
 
     SetMeshOutputsEXT(m.vertex_count, m.triangle_count);
 
