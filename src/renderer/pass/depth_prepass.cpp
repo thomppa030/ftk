@@ -5,6 +5,7 @@
 #include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
+#include "renderer/skeletal_model.hpp"
 #include "renderer/shader_utils.hpp"
 #include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
@@ -228,6 +229,27 @@ void DepthPrePass::record(const FrameContext& ctx) {
     if (ctx.mega_buffer && ctx.indirect_batch) {
         ctx.mega_buffer->bind(ctx.cmd);
         ctx.indirect_batch->draw(ctx.cmd, ctx.frame_index);
+    }
+
+    // Skinned depth draws
+    if (ctx.indirect_batch && ctx.queue) {
+        const auto& skinned_indices = ctx.indirect_batch->skinned_draw_indices(ctx.frame_index);
+        if (!skinned_indices.empty()) {
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_pipeline_);
+            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
+                                    0, static_cast<uint32_t>(descriptor_sets.size()),
+                                    descriptor_sets.data(), 0, nullptr);
+
+            uint32_t idx = 0;
+            for (const auto& dc : ctx.queue->commands()) {
+                if (!dc.skinned || !dc.skeletal_model) continue;
+                if (idx >= skinned_indices.size()) break;
+                dc.skeletal_model->bind(ctx.cmd);
+                vkCmdDrawIndexed(ctx.cmd, dc.skeletal_model->index_count(),
+                                 1, 0, 0, skinned_indices[idx]);
+                idx++;
+            }
+        }
     }
 
     vkCmdEndRendering(ctx.cmd);

@@ -6,6 +6,8 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/shader_utils.hpp"
+#include "renderer/skeletal_model.hpp"
+#include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -131,6 +133,62 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
 
     vkDestroyShaderModule(device_, task_module, nullptr);
     vkDestroyShaderModule(device_, mesh_module, nullptr);
+
+    // Skinned depth pipeline (vertex shader fallback for skeletal meshes)
+    auto skinned_vert_code = read_spirv(base_path::resolve("shaders/skinned_depth.vert.spv"));
+    auto skinned_vert_module = create_shader_module(device_, skinned_vert_code);
+
+    std::array<VkPipelineShaderStageCreateInfo, 2> skinned_stages{};
+    skinned_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    skinned_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    skinned_stages[0].module = skinned_vert_module;
+    skinned_stages[0].pName = "main";
+    skinned_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    skinned_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    skinned_stages[1].module = frag_module;
+    skinned_stages[1].pName = "main";
+
+    auto skinned_binding = SkinnedVertex::get_binding_description();
+    auto skinned_attribs = SkinnedVertex::get_attribute_descriptions();
+
+    VkPipelineVertexInputStateCreateInfo skinned_vi{};
+    skinned_vi.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    skinned_vi.vertexBindingDescriptionCount = 1;
+    skinned_vi.pVertexBindingDescriptions = &skinned_binding;
+    skinned_vi.vertexAttributeDescriptionCount = static_cast<uint32_t>(skinned_attribs.size());
+    skinned_vi.pVertexAttributeDescriptions = skinned_attribs.data();
+
+    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
+    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    // Skinned depth layout: set 0 = global, set 1 = draw data (with bones)
+    std::array skinned_set_layouts = {resources.global_set_layout, draw_data_layout_};
+    VkPipelineLayoutCreateInfo skinned_layout_info{};
+    skinned_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    skinned_layout_info.setLayoutCount = static_cast<uint32_t>(skinned_set_layouts.size());
+    skinned_layout_info.pSetLayouts = skinned_set_layouts.data();
+
+    if (vkCreatePipelineLayout(device_, &skinned_layout_info, nullptr, &skinned_layout_) != VK_SUCCESS) {
+        vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
+        vkDestroyShaderModule(device_, frag_module, nullptr);
+        throw std::runtime_error("Failed to create skinned depth pipeline layout");
+    }
+
+    pipeline_info.stageCount = static_cast<uint32_t>(skinned_stages.size());
+    pipeline_info.pStages = skinned_stages.data();
+    pipeline_info.pVertexInputState = &skinned_vi;
+    pipeline_info.pInputAssemblyState = &input_assembly;
+    pipeline_info.layout = skinned_layout_;
+
+    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+                                   nullptr, &skinned_pipeline_) != VK_SUCCESS) {
+        vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
+        vkDestroyShaderModule(device_, frag_module, nullptr);
+        throw std::runtime_error("Failed to create skinned depth pipeline");
+    }
+
+    vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
     vkDestroyShaderModule(device_, frag_module, nullptr);
     FJELL_GFX_DEBUG("Mesh shader depth pass created");
 }
@@ -140,9 +198,17 @@ void MeshShaderDepthPass::destroy() {
         vkDestroyPipeline(device_, pipeline_, nullptr);
         pipeline_ = VK_NULL_HANDLE;
     }
+    if (skinned_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device_, skinned_pipeline_, nullptr);
+        skinned_pipeline_ = VK_NULL_HANDLE;
+    }
     if (layout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(device_, layout_, nullptr);
         layout_ = VK_NULL_HANDLE;
+    }
+    if (skinned_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device_, skinned_layout_, nullptr);
+        skinned_layout_ = VK_NULL_HANDLE;
     }
 }
 
@@ -206,6 +272,28 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
                 count_offset,
                 ranges[r].draw_count,
                 sizeof(VkDrawMeshTasksIndirectCommandEXT));
+        }
+    }
+
+    // Skinned depth draws (vertex shader fallback)
+    if (ctx.indirect_batch && ctx.queue) {
+        const auto& skinned_indices = ctx.indirect_batch->skinned_draw_indices(ctx.frame_index);
+        if (!skinned_indices.empty()) {
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_pipeline_);
+            std::array skinned_sets = {ctx.global_descriptor_set, ctx.draw_data_set};
+            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_layout_,
+                                    0, static_cast<uint32_t>(skinned_sets.size()),
+                                    skinned_sets.data(), 0, nullptr);
+
+            uint32_t idx = 0;
+            for (const auto& dc : ctx.queue->commands()) {
+                if (!dc.skinned || !dc.skeletal_model) continue;
+                if (idx >= skinned_indices.size()) break;
+                dc.skeletal_model->bind(ctx.cmd);
+                vkCmdDrawIndexed(ctx.cmd, dc.skeletal_model->index_count(),
+                                 1, 0, 0, skinned_indices[idx]);
+                idx++;
+            }
         }
     }
 

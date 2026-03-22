@@ -16,6 +16,11 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+
+    // Skinned depth: vertex shader pipeline (skinned meshes can't use mesh shaders)
+    VkPipelineLayout skinned_layout_{VK_NULL_HANDLE};
+    VkPipeline skinned_pipeline_{VK_NULL_HANDLE};
+
     VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout meshlet_layout_{VK_NULL_HANDLE};
     PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks_{nullptr};
