@@ -52,7 +52,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                const std::filesystem::path& project_path)
     : window_{title, width, height}
     , vulkan_context_{window_}
+    , animation_system_{vulkan_context_.device(), vulkan_context_.physical_device()}
 {
+    vulkan_context_.set_animation_system(&animation_system_);
 #ifndef NDEBUG
     shader_watcher_.emplace(base_path::resolve("../shaders"), base_path::resolve("shaders"));
 #endif
@@ -1173,6 +1175,7 @@ void Engine::run() {
         (void)script_manager_.poll_reload(scene_);
 #endif
 
+        animation_system_.update(dt);
         scene_.compute_world_matrices(&thread_pool_);
 
         // Update audio listener from active camera

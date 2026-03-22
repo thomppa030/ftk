@@ -183,6 +183,8 @@ public:
   /// recording when their source bit is not set.
   void set_active_sources(uint32_t mask) { active_sources_ = mask; }
 
+  void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
+
 private:
   void create_descriptor_resources();
   void create_command_pool();
@@ -329,6 +331,7 @@ private:
   bool show_colliders_{false};
   bool playing_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
+  AnimationSystem* animation_system_{nullptr};
 
 #ifdef FJELL_ENABLE_TRACY
   tracy::VkCtx* tracy_vk_ctx_{nullptr};

@@ -14,6 +14,7 @@
 
 namespace fjell {
 
+class AnimationSystem;
 struct DrawCommand;
 struct MegaMeshEntry;
 class Model;
@@ -47,7 +48,8 @@ public:
                const std::vector<DrawCommand>& transparent_commands,
                uint32_t frame_index,
                const glm::mat4& projection = glm::mat4(1.0f),
-               const glm::vec3& camera_pos = glm::vec3(0.0f));
+               const glm::vec3& camera_pos = glm::vec3(0.0f),
+               AnimationSystem* animation_system = nullptr);
 
     void draw(VkCommandBuffer cmd, uint32_t frame_index) const;
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "animation/animation_system.hpp"
 #include "audio/audio_engine.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
@@ -97,6 +98,7 @@ private:
     std::unique_ptr<ImGuiLayer> imgui_layer_;
     std::unique_ptr<ResourceManager> resource_manager_;
     std::unique_ptr<AssetLoader> asset_loader_;
+    AnimationSystem animation_system_;
     Scene scene_;
     ScriptManager script_manager_;
 #ifdef FJELL_HAS_NVIM_PANEL

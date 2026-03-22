@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "animation/animation_system.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/frustum.hpp"
@@ -626,6 +627,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                         dc.transparent = (obj->mesh->material->params().base_color_factor.w < 1.0f);
                     }
                     dc.model = obj->mesh->model;
+                    dc.node_id = obj->id;
+                    if (animation_system_) {
+                        dc.skinned = (animation_system_->bone_count_for(obj->id) > 0);
+                    }
 
                     dc.world_aabb = obj->mesh->model->local_aabb().transform(obj->world_matrix_);
 
@@ -675,11 +680,17 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     bindless_textures_.update_descriptors();
     bindless_textures_.update_material_buffer();
 
+    // Upload bone matrices before indirect batch build (offsets needed by GpuDrawData)
+    if (animation_system_ && animation_system_->has_animated_nodes()) {
+        animation_system_->upload_bones(current_frame_);
+    }
+
     // Build indirect draw commands from opaque + transparent queues (with LOD selection)
     indirect_batch_->build(render_queue_.commands(),
                            render_queue_.transparent_commands(),
                            current_frame_,
-                           projection_matrix_, camera_position_);
+                           projection_matrix_, camera_position_,
+                           animation_system_);
 
     // Build shadow indirect batch from all shadow casters (not camera-culled)
     std::vector<DrawCommand> empty_transparent;
@@ -691,6 +702,17 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             indirect_batch_->draw_data_buffer(current_frame_),
             indirect_batch_->draw_data_size(current_frame_),
             current_frame_);
+    }
+
+    // Update bone SSBO descriptor
+    if (animation_system_ && animation_system_->has_animated_nodes()) {
+        auto& bb = animation_system_->bone_buffer();
+        if (bb.total_bones(current_frame_) > 0) {
+            draw_data_descriptor_.update_bones(
+                bb.buffer(current_frame_),
+                bb.byte_size(current_frame_),
+                current_frame_);
+        }
     }
 
     // Update shadow draw data descriptor

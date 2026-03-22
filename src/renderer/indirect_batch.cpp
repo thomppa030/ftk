@@ -1,4 +1,5 @@
 #include "renderer/indirect_batch.hpp"
+#include "animation/animation_system.hpp"
 #include "core/profiler.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/mega_buffer.hpp"
@@ -67,7 +68,8 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           const std::vector<DrawCommand>& transparent_commands,
                           uint32_t frame_index,
                           const glm::mat4& projection,
-                          const glm::vec3& camera_pos) {
+                          const glm::vec3& camera_pos,
+                          AnimationSystem* animation_system) {
     FJELL_PROFILE_SCOPE_N("indirect_batch_build");
 
     // Precompute projection scale for LOD selection (vertical FOV)
@@ -158,6 +160,10 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             data.meshlet_offset = entry.meshlet_offset;
             data.meshlet_count = entry.meshlet_count;
             data.vertex_offset = entry.vertex_offset;
+            if (dc.skinned && animation_system) {
+                data.bone_offset = animation_system->bone_offset_for(dc.node_id);
+                data.bone_count = animation_system->bone_count_for(dc.node_id);
+            }
 
             // AABB only needed for GPU cull (main batch, not shadow)
             if (do_lod) {

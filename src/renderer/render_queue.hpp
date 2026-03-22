@@ -22,6 +22,7 @@ struct DrawCommand {
     AABB world_aabb;           // pre-computed in frustum cull, reused in indirect batch build
     float camera_distance{0.0f};
     uint32_t pipeline_id{0};
+    uint32_t node_id{0};
     bool transparent{false};
     bool skinned{false};
 };
