@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "fjell_actor.hpp"
 #include "fjell_component.hpp"
 #include "fjell_api.h"
 
@@ -12,13 +11,6 @@
 #include <type_traits>
 
 // ── Type descriptors (C-compatible structs) ─────────────────────────────
-
-struct FjellActorType {
-    const char* name;
-    fjell::Actor* (*create)();
-    const FjellFieldDesc* fields;
-    uint32_t field_count;
-};
 
 struct FjellComponentTypeOOP {
     const char* name;
@@ -31,8 +23,7 @@ struct FjellComponentTypeOOP {
 
 struct FjellTypeRegistry;
 
-// Engine exports these via -rdynamic — game .so calls them at registration
-extern "C" void fjell_reg_actor(FjellTypeRegistry* reg, const FjellActorType* desc);
+// Engine exports this via -rdynamic — game .so calls it at registration
 extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc);
 
 namespace fjell {
@@ -48,22 +39,7 @@ struct has_reflect<T, std::void_t<decltype(T::reflect())>> : std::true_type {};
 
 } // namespace detail
 
-// ── Registration helpers (called from game code) ────────────────────────
-
-template <typename T>
-void register_actor(FjellTypeRegistry* reg) {
-    FjellActorType desc{};
-    desc.name = T::type_name;
-    desc.create = []() -> Actor* { return new T(); };
-
-    if constexpr (detail::has_reflect<T>::value) {
-        auto arr = T::reflect();
-        desc.fields = arr.data();
-        desc.field_count = static_cast<uint32_t>(arr.size());
-    }
-
-    fjell_reg_actor(reg, &desc);
-}
+// ── Registration helper (called from game code) ─────────────────────────
 
 template <typename T>
 void register_component(FjellTypeRegistry* reg) {
@@ -125,9 +101,6 @@ inline FjellAutoReg*& fjell_auto_reg_head() {
 
 // ── Macro helpers ───────────────────────────────────────────────────────
 
-#define FJELL_ACTOR(T) \
-    public: static constexpr const char* type_name = #T;
-
 #define FJELL_COMPONENT(T) \
     public: static constexpr const char* type_name = #T; \
     private: \
@@ -142,6 +115,7 @@ inline FjellAutoReg*& fjell_auto_reg_head() {
     public:
 
 #define FJELL_REGISTER() \
+    extern "C" uint32_t fjell_api_version() { return FJELL_API_VERSION; } \
     extern "C" void fjell_register(FjellTypeRegistry* registry) { \
         for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry); \
     }

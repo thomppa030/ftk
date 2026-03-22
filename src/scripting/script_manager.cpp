@@ -166,6 +166,20 @@ void ScriptManager::build_registry() {
     script_type_list_.clear();
     script_type_map_.clear();
 
+    // Check API version compatibility
+    using VersionFn = uint32_t (*)();
+    auto* version_fn = library_.symbol_as<VersionFn>("fjell_api_version");
+    if (version_fn) {
+        uint32_t so_version = version_fn();
+        if (so_version != FJELL_API_VERSION) {
+            FJELL_CORE_ERROR("Script .so API version mismatch: engine={}, .so={} — recompile scripts",
+                             FJELL_API_VERSION, so_version);
+            return;
+        }
+    } else {
+        FJELL_CORE_WARN("No fjell_api_version symbol — .so may be outdated");
+    }
+
     using RegFn = void (*)(FjellTypeRegistry*);
     auto* reg_fn = library_.symbol_as<RegFn>("fjell_register");
     if (!reg_fn) {
@@ -219,11 +233,10 @@ void ScriptManager::remove_script(SceneNode& obj, const std::string& type_name) 
 
 // ── World population ────────────────────────────────────────────────────
 
-void ScriptManager::populate_world(Scene& scene, const Input& input, const Clock& clock,
+void ScriptManager::populate_world(const Input& input, const Clock& clock,
                                    PhysicsWorld* physics) {
     world_.input_ = &input;
     world_.physics_ = physics;
-    world_.scene_ = &scene;
     world_.delta_time = clock.delta_time();
     world_.log_info_fn = [](const char* msg) { FJELL_CORE_INFO("[script] {}", msg); };
     world_.log_warn_fn = [](const char* msg) { FJELL_CORE_WARN("[script] {}", msg); };
@@ -232,9 +245,9 @@ void ScriptManager::populate_world(Scene& scene, const Input& input, const Clock
 
 // ── Prepare / Update ────────────────────────────────────────────────────
 
-void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock,
+void ScriptManager::prepare(Scene& /*scene*/, const Input& input, const Clock& clock,
                             PhysicsWorld* physics) {
-    populate_world(scene, input, clock, physics);
+    populate_world(input, clock, physics);
 }
 
 void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
@@ -242,7 +255,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     FJELL_PROFILE_SCOPE_N("script_update");
     if (!is_loaded()) return;
 
-    populate_world(scene, input, clock, physics);
+    populate_world(input, clock, physics);
 
     float dt = clock.delta_time();
 

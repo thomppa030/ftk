@@ -87,7 +87,7 @@ public:
 #endif
 
 private:
-    void populate_world(Scene& scene, const Input& input, const Clock& clock,
+    void populate_world(const Input& input, const Clock& clock,
                         PhysicsWorld* physics);
     void build_registry();
 

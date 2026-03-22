@@ -11,6 +11,11 @@
 extern "C" {
 #endif
 
+// ── API version ─────────────────────────────────────────────────────────
+// Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
+// Engine checks this at .so load time and rejects mismatches.
+#define FJELL_API_VERSION 2
+
 // ── Field types for inspector / serialization reflection ────────────────
 
 typedef enum FjellFieldType {
