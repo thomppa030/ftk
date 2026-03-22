@@ -6,6 +6,7 @@
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
+#include "renderer/mesh_component.hpp"
 #include "renderer/particle_emitter.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/uniform_types.hpp"
@@ -199,14 +200,14 @@ void PropertiesPanel::draw() {
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
 
             // Mesh
-            if (obj->mesh) {
+            if (auto* mesh = obj->components.get<MeshComponent>()) {
                 colored_separator({0.36f, 0.55f, 0.94f, 1.0f});
                 if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
                     ImGui::TextDisabled("Model: %s", obj->source.empty() ? "(none)" : obj->source.c_str());
-                    ImGui::TextDisabled("Material: %s", obj->mesh->material_name.c_str());
+                    ImGui::TextDisabled("Material: %s", mesh->material_name.c_str());
                     draw_material_inspector(*obj);
                     if (remove_button("Remove Mesh")) {
-                        obj->mesh.reset();
+                        obj->components.remove<MeshComponent>();
                         scene_->mark_dirty();
                     }
                 }
@@ -570,9 +571,10 @@ void PropertiesPanel::draw() {
 }
 
 void PropertiesPanel::draw_material_inspector(SceneNode& obj) {
-    if (!obj.mesh || !obj.mesh->material || !pipeline_cache_ || !bindless_) return;
+    auto* mesh = obj.components.get<MeshComponent>();
+    if (!mesh || !mesh->material || !pipeline_cache_ || !bindless_) return;
 
-    auto* mat = obj.mesh->material;
+    auto* mat = mesh->material;
     uint32_t pid = mat->pipeline_id();
     if (pid >= pipeline_cache_->shader_count()) return;
 

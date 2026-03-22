@@ -3,7 +3,9 @@
 #include "audio/audio_component.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/arrow_component.hpp"
+#include "renderer/mesh_component.hpp"
 #include "renderer/particle_emitter.hpp"
+#include "renderer/skeletal_mesh_component.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
@@ -51,7 +53,9 @@ void SceneNode::clone_base_into(SceneNode& target) const {
     target.transform = transform;
     target.name = name;
     target.source = source;
-    target.mesh = mesh;
+    if (const auto* mc = components.get<MeshComponent>()) {
+        target.components.add<MeshComponent>(*mc);
+    }
     target.actor_type_name = actor_type_name;
     for (const auto& s : scripts) {
         ScriptEntry entry;
@@ -100,12 +104,12 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
     uint32_t id = next_id_++;
     auto obj = std::make_unique<SceneNode>();
     obj->id = id;
-    obj->mesh = MeshComponent{};
-    obj->mesh->model_handle = model_handle;
-    obj->mesh->material_handle = material_handle;
-    obj->mesh->model = resources.get(model_handle);
-    obj->mesh->material = resources.get(material_handle);
-    obj->mesh->material_name = material_name;
+    auto& mc = obj->components.add<MeshComponent>();
+    mc.model_handle = model_handle;
+    mc.material_handle = material_handle;
+    mc.model = resources.get(model_handle);
+    mc.material = resources.get(material_handle);
+    mc.material_name = material_name;
     obj->transform = transform;
     obj->name = name;
     obj->source = source;
@@ -362,11 +366,11 @@ void Scene::save(const std::string& path) {
         jobj["parent_id"] = obj->parent_id;
         jobj["name"] = obj->name;
         jobj["source"] = obj->source;
-        if (obj->mesh) {
+        if (const auto* mesh = obj->components.get<MeshComponent>()) {
             nlohmann::json jmesh;
-            jmesh["material"] = obj->mesh->material_name;
-            if (obj->mesh->material) {
-                const auto& bcf = obj->mesh->material->params().base_color_factor;
+            jmesh["material"] = mesh->material_name;
+            if (mesh->material) {
+                const auto& bcf = mesh->material->params().base_color_factor;
                 if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f || bcf.a != 1.0f) {
                     if (bcf.a < 1.0f) {
                         jmesh["color"] = {bcf.r, bcf.g, bcf.b, bcf.a};

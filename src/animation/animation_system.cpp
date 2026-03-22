@@ -1,5 +1,7 @@
 #include "animation/animation_system.hpp"
 #include "animation/animator_component.hpp"
+#include "core/profiler.hpp"
+#include "renderer/skeletal_mesh_component.hpp"
 #include "scene/scene.hpp"
 
 namespace fjell {
@@ -9,9 +11,11 @@ AnimationSystem::AnimationSystem(VkDevice device, VkPhysicalDevice physical_devi
 }
 
 void AnimationSystem::update(Scene& scene, float dt) {
+    FJELL_PROFILE_SCOPE_N("anim_system_update");
     for (auto& obj : scene.objects()) {
-        if (!obj->skeletal_mesh || !obj->skeletal_mesh->animator) continue;
-        auto& anim = *obj->skeletal_mesh->animator;
+        auto* skel = obj->components.get<SkeletalMeshComponent>();
+        if (!skel || !skel->animator) continue;
+        auto& anim = *skel->animator;
         if (anim.initialized()) {
             anim.update(dt);
         }
@@ -19,13 +23,15 @@ void AnimationSystem::update(Scene& scene, float dt) {
 }
 
 void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
+    FJELL_PROFILE_SCOPE_N("anim_upload_bones");
     bone_buffer_.begin_frame(frame_index);
     bone_offsets_.clear();
     bone_counts_.clear();
 
     for (auto& obj : scene.objects()) {
-        if (!obj->skeletal_mesh || !obj->skeletal_mesh->animator) continue;
-        auto& anim = *obj->skeletal_mesh->animator;
+        auto* skel = obj->components.get<SkeletalMeshComponent>();
+        if (!skel || !skel->animator) continue;
+        auto& anim = *skel->animator;
         if (!anim.initialized() || anim.bone_count() == 0) continue;
 
         uint32_t offset = bone_buffer_.upload(anim.skin_matrices(), frame_index);

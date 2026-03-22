@@ -1,5 +1,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "animation/animation_system.hpp"
+#include "renderer/mesh_component.hpp"
+#include "renderer/skeletal_mesh_component.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "renderer/skeletal_model.hpp"
 #include "ui/game_ui/game_ui.hpp"
@@ -617,24 +619,24 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     if (obj->components.has<SpriteComponent>()) continue;
 
                     // Skeletal mesh path
-                    if (obj->skeletal_mesh && obj->skeletal_mesh->skeletal_model) {
+                    if (auto* skel = obj->components.get<SkeletalMeshComponent>(); skel && skel->skeletal_model) {
                         local_total[chunk_id]++;
 
                         DrawCommand dc{};
                         dc.world_matrix = obj->world_matrix_;
                         dc.push.model = obj->world_matrix_;
-                        dc.skeletal_model = obj->skeletal_mesh->skeletal_model;
+                        dc.skeletal_model = skel->skeletal_model;
                         dc.skinned = true;
                         dc.node_id = obj->id;
-                        if (obj->skeletal_mesh->material) {
-                            dc.push.material_id = obj->skeletal_mesh->material->material_id();
-                            dc.pipeline_id = obj->skeletal_mesh->material->pipeline_id();
+                        if (skel->material) {
+                            dc.push.material_id = skel->material->material_id();
+                            dc.pipeline_id = skel->material->pipeline_id();
                             dc.sort_key = RenderQueue::make_sort_key(
-                                dc.pipeline_id, obj->skeletal_mesh->material->material_id(),
+                                dc.pipeline_id, skel->material->material_id(),
                                 obj->id, true);
-                            dc.transparent = (obj->skeletal_mesh->material->params().base_color_factor.w < 1.0f);
+                            dc.transparent = (skel->material->params().base_color_factor.w < 1.0f);
                         }
-                        dc.world_aabb = obj->skeletal_mesh->skeletal_model->local_aabb()
+                        dc.world_aabb = skel->skeletal_model->local_aabb()
                                             .transform(obj->world_matrix_);
 
                         if (!dc.transparent) {
@@ -658,24 +660,25 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     }
 
                     // Static mesh path
-                    if (!obj->mesh || !obj->mesh->model) continue;
+                    auto* mesh = obj->components.get<MeshComponent>();
+                    if (!mesh || !mesh->model) continue;
 
                     local_total[chunk_id]++;
 
                     DrawCommand dc{};
                     dc.world_matrix = obj->world_matrix_;
                     dc.push.model = obj->world_matrix_;
-                    if (obj->mesh->material) {
-                        dc.push.material_id = obj->mesh->material->material_id();
-                        dc.pipeline_id = obj->mesh->material->pipeline_id();
+                    if (mesh->material) {
+                        dc.push.material_id = mesh->material->material_id();
+                        dc.pipeline_id = mesh->material->pipeline_id();
                         dc.sort_key = RenderQueue::make_sort_key(
-                            dc.pipeline_id, obj->mesh->material->material_id(), obj->id);
-                        dc.transparent = (obj->mesh->material->params().base_color_factor.w < 1.0f);
+                            dc.pipeline_id, mesh->material->material_id(), obj->id);
+                        dc.transparent = (mesh->material->params().base_color_factor.w < 1.0f);
                     }
-                    dc.model = obj->mesh->model;
+                    dc.model = mesh->model;
                     dc.node_id = obj->id;
 
-                    dc.world_aabb = obj->mesh->model->local_aabb().transform(obj->world_matrix_);
+                    dc.world_aabb = mesh->model->local_aabb().transform(obj->world_matrix_);
 
                     // Shadow cull: include if visible to any cascade's
                     // expanded frustum (near plane removed to catch casters
@@ -1899,7 +1902,9 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
     if (ctx.selected_id == 0 || !ctx.scene) return;
 
     const auto* obj = ctx.scene->find(ctx.selected_id);
-    if (!obj || !obj->mesh || !obj->mesh->model) return;
+    if (!obj) return;
+    const auto* mesh = obj->components.get<MeshComponent>();
+    if (!mesh || !mesh->model) return;
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, outline_pipeline_);
 
@@ -1931,7 +1936,7 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
                        0, sizeof(push), &push);
 
     mega_buffer_->bind(cmd);
-    obj->mesh->model->draw(cmd);
+    mesh->model->draw(cmd);
 }
 
 void VulkanContext::reload_pipeline() {

@@ -11,6 +11,8 @@
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "renderer/arrow_component.hpp"
+#include "renderer/mesh_component.hpp"
+#include "renderer/skeletal_mesh_component.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
@@ -317,21 +319,22 @@ void Engine::save_material_assets() {
     if (!cache) return;
 
     for (auto& obj : scene_.objects()) {
-        if (!obj->mesh || !obj->mesh->material) continue;
-        if (!obj->mesh->material_name.ends_with(".fjmat")) continue;
+        auto* mesh = obj->components.get<MeshComponent>();
+        if (!mesh || !mesh->material) continue;
+        if (!mesh->material_name.ends_with(".fjmat")) continue;
 
-        uint32_t pid = obj->mesh->material->pipeline_id();
+        uint32_t pid = mesh->material->pipeline_id();
         if (pid >= cache->shader_count()) continue;
 
         const auto& meta = cache->metadata(pid);
-        uint32_t param_count = obj->mesh->material->custom_param_count();
+        uint32_t param_count = mesh->material->custom_param_count();
         if (param_count == 0) continue;
 
-        const auto& gpu = bindless.material_at(obj->mesh->material->material_id());
+        const auto& gpu = bindless.material_at(mesh->material->material_id());
 
         // Read current params back from CPU buffer
         std::string mat_path = base_path::resolve_asset(
-            obj->mesh->material_name, active_project());
+            mesh->material_name, active_project());
 
         MaterialAsset asset;
         try {
@@ -434,8 +437,7 @@ void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
     node->source = mesh_path;
 
     // Set up skeletal mesh component
-    node->skeletal_mesh.emplace();
-    auto& smc = *node->skeletal_mesh;
+    auto& smc = node->components.add<SkeletalMeshComponent>();
     smc.skeletal_model_handle = skel_model_handle;
     smc.skeletal_model = skel_model;
 

@@ -7,6 +7,7 @@
 #include "ui/icon_cache.hpp"
 #include "ui/viewport_manager.hpp"
 #include "renderer/camera.hpp"
+#include "renderer/mesh_component.hpp"
 #include "renderer/model.hpp"
 
 #include <imgui.h>
@@ -38,7 +39,7 @@ NodeVisuals node_visuals(const SceneNode& obj) {
     if (dynamic_cast<const CameraNode*>(&obj)) {
         return {{0.31f, 0.79f, 0.63f, 1.0f}, "camera"};
     }
-    if (obj.mesh) {
+    if (obj.components.get<MeshComponent>()) {
         return {{0.36f, 0.55f, 0.94f, 1.0f}, "mesh"};
     }
     return {{0.50f, 0.50f, 0.50f, 1.0f}, "node"};
@@ -266,9 +267,10 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
         *selected_id_ = obj.id;
         glm::vec3 center = glm::vec3(obj.world_matrix_[3]);
         float radius = 1.0f;
-        if (obj.mesh && obj.mesh->model && !obj.mesh->model->collision_vertices().empty()) {
+        auto* mesh = obj.components.get<MeshComponent>();
+        if (mesh && mesh->model && !mesh->model->collision_vertices().empty()) {
             float max_r2 = 0.0f;
-            for (const auto& v : obj.mesh->model->collision_vertices()) {
+            for (const auto& v : mesh->model->collision_vertices()) {
                 auto wv = glm::vec3(obj.world_matrix_ * glm::vec4(v, 1.0f));
                 max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
             }

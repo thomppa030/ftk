@@ -3,7 +3,6 @@
 #include "renderer/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/component_storage.hpp"
-#include "scene/node_component.hpp"
 #include "scene/transform.hpp"
 
 #include <glm/glm.hpp>
@@ -12,7 +11,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -20,13 +18,9 @@
 namespace fjell {
 
 class Actor;
-class AnimatorComponent;
 class ScriptComponent;
-class Model;
-class Material;
 class Project;
 class ResourceManager;
-class SkeletalModel;
 
 // ── Script entry ────────────────────────────────────────────────────────
 
@@ -39,36 +33,6 @@ struct ScriptEntry {
     ~ScriptEntry();
     ScriptEntry(ScriptEntry&&) noexcept;
     ScriptEntry& operator=(ScriptEntry&&) noexcept;
-};
-
-// ── Mesh component ──────────────────────────────────────────────────────
-
-struct MeshComponent : NodeComponent {
-    ModelHandle model_handle;
-    MaterialHandle material_handle;
-    Model* model{nullptr};
-    Material* material{nullptr};
-    std::string material_name;
-};
-
-// ── Skeletal mesh component ─────────────────────────────────────────────
-
-struct SkeletalMeshComponent : NodeComponent {
-    SkeletalModelHandle skeletal_model_handle;
-    MaterialHandle material_handle;
-    SkeletalModel* skeletal_model{nullptr};
-    Material* material{nullptr};
-    std::string material_name;
-    std::unique_ptr<AnimatorComponent> animator;
-
-    // Owned animation data (skeleton + clips stay alive as long as the component)
-    std::shared_ptr<class Skeleton> skeleton;
-    std::vector<std::shared_ptr<class AnimationClip>> clips;
-
-    SkeletalMeshComponent();
-    ~SkeletalMeshComponent();
-    SkeletalMeshComponent(SkeletalMeshComponent&&) noexcept;
-    SkeletalMeshComponent& operator=(SkeletalMeshComponent&&) noexcept;
 };
 
 // ── Scene node ──────────────────────────────────────────────────────────
@@ -88,10 +52,7 @@ struct SceneNode {
     std::string name;
     std::string source;
 
-    // Components — built-in (typed access) + script (polymorphic)
-    std::optional<MeshComponent> mesh;
-    std::optional<SkeletalMeshComponent> skeletal_mesh;
-    // Migrated components (stored in ComponentStorage)
+    // All components live in ComponentStorage
     ComponentStorage components;
 
     // Scripting
