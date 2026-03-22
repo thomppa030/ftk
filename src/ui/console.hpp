@@ -6,6 +6,7 @@
 
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace fjell {
@@ -31,6 +32,10 @@ private:
     bool auto_scroll_{true};
     int level_filter_{0}; // 0=all, 1=info+, 2=warn+, 3=error+
     char search_text_[128]{};
+
+    // Selection state (indices into visible entries)
+    std::unordered_set<int> selected_;
+    int last_clicked_{-1}; // anchor for shift-click
 };
 
 } // namespace fjell
