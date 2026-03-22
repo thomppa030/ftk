@@ -30,6 +30,7 @@ private:
     std::vector<LogEntry> entries_;
     bool auto_scroll_{true};
     int level_filter_{0}; // 0=all, 1=info+, 2=warn+, 3=error+
+    char search_text_[128]{};
 };
 
 } // namespace fjell
