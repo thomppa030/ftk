@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/result.hpp"
 #include "scripting/fjell_api.h"
 #include "scripting/fjell_registry.hpp"
 #include "scripting/fjell_world.hpp"
@@ -25,7 +26,7 @@ class Scene;
 class Input;
 class Clock;
 class PhysicsWorld;
-struct SceneNode;
+struct Node3D;
 
 struct OwnedFieldDesc {
     std::string name;
@@ -56,18 +57,18 @@ public:
     ScriptManager(ScriptManager&&) = delete;
     ScriptManager& operator=(ScriptManager&&) = delete;
 
-    bool load(const std::filesystem::path& so_path);
+    Result<> load(const std::filesystem::path& so_path);
     void unload(Scene& scene);
-    bool reload(Scene& scene, const std::filesystem::path& so_path);
+    Result<> reload(Scene& scene, const std::filesystem::path& so_path);
 
     void prepare(Scene& scene, const Input& input, const Clock& clock,
                  PhysicsWorld* physics = nullptr);
     void update(Scene& scene, const Input& input, const Clock& clock,
                 PhysicsWorld* physics = nullptr);
 
-    bool add_script(SceneNode& obj, const std::string& type_name);
-    void remove_script(SceneNode& obj, const std::string& type_name);
-    void draw_inspector(SceneNode& obj);
+    Result<> add_script(Node3D& obj, const std::string& type_name);
+    void remove_script(Node3D& obj, const std::string& type_name);
+    void draw_inspector(Node3D& obj);
 
     void serialize_all(Scene& scene);
     void deserialize_all(Scene& scene);
@@ -82,7 +83,7 @@ public:
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
 #ifndef NDEBUG
-    [[nodiscard]] bool poll_reload(Scene& scene);
+    Result<> poll_reload(Scene& scene);
     void watch(const std::filesystem::path& so_path);
 #endif
 

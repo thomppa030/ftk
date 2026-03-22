@@ -34,14 +34,22 @@ int run_command(const std::string& cmd, std::string& output) {
     return WEXITSTATUS(status);
 }
 
-bool spawn_detached(const std::vector<std::string>& args) {
-    if (args.empty()) return false;
+Result<> spawn_detached(const std::vector<std::string>& args) {
+    if (args.empty()) return make_error("spawn_detached: empty args");
 
     pid_t pid = fork();
-    if (pid < 0) return false;
+    if (pid < 0) return make_error("spawn_detached: fork failed");
 
     if (pid == 0) {
-        // Child: build argv for execv
+        // First child: fork again so the grandchild is orphaned and
+        // reparented to init — no zombie possible.
+        pid_t pid2 = fork();
+        if (pid2 < 0) _exit(1);
+        if (pid2 > 0) _exit(0); // first child exits immediately
+
+        // Grandchild: start a new session and exec
+        setsid();
+
         std::vector<const char*> argv;
         argv.reserve(args.size() + 1);
         for (const auto& a : args) {
@@ -50,12 +58,12 @@ bool spawn_detached(const std::vector<std::string>& args) {
         argv.push_back(nullptr);
 
         execv(argv[0], const_cast<char* const*>(argv.data()));
-        _exit(1); // execv only returns on failure
+        _exit(1);
     }
 
-    // Parent: don't wait — child runs independently.
-    // Reap to avoid zombie (double-fork would be cleaner but SIGCHLD=SIG_IGN works on Linux)
-    return true;
+    // Parent: reap the first child (exits immediately after double-fork)
+    waitpid(pid, nullptr, 0);
+    return {};
 }
 
 } // namespace fjell::platform

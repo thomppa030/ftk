@@ -123,7 +123,9 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
         FJELL_CORE_INFO("Scripts built successfully");
         auto so_path = project_->root() / "game.so";
         if (std::filesystem::exists(so_path)) {
-            scripts.reload(scene, so_path);
+            if (auto r = scripts.reload(scene, so_path); !r) {
+                FJELL_CORE_ERROR("{}", r.error());
+            }
         }
     } else {
         FJELL_CORE_ERROR("Script build failed");

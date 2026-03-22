@@ -40,16 +40,16 @@ SkeletalMeshComponent::~SkeletalMeshComponent() = default;
 SkeletalMeshComponent::SkeletalMeshComponent(SkeletalMeshComponent&&) noexcept = default;
 SkeletalMeshComponent& SkeletalMeshComponent::operator=(SkeletalMeshComponent&&) noexcept = default;
 
-SceneNode::SceneNode() = default;
-SceneNode::~SceneNode() = default;
-SceneNode::SceneNode(SceneNode&&) noexcept = default;
-SceneNode& SceneNode::operator=(SceneNode&&) noexcept = default;
+// ── Node ────────────────────────────────────────────────────────────────
 
-void SceneNode::clone_base_into(SceneNode& target) const {
+Node::Node() = default;
+Node::~Node() = default;
+Node::Node(Node&&) noexcept = default;
+Node& Node::operator=(Node&&) noexcept = default;
+
+void Node::clone_base_into(Node& target) const {
     target.id = id;
     target.parent_id = parent_id;
-    target.world_matrix_ = world_matrix_;
-    target.transform = transform;
     target.name = name;
     target.source = source;
     if (const auto* mc = components.get<MeshComponent>()) {
@@ -89,18 +89,39 @@ void SceneNode::clone_base_into(SceneNode& target) const {
     }
 }
 
-std::unique_ptr<SceneNode> SceneNode::clone() const {
-    auto copy = std::make_unique<SceneNode>();
+std::unique_ptr<Node> Node::clone() const {
+    auto copy = std::make_unique<Node>();
     clone_base_into(*copy);
     return copy;
 }
+
+// ── Node3D ──────────────────────────────────────────────────────────────
+
+Node3D::Node3D() { is_spatial_ = true; }
+Node3D::~Node3D() = default;
+Node3D::Node3D(Node3D&&) noexcept = default;
+Node3D& Node3D::operator=(Node3D&&) noexcept = default;
+
+void Node3D::clone_3d_into(Node3D& target) const {
+    clone_base_into(target);
+    target.transform = transform;
+    target.world_matrix_ = world_matrix_;
+}
+
+std::unique_ptr<Node> Node3D::clone() const {
+    auto copy = std::make_unique<Node3D>();
+    clone_3d_into(*copy);
+    return copy;
+}
+
+// ── Scene ───────────────────────────────────────────────────────────────
 
 uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
                     ResourceManager& resources, Transform transform,
                     const std::string& name, const std::string& source,
                     const std::string& material_name) {
     uint32_t id = next_id_++;
-    auto obj = std::make_unique<SceneNode>();
+    auto obj = std::make_unique<Node3D>();
     obj->id = id;
     auto& mc = obj->components.add<MeshComponent>();
     mc.model_handle = model_handle;
@@ -119,7 +140,7 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
 
 uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     uint32_t id = next_id_++;
-    auto obj = std::make_unique<SceneNode>();
+    auto obj = std::make_unique<Node3D>();
     obj->id = id;
     obj->transform = transform;
     obj->name = name;
@@ -129,7 +150,18 @@ uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     return id;
 }
 
-uint32_t Scene::add_node(std::unique_ptr<SceneNode> node) {
+uint32_t Scene::add_folder(const std::string& name) {
+    uint32_t id = next_id_++;
+    auto obj = std::make_unique<Node>();
+    obj->id = id;
+    obj->name = name;
+    objects_.push_back(std::move(obj));
+    dirty_ = true;
+    index_dirty_ = true;
+    return id;
+}
+
+uint32_t Scene::add_node(std::unique_ptr<Node> node) {
     if (node->id == 0) node->id = next_id_++;
     if (node->id >= next_id_) next_id_ = node->id + 1;
     uint32_t id = node->id;
@@ -140,7 +172,6 @@ uint32_t Scene::add_node(std::unique_ptr<SceneNode> node) {
 }
 
 void Scene::remove(uint32_t id) {
-    // Orphan children first
     for (auto& obj : objects_) {
         if (obj->parent_id == static_cast<int32_t>(id)) {
             obj->parent_id = -1;
@@ -155,8 +186,7 @@ void Scene::remove(uint32_t id) {
     }
 }
 
-std::unique_ptr<SceneNode> Scene::extract(uint32_t id) {
-    // Orphan children
+std::unique_ptr<Node> Scene::extract(uint32_t id) {
     for (auto& obj : objects_) {
         if (obj->parent_id == static_cast<int32_t>(id)) {
             obj->parent_id = -1;
@@ -171,7 +201,7 @@ std::unique_ptr<SceneNode> Scene::extract(uint32_t id) {
     return result;
 }
 
-void Scene::restore(std::unique_ptr<SceneNode> node) {
+void Scene::restore(std::unique_ptr<Node> node) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
     objects_.push_back(std::move(node));
     dirty_ = true;
@@ -213,19 +243,18 @@ void Scene::rebuild_id_index() {
     }
 }
 
-SceneNode* Scene::find(uint32_t id) {
+Node* Scene::find(uint32_t id) {
     auto it = id_to_index_.find(id);
     if (it != id_to_index_.end() && it->second < static_cast<int>(objects_.size())) {
         return objects_[it->second].get();
     }
-    // Fallback: linear scan (index may be stale after remove)
     for (auto& obj : objects_) {
         if (obj->id == id) return obj.get();
     }
     return nullptr;
 }
 
-const SceneNode* Scene::find(uint32_t id) const {
+const Node* Scene::find(uint32_t id) const {
     auto it = id_to_index_.find(id);
     if (it != id_to_index_.end() && it->second < static_cast<int>(objects_.size())) {
         return objects_[it->second].get();
@@ -245,7 +274,6 @@ int Scene::index_of(uint32_t id) const {
 void Scene::compute_world_matrices(ThreadPool* pool) {
     FJELL_PROFILE_SCOPE_N("compute_world_matrices");
 
-    // Only rebuild id→index map when the object list has changed
     if (index_dirty_) {
         rebuild_id_index();
         index_dirty_ = false;
@@ -253,22 +281,21 @@ void Scene::compute_world_matrices(ThreadPool* pool) {
 
     auto n = objects_.size();
 
-    // Detect dirty transforms by comparing against previous snapshot.
-    // This avoids requiring callers to set flags — transform is a public struct.
-    // Each node's dirty detection is independent — parallelize across the pool.
+    // Detect dirty transforms — skip non-spatial nodes (folders)
     auto detect_dirty = [&](uint32_t /*chunk*/, uint32_t begin, uint32_t end) {
         for (uint32_t i = begin; i < end; ++i) {
-            auto& obj = *objects_[i];
-            if (obj.transform_dirty_ ||
-                obj.transform.position != obj.prev_transform_.position ||
-                obj.transform.rotation != obj.prev_transform_.rotation ||
-                obj.transform.scale != obj.prev_transform_.scale) {
-                obj.local_matrix_ = obj.transform.matrix();
-                obj.prev_transform_ = obj.transform;
-                obj.transform_dirty_ = false;
-                obj.world_dirty_ = true;
+            auto* spatial = objects_[i]->as_spatial();
+            if (!spatial) continue;
+            if (spatial->transform_dirty_ ||
+                spatial->transform.position != spatial->prev_transform_.position ||
+                spatial->transform.rotation != spatial->prev_transform_.rotation ||
+                spatial->transform.scale != spatial->prev_transform_.scale) {
+                spatial->local_matrix_ = spatial->transform.matrix();
+                spatial->prev_transform_ = spatial->transform;
+                spatial->transform_dirty_ = false;
+                spatial->world_dirty_ = true;
             } else {
-                obj.world_dirty_ = false;
+                spatial->world_dirty_ = false;
             }
         }
     };
@@ -279,43 +306,61 @@ void Scene::compute_world_matrices(ThreadPool* pool) {
         detect_dirty(0, 0, static_cast<uint32_t>(n));
     }
 
-    // Reuse scratch buffer — avoid allocation every frame
     computed_buf_.resize(n);
     std::memset(computed_buf_.data(), 0, n);
     auto remaining = n;
 
-    // Pass 1: roots (no parent)
+    // Pass 1: roots and non-spatial nodes
     for (std::size_t i = 0; i < n; ++i) {
+        auto* spatial = objects_[i]->as_spatial();
+        if (!spatial) {
+            computed_buf_[i] = 1;
+            --remaining;
+            continue;
+        }
         if (objects_[i]->parent_id == -1) {
-            if (objects_[i]->world_dirty_) {
-                objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+            if (spatial->world_dirty_) {
+                spatial->world_matrix_ = spatial->local_matrix_;
             }
             computed_buf_[i] = 1;
             --remaining;
         }
     }
 
-    // Subsequent passes: children whose parent is already computed (O(1) lookup)
+    // Subsequent passes: children whose parent is already computed
     while (remaining > 0) {
         auto prev = remaining;
         for (std::size_t i = 0; i < n; ++i) {
             if (computed_buf_[i]) continue;
+            auto* spatial = objects_[i]->as_spatial();
+            if (!spatial) {
+                computed_buf_[i] = 1;
+                --remaining;
+                continue;
+            }
             int pi = index_of(static_cast<uint32_t>(objects_[i]->parent_id));
             if (pi < 0) {
                 objects_[i]->parent_id = -1;
-                if (objects_[i]->world_dirty_) {
-                    objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
+                if (spatial->world_dirty_) {
+                    spatial->world_matrix_ = spatial->local_matrix_;
                 }
                 computed_buf_[i] = 1;
                 --remaining;
             } else if (computed_buf_[pi]) {
-                // Propagate parent dirtiness to children
-                if (objects_[pi]->world_dirty_) {
-                    objects_[i]->world_dirty_ = true;
-                }
-                if (objects_[i]->world_dirty_) {
-                    objects_[i]->world_matrix_ =
-                        objects_[pi]->world_matrix_ * objects_[i]->local_matrix_;
+                auto* parent_spatial = objects_[pi]->as_spatial();
+                if (parent_spatial) {
+                    if (parent_spatial->world_dirty_) {
+                        spatial->world_dirty_ = true;
+                    }
+                    if (spatial->world_dirty_) {
+                        spatial->world_matrix_ =
+                            parent_spatial->world_matrix_ * spatial->local_matrix_;
+                    }
+                } else {
+                    // Parent is a folder — child's world = local
+                    if (spatial->world_dirty_) {
+                        spatial->world_matrix_ = spatial->local_matrix_;
+                    }
                 }
                 computed_buf_[i] = 1;
                 --remaining;
@@ -325,8 +370,10 @@ void Scene::compute_world_matrices(ThreadPool* pool) {
             for (std::size_t i = 0; i < n; ++i) {
                 if (!computed_buf_[i]) {
                     objects_[i]->parent_id = -1;
-                    objects_[i]->world_matrix_ = objects_[i]->local_matrix_;
-                    objects_[i]->world_dirty_ = true;
+                    if (auto* s = objects_[i]->as_spatial()) {
+                        s->world_matrix_ = s->local_matrix_;
+                        s->world_dirty_ = true;
+                    }
                 }
             }
             break;
@@ -338,22 +385,27 @@ void Scene::reparent(uint32_t child_id, int32_t new_parent_id) {
     auto* child = find(child_id);
     if (!child) return;
 
-    glm::mat4 child_world = child->world_matrix_;
-    child->parent_id = new_parent_id;
+    auto* spatial = child->as_spatial();
+    if (spatial) {
+        glm::mat4 child_world = spatial->world_matrix_;
+        child->parent_id = new_parent_id;
 
-    // Adjust local transform to preserve world position
-    glm::mat4 new_local = child_world;
-    if (new_parent_id != -1) {
-        const auto* parent = find(static_cast<uint32_t>(new_parent_id));
-        if (parent) {
-            new_local = glm::inverse(parent->world_matrix_) * child_world;
+        glm::mat4 new_local = child_world;
+        if (new_parent_id != -1) {
+            const auto* parent = find(static_cast<uint32_t>(new_parent_id));
+            const auto* parent_spatial = parent ? parent->as_spatial() : nullptr;
+            if (parent_spatial) {
+                new_local = glm::inverse(parent_spatial->world_matrix_) * child_world;
+            }
         }
+        spatial->transform = decompose_matrix(new_local);
+    } else {
+        child->parent_id = new_parent_id;
     }
-    child->transform = decompose_matrix(new_local);
     dirty_ = true;
 }
 
-void Scene::save(const std::string& path) {
+Result<> Scene::save(const std::string& path) {
     nlohmann::json j;
     j["next_id"] = next_id_;
     j["objects"] = nlohmann::json::array();
@@ -364,6 +416,11 @@ void Scene::save(const std::string& path) {
         jobj["parent_id"] = obj->parent_id;
         jobj["name"] = obj->name;
         jobj["source"] = obj->source;
+
+        if (!obj->is_spatial()) {
+            jobj["node_type"] = "folder";
+        }
+
         if (const auto* mesh = obj->components.get<MeshComponent>()) {
             nlohmann::json jmesh;
             jmesh["material"] = mesh->material_name;
@@ -379,12 +436,15 @@ void Scene::save(const std::string& path) {
             }
             jobj["mesh"] = jmesh;
         }
-        jobj["position"] = {obj->transform.position.x, obj->transform.position.y, obj->transform.position.z};
-        {
-            auto euler = obj->transform.euler_degrees();
-            jobj["rotation"] = {euler.x, euler.y, euler.z};
+
+        if (auto* spatial = obj->as_spatial()) {
+            jobj["position"] = {spatial->transform.position.x, spatial->transform.position.y, spatial->transform.position.z};
+            {
+                auto euler = spatial->transform.euler_degrees();
+                jobj["rotation"] = {euler.x, euler.y, euler.z};
+            }
+            jobj["scale"] = {spatial->transform.scale.x, spatial->transform.scale.y, spatial->transform.scale.z};
         }
-        jobj["scale"] = {obj->transform.scale.x, obj->transform.scale.y, obj->transform.scale.z};
 
         if (const auto* rb = obj->components.get<RigidbodyComponent>()) {
             jobj["rigidbody"] = {
@@ -508,6 +568,13 @@ void Scene::save(const std::string& path) {
                 {"temporal_blend", vf->temporal_blend},
                 {"color", {vf->fog_color.r, vf->fog_color.g, vf->fog_color.b}}
             };
+        } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
+            jobj["node_type"] = "world_environment";
+            jobj["sky"] = {
+                {"sky_top_color", {env->sky_top_color.x, env->sky_top_color.y, env->sky_top_color.z}},
+                {"sky_bottom_color", {env->sky_bottom_color.x, env->sky_bottom_color.y, env->sky_bottom_color.z}},
+                {"ibl_intensity", env->ibl_intensity}
+            };
         }
 
         j["objects"].push_back(jobj);
@@ -544,33 +611,31 @@ void Scene::save(const std::string& path) {
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        FJELL_CORE_ERROR("Failed to save scene: {}", path);
-        return;
+        return make_error("Failed to save scene: " + path);
     }
     file << j.dump(2);
     dirty_ = false;
     FJELL_CORE_INFO("Scene saved: {}", path);
+    return {};
 }
 
-Scene Scene::load(const std::string& path, ResourceManager& resources,
-                  const Project* project) {
+Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
+                          const Project* project) {
     std::ifstream file(path);
     if (!file.is_open()) {
-        FJELL_CORE_WARN("Scene file not found: {}", path);
-        return {};
+        return make_error("Scene file not found: " + path);
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        FJELL_CORE_ERROR("Failed to parse scene: {}", e.what());
-        return {};
+        return make_error(std::string("Failed to parse scene: ") + e.what());
     }
 
     Scene scene;
     auto default_tex = resources.load_texture(
-        base_path::resolve("engine_assets/textures/test.png"));
+        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
 
     uint32_t max_id = 0;
 
@@ -578,7 +643,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         std::string name = jobj.value("name", "Object");
         std::string source = jobj.value("source", "");
 
-        // Read mesh fields from "mesh" key or fall back to top-level (backward compat)
         std::string mat_name = "default";
         nlohmann::json color_json;
         if (jobj.contains("mesh")) {
@@ -604,10 +668,25 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             transform.scale = {s[0].get<float>(), s[1].get<float>(), s[2].get<float>()};
         }
 
-        // Light nodes
+        // Typed nodes
         std::string node_type = jobj.value("node_type", "");
         if (!node_type.empty()) {
-            std::unique_ptr<SceneNode> node;
+            // Folder — non-spatial node
+            if (node_type == "folder") {
+                auto folder = std::make_unique<Node>();
+                folder->name = name;
+                uint32_t loaded_id = jobj.value("id", 0u);
+                int32_t loaded_parent = jobj.value("parent_id", -1);
+                if (loaded_id > 0) {
+                    folder->id = loaded_id;
+                    if (loaded_id > max_id) max_id = loaded_id;
+                }
+                folder->parent_id = loaded_parent;
+                scene.add_node(std::move(folder));
+                continue;
+            }
+
+            std::unique_ptr<Node3D> node;
             if (node_type == "camera") {
                 auto cam = std::make_unique<CameraNode>();
                 if (jobj.contains("camera")) {
@@ -683,6 +762,21 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                     }
                 }
                 node = std::move(vf);
+            } else if (node_type == "world_environment") {
+                auto env = std::make_unique<WorldEnvironmentNode>();
+                if (jobj.contains("sky")) {
+                    auto& js = jobj["sky"];
+                    if (js.contains("sky_top_color")) {
+                        auto& c = js["sky_top_color"];
+                        env->sky_top_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    }
+                    if (js.contains("sky_bottom_color")) {
+                        auto& c = js["sky_bottom_color"];
+                        env->sky_bottom_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    }
+                    env->ibl_intensity = js.value("ibl_intensity", 1.0f);
+                }
+                node = std::move(env);
             }
 
             if (node) {
@@ -700,7 +794,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             }
         }
 
-        // Empty nodes have no source and no mesh
+        // Mesh nodes or empty Node3D (backward compat)
         bool has_mesh = !source.empty() || jobj.contains("mesh") || jobj.contains("material");
         uint32_t id = 0;
 
@@ -708,9 +802,11 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             ModelHandle model_handle;
             if (source.starts_with("primitive:")) {
                 std::string type = source.substr(10);
-                model_handle = resources.create_primitive(type);
+                auto result = resources.create_primitive(type);
+                if (result) model_handle = *result;
             } else if (!source.empty()) {
-                model_handle = resources.load_model(base_path::resolve_asset(source, project));
+                auto result = resources.load_model(base_path::resolve_asset(source, project));
+                if (result) model_handle = *result;
             }
 
             if (!model_handle.valid()) continue;
@@ -718,14 +814,14 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             MaterialHandle mat_handle;
             if (mat_name.ends_with(".fjmat")) {
                 std::string mat_path = base_path::resolve_asset(mat_name, project);
-                mat_handle = resources.load_material_asset(mat_path, project);
+                auto result = resources.load_material_asset(mat_path, project);
+                if (result) mat_handle = *result;
             } else if (!color_json.is_null()) {
                 auto& c = color_json;
                 PbrParams params{};
                 float alpha = c.size() > 3 ? c[3].get<float>() : 1.0f;
                 params.base_color_factor = {c[0].get<float>(), c[1].get<float>(),
                                             c[2].get<float>(), alpha};
-                // Key by color so identical colors share a material
                 char color_key[64];
                 std::snprintf(color_key, sizeof(color_key), "color_%.3f_%.3f_%.3f_%.3f",
                               params.base_color_factor.x, params.base_color_factor.y,
@@ -750,7 +846,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             id = scene.add_empty(transform, name);
         }
 
-        // Override with loaded ID if present (backward compat: use assigned ID)
         uint32_t loaded_id = jobj.value("id", 0u);
         int32_t loaded_parent = jobj.value("parent_id", -1);
         auto* node = scene.find(id);
@@ -774,7 +869,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             rb.angular_damping = jrb.value("angular_damping", 0.05f);
             rb.gravity_enabled = jrb.value("gravity_enabled", true);
         }
-        // Load collider descriptor
         if (jobj.contains("collider") && node) {
             auto& jcol = jobj["collider"];
             auto& col = node->components.add<ColliderComponent>();
@@ -791,7 +885,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             }
         }
 
-        // Load particle emitter
         if (jobj.contains("emitter") && node) {
             auto& jem = jobj["emitter"];
             auto& em = node->components.add<EmitterComponent>();
@@ -824,12 +917,10 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             em.blend_mode = static_cast<ParticleBlendMode>(jem.value("blend_mode", 0));
         }
 
-        // Load sprite
         if (jobj.contains("sprite") && node) {
             auto& jsp = jobj["sprite"];
             auto& sp = node->components.add<SpriteComponent>();
             sp.texture_path = jsp.value("texture", "");
-            // Migrate old asset paths
             if (sp.texture_path.starts_with("assets/icons/")) {
                 sp.texture_path = "engine_assets/icons/" +
                     sp.texture_path.substr(13);
@@ -842,7 +933,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             sp.editor_only = jsp.value("editor_only", false);
         }
 
-        // Load audio source
         if (jobj.contains("audio") && node) {
             auto& jau = jobj["audio"];
             auto& au = node->components.add<AudioSourceComponent>();
@@ -856,7 +946,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             au.play_on_start = jau.value("play_on_start", false);
         }
 
-        // Load arrow
         if (jobj.contains("arrow") && node) {
             auto& jar = jobj["arrow"];
             auto& arr = node->components.add<ArrowComponent>();
@@ -867,7 +956,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             }
         }
 
-        // Load component data as raw JSON (ScriptManager will instantiate later)
         if (jobj.contains("components") && node) {
             for (const auto& jcomp : jobj["components"]) {
                 ScriptEntry comp;
@@ -898,7 +986,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         }
     }
 
-    // Load spot lights
     if (j.contains("spot_lights")) {
         for (const auto& jsl : j["spot_lights"]) {
             SpotLight sl;
@@ -922,7 +1009,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         }
     }
 
-    // Restore next_id from file or compute from max
     if (j.contains("next_id")) {
         scene.set_next_id(j["next_id"].get<uint32_t>());
     } else {

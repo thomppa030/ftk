@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -13,8 +15,7 @@ namespace fjell::platform {
 [[nodiscard]] int run_command(const std::string& cmd, std::string& output);
 
 /// Spawn a detached child process. The child runs independently and is
-/// not waited on. Returns true if the process was spawned successfully.
-/// args[0] is the executable path.
-bool spawn_detached(const std::vector<std::string>& args);
+/// not waited on. args[0] is the executable path.
+Result<> spawn_detached(const std::vector<std::string>& args);
 
 } // namespace fjell::platform

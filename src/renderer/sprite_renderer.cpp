@@ -111,15 +111,23 @@ void SpriteRenderer::create(Device& device, const PassResources& resources) {
     blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blend.alphaBlendOp = VK_BLEND_OP_ADD;
 
+    VkPipelineColorBlendAttachmentState mr_blend{};
+    mr_blend.colorWriteMask = 0; // Sprites don't write MR
+    mr_blend.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 1;
-    color_blending.pAttachments = &blend;
+    color_blending.attachmentCount = 2;
+    color_blending.pAttachments = blend_attachments;
+
+    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachmentFormats = &color_format_;
+    rendering_info.colorAttachmentCount = 2;
+    rendering_info.pColorAttachmentFormats = color_formats;
     rendering_info.depthAttachmentFormat = depth_format_;
 
     VkGraphicsPipelineCreateInfo ci{};
@@ -213,9 +221,9 @@ void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources) {
         std::string resolved = base_path::resolve_asset(sprite.texture_path, nullptr);
         if (!std::filesystem::exists(resolved)) continue;
 
-        auto tex_handle = resources.load_texture(resolved);
-        if (tex_handle.valid()) {
-            sprite.texture_index = resources.bindless_index(tex_handle);
+        auto tex_result = resources.load_texture(resolved);
+        if (tex_result) {
+            sprite.texture_index = resources.bindless_index(*tex_result);
             sprite.texture_loaded = true;
         }
     }
@@ -241,8 +249,10 @@ void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection
         if (playing && sp->editor_only) continue;
 
         const auto& sprite = *sp;
-        glm::vec3 pos = glm::vec3(obj->world_matrix_[3]);
-        glm::vec3 scale = obj->transform.scale;
+        const auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
+        glm::vec3 pos = glm::vec3(spatial->world_matrix_[3]);
+        glm::vec3 scale = spatial->transform.scale;
         glm::vec2 half_size = {scale.x * 0.5f, scale.y * 0.5f};
 
         // Frustum cull with a sphere approximation

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -25,7 +27,7 @@ public:
                 const glm::vec3& listener_forward, const glm::vec3& listener_up);
 
     // Play/stop individual sources
-    void play(uint32_t node_id, Scene& scene, const Project* project = nullptr);
+    Result<> play(uint32_t node_id, Scene& scene, const Project* project = nullptr);
     void stop(uint32_t node_id);
     void stop_all();
 

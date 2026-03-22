@@ -145,7 +145,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_->mega_buffer(), vulkan_context_->meshlet_buffer());
 
     default_texture_ = resource_manager_->load_texture(
-        base_path::resolve("engine_assets/textures/test.png"));
+        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     // Determine which scene to load
     if (project_mgr_.active()) {
         current_scene_path_ = project_mgr_.active()->resolve(project_mgr_.active()->config().default_scene);
@@ -157,7 +157,13 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     }
 
     if (std::filesystem::exists(current_scene_path_)) {
-        scene_ = Scene::load(current_scene_path_, *resource_manager_, project_mgr_.active());
+        auto result = Scene::load(current_scene_path_, *resource_manager_, project_mgr_.active());
+        if (result) {
+            scene_ = std::move(*result);
+        } else {
+            FJELL_CORE_ERROR("{}", result.error());
+            create_default_scene();
+        }
     } else {
         create_default_scene();
     }
@@ -178,8 +184,11 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     if (game_mode_) {
         auto game_so = base_path::resolve("game.so");
         if (std::filesystem::exists(game_so)) {
-            script_manager_.load(game_so);
-            script_manager_.deserialize_all(scene_);
+            if (auto r = script_manager_.load(game_so); !r) {
+                FJELL_CORE_ERROR("{}", r.error());
+            } else {
+                script_manager_.deserialize_all(scene_);
+            }
         }
     } else {
         load_project_scripts();
@@ -238,6 +247,19 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     bind_menu_bar();
 
+    // Apply saved layout for projects opened before signals were connected
+    if (project_mgr_.active()) {
+        auto& layout = project_mgr_.active()->config().layout;
+        if (!layout.empty()) {
+            auto lp = project_mgr_.active()->root() / "layouts" / (layout + ".ini");
+            if (std::filesystem::exists(lp)) {
+                pending_layout_load_ = lp.string();
+                menu_bar_.set_active_layout(layout);
+                has_saved_layout_ = true;
+            }
+        }
+    }
+
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
     viewport_manager_.init(vulkan_context_->device_ref(), vulkan_context_->msaa_samples());
@@ -292,6 +314,8 @@ Engine::~Engine() {
     resource_manager_.reset();
     icon_cache_.reset();
     viewport_manager_.release_textures();
+    // Release ImGui descriptor sets before ImGui shuts down
+    vulkan_context_->release_imgui_textures();
     imgui_layer_.reset();
     FJELL_CORE_INFO("Engine shut down");
 }
@@ -353,20 +377,20 @@ void Engine::save_material_assets() {
 void Engine::create_default_scene() {
     vulkan_context_->wait_idle();
     auto tex = resource_manager_->load_texture(
-        base_path::resolve("engine_assets/textures/test.png"));
+        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     auto mat = resource_manager_->create_material("default", tex);
 
-    auto plane = resource_manager_->create_primitive("plane");
+    auto plane = resource_manager_->create_primitive("plane").value_or(ModelHandle{});
     scene_.add(plane, mat, *resource_manager_,
                {{0.0f, 0.0f, 0.0f}, {}, {10.0f, 1.0f, 10.0f}},
                "Ground", "primitive:plane");
 
-    auto cube = resource_manager_->create_primitive("cube");
+    auto cube = resource_manager_->create_primitive("cube").value_or(ModelHandle{});
     scene_.add(cube, mat, *resource_manager_,
                {{0.0f, 0.5f, 0.0f}},
                "Cube", "primitive:cube");
 
-    auto sphere = resource_manager_->create_primitive("sphere");
+    auto sphere = resource_manager_->create_primitive("sphere").value_or(ModelHandle{});
     scene_.add(sphere, mat, *resource_manager_,
                {{2.5f, 0.5f, 0.0f}},
                "Sphere", "primitive:sphere");
@@ -377,10 +401,16 @@ void Engine::create_default_scene() {
 void Engine::add_model_to_scene(const std::string& path) {
     vulkan_context_->wait_idle();
 
-    auto model_handle = resource_manager_->load_model(
+    auto model_result = resource_manager_->load_model(
         base_path::resolve_asset(path, project_mgr_.active()));
+    if (!model_result) {
+        FJELL_CORE_ERROR("{}", model_result.error());
+        return;
+    }
+    auto model_handle = *model_result;
+
     auto tex = resource_manager_->load_texture(
-        base_path::resolve("engine_assets/textures/test.png"));
+        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     auto mat_handle = resource_manager_->create_material("default", tex);
     std::string mat_name = "default";
 
@@ -406,7 +436,12 @@ void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
     auto resolved_mesh = base_path::resolve_asset(mesh_path, project_mgr_.active());
     auto resolved_skel = base_path::resolve_asset(skel_path, project_mgr_.active());
 
-    auto skel_model_handle = resource_manager_->load_skeletal_model(resolved_mesh);
+    auto skel_result = resource_manager_->load_skeletal_model(resolved_mesh);
+    if (!skel_result) {
+        FJELL_CORE_ERROR("{}", skel_result.error());
+        return;
+    }
+    auto skel_model_handle = *skel_result;
     auto* skel_model = resource_manager_->get(skel_model_handle);
     if (!skel_model) {
         FJELL_CORE_ERROR("Failed to load skeletal model: {}", mesh_path);
@@ -426,7 +461,7 @@ void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
 
     // Default material
     auto tex = resource_manager_->load_texture(
-        base_path::resolve("engine_assets/textures/test.png"));
+        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     smc.material_handle = resource_manager_->create_material("skel_default", tex);
     smc.material = resource_manager_->get(smc.material_handle);
 
@@ -456,6 +491,12 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     // Empty node: no mesh
     if (type == "empty") {
         selected_id_ = scene_.add_empty();
+        return;
+    }
+
+    // Folder: non-spatial organizational node
+    if (type == "folder") {
+        selected_id_ = scene_.add_folder();
         return;
     }
 
@@ -505,17 +546,23 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
+    if (type == "world_environment") {
+        auto node = std::make_unique<WorldEnvironmentNode>();
+        node->name = "World Environment";
+        selected_id_ = scene_.add_node(std::move(node));
+        return;
+    }
 
     // Sprite objects: plane primitive with a sprite component
     if (type == "sprite") {
-        auto model_handle = resource_manager_->create_primitive("plane");
-        if (!model_handle.valid()) return;
+        auto model_result = resource_manager_->create_primitive("plane");
+        if (!model_result) return;
 
         auto tex = resource_manager_->load_texture(
-            base_path::resolve("engine_assets/textures/test.png"));
+            base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
         auto mat = resource_manager_->create_material("default", tex);
 
-        selected_id_ = scene_.add(model_handle, mat, *resource_manager_,
+        selected_id_ = scene_.add(*model_result, mat, *resource_manager_,
                                   {}, "Sprite", "primitive:plane");
         auto* obj = scene_.find(selected_id_);
         if (obj) {
@@ -524,17 +571,17 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         return;
     }
 
-    auto model_handle = resource_manager_->create_primitive(type);
-    if (!model_handle.valid()) return;
+    auto model_result = resource_manager_->create_primitive(type);
+    if (!model_result) return;
 
     auto tex = resource_manager_->load_texture(
-        base_path::resolve("engine_assets/textures/test.png"));
+        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     auto mat = resource_manager_->create_material("default", tex);
 
     std::string name = type;
     name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
 
-    selected_id_ = scene_.add(model_handle, mat, *resource_manager_,
+    selected_id_ = scene_.add(*model_result, mat, *resource_manager_,
                               {}, name, "primitive:" + type);
 }
 
@@ -624,7 +671,10 @@ void Engine::load_project_scripts() {
     if (!project_mgr_.active()) return;
     auto so_path = project_mgr_.active()->root() / "game.so";
     if (std::filesystem::exists(so_path)) {
-        script_manager_.load(so_path);
+        if (auto r = script_manager_.load(so_path); !r) {
+            FJELL_CORE_ERROR("{}", r.error());
+            return;
+        }
         script_manager_.deserialize_all(scene_);
 #ifndef NDEBUG
         script_manager_.watch(so_path);
@@ -635,7 +685,13 @@ void Engine::load_project_scripts() {
 void Engine::load_scene(const std::string& path) {
     vulkan_context_->wait_idle();
     current_scene_path_ = path;
-    scene_ = Scene::load(path, *resource_manager_, project_mgr_.active());
+    auto result = Scene::load(path, *resource_manager_, project_mgr_.active());
+    if (result) {
+        scene_ = std::move(*result);
+    } else {
+        FJELL_CORE_ERROR("{}", result.error());
+        scene_.clear();
+    }
     selected_id_ = 0;
     command_history_.clear();
 }
@@ -644,7 +700,9 @@ void Engine::bind_menu_bar() {
     connections_.push_back(menu_bar_.on_save_scene.bind(
         [this]() {
             save_material_assets();
-            scene_.save(current_scene_path_);
+            if (auto r = scene_.save(current_scene_path_); !r) {
+                FJELL_CORE_ERROR("{}", r.error());
+            }
         }));
     connections_.push_back(menu_bar_.on_load_scene.bind(
         [this]() { load_scene(current_scene_path_); }));
@@ -654,7 +712,10 @@ void Engine::bind_menu_bar() {
         [this]() {
             if (project_mgr_.active()) {
                 auto output = project_mgr_.active()->root() / "build";
-                GameBuilder::build(*project_mgr_.active(), output);
+                auto result = GameBuilder::build(*project_mgr_.active(), output);
+                if (!result) {
+                    FJELL_CORE_ERROR("{}", result.error());
+                }
             }
         }));
     connections_.push_back(menu_bar_.on_build_scripts.bind(
@@ -727,7 +788,9 @@ void Engine::draw_ui() {
     // Global shortcuts
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
         save_material_assets();
-        scene_.save(current_scene_path_);
+        if (auto r = scene_.save(current_scene_path_); !r) {
+            FJELL_CORE_ERROR("{}", r.error());
+        }
     }
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space)) {
         content_browser_.toggle_visibility();
@@ -924,7 +987,9 @@ void Engine::run() {
         }
 
 #ifndef NDEBUG
-        (void)script_manager_.poll_reload(scene_);
+        if (auto r = script_manager_.poll_reload(scene_); !r) {
+            FJELL_CORE_ERROR("{}", r.error());
+        }
 #endif
 
         animation_system_.update(scene_, dt);

@@ -117,51 +117,54 @@ ResourceManager::ResourceManager(VkDevice device, VkPhysicalDevice physical_devi
     default_black_handle_  = register_default("__default_black", black.data());
 }
 
-ModelHandle ResourceManager::load_model(const std::string& path) {
+Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
     auto it = models_.name_to_handle.find(path);
     if (it != models_.name_to_handle.end()) {
         FJELL_GFX_DEBUG("Model cache hit: {}", path);
         return it->second;
     }
 
-    fs::path file_path(path);
-    auto ext = file_path.extension().string();
+    try {
+        fs::path file_path(path);
+        auto ext = file_path.extension().string();
 
-    // Direct .fjmesh load
-    if (ext == ".fjmesh") {
-        auto data = Model::load_fjmesh(path);
-        auto model = std::make_unique<Model>(device_, physical_device_, command_pool_,
-                                              queue_, std::move(data), mega_buffer_,
-                                              meshlet_buffer_);
-        return models_.insert(path, std::move(model));
-    }
+        // Direct .fjmesh load
+        if (ext == ".fjmesh") {
+            auto data = Model::load_fjmesh(path);
+            auto model = std::make_unique<Model>(device_, physical_device_, command_pool_,
+                                                  queue_, std::move(data), mega_buffer_,
+                                                  meshlet_buffer_);
+            return models_.insert(path, std::move(model));
+        }
 
-    // For .glb/.gltf/.fbx — check for a cached .fjmesh first
-    if (!cache_dir_.empty()) {
-        fs::path cached = cache_dir_ / fs::path(path + ".fjmesh");
-        if (fs::exists(cached)) {
-            // Check if cache is newer than source
-            std::error_code ec;
-            auto src_time = fs::last_write_time(file_path, ec);
-            auto cache_time = fs::last_write_time(cached, ec);
-            if (!ec && cache_time >= src_time) {
-                FJELL_GFX_DEBUG("Loading cached .fjmesh for: {}", path);
-                auto data = Model::load_fjmesh(cached.string());
-                auto model = std::make_unique<Model>(device_, physical_device_, command_pool_,
-                                                      queue_, std::move(data), mega_buffer_,
-                                                      meshlet_buffer_);
-                return models_.insert(path, std::move(model));
+        // For .glb/.gltf/.fbx — check for a cached .fjmesh first
+        if (!cache_dir_.empty()) {
+            fs::path cached = cache_dir_ / fs::path(path + ".fjmesh");
+            if (fs::exists(cached)) {
+                std::error_code ec;
+                auto src_time = fs::last_write_time(file_path, ec);
+                auto cache_time = fs::last_write_time(cached, ec);
+                if (!ec && cache_time >= src_time) {
+                    FJELL_GFX_DEBUG("Loading cached .fjmesh for: {}", path);
+                    auto data = Model::load_fjmesh(cached.string());
+                    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_,
+                                                          queue_, std::move(data), mega_buffer_,
+                                                          meshlet_buffer_);
+                    return models_.insert(path, std::move(model));
+                }
             }
         }
-    }
 
-    // Fall back to glTF loading (existing path)
-    auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_,
-                                          path, mega_buffer_, meshlet_buffer_);
-    return models_.insert(path, std::move(model));
+        // Fall back to glTF loading (existing path)
+        auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_,
+                                              path, mega_buffer_, meshlet_buffer_);
+        return models_.insert(path, std::move(model));
+    } catch (const std::exception& e) {
+        return make_error("Failed to load model '" + path + "': " + e.what());
+    }
 }
 
-ModelHandle ResourceManager::create_primitive(const std::string& type) {
+Result<ModelHandle> ResourceManager::create_primitive(const std::string& type) {
     std::string key = "primitive:" + type;
     auto it = models_.name_to_handle.find(key);
     if (it != models_.name_to_handle.end()) {
@@ -176,25 +179,29 @@ ModelHandle ResourceManager::create_primitive(const std::string& type) {
     } else if (type == "sphere") {
         data = primitives::sphere();
     } else {
-        return {};
+        return make_error("Unknown primitive type: " + type);
     }
 
     auto model = std::make_unique<Model>(device_, physical_device_, command_pool_, queue_, data, mega_buffer_, meshlet_buffer_);
     return models_.insert(key, std::move(model));
 }
 
-TextureHandle ResourceManager::load_texture(const std::string& path) {
+Result<TextureHandle> ResourceManager::load_texture(const std::string& path) {
     auto it = textures_.name_to_handle.find(path);
     if (it != textures_.name_to_handle.end()) {
         FJELL_GFX_DEBUG("Texture cache hit: {}", path);
         return it->second;
     }
 
-    auto texture = std::make_unique<Texture>(device_, physical_device_, command_pool_, queue_, path);
-    uint32_t bindless_idx = bindless_.add(*texture);
-    auto handle = textures_.insert(path, std::move(texture));
-    texture_to_bindless_[handle.index()] = bindless_idx;
-    return handle;
+    try {
+        auto texture = std::make_unique<Texture>(device_, physical_device_, command_pool_, queue_, path);
+        uint32_t bindless_idx = bindless_.add(*texture);
+        auto handle = textures_.insert(path, std::move(texture));
+        texture_to_bindless_[handle.index()] = bindless_idx;
+        return handle;
+    } catch (const std::exception& e) {
+        return make_error("Failed to load texture '" + path + "': " + e.what());
+    }
 }
 
 MaterialHandle ResourceManager::create_material(const std::string& name,
@@ -244,8 +251,8 @@ MaterialHandle ResourceManager::create_material_from_texture(const std::string& 
     return materials_.insert(name, std::move(material));
 }
 
-MaterialHandle ResourceManager::load_material_asset(const std::string& path,
-                                                     const Project* project) {
+Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& path,
+                                                             const Project* project) {
     auto it = materials_.name_to_handle.find(path);
     if (it != materials_.name_to_handle.end()) {
         return it->second;
@@ -265,7 +272,9 @@ MaterialHandle ResourceManager::load_material_asset(const std::string& path,
     auto resolve_tex = [&](const std::string& name, TextureHandle fallback) -> TextureHandle {
         auto tex_it = asset.textures.find(name);
         if (tex_it != asset.textures.end()) {
-            return load_texture(base_path::resolve_asset(tex_it->second, project));
+            auto result = load_texture(base_path::resolve_asset(tex_it->second, project));
+            if (result) return *result;
+            FJELL_GFX_WARN("Material '{}': {}", path, result.error());
         }
         return fallback;
     };
@@ -296,7 +305,8 @@ MaterialHandle ResourceManager::load_material_asset(const std::string& path,
             if (u.type != UniformType::Sampler2D) continue;
             auto tex_it = asset.textures.find(u.name);
             if (tex_it != asset.textures.end()) {
-                auto tex_handle = load_texture(base_path::resolve_asset(tex_it->second, project));
+                auto tex_result = load_texture(base_path::resolve_asset(tex_it->second, project));
+                auto tex_handle = tex_result ? *tex_result : default_white_handle_;
                 material->set_custom_texture(u.slot, bindless_index(tex_handle));
             } else {
                 TextureHandle default_tex = default_white_handle_;
@@ -347,7 +357,8 @@ MaterialHandle ResourceManager::load_material_asset(const std::string& path,
             if (u.type != UniformType::Sampler2D) continue;
             auto tex_it = asset.textures.find(u.name);
             if (tex_it != asset.textures.end()) {
-                auto tex_handle = load_texture(base_path::resolve_asset(tex_it->second, project));
+                auto tex_result = load_texture(base_path::resolve_asset(tex_it->second, project));
+                auto tex_handle = tex_result ? *tex_result : default_white_handle_;
                 material->set_custom_texture(u.slot, bindless_index(tex_handle));
             } else {
                 TextureHandle default_tex = default_white_handle_;
@@ -405,16 +416,20 @@ Model* ResourceManager::get(ModelHandle handle) const {
 
 // ── Skeletal models ─────────────────────────────────────────────────────
 
-SkeletalModelHandle ResourceManager::load_skeletal_model(const std::string& path) {
+Result<SkeletalModelHandle> ResourceManager::load_skeletal_model(const std::string& path) {
     auto it = skeletal_models_.name_to_handle.find(path);
     if (it != skeletal_models_.name_to_handle.end()) {
         return it->second;
     }
 
-    auto data = SkeletalModel::load_fjmesh(path);
-    auto model = std::make_unique<SkeletalModel>(device_, physical_device_, command_pool_,
-                                                  queue_, std::move(data));
-    return skeletal_models_.insert(path, std::move(model));
+    try {
+        auto data = SkeletalModel::load_fjmesh(path);
+        auto model = std::make_unique<SkeletalModel>(device_, physical_device_, command_pool_,
+                                                      queue_, std::move(data));
+        return skeletal_models_.insert(path, std::move(model));
+    } catch (const std::exception& e) {
+        return make_error("Failed to load skeletal model '" + path + "': " + e.what());
+    }
 }
 
 SkeletalModelHandle ResourceManager::find_skeletal_model(const std::string& path) const {

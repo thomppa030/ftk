@@ -10,8 +10,8 @@
 
 namespace fjell {
 
-bool GameBuilder::build(const Project& project,
-                        const std::filesystem::path& output_dir) {
+Result<> GameBuilder::build(const Project& project,
+                            const std::filesystem::path& output_dir) {
     namespace fs = std::filesystem;
 
     try {
@@ -72,11 +72,10 @@ bool GameBuilder::build(const Project& project,
         game_file << j.dump(2);
 
         FJELL_CORE_INFO("Game built: {}", output_dir.string());
-        return true;
+        return {};
 
     } catch (const fs::filesystem_error& e) {
-        FJELL_CORE_ERROR("Build failed: {}", e.what());
-        return false;
+        return make_error(std::string("Build failed: ") + e.what());
     }
 }
 

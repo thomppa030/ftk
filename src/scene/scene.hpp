@@ -1,13 +1,9 @@
 #pragma once
 
+#include "core/result.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
-#include "scene/component_storage.hpp"
-#include "scene/transform.hpp"
-
-#include <glm/glm.hpp>
-
-#include <nlohmann/json.hpp>
+#include "scene/node.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -17,59 +13,8 @@
 
 namespace fjell {
 
-class ScriptComponent;
 class Project;
 class ResourceManager;
-
-// ── Script entry ────────────────────────────────────────────────────────
-
-struct ScriptEntry {
-    std::unique_ptr<ScriptComponent> instance;
-    std::string type_name;
-    nlohmann::json serialized;
-
-    ScriptEntry();
-    ~ScriptEntry();
-    ScriptEntry(ScriptEntry&&) noexcept;
-    ScriptEntry& operator=(ScriptEntry&&) noexcept;
-};
-
-// ── Scene node ──────────────────────────────────────────────────────────
-
-struct SceneNode {
-    uint32_t id{0};
-    int32_t parent_id{-1};
-    glm::mat4 world_matrix_{1.0f};
-
-    Transform transform;
-
-    // Cached local matrix — recomputed only when transform changes
-    glm::mat4 local_matrix_{1.0f};
-    Transform prev_transform_{}; // snapshot for dirty detection
-    bool transform_dirty_{true}; // true = local_matrix_ needs recompute
-    bool world_dirty_{true};     // true = world_matrix_ needs recompute this frame
-    std::string name;
-    std::string source;
-
-    // All components live in ComponentStorage
-    ComponentStorage components;
-
-    // Scripting
-    std::vector<ScriptEntry> scripts;
-
-    SceneNode();
-    virtual ~SceneNode();
-    SceneNode(SceneNode&&) noexcept;
-    SceneNode& operator=(SceneNode&&) noexcept;
-
-    // Deep clone for snapshotting — copies flat data, leaves unique_ptrs null
-    // Virtual so derived node types (LightNode, etc.) can clone their extra fields
-    [[nodiscard]] virtual std::unique_ptr<SceneNode> clone() const;
-
-protected:
-    // Copy base fields into a derived node's clone
-    void clone_base_into(SceneNode& target) const;
-};
 
 class Scene {
 public:
@@ -81,26 +26,35 @@ public:
                  const std::string& material_name = "default");
     uint32_t add_empty(Transform transform = {},
                        const std::string& name = "Empty");
-    uint32_t add_node(std::unique_ptr<SceneNode> node);
+    uint32_t add_folder(const std::string& name = "Folder");
+    uint32_t add_node(std::unique_ptr<Node> node);
     void remove(uint32_t id);
-    [[nodiscard]] std::unique_ptr<SceneNode> extract(uint32_t id);
-    void restore(std::unique_ptr<SceneNode> node);
+    [[nodiscard]] std::unique_ptr<Node> extract(uint32_t id);
+    void restore(std::unique_ptr<Node> node);
     void clear();
 
     void compute_world_matrices(class ThreadPool* pool = nullptr);
     void reparent(uint32_t child_id, int32_t new_parent_id);
 
-    [[nodiscard]] SceneNode* find(uint32_t id);
-    [[nodiscard]] const SceneNode* find(uint32_t id) const;
+    [[nodiscard]] Node* find(uint32_t id);
+    [[nodiscard]] const Node* find(uint32_t id) const;
+    [[nodiscard]] Node3D* find_spatial(uint32_t id) {
+        auto* n = find(id);
+        return n ? n->as_spatial() : nullptr;
+    }
+    [[nodiscard]] const Node3D* find_spatial(uint32_t id) const {
+        auto* n = find(id);
+        return n ? n->as_spatial() : nullptr;
+    }
     [[nodiscard]] int index_of(uint32_t id) const;
 
-    void save(const std::string& path);
+    Result<> save(const std::string& path);
 
     void mark_dirty() { dirty_ = true; }
     [[nodiscard]] bool is_dirty() const { return dirty_; }
-    static Scene load(const std::string& path,
-                      ResourceManager& resources,
-                      const Project* project = nullptr);
+    static Result<Scene> load(const std::string& path,
+                              ResourceManager& resources,
+                              const Project* project = nullptr);
 
     [[nodiscard]] int object_count() const { return static_cast<int>(objects_.size()); }
     [[nodiscard]] auto& objects() { return objects_; }
@@ -125,7 +79,7 @@ public:
     void remove_spot_light(int index);
 
 private:
-    std::vector<std::unique_ptr<SceneNode>> objects_;
+    std::vector<std::unique_ptr<Node>> objects_;
     std::unordered_map<uint32_t, int> id_to_index_;
     std::vector<PointLight> point_lights_;
     std::vector<SpotLight> spot_lights_;

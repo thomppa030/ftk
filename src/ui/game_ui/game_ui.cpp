@@ -207,9 +207,9 @@ void GameUi::resolve_textures(UiNode& node) {
     auto src_it = node.attributes.find("src");
     if (src_it != node.attributes.end() && !src_it->second.empty()) {
         auto resolved_path = base_path::resolve(src_it->second);
-        auto tex_handle = resource_manager_->load_texture(resolved_path);
-        if (tex_handle.valid()) {
-            node.resolved_texture_id = resource_manager_->bindless_index(tex_handle);
+        auto tex_result = resource_manager_->load_texture(resolved_path);
+        if (tex_result) {
+            node.resolved_texture_id = resource_manager_->bindless_index(*tex_result);
         }
     }
 

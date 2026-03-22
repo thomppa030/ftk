@@ -2,6 +2,7 @@
 #include "audio/audio_component.hpp"
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
+#include "core/log.hpp"
 #include "renderer/arrow_component.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
@@ -102,25 +103,27 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
 
 void PropertiesPanel::draw() {
     if (ImGui::Begin("Properties")) {
-        auto* obj = scene_->find(*selected_id_);
-        if (obj) {
+        auto* base = scene_->find(*selected_id_);
+        auto* obj = base ? base->as_spatial() : nullptr;
+        if (base) {
 
             // Editable name
             char name_buf[128];
-            std::strncpy(name_buf, obj->name.c_str(), sizeof(name_buf) - 1);
+            std::strncpy(name_buf, base->name.c_str(), sizeof(name_buf) - 1);
             name_buf[sizeof(name_buf) - 1] = '\0';
-            std::string old_name = obj->name;
+            std::string old_name = base->name;
             ImGui::Text("Name");
             ImGui::SetNextItemWidth(-1);
             if (ImGui::InputText("##Name", name_buf, sizeof(name_buf))) {
-                obj->name = name_buf;
+                base->name = name_buf;
                 scene_->mark_dirty();
             }
-            if (ImGui::IsItemDeactivatedAfterEdit() && history_ && obj->name != old_name) {
+            if (ImGui::IsItemDeactivatedAfterEdit() && history_ && base->name != old_name) {
                 history_->execute(std::make_unique<RenameCommand>(
-                    *scene_, obj->id, old_name, obj->name));
+                    *scene_, base->id, old_name, base->name));
             }
 
+            if (obj) {
             ImGui::Separator();
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Transform");
             ImGui::Text("Position");
@@ -448,6 +451,21 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj)) {
+                colored_separator({0.4f, 0.6f, 0.9f, 1.0f});
+                if (ImGui::CollapsingHeader("World Environment", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text("Sky Top Color");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::ColorEdit3("##SkyTop", &env->sky_top_color.x);
+                    ImGui::Text("Sky Bottom Color");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::ColorEdit3("##SkyBottom", &env->sky_bottom_color.x);
+                    ImGui::Text("IBL Intensity");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::SliderFloat("##IBLIntensity", &env->ibl_intensity, 0.0f, 5.0f);
+                }
+            }
+
             // Audio Source
             if (auto* au = obj->components.get<AudioSourceComponent>()) {
                 colored_separator({0.55f, 0.70f, 0.85f, 1.0f});
@@ -556,12 +574,15 @@ void PropertiesPanel::draw() {
                 if (ImGui::BeginPopup("##AddScript")) {
                     for (const auto& type : scripts_->script_types()) {
                         if (type.loaded && ImGui::MenuItem(type.name.c_str())) {
-                            scripts_->add_script(*obj, type.name);
+                            if (auto r = scripts_->add_script(*obj, type.name); !r) {
+                                FJELL_CORE_ERROR("{}", r.error());
+                            }
                         }
                     }
                     ImGui::EndPopup();
                 }
             }
+            } // if (obj) — spatial node sections
         } else {
             ImGui::TextDisabled("No object selected");
         }
@@ -570,7 +591,7 @@ void PropertiesPanel::draw() {
     ImGui::End();
 }
 
-void PropertiesPanel::draw_material_inspector(SceneNode& obj) {
+void PropertiesPanel::draw_material_inspector(Node3D& obj) {
     auto* mesh = obj.components.get<MeshComponent>();
     if (!mesh || !mesh->material || !pipeline_cache_ || !bindless_) return;
 

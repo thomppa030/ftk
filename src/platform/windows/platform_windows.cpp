@@ -38,8 +38,8 @@ int run_command(const std::string& cmd, std::string& output) {
     return status;
 }
 
-bool spawn_detached(const std::vector<std::string>& args) {
-    if (args.empty()) return false;
+Result<> spawn_detached(const std::vector<std::string>& args) {
+    if (args.empty()) return make_error("spawn_detached: empty args");
 
     // Build command line string: quote each argument
     std::string cmd_line;
@@ -66,12 +66,12 @@ bool spawn_detached(const std::vector<std::string>& args) {
         nullptr, nullptr,
         &si, &pi);
 
-    if (!ok) return false;
+    if (!ok) return make_error("spawn_detached: CreateProcessA failed");
 
     // Close handles — we don't wait on the child
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
-    return true;
+    return {};
 }
 
 } // namespace fjell::platform

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/result.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
@@ -36,9 +37,9 @@ public:
 
     void set_cache_dir(const std::filesystem::path& dir) { cache_dir_ = dir; }
 
-    ModelHandle load_model(const std::string& path);
-    ModelHandle create_primitive(const std::string& type);
-    TextureHandle load_texture(const std::string& path);
+    Result<ModelHandle> load_model(const std::string& path);
+    Result<ModelHandle> create_primitive(const std::string& type);
+    Result<TextureHandle> load_texture(const std::string& path);
 
     // Async loading support
     [[nodiscard]] ModelHandle find_model(const std::string& path) const;
@@ -48,7 +49,7 @@ public:
     [[nodiscard]] LoadState model_state(ModelHandle handle) const;
 
     // Skeletal models
-    SkeletalModelHandle load_skeletal_model(const std::string& path);
+    Result<SkeletalModelHandle> load_skeletal_model(const std::string& path);
     [[nodiscard]] SkeletalModelHandle find_skeletal_model(const std::string& path) const;
     SkeletalModelHandle reserve_skeletal_model(const std::string& path);
     void emplace_skeletal_model(SkeletalModelHandle handle, std::unique_ptr<SkeletalModel> model);
@@ -69,8 +70,8 @@ public:
 
     // Load a .fjmat material asset, resolving shader + textures + params.
     // If project is provided, asset paths inside .fjmat are resolved relative to it.
-    MaterialHandle load_material_asset(const std::string& path,
-                                       const Project* project = nullptr);
+    Result<MaterialHandle> load_material_asset(const std::string& path,
+                                               const Project* project = nullptr);
 
     [[nodiscard]] Model* get(ModelHandle handle) const;
     [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;

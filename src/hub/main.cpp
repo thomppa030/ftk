@@ -20,7 +20,10 @@ static constexpr int HUB_HEIGHT = 760;
 static void launch_editor(const std::string& project_path) {
     auto exe = fjell::platform::executable_path();
     auto editor_path = exe.parent_path() / "fjell";
-    fjell::platform::spawn_detached({editor_path.string(), project_path});
+    auto result = fjell::platform::spawn_detached({editor_path.string(), project_path});
+    if (!result) {
+        FJELL_CORE_ERROR("Failed to launch editor: {}", result.error());
+    }
 }
 
 static void transition_image(VkCommandBuffer cmd, VkImage image,

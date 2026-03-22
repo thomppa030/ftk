@@ -67,22 +67,23 @@ void AudioEngine::update(Scene& scene, const glm::vec3& listener_pos,
     // Update positions of active sounds
     for (auto& [node_id, entry] : impl_->sounds) {
         if (!entry.active) continue;
-        auto* node = scene.find(node_id);
+        auto* node = scene.find_spatial(node_id);
         if (!node) continue;
         glm::vec3 pos = glm::vec3(node->world_matrix_[3]);
         ma_sound_set_position(&entry.sound, pos.x, pos.y, pos.z);
     }
 }
 
-void AudioEngine::play(uint32_t node_id, Scene& scene, const Project* project) {
-    if (!is_initialized()) return;
+Result<> AudioEngine::play(uint32_t node_id, Scene& scene, const Project* project) {
+    if (!is_initialized()) return make_error("Audio engine not initialized");
 
-    auto* node = scene.find(node_id);
-    auto* audio_ptr = node ? node->components.get<AudioSourceComponent>() : nullptr;
-    if (!audio_ptr) return;
+    auto* base_node = scene.find(node_id);
+    auto* audio_ptr = base_node ? base_node->components.get<AudioSourceComponent>() : nullptr;
+    if (!audio_ptr) return make_error("Audio source component not found on node " + std::to_string(node_id));
+    auto* node = base_node->as_spatial();
 
     auto& audio = *audio_ptr;
-    if (audio.clip_path.empty()) return;
+    if (audio.clip_path.empty()) return make_error("Audio clip path is empty");
 
     // Stop existing sound for this node
     stop(node_id);
@@ -95,16 +96,15 @@ void AudioEngine::play(uint32_t node_id, Scene& scene, const Project* project) {
         MA_SOUND_FLAG_DECODE, nullptr, nullptr, &entry.sound);
 
     if (result != MA_SUCCESS) {
-        FJELL_CORE_WARN("Failed to load audio clip: {} (resolved: {})", audio.clip_path, resolved);
         impl_->sounds.erase(node_id);
-        return;
+        return make_error("Failed to load audio clip: " + audio.clip_path + " (resolved: " + resolved + ")");
     }
 
     ma_sound_set_volume(&entry.sound, audio.volume);
     ma_sound_set_pitch(&entry.sound, audio.pitch);
     ma_sound_set_looping(&entry.sound, audio.loop ? MA_TRUE : MA_FALSE);
 
-    if (audio.spatial) {
+    if (audio.spatial && node) {
         ma_sound_set_spatialization_enabled(&entry.sound, MA_TRUE);
         ma_sound_set_min_distance(&entry.sound, audio.min_distance);
         ma_sound_set_max_distance(&entry.sound, audio.max_distance);
@@ -117,6 +117,7 @@ void AudioEngine::play(uint32_t node_id, Scene& scene, const Project* project) {
     ma_sound_start(&entry.sound);
     entry.active = true;
     audio.playing = true;
+    return {};
 }
 
 void AudioEngine::stop(uint32_t node_id) {
@@ -137,7 +138,9 @@ void AudioEngine::start_play(Scene& scene, const Project* project) {
     for (auto& obj : scene.objects()) {
         auto* au = obj->components.get<AudioSourceComponent>();
         if (au && au->play_on_start) {
-            play(obj->id, scene, project);
+            if (auto r = play(obj->id, scene, project); !r) {
+                FJELL_CORE_WARN("Audio play failed for '{}': {}", obj->name, r.error());
+            }
         }
     }
 }

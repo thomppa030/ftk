@@ -31,9 +31,11 @@ static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
     ofd.min = fd.min;
     ofd.max = fd.max;
     ofd.speed = fd.speed;
-    if (fd.enum_labels) {
+    if (fd.type == FJELL_FIELD_ENUM && fd.enum_labels && fd.size > 0) {
         for (uint32_t e = 0; e < fd.size; ++e) {
-            ofd.enum_labels.emplace_back(fd.enum_labels[e]);
+            if (fd.enum_labels[e]) {
+                ofd.enum_labels.emplace_back(fd.enum_labels[e]);
+            }
         }
     }
     return ofd;
@@ -82,10 +84,9 @@ ScriptManager::~ScriptManager() {
 
 // ── Load / Unload / Reload ──────────────────────────────────────────────
 
-bool ScriptManager::load(const std::filesystem::path& so_path) {
+Result<> ScriptManager::load(const std::filesystem::path& so_path) {
     if (!std::filesystem::exists(so_path)) {
-        FJELL_CORE_WARN("Script library not found: {}", so_path.string());
-        return false;
+        return make_error("Script library not found: " + so_path.string());
     }
 
     // Clean up stale temp .so files from previous loads or crashes
@@ -106,9 +107,8 @@ bool ScriptManager::load(const std::filesystem::path& so_path) {
                                std::filesystem::copy_options::overwrite_existing);
 
     if (!library_.load(temp)) {
-        FJELL_CORE_ERROR("Failed to load script library: {}", library_.error());
         std::filesystem::remove(temp);
-        return false;
+        return make_error("Failed to load script library: " + library_.error());
     }
 
     so_path_ = so_path;
@@ -122,7 +122,7 @@ bool ScriptManager::load(const std::filesystem::path& so_path) {
 
     int total = static_cast<int>(script_type_list_.size());
     FJELL_CORE_INFO("Scripts loaded: {} type(s)", total);
-    return true;
+    return {};
 }
 
 void ScriptManager::unload(Scene& scene) {
@@ -141,13 +141,13 @@ void ScriptManager::unload(Scene& scene) {
     for (auto& t : script_type_list_) t.loaded = false;
 }
 
-bool ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
+Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
     FJELL_CORE_INFO("Hot-reloading scripts...");
     unload(scene);
 
-    if (!load(so_path)) {
-        FJELL_CORE_ERROR("Reload failed — scripts unloaded");
-        return false;
+    auto result = load(so_path);
+    if (!result) {
+        return make_error("Reload failed — scripts unloaded: " + result.error());
     }
 
     deserialize_all(scene);
@@ -157,7 +157,7 @@ bool ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
 #endif
 
     FJELL_CORE_INFO("Scripts reloaded");
-    return true;
+    return {};
 }
 
 // ── Registry building ───────────────────────────────────────────────────
@@ -207,9 +207,11 @@ const OwnedScriptType* ScriptManager::find_script_type(const std::string& name) 
 
 // ── Component management ────────────────────────────────────────────────
 
-bool ScriptManager::add_script(SceneNode& obj, const std::string& type_name) {
+Result<> ScriptManager::add_script(Node3D& obj, const std::string& type_name) {
     const auto* type = find_script_type(type_name);
-    if (!type || !type->loaded || !type->create) return false;
+    if (!type || !type->loaded || !type->create) {
+        return make_error("Unknown or unloaded script type: " + type_name);
+    }
 
     ScriptEntry entry;
     entry.type_name = type->name;
@@ -221,10 +223,10 @@ bool ScriptManager::add_script(SceneNode& obj, const std::string& type_name) {
     entry.instance->name_ = obj.name.c_str();
 
     obj.scripts.push_back(std::move(entry));
-    return true;
+    return {};
 }
 
-void ScriptManager::remove_script(SceneNode& obj, const std::string& type_name) {
+void ScriptManager::remove_script(Node3D& obj, const std::string& type_name) {
     auto it = std::find_if(obj.scripts.begin(), obj.scripts.end(),
                            [&type_name](const ScriptEntry& c) { return c.type_name == type_name; });
     if (it == obj.scripts.end()) return;
@@ -431,14 +433,16 @@ void ScriptManager::serialize_all(Scene& scene) {
 
 void ScriptManager::deserialize_all(Scene& scene) {
     for (auto& obj : scene.objects()) {
+        auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
         for (auto& comp : obj->scripts) {
             const auto* ctype = find_script_type(comp.type_name);
             if (!ctype || !ctype->loaded || !ctype->create) continue;
 
             comp.instance.reset(ctype->create());
-            comp.instance->node_ = obj.get();
+            comp.instance->node_ = spatial;
             comp.instance->world_ = &world_;
-            comp.instance->transform_ = &obj->transform;
+            comp.instance->transform_ = &spatial->transform;
             comp.instance->id_ = obj->id;
             comp.instance->name_ = obj->name.c_str();
 
@@ -509,7 +513,7 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
     }
 }
 
-void ScriptManager::draw_inspector(SceneNode& obj) {
+void ScriptManager::draw_inspector(Node3D& obj) {
     std::string remove_name;
     for (auto& comp : obj.scripts) {
         const auto* ctype = find_script_type(comp.type_name);
@@ -556,9 +560,9 @@ void ScriptManager::watch(const std::filesystem::path& so_path) {
     FJELL_CORE_INFO("Script hot-reload watching: {}", so_path.parent_path().string());
 }
 
-bool ScriptManager::poll_reload(Scene& scene) {
+Result<> ScriptManager::poll_reload(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("script_poll_reload");
-    if (so_path_.empty()) return false;
+    if (so_path_.empty()) return {};
 
     reload_pending_ = false;
     (void)watcher_.poll();
@@ -568,11 +572,11 @@ bool ScriptManager::poll_reload(Scene& scene) {
         // to avoid double-reloading from Build & Reload + file watcher
         auto elapsed = std::chrono::steady_clock::now() - last_reload_time_;
         if (elapsed < std::chrono::seconds(2)) {
-            return false;
+            return {};
         }
         return reload(scene, so_path_);
     }
-    return false;
+    return {};
 }
 
 #endif // NDEBUG
