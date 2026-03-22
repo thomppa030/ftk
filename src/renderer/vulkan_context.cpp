@@ -105,6 +105,8 @@ VulkanContext::VulkanContext(Window& window)
     FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.physical_device());
 
+    register_passes();
+
     FJELL_GFX_INFO("Vulkan context ready");
 }
 
@@ -162,6 +164,586 @@ VulkanContext::~VulkanContext() {
 
 void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources) {
     sprite_renderer_.sync_textures(scene, resources);
+}
+
+// ── Pass registration ────────────────────────────────────────────────────
+
+void VulkanContext::register_passes() {
+    // Shadow pass — uses its own batch with per-cascade culled objects
+    render_pipeline_.register_pass({
+        .name = "shadow",
+        .order = 100,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("shadow", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Shadow Pass");
+#endif
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                local.indirect_batch = gatherer_.shadow_batch();
+                local.draw_data_set = gatherer_.shadow_draw_data().descriptor_set(current_frame_);
+                shadow_pass_.record(local);
+            }, {}, 1);
+        }
+    });
+
+    // Depth prepass (+ resolve if MSAA)
+    render_pipeline_.register_pass({
+        .name = "depth_prepass",
+        .order = 200,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            auto& depth_pass = gpu_.use_mesh_shaders()
+                ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
+                : static_cast<RenderPass&>(depth_prepass_);
+
+            if (imgs.has_msaa) {
+                graph.add_pass("depth_prepass", [this, &depth_pass](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                    TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
+#endif
+                    FrameContext local = current_ctx_;
+                    local.cmd = cb;
+                    local.gpu_driven_indirect = VK_NULL_HANDLE;
+                    local.gpu_driven_segment_size = 0;
+                    depth_pass.record(local);
+                }, {{imgs.msaa_depth_id, ImageUsage::depth_attachment}}, 1);
+
+                graph.add_pass("depth_resolve", [this](VkCommandBuffer cb) {
+                    auto* target = current_ctx_.target;
+                    VkRenderingAttachmentInfo depth_attachment{};
+                    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                    depth_attachment.imageView = target->msaa_depth_view();
+                    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                    depth_attachment.resolveImageView = target->depth_view();
+                    depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                    depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+
+                    VkRenderingInfo ri{};
+                    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+                    ri.renderArea.extent = target->extent();
+                    ri.layerCount = 1;
+                    ri.pDepthAttachment = &depth_attachment;
+
+                    vkCmdBeginRendering(cb, &ri);
+                    vkCmdEndRendering(cb);
+                }, {{imgs.msaa_depth_id, ImageUsage::depth_attachment_read},
+                    {imgs.depth_id, ImageUsage::depth_attachment}});
+            } else {
+                graph.add_pass("depth_prepass", [this, &depth_pass](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                    TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
+#endif
+                    FrameContext local = current_ctx_;
+                    local.cmd = cb;
+                    local.gpu_driven_indirect = VK_NULL_HANDLE;
+                    local.gpu_driven_segment_size = 0;
+                    depth_pass.record(local);
+                }, {{imgs.depth_id, ImageUsage::depth_attachment}}, 1);
+            }
+        }
+    });
+
+    // Hi-Z pyramid build
+    render_pipeline_.register_pass({
+        .name = "hiz_build",
+        .order = 300,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("hiz_build", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Hi-Z Build");
+#endif
+                if (gpu_.use_mesh_shaders() && hiz_pass_.ready()) {
+                    FrameContext local = current_ctx_;
+                    local.cmd = cb;
+                    hiz_pass_.record(local);
+                }
+            }, {{imgs.depth_id, ImageUsage::compute_read}});
+        }
+    });
+
+    // GPU-driven meshlet expand + two-pass cull
+    render_pipeline_.register_pass({
+        .name = "meshlet_cull",
+        .order = 400,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("meshlet_expand_cull", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Meshlet Expand+Cull");
+#endif
+                if (gpu_.use_mesh_shaders()) {
+                    uint32_t total_draws = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
+                    uint32_t total_mi = gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
+                    if (total_draws > 0 && total_mi > 0) {
+                        meshlet_instance_pass_.dispatch_expand(
+                            cb,
+                            gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
+                            gatherer_.indirect_batch()->draw_data_size(current_frame_),
+                            total_draws, current_frame_);
+                        meshlet_instance_pass_.insert_expand_barrier(cb);
+
+                        auto& ranges_ref = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
+                        auto extent = current_ctx_.target->extent();
+
+                        meshlet_instance_pass_.dispatch_cull_first(
+                            cb,
+                            gpu_.global_descriptor_set(current_frame_),
+                            gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
+                            gatherer_.indirect_batch()->draw_data_size(current_frame_),
+                            gpu_.meshlet_buffer() ? gpu_.meshlet_buffer()->bounds_buffer() : VK_NULL_HANDLE,
+                            gpu_.meshlet_buffer() ? gpu_.meshlet_buffer()->bounds_buffer_size() : 0,
+                            gatherer_.indirect_batch()->pipeline_bin_buffer(current_frame_),
+                            gatherer_.indirect_batch()->pipeline_bin_size(current_frame_),
+                            static_cast<uint32_t>(ranges_ref.size()),
+                            current_frame_,
+                            hiz_pass_.ready() ? hiz_pass_.sampled_view() : VK_NULL_HANDLE,
+                            hiz_pass_.ready() ? hiz_pass_.sampler() : VK_NULL_HANDLE,
+                            extent.width, extent.height,
+                            hiz_pass_.ready() ? hiz_pass_.mip_count() : 0);
+
+                        meshlet_instance_pass_.insert_cull_barrier(cb);
+                        gpu_.render_stats().two_pass_occlusion = hiz_pass_.ready();
+                    }
+                }
+            }, {});
+        }
+    });
+
+    // GTAO
+    render_pipeline_.register_pass({
+        .name = "gtao",
+        .order = 500,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("gtao", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "GTAO");
+#endif
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                gtao_pass_.record(local);
+            }, {{imgs.depth_id, ImageUsage::compute_read}});
+        }
+    });
+
+    // Light culling
+    render_pipeline_.register_pass({
+        .name = "light_cull",
+        .order = 510,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("light_cull", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Light Cull");
+#endif
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                light_cull_pass_.record(local);
+
+                VkMemoryBarrier2 mem_barrier{};
+                mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+                mem_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                mem_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+                mem_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+                mem_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+
+                VkDependencyInfo dep{};
+                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dep.memoryBarrierCount = 1;
+                dep.pMemoryBarriers = &mem_barrier;
+                vkCmdPipelineBarrier2(cb, &dep);
+            }, {{imgs.depth_id, ImageUsage::compute_read}});
+        }
+    });
+
+    // Particle compute
+    render_pipeline_.register_pass({
+        .name = "particle_compute",
+        .order = 520,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("particle_compute", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Particle Compute");
+#endif
+                if (current_ctx_.scene) {
+                    auto& scene_ref = const_cast<Scene&>(*current_ctx_.scene);
+                    particle_system_.sync_emitters(scene_ref);
+                    particle_system_.dispatch_compute(cb, current_ctx_.delta_time, scene_ref);
+                    particle_system_.insert_barriers(cb);
+                }
+            }, {});
+        }
+    });
+
+    // Cull visualization
+    render_pipeline_.register_pass({
+        .name = "cull_viz",
+        .order = 530,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("cull_viz", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
+                if (gpu_.use_mesh_shaders() && cull_pass_.enabled()) {
+                    FrameContext local = current_ctx_;
+                    local.cmd = cb;
+                    uint32_t opaque_count = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
+                    if (opaque_count > 0) {
+                        cull_viz_pass_.record(local,
+                            cull_pass_.visibility_buffer(current_frame_),
+                            cull_pass_.visibility_buffer_size(current_frame_));
+                    }
+                }
+            }, {});
+        }
+    });
+
+    // Color pass (composite: opaques + sky + grid + debug + outline + sprites + transparent + particles)
+    render_pipeline_.register_pass({
+        .name = "color",
+        .order = 600,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("color", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Color Pass");
+#endif
+                auto* target = current_ctx_.target;
+
+                VkRenderingAttachmentInfo color_attachment{};
+                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                color_attachment.imageView = target->msaa_color_view();
+                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
+
+                if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
+                    color_attachment.resolveImageView = target->color_view();
+                    color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                }
+
+                VkRenderingAttachmentInfo depth_attachment{};
+                depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                depth_attachment.imageView = target->msaa_depth_view();
+                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+                if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
+                    depth_attachment.resolveImageView = target->depth_view();
+                    depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                    depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+                }
+
+                VkRenderingInfo ri{};
+                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+                ri.renderArea.extent = target->extent();
+                ri.layerCount = 1;
+                ri.colorAttachmentCount = 1;
+                ri.pColorAttachments = &color_attachment;
+                ri.pDepthAttachment = &depth_attachment;
+
+                vkCmdBeginRendering(cb, &ri);
+
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+
+                VkViewport vp{};
+                vp.width = static_cast<float>(target->extent().width);
+                vp.height = static_cast<float>(target->extent().height);
+                vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cb, 0, 1, &vp);
+
+                VkRect2D sc{};
+                sc.extent = target->extent();
+                vkCmdSetScissor(cb, 0, 1, &sc);
+
+                std::array descriptor_sets = {
+                    gpu_.global_descriptor_set(current_frame_),
+                    gpu_.bindless_textures().descriptor_set(),
+                    gatherer_.draw_data_descriptor().descriptor_set(current_frame_)};
+
+                if (current_ctx_.scene) {
+#ifdef FJELL_ENABLE_TRACY
+                    { TracyVkZone(gpu_.tracy_ctx(), cb, "Opaques");
+#endif
+                    if (gpu_.use_mesh_shaders() && gpu_.pipeline_cache()->has_mesh_shaders()) {
+                        std::array mesh_descriptor_sets = {
+                            gpu_.global_descriptor_set(current_frame_),
+                            gpu_.bindless_textures().descriptor_set(),
+                            gatherer_.draw_data_descriptor().descriptor_set(current_frame_),
+                            gpu_.meshlet_descriptor().descriptor_set(current_frame_)};
+
+                        const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
+                        auto indirect_buf = meshlet_instance_pass_.indirect_buffer(current_frame_);
+
+                        if (indirect_buf && !ranges.empty()) {
+                            auto draw_indirect = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
+                            uint32_t seg_size = meshlet_instance_pass_.segment_size(current_frame_);
+
+                            for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
+                                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                  gpu_.pipeline_cache()->gpu_driven_pipeline(ranges[bin].pipeline_id));
+                                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                        gpu_.pipeline_cache()->gpu_driven_layout(),
+                                                        0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
+                                                        mesh_descriptor_sets.data(), 0, nullptr);
+
+                                uint32_t bin_offset = bin * seg_size;
+                                vkCmdPushConstants(cb, gpu_.pipeline_cache()->gpu_driven_layout(),
+                                                  VK_SHADER_STAGE_TASK_BIT_EXT,
+                                                  0, sizeof(uint32_t), &bin_offset);
+
+                                VkDeviceSize cmd_offset = bin * sizeof(VkDrawMeshTasksIndirectCommandEXT);
+                                draw_indirect(cb, indirect_buf, cmd_offset, 1,
+                                              sizeof(VkDrawMeshTasksIndirectCommandEXT));
+                            }
+                        }
+
+                        gpu_.render_stats().meshlets_dispatched +=
+                            gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
+                        gpu_.render_stats().gpu_cull_active = true;
+                    } else {
+                        gpu_.mega_buffer()->bind(cb);
+
+                        const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
+                        for (const auto& range : ranges) {
+                            auto pipeline = range.skinned
+                                ? gpu_.pipeline_cache()->skinned_opaque_pipeline(range.pipeline_id)
+                                : gpu_.pipeline_cache()->opaque_pipeline(range.pipeline_id);
+                            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                    gpu_.pipeline_cache()->layout(),
+                                                    0, static_cast<uint32_t>(descriptor_sets.size()),
+                                                    descriptor_sets.data(), 0, nullptr);
+
+                            VkDeviceSize offset = range.first_draw * sizeof(VkDrawIndexedIndirectCommand);
+                            vkCmdDrawIndexedIndirect(cb,
+                                                     gatherer_.indirect_batch()->indirect_buffer(current_frame_),
+                                                     offset, range.draw_count,
+                                                     sizeof(VkDrawIndexedIndirectCommand));
+                            gpu_.render_stats().indirect_draws++;
+                        }
+                    }
+                    gpu_.render_stats().draw_calls += gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
+                    gpu_.render_stats().triangle_count += gatherer_.indirect_batch()->total_triangles(current_frame_);
+
+                    // Draw skinned meshes (per-model VBO, not in indirect batch)
+                    {
+                        const auto& skinned_indices = gatherer_.indirect_batch()->skinned_draw_indices(current_frame_);
+                        uint32_t skinned_cmd_idx = 0;
+                        for (const auto& dc : gatherer_.render_queue().commands()) {
+                            if (!dc.skinned || !dc.skeletal_model) continue;
+                            if (skinned_cmd_idx >= skinned_indices.size()) break;
+
+                            auto pipeline = gpu_.pipeline_cache()->skinned_opaque_pipeline(dc.pipeline_id);
+                            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                                    gpu_.pipeline_cache()->layout(),
+                                                    0, static_cast<uint32_t>(descriptor_sets.size()),
+                                                    descriptor_sets.data(), 0, nullptr);
+
+                            dc.skeletal_model->bind(cb);
+                            uint32_t draw_data_idx = skinned_indices[skinned_cmd_idx];
+                            vkCmdDrawIndexed(cb, dc.skeletal_model->index_count(), 1, 0, 0, draw_data_idx);
+                            gpu_.render_stats().draw_calls++;
+                            skinned_cmd_idx++;
+                        }
+                    }
+#ifdef FJELL_ENABLE_TRACY
+                    }
+#endif
+                }
+
+                sky_pass_.record(local);
+                grid_pass_.record(local);
+                debug_pass_.record(local);
+                draw_outline(cb, local);
+                sprite_renderer_.record_render(local);
+                transparent_pass_.record(local);
+                particle_system_.record_render(local);
+
+                vkCmdEndRendering(cb);
+            }, {{imgs.msaa_color_id, ImageUsage::color_attachment},
+                {imgs.color_id, ImageUsage::color_attachment},
+                {imgs.msaa_depth_id, ImageUsage::depth_attachment_read},
+                {imgs.depth_id, ImageUsage::depth_attachment}});
+        }
+    });
+
+    // SSR
+    render_pipeline_.register_pass({
+        .name = "ssr",
+        .order = 700,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("ssr", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "SSR");
+#endif
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                ssr_pass_.record(local);
+            }, {{imgs.depth_id, ImageUsage::compute_read},
+                {imgs.color_id, ImageUsage::compute_write}});
+        }
+    });
+
+    // Volumetric fog
+    render_pipeline_.register_pass({
+        .name = "volumetric_fog",
+        .order = 800,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("volumetric_fog", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Volumetric Fog");
+#endif
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                volumetric_fog_pass_.record(local);
+            }, {{imgs.depth_id, ImageUsage::compute_read},
+                {imgs.color_id, ImageUsage::compute_write}});
+        }
+    });
+
+    // Bloom
+    render_pipeline_.register_pass({
+        .name = "bloom",
+        .order = 900,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("bloom", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Bloom");
+#endif
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                bloom_pass_.record(local);
+            }, {{imgs.color_id, ImageUsage::shader_read}});
+        }
+    });
+
+    // Tonemap
+    render_pipeline_.register_pass({
+        .name = "tonemap",
+        .order = 1000,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("tonemap", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Tonemap");
+#endif
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                tonemap_pass_.set_source_view(current_ctx_.target->color_view());
+                tonemap_pass_.record(local);
+            }, {{imgs.color_id, ImageUsage::shader_read}});
+        }
+    });
+
+    // Visualization passes
+    render_pipeline_.register_pass({
+        .name = "depth_viz",
+        .order = 1100,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("depth_viz", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::depth)))) return;
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                depth_viz_pass_.record(local);
+            }, {{imgs.depth_id, ImageUsage::shader_read}});
+        }
+    });
+
+    render_pipeline_.register_pass({
+        .name = "wireframe",
+        .order = 1110,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("wireframe", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::wireframe)))) return;
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                wireframe_pass_.record(local);
+            }, {});
+        }
+    });
+
+    render_pipeline_.register_pass({
+        .name = "normals",
+        .order = 1120,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("normals", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::normals)))) return;
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                normal_pass_.record(local);
+            }, {});
+        }
+    });
+
+    render_pipeline_.register_pass({
+        .name = "overdraw",
+        .order = 1130,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("overdraw", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::overdraw)))) return;
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                overdraw_pass_.record(local);
+            }, {});
+        }
+    });
+
+    render_pipeline_.register_pass({
+        .name = "uv_viz",
+        .order = 1140,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("uv_viz", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::uv)))) return;
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                uv_viz_pass_.record(local);
+            }, {});
+        }
+    });
+
+    render_pipeline_.register_pass({
+        .name = "light_heatmap",
+        .order = 1150,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("light_heatmap", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_heatmap)))) return;
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                light_heatmap_pass_.set_tile_ssbo(current_ctx_.tile_light_ssbo,
+                                                   current_ctx_.tile_light_ssbo_size);
+                light_heatmap_pass_.record(local);
+            }, {});
+        }
+    });
+
+    render_pipeline_.register_pass({
+        .name = "light_grid",
+        .order = 1160,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("light_grid", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_grid)))) return;
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                light_grid_pass_.set_tile_ssbo(current_ctx_.tile_light_ssbo,
+                                                current_ctx_.tile_light_ssbo_size);
+                light_grid_pass_.record(local);
+            }, {});
+        }
+    });
+
+    render_pipeline_.register_pass({
+        .name = "meshlet_viz",
+        .order = 1170,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("meshlet_viz", [this](VkCommandBuffer cb) {
+                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) return;
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                meshlet_viz_pass_.record(local);
+            }, {});
+        }
+    });
 }
 
 // ── Command buffer recording ────────────────────────────────────────────
@@ -346,529 +928,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
     ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
 
-    // ── Frame graph: declare image usage per pass ────────────────────────
+    // Store current frame context for pass build callbacks
+    current_ctx_ = ctx;
 
-    // Check which viewport sources are active to skip unused viz passes
-    auto source_active = [&](ViewportSource s) {
-        return (active_sources_ & (1u << static_cast<uint32_t>(s))) != 0;
-    };
-
-    FrameGraph graph;
-    // When MSAA: track the resolve image (read by post-process) and the MSAA image (render target)
-    uint32_t color_id = graph.register_image(target.color_image());
-    uint32_t msaa_color_id = color_id;
-    if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
-        msaa_color_id = graph.register_image(target.msaa_color_image());
-    }
-    uint32_t depth_id = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
-    uint32_t msaa_depth_id = depth_id;
-    if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
-        msaa_depth_id = graph.register_image(target.msaa_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
-    }
-    graph.begin_frame();
-
-    // Shadow pass — uses its own batch with per-cascade culled objects
-    graph.add_pass("shadow", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Shadow Pass");
-#endif
-        FrameContext local = ctx;
-        local.cmd = cb;
-        local.indirect_batch = gatherer_.shadow_batch();
-        local.draw_data_set = gatherer_.shadow_draw_data().descriptor_set(current_frame_);
-        shadow_pass_.record(local);
-    }, {}, 1);
-
-    // ── Two-pass occlusion culling pipeline ──
-    // The depth prepass renders ALL meshlets (cheap depth-only writes).
-    // Then Hi-Z is built from this complete depth, and the meshlet cull pass
-    // uses it to filter which meshlets the expensive color pass needs to shade.
-    //
-    // Two-pass cull: first cull with previous frame's Hi-Z, save rejects to
-    // a culled buffer. After Hi-Z rebuild from this frame's depth, second cull
-    // retests the rejects against the new Hi-Z and appends newly visible
-    // meshlets. This catches geometry that was occluded last frame but visible now.
-
-    // Depth prepass: render ALL meshlets (vertex or mesh shader)
-    auto& depth_pass = gpu_.use_mesh_shaders() ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
-                                          : static_cast<RenderPass&>(depth_prepass_);
-    if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
-        graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-            TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
-#endif
-            FrameContext local = ctx;
-            local.cmd = cb;
-            // Depth prepass always uses pre-cull dispatch (all meshlets)
-            local.gpu_driven_indirect = VK_NULL_HANDLE;
-            local.gpu_driven_segment_size = 0;
-            depth_pass.record(local);
-        }, {{msaa_depth_id, ImageUsage::depth_attachment}}, 1);
-
-        graph.add_pass("depth_resolve", [&](VkCommandBuffer cb) {
-            VkRenderingAttachmentInfo depth_attachment{};
-            depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-            depth_attachment.imageView = target.msaa_depth_view();
-            depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depth_attachment.resolveImageView = target.depth_view();
-            depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-
-            VkRenderingInfo ri{};
-            ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            ri.renderArea.extent = target.extent();
-            ri.layerCount = 1;
-            ri.pDepthAttachment = &depth_attachment;
-
-            vkCmdBeginRendering(cb, &ri);
-            vkCmdEndRendering(cb);
-        }, {{msaa_depth_id, ImageUsage::depth_attachment_read},
-            {depth_id, ImageUsage::depth_attachment}});
-    } else {
-        graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-            TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
-#endif
-            FrameContext local = ctx;
-            local.cmd = cb;
-            local.gpu_driven_indirect = VK_NULL_HANDLE;
-            local.gpu_driven_segment_size = 0;
-            depth_pass.record(local);
-        }, {{depth_id, ImageUsage::depth_attachment}}, 1);
-    }
-
-    // Hi-Z pyramid build (from depth prepass output)
-    graph.add_pass("hiz_build", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Hi-Z Build");
-#endif
-        if (gpu_.use_mesh_shaders() && hiz_pass_.ready()) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            hiz_pass_.record(local);
-        }
-    }, {{depth_id, ImageUsage::compute_read}});
-
-    // GPU-driven meshlet expand + two-pass cull
-    graph.add_pass("meshlet_expand_cull", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Meshlet Expand+Cull");
-#endif
-        if (gpu_.use_mesh_shaders()) {
-            uint32_t total_draws = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
-            uint32_t total_mi = gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
-            if (total_draws > 0 && total_mi > 0) {
-                // Expand: scatter draws → flat meshlet instance array
-                meshlet_instance_pass_.dispatch_expand(
-                    cb,
-                    gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
-                    gatherer_.indirect_batch()->draw_data_size(current_frame_),
-                    total_draws, current_frame_);
-                meshlet_instance_pass_.insert_expand_barrier(cb);
-
-                auto& ranges_ref = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
-                auto extent = target.extent();
-
-                // First cull: frustum + current frame Hi-Z
-                meshlet_instance_pass_.dispatch_cull_first(
-                    cb,
-                    gpu_.global_descriptor_set(current_frame_),
-                    gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
-                    gatherer_.indirect_batch()->draw_data_size(current_frame_),
-                    gpu_.meshlet_buffer() ? gpu_.meshlet_buffer()->bounds_buffer() : VK_NULL_HANDLE,
-                    gpu_.meshlet_buffer() ? gpu_.meshlet_buffer()->bounds_buffer_size() : 0,
-                    gatherer_.indirect_batch()->pipeline_bin_buffer(current_frame_),
-                    gatherer_.indirect_batch()->pipeline_bin_size(current_frame_),
-                    static_cast<uint32_t>(ranges_ref.size()),
-                    current_frame_,
-                    hiz_pass_.ready() ? hiz_pass_.sampled_view() : VK_NULL_HANDLE,
-                    hiz_pass_.ready() ? hiz_pass_.sampler() : VK_NULL_HANDLE,
-                    extent.width, extent.height,
-                    hiz_pass_.ready() ? hiz_pass_.mip_count() : 0);
-
-                meshlet_instance_pass_.insert_cull_barrier(cb);
-                gpu_.render_stats().two_pass_occlusion = hiz_pass_.ready();
-
-                // Second cull pass is ready but skipped for now — with current-frame
-                // Hi-Z the culled buffer is empty (first pass already has accurate depth).
-                // Enable when depth prepass is optimized to use previous frame's Hi-Z.
-            }
-        }
-    }, {});
-
-    // Post-depth compute passes
-    graph.add_pass("gtao", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "GTAO");
-#endif
-        FrameContext local = ctx;
-        local.cmd = cb;
-        gtao_pass_.record(local);
-    }, {{depth_id, ImageUsage::compute_read}});
-
-    graph.add_pass("light_cull", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Light Cull");
-#endif
-        FrameContext local = ctx;
-        local.cmd = cb;
-        light_cull_pass_.record(local);
-
-        VkMemoryBarrier2 mem_barrier{};
-        mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        mem_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        mem_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        mem_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        mem_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.memoryBarrierCount = 1;
-        dep.pMemoryBarriers = &mem_barrier;
-        vkCmdPipelineBarrier2(cb, &dep);
-    }, {{depth_id, ImageUsage::compute_read}});
-
-    graph.add_pass("particle_compute", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Particle Compute");
-#endif
-        if (scene) {
-            particle_system_.sync_emitters(*scene);
-            particle_system_.dispatch_compute(cb, dt, *scene);
-            particle_system_.insert_barriers(cb);
-        }
-    }, {});
-
-    // Cull visualization (debug view: green=visible, red=culled)
-    graph.add_pass("cull_viz", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::gpu_cull)) return;
-        if (gpu_.use_mesh_shaders() && cull_pass_.enabled()) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            uint32_t opaque_count = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
-            if (opaque_count > 0) {
-                cull_viz_pass_.record(local,
-                    cull_pass_.visibility_buffer(current_frame_),
-                    cull_pass_.visibility_buffer_size(current_frame_));
-            }
-        }
-    }, {});
-
-    // Color pass (opaques + sky + debug + transparent + particles in one rendering scope)
-    graph.add_pass("color", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Color Pass");
-#endif
-        VkRenderingAttachmentInfo color_attachment{};
-        color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachment.imageView = target.msaa_color_view();
-        color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
-
-        if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
-            color_attachment.resolveImageView = target.color_view();
-            color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-        }
-
-        VkRenderingAttachmentInfo depth_attachment{};
-        depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        depth_attachment.imageView = target.msaa_depth_view();
-        depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
-            depth_attachment.resolveImageView = target.depth_view();
-            depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-            depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-        }
-
-        VkRenderingInfo ri{};
-        ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        ri.renderArea.extent = target.extent();
-        ri.layerCount = 1;
-        ri.colorAttachmentCount = 1;
-        ri.pColorAttachments = &color_attachment;
-        ri.pDepthAttachment = &depth_attachment;
-
-        vkCmdBeginRendering(cb, &ri);
-
-        FrameContext local = ctx;
-        local.cmd = cb;
-
-        VkViewport vp{};
-        vp.width = static_cast<float>(target.extent().width);
-        vp.height = static_cast<float>(target.extent().height);
-        vp.maxDepth = 1.0f;
-        vkCmdSetViewport(cb, 0, 1, &vp);
-
-        VkRect2D sc{};
-        sc.extent = target.extent();
-        vkCmdSetScissor(cb, 0, 1, &sc);
-
-        std::array descriptor_sets = {gpu_.global_descriptor_set(current_frame_),
-                                     gpu_.bindless_textures().descriptor_set(),
-                                     gatherer_.draw_data_descriptor().descriptor_set(current_frame_)};
-
-        if (scene) {
-#ifdef FJELL_ENABLE_TRACY
-            { TracyVkZone(gpu_.tracy_ctx(), cb, "Opaques");
-#endif
-            if (gpu_.use_mesh_shaders() && gpu_.pipeline_cache()->has_mesh_shaders()) {
-                // GPU-driven meshlet dispatch: single indirect call from culled visible buffer
-                std::array mesh_descriptor_sets = {gpu_.global_descriptor_set(current_frame_),
-                                                   gpu_.bindless_textures().descriptor_set(),
-                                                   gatherer_.draw_data_descriptor().descriptor_set(current_frame_),
-                                                   gpu_.meshlet_descriptor().descriptor_set(current_frame_)};
-
-                const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
-                auto indirect_buf = meshlet_instance_pass_.indirect_buffer(current_frame_);
-
-                if (indirect_buf && !ranges.empty()) {
-                    auto draw_indirect = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
-                    uint32_t seg_size = meshlet_instance_pass_.segment_size(current_frame_);
-
-                    for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
-                        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                          gpu_.pipeline_cache()->gpu_driven_pipeline(ranges[bin].pipeline_id));
-                        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                gpu_.pipeline_cache()->gpu_driven_layout(),
-                                                0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
-                                                mesh_descriptor_sets.data(), 0, nullptr);
-
-                        uint32_t bin_offset = bin * seg_size;
-                        vkCmdPushConstants(cb, gpu_.pipeline_cache()->gpu_driven_layout(),
-                                          VK_SHADER_STAGE_TASK_BIT_EXT,
-                                          0, sizeof(uint32_t), &bin_offset);
-
-                        VkDeviceSize cmd_offset = bin * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-                        draw_indirect(cb, indirect_buf, cmd_offset, 1,
-                                      sizeof(VkDrawMeshTasksIndirectCommandEXT));
-                    }
-                }
-
-                gpu_.render_stats().meshlets_dispatched +=
-                    gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
-                gpu_.render_stats().gpu_cull_active = true;
-            } else {
-                gpu_.mega_buffer()->bind(cb);
-
-                // Draw per-pipeline ranges with vertex pipelines
-                const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
-                for (const auto& range : ranges) {
-                    auto pipeline = range.skinned
-                        ? gpu_.pipeline_cache()->skinned_opaque_pipeline(range.pipeline_id)
-                        : gpu_.pipeline_cache()->opaque_pipeline(range.pipeline_id);
-                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                            gpu_.pipeline_cache()->layout(),
-                                            0, static_cast<uint32_t>(descriptor_sets.size()),
-                                            descriptor_sets.data(), 0, nullptr);
-
-                    VkDeviceSize offset = range.first_draw *
-                                          sizeof(VkDrawIndexedIndirectCommand);
-                    vkCmdDrawIndexedIndirect(cb,
-                                             gatherer_.indirect_batch()->indirect_buffer(current_frame_),
-                                             offset, range.draw_count,
-                                             sizeof(VkDrawIndexedIndirectCommand));
-                    gpu_.render_stats().indirect_draws++;
-                }
-            }
-            gpu_.render_stats().draw_calls += gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
-            gpu_.render_stats().triangle_count += gatherer_.indirect_batch()->total_triangles(current_frame_);
-
-            // Draw skinned meshes (per-model VBO, not in indirect batch)
-            {
-                const auto& skinned_indices = gatherer_.indirect_batch()->skinned_draw_indices(current_frame_);
-                uint32_t skinned_cmd_idx = 0;
-                for (const auto& dc : gatherer_.render_queue().commands()) {
-                    if (!dc.skinned || !dc.skeletal_model) continue;
-                    if (skinned_cmd_idx >= skinned_indices.size()) break;
-
-                    auto pipeline = gpu_.pipeline_cache()->skinned_opaque_pipeline(dc.pipeline_id);
-                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                            gpu_.pipeline_cache()->layout(),
-                                            0, static_cast<uint32_t>(descriptor_sets.size()),
-                                            descriptor_sets.data(), 0, nullptr);
-
-                    dc.skeletal_model->bind(cb);
-                    uint32_t draw_data_idx = skinned_indices[skinned_cmd_idx];
-                    vkCmdDrawIndexed(cb, dc.skeletal_model->index_count(), 1, 0, 0, draw_data_idx);
-                    gpu_.render_stats().draw_calls++;
-                    skinned_cmd_idx++;
-                }
-            }
-#ifdef FJELL_ENABLE_TRACY
-            }
-#endif
-        }
-
-#ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(gpu_.tracy_ctx(), cb, "Sky");
-#endif
-        sky_pass_.record(local);
-#ifdef FJELL_ENABLE_TRACY
-        }
-#endif
-#ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(gpu_.tracy_ctx(), cb, "Grid");
-#endif
-        grid_pass_.record(local);
-#ifdef FJELL_ENABLE_TRACY
-        }
-#endif
-#ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(gpu_.tracy_ctx(), cb, "Debug");
-#endif
-        debug_pass_.record(local);
-#ifdef FJELL_ENABLE_TRACY
-        }
-#endif
-#ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(gpu_.tracy_ctx(), cb, "Outline");
-#endif
-        draw_outline(cb, local);
-#ifdef FJELL_ENABLE_TRACY
-        }
-#endif
-#ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(gpu_.tracy_ctx(), cb, "Sprites");
-#endif
-        sprite_renderer_.record_render(local);
-#ifdef FJELL_ENABLE_TRACY
-        }
-#endif
-#ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(gpu_.tracy_ctx(), cb, "Transparent");
-#endif
-        transparent_pass_.record(local);
-#ifdef FJELL_ENABLE_TRACY
-        }
-#endif
-#ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(gpu_.tracy_ctx(), cb, "Particles");
-#endif
-        particle_system_.record_render(local);
-#ifdef FJELL_ENABLE_TRACY
-        }
-#endif
-
-        vkCmdEndRendering(cb);
-    }, {{msaa_color_id, ImageUsage::color_attachment},
-        {color_id, ImageUsage::color_attachment},
-        {msaa_depth_id, ImageUsage::depth_attachment_read},
-        {depth_id, ImageUsage::depth_attachment}});
-
-    // Screen-space reflections (reads depth + prev frame color, writes into scene color)
-    graph.add_pass("ssr", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "SSR");
-#endif
-        FrameContext local = ctx;
-        local.cmd = cb;
-        local.prev_frame_color_view = prev_frame_color_view_;
-        ssr_pass_.record(local);
-    }, {{depth_id, ImageUsage::compute_read},
-        {color_id, ImageUsage::compute_write}});
-
-    // Volumetric fog (reads depth + shadow map via global set, writes into scene color)
-    graph.add_pass("volumetric_fog", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Volumetric Fog");
-#endif
-        FrameContext local = ctx;
-        local.cmd = cb;
-        volumetric_fog_pass_.record(local);
-    }, {{depth_id, ImageUsage::compute_read},
-        {color_id, ImageUsage::compute_write}});
-
-    // Post-processing reads the color buffer
-    graph.add_pass("bloom", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Bloom");
-#endif
-        FrameContext local = ctx;
-        local.cmd = cb;
-        bloom_pass_.record(local);
-    }, {{color_id, ImageUsage::shader_read}});
-
-    graph.add_pass("tonemap", [&](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(gpu_.tracy_ctx(), cb, "Tonemap");
-#endif
-        FrameContext local = ctx;
-        local.cmd = cb;
-        tonemap_pass_.set_source_view(target.color_view());
-        tonemap_pass_.record(local);
-    }, {{color_id, ImageUsage::shader_read}});
-
-    // Utility / visualization passes — only run when their viewport source is active
-    graph.add_pass("depth_viz", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::depth)) return;
-        FrameContext local = ctx;
-        local.cmd = cb;
-        depth_viz_pass_.record(local);
-    }, {{depth_id, ImageUsage::shader_read}});
-
-    graph.add_pass("wireframe", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::wireframe)) return;
-        FrameContext local = ctx;
-        local.cmd = cb;
-        wireframe_pass_.record(local);
-    }, {});
-    graph.add_pass("normals", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::normals)) return;
-        FrameContext local = ctx;
-        local.cmd = cb;
-        normal_pass_.record(local);
-    }, {});
-    graph.add_pass("overdraw", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::overdraw)) return;
-        FrameContext local = ctx;
-        local.cmd = cb;
-        overdraw_pass_.record(local);
-    }, {});
-    graph.add_pass("uv_viz", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::uv)) return;
-        FrameContext local = ctx;
-        local.cmd = cb;
-        uv_viz_pass_.record(local);
-    }, {});
-
-    graph.add_pass("light_heatmap", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::light_heatmap)) return;
-        FrameContext local = ctx;
-        local.cmd = cb;
-        light_heatmap_pass_.set_tile_ssbo(gpu_.tile_light_ssbo(current_frame_).handle(),
-                                           gpu_.tile_light_ssbo(current_frame_).size());
-        light_heatmap_pass_.record(local);
-    }, {});
-
-    graph.add_pass("light_grid", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::light_grid)) return;
-        FrameContext local = ctx;
-        local.cmd = cb;
-        light_grid_pass_.set_tile_ssbo(gpu_.tile_light_ssbo(current_frame_).handle(),
-                                        gpu_.tile_light_ssbo(current_frame_).size());
-        light_grid_pass_.record(local);
-    }, {});
-
-    graph.add_pass("meshlet_viz", [&](VkCommandBuffer cb) {
-        if (!source_active(ViewportSource::meshlet_viz)) return;
-        FrameContext local = ctx;
-        local.cmd = cb;
-        meshlet_viz_pass_.record(local);
-    }, {});
-
-    // ── Execute ─────────────────────────────────────────────────────────
-
-    graph.execute(cmd, &pool, &gpu_.secondary_pools(), current_frame_);
+    // Execute the render pipeline (passes registered in register_passes())
+    render_pipeline_.execute(cmd, target, gpu_.msaa_samples(), active_sources_,
+                              pool, gpu_.secondary_pools(), current_frame_);
 
     // Copy scene color to prev_frame_color for next frame's SSR
     if (ssr_pass_.enabled() && prev_frame_color_ != VK_NULL_HANDLE) {

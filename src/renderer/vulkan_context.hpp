@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/gpu_context.hpp"
+#include "renderer/render_pipeline.hpp"
 #include "renderer/scene_gatherer.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -160,8 +161,12 @@ private:
                              const struct DirectionalLight &light, Scene *scene,
                              VkExtent2D extent);
 
+  void register_passes();
+
   // ── GPU infrastructure ────────────────────────────────────────────────
   GpuContext gpu_;
+  RenderPipeline render_pipeline_;
+  FrameContext current_ctx_{};
 
   // ── Passes ────────────────────────────────────────────────────────────
   DepthPrePass depth_prepass_;
