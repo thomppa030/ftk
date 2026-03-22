@@ -1,6 +1,8 @@
 #pragma once
 
-#include <functional>
+#include "core/delegate.hpp"
+
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -27,14 +29,20 @@ public:
         return it != values_.end() ? it->second : "";
     }
 
-    void bind_action(const std::string& name, std::function<void()> callback) {
-        actions_[name] = std::move(callback);
+    template <typename F>
+        requires std::invocable<F>
+    [[nodiscard]] Connection bind_action(const std::string& name, F&& callback) {
+        auto& delegate = actions_[name];
+        if (!delegate) {
+            delegate = std::make_unique<Delegate<void()>>();
+        }
+        return delegate->bind(std::forward<F>(callback));
     }
 
     void dispatch(const std::string& action) {
         auto it = actions_.find(action);
-        if (it != actions_.end()) {
-            it->second();
+        if (it != actions_.end() && it->second) {
+            it->second->broadcast();
         }
     }
 
@@ -45,7 +53,7 @@ public:
 
 private:
     std::unordered_map<std::string, std::string> values_;
-    std::unordered_map<std::string, std::function<void()>> actions_;
+    std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
 };
 
 } // namespace fjell

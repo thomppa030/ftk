@@ -68,20 +68,20 @@ void HierarchyPanel::draw() {
         ImGui::TextDisabled("Add");
 
         if (ImGui::BeginPopup("##HierarchyAdd")) {
-            if (ImGui::MenuItem("Cube") && add_primitive_cb_) add_primitive_cb_("cube");
-            if (ImGui::MenuItem("Plane") && add_primitive_cb_) add_primitive_cb_("plane");
-            if (ImGui::MenuItem("Sphere") && add_primitive_cb_) add_primitive_cb_("sphere");
+            if (ImGui::MenuItem("Cube")) on_add_primitive.broadcast("cube");
+            if (ImGui::MenuItem("Plane")) on_add_primitive.broadcast("plane");
+            if (ImGui::MenuItem("Sphere")) on_add_primitive.broadcast("sphere");
             ImGui::Separator();
-            if (ImGui::MenuItem("Sprite") && add_primitive_cb_) add_primitive_cb_("sprite");
-            if (ImGui::MenuItem("Empty Node") && add_primitive_cb_) add_primitive_cb_("empty");
+            if (ImGui::MenuItem("Sprite")) on_add_primitive.broadcast("sprite");
+            if (ImGui::MenuItem("Empty Node")) on_add_primitive.broadcast("empty");
             ImGui::Separator();
-            if (ImGui::MenuItem("Camera") && add_primitive_cb_) add_primitive_cb_("camera");
+            if (ImGui::MenuItem("Camera")) on_add_primitive.broadcast("camera");
             ImGui::Separator();
-            if (ImGui::MenuItem("Directional Light") && add_primitive_cb_) add_primitive_cb_("light:directional");
-            if (ImGui::MenuItem("Point Light") && add_primitive_cb_) add_primitive_cb_("light:point");
-            if (ImGui::MenuItem("Spot Light") && add_primitive_cb_) add_primitive_cb_("light:spot");
+            if (ImGui::MenuItem("Directional Light")) on_add_primitive.broadcast("light:directional");
+            if (ImGui::MenuItem("Point Light")) on_add_primitive.broadcast("light:point");
+            if (ImGui::MenuItem("Spot Light")) on_add_primitive.broadcast("light:spot");
             ImGui::Separator();
-            if (ImGui::MenuItem("Volumetric Fog") && add_primitive_cb_) add_primitive_cb_("volumetric_fog");
+            if (ImGui::MenuItem("Volumetric Fog")) on_add_primitive.broadcast("volumetric_fog");
             ImGui::EndPopup();
         }
 
@@ -128,26 +128,26 @@ void HierarchyPanel::draw() {
             ImGui::OpenPopup("##HierarchyContext");
         }
         if (ImGui::BeginPopup("##HierarchyContext")) {
-            if (ImGui::MenuItem("Add Cube") && add_primitive_cb_) add_primitive_cb_("cube");
-            if (ImGui::MenuItem("Add Plane") && add_primitive_cb_) add_primitive_cb_("plane");
-            if (ImGui::MenuItem("Add Sphere") && add_primitive_cb_) add_primitive_cb_("sphere");
+            if (ImGui::MenuItem("Add Cube")) on_add_primitive.broadcast("cube");
+            if (ImGui::MenuItem("Add Plane")) on_add_primitive.broadcast("plane");
+            if (ImGui::MenuItem("Add Sphere")) on_add_primitive.broadcast("sphere");
             ImGui::Separator();
-            if (ImGui::MenuItem("Add Sprite") && add_primitive_cb_) add_primitive_cb_("sprite");
-            if (ImGui::MenuItem("Add Empty Node") && add_primitive_cb_) add_primitive_cb_("empty");
+            if (ImGui::MenuItem("Add Sprite")) on_add_primitive.broadcast("sprite");
+            if (ImGui::MenuItem("Add Empty Node")) on_add_primitive.broadcast("empty");
             ImGui::Separator();
-            if (ImGui::MenuItem("Add Camera") && add_primitive_cb_) add_primitive_cb_("camera");
+            if (ImGui::MenuItem("Add Camera")) on_add_primitive.broadcast("camera");
             ImGui::Separator();
-            if (ImGui::MenuItem("Add Directional Light") && add_primitive_cb_) add_primitive_cb_("light:directional");
-            if (ImGui::MenuItem("Add Point Light") && add_primitive_cb_) add_primitive_cb_("light:point");
-            if (ImGui::MenuItem("Add Spot Light") && add_primitive_cb_) add_primitive_cb_("light:spot");
+            if (ImGui::MenuItem("Add Directional Light")) on_add_primitive.broadcast("light:directional");
+            if (ImGui::MenuItem("Add Point Light")) on_add_primitive.broadcast("light:point");
+            if (ImGui::MenuItem("Add Spot Light")) on_add_primitive.broadcast("light:spot");
             ImGui::Separator();
-            if (ImGui::MenuItem("Add Volumetric Fog") && add_primitive_cb_) add_primitive_cb_("volumetric_fog");
+            if (ImGui::MenuItem("Add Volumetric Fog")) on_add_primitive.broadcast("volumetric_fog");
             ImGui::EndPopup();
         }
 
         // Deferred removal
-        if (remove_pending_id_ != 0 && remove_object_cb_) {
-            remove_object_cb_(remove_pending_id_);
+        if (remove_pending_id_ != 0) {
+            on_remove_object.broadcast(remove_pending_id_);
         }
     }
     ImGui::End();

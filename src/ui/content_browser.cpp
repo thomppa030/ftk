@@ -646,11 +646,8 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::model:
                     if (ImGui::MenuItem("Add to Scene")) {
-                        if (add_model_cb_) {
-                            // Convert to relative path from project root
-                            auto rel = std::filesystem::relative(entry.path, root_);
-                            add_model_cb_(rel.string());
-                        }
+                        auto rel = std::filesystem::relative(entry.path, root_);
+                        on_add_model.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::Separator();
@@ -687,7 +684,7 @@ void ContentBrowser::draw_context_menu() {
 
                 case FileType::scene:
                     if (ImGui::MenuItem("Load Scene")) {
-                        if (load_scene_cb_) load_scene_cb_(entry.path.string());
+                        on_load_scene.broadcast(entry.path.string());
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::Separator();
@@ -748,12 +745,11 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
 #endif
             break;
 
-        case FileType::model:
-            if (add_model_cb_) {
-                auto rel = std::filesystem::relative(entry.path, root_);
-                add_model_cb_(rel.string());
-            }
+        case FileType::model: {
+            auto rel = std::filesystem::relative(entry.path, root_);
+            on_add_model.broadcast(rel.string());
             break;
+        }
 
         case FileType::texture:
             show_texture_preview_ = true;
@@ -761,7 +757,7 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
             break;
 
         case FileType::scene:
-            if (load_scene_cb_) load_scene_cb_(entry.path.string());
+            on_load_scene.broadcast(entry.path.string());
             break;
 
         case FileType::unknown:

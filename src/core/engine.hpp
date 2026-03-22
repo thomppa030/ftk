@@ -124,6 +124,9 @@ private:
     // Available model files
     std::vector<std::string> available_models_;
 
+    // Delegate connections (UI callbacks, etc.)
+    std::vector<Connection> connections_;
+
     // Default texture handle (preloaded)
     TextureHandle default_texture_;
 

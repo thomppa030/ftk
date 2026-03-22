@@ -172,32 +172,32 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     content_browser_.init(icon_cache_.get(), nullptr,
                           &vulkan_context_, resource_manager_.get());
 #endif
-    content_browser_.set_add_model_callback(
+    connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
             add_model_to_scene(path);
             command_history_.execute(std::make_unique<AddObjectCommand>(
                 scene_, selected_id_, &selected_id_));
-        });
-    content_browser_.set_load_scene_callback(
-        [this](const std::string& path) { load_scene(path); });
+        }));
+    connections_.push_back(content_browser_.on_load_scene.bind(
+        [this](const std::string& path) { load_scene(path); }));
     if (project_) {
         content_browser_.set_root(project_->root());
     }
 
     hierarchy_panel_.init(&scene_, &viewport_manager_, &selected_id_, &command_history_,
                           icon_cache_.get());
-    hierarchy_panel_.set_add_primitive_callback(
+    connections_.push_back(hierarchy_panel_.on_add_primitive.bind(
         [this](const std::string& type) {
             add_primitive_to_scene(type);
             command_history_.execute(std::make_unique<AddObjectCommand>(
                 scene_, selected_id_, &selected_id_));
-        });
-    hierarchy_panel_.set_remove_object_callback(
+        }));
+    connections_.push_back(hierarchy_panel_.on_remove_object.bind(
         [this](uint32_t id) {
             command_history_.execute(std::make_unique<RemoveObjectCommand>(
                 scene_, id, &selected_id_,
                 [this]() { vulkan_context_.wait_idle(); }));
-        });
+        }));
 
     properties_panel_.init(&scene_, &selected_id_, &gizmo_op_, &light_,
                            &script_manager_, &command_history_,
@@ -233,22 +233,22 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             ctx.set("fps", "60");
             ctx.set("player.pos", "0, 0, 0");
             ctx.set("active_slot", "2"); // slot 2 starts active
-            ctx.bind_action("select_slot_1", [&ctx] {
+            connections_.push_back(ctx.bind_action("select_slot_1", [&ctx] {
                 FJELL_CORE_INFO("UI: slot 1 clicked");
                 ctx.set("active_slot", "1");
-            });
-            ctx.bind_action("select_slot_2", [&ctx] {
+            }));
+            connections_.push_back(ctx.bind_action("select_slot_2", [&ctx] {
                 FJELL_CORE_INFO("UI: slot 2 clicked");
                 ctx.set("active_slot", "2");
-            });
-            ctx.bind_action("select_slot_3", [&ctx] {
+            }));
+            connections_.push_back(ctx.bind_action("select_slot_3", [&ctx] {
                 FJELL_CORE_INFO("UI: slot 3 clicked");
                 ctx.set("active_slot", "3");
-            });
-            ctx.bind_action("select_slot_4", [&ctx] {
+            }));
+            connections_.push_back(ctx.bind_action("select_slot_4", [&ctx] {
                 FJELL_CORE_INFO("UI: slot 4 clicked");
                 ctx.set("active_slot", "4");
-            });
+            }));
         }
     }
 

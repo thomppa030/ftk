@@ -1,7 +1,8 @@
 #pragma once
 
+#include "core/delegate.hpp"
+
 #include <filesystem>
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -14,15 +15,10 @@ class ResourceManager;
 
 class ContentBrowser {
 public:
-    using AddModelCallback = std::function<void(const std::string&)>;
-    using LoadSceneCallback = std::function<void(const std::string&)>;
-
     void init(IconCache* icons, NvimPanel* nvim,
               VulkanContext* vk_ctx, ResourceManager* resources);
 
     void set_root(const std::filesystem::path& root);
-    void set_add_model_callback(AddModelCallback cb) { add_model_cb_ = std::move(cb); }
-    void set_load_scene_callback(LoadSceneCallback cb) { load_scene_cb_ = std::move(cb); }
 
     void draw();
     void toggle_visibility() { visible_ = !visible_; }
@@ -92,9 +88,9 @@ private:
     bool show_texture_preview_{false};
     std::string preview_texture_path_;
 
-    // Callbacks
-    AddModelCallback add_model_cb_;
-    LoadSceneCallback load_scene_cb_;
+public:
+    Delegate<void(const std::string&)> on_add_model;
+    Delegate<void(const std::string&)> on_load_scene;
 };
 
 } // namespace fjell
