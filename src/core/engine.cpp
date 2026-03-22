@@ -236,6 +236,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     node_editor_panel_.init(&scene_, &selected_id_);
 
+    bind_menu_bar();
+
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
     viewport_manager_.init(vulkan_context_->device_ref(), vulkan_context_->msaa_samples());
@@ -655,7 +657,7 @@ void Engine::open_project(const std::filesystem::path& path) {
         auto layout_path = project_->root() / "layouts" / (project_->config().layout + ".ini");
         if (std::filesystem::exists(layout_path)) {
             pending_layout_load_ = layout_path.string();
-            active_layout_name_ = project_->config().layout;
+            menu_bar_.set_active_layout(project_->config().layout);
             has_saved_layout_ = true;
         }
     }
@@ -706,264 +708,82 @@ void Engine::load_scene(const std::string& path) {
     command_history_.clear();
 }
 
-void Engine::draw_menu_bar() {
-    if (ImGui::BeginMainMenuBar()) {
-        if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Save Scene")) {
-                save_material_assets();
-                scene_.save(current_scene_path_);
-            }
-            if (ImGui::MenuItem("Load Scene") && !current_scene_path_.empty()) {
-                load_scene(current_scene_path_);
-            }
-            ImGui::EndMenu();
-        }
-
-        if (ImGui::BeginMenu("Project")) {
-            if (ImGui::MenuItem("New Project...")) {
-                new_browser_.open("New Project");
-            }
-            if (ImGui::MenuItem("Open Project...")) {
-                open_browser_.open("Open Project");
-            }
-            if (project_ && ImGui::MenuItem("Close Project")) {
-                close_project();
-            }
-            ImGui::Separator();
-            if (project_ && ImGui::MenuItem("Build Game")) {
+void Engine::bind_menu_bar() {
+    connections_.push_back(menu_bar_.on_save_scene.bind(
+        [this]() {
+            save_material_assets();
+            scene_.save(current_scene_path_);
+        }));
+    connections_.push_back(menu_bar_.on_load_scene.bind(
+        [this]() { load_scene(current_scene_path_); }));
+    connections_.push_back(menu_bar_.on_close_project.bind(
+        [this]() { close_project(); }));
+    connections_.push_back(menu_bar_.on_build_game.bind(
+        [this]() {
+            if (project_) {
                 auto output = project_->root() / "build";
                 GameBuilder::build(*project_, output);
             }
-            ImGui::Separator();
-            if (project_) {
-                ImGui::TextDisabled("Project: %s", project_->config().name.c_str());
-                ImGui::TextDisabled("Root: %s", project_->root().c_str());
-            } else {
-                ImGui::TextDisabled("No project open");
-            }
-            ImGui::EndMenu();
-        }
+        }));
+    connections_.push_back(menu_bar_.on_build_scripts.bind(
+        [this]() {
+            if (!project_) return;
+            // Refresh scripting headers
+            Project::refresh_headers(*project_);
 
-        if (ImGui::BeginMenu("View")) {
-            if (ImGui::MenuItem("Add Viewport")) {
-                viewport_manager_.add_viewport();
-            }
-            ImGui::Separator();
-            auto& grid = vulkan_context_->grid_pass().settings();
-            ImGui::Checkbox("Show Grid", &grid.visible);
-            ImGui::Checkbox("Snap to Grid", &grid.snap_enabled);
-            ImGui::DragFloat("Grid Size", &grid.cell_size, 0.1f, 0.1f, 50.0f);
-            ImGui::DragFloat("Grid Opacity", &grid.opacity, 0.01f, 0.0f, 1.0f);
-            ImGui::DragFloat("Grid Fade", &grid.fade_distance, 1.0f, 10.0f, 500.0f);
-            ImGui::EndMenu();
-        }
+            auto scripts_dir = project_->root() / "scripts";
+            auto build_dir = scripts_dir / "build";
 
-        if (ImGui::BeginMenu("Layout")) {
-            // Save Layout — overwrite current active layout
-            bool has_active = !active_layout_name_.empty();
-            if (!has_active) ImGui::BeginDisabled();
-            if (ImGui::MenuItem("Save Layout")) {
-                auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
-                std::filesystem::create_directories(layout_dir);
-                auto path = layout_dir / (active_layout_name_ + ".ini");
-                ImGui::SaveIniSettingsToDisk(path.string().c_str());
-                if (project_) {
-                    project_->config().layout = active_layout_name_;
-                    project_->save();
-                }
-                FJELL_CORE_INFO("Layout saved: {}", path.string());
-            }
-            if (!has_active) ImGui::EndDisabled();
-
-            // Save Layout As — always available, prompts for name
-            if (ImGui::MenuItem("Save Layout As...")) {
-                show_save_layout_popup_ = true;
-                std::memset(layout_name_buf_, 0, sizeof(layout_name_buf_));
-            }
-            ImGui::Separator();
-
-            // List saved layouts
-            auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
-            if (std::filesystem::is_directory(layout_dir)) {
-                for (const auto& entry : std::filesystem::directory_iterator(layout_dir)) {
-                    if (entry.path().extension() != ".ini") continue;
-                    auto name = entry.path().stem().string();
-                    bool is_active = (name == active_layout_name_);
-                    if (ImGui::MenuItem(name.c_str(), nullptr, is_active)) {
-                        ImGui::LoadIniSettingsFromDisk(entry.path().string().c_str());
-                        active_layout_name_ = name;
-                        if (project_) {
-                            project_->config().layout = name;
-                            project_->save();
-                        }
-                    }
+            // Auto-generate register_all.cpp
+            {
+                std::ofstream reg(scripts_dir / "register_all.cpp");
+                if (reg.is_open()) {
+                    reg << "// Auto-generated -- do not edit.\n";
+                    reg << "#include \"fjell/registry.hpp\"\n\n";
+                    reg << "FJELL_REGISTER()\n";
                 }
             }
-            ImGui::EndMenu();
-        }
 
-        if (project_ && ImGui::BeginMenu("Scripts")) {
-            if (ImGui::MenuItem("New Script...")) {
-                show_new_script_popup_ = true;
-                std::memset(new_script_name_, 0, sizeof(new_script_name_));
-            }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Build & Reload")) {
-                // Refresh scripting headers in project so scripts see latest API
-                Project::refresh_headers(*project_);
+            Project::refresh_headers(*project_);
+            Project::write_scripts_cmake(*project_);
 
-                auto scripts_dir = project_->root() / "scripts";
-                auto build_dir = scripts_dir / "build";
+            auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
+                       " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
+                       "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
 
-                // Auto-generate register_all.cpp by scanning for FJELL_COMPONENT macros
-                {
-                    std::vector<std::pair<std::string, std::string>> components; // {filename, classname}
-                    for (const auto& entry : std::filesystem::directory_iterator(scripts_dir)) {
-                        if (!entry.is_regular_file()) continue;
-                        auto ext = entry.path().extension().string();
-                        if (ext != ".cpp" && ext != ".hpp") continue;
-                        if (entry.path().filename() == "register_all.cpp") continue;
+            FJELL_CORE_INFO("Building scripts...");
 
-                        std::ifstream src(entry.path());
-                        std::string line;
-                        while (std::getline(src, line)) {
-                            auto pos = line.find("FJELL_COMPONENT(");
-                            if (pos == std::string::npos) continue;
-                            auto start = pos + 16; // length of "FJELL_COMPONENT("
-                            auto end = line.find(')', start);
-                            if (end == std::string::npos) continue;
-                            std::string cls = line.substr(start, end - start);
-                            components.emplace_back(entry.path().filename().string(), cls);
-                        }
-                    }
+            std::string build_output;
+            int ret = platform::run_command(cmd, build_output);
+            bool success = (ret == 0);
 
-                    // Generate register_all.cpp with the single FJELL_REGISTER() entry point.
-                    // Each component auto-registers via static init from FJELL_COMPONENT().
-                    std::ofstream reg(scripts_dir / "register_all.cpp");
-                    if (reg.is_open()) {
-                        reg << "// Auto-generated — do not edit.\n";
-                        reg << "#include \"fjell/registry.hpp\"\n\n";
-                        reg << "FJELL_REGISTER()\n";
-                    }
-                }
-
-                // Refresh SDK headers and CMakeLists before building
-                Project::refresh_headers(*project_);
-                Project::write_scripts_cmake(*project_);
-
-                // Reconfigure to pick up new/removed .cpp files, then build
-                auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
-                           " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
-                           "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
-
-                FJELL_CORE_INFO("Building scripts...");
-
-                std::string build_output;
-                int ret = platform::run_command(cmd, build_output);
-                bool success = (ret == 0);
-
-                // Log each line with appropriate severity
-                std::istringstream iss(build_output);
-                std::string s;
-                while (std::getline(iss, s)) {
-                    while (!s.empty() && (s.back() == '\r')) s.pop_back();
-                    if (s.empty()) continue;
-                    if (s.find("error") != std::string::npos) {
-                        FJELL_CORE_ERROR("[build] {}", s);
-                    } else if (s.find("warning") != std::string::npos) {
-                        FJELL_CORE_WARN("[build] {}", s);
-                    } else {
-                        FJELL_CORE_INFO("[build] {}", s);
-                    }
-                }
-
-                if (success) {
-                    FJELL_CORE_INFO("Scripts built successfully");
-                    auto so_path = project_->root() / "game.so";
-                    if (std::filesystem::exists(so_path)) {
-                        script_manager_.reload(scene_, so_path);
-                    }
+            std::istringstream iss(build_output);
+            std::string s;
+            while (std::getline(iss, s)) {
+                while (!s.empty() && (s.back() == '\r')) s.pop_back();
+                if (s.empty()) continue;
+                if (s.find("error") != std::string::npos) {
+                    FJELL_CORE_ERROR("[build] {}", s);
+                } else if (s.find("warning") != std::string::npos) {
+                    FJELL_CORE_WARN("[build] {}", s);
                 } else {
-                    FJELL_CORE_ERROR("Script build failed");
+                    FJELL_CORE_INFO("[build] {}", s);
                 }
             }
-            ImGui::EndMenu();
-        }
 
-        // Play/Stop button in menu bar
-        float bar_w = ImGui::GetWindowWidth();
-        float button_w = 60.0f;
-        ImGui::SameLine(bar_w * 0.5f - button_w * 0.5f);
-        if (is_playing()) {
-            if (ImGui::SmallButton("Stop")) {
-                stop_play();
+            if (success) {
+                FJELL_CORE_INFO("Scripts built successfully");
+                auto so_path = project_->root() / "game.so";
+                if (std::filesystem::exists(so_path)) {
+                    script_manager_.reload(scene_, so_path);
+                }
+            } else {
+                FJELL_CORE_ERROR("Script build failed");
             }
-        } else {
-            if (ImGui::SmallButton("Play")) {
-                start_play();
-            }
-        }
-
-        ImGui::EndMainMenuBar();
-    }
-
-    // Save Layout As popup
-    if (show_save_layout_popup_) {
-        ImGui::OpenPopup("Save Layout As");
-        show_save_layout_popup_ = false;
-    }
-    if (ImGui::BeginPopupModal("Save Layout As", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Layout Name:");
-        ImGui::SetNextItemWidth(250.0f);
-        bool enter = ImGui::InputText("##LayoutName", layout_name_buf_, sizeof(layout_name_buf_),
-                                       ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
-
-        bool valid = std::strlen(layout_name_buf_) > 0;
-        if (!valid) ImGui::BeginDisabled();
-        bool save = ImGui::Button("Save", {120, 0}) || (enter && valid);
-        if (!valid) ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {120, 0})) ImGui::CloseCurrentPopup();
-
-        if (save) {
-            auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
-            std::filesystem::create_directories(layout_dir);
-            auto path = layout_dir / (std::string(layout_name_buf_) + ".ini");
-            ImGui::SaveIniSettingsToDisk(path.string().c_str());
-            active_layout_name_ = layout_name_buf_;
-            if (project_) {
-                project_->config().layout = active_layout_name_;
-                project_->save();
-            }
-            FJELL_CORE_INFO("Layout saved: {}", path.string());
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    // New Script popup
-    if (show_new_script_popup_) {
-        ImGui::OpenPopup("New Script");
-        show_new_script_popup_ = false;
-    }
-    if (ImGui::BeginPopupModal("New Script", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Class Name:");
-        ImGui::SetNextItemWidth(300.0f);
-        bool enter = ImGui::InputText("##ClassName", new_script_name_, sizeof(new_script_name_),
-                                       ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
-
-        bool valid = std::strlen(new_script_name_) > 0;
-        if (!valid) ImGui::BeginDisabled();
-        bool create = ImGui::Button("Create", {140, 0}) || (enter && valid);
-        if (!valid) ImGui::EndDisabled();
-        ImGui::SameLine();
-        bool cancel = ImGui::Button("Cancel", {140, 0});
-
-        if (create && project_) {
-            std::string name = new_script_name_;
-            // Lowercase filename
+        }));
+    connections_.push_back(menu_bar_.on_new_script.bind(
+        [this](const std::string& name) {
+            if (!project_) return;
             std::string filename = name;
             for (auto& c : filename) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
@@ -980,68 +800,57 @@ void Engine::draw_menu_bar() {
                      << "class " << name << " : public fjell::ScriptComponent {\n"
                      << "  FJELL_COMPONENT(" << name << ")\n"
                      << "\n"
-                     << "  // Fields here show up in Properties. Types: FJELL_FIELD_FLOAT, _VEC3, _INT\n"
-                     << "  // FJELL_F_RANGE(Class, member, type, min, max, drag_speed) for sliders\n"
                      << "  static auto reflect() {\n"
                      << "    return std::array{\n"
-                     << "      // FJELL_F(" << name << ", speed, FJELL_FIELD_FLOAT),\n"
                      << "    };\n"
                      << "  }\n"
                      << "\n"
                      << "  void begin_play() override {\n"
                      << "  }\n"
                      << "\n"
-                     << "  // transform().position / .rotation / .scale\n"
-                     << "  // world()->log_info(\"msg\")\n"
-                     << "  // node()->components.get<T>() for sibling components\n"
                      << "  void tick(float dt) override {\n"
                      << "    (void)dt;\n"
                      << "  }\n"
                      << "\n"
                      << "private:\n"
-                     << "  // float speed = 1.0f;\n"
                      << "};\n";
 
                 FJELL_CORE_INFO("Created script: {}", path.string());
             } else {
                 FJELL_CORE_ERROR("Failed to create script: {}", path.string());
             }
-            ImGui::CloseCurrentPopup();
-        }
-        if (cancel) {
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    // File browser popups
-    if (open_browser_.draw()) {
-        open_project(open_browser_.selected_path());
-        if (project_) {
-            current_scene_path_ = project_->resolve(project_->config().default_scene);
-            if (std::filesystem::exists(current_scene_path_)) {
-                load_scene(current_scene_path_);
-            } else {
+        }));
+    connections_.push_back(menu_bar_.on_start_play.bind(
+        [this]() { start_play(); }));
+    connections_.push_back(menu_bar_.on_stop_play.bind(
+        [this]() { stop_play(); }));
+    connections_.push_back(menu_bar_.on_open_project.bind(
+        [this](const std::filesystem::path& path) {
+            open_project(path);
+            if (project_) {
+                current_scene_path_ = project_->resolve(project_->config().default_scene);
+                if (std::filesystem::exists(current_scene_path_)) {
+                    load_scene(current_scene_path_);
+                } else {
+                    scene_.clear();
+                    create_default_scene();
+                }
+                load_project_scripts();
+            }
+        }));
+    connections_.push_back(menu_bar_.on_create_project.bind(
+        [this](const std::filesystem::path& path, const std::string& name) {
+            project_ = Project::create(path, name);
+            if (project_) {
+                window_.set_title("Fjell - " + project_->config().name);
+                scan_models();
+                scan_scenes();
+                content_browser_.set_root(project_->root());
+                current_scene_path_ = project_->resolve(project_->config().default_scene);
                 scene_.clear();
                 create_default_scene();
             }
-            load_project_scripts();
-        }
-    }
-
-    if (new_browser_.draw()) {
-        project_ = Project::create(new_browser_.selected_path(),
-                                   new_browser_.project_name());
-        if (project_) {
-            window_.set_title("Fjell - " + project_->config().name);
-            scan_models();
-            scan_scenes();
-            content_browser_.set_root(project_->root());
-            current_scene_path_ = project_->resolve(project_->config().default_scene);
-            scene_.clear();
-            create_default_scene();
-        }
-    }
+        }));
 }
 
 void Engine::draw_ui() {
@@ -1088,7 +897,12 @@ void Engine::draw_ui() {
         pending_layout_load_.clear();
     }
 
-    draw_menu_bar();
+    menu_bar_.set_project(active_project());
+    menu_bar_.set_playing(is_playing());
+    menu_bar_.set_scene_path(current_scene_path_);
+    menu_bar_.set_vulkan_context(vulkan_context_.get());
+    menu_bar_.set_viewport_manager(&viewport_manager_);
+    menu_bar_.draw();
     setup_dockspace();
     viewport_manager_.draw(*vulkan_context_, scene_, selected_id_, input_, clock_.delta_time(), gizmo_op_, &command_history_);
     viewport_hovered_ = viewport_manager_.any_hovered();

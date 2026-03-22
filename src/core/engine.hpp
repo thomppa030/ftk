@@ -16,11 +16,11 @@
 #include "scripting/script_manager.hpp"
 #include "core/command_history.hpp"
 #include "ui/content_browser.hpp"
-#include "ui/file_browser.hpp"
 #include "ui/hierarchy_panel.hpp"
 #include "ui/history_panel.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/imgui_layer.hpp"
+#include "ui/menu_bar.hpp"
 #include "ui/properties_panel.hpp"
 #include "ui/stats_panel.hpp"
 #include "ui/viewport_manager.hpp"
@@ -74,9 +74,9 @@ private:
 
     void draw_ui();
     void setup_dockspace();
-    void draw_menu_bar();
     void draw_console();
     void draw_code_editor();
+    void bind_menu_bar();
 
     void start_play();
     void stop_play();
@@ -157,11 +157,6 @@ private:
     uint32_t selected_id_{0};
     int gizmo_op_{0}; // 0=translate, 1=rotate, 2=scale
     bool layout_built_{false};
-    bool show_new_script_popup_{false};
-    char new_script_name_[128]{};
-    bool show_save_layout_popup_{false};
-    char layout_name_buf_[128]{};
-    std::string active_layout_name_;
     std::string pending_layout_load_;
     bool has_saved_layout_{false};
     bool focus_viewport_{false};
@@ -171,9 +166,8 @@ private:
     // Viewports
     ViewportManager viewport_manager_;
 
-    // File browsers
-    FileBrowser open_browser_{FileBrowser::Mode::select_directory};
-    FileBrowser new_browser_{FileBrowser::Mode::select_location};
+    // Menu bar (owns file browsers, popup state, emits delegates)
+    MenuBar menu_bar_;
 };
 
 } // namespace fjell

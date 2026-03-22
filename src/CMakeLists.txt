@@ -115,6 +115,7 @@ add_executable(fjell
     scene/scene.cpp
     scripting/script_manager.cpp
     ui/console.cpp
+    ui/menu_bar.cpp
     ui/file_browser.cpp
     ui/imgui_layer.cpp
     ui/nvim_panel.cpp
