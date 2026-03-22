@@ -63,8 +63,8 @@ public:
 
     Delegate(const Delegate&) = delete;
     Delegate& operator=(const Delegate&) = delete;
-    Delegate(Delegate&&) = delete;
-    Delegate& operator=(Delegate&&) = delete;
+    Delegate(Delegate&&) noexcept = default;
+    Delegate& operator=(Delegate&&) noexcept = default;
 
     // Subscribe a callable. The returned Connection must be kept alive —
     // destroying it unsubscribes the listener.
