@@ -196,6 +196,10 @@ void TransparentPass::record(const FrameContext& ctx) {
                                     descriptor_sets.data(), 0, nullptr);
         }
 
+        if (dc.skinned) {
+            base_index++;
+            continue;
+        }
         const auto& entries = dc.model->mega_entries();
         for (const auto& entry : entries) {
             vkCmdDrawIndexed(ctx.cmd, entry.index_count, 1,
