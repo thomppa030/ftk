@@ -196,7 +196,7 @@ void TransparentPass::record(const FrameContext& ctx) {
                                     descriptor_sets.data(), 0, nullptr);
         }
 
-        if (dc.skinned) {
+        if (dc.skinned) { // TODO(skinned-transparent): draw with per-model VBO
             base_index++;
             continue;
         }

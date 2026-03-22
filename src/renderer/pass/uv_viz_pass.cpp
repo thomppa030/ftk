@@ -186,7 +186,7 @@ void UvVizPass::record(const FrameContext& ctx) {
 
     auto draw_list = [&](const std::vector<DrawCommand>& list) {
         for (const auto& dc : list) {
-            if (dc.skinned) continue;
+            if (dc.skinned) continue; // TODO(skinned-viz): add skinned pipeline variant
             vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
                                0, sizeof(glm::mat4), &dc.world_matrix);
             dc.model->draw(cmd);

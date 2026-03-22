@@ -275,6 +275,8 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         }
     }
 
+    // TODO(compute-pre-skin): Remove vertex shader fallback once compute
+    // pre-skin writes skinned vertices into the meshlet vertex SSBO.
     // Skinned depth draws (vertex shader fallback)
     if (ctx.indirect_batch && ctx.queue) {
         const auto& skinned_indices = ctx.indirect_batch->skinned_draw_indices(ctx.frame_index);

@@ -17,7 +17,8 @@ private:
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
 
-    // Skinned depth: vertex shader pipeline (skinned meshes can't use mesh shaders)
+    // TODO(compute-pre-skin): Remove once skinned meshes go through mesh shader path.
+    // Skinned depth: vertex shader pipeline (skinned meshes can't use mesh shaders yet)
     VkPipelineLayout skinned_layout_{VK_NULL_HANDLE};
     VkPipeline skinned_pipeline_{VK_NULL_HANDLE};
 
