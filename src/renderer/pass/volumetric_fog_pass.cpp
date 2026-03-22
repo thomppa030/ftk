@@ -1,4 +1,6 @@
 #include "renderer/pass/volumetric_fog_pass.hpp"
+#include "renderer/device.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
@@ -157,10 +159,10 @@ void VolumetricFogPass::destroy_volume_image(VolumeImage& img) {
 
 // ── Create / Destroy ────────────────────────────────────────────────────────
 
-void VolumetricFogPass::create(VkDevice device, VkPhysicalDevice physical_device,
-                                VkDescriptorSetLayout global_set_layout) {
-    device_ = device;
-    physical_device_ = physical_device;
+void VolumetricFogPass::create(Device& device, const PassResources& resources) {
+    device_ = device.handle();
+    physical_device_ = device.physical_device();
+    auto global_set_layout = resources.global_set_layout;
 
     // Linear sampler for trilinear 3D texture sampling
     VkSamplerCreateInfo sampler_ci{};
@@ -746,6 +748,13 @@ VkDescriptorSet VolumetricFogPass::imgui_texture() {
 
 void VolumetricFogPass::invalidate_imgui_texture() {
     imgui_descriptor_ = VK_NULL_HANDLE;
+}
+
+void VolumetricFogPass::record(const FrameContext& ctx) {
+    auto extent = ctx.target->extent();
+    dispatch(ctx.cmd, ctx.global_descriptor_set,
+             ctx.target->depth_view(), ctx.target->color_view(),
+             extent.width, extent.height, ctx.frame_index);
 }
 
 } // namespace fjell

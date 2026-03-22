@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
+
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
@@ -9,16 +11,13 @@
 
 namespace fjell {
 
-class VolumetricFogPass {
+class VolumetricFogPass : public RenderPass {
 public:
-    void create(VkDevice device, VkPhysicalDevice physical_device,
-                VkDescriptorSetLayout global_set_layout);
-    void destroy();
-    void resize(uint32_t width, uint32_t height);
+    void create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
 
-    void dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
-                  VkImageView depth_view, VkImageView color_view,
-                  uint32_t width, uint32_t height, uint32_t frame_index);
+    void resize(uint32_t width, uint32_t height);
 
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
@@ -35,6 +34,10 @@ public:
     glm::vec3 fog_color_{0.8f, 0.85f, 0.9f};
 
 private:
+    void dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
+                  VkImageView depth_view, VkImageView color_view,
+                  uint32_t width, uint32_t height, uint32_t frame_index);
+
     static constexpr uint32_t TILE_SIZE = 8;
     static constexpr uint32_t DEPTH_SLICES = 64;
     static constexpr uint32_t SCREEN_DIVISOR = 16;

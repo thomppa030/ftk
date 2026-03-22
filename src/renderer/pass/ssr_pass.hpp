@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -7,19 +9,13 @@
 
 namespace fjell {
 
-class SsrPass {
+class SsrPass : public RenderPass {
 public:
-    void create(VkDevice device, VkPhysicalDevice physical_device,
-                VkDescriptorSetLayout global_set_layout);
-    void destroy();
+    void create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
 
     void resize(uint32_t width, uint32_t height);
-
-    /// Run all SSR sub-passes: Hi-Z build, trace, composite.
-    void dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
-                  VkImageView depth_view, VkImageView color_view,
-                  VkImageView prev_color_view,
-                  uint32_t width, uint32_t height);
 
     [[nodiscard]] VkImageView ssr_view() const { return ssr_view_; }
     [[nodiscard]] VkImage ssr_image() const { return ssr_image_; }
@@ -39,6 +35,10 @@ public:
     [[nodiscard]] float intensity() const { return intensity_; }
 
 private:
+    void dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
+                  VkImageView depth_view, VkImageView color_view,
+                  VkImageView prev_color_view,
+                  uint32_t width, uint32_t height);
     void create_images(uint32_t width, uint32_t height);
     void destroy_images();
 

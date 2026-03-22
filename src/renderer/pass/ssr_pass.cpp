@@ -1,4 +1,6 @@
 #include "renderer/pass/ssr_pass.hpp"
+#include "renderer/device.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
@@ -94,10 +96,10 @@ static void insert_image_barrier(VkCommandBuffer cmd, VkImage image,
 
 // ── Create ───────────────────────────────────────────────────────────────
 
-void SsrPass::create(VkDevice device, VkPhysicalDevice physical_device,
-                     VkDescriptorSetLayout global_set_layout) {
-    device_ = device;
-    physical_device_ = physical_device;
+void SsrPass::create(Device& device, const PassResources& resources) {
+    device_ = device.handle();
+    physical_device_ = device.physical_device();
+    auto global_set_layout = resources.global_set_layout;
 
     // ── Samplers ─────────────────────────────────────────────────────
     {
@@ -831,6 +833,14 @@ void SsrPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
     vkCmdPushConstants(cmd, composite_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(comp_push), &comp_push);
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
+}
+
+void SsrPass::record(const FrameContext& ctx) {
+    auto extent = ctx.target->extent();
+    dispatch(ctx.cmd, ctx.global_descriptor_set,
+             ctx.target->depth_view(), ctx.target->color_view(),
+             ctx.prev_frame_color_view,
+             extent.width, extent.height);
 }
 
 } // namespace fjell

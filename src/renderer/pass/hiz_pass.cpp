@@ -1,4 +1,6 @@
 #include "renderer/pass/hiz_pass.hpp"
+#include "renderer/device.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/shader_utils.hpp"
 #include "renderer/vk_check.hpp"
 #include "core/base_path.hpp"
@@ -10,9 +12,9 @@
 
 namespace fjell {
 
-void HizPass::create(VkDevice device, VkPhysicalDevice physical_device) {
-    device_ = device;
-    physical_device_ = physical_device;
+void HizPass::create(Device& device, const PassResources& /*resources*/) {
+    device_ = device.handle();
+    physical_device_ = device.physical_device();
 
     // Sampler: nearest filter, clamp to edge, all mips
     VkSamplerCreateInfo sampler_ci{};
@@ -310,6 +312,11 @@ void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
         src_w = dst_w;
         src_h = dst_h;
     }
+}
+
+void HizPass::record(const FrameContext& ctx) {
+    auto extent = ctx.target->extent();
+    dispatch(ctx.cmd, ctx.target->depth_view(), extent.width, extent.height);
 }
 
 } // namespace fjell

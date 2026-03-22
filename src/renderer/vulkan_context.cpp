@@ -33,74 +33,32 @@
 namespace fjell {
 
 VulkanContext::VulkanContext(Window& window)
-    : window_{window}
-    , device_{window}
-    , swapchain_{device_, window}
-    , render_stats_{std::make_unique<RenderStats>()} {
+    : gpu_{window} {
     FJELL_GFX_INFO("Initializing Vulkan context");
-    create_command_pool();
-    create_descriptor_resources();
-    bindless_textures_.create(device_.handle(), device_.physical_device());
 
-    // Multi-draw indirect setup
-    mega_buffer_ = std::make_unique<MegaBuffer>(
-        device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
-    indirect_batch_ = std::make_unique<IndirectBatch>(
-        device_.handle(), device_.physical_device());
-    draw_data_descriptor_.create(device_.handle());
+    // Scene gathering: indirect batches + draw data descriptors
+    gatherer_.init(gpu_);
 
-    shadow_batch_ = std::make_unique<IndirectBatch>(
-        device_.handle(), device_.physical_device());
-    shadow_draw_data_.create(device_.handle());
+    // Init pipelines now that draw_data_layout is available
+    gpu_.init_pipelines(gatherer_.draw_data_descriptor().layout());
 
-    // Meshlet buffers + descriptor (uploaded at model load time)
-    if (device_.mesh_shader_supported()) {
-        meshlet_buffer_ = std::make_unique<MeshletBuffer>(
-            device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
-        meshlet_descriptor_.create(device_.handle(), device_.physical_device());
-        meshlet_instance_pass_.create(device_.handle(), device_.physical_device(),
-                                       global_set_layout_->handle());
-        hiz_pass_.create(device_.handle(), device_.physical_device());
-        use_mesh_shaders_ = true;
+    // Build PassResources with draw_data_layout
+    PassResources pass_resources = gpu_.pass_resources();
+    pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
+
+    depth_prepass_.create(gpu_.device_ref(), pass_resources);
+    if (gpu_.use_mesh_shaders()) {
+        meshlet_instance_pass_.create(gpu_.device(), gpu_.physical_device(),
+                                       gpu_.global_set_layout());
+        hiz_pass_.create(gpu_.device_ref(), pass_resources);
+        mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources);
+        meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources);
+        cull_pass_.create(gpu_.device(), gpu_.physical_device(),
+                          gpu_.global_set_layout());
+        cull_viz_pass_.create(gpu_.device_ref(), pass_resources);
     }
-
-    // Query and clamp MSAA sample count
-    auto max_samples = device_.max_msaa_samples();
-    msaa_samples_ = static_cast<VkSampleCountFlagBits>(
-        std::min(static_cast<uint32_t>(VK_SAMPLE_COUNT_4_BIT),
-                 static_cast<uint32_t>(max_samples)));
-    FJELL_GFX_INFO("MSAA: {}x", static_cast<uint32_t>(msaa_samples_));
-
-    VkFormat depth_format = device_.find_depth_format();
-    pipeline_ = std::make_unique<Pipeline>(
-        device_, OffscreenPass::COLOR_FORMAT, depth_format,
-        global_set_layout_->handle(), bindless_textures_.layout(),
-        draw_data_descriptor_.layout(), msaa_samples_);
-
-    pipeline_cache_ = std::make_unique<PipelineCache>(
-        device_, OffscreenPass::COLOR_FORMAT, depth_format,
-        global_set_layout_->handle(), bindless_textures_.layout(),
-        draw_data_descriptor_.layout(), msaa_samples_,
-        use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE);
-
-    PassResources pass_resources{};
-    pass_resources.global_set_layout = global_set_layout_->handle();
-    pass_resources.material_set_layout = bindless_textures_.layout();
-    pass_resources.draw_data_layout = draw_data_descriptor_.layout();
-    pass_resources.meshlet_layout = use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
-    pass_resources.depth_format = depth_format;
-    pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
-    pass_resources.sample_count = msaa_samples_;
-    depth_prepass_.create(device_, pass_resources);
-    if (use_mesh_shaders_) {
-        mesh_shader_depth_pass_.create(device_, pass_resources);
-        meshlet_viz_pass_.create(device_, pass_resources);
-        cull_pass_.create(device_.handle(), device_.physical_device(),
-                          global_set_layout_->handle());
-        cull_viz_pass_.create(device_, pass_resources);
-    }
-    shadow_pass_.create(device_, pass_resources);
-    depth_viz_pass_.create(device_, pass_resources);
+    shadow_pass_.create(gpu_.device_ref(), pass_resources);
+    depth_viz_pass_.create(gpu_.device_ref(), pass_resources);
 
     // Write shadow map sampler into global descriptor sets (binding 1)
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -111,67 +69,47 @@ VulkanContext::VulkanContext(Window& window)
 
         VkWriteDescriptorSet write{};
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = global_descriptor_sets_[i];
+        write.dstSet = gpu_.global_descriptor_set(i);
         write.dstBinding = 1;
         write.dstArrayElement = 0;
         write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         write.descriptorCount = 1;
         write.pImageInfo = &shadow_info;
 
-        vkUpdateDescriptorSets(device_.handle(), 1, &write, 0, nullptr);
+        vkUpdateDescriptorSets(gpu_.device(), 1, &write, 0, nullptr);
     }
 
-    debug_pass_.create(device_, pass_resources);
-    grid_pass_.create(device_, pass_resources);
-    wireframe_pass_.create(device_, pass_resources);
-    normal_pass_.create(device_, pass_resources);
-    overdraw_pass_.create(device_, pass_resources);
-    uv_viz_pass_.create(device_, pass_resources);
-    bloom_pass_.create(device_, pass_resources);
-    sky_pass_.create(device_, pass_resources);
-    transparent_pass_.create(device_, pass_resources);
-    tonemap_pass_.create(device_, pass_resources);
-    gtao_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
-    ssr_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
-    volumetric_fog_pass_.create(device_.handle(), device_.physical_device(), global_set_layout_->handle());
-    light_cull_pass_.create(device_.handle(), global_set_layout_->handle());
+    debug_pass_.create(gpu_.device_ref(), pass_resources);
+    grid_pass_.create(gpu_.device_ref(), pass_resources);
+    wireframe_pass_.create(gpu_.device_ref(), pass_resources);
+    normal_pass_.create(gpu_.device_ref(), pass_resources);
+    overdraw_pass_.create(gpu_.device_ref(), pass_resources);
+    uv_viz_pass_.create(gpu_.device_ref(), pass_resources);
+    bloom_pass_.create(gpu_.device_ref(), pass_resources);
+    sky_pass_.create(gpu_.device_ref(), pass_resources);
+    transparent_pass_.create(gpu_.device_ref(), pass_resources);
+    tonemap_pass_.create(gpu_.device_ref(), pass_resources);
+    gtao_pass_.create(gpu_.device_ref(), pass_resources);
+    ssr_pass_.create(gpu_.device_ref(), pass_resources);
+    volumetric_fog_pass_.create(gpu_.device_ref(), pass_resources);
+    light_cull_pass_.create(gpu_.device_ref(), pass_resources);
     light_heatmap_pass_.set_mode(0);
-    light_heatmap_pass_.create(device_, pass_resources);
+    light_heatmap_pass_.create(gpu_.device_ref(), pass_resources);
     light_grid_pass_.set_mode(1);
-    light_grid_pass_.create(device_, pass_resources);
-    particle_system_.create(device_, pass_resources);
+    light_grid_pass_.create(gpu_.device_ref(), pass_resources);
+    particle_system_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Creating sprite renderer");
-    sprite_renderer_.create(device_, pass_resources);
+    sprite_renderer_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Creating outline pipeline");
     create_outline_pipeline();
     FJELL_GFX_DEBUG("Creating debug draw");
-    debug_draw_ = std::make_unique<DebugDraw>(device_.handle(), device_.physical_device());
-
-    FJELL_GFX_DEBUG("Creating command buffers and sync objects");
-    create_command_buffers();
-    create_sync_objects();
-
-#ifdef FJELL_ENABLE_TRACY
-    {
-        VkCommandBufferAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc_info.commandPool = command_pool_;
-        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc_info.commandBufferCount = 1;
-        VkCommandBuffer tracy_cmd;
-        vkAllocateCommandBuffers(device_.handle(), &alloc_info, &tracy_cmd);
-        tracy_vk_ctx_ = TracyVkContext(
-            device_.physical_device(), device_.handle(),
-            device_.graphics_queue(), tracy_cmd);
-        TracyVkContextName(tracy_vk_ctx_, "Fjell GPU", 9);
-    }
-#endif
+    debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.physical_device());
 
     FJELL_GFX_INFO("Vulkan context ready");
 }
 
 VulkanContext::~VulkanContext() {
-    auto vk_device = device_.handle();
+    auto vk_device = gpu_.device();
 
     debug_draw_.reset();
     if (outline_pipeline_) { vkDestroyPipeline(vk_device, outline_pipeline_, nullptr); outline_pipeline_ = VK_NULL_HANDLE; }
@@ -216,264 +154,14 @@ VulkanContext::~VulkanContext() {
     meshlet_instance_pass_.destroy();
     hiz_pass_.destroy();
 
-    meshlet_descriptor_.destroy();
-    meshlet_buffer_.reset();
-    indirect_batch_.reset();
-    mega_buffer_.reset();
-    draw_data_descriptor_.destroy();
-    for (auto& ub : uniform_buffers_)
-        ub.reset();
-    for (auto& lb : light_ssbo_)
-        lb.reset();
-    for (auto& tb : tile_light_ssbo_)
-        tb.reset();
-    if (depth_sampler_ != VK_NULL_HANDLE)
-        vkDestroySampler(vk_device, depth_sampler_, nullptr);
-    global_pool_.reset();
-    global_set_layout_.reset();
-    bindless_textures_.destroy();
-    pipeline_cache_.reset();
-    pipeline_.reset();
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (image_available_[i] != VK_NULL_HANDLE)
-            vkDestroySemaphore(vk_device, image_available_[i], nullptr);
-        if (in_flight_[i] != VK_NULL_HANDLE)
-            vkDestroyFence(vk_device, in_flight_[i], nullptr);
-    }
-#ifdef FJELL_ENABLE_TRACY
-    if (tracy_vk_ctx_) {
-        TracyVkDestroy(tracy_vk_ctx_);
-        tracy_vk_ctx_ = nullptr;
-    }
-#endif
-
-    secondary_pools_.destroy();
-    if (command_pool_ != VK_NULL_HANDLE)
-        vkDestroyCommandPool(vk_device, command_pool_, nullptr);
+    // SceneGatherer (gatherer_) destroyed automatically — owns its
+    // indirect batches and draw data descriptors.
+    // GpuContext (gpu_) destroyed automatically — owns device, swapchain,
+    // command pools, descriptors, sync objects, mega_buffer, pipelines, etc.
 }
 
 void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources) {
     sprite_renderer_.sync_textures(scene, resources);
-}
-
-void VulkanContext::create_descriptor_resources() {
-    auto vk_device = device_.handle();
-
-    // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler,
-    // binding 2 = light SSBO, binding 3 = tile light index SSBO,
-    // binding 4 = depth texture (for light culling compute)
-    std::array<VkDescriptorSetLayoutBinding, 6> global_bindings{};
-    global_bindings[0].binding = 0;
-    global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    global_bindings[0].descriptorCount = 1;
-    global_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                                     VK_SHADER_STAGE_COMPUTE_BIT |
-                                     VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
-
-    global_bindings[1].binding = 1;
-    global_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[1].descriptorCount = 1;
-    global_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[2].binding = 2;
-    global_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    global_bindings[2].descriptorCount = 1;
-    global_bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[3].binding = 3;
-    global_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    global_bindings[3].descriptorCount = 1;
-    global_bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[4].binding = 4;
-    global_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[4].descriptorCount = 1;
-    global_bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[5].binding = 5;
-    global_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[5].descriptorCount = 1;
-    global_bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    global_set_layout_ = std::make_unique<DescriptorSetLayout>(
-        vk_device, std::span{global_bindings});
-
-    std::array<VkDescriptorPoolSize, 3> global_pool_sizes{};
-    global_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    global_pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-    global_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 3; // shadow map + depth texture + AO texture
-    global_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    global_pool_sizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // light SSBO + tile SSBO
-
-    global_pool_ = std::make_unique<DescriptorPool>(
-        vk_device, std::span{global_pool_sizes}, MAX_FRAMES_IN_FLIGHT);
-
-    // Light SSBO: 1024 point + 1024 spot lights (~48 KB)
-    constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
-    // Tile light index SSBO: max tiles, each with count + MAX_LIGHTS_PER_TILE indices
-    constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
-                                             MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        uniform_buffers_[i] = std::make_unique<Buffer>(
-            vk_device, device_.physical_device(), sizeof(GlobalUbo),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        uniform_buffers_[i]->map();
-
-        // Light SSBO (host-visible for CPU upload)
-        light_ssbo_[i] = std::make_unique<Buffer>(
-            vk_device, device_.physical_device(), light_ssbo_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        light_ssbo_[i]->map();
-
-        // Tile light index SSBO (device-local, compute writes, fragment reads)
-        tile_light_ssbo_[i] = std::make_unique<Buffer>(
-            vk_device, device_.physical_device(), tile_ssbo_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    }
-
-    // Depth sampler for compute light culling (nearest, clamp-to-edge)
-    VkSamplerCreateInfo sampler_ci{};
-    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_ci.magFilter = VK_FILTER_NEAREST;
-    sampler_ci.minFilter = VK_FILTER_NEAREST;
-    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-    if (vkCreateSampler(vk_device, &sampler_ci, nullptr, &depth_sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create depth sampler for light culling");
-    }
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        global_descriptor_sets_[i] = global_pool_->allocate(*global_set_layout_);
-
-        VkDescriptorBufferInfo buffer_info{};
-        buffer_info.buffer = uniform_buffers_[i]->handle();
-        buffer_info.offset = 0;
-        buffer_info.range = sizeof(GlobalUbo);
-
-        VkDescriptorBufferInfo light_info{};
-        light_info.buffer = light_ssbo_[i]->handle();
-        light_info.offset = 0;
-        light_info.range = light_ssbo_size;
-
-        VkDescriptorBufferInfo tile_info{};
-        tile_info.buffer = tile_light_ssbo_[i]->handle();
-        tile_info.offset = 0;
-        tile_info.range = tile_ssbo_size;
-
-        std::array<VkWriteDescriptorSet, 3> writes{};
-
-        // Binding 0: UBO
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = global_descriptor_sets_[i];
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo = &buffer_info;
-
-        // Binding 2: Light SSBO
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = global_descriptor_sets_[i];
-        writes[1].dstBinding = 2;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[1].descriptorCount = 1;
-        writes[1].pBufferInfo = &light_info;
-
-        // Binding 3: Tile light index SSBO
-        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[2].dstSet = global_descriptor_sets_[i];
-        writes[2].dstBinding = 3;
-        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[2].descriptorCount = 1;
-        writes[2].pBufferInfo = &tile_info;
-
-        vkUpdateDescriptorSets(vk_device, static_cast<uint32_t>(writes.size()),
-                               writes.data(), 0, nullptr);
-    }
-
-    FJELL_GFX_DEBUG("Descriptor resources created");
-}
-
-void VulkanContext::create_command_pool() {
-    auto indices = device_.find_queue_families();
-
-    VkCommandPoolCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    create_info.queueFamilyIndex = indices.graphics.value();
-
-    if (vkCreateCommandPool(device_.handle(), &create_info, nullptr, &command_pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create command pool");
-    }
-}
-
-void VulkanContext::create_command_buffers() {
-    command_buffers_.resize(MAX_FRAMES_IN_FLIGHT);
-
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = command_pool_;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = static_cast<uint32_t>(command_buffers_.size());
-
-    if (vkAllocateCommandBuffers(device_.handle(), &alloc_info, command_buffers_.data()) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate command buffers");
-    }
-}
-
-void VulkanContext::create_sync_objects() {
-    VkSemaphoreCreateInfo sem_info{};
-    sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    VkFenceCreateInfo fence_info{};
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (vkCreateSemaphore(device_.handle(), &sem_info, nullptr, &image_available_[i]) != VK_SUCCESS ||
-            vkCreateFence(device_.handle(), &fence_info, nullptr, &in_flight_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create sync objects");
-        }
-    }
-}
-
-// ── Image layout transitions (Vulkan 1.3 synchronization2) ─────────────
-
-void VulkanContext::transition_image(VkCommandBuffer cmd, VkImage image,
-                                     VkImageLayout old_layout, VkImageLayout new_layout,
-                                     VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                                     VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access,
-                                     VkImageAspectFlags aspect) {
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = src_stage;
-    barrier.srcAccessMask = src_access;
-    barrier.dstStageMask = dst_stage;
-    barrier.dstAccessMask = dst_access;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange.aspectMask = aspect;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-
-    vkCmdPipelineBarrier2(cmd, &dep);
 }
 
 // ── Command buffer recording ────────────────────────────────────────────
@@ -489,7 +177,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         if (prev_frame_color_ == VK_NULL_HANDLE ||
             ext.width != prev_frame_extent_.width ||
             ext.height != prev_frame_extent_.height) {
-            auto vk = device_.handle();
+            auto vk = gpu_.device();
             vkDeviceWaitIdle(vk);
 
             if (prev_frame_color_view_ != VK_NULL_HANDLE) {
@@ -527,7 +215,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
             alloc.allocationSize = reqs.size;
             alloc.memoryTypeIndex = Buffer::find_memory_type(
-                device_.physical_device(), reqs.memoryTypeBits,
+                gpu_.physical_device(), reqs.memoryTypeBits,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
             vkAllocateMemory(vk, &alloc, nullptr, &prev_frame_color_memory_);
             vkBindImageMemory(vk, prev_frame_color_, prev_frame_color_memory_, 0);
@@ -547,7 +235,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             VkCommandBuffer init_cmd;
             VkCommandBufferAllocateInfo cmd_ai{};
             cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            cmd_ai.commandPool = command_pool_;
+            cmd_ai.commandPool = gpu_.command_pool();
             cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
             cmd_ai.commandBufferCount = 1;
             vkAllocateCommandBuffers(vk, &cmd_ai, &init_cmd);
@@ -578,250 +266,85 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
             submit.commandBufferCount = 1;
             submit.pCommandBuffers = &init_cmd;
-            vkQueueSubmit(device_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
-            vkQueueWaitIdle(device_.graphics_queue());
-            vkFreeCommandBuffers(vk, command_pool_, 1, &init_cmd);
+            vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
+            vkQueueWaitIdle(gpu_.graphics_queue());
+            vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &init_cmd);
         }
     }
-    // Build render queue with parallel frustum culling
-    std::vector<DrawCommand> shadow_commands;
-    if (scene) {
-        render_queue_.clear();
-        render_queue_.reserve(scene->objects().size());
-        shadow_commands.reserve(scene->objects().size());
-        Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
-
-        // Build per-cascade shadow caster frustums from light matrices.
-        // Near plane removed so objects behind the cascade (toward the light)
-        // are included — they may cast shadows into the visible area.
-        std::array<Frustum, ShadowPass::CASCADE_COUNT> shadow_frustums;
-        for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
-            shadow_frustums[c] = Frustum::from_vp_matrix_zo(
-                shadow_pass_.light_matrices()[c]).without_near_plane();
-        }
-
-        const auto& objects = scene->objects();
-        auto object_count = static_cast<uint32_t>(objects.size());
-
-        uint32_t num_chunks = pool.thread_count() + 1;
-        std::vector<std::vector<DrawCommand>> local_commands(num_chunks);
-        std::vector<std::vector<DrawCommand>> local_shadow_commands(num_chunks);
-        std::vector<uint32_t> local_total(num_chunks, 0);
-        std::vector<uint32_t> local_culled(num_chunks, 0);
-
-        pool.parallel_for(0, object_count,
-            [&](uint32_t chunk_id, uint32_t begin, uint32_t end) {
-                auto& commands = local_commands[chunk_id];
-                auto& shadow_cmds = local_shadow_commands[chunk_id];
-
-                for (uint32_t i = begin; i < end; ++i) {
-                    const auto& obj = objects[i];
-                    if (obj->components.has<SpriteComponent>()) continue;
-
-                    // Skeletal mesh path
-                    if (auto* skel = obj->components.get<SkeletalMeshComponent>(); skel && skel->skeletal_model) {
-                        local_total[chunk_id]++;
-
-                        DrawCommand dc{};
-                        dc.world_matrix = obj->world_matrix_;
-                        dc.push.model = obj->world_matrix_;
-                        dc.skeletal_model = skel->skeletal_model;
-                        dc.skinned = true;
-                        dc.node_id = obj->id;
-                        if (skel->material) {
-                            dc.push.material_id = skel->material->material_id();
-                            dc.pipeline_id = skel->material->pipeline_id();
-                            dc.sort_key = RenderQueue::make_sort_key(
-                                dc.pipeline_id, skel->material->material_id(),
-                                obj->id, true);
-                            dc.transparent = (skel->material->params().base_color_factor.w < 1.0f);
-                        }
-                        dc.world_aabb = skel->skeletal_model->local_aabb()
-                                            .transform(obj->world_matrix_);
-
-                        if (!dc.transparent) {
-                            for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
-                                if (shadow_frustums[c].intersects(dc.world_aabb)) {
-                                    shadow_cmds.push_back(dc);
-                                    break;
-                                }
-                            }
-                        }
-                        if (!camera_frustum.intersects(dc.world_aabb)) {
-                            local_culled[chunk_id]++;
-                            continue;
-                        }
-                        if (dc.transparent) {
-                            glm::vec3 obj_pos = glm::vec3(dc.world_matrix[3]);
-                            dc.camera_distance = glm::length(camera_position_ - obj_pos);
-                        }
-                        commands.push_back(dc);
-                        continue;
-                    }
-
-                    // Static mesh path
-                    auto* mesh = obj->components.get<MeshComponent>();
-                    if (!mesh || !mesh->model) continue;
-
-                    local_total[chunk_id]++;
-
-                    DrawCommand dc{};
-                    dc.world_matrix = obj->world_matrix_;
-                    dc.push.model = obj->world_matrix_;
-                    if (mesh->material) {
-                        dc.push.material_id = mesh->material->material_id();
-                        dc.pipeline_id = mesh->material->pipeline_id();
-                        dc.sort_key = RenderQueue::make_sort_key(
-                            dc.pipeline_id, mesh->material->material_id(), obj->id);
-                        dc.transparent = (mesh->material->params().base_color_factor.w < 1.0f);
-                    }
-                    dc.model = mesh->model;
-                    dc.node_id = obj->id;
-
-                    dc.world_aabb = mesh->model->local_aabb().transform(obj->world_matrix_);
-
-                    // Shadow cull: include if visible to any cascade's
-                    // expanded frustum (near plane removed to catch casters
-                    // behind the cascade along the light direction)
-                    if (!dc.transparent) {
-                        for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
-                            if (shadow_frustums[c].intersects(dc.world_aabb)) {
-                                shadow_cmds.push_back(dc);
-                                break;
-                            }
-                        }
-                    }
-
-                    // Camera cull
-                    if (!camera_frustum.intersects(dc.world_aabb)) {
-                        local_culled[chunk_id]++;
-                        continue;
-                    }
-
-                    // Precompute distance for transparent sort (avoid sqrt in sort comparator)
-                    if (dc.transparent) {
-                        glm::vec3 obj_pos = glm::vec3(dc.world_matrix[3]);
-                        dc.camera_distance = glm::length(camera_position_ - obj_pos);
-                    }
-
-                    commands.push_back(dc);
-                }
-            });
-
-        // Merge per-chunk results
-        for (uint32_t i = 0; i < num_chunks; ++i) {
-            render_stats_->objects_total += local_total[i];
-            render_stats_->objects_culled += local_culled[i];
-            for (const auto& dc : local_commands[i]) {
-                render_queue_.push(dc);
-            }
-            for (const auto& dc : local_shadow_commands[i]) {
-                shadow_commands.push_back(dc);
-            }
-        }
-        render_queue_.sort(camera_position_);
+    // Gather scene: frustum cull, build render queue and indirect batches
+    {
+        GatherInput gi{};
+        gi.scene = scene;
+        gi.view = gatherer_.view_matrix();
+        gi.projection = gatherer_.projection_matrix();
+        gi.camera_position = gatherer_.camera_position();
+        gi.frame_index = current_frame_;
+        gi.shadow_pass = &shadow_pass_;
+        gi.pool = &pool;
+        gi.stats = &gpu_.render_stats();
+        gi.animation_system = animation_system_;
+        gatherer_.gather(gi);
     }
 
     // Flush any pending bindless texture/material updates
-    bindless_textures_.update_descriptors();
-    bindless_textures_.update_material_buffer();
-
-    // Upload bone matrices before indirect batch build (offsets needed by GpuDrawData)
-    if (animation_system_ && scene) {
-        animation_system_->upload_bones(*scene, current_frame_);
-    }
-
-    // Build indirect draw commands from opaque + transparent queues (with LOD selection)
-    indirect_batch_->build(render_queue_.commands(),
-                           render_queue_.transparent_commands(),
-                           current_frame_,
-                           projection_matrix_, camera_position_,
-                           animation_system_);
-
-    // Build shadow indirect batch from all shadow casters (not camera-culled)
-    std::vector<DrawCommand> empty_transparent;
-    shadow_batch_->build(shadow_commands, empty_transparent, current_frame_);
-
-    // Update draw data descriptor for this frame
-    if (indirect_batch_->draw_data_count(current_frame_) > 0) {
-        draw_data_descriptor_.update(
-            indirect_batch_->draw_data_buffer(current_frame_),
-            indirect_batch_->draw_data_size(current_frame_),
-            current_frame_);
-    }
-
-    // Update bone SSBO descriptor
-    if (animation_system_ && animation_system_->has_bones_this_frame()) {
-        auto& bb = animation_system_->bone_buffer();
-        if (bb.total_bones(current_frame_) > 0) {
-            draw_data_descriptor_.update_bones(
-                bb.buffer(current_frame_),
-                bb.byte_size(current_frame_),
-                current_frame_);
-        }
-    }
-
-    // Update shadow draw data descriptor
-    if (shadow_batch_->draw_data_count(current_frame_) > 0) {
-        shadow_draw_data_.update(
-            shadow_batch_->draw_data_buffer(current_frame_),
-            shadow_batch_->draw_data_size(current_frame_),
-            current_frame_);
-    }
-
+    gpu_.bindless_textures().update_descriptors();
+    gpu_.bindless_textures().update_material_buffer();
     // Upload world-space AABBs for GPU frustum culling
-    if (use_mesh_shaders_ && cull_pass_.enabled()) {
-        uint32_t opaque_count = indirect_batch_->opaque_draw_count(current_frame_);
-        const auto* aabbs = indirect_batch_->aabb_data(current_frame_);
+    if (gpu_.use_mesh_shaders() && cull_pass_.enabled()) {
+        uint32_t opaque_count = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
+        const auto* aabbs = gatherer_.indirect_batch()->aabb_data(current_frame_);
         if (opaque_count > 0 && aabbs) {
             cull_pass_.upload_aabbs(aabbs, opaque_count, current_frame_);
         }
     }
 
     // Ensure meshlet instance buffers are large enough
-    if (use_mesh_shaders_) {
-        uint32_t total_mi = indirect_batch_->total_meshlet_instances(current_frame_);
+    if (gpu_.use_mesh_shaders()) {
+        uint32_t total_mi = gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
         if (total_mi > 0) {
             meshlet_instance_pass_.ensure_capacity(current_frame_, total_mi);
         }
     }
 
     // Update meshlet descriptor (set 3) if mesh shaders are available
-    if (meshlet_buffer_ && meshlet_buffer_->total_meshlets() > 0) {
-        meshlet_descriptor_.update(*meshlet_buffer_, *mega_buffer_, current_frame_,
+    if (gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
+        gpu_.meshlet_descriptor().update(*gpu_.meshlet_buffer(), *gpu_.mega_buffer(), current_frame_,
                                     meshlet_instance_pass_.visible_buffer(current_frame_),
                                     meshlet_instance_pass_.visible_buffer_size(current_frame_));
     }
 
     // Update sprite SSBO for this frame
     if (scene) {
-        sprite_renderer_.update(*scene, projection_matrix_ * view_matrix_,
-                                camera_position_, current_frame_, playing_);
+        sprite_renderer_.update(*scene, gatherer_.projection_matrix() * gatherer_.view_matrix(),
+                                gatherer_.camera_position(), current_frame_, playing_);
     }
 
     FrameContext ctx{};
     ctx.cmd = cmd;
     ctx.target = &target;
-    ctx.queue = &render_queue_;
-    ctx.camera_position = camera_position_;
-    ctx.global_descriptor_set = global_descriptor_sets_[current_frame_];
-    ctx.bindless_set = bindless_textures_.descriptor_set();
-    ctx.draw_data_set = draw_data_descriptor_.descriptor_set(current_frame_);
+    ctx.queue = &gatherer_.render_queue();
+    ctx.camera_position = gatherer_.camera_position();
+    ctx.global_descriptor_set = gpu_.global_descriptor_set(current_frame_);
+    ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
+    ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
     ctx.debug_draw = debug_draw_.get();
     ctx.scene = scene;
     ctx.delta_time = dt;
     ctx.selected_id = selected_id;
     ctx.show_colliders = show_colliders_;
     ctx.frame_index = current_frame_;
-    ctx.indirect_batch = indirect_batch_.get();
-    ctx.mega_buffer = mega_buffer_.get();
-    ctx.use_mesh_shaders = use_mesh_shaders_;
-    ctx.pipeline_cache = pipeline_cache_.get();
-    if (use_mesh_shaders_) {
-        ctx.meshlet_set = meshlet_descriptor_.descriptor_set(current_frame_);
+    ctx.indirect_batch = gatherer_.indirect_batch();
+    ctx.mega_buffer = gpu_.mega_buffer();
+    ctx.use_mesh_shaders = gpu_.use_mesh_shaders();
+    ctx.pipeline_cache = gpu_.pipeline_cache();
+    if (gpu_.use_mesh_shaders()) {
+        ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
         ctx.gpu_driven_indirect = meshlet_instance_pass_.indirect_buffer(current_frame_);
         ctx.gpu_driven_segment_size = meshlet_instance_pass_.segment_size(current_frame_);
     }
+    ctx.prev_frame_color_view = prev_frame_color_view_;
+    ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
+    ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
 
     // ── Frame graph: declare image usage per pass ────────────────────────
 
@@ -834,12 +357,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // When MSAA: track the resolve image (read by post-process) and the MSAA image (render target)
     uint32_t color_id = graph.register_image(target.color_image());
     uint32_t msaa_color_id = color_id;
-    if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+    if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
         msaa_color_id = graph.register_image(target.msaa_color_image());
     }
     uint32_t depth_id = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
     uint32_t msaa_depth_id = depth_id;
-    if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+    if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
         msaa_depth_id = graph.register_image(target.msaa_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
     }
     graph.begin_frame();
@@ -847,12 +370,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Shadow pass — uses its own batch with per-cascade culled objects
     graph.add_pass("shadow", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Shadow Pass");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Shadow Pass");
 #endif
         FrameContext local = ctx;
         local.cmd = cb;
-        local.indirect_batch = shadow_batch_.get();
-        local.draw_data_set = shadow_draw_data_.descriptor_set(current_frame_);
+        local.indirect_batch = gatherer_.shadow_batch();
+        local.draw_data_set = gatherer_.shadow_draw_data().descriptor_set(current_frame_);
         shadow_pass_.record(local);
     }, {}, 1);
 
@@ -867,12 +390,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // meshlets. This catches geometry that was occluded last frame but visible now.
 
     // Depth prepass: render ALL meshlets (vertex or mesh shader)
-    auto& depth_pass = use_mesh_shaders_ ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
+    auto& depth_pass = gpu_.use_mesh_shaders() ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
                                           : static_cast<RenderPass&>(depth_prepass_);
-    if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+    if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
         graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-            TracyVkZone(tracy_vk_ctx_, cb, "Depth Prepass");
+            TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
 #endif
             FrameContext local = ctx;
             local.cmd = cb;
@@ -906,7 +429,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     } else {
         graph.add_pass("depth_prepass", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-            TracyVkZone(tracy_vk_ctx_, cb, "Depth Prepass");
+            TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
 #endif
             FrameContext local = ctx;
             local.cmd = cb;
@@ -919,45 +442,45 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Hi-Z pyramid build (from depth prepass output)
     graph.add_pass("hiz_build", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Hi-Z Build");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Hi-Z Build");
 #endif
-        if (use_mesh_shaders_ && hiz_pass_.ready()) {
-            auto extent = target.extent();
-            hiz_pass_.dispatch(cb, target.depth_view(),
-                               extent.width, extent.height);
+        if (gpu_.use_mesh_shaders() && hiz_pass_.ready()) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            hiz_pass_.record(local);
         }
     }, {{depth_id, ImageUsage::compute_read}});
 
     // GPU-driven meshlet expand + two-pass cull
     graph.add_pass("meshlet_expand_cull", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Meshlet Expand+Cull");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Meshlet Expand+Cull");
 #endif
-        if (use_mesh_shaders_) {
-            uint32_t total_draws = indirect_batch_->opaque_draw_count(current_frame_);
-            uint32_t total_mi = indirect_batch_->total_meshlet_instances(current_frame_);
+        if (gpu_.use_mesh_shaders()) {
+            uint32_t total_draws = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
+            uint32_t total_mi = gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
             if (total_draws > 0 && total_mi > 0) {
                 // Expand: scatter draws → flat meshlet instance array
                 meshlet_instance_pass_.dispatch_expand(
                     cb,
-                    indirect_batch_->draw_data_buffer(current_frame_),
-                    indirect_batch_->draw_data_size(current_frame_),
+                    gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
+                    gatherer_.indirect_batch()->draw_data_size(current_frame_),
                     total_draws, current_frame_);
                 meshlet_instance_pass_.insert_expand_barrier(cb);
 
-                auto& ranges_ref = indirect_batch_->pipeline_ranges(current_frame_);
+                auto& ranges_ref = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
                 auto extent = target.extent();
 
                 // First cull: frustum + current frame Hi-Z
                 meshlet_instance_pass_.dispatch_cull_first(
                     cb,
-                    global_descriptor_sets_[current_frame_],
-                    indirect_batch_->draw_data_buffer(current_frame_),
-                    indirect_batch_->draw_data_size(current_frame_),
-                    meshlet_buffer_ ? meshlet_buffer_->bounds_buffer() : VK_NULL_HANDLE,
-                    meshlet_buffer_ ? meshlet_buffer_->bounds_buffer_size() : 0,
-                    indirect_batch_->pipeline_bin_buffer(current_frame_),
-                    indirect_batch_->pipeline_bin_size(current_frame_),
+                    gpu_.global_descriptor_set(current_frame_),
+                    gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
+                    gatherer_.indirect_batch()->draw_data_size(current_frame_),
+                    gpu_.meshlet_buffer() ? gpu_.meshlet_buffer()->bounds_buffer() : VK_NULL_HANDLE,
+                    gpu_.meshlet_buffer() ? gpu_.meshlet_buffer()->bounds_buffer_size() : 0,
+                    gatherer_.indirect_batch()->pipeline_bin_buffer(current_frame_),
+                    gatherer_.indirect_batch()->pipeline_bin_size(current_frame_),
                     static_cast<uint32_t>(ranges_ref.size()),
                     current_frame_,
                     hiz_pass_.ready() ? hiz_pass_.sampled_view() : VK_NULL_HANDLE,
@@ -966,7 +489,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     hiz_pass_.ready() ? hiz_pass_.mip_count() : 0);
 
                 meshlet_instance_pass_.insert_cull_barrier(cb);
-                render_stats_->two_pass_occlusion = hiz_pass_.ready();
+                gpu_.render_stats().two_pass_occlusion = hiz_pass_.ready();
 
                 // Second cull pass is ready but skipped for now — with current-frame
                 // Hi-Z the culled buffer is empty (first pass already has accurate depth).
@@ -978,20 +501,20 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Post-depth compute passes
     graph.add_pass("gtao", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "GTAO");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "GTAO");
 #endif
-        auto extent = target.extent();
-        gtao_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
-                               extent.width, extent.height);
+        FrameContext local = ctx;
+        local.cmd = cb;
+        gtao_pass_.record(local);
     }, {{depth_id, ImageUsage::compute_read}});
 
     graph.add_pass("light_cull", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Light Cull");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Light Cull");
 #endif
-        auto extent = target.extent();
-        light_cull_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
-                                   extent.width, extent.height);
+        FrameContext local = ctx;
+        local.cmd = cb;
+        light_cull_pass_.record(local);
 
         VkMemoryBarrier2 mem_barrier{};
         mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -1009,7 +532,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     graph.add_pass("particle_compute", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Particle Compute");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Particle Compute");
 #endif
         if (scene) {
             particle_system_.sync_emitters(*scene);
@@ -1021,10 +544,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Cull visualization (debug view: green=visible, red=culled)
     graph.add_pass("cull_viz", [&](VkCommandBuffer cb) {
         if (!source_active(ViewportSource::gpu_cull)) return;
-        if (use_mesh_shaders_ && cull_pass_.enabled()) {
+        if (gpu_.use_mesh_shaders() && cull_pass_.enabled()) {
             FrameContext local = ctx;
             local.cmd = cb;
-            uint32_t opaque_count = indirect_batch_->opaque_draw_count(current_frame_);
+            uint32_t opaque_count = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
             if (opaque_count > 0) {
                 cull_viz_pass_.record(local,
                     cull_pass_.visibility_buffer(current_frame_),
@@ -1036,7 +559,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Color pass (opaques + sky + debug + transparent + particles in one rendering scope)
     graph.add_pass("color", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Color Pass");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Color Pass");
 #endif
         VkRenderingAttachmentInfo color_attachment{};
         color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -1046,7 +569,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
         color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
 
-        if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+        if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
             color_attachment.resolveImageView = target.color_view();
             color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
@@ -1059,7 +582,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
         depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-        if (msaa_samples_ != VK_SAMPLE_COUNT_1_BIT) {
+        if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
             depth_attachment.resolveImageView = target.depth_view();
             depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
             depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
@@ -1088,38 +611,38 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         sc.extent = target.extent();
         vkCmdSetScissor(cb, 0, 1, &sc);
 
-        std::array descriptor_sets = {global_descriptor_sets_[current_frame_],
-                                     bindless_textures_.descriptor_set(),
-                                     draw_data_descriptor_.descriptor_set(current_frame_)};
+        std::array descriptor_sets = {gpu_.global_descriptor_set(current_frame_),
+                                     gpu_.bindless_textures().descriptor_set(),
+                                     gatherer_.draw_data_descriptor().descriptor_set(current_frame_)};
 
         if (scene) {
 #ifdef FJELL_ENABLE_TRACY
-            { TracyVkZone(tracy_vk_ctx_, cb, "Opaques");
+            { TracyVkZone(gpu_.tracy_ctx(), cb, "Opaques");
 #endif
-            if (use_mesh_shaders_ && pipeline_cache_->has_mesh_shaders()) {
+            if (gpu_.use_mesh_shaders() && gpu_.pipeline_cache()->has_mesh_shaders()) {
                 // GPU-driven meshlet dispatch: single indirect call from culled visible buffer
-                std::array mesh_descriptor_sets = {global_descriptor_sets_[current_frame_],
-                                                   bindless_textures_.descriptor_set(),
-                                                   draw_data_descriptor_.descriptor_set(current_frame_),
-                                                   meshlet_descriptor_.descriptor_set(current_frame_)};
+                std::array mesh_descriptor_sets = {gpu_.global_descriptor_set(current_frame_),
+                                                   gpu_.bindless_textures().descriptor_set(),
+                                                   gatherer_.draw_data_descriptor().descriptor_set(current_frame_),
+                                                   gpu_.meshlet_descriptor().descriptor_set(current_frame_)};
 
-                const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
+                const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
                 auto indirect_buf = meshlet_instance_pass_.indirect_buffer(current_frame_);
 
                 if (indirect_buf && !ranges.empty()) {
-                    auto draw_indirect = device_.draw_mesh_tasks_indirect_fn();
+                    auto draw_indirect = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
                     uint32_t seg_size = meshlet_instance_pass_.segment_size(current_frame_);
 
                     for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
                         vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                          pipeline_cache_->gpu_driven_pipeline(ranges[bin].pipeline_id));
+                                          gpu_.pipeline_cache()->gpu_driven_pipeline(ranges[bin].pipeline_id));
                         vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                pipeline_cache_->gpu_driven_layout(),
+                                                gpu_.pipeline_cache()->gpu_driven_layout(),
                                                 0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
                                                 mesh_descriptor_sets.data(), 0, nullptr);
 
                         uint32_t bin_offset = bin * seg_size;
-                        vkCmdPushConstants(cb, pipeline_cache_->gpu_driven_layout(),
+                        vkCmdPushConstants(cb, gpu_.pipeline_cache()->gpu_driven_layout(),
                                           VK_SHADER_STAGE_TASK_BIT_EXT,
                                           0, sizeof(uint32_t), &bin_offset);
 
@@ -1129,55 +652,55 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     }
                 }
 
-                render_stats_->meshlets_dispatched +=
-                    indirect_batch_->total_meshlet_instances(current_frame_);
-                render_stats_->gpu_cull_active = true;
+                gpu_.render_stats().meshlets_dispatched +=
+                    gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
+                gpu_.render_stats().gpu_cull_active = true;
             } else {
-                mega_buffer_->bind(cb);
+                gpu_.mega_buffer()->bind(cb);
 
                 // Draw per-pipeline ranges with vertex pipelines
-                const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
+                const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
                 for (const auto& range : ranges) {
                     auto pipeline = range.skinned
-                        ? pipeline_cache_->skinned_opaque_pipeline(range.pipeline_id)
-                        : pipeline_cache_->opaque_pipeline(range.pipeline_id);
+                        ? gpu_.pipeline_cache()->skinned_opaque_pipeline(range.pipeline_id)
+                        : gpu_.pipeline_cache()->opaque_pipeline(range.pipeline_id);
                     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                            pipeline_cache_->layout(),
+                                            gpu_.pipeline_cache()->layout(),
                                             0, static_cast<uint32_t>(descriptor_sets.size()),
                                             descriptor_sets.data(), 0, nullptr);
 
                     VkDeviceSize offset = range.first_draw *
                                           sizeof(VkDrawIndexedIndirectCommand);
                     vkCmdDrawIndexedIndirect(cb,
-                                             indirect_batch_->indirect_buffer(current_frame_),
+                                             gatherer_.indirect_batch()->indirect_buffer(current_frame_),
                                              offset, range.draw_count,
                                              sizeof(VkDrawIndexedIndirectCommand));
-                    render_stats_->indirect_draws++;
+                    gpu_.render_stats().indirect_draws++;
                 }
             }
-            render_stats_->draw_calls += indirect_batch_->opaque_draw_count(current_frame_);
-            render_stats_->triangle_count += indirect_batch_->total_triangles(current_frame_);
+            gpu_.render_stats().draw_calls += gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
+            gpu_.render_stats().triangle_count += gatherer_.indirect_batch()->total_triangles(current_frame_);
 
             // Draw skinned meshes (per-model VBO, not in indirect batch)
             {
-                const auto& skinned_indices = indirect_batch_->skinned_draw_indices(current_frame_);
+                const auto& skinned_indices = gatherer_.indirect_batch()->skinned_draw_indices(current_frame_);
                 uint32_t skinned_cmd_idx = 0;
-                for (const auto& dc : render_queue_.commands()) {
+                for (const auto& dc : gatherer_.render_queue().commands()) {
                     if (!dc.skinned || !dc.skeletal_model) continue;
                     if (skinned_cmd_idx >= skinned_indices.size()) break;
 
-                    auto pipeline = pipeline_cache_->skinned_opaque_pipeline(dc.pipeline_id);
+                    auto pipeline = gpu_.pipeline_cache()->skinned_opaque_pipeline(dc.pipeline_id);
                     vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                            pipeline_cache_->layout(),
+                                            gpu_.pipeline_cache()->layout(),
                                             0, static_cast<uint32_t>(descriptor_sets.size()),
                                             descriptor_sets.data(), 0, nullptr);
 
                     dc.skeletal_model->bind(cb);
                     uint32_t draw_data_idx = skinned_indices[skinned_cmd_idx];
                     vkCmdDrawIndexed(cb, dc.skeletal_model->index_count(), 1, 0, 0, draw_data_idx);
-                    render_stats_->draw_calls++;
+                    gpu_.render_stats().draw_calls++;
                     skinned_cmd_idx++;
                 }
             }
@@ -1187,49 +710,49 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         }
 
 #ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(tracy_vk_ctx_, cb, "Sky");
+        { TracyVkZone(gpu_.tracy_ctx(), cb, "Sky");
 #endif
         sky_pass_.record(local);
 #ifdef FJELL_ENABLE_TRACY
         }
 #endif
 #ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(tracy_vk_ctx_, cb, "Grid");
+        { TracyVkZone(gpu_.tracy_ctx(), cb, "Grid");
 #endif
         grid_pass_.record(local);
 #ifdef FJELL_ENABLE_TRACY
         }
 #endif
 #ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(tracy_vk_ctx_, cb, "Debug");
+        { TracyVkZone(gpu_.tracy_ctx(), cb, "Debug");
 #endif
         debug_pass_.record(local);
 #ifdef FJELL_ENABLE_TRACY
         }
 #endif
 #ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(tracy_vk_ctx_, cb, "Outline");
+        { TracyVkZone(gpu_.tracy_ctx(), cb, "Outline");
 #endif
         draw_outline(cb, local);
 #ifdef FJELL_ENABLE_TRACY
         }
 #endif
 #ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(tracy_vk_ctx_, cb, "Sprites");
+        { TracyVkZone(gpu_.tracy_ctx(), cb, "Sprites");
 #endif
         sprite_renderer_.record_render(local);
 #ifdef FJELL_ENABLE_TRACY
         }
 #endif
 #ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(tracy_vk_ctx_, cb, "Transparent");
+        { TracyVkZone(gpu_.tracy_ctx(), cb, "Transparent");
 #endif
         transparent_pass_.record(local);
 #ifdef FJELL_ENABLE_TRACY
         }
 #endif
 #ifdef FJELL_ENABLE_TRACY
-        { TracyVkZone(tracy_vk_ctx_, cb, "Particles");
+        { TracyVkZone(gpu_.tracy_ctx(), cb, "Particles");
 #endif
         particle_system_.record_render(local);
 #ifdef FJELL_ENABLE_TRACY
@@ -1245,32 +768,30 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Screen-space reflections (reads depth + prev frame color, writes into scene color)
     graph.add_pass("ssr", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "SSR");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "SSR");
 #endif
-        auto ext = target.extent();
-        ssr_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
-                           target.depth_view(), target.color_view(),
-                           prev_frame_color_view_,
-                           ext.width, ext.height);
+        FrameContext local = ctx;
+        local.cmd = cb;
+        local.prev_frame_color_view = prev_frame_color_view_;
+        ssr_pass_.record(local);
     }, {{depth_id, ImageUsage::compute_read},
         {color_id, ImageUsage::compute_write}});
 
     // Volumetric fog (reads depth + shadow map via global set, writes into scene color)
     graph.add_pass("volumetric_fog", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Volumetric Fog");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Volumetric Fog");
 #endif
-        auto ext = target.extent();
-        volumetric_fog_pass_.dispatch(cb, global_descriptor_sets_[current_frame_],
-                                      target.depth_view(), target.color_view(),
-                                      ext.width, ext.height, current_frame_);
+        FrameContext local = ctx;
+        local.cmd = cb;
+        volumetric_fog_pass_.record(local);
     }, {{depth_id, ImageUsage::compute_read},
         {color_id, ImageUsage::compute_write}});
 
     // Post-processing reads the color buffer
     graph.add_pass("bloom", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Bloom");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Bloom");
 #endif
         FrameContext local = ctx;
         local.cmd = cb;
@@ -1279,7 +800,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     graph.add_pass("tonemap", [&](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(tracy_vk_ctx_, cb, "Tonemap");
+        TracyVkZone(gpu_.tracy_ctx(), cb, "Tonemap");
 #endif
         FrameContext local = ctx;
         local.cmd = cb;
@@ -1324,8 +845,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         if (!source_active(ViewportSource::light_heatmap)) return;
         FrameContext local = ctx;
         local.cmd = cb;
-        light_heatmap_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
-                                           tile_light_ssbo_[current_frame_]->size());
+        light_heatmap_pass_.set_tile_ssbo(gpu_.tile_light_ssbo(current_frame_).handle(),
+                                           gpu_.tile_light_ssbo(current_frame_).size());
         light_heatmap_pass_.record(local);
     }, {});
 
@@ -1333,8 +854,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         if (!source_active(ViewportSource::light_grid)) return;
         FrameContext local = ctx;
         local.cmd = cb;
-        light_grid_pass_.set_tile_ssbo(tile_light_ssbo_[current_frame_]->handle(),
-                                        tile_light_ssbo_[current_frame_]->size());
+        light_grid_pass_.set_tile_ssbo(gpu_.tile_light_ssbo(current_frame_).handle(),
+                                        gpu_.tile_light_ssbo(current_frame_).size());
         light_grid_pass_.record(local);
     }, {});
 
@@ -1347,7 +868,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // ── Execute ─────────────────────────────────────────────────────────
 
-    graph.execute(cmd, &pool, &secondary_pools_, current_frame_);
+    graph.execute(cmd, &pool, &gpu_.secondary_pools(), current_frame_);
 
     // Copy scene color to prev_frame_color for next frame's SSR
     if (ssr_pass_.enabled() && prev_frame_color_ != VK_NULL_HANDLE) {
@@ -1433,7 +954,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     // --- Render ImGui to swapchain ---
     {
         // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
-        transition_image(cmd, swapchain_.image(image_index),
+        transition_image(cmd, gpu_.swapchain().image(image_index),
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -1441,7 +962,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 
         VkRenderingAttachmentInfo color_attachment{};
         color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachment.imageView = swapchain_.image_view(image_index);
+        color_attachment.imageView = gpu_.swapchain().image_view(image_index);
         color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1450,7 +971,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         VkRenderingInfo rendering_info{};
         rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
         rendering_info.renderArea.offset = {0, 0};
-        rendering_info.renderArea.extent = swapchain_.extent();
+        rendering_info.renderArea.extent = gpu_.swapchain().extent();
         rendering_info.layerCount = 1;
         rendering_info.colorAttachmentCount = 1;
         rendering_info.pColorAttachments = &color_attachment;
@@ -1463,15 +984,15 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 
         // Game UI renders to swapchain in play mode, after ImGui
         if (playing && game_ui_callback_) {
-            game_ui_callback_(cmd, global_descriptor_sets_[current_frame_],
-                              bindless_textures_.descriptor_set(),
-                              swapchain_.extent(), current_frame_);
+            game_ui_callback_(cmd, gpu_.global_descriptor_set(current_frame_),
+                              gpu_.bindless_textures().descriptor_set(),
+                              gpu_.swapchain().extent(), current_frame_);
         }
 
         vkCmdEndRendering(cmd);
 
         // Transition swapchain image: COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
-        transition_image(cmd, swapchain_.image(image_index),
+        transition_image(cmd, gpu_.swapchain().image(image_index),
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
@@ -1479,7 +1000,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     }
 
 #ifdef FJELL_ENABLE_TRACY
-    TracyVkCollect(tracy_vk_ctx_, cmd);
+    TracyVkCollect(gpu_.tracy_ctx(), cmd);
 #endif
 
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
@@ -1494,9 +1015,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const DirectionalLight& light,
                                           Scene* scene, VkExtent2D extent) {
     FJELL_PROFILE_SCOPE_N("update_uniform_buffer");
-    camera_position_ = camera_position;
-    view_matrix_ = view;
-    projection_matrix_ = projection;
+    gatherer_.set_camera_state(camera_position, view, projection);
     GlobalUbo ubo{};
     ubo.view = view;
     ubo.projection = projection;
@@ -1543,18 +1062,18 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.tile_info = glm::uvec4(tiles_x, tiles_y, point_count, spot_count);
     ubo.inv_projection = glm::inverse(projection);
     ubo.inv_view_proj = glm::inverse(projection * view);
-    ubo.prev_view_proj = prev_view_proj_;
+    ubo.prev_view_proj = gatherer_.prev_view_proj();
 
-    uniform_buffers_[frame_index]->write(&ubo, sizeof(ubo));
+    gpu_.uniform_buffer(frame_index).write(&ubo, sizeof(ubo));
 
-    prev_view_proj_ = projection * view;
+    gatherer_.update_prev_view_proj();
 }
 
 void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     FJELL_PROFILE_SCOPE_N("update_light_ssbo");
     if (!scene) return;
 
-    auto* dst = static_cast<uint8_t*>(light_ssbo_[frame_index]->mapped());
+    auto* dst = static_cast<uint8_t*>(gpu_.light_ssbo(frame_index).mapped());
     uint32_t point_count = 0;
     uint32_t spot_count = 0;
 
@@ -1612,16 +1131,16 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
 void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
                                 VkFormat output_format) {
     PassResources res{};
-    res.global_set_layout = global_set_layout_->handle();
-    res.material_set_layout = bindless_textures_.layout();
-    res.draw_data_layout = draw_data_descriptor_.layout();
-    res.meshlet_layout = use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
-    res.depth_format = device_.find_depth_format();
+    res.global_set_layout = gpu_.global_set_layout();
+    res.material_set_layout = gpu_.bindless_textures().layout();
+    res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
+    res.meshlet_layout = gpu_.use_mesh_shaders() ? gpu_.meshlet_descriptor().layout() : VK_NULL_HANDLE;
+    res.depth_format = gpu_.device_ref().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
-    res.sample_count = msaa_samples_;
+    res.sample_count = gpu_.msaa_samples();
 
-    ui.create(device_, res, bindless_textures_,
-              command_pool_, device_.graphics_queue(),
+    ui.create(gpu_.device_ref(), res, gpu_.bindless_textures(),
+              gpu_.command_pool(), gpu_.graphics_queue(),
               font_path, output_format);
 }
 
@@ -1630,19 +1149,21 @@ void VulkanContext::submit_and_present() {
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-    auto& render_finished = swapchain_.render_finished_semaphores();
+    auto& render_finished = gpu_.swapchain().render_finished_semaphores();
 
     VkSubmitInfo submit_info{};
     submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    VkSemaphore wait_semaphore = gpu_.image_available_semaphore(recorded_frame_);
+    VkCommandBuffer cmd_buf = gpu_.command_buffer(recorded_frame_);
     submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &image_available_[recorded_frame_];
+    submit_info.pWaitSemaphores = &wait_semaphore;
     submit_info.pWaitDstStageMask = &wait_stage;
     submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffers_[recorded_frame_];
+    submit_info.pCommandBuffers = &cmd_buf;
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &render_finished[recorded_image_index_];
 
-    if (vkQueueSubmit(device_.graphics_queue(), 1, &submit_info, in_flight_[recorded_frame_]) != VK_SUCCESS) {
+    if (vkQueueSubmit(gpu_.graphics_queue(), 1, &submit_info, gpu_.in_flight_fence(recorded_frame_)) != VK_SUCCESS) {
         throw std::runtime_error("Failed to submit draw command buffer");
     }
 
@@ -1651,16 +1172,16 @@ void VulkanContext::submit_and_present() {
     present_info.waitSemaphoreCount = 1;
     present_info.pWaitSemaphores = &render_finished[recorded_image_index_];
     present_info.swapchainCount = 1;
-    VkSwapchainKHR swapchain_handle = swapchain_.handle();
+    VkSwapchainKHR swapchain_handle = gpu_.swapchain().handle();
     present_info.pSwapchains = &swapchain_handle;
     present_info.pImageIndices = &recorded_image_index_;
 
-    VkResult result = vkQueuePresentKHR(device_.present_queue(), &present_info);
+    VkResult result = vkQueuePresentKHR(gpu_.device_ref().present_queue(), &present_info);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR ||
-        window_.was_resized()) {
-        window_.reset_resized();
-        swapchain_.recreate();
+        gpu_.window().was_resized()) {
+        gpu_.window().reset_resized();
+        gpu_.swapchain().recreate();
     } else if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to present swapchain image");
     }
@@ -1674,32 +1195,29 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
                                     uint32_t selected_id, ThreadPool& pool,
                                     bool playing) {
     FJELL_PROFILE_SCOPE_N("draw_frame");
-    auto vk_device = device_.handle();
+    auto vk_device = gpu_.device();
 
     // Advance to next frame slot
     current_frame_ = (current_frame_ + 1) % MAX_FRAMES_IN_FLIGHT;
 
-    vkWaitForFences(vk_device, 1, &in_flight_[current_frame_], VK_TRUE,
+    VkFence frame_fence = gpu_.in_flight_fence(current_frame_);
+    vkWaitForFences(vk_device, 1, &frame_fence, VK_TRUE,
                     std::numeric_limits<uint64_t>::max());
 
     // Lazy-init per-thread command pools (needs thread count from pool)
-    if (!secondary_pools_initialized_ && pool.thread_count() > 0) {
-        secondary_pools_.create(vk_device, graphics_family(),
-                                pool.thread_count() + 1);
-        secondary_pools_initialized_ = true;
-    }
-    if (secondary_pools_initialized_) {
-        secondary_pools_.reset_frame(current_frame_);
+    gpu_.ensure_secondary_pools(pool.thread_count());
+    if (pool.thread_count() > 0) {
+        gpu_.secondary_pools().reset_frame(current_frame_);
     }
 
     uint32_t image_index;
-    VkResult result = vkAcquireNextImageKHR(vk_device, swapchain_.handle(),
+    VkResult result = vkAcquireNextImageKHR(vk_device, gpu_.swapchain().handle(),
                           std::numeric_limits<uint64_t>::max(),
-                          image_available_[current_frame_], VK_NULL_HANDLE,
+                          gpu_.image_available_semaphore(current_frame_), VK_NULL_HANDLE,
                           &image_index);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        swapchain_.recreate();
+        gpu_.swapchain().recreate();
         has_recorded_frame_ = false;
         return;
     }
@@ -1707,9 +1225,9 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
         throw std::runtime_error("Failed to acquire swapchain image");
     }
 
-    vkResetFences(vk_device, 1, &in_flight_[current_frame_]);
+    vkResetFences(vk_device, 1, &frame_fence);
 
-    render_stats_->reset();
+    gpu_.render_stats().reset();
     if (show_colliders_ && scene) {
         debug_draw_->update(*scene);
     }
@@ -1718,13 +1236,13 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
     // Must happen before command buffer starts to avoid invalidating in-flight descriptors
     if (!viewports.empty() && viewports[0].target) {
         VkDescriptorImageInfo depth_desc{};
-        depth_desc.sampler = depth_sampler_;
+        depth_desc.sampler = gpu_.depth_sampler();
         depth_desc.imageView = viewports[0].target->depth_view();
         depth_desc.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet depth_write{};
         depth_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        depth_write.dstSet = global_descriptor_sets_[current_frame_];
+        depth_write.dstSet = gpu_.global_descriptor_set(current_frame_);
         depth_write.dstBinding = 4;
         depth_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         depth_write.descriptorCount = 1;
@@ -1739,7 +1257,7 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
 
         VkWriteDescriptorSet ao_write{};
         ao_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        ao_write.dstSet = global_descriptor_sets_[current_frame_];
+        ao_write.dstSet = gpu_.global_descriptor_set(current_frame_);
         ao_write.dstBinding = 5;
         ao_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         ao_write.descriptorCount = 1;
@@ -1747,8 +1265,8 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
         vkUpdateDescriptorSets(vk_device, 1, &ao_write, 0, nullptr);
     }
 
-    vkResetCommandBuffer(command_buffers_[current_frame_], 0);
-    record_command_buffer(command_buffers_[current_frame_], image_index,
+    vkResetCommandBuffer(gpu_.command_buffer(current_frame_), 0);
+    record_command_buffer(gpu_.command_buffer(current_frame_), image_index,
                           viewports, light, scene, dt, selected_id, pool, playing);
 
     recorded_frame_ = current_frame_;
@@ -1757,7 +1275,7 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
 }
 
 void VulkanContext::wait_idle() {
-    vkDeviceWaitIdle(device_.handle());
+    vkDeviceWaitIdle(gpu_.device());
 }
 
 void VulkanContext::create_outline_pipeline() {
@@ -1781,7 +1299,7 @@ void VulkanContext::create_outline_pipeline() {
         ci.codeSize = code.size();
         ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
         VkShaderModule mod;
-        vkCreateShaderModule(device_.handle(), &ci, nullptr, &mod);
+        vkCreateShaderModule(gpu_.device(), &ci, nullptr, &mod);
         return mod;
     };
 
@@ -1793,14 +1311,14 @@ void VulkanContext::create_outline_pipeline() {
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     push_range.size = sizeof(glm::mat4) + sizeof(glm::vec4) + sizeof(float);
 
-    VkDescriptorSetLayout set_layout = global_set_layout_->handle();
+    VkDescriptorSetLayout set_layout = gpu_.global_set_layout();
     VkPipelineLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     layout_ci.setLayoutCount = 1;
     layout_ci.pSetLayouts = &set_layout;
     layout_ci.pushConstantRangeCount = 1;
     layout_ci.pPushConstantRanges = &push_range;
-    vkCreatePipelineLayout(device_.handle(), &layout_ci, nullptr, &outline_layout_);
+    vkCreatePipelineLayout(gpu_.device(), &layout_ci, nullptr, &outline_layout_);
 
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1845,7 +1363,7 @@ void VulkanContext::create_outline_pipeline() {
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = msaa_samples_;
+    multisampling.rasterizationSamples = gpu_.msaa_samples();
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -1870,7 +1388,7 @@ void VulkanContext::create_outline_pipeline() {
     color_blending.pAttachments = &blend;
 
     VkFormat color_format = OffscreenPass::COLOR_FORMAT;
-    VkFormat depth_format = device_.find_depth_format();
+    VkFormat depth_format = gpu_.device_ref().find_depth_format();
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     rendering_info.colorAttachmentCount = 1;
@@ -1892,10 +1410,10 @@ void VulkanContext::create_outline_pipeline() {
     ci.pDynamicState = &dynamic_state;
     ci.layout = outline_layout_;
 
-    vkCreateGraphicsPipelines(device_.handle(), VK_NULL_HANDLE, 1, &ci, nullptr, &outline_pipeline_);
+    vkCreateGraphicsPipelines(gpu_.device(), VK_NULL_HANDLE, 1, &ci, nullptr, &outline_pipeline_);
 
-    vkDestroyShaderModule(device_.handle(), vert_mod, nullptr);
-    vkDestroyShaderModule(device_.handle(), frag_mod, nullptr);
+    vkDestroyShaderModule(gpu_.device(), vert_mod, nullptr);
+    vkDestroyShaderModule(gpu_.device(), frag_mod, nullptr);
 }
 
 void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
@@ -1935,31 +1453,27 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(push), &push);
 
-    mega_buffer_->bind(cmd);
+    gpu_.mega_buffer()->bind(cmd);
     mesh->model->draw(cmd);
 }
 
 void VulkanContext::reload_pipeline() {
-    pipeline_->recreate();
-    pipeline_cache_->recreate_all();
+    gpu_.pipeline()->recreate();
+    gpu_.pipeline_cache()->recreate_all();
 
-    VkFormat depth_format = device_.find_depth_format();
+    VkFormat depth_format = gpu_.device_ref().find_depth_format();
     PassResources pass_resources{};
-    pass_resources.global_set_layout = global_set_layout_->handle();
-    pass_resources.material_set_layout = bindless_textures_.layout();
-    pass_resources.draw_data_layout = draw_data_descriptor_.layout();
-    pass_resources.meshlet_layout = use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
+    pass_resources.global_set_layout = gpu_.global_set_layout();
+    pass_resources.material_set_layout = gpu_.bindless_textures().layout();
+    pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
+    pass_resources.meshlet_layout = gpu_.use_mesh_shaders() ? gpu_.meshlet_descriptor().layout() : VK_NULL_HANDLE;
     pass_resources.depth_format = depth_format;
     pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
-    pass_resources.sample_count = msaa_samples_;
-    depth_prepass_.recreate(device_, pass_resources);
-    shadow_pass_.recreate(device_, pass_resources);
-    debug_pass_.recreate(device_, pass_resources);
-    grid_pass_.recreate(device_, pass_resources);
-}
-
-uint32_t VulkanContext::graphics_family() const {
-    return device_.find_queue_families().graphics.value();
+    pass_resources.sample_count = gpu_.msaa_samples();
+    depth_prepass_.recreate(gpu_.device_ref(), pass_resources);
+    shadow_pass_.recreate(gpu_.device_ref(), pass_resources);
+    debug_pass_.recreate(gpu_.device_ref(), pass_resources);
+    grid_pass_.recreate(gpu_.device_ref(), pass_resources);
 }
 
 } // namespace fjell

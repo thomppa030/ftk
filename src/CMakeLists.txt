@@ -98,6 +98,8 @@ add_executable(fjell
     renderer/swapchain.cpp
     renderer/texture.cpp
     renderer/viz_image.cpp
+    renderer/gpu_context.cpp
+    renderer/scene_gatherer.cpp
     renderer/vulkan_context.cpp
     animation/skeleton.cpp
     animation/animation_clip.cpp

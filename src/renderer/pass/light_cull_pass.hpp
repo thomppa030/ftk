@@ -1,17 +1,18 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
 
 namespace fjell {
 
-class LightCullPass {
+class LightCullPass : public RenderPass {
 public:
-    void create(VkDevice device, VkDescriptorSetLayout global_set_layout);
-    void destroy();
-    void dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
-                  uint32_t width, uint32_t height);
+    void create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
 
 private:
     VkDevice device_{VK_NULL_HANDLE};

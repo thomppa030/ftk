@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/descriptor.hpp"
 
@@ -12,19 +13,15 @@
 
 namespace fjell {
 
-class Device;
-
-class HizPass {
+class HizPass : public RenderPass {
 public:
     static constexpr uint32_t MAX_HIZ_MIPS = 12;
 
-    void create(VkDevice device, VkPhysicalDevice physical_device);
-    void destroy();
-    void resize(uint32_t width, uint32_t height);
+    void create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
 
-    // Build the Hi-Z pyramid from the depth buffer
-    void dispatch(VkCommandBuffer cmd, VkImageView depth_view,
-                  uint32_t depth_width, uint32_t depth_height);
+    void resize(uint32_t width, uint32_t height);
 
     [[nodiscard]] VkImageView sampled_view() const { return hiz_sampled_view_; }
     [[nodiscard]] VkSampler sampler() const { return sampler_; }
@@ -32,6 +29,8 @@ public:
     [[nodiscard]] bool ready() const { return hiz_image_ != VK_NULL_HANDLE; }
 
 private:
+    void dispatch(VkCommandBuffer cmd, VkImageView depth_view,
+                  uint32_t depth_width, uint32_t depth_height);
     void create_image(uint32_t width, uint32_t height);
     void destroy_image();
 

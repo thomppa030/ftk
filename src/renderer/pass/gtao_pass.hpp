@@ -1,21 +1,20 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
 
 namespace fjell {
 
-class GtaoPass {
+class GtaoPass : public RenderPass {
 public:
-    void create(VkDevice device, VkPhysicalDevice physical_device,
-                VkDescriptorSetLayout global_set_layout);
-    void destroy();
+    void create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
 
     void resize(uint32_t width, uint32_t height);
-
-    void dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
-                  uint32_t width, uint32_t height);
 
     [[nodiscard]] VkImageView ao_view() const { return ao_view_; }
     [[nodiscard]] VkImage ao_image() const { return ao_image_; }
@@ -34,6 +33,8 @@ public:
     [[nodiscard]] bool enabled() const { return enabled_; }
 
 private:
+    void dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
+                  uint32_t width, uint32_t height);
     void create_images(uint32_t width, uint32_t height);
     void destroy_images();
     void update_descriptors();

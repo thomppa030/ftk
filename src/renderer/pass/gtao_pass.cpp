@@ -1,5 +1,7 @@
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/buffer.hpp"
+#include "renderer/device.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -33,10 +35,10 @@ struct BlurPushConstants {
     float depth_threshold;
 };
 
-void GtaoPass::create(VkDevice device, VkPhysicalDevice physical_device,
-                         VkDescriptorSetLayout global_set_layout) {
-    device_ = device;
-    physical_device_ = physical_device;
+void GtaoPass::create(Device& device, const PassResources& resources) {
+    device_ = device.handle();
+    physical_device_ = device.physical_device();
+    auto global_set_layout = resources.global_set_layout;
 
     // Sampler for AO texture (linear, clamp)
     VkSamplerCreateInfo sampler_ci{};
@@ -636,6 +638,11 @@ void GtaoPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
     final_dep.imageMemoryBarrierCount = 1;
     final_dep.pImageMemoryBarriers = &ao_final;
     vkCmdPipelineBarrier2(cmd, &final_dep);
+}
+
+void GtaoPass::record(const FrameContext& ctx) {
+    auto extent = ctx.target->extent();
+    dispatch(ctx.cmd, ctx.global_descriptor_set, extent.width, extent.height);
 }
 
 } // namespace fjell

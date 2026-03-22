@@ -50,6 +50,13 @@ struct FrameContext {
     // Two-pass occlusion: GPU-driven dispatch from culled visible buffer
     VkBuffer gpu_driven_indirect{VK_NULL_HANDLE}; // meshlet_instance_pass indirect cmds
     uint32_t gpu_driven_segment_size{0};           // instances per pipeline bin
+
+    // SSR: previous frame color for reflection tracing
+    VkImageView prev_frame_color_view{VK_NULL_HANDLE};
+
+    // Forward+ light culling: tile light index SSBO for viz passes
+    VkBuffer tile_light_ssbo{VK_NULL_HANDLE};
+    VkDeviceSize tile_light_ssbo_size{0};
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

@@ -1,15 +1,8 @@
 #pragma once
 
-#include "renderer/bindless.hpp"
-#include "renderer/buffer.hpp"
+#include "renderer/gpu_context.hpp"
+#include "renderer/scene_gatherer.hpp"
 #include "renderer/debug_draw.hpp"
-#include "renderer/descriptor.hpp"
-#include "renderer/device.hpp"
-#include "renderer/draw_data_descriptor.hpp"
-#include "renderer/indirect_batch.hpp"
-#include "renderer/mega_buffer.hpp"
-#include "renderer/meshlet_buffer.hpp"
-#include "renderer/meshlet_descriptor.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/particle_system.hpp"
 #include "renderer/pass/bloom_pass.hpp"
@@ -36,22 +29,11 @@
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
-#include "renderer/pipeline.hpp"
-#include "renderer/pipeline_cache.hpp"
-#include "renderer/render_queue.hpp"
-#include "renderer/renderer_constants.hpp"
 #include "renderer/sprite_renderer.hpp"
-#include "renderer/swapchain.hpp"
-#include "renderer/thread_command_pools.hpp"
 #include "renderer/viewport_source.hpp"
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
-#ifdef FJELL_ENABLE_TRACY
-#include <tracy/TracyVulkan.hpp>
-#endif
-
-#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -59,12 +41,10 @@
 
 namespace fjell {
 
-class Window;
 class Scene;
 class Input;
 class ResourceManager;
 class ThreadPool;
-struct RenderStats;
 
 class VulkanContext {
 public:
@@ -92,43 +72,30 @@ public:
   void wait_idle();
   void reload_pipeline();
 
-  [[nodiscard]] VkDevice device() const { return device_.handle(); }
-  [[nodiscard]] VkPhysicalDevice physical_device() const {
-    return device_.physical_device();
-  }
-  [[nodiscard]] VkCommandPool command_pool() const { return command_pool_; }
-  [[nodiscard]] VkQueue graphics_queue() const {
-    return device_.graphics_queue();
-  }
-  [[nodiscard]] BindlessTextures &bindless_textures() {
-    return bindless_textures_;
-  }
-  [[nodiscard]] VkInstance instance() const { return device_.instance(); }
-  [[nodiscard]] VkFormat swapchain_format() const {
-    return swapchain_.format();
-  }
-  [[nodiscard]] VkExtent2D swapchain_extent() const {
-    return swapchain_.extent();
-  }
-  [[nodiscard]] uint32_t image_count() const {
-    return swapchain_.image_count();
-  }
-  [[nodiscard]] uint32_t graphics_family() const;
-  [[nodiscard]] const std::string &gpu_name() const {
-    return device_.gpu_name();
-  }
-  [[nodiscard]] RenderStats &render_stats() { return *render_stats_; }
-  [[nodiscard]] Device &device_ref() { return device_; }
-  [[nodiscard]] VkSampleCountFlagBits msaa_samples() const {
-    return msaa_samples_;
-  }
-  [[nodiscard]] bool mesh_shaders_available() const {
-    return device_.mesh_shader_supported();
-  }
-  [[nodiscard]] bool use_mesh_shaders() const { return use_mesh_shaders_; }
-  void set_use_mesh_shaders(bool enable) {
-    use_mesh_shaders_ = enable && device_.mesh_shader_supported();
-  }
+  // ── Forwarding accessors to GpuContext ────────────────────────────────
+  [[nodiscard]] GpuContext& gpu() { return gpu_; }
+  [[nodiscard]] VkDevice device() const { return gpu_.device(); }
+  [[nodiscard]] VkPhysicalDevice physical_device() const { return gpu_.physical_device(); }
+  [[nodiscard]] VkCommandPool command_pool() const { return gpu_.command_pool(); }
+  [[nodiscard]] VkQueue graphics_queue() const { return gpu_.graphics_queue(); }
+  [[nodiscard]] BindlessTextures &bindless_textures() { return gpu_.bindless_textures(); }
+  [[nodiscard]] VkInstance instance() const { return gpu_.instance(); }
+  [[nodiscard]] VkFormat swapchain_format() const { return gpu_.swapchain_format(); }
+  [[nodiscard]] VkExtent2D swapchain_extent() const { return gpu_.swapchain_extent(); }
+  [[nodiscard]] uint32_t image_count() const { return gpu_.image_count(); }
+  [[nodiscard]] uint32_t graphics_family() const { return gpu_.graphics_family(); }
+  [[nodiscard]] const std::string &gpu_name() const { return gpu_.gpu_name(); }
+  [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
+  [[nodiscard]] Device &device_ref() { return gpu_.device_ref(); }
+  [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return gpu_.msaa_samples(); }
+  [[nodiscard]] bool mesh_shaders_available() const { return gpu_.mesh_shaders_available(); }
+  [[nodiscard]] bool use_mesh_shaders() const { return gpu_.use_mesh_shaders(); }
+  void set_use_mesh_shaders(bool enable) { gpu_.set_use_mesh_shaders(enable); }
+  [[nodiscard]] MegaBuffer *mega_buffer() { return gpu_.mega_buffer(); }
+  [[nodiscard]] MeshletBuffer *meshlet_buffer() { return gpu_.meshlet_buffer(); }
+  [[nodiscard]] PipelineCache *pipeline_cache() { return gpu_.pipeline_cache(); }
+
+  // ── Pass accessors (still owned by VulkanContext) ─────────────────────
   [[nodiscard]] DepthVizPass &depth_viz_pass() { return depth_viz_pass_; }
   [[nodiscard]] WireframePass &wireframe_pass() { return wireframe_pass_; }
   [[nodiscard]] NormalPass &normal_pass() { return normal_pass_; }
@@ -139,13 +106,14 @@ public:
   [[nodiscard]] SsrPass &ssr_pass() { return ssr_pass_; }
   [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return volumetric_fog_pass_; }
   [[nodiscard]] TonemapPass &tonemap_pass() { return tonemap_pass_; }
-  [[nodiscard]] LightVizPass &light_heatmap_pass() {
-    return light_heatmap_pass_;
-  }
+  [[nodiscard]] LightVizPass &light_heatmap_pass() { return light_heatmap_pass_; }
   [[nodiscard]] LightVizPass &light_grid_pass() { return light_grid_pass_; }
   [[nodiscard]] MeshletVizPass &meshlet_viz_pass() { return meshlet_viz_pass_; }
   [[nodiscard]] CullVizPass &cull_viz_pass() { return cull_viz_pass_; }
   [[nodiscard]] CullPass &cull_pass() { return cull_pass_; }
+  [[nodiscard]] GridPass &grid_pass() { return grid_pass_; }
+  [[nodiscard]] DebugDraw &debug_draw() { return *debug_draw_; }
+
   using OverlayCallback = std::function<void(VkCommandBuffer)>;
   void set_overlay_callback(OverlayCallback callback) {
     overlay_callback_ = std::move(callback);
@@ -155,15 +123,7 @@ public:
   [[nodiscard]] bool show_colliders() const { return show_colliders_; }
   void set_playing(bool playing) { playing_ = playing; }
   [[nodiscard]] bool is_playing() const { return playing_; }
-  [[nodiscard]] GridPass &grid_pass() { return grid_pass_; }
-  [[nodiscard]] DebugDraw &debug_draw() { return *debug_draw_; }
-  [[nodiscard]] MegaBuffer *mega_buffer() { return mega_buffer_.get(); }
-  [[nodiscard]] MeshletBuffer *meshlet_buffer() {
-    return meshlet_buffer_.get();
-  }
-  [[nodiscard]] PipelineCache *pipeline_cache() {
-    return pipeline_cache_.get();
-  }
+
   /// Initialize a GameUi instance using renderer resources.
   /// Ownership stays with the caller.
   void init_game_ui(class GameUi& ui, const std::string& font_path,
@@ -186,11 +146,6 @@ public:
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
 
 private:
-  void create_descriptor_resources();
-  void create_command_pool();
-  void create_command_buffers();
-  void create_sync_objects();
-
   void
   record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                         const std::vector<ViewportRenderRequest> &viewports,
@@ -205,32 +160,10 @@ private:
                              const struct DirectionalLight &light, Scene *scene,
                              VkExtent2D extent);
 
-  static void
-  transition_image(VkCommandBuffer cmd, VkImage image, VkImageLayout old_layout,
-                   VkImageLayout new_layout, VkPipelineStageFlags2 src_stage,
-                   VkAccessFlags2 src_access, VkPipelineStageFlags2 dst_stage,
-                   VkAccessFlags2 dst_access,
-                   VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT);
+  // ── GPU infrastructure ────────────────────────────────────────────────
+  GpuContext gpu_;
 
-  Window &window_;
-  Device device_;
-  Swapchain swapchain_;
-
-  VkCommandPool command_pool_{VK_NULL_HANDLE};
-  ThreadCommandPools secondary_pools_;
-  bool secondary_pools_initialized_{false};
-
-  // Descriptors
-  std::unique_ptr<DescriptorSetLayout> global_set_layout_;
-  std::unique_ptr<DescriptorPool> global_pool_;
-  std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> global_descriptor_sets_{};
-  std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> uniform_buffers_;
-
-  BindlessTextures bindless_textures_;
-
-  // Pipelines / passes
-  std::unique_ptr<Pipeline> pipeline_;
-  std::unique_ptr<PipelineCache> pipeline_cache_;
+  // ── Passes ────────────────────────────────────────────────────────────
   DepthPrePass depth_prepass_;
   ShadowPass shadow_pass_;
   DebugPass debug_pass_;
@@ -245,13 +178,32 @@ private:
   TransparentPass transparent_pass_;
   TonemapPass tonemap_pass_;
 
-  // Command buffers and sync
-  std::vector<VkCommandBuffer> command_buffers_;
+  // Meshlet passes
+  MeshShaderDepthPass mesh_shader_depth_pass_;
+  MeshletVizPass meshlet_viz_pass_;
+  CullPass cull_pass_;
+  CullVizPass cull_viz_pass_;
+  MeshletInstancePass meshlet_instance_pass_;
+  HizPass hiz_pass_;
 
-  OverlayCallback overlay_callback_;
+  // Post-process compute
+  GtaoPass gtao_pass_;
+  SsrPass ssr_pass_;
+  VolumetricFogPass volumetric_fog_pass_;
 
-  std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
-  std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
+  // Forward+ light culling + visualization
+  LightCullPass light_cull_pass_;
+  LightVizPass light_heatmap_pass_;
+  LightVizPass light_grid_pass_;
+
+  // Particles / sprites
+  ParticleSystem particle_system_;
+  SpriteRenderer sprite_renderer_;
+
+  // ── Scene gathering ────────────────────────────────────────────────────
+  SceneGatherer gatherer_;
+
+  // ── Frame state ───────────────────────────────────────────────────────
   uint32_t current_frame_{MAX_FRAMES_IN_FLIGHT - 1};
 
   // Split-frame state: carried from wait_and_record to submit_and_present
@@ -259,83 +211,27 @@ private:
   uint32_t recorded_image_index_{0};
   bool has_recorded_frame_{false};
 
-  std::unique_ptr<RenderStats> render_stats_;
-  RenderQueue render_queue_;
-  glm::vec3 camera_position_{0.0f};
-  glm::mat4 view_matrix_{1.0f};
-  glm::mat4 projection_matrix_{1.0f};
-  glm::mat4 prev_view_proj_{1.0f};
-  VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
-
-  // Multi-draw indirect
-  std::unique_ptr<MegaBuffer> mega_buffer_;
-  std::unique_ptr<IndirectBatch> indirect_batch_;
-  DrawDataDescriptor draw_data_descriptor_;
-
-  // Shadow-specific batch (built from all shadow casters, not camera-culled)
-  std::unique_ptr<IndirectBatch> shadow_batch_;
-  DrawDataDescriptor shadow_draw_data_;
-
-  // Meshlet GPU buffers + descriptor + passes
-  std::unique_ptr<MeshletBuffer> meshlet_buffer_;
-  MeshletDescriptor meshlet_descriptor_;
-  MeshShaderDepthPass mesh_shader_depth_pass_;
-  MeshletVizPass meshlet_viz_pass_;
-  CullPass cull_pass_;
-  CullVizPass cull_viz_pass_;
-  MeshletInstancePass meshlet_instance_pass_;
-  HizPass hiz_pass_;
-  bool use_mesh_shaders_{false};
-
-  // GT-VBAO ambient occlusion
-  GtaoPass gtao_pass_;
-
-  // Screen-space reflections
-  SsrPass ssr_pass_;
-
-  // Volumetric fog
-  VolumetricFogPass volumetric_fog_pass_;
-
-  // Previous frame color for SSR (copied after each frame)
+  // ── SSR prev-frame state ──────────────────────────────────────────────
   VkImage prev_frame_color_{VK_NULL_HANDLE};
   VkDeviceMemory prev_frame_color_memory_{VK_NULL_HANDLE};
   VkImageView prev_frame_color_view_{VK_NULL_HANDLE};
   VkExtent2D prev_frame_extent_{};
 
-  // Forward+ light culling + visualization
-  LightCullPass light_cull_pass_;
-  LightVizPass light_heatmap_pass_;
-  LightVizPass light_grid_pass_;
-  std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;
-  std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> tile_light_ssbo_;
-  VkSampler depth_sampler_{VK_NULL_HANDLE};
-
-  // Particles
-  ParticleSystem particle_system_;
-
-  // Sprites
-  SpriteRenderer sprite_renderer_;
-
-  // Game UI callback (owned by game layer)
-  GameUiCallback game_ui_callback_;
-  glm::vec2 viewport_offset_{0.0f, 0.0f};
-
-  // Selection outline
+  // ── Selection outline ─────────────────────────────────────────────────
   VkPipelineLayout outline_layout_{VK_NULL_HANDLE};
   VkPipeline outline_pipeline_{VK_NULL_HANDLE};
   void create_outline_pipeline();
   void draw_outline(VkCommandBuffer cmd, const FrameContext &ctx);
 
-  // Debug collider visualization
+  // ── Editor / game state ───────────────────────────────────────────────
   std::unique_ptr<DebugDraw> debug_draw_;
+  OverlayCallback overlay_callback_;
+  GameUiCallback game_ui_callback_;
+  glm::vec2 viewport_offset_{0.0f, 0.0f};
   bool show_colliders_{false};
   bool playing_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
-
-#ifdef FJELL_ENABLE_TRACY
-  tracy::VkCtx* tracy_vk_ctx_{nullptr};
-#endif
 };
 
 } // namespace fjell
