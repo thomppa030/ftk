@@ -36,6 +36,7 @@ struct PipelineDrawRange {
     uint32_t pipeline_id{0};
     uint32_t first_draw{0};   // offset into indirect buffer (in commands)
     uint32_t draw_count{0};
+    bool skinned{false};
 };
 
 class IndirectBatch {

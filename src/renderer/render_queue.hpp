@@ -23,6 +23,7 @@ struct DrawCommand {
     float camera_distance{0.0f};
     uint32_t pipeline_id{0};
     bool transparent{false};
+    bool skinned{false};
 };
 
 class RenderQueue {
@@ -41,7 +42,8 @@ public:
     [[nodiscard]] const std::vector<DrawCommand>& commands() const { return opaque_; }
     [[nodiscard]] const std::vector<DrawCommand>& transparent_commands() const { return transparent_; }
 
-    static uint64_t make_sort_key(uint32_t pipeline_id, uint32_t material_id, uint32_t mesh_id);
+    static uint64_t make_sort_key(uint32_t pipeline_id, uint32_t material_id, uint32_t mesh_id,
+                                  bool skinned = false);
 
 private:
     std::vector<DrawCommand> opaque_;

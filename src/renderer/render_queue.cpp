@@ -67,9 +67,11 @@ void RenderQueue::execute_transparent(VkCommandBuffer cmd, VkPipelineLayout layo
     execute_list(transparent_, cmd, layout, stats);
 }
 
-uint64_t RenderQueue::make_sort_key(uint32_t pipeline_id, uint32_t material_id, uint32_t mesh_id) {
-    // [pipeline_id:16][material_id:24][mesh_id:24]
-    return (static_cast<uint64_t>(pipeline_id & 0xFFFF) << 48) |
+uint64_t RenderQueue::make_sort_key(uint32_t pipeline_id, uint32_t material_id, uint32_t mesh_id,
+                                    bool skinned) {
+    // [skinned:1][pipeline_id:15][material_id:24][mesh_id:24]
+    return (static_cast<uint64_t>(skinned ? 1 : 0) << 63) |
+           (static_cast<uint64_t>(pipeline_id & 0x7FFF) << 48) |
            (static_cast<uint64_t>(material_id & 0xFFFFFF) << 24) |
            (static_cast<uint64_t>(mesh_id & 0xFFFFFF));
 }

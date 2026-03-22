@@ -133,15 +133,47 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
         throw std::runtime_error("Failed to create depth prepass pipeline");
     }
 
+    // Skinned depth prepass pipeline
+    auto skinned_vert_code = read_spirv(base_path::resolve("shaders/skinned_depth.vert.spv"));
+    auto skinned_vert_module = create_shader_module(device_, skinned_vert_code);
+
+    stages[0].module = skinned_vert_module;
+
+    auto skinned_binding_desc = SkinnedVertex::get_binding_description();
+    auto skinned_attrib_descs = SkinnedVertex::get_attribute_descriptions();
+
+    VkPipelineVertexInputStateCreateInfo skinned_vertex_input{};
+    skinned_vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    skinned_vertex_input.vertexBindingDescriptionCount = 1;
+    skinned_vertex_input.pVertexBindingDescriptions = &skinned_binding_desc;
+    skinned_vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(skinned_attrib_descs.size());
+    skinned_vertex_input.pVertexAttributeDescriptions = skinned_attrib_descs.data();
+
+    pipeline_info.pStages = stages.data();
+    pipeline_info.pVertexInputState = &skinned_vertex_input;
+
+    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+                                   nullptr, &skinned_pipeline_) != VK_SUCCESS) {
+        vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
+        vkDestroyShaderModule(device_, vert_module, nullptr);
+        vkDestroyShaderModule(device_, frag_module, nullptr);
+        throw std::runtime_error("Failed to create skinned depth prepass pipeline");
+    }
+
+    vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
     vkDestroyShaderModule(device_, frag_module, nullptr);
-    FJELL_GFX_DEBUG("Depth prepass pipeline created");
+    FJELL_GFX_DEBUG("Depth prepass pipelines created (standard + skinned)");
 }
 
 void DepthPrePass::destroy() {
     if (pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(device_, pipeline_, nullptr);
         pipeline_ = VK_NULL_HANDLE;
+    }
+    if (skinned_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device_, skinned_pipeline_, nullptr);
+        skinned_pipeline_ = VK_NULL_HANDLE;
     }
     if (layout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(device_, layout_, nullptr);

@@ -318,6 +318,58 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         throw std::runtime_error("Failed to create transparent pipeline for: " + entry.fjsl_path);
     }
 
+    // ── Skinned opaque pipeline ──
+    auto skinned_vert_code = read_spirv(base_path::resolve("shaders/skinned_mesh.vert.spv"));
+    VkShaderModule skinned_vert_module = create_shader_module(vk, skinned_vert_code);
+
+    auto skinned_binding_desc = SkinnedVertex::get_binding_description();
+    auto skinned_attrib_descs = SkinnedVertex::get_attribute_descriptions();
+
+    VkPipelineVertexInputStateCreateInfo skinned_vertex_input{};
+    skinned_vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    skinned_vertex_input.vertexBindingDescriptionCount = 1;
+    skinned_vertex_input.pVertexBindingDescriptions = &skinned_binding_desc;
+    skinned_vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(skinned_attrib_descs.size());
+    skinned_vertex_input.pVertexAttributeDescriptions = skinned_attrib_descs.data();
+
+    std::array<VkPipelineShaderStageCreateInfo, 2> skinned_stages{};
+    skinned_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    skinned_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    skinned_stages[0].module = skinned_vert_module;
+    skinned_stages[0].pName = "main";
+    skinned_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    skinned_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    skinned_stages[1].module = frag_module;
+    skinned_stages[1].pName = "main";
+
+    pipeline_ci.pColorBlendState = &opaque_blending;
+    pipeline_ci.pDepthStencilState = &depth_stencil;
+    pipeline_ci.stageCount = static_cast<uint32_t>(skinned_stages.size());
+    pipeline_ci.pStages = skinned_stages.data();
+    pipeline_ci.pVertexInputState = &skinned_vertex_input;
+    pipeline_ci.pInputAssemblyState = &input_assembly;
+    pipeline_ci.layout = layout_;
+
+    if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.skinned_opaque) != VK_SUCCESS) {
+        vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
+        vkDestroyShaderModule(vk, vert_module, nullptr);
+        vkDestroyShaderModule(vk, frag_module, nullptr);
+        throw std::runtime_error("Failed to create skinned opaque pipeline for: " + entry.fjsl_path);
+    }
+
+    // ── Skinned transparent pipeline ──
+    pipeline_ci.pColorBlendState = &trans_blending;
+    pipeline_ci.pDepthStencilState = &trans_depth;
+
+    if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.skinned_transparent) != VK_SUCCESS) {
+        vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
+        vkDestroyShaderModule(vk, vert_module, nullptr);
+        vkDestroyShaderModule(vk, frag_module, nullptr);
+        throw std::runtime_error("Failed to create skinned transparent pipeline for: " + entry.fjsl_path);
+    }
+
+    vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
+
     // ── GPU-driven mesh shader pipeline (if mesh shaders available) ──
     if (gpu_driven_layout_ != VK_NULL_HANDLE) {
         auto gpu_task_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.task.spv"));
@@ -378,6 +430,14 @@ void PipelineCache::destroy_entry_pipelines(Entry& entry) {
         vkDestroyPipeline(vk, entry.gpu_driven, nullptr);
         entry.gpu_driven = VK_NULL_HANDLE;
     }
+    if (entry.skinned_opaque != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vk, entry.skinned_opaque, nullptr);
+        entry.skinned_opaque = VK_NULL_HANDLE;
+    }
+    if (entry.skinned_transparent != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vk, entry.skinned_transparent, nullptr);
+        entry.skinned_transparent = VK_NULL_HANDLE;
+    }
 }
 
 void PipelineCache::reload(uint32_t id) {
@@ -405,6 +465,14 @@ VkPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
 
 VkPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {
     return entries_[id].gpu_driven;
+}
+
+VkPipeline PipelineCache::skinned_opaque_pipeline(uint32_t id) const {
+    return entries_[id].skinned_opaque;
+}
+
+VkPipeline PipelineCache::skinned_transparent_pipeline(uint32_t id) const {
+    return entries_[id].skinned_transparent;
 }
 
 const ShaderMetadata& PipelineCache::metadata(uint32_t id) const {

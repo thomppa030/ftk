@@ -103,6 +103,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     ranges.reserve(16);
 
     uint32_t current_pipeline = UINT32_MAX;
+    bool current_skinned = false;
     uint32_t range_start = 0;
 
     for (const auto& dc : opaque_commands) {
@@ -128,11 +129,12 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             if (lod >= dc.model->lod_count()) continue;
         }
 
-        if (dc.pipeline_id != current_pipeline) {
+        if (dc.pipeline_id != current_pipeline || dc.skinned != current_skinned) {
             if (current_pipeline != UINT32_MAX && draw_index > range_start) {
-                ranges.push_back({current_pipeline, range_start, draw_index - range_start});
+                ranges.push_back({current_pipeline, range_start, draw_index - range_start, current_skinned});
             }
             current_pipeline = dc.pipeline_id;
+            current_skinned = dc.skinned;
             range_start = draw_index;
         }
 
@@ -178,7 +180,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     // Close the last range
     if (current_pipeline != UINT32_MAX && draw_index > range_start) {
-        ranges.push_back({current_pipeline, range_start, draw_index - range_start});
+        ranges.push_back({current_pipeline, range_start, draw_index - range_start, current_skinned});
     }
 
     opaque_counts_[frame_index] = draw_index;

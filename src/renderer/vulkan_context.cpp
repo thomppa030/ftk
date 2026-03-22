@@ -1070,8 +1070,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                 // Draw per-pipeline ranges with vertex pipelines
                 const auto& ranges = indirect_batch_->pipeline_ranges(current_frame_);
                 for (const auto& range : ranges) {
-                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                      pipeline_cache_->opaque_pipeline(range.pipeline_id));
+                    auto pipeline = range.skinned
+                        ? pipeline_cache_->skinned_opaque_pipeline(range.pipeline_id)
+                        : pipeline_cache_->opaque_pipeline(range.pipeline_id);
+                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                     vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                                             pipeline_cache_->layout(),
                                             0, static_cast<uint32_t>(descriptor_sets.size()),

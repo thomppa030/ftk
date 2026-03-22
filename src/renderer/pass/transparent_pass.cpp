@@ -180,12 +180,16 @@ void TransparentPass::record(const FrameContext& ctx) {
 
     uint32_t base_index = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
 
+    bool current_skinned = false;
     for (const auto& dc : ctx.queue->transparent_commands()) {
-        // Switch pipeline if draw uses a different shader
-        if (ctx.pipeline_cache && dc.pipeline_id != current_pipeline_id) {
+        // Switch pipeline if draw uses a different shader or skinned state changed
+        if (ctx.pipeline_cache && (dc.pipeline_id != current_pipeline_id || dc.skinned != current_skinned)) {
             current_pipeline_id = dc.pipeline_id;
-            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                              ctx.pipeline_cache->transparent_pipeline(current_pipeline_id));
+            current_skinned = dc.skinned;
+            auto pipeline = current_skinned
+                ? ctx.pipeline_cache->skinned_transparent_pipeline(current_pipeline_id)
+                : ctx.pipeline_cache->transparent_pipeline(current_pipeline_id);
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
             std::array descriptor_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
             vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, active_layout,
                                     0, static_cast<uint32_t>(descriptor_sets.size()),
