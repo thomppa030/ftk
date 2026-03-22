@@ -1,6 +1,7 @@
 #include "ui/properties_panel.hpp"
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
+#include "renderer/arrow_component.hpp"
 #include "scene/scene.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
@@ -492,18 +493,17 @@ void PropertiesPanel::draw() {
             }
 
             // Arrow (forward direction indicator)
-            if (obj->arrow) {
+            if (auto* arr_ptr = obj->components.get<ArrowComponent>()) {
                 colored_separator({0.9f, 0.75f, 0.3f, 1.0f});
                 if (ImGui::CollapsingHeader("Arrow", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    auto& arr = *obj->arrow;
                     ImGui::Text("Length");
                     ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##ArrowLen", &arr.length, 0.1f, 0.1f, 50.0f)) scene_->mark_dirty();
+                    if (ImGui::DragFloat("##ArrowLen", &arr_ptr->length, 0.1f, 0.1f, 50.0f)) scene_->mark_dirty();
                     ImGui::Text("Color");
                     ImGui::SetNextItemWidth(-1);
-                    if (ImGui::ColorEdit3("##ArrowColor", &arr.color.x)) scene_->mark_dirty();
+                    if (ImGui::ColorEdit3("##ArrowColor", &arr_ptr->color.x)) scene_->mark_dirty();
                     if (remove_button("Remove Arrow")) {
-                        obj->arrow.reset();
+                        obj->components.remove<ArrowComponent>();
                         scene_->mark_dirty();
                     }
                 }
@@ -543,8 +543,8 @@ void PropertiesPanel::draw() {
                     obj->audio = AudioSourceComponent{};
                     scene_->mark_dirty();
                 }
-                if (!obj->arrow && ImGui::MenuItem("Arrow")) {
-                    obj->arrow = ArrowComponent{};
+                if (!obj->components.has<ArrowComponent>() && ImGui::MenuItem("Arrow")) {
+                    obj->components.add<ArrowComponent>();
                     scene_->mark_dirty();
                 }
                 ImGui::EndPopup();

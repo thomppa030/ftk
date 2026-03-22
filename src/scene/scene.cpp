@@ -1,5 +1,6 @@
 #include "scene/scene.hpp"
 #include "animation/animator_component.hpp"
+#include "renderer/arrow_component.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
 #include "renderer/material.hpp"
@@ -58,7 +59,9 @@ void SceneNode::clone_base_into(SceneNode& target) const {
     target.collider = collider;
     target.emitter = emitter;
     target.sprite = sprite;
-    target.arrow = arrow;
+    if (const auto* arr = components.get<ArrowComponent>()) {
+        target.components.add<ArrowComponent>(*arr);
+    }
     if (audio) {
         target.audio = AudioSourceComponent{};
         target.audio->clip_path = audio->clip_path;
@@ -434,11 +437,10 @@ void Scene::save(const std::string& path) {
             };
         }
 
-        if (obj->arrow) {
-            auto& arr = *obj->arrow;
+        if (const auto* arr = obj->components.get<ArrowComponent>()) {
             jobj["arrow"] = {
-                {"length", arr.length},
-                {"color", {arr.color.x, arr.color.y, arr.color.z}}
+                {"length", arr->length},
+                {"color", {arr->color.x, arr->color.y, arr->color.z}}
             };
         }
 
@@ -853,13 +855,12 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Load arrow
         if (jobj.contains("arrow") && node) {
             auto& jar = jobj["arrow"];
-            ArrowComponent arr;
+            auto& arr = node->components.add<ArrowComponent>();
             arr.length = jar.value("length", 2.0f);
             if (jar.contains("color")) {
                 auto& c = jar["color"];
                 arr.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
             }
-            node->arrow = arr;
         }
 
         // Load component data as raw JSON (ScriptManager will instantiate later)

@@ -10,6 +10,7 @@
 #include "ui/console.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
+#include "renderer/arrow_component.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
@@ -479,7 +480,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
         node->sprite = SpriteComponent{};
         node->sprite->texture_path = "engine_assets/icons/icon_camera.png";
         node->sprite->editor_only = true;
-        node->arrow = ArrowComponent{};
+        node->components.add<ArrowComponent>();
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }

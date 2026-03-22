@@ -1,12 +1,12 @@
 #pragma once
 
 #include "audio/audio_component.hpp"
-#include "renderer/arrow_component.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/particle_emitter.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
+#include "scene/component_storage.hpp"
 #include "scene/node_component.hpp"
 #include "scene/transform.hpp"
 
@@ -100,7 +100,9 @@ struct SceneNode {
     std::optional<EmitterComponent> emitter;
     std::optional<SpriteComponent> sprite;
     std::optional<AudioSourceComponent> audio;
-    std::optional<ArrowComponent> arrow;
+
+    // Migrated components (stored in ComponentStorage)
+    ComponentStorage components;
 
     // Scripting
     std::unique_ptr<Actor> actor;

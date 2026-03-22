@@ -1,4 +1,5 @@
 #include "renderer/debug_draw.hpp"
+#include "renderer/arrow_component.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/uniform_types.hpp"
 #include "core/profiler.hpp"
@@ -139,8 +140,9 @@ void DebugDraw::update(const Scene& scene) {
 
     // Draw arrows for nodes with ArrowComponent
     for (const auto& obj : scene.objects()) {
-        if (!obj->arrow) continue;
-        const auto& arr = *obj->arrow;
+        const auto* arrow_ptr = obj->components.get<ArrowComponent>();
+        if (!arrow_ptr) continue;
+        const auto& arr = *arrow_ptr;
 
         uint32_t first = static_cast<uint32_t>(vertices_.size());
 
