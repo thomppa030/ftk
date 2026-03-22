@@ -100,6 +100,7 @@ add_executable(fjell
     renderer/vulkan_context.cpp
     animation/skeleton.cpp
     animation/animation_clip.cpp
+    animation/animation_events.cpp
     animation/bone_buffer.cpp
     audio/audio_engine.cpp
     physics/physics_world.cpp
