@@ -25,6 +25,7 @@ struct Handle {
 using ModelHandle         = Handle<struct ModelTag>;
 using MaterialHandle      = Handle<struct MaterialTag>;
 using TextureHandle       = Handle<struct TextureTag>;
+using SkeletalModelHandle = Handle<struct SkeletalModelTag>;
 using SkeletonHandle      = Handle<struct SkeletonTag>;
 using AnimationClipHandle = Handle<struct AnimationClipTag>;
 

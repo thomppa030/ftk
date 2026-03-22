@@ -93,6 +93,7 @@ add_executable(fjell
     renderer/asset_loader.cpp
     renderer/resource_manager.cpp
     renderer/shader_watcher.cpp
+    renderer/skeletal_model.cpp
     renderer/stb_image.cpp
     renderer/swapchain.cpp
     renderer/texture.cpp
