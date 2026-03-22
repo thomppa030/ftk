@@ -117,23 +117,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     uint32_t range_start = 0;
 
     for (const auto& dc : opaque_commands) {
-        // Skinned meshes: write GpuDrawData (for model matrix + bone offsets)
-        // but skip VkDrawIndexedIndirectCommand (drawn manually with per-model VBO)
-        if (dc.skinned) {
-            GpuDrawData& data = draw_data[draw_index];
-            data.model = dc.push.model;
-            data.material_id = dc.push.material_id;
-            data.meshlet_offset = 0;
-            data.meshlet_count = 0;
-            data.vertex_offset = 0;
-            if (animation_system) {
-                data.bone_offset = animation_system->bone_offset_for(dc.node_id);
-                data.bone_count = animation_system->bone_count_for(dc.node_id);
-            }
-            skinned_indices.push_back(draw_index);
-            draw_index++;
-            continue;
-        }
+        if (dc.skinned) continue; // skinned draws appended after static draws
 
         // LOD selection using squared distances (avoid sqrt)
         uint32_t lod = 0;
@@ -217,6 +201,24 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
     opaque_counts_[frame_index] = draw_index;
     total_meshlet_instances_[frame_index] = total_meshlets;
+
+    // Append skinned draw data entries AFTER static draws
+    // (not part of opaque_counts_ — drawn manually, not via indirect dispatch)
+    for (const auto& dc : opaque_commands) {
+        if (!dc.skinned) continue;
+        GpuDrawData& data = draw_data[draw_index];
+        data.model = dc.push.model;
+        data.material_id = dc.push.material_id;
+        data.meshlet_offset = 0;
+        data.meshlet_count = 0;
+        data.vertex_offset = 0;
+        if (animation_system) {
+            data.bone_offset = animation_system->bone_offset_for(dc.node_id);
+            data.bone_count = animation_system->bone_count_for(dc.node_id);
+        }
+        skinned_indices.push_back(draw_index);
+        draw_index++;
+    }
 
     // Fill per-draw pipeline bin mapping
     auto* bin_data = static_cast<uint32_t*>(
