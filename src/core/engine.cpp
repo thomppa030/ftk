@@ -15,6 +15,10 @@
 #include "renderer/material.hpp"
 #include "renderer/material_asset.hpp"
 #include "renderer/model.hpp"
+#include "renderer/skeletal_model.hpp"
+#include "animation/animator_component.hpp"
+#include "animation/skeleton.hpp"
+#include "animation/animation_clip.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "renderer/texture.hpp"
@@ -392,6 +396,59 @@ void Engine::add_model_to_scene(const std::string& path) {
     selected_id_ = scene_.add(model_handle, mat_handle, *resource_manager_,
                               {}, filename, path, mat_name);
     FJELL_CORE_INFO("Added model to scene: {}", path);
+}
+
+void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
+                                          const std::string& skel_path,
+                                          const std::string& anim_path) {
+    vulkan_context_.wait_idle();
+
+    auto resolved_mesh = base_path::resolve_asset(mesh_path, active_project());
+    auto resolved_skel = base_path::resolve_asset(skel_path, active_project());
+
+    auto skel_model_handle = resource_manager_->load_skeletal_model(resolved_mesh);
+    auto* skel_model = resource_manager_->get(skel_model_handle);
+    if (!skel_model) {
+        FJELL_CORE_ERROR("Failed to load skeletal model: {}", mesh_path);
+        return;
+    }
+
+    // Create scene node with SkeletalMeshComponent
+    auto filename = std::filesystem::path(mesh_path).stem().string();
+    auto node = std::make_unique<SceneNode>();
+    node->name = filename;
+    node->source = mesh_path;
+
+    // Set up skeletal mesh component
+    node->skeletal_mesh.emplace();
+    auto& smc = *node->skeletal_mesh;
+    smc.skeletal_model_handle = skel_model_handle;
+    smc.skeletal_model = skel_model;
+
+    // Default material
+    auto tex = resource_manager_->load_texture(
+        base_path::resolve("engine_assets/textures/test.png"));
+    smc.material_handle = resource_manager_->create_material("skel_default", tex);
+    smc.material = resource_manager_->get(smc.material_handle);
+
+    // Load skeleton (owned by the component)
+    smc.skeleton = std::make_shared<Skeleton>(Skeleton::load(resolved_skel));
+
+    // Set up animator
+    smc.animator = std::make_unique<AnimatorComponent>();
+    smc.animator->init(smc.skeleton.get());
+
+    // Play animation clip if provided
+    if (!anim_path.empty()) {
+        auto resolved_anim = base_path::resolve_asset(anim_path, active_project());
+        auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_anim));
+        smc.animator->play(clip.get());
+        smc.clips.push_back(clip);
+        FJELL_CORE_INFO("Playing animation: {}", anim_path);
+    }
+
+    selected_id_ = scene_.add_node(std::move(node));
+    FJELL_CORE_INFO("Added skeletal model to scene: {}", mesh_path);
 }
 
 void Engine::add_primitive_to_scene(const std::string& type) {
@@ -1175,7 +1232,7 @@ void Engine::run() {
         (void)script_manager_.poll_reload(scene_);
 #endif
 
-        animation_system_.update(dt);
+        animation_system_.update(scene_, dt);
         scene_.compute_world_matrices(&thread_pool_);
 
         // Update audio listener from active camera

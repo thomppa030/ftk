@@ -65,6 +65,10 @@ struct SkeletalMeshComponent : NodeComponent {
     std::string material_name;
     std::unique_ptr<AnimatorComponent> animator;
 
+    // Owned animation data (skeleton + clips stay alive as long as the component)
+    std::shared_ptr<class Skeleton> skeleton;
+    std::vector<std::shared_ptr<class AnimationClip>> clips;
+
     SkeletalMeshComponent();
     ~SkeletalMeshComponent();
     SkeletalMeshComponent(SkeletalMeshComponent&&) noexcept;

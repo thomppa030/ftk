@@ -64,6 +64,9 @@ public:
 private:
     void scan_models();
     void add_model_to_scene(const std::string& path);
+    void add_skeletal_model_to_scene(const std::string& mesh_path,
+                                      const std::string& skel_path,
+                                      const std::string& anim_path = {});
     void add_primitive_to_scene(const std::string& type);
     void create_default_scene();
     void save_material_assets();

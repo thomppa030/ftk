@@ -723,8 +723,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     bindless_textures_.update_material_buffer();
 
     // Upload bone matrices before indirect batch build (offsets needed by GpuDrawData)
-    if (animation_system_ && animation_system_->has_animated_nodes()) {
-        animation_system_->upload_bones(current_frame_);
+    if (animation_system_ && scene) {
+        animation_system_->upload_bones(*scene, current_frame_);
     }
 
     // Build indirect draw commands from opaque + transparent queues (with LOD selection)
@@ -747,7 +747,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     // Update bone SSBO descriptor
-    if (animation_system_ && animation_system_->has_animated_nodes()) {
+    if (animation_system_ && animation_system_->has_bones_this_frame()) {
         auto& bb = animation_system_->bone_buffer();
         if (bb.total_bones(current_frame_) > 0) {
             draw_data_descriptor_.update_bones(
