@@ -1,8 +1,5 @@
 #pragma once
 
-#include "physics/physics_types.hpp"
-#include "renderer/particle_emitter.hpp"
-#include "renderer/sprite_desc.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/component_storage.hpp"
@@ -94,10 +91,6 @@ struct SceneNode {
     // Components — built-in (typed access) + script (polymorphic)
     std::optional<MeshComponent> mesh;
     std::optional<SkeletalMeshComponent> skeletal_mesh;
-    std::optional<RigidbodyComponent> rigidbody;
-    std::optional<ColliderComponent> collider;
-    std::optional<EmitterComponent> emitter;
-    std::optional<SpriteComponent> sprite;
     // Migrated components (stored in ComponentStorage)
     ComponentStorage components;
 

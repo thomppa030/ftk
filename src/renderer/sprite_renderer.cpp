@@ -204,9 +204,10 @@ void SpriteRenderer::destroy() {
 void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources) {
     FJELL_PROFILE_SCOPE_N("sprite_sync_textures");
     for (auto& obj : scene.objects()) {
-        if (!obj->sprite || obj->sprite->texture_loaded) continue;
+        auto* sprite_ptr = obj->components.get<SpriteComponent>();
+        if (!sprite_ptr || sprite_ptr->texture_loaded) continue;
 
-        auto& sprite = *obj->sprite;
+        auto& sprite = *sprite_ptr;
         if (sprite.texture_path.empty()) continue;
 
         std::string resolved = base_path::resolve_asset(sprite.texture_path, nullptr);
@@ -235,10 +236,11 @@ void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection
     std::vector<SortEntry> sort_entries;
 
     for (const auto& obj : scene.objects()) {
-        if (!obj->sprite || !obj->sprite->texture_loaded) continue;
-        if (playing && obj->sprite->editor_only) continue;
+        const auto* sp = obj->components.get<SpriteComponent>();
+        if (!sp || !sp->texture_loaded) continue;
+        if (playing && sp->editor_only) continue;
 
-        const auto& sprite = *obj->sprite;
+        const auto& sprite = *sp;
         glm::vec3 pos = glm::vec3(obj->world_matrix_[3]);
         glm::vec3 scale = obj->transform.scale;
         glm::vec2 half_size = {scale.x * 0.5f, scale.y * 0.5f};

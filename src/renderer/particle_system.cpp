@@ -468,8 +468,9 @@ void ParticleSystem::sync_emitters(const Scene& scene) {
     };
     std::vector<EmitterInfo> scene_emitters;
     for (const auto& obj : scene.objects()) {
-        if (!obj->emitter) continue;
-        scene_emitters.push_back({obj->id, obj->emitter->max_particles, obj->emitter->blend_mode});
+        const auto* em = obj->components.get<EmitterComponent>();
+        if (!em) continue;
+        scene_emitters.push_back({obj->id, em->max_particles, em->blend_mode});
     }
 
     // Sort by blend mode (additive first) for render batching
@@ -549,8 +550,9 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         auto& data = emitter_data_cache_[i];
         std::memset(&data, 0, sizeof(data));
 
-        if (!obj || !obj->emitter) continue;
-        auto& em = *obj->emitter;
+        auto* em_ptr = obj ? obj->components.get<EmitterComponent>() : nullptr;
+        if (!em_ptr) continue;
+        auto& em = *em_ptr;
 
         em.emit_accumulator += em.emission_rate * dt;
         uint32_t emit_count = static_cast<uint32_t>(em.emit_accumulator);

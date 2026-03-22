@@ -1,6 +1,7 @@
 #include "renderer/debug_draw.hpp"
 #include "renderer/arrow_component.hpp"
 #include "renderer/buffer.hpp"
+#include "physics/physics_types.hpp"
 #include "renderer/uniform_types.hpp"
 #include "core/profiler.hpp"
 #include "scene/scene.hpp"
@@ -99,8 +100,9 @@ void DebugDraw::update(const Scene& scene) {
     draw_commands_.clear();
 
     for (const auto& obj : scene.objects()) {
-        if (!obj->collider) continue;
-        const auto& col = *obj->collider;
+        const auto* col_ptr = obj->components.get<ColliderComponent>();
+        if (!col_ptr) continue;
+        const auto& col = *col_ptr;
 
         uint32_t first = static_cast<uint32_t>(vertices_.size());
 

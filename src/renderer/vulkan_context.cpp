@@ -1,5 +1,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "animation/animation_system.hpp"
+#include "renderer/sprite_desc.hpp"
 #include "renderer/skeletal_model.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "renderer/frame_graph.hpp"
@@ -613,7 +614,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
-                    if (obj->sprite) continue;
+                    if (obj->components.has<SpriteComponent>()) continue;
 
                     // Skeletal mesh path
                     if (obj->skeletal_mesh && obj->skeletal_mesh->skeletal_model) {

@@ -186,7 +186,8 @@ void PhysicsWorld::create_bodies(Scene& scene) {
     auto& bi = impl_->physics_system->GetBodyInterface();
 
     for (auto& obj : scene.objects()) {
-        if (!obj->collider) continue;
+        const auto* col_comp = obj->components.get<ColliderComponent>();
+        if (!col_comp) continue;
 
         // Default to static if no rigidbody descriptor
         static const auto default_static = [] {
@@ -194,8 +195,9 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             rb.body_type = BodyType::Static;
             return rb;
         }();
-        const auto& rb = obj->rigidbody ? *obj->rigidbody : default_static;
-        const auto& col = *obj->collider;
+        const auto* rb_comp = obj->components.get<RigidbodyComponent>();
+        const auto& rb = rb_comp ? *rb_comp : default_static;
+        const auto& col = *col_comp;
 
         // Create shape, scaling by object's scale
         JPH::ShapeRefC shape;
@@ -319,8 +321,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 
     // Sync kinematic bodies: push engine transforms -> Jolt
     for (auto& obj : scene.objects()) {
-        if (!obj->rigidbody) continue;
-        if (obj->rigidbody->body_type != BodyType::Kinematic) continue;
+        const auto* rb = obj->components.get<RigidbodyComponent>();
+        if (!rb || rb->body_type != BodyType::Kinematic) continue;
 
         auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;
@@ -339,8 +341,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 
     // Sync dynamic bodies: pull Jolt transforms -> engine
     for (auto& obj : scene.objects()) {
-        if (!obj->rigidbody) continue;
-        if (obj->rigidbody->body_type != BodyType::Dynamic) continue;
+        const auto* rb = obj->components.get<RigidbodyComponent>();
+        if (!rb || rb->body_type != BodyType::Dynamic) continue;
 
         auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;

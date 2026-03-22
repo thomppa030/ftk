@@ -1,7 +1,10 @@
 #include "scene/scene.hpp"
 #include "animation/animator_component.hpp"
 #include "audio/audio_component.hpp"
+#include "physics/physics_types.hpp"
 #include "renderer/arrow_component.hpp"
+#include "renderer/particle_emitter.hpp"
+#include "renderer/sprite_desc.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
 #include "renderer/material.hpp"
@@ -56,10 +59,18 @@ void SceneNode::clone_base_into(SceneNode& target) const {
         entry.serialized = s.serialized;
         target.scripts.push_back(std::move(entry));
     }
-    target.rigidbody = rigidbody;
-    target.collider = collider;
-    target.emitter = emitter;
-    target.sprite = sprite;
+    if (const auto* rb = components.get<RigidbodyComponent>()) {
+        target.components.add<RigidbodyComponent>(*rb);
+    }
+    if (const auto* col = components.get<ColliderComponent>()) {
+        target.components.add<ColliderComponent>(*col);
+    }
+    if (const auto* em = components.get<EmitterComponent>()) {
+        target.components.add<EmitterComponent>(*em);
+    }
+    if (const auto* sp = components.get<SpriteComponent>()) {
+        target.components.add<SpriteComponent>(*sp);
+    }
     if (const auto* arr = components.get<ArrowComponent>()) {
         target.components.add<ArrowComponent>(*arr);
     }
@@ -373,54 +384,50 @@ void Scene::save(const std::string& path) {
         }
         jobj["scale"] = {obj->transform.scale.x, obj->transform.scale.y, obj->transform.scale.z};
 
-        if (obj->rigidbody) {
-            auto& rb = *obj->rigidbody;
+        if (const auto* rb = obj->components.get<RigidbodyComponent>()) {
             jobj["rigidbody"] = {
-                {"body_type", static_cast<int>(rb.body_type)},
-                {"mass", rb.mass},
-                {"friction", rb.friction},
-                {"restitution", rb.restitution},
-                {"linear_damping", rb.linear_damping},
-                {"angular_damping", rb.angular_damping},
-                {"gravity_enabled", rb.gravity_enabled}
+                {"body_type", static_cast<int>(rb->body_type)},
+                {"mass", rb->mass},
+                {"friction", rb->friction},
+                {"restitution", rb->restitution},
+                {"linear_damping", rb->linear_damping},
+                {"angular_damping", rb->angular_damping},
+                {"gravity_enabled", rb->gravity_enabled}
             };
         }
-        if (obj->collider) {
-            auto& col = *obj->collider;
+        if (const auto* col = obj->components.get<ColliderComponent>()) {
             jobj["collider"] = {
-                {"shape", static_cast<int>(col.shape)},
-                {"half_extents", {col.half_extents.x, col.half_extents.y, col.half_extents.z}},
-                {"radius", col.radius},
-                {"height", col.height},
-                {"offset", {col.offset.x, col.offset.y, col.offset.z}}
+                {"shape", static_cast<int>(col->shape)},
+                {"half_extents", {col->half_extents.x, col->half_extents.y, col->half_extents.z}},
+                {"radius", col->radius},
+                {"height", col->height},
+                {"offset", {col->offset.x, col->offset.y, col->offset.z}}
             };
         }
 
-        if (obj->emitter) {
-            auto& em = *obj->emitter;
+        if (const auto* em = obj->components.get<EmitterComponent>()) {
             jobj["emitter"] = {
-                {"emission_rate", em.emission_rate},
-                {"lifetime_min", em.lifetime_min},
-                {"lifetime_max", em.lifetime_max},
-                {"max_particles", em.max_particles},
-                {"velocity_min", {em.velocity_min.x, em.velocity_min.y, em.velocity_min.z}},
-                {"velocity_max", {em.velocity_max.x, em.velocity_max.y, em.velocity_max.z}},
-                {"gravity", {em.gravity.x, em.gravity.y, em.gravity.z}},
-                {"color_start", {em.color_start.r, em.color_start.g, em.color_start.b, em.color_start.a}},
-                {"color_end", {em.color_end.r, em.color_end.g, em.color_end.b, em.color_end.a}},
-                {"size_start", em.size_start},
-                {"size_end", em.size_end},
-                {"blend_mode", static_cast<int>(em.blend_mode)}
+                {"emission_rate", em->emission_rate},
+                {"lifetime_min", em->lifetime_min},
+                {"lifetime_max", em->lifetime_max},
+                {"max_particles", em->max_particles},
+                {"velocity_min", {em->velocity_min.x, em->velocity_min.y, em->velocity_min.z}},
+                {"velocity_max", {em->velocity_max.x, em->velocity_max.y, em->velocity_max.z}},
+                {"gravity", {em->gravity.x, em->gravity.y, em->gravity.z}},
+                {"color_start", {em->color_start.r, em->color_start.g, em->color_start.b, em->color_start.a}},
+                {"color_end", {em->color_end.r, em->color_end.g, em->color_end.b, em->color_end.a}},
+                {"size_start", em->size_start},
+                {"size_end", em->size_end},
+                {"blend_mode", static_cast<int>(em->blend_mode)}
             };
         }
 
-        if (obj->sprite) {
-            auto& sp = *obj->sprite;
+        if (const auto* sp = obj->components.get<SpriteComponent>()) {
             jobj["sprite"] = {
-                {"texture", sp.texture_path},
-                {"tint", {sp.tint.r, sp.tint.g, sp.tint.b, sp.tint.a}},
-                {"opacity", sp.opacity},
-                {"editor_only", sp.editor_only}
+                {"texture", sp->texture_path},
+                {"tint", {sp->tint.r, sp->tint.g, sp->tint.b, sp->tint.a}},
+                {"opacity", sp->opacity},
+                {"editor_only", sp->editor_only}
             };
         }
 
@@ -756,7 +763,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Load rigidbody descriptor
         if (jobj.contains("rigidbody") && node) {
             auto& jrb = jobj["rigidbody"];
-            RigidbodyComponent rb;
+            auto& rb = node->components.add<RigidbodyComponent>();
             rb.body_type = static_cast<BodyType>(jrb.value("body_type", 2));
             rb.mass = jrb.value("mass", 1.0f);
             rb.friction = jrb.value("friction", 0.5f);
@@ -764,12 +771,11 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             rb.linear_damping = jrb.value("linear_damping", 0.05f);
             rb.angular_damping = jrb.value("angular_damping", 0.05f);
             rb.gravity_enabled = jrb.value("gravity_enabled", true);
-            node->rigidbody = rb;
         }
         // Load collider descriptor
         if (jobj.contains("collider") && node) {
             auto& jcol = jobj["collider"];
-            ColliderComponent col;
+            auto& col = node->components.add<ColliderComponent>();
             col.shape = static_cast<ColliderShape>(jcol.value("shape", 0));
             if (jcol.contains("half_extents")) {
                 auto& he = jcol["half_extents"];
@@ -781,13 +787,12 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
                 auto& o = jcol["offset"];
                 col.offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()};
             }
-            node->collider = col;
         }
 
         // Load particle emitter
         if (jobj.contains("emitter") && node) {
             auto& jem = jobj["emitter"];
-            EmitterComponent em;
+            auto& em = node->components.add<EmitterComponent>();
             em.emission_rate = jem.value("emission_rate", 50.0f);
             em.lifetime_min = jem.value("lifetime_min", 1.0f);
             em.lifetime_max = jem.value("lifetime_max", 3.0f);
@@ -815,13 +820,12 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             em.size_start = jem.value("size_start", 0.1f);
             em.size_end = jem.value("size_end", 0.02f);
             em.blend_mode = static_cast<ParticleBlendMode>(jem.value("blend_mode", 0));
-            node->emitter = em;
         }
 
         // Load sprite
         if (jobj.contains("sprite") && node) {
             auto& jsp = jobj["sprite"];
-            SpriteComponent sp;
+            auto& sp = node->components.add<SpriteComponent>();
             sp.texture_path = jsp.value("texture", "");
             // Migrate old asset paths
             if (sp.texture_path.starts_with("assets/icons/")) {
@@ -834,7 +838,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             }
             sp.opacity = jsp.value("opacity", 1.0f);
             sp.editor_only = jsp.value("editor_only", false);
-            node->sprite = sp;
         }
 
         // Load audio source

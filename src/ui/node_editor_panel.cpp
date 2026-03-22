@@ -218,13 +218,14 @@ void NodeEditorPanel::apply_to_selected() {
     if (!obj) return;
 
     EmitterComponent built = build_emitter();
-    if (!obj->emitter) {
-        obj->emitter = built;
+    auto* existing = obj->components.get<EmitterComponent>();
+    if (!existing) {
+        obj->components.add<EmitterComponent>(std::move(built));
     } else {
         // Preserve runtime accumulator
-        float acc = obj->emitter->emit_accumulator;
-        obj->emitter = built;
-        obj->emitter->emit_accumulator = acc;
+        float acc = existing->emit_accumulator;
+        *existing = built;
+        existing->emit_accumulator = acc;
     }
     scene_->mark_dirty();
 }
@@ -237,7 +238,7 @@ void NodeEditorPanel::draw() {
         {
             bool has_selection = selected_id_ && *selected_id_ != 0;
             SceneNode* obj = has_selection ? scene_->find(*selected_id_) : nullptr;
-            bool has_emitter = obj && obj->emitter.has_value();
+            bool has_emitter = obj && obj->components.has<EmitterComponent>();
 
             if (ImGui::Button("Apply to Selected") && obj) {
                 apply_to_selected();
@@ -250,7 +251,7 @@ void NodeEditorPanel::draw() {
 
             ImGui::SameLine();
             if (ImGui::Button("Load from Selected") && has_emitter) {
-                load_from_emitter(*obj->emitter);
+                load_from_emitter(*obj->components.get<EmitterComponent>());
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip(has_emitter

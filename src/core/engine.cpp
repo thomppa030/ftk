@@ -11,6 +11,7 @@
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "renderer/arrow_component.hpp"
+#include "renderer/sprite_desc.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
@@ -477,9 +478,9 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     if (type == "camera") {
         auto node = std::make_unique<CameraNode>();
         node->name = "Camera";
-        node->sprite = SpriteComponent{};
-        node->sprite->texture_path = "engine_assets/icons/icon_camera.png";
-        node->sprite->editor_only = true;
+        auto& sp = node->components.add<SpriteComponent>();
+        sp.texture_path = "engine_assets/icons/icon_camera.png";
+        sp.editor_only = true;
         node->components.add<ArrowComponent>();
         selected_id_ = scene_.add_node(std::move(node));
         return;
@@ -489,27 +490,27 @@ void Engine::add_primitive_to_scene(const std::string& type) {
     if (type == "light:directional") {
         auto node = std::make_unique<DirectionalLightNode>();
         node->name = "Directional Light";
-        node->sprite = SpriteComponent{};
-        node->sprite->texture_path = "engine_assets/icons/icon_dir_light.png";
-        node->sprite->editor_only = true;
+        auto& sp = node->components.add<SpriteComponent>();
+        sp.texture_path = "engine_assets/icons/icon_dir_light.png";
+        sp.editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
     if (type == "light:point") {
         auto node = std::make_unique<PointLightNode>();
         node->name = "Point Light";
-        node->sprite = SpriteComponent{};
-        node->sprite->texture_path = "engine_assets/icons/icon_point_light.png";
-        node->sprite->editor_only = true;
+        auto& sp = node->components.add<SpriteComponent>();
+        sp.texture_path = "engine_assets/icons/icon_point_light.png";
+        sp.editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
     if (type == "light:spot") {
         auto node = std::make_unique<SpotLightNode>();
         node->name = "Spot Light";
-        node->sprite = SpriteComponent{};
-        node->sprite->texture_path = "engine_assets/icons/icon_point_light.png";
-        node->sprite->editor_only = true;
+        auto& sp = node->components.add<SpriteComponent>();
+        sp.texture_path = "engine_assets/icons/icon_point_light.png";
+        sp.editor_only = true;
         selected_id_ = scene_.add_node(std::move(node));
         return;
     }
@@ -533,7 +534,7 @@ void Engine::add_primitive_to_scene(const std::string& type) {
                                   {}, "Sprite", "primitive:plane");
         auto* obj = scene_.find(selected_id_);
         if (obj) {
-            obj->sprite = SpriteComponent{};
+            obj->components.add<SpriteComponent>();
         }
         return;
     }
