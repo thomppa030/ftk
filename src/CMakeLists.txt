@@ -102,6 +102,7 @@ add_executable(fjell
     animation/animation_clip.cpp
     animation/animation_events.cpp
     animation/animation_state_machine.cpp
+    animation/animation_system.cpp
     animation/animator_component.cpp
     animation/blend_space.cpp
     animation/bone_buffer.cpp
