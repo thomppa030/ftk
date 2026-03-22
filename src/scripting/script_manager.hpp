@@ -20,7 +20,6 @@
 
 namespace fjell {
 
-class Actor;
 class ScriptComponent;
 class Scene;
 class Input;
@@ -37,14 +36,6 @@ struct OwnedFieldDesc {
     float min;
     float max;
     float speed;
-};
-
-struct OwnedActorType {
-    std::string name;
-    uint32_t type_id;
-    Actor* (*create)();
-    std::vector<OwnedFieldDesc> fields;
-    bool loaded{true};
 };
 
 struct OwnedScriptType {
@@ -84,9 +75,7 @@ public:
     void call_begin_play(Scene& scene);
     void call_end_play(Scene& scene);
 
-    [[nodiscard]] const OwnedActorType* find_actor_type(const std::string& name) const;
     [[nodiscard]] const OwnedScriptType* find_script_type(const std::string& name) const;
-    [[nodiscard]] const std::vector<OwnedActorType>& actor_types() const { return actor_type_list_; }
     [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }
 
     [[nodiscard]] bool is_loaded() const { return library_.is_loaded(); }
@@ -111,8 +100,6 @@ private:
     std::filesystem::path so_path_;
     std::filesystem::path loaded_temp_path_;
 
-    std::unordered_map<uint32_t, std::size_t> actor_type_map_;
-    std::vector<OwnedActorType> actor_type_list_;
     std::unordered_map<uint32_t, std::size_t> script_type_map_;
     std::vector<OwnedScriptType> script_type_list_;
 

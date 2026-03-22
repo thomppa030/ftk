@@ -13,7 +13,6 @@
 #include "renderer/model.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/texture.hpp"
-#include "scripting/fjell_actor.hpp"
 #include "scripting/fjell_component.hpp"
 #include "core/base_path.hpp"
 #include "scene/camera_node.hpp"
@@ -29,7 +28,7 @@
 
 namespace fjell {
 
-// ── Out-of-line special members (need complete Actor/Component types) ───
+// ── Out-of-line special members (need complete Component types) ─────────
 
 ScriptEntry::ScriptEntry() = default;
 ScriptEntry::~ScriptEntry() = default;
@@ -56,7 +55,6 @@ void SceneNode::clone_base_into(SceneNode& target) const {
     if (const auto* mc = components.get<MeshComponent>()) {
         target.components.add<MeshComponent>(*mc);
     }
-    target.actor_type_name = actor_type_name;
     for (const auto& s : scripts) {
         ScriptEntry entry;
         entry.type_name = s.type_name;

@@ -17,7 +17,6 @@
 
 namespace fjell {
 
-class Actor;
 class ScriptComponent;
 class Project;
 class ResourceManager;
@@ -56,8 +55,6 @@ struct SceneNode {
     ComponentStorage components;
 
     // Scripting
-    std::unique_ptr<Actor> actor;
-    std::string actor_type_name;
     std::vector<ScriptEntry> scripts;
 
     SceneNode();

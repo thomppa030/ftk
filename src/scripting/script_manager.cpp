@@ -1,5 +1,4 @@
 #include "scripting/script_manager.hpp"
-#include "scripting/fjell_actor.hpp"
 #include "scripting/fjell_component.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
@@ -18,7 +17,6 @@
 // ── Type registry (engine-side, filled by game .so) ─────────────────────
 
 struct FjellTypeRegistry {
-    std::vector<fjell::OwnedActorType> actors;
     std::vector<fjell::OwnedScriptType> scripts;
 };
 
@@ -44,19 +42,6 @@ static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
 } // namespace fjell
 
 // ── C exports called by game .so during registration ────────────────────
-
-extern "C" void fjell_reg_actor(FjellTypeRegistry* reg, const FjellActorType* desc) {
-    if (!reg || !desc) return;
-    fjell::OwnedActorType owned;
-    owned.name = desc->name;
-    owned.type_id = fjell::ScriptManager::hash_type_name(owned.name);
-    owned.create = desc->create;
-    owned.loaded = true;
-    for (uint32_t i = 0; i < desc->field_count; ++i) {
-        owned.fields.push_back(fjell::copy_field(desc->fields[i]));
-    }
-    reg->actors.push_back(std::move(owned));
-}
 
 extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc) {
     if (!reg || !desc) return;
@@ -135,7 +120,7 @@ bool ScriptManager::load(const std::filesystem::path& so_path) {
 
     build_registry();
 
-    int total = static_cast<int>(actor_type_list_.size() + script_type_list_.size());
+    int total = static_cast<int>(script_type_list_.size());
     FJELL_CORE_INFO("Scripts loaded: {} type(s)", total);
     return true;
 }
@@ -149,12 +134,10 @@ void ScriptManager::unload(Scene& scene) {
         for (auto& comp : obj->scripts) {
             comp.instance.reset();
         }
-        obj->actor.reset();
     }
 
     library_.unload();
 
-    for (auto& t : actor_type_list_) t.loaded = false;
     for (auto& t : script_type_list_) t.loaded = false;
 }
 
@@ -180,8 +163,6 @@ bool ScriptManager::reload(Scene& scene, const std::filesystem::path& so_path) {
 // ── Registry building ───────────────────────────────────────────────────
 
 void ScriptManager::build_registry() {
-    actor_type_list_.clear();
-    actor_type_map_.clear();
     script_type_list_.clear();
     script_type_map_.clear();
 
@@ -195,10 +176,6 @@ void ScriptManager::build_registry() {
     FjellTypeRegistry registry;
     reg_fn(&registry);
 
-    for (auto& at : registry.actors) {
-        actor_type_map_[at.type_id] = actor_type_list_.size();
-        actor_type_list_.push_back(std::move(at));
-    }
     for (auto& ct : registry.scripts) {
         script_type_map_[ct.type_id] = script_type_list_.size();
         script_type_list_.push_back(std::move(ct));
@@ -206,13 +183,6 @@ void ScriptManager::build_registry() {
 }
 
 // ── Type lookups ────────────────────────────────────────────────────────
-
-const OwnedActorType* ScriptManager::find_actor_type(const std::string& name) const {
-    auto id = hash_type_name(name);
-    auto it = actor_type_map_.find(id);
-    if (it == actor_type_map_.end()) return nullptr;
-    return &actor_type_list_[it->second];
-}
 
 const OwnedScriptType* ScriptManager::find_script_type(const std::string& name) const {
     auto id = hash_type_name(name);
@@ -227,20 +197,14 @@ bool ScriptManager::add_script(SceneNode& obj, const std::string& type_name) {
     const auto* type = find_script_type(type_name);
     if (!type || !type->loaded || !type->create) return false;
 
-    // Ensure the object has an Actor
-    if (!obj.actor) {
-        obj.actor = std::make_unique<Actor>();
-        obj.actor->id_ = obj.id;
-        obj.actor->parent_id_ = obj.parent_id;
-        obj.actor->name_ = obj.name.c_str();
-        obj.actor->world_ = &world_;
-        obj.actor->transform_ = &obj.transform;
-    }
-
     ScriptEntry entry;
     entry.type_name = type->name;
     entry.instance.reset(type->create());
-    entry.instance->owner_ = obj.actor.get();
+    entry.instance->node_ = &obj;
+    entry.instance->world_ = &world_;
+    entry.instance->transform_ = &obj.transform;
+    entry.instance->id_ = obj.id;
+    entry.instance->name_ = obj.name.c_str();
 
     obj.scripts.push_back(std::move(entry));
     return true;
@@ -283,18 +247,9 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     float dt = clock.delta_time();
 
     for (auto& obj : scene.objects()) {
-        if (obj->actor) {
-            obj->actor->world_ = &world_;
-            try {
-                obj->actor->tick(dt);
-            } catch (const std::exception& e) {
-                FJELL_CORE_ERROR("Exception in Actor::tick on '{}': {}", obj->name, e.what());
-            } catch (...) {
-                FJELL_CORE_ERROR("Unknown exception in Actor::tick on '{}'", obj->name);
-            }
-        }
         for (auto& comp : obj->scripts) {
             if (comp.instance) {
+                comp.instance->world_ = &world_;
                 try {
                     comp.instance->tick(dt);
                 } catch (const std::exception& e) {
@@ -314,18 +269,9 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
 void ScriptManager::call_begin_play(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("script_begin_play");
     for (auto& obj : scene.objects()) {
-        if (obj->actor) {
-            obj->actor->world_ = &world_;
-            try {
-                obj->actor->begin_play();
-            } catch (const std::exception& e) {
-                FJELL_CORE_ERROR("Exception in Actor::begin_play on '{}': {}", obj->name, e.what());
-            } catch (...) {
-                FJELL_CORE_ERROR("Unknown exception in Actor::begin_play on '{}'", obj->name);
-            }
-        }
         for (auto& comp : obj->scripts) {
             if (comp.instance) {
+                comp.instance->world_ = &world_;
                 try {
                     comp.instance->begin_play();
                 } catch (const std::exception& e) {
@@ -354,15 +300,6 @@ void ScriptManager::call_end_play(Scene& scene) {
                     FJELL_CORE_ERROR("Unknown exception in {}.end_play on '{}'",
                                      comp.type_name, obj->name);
                 }
-            }
-        }
-        if (obj->actor) {
-            try {
-                obj->actor->end_play();
-            } catch (const std::exception& e) {
-                FJELL_CORE_ERROR("Exception in Actor::end_play on '{}': {}", obj->name, e.what());
-            } catch (...) {
-                FJELL_CORE_ERROR("Unknown exception in Actor::end_play on '{}'", obj->name);
             }
         }
     }
@@ -481,36 +418,16 @@ void ScriptManager::serialize_all(Scene& scene) {
 
 void ScriptManager::deserialize_all(Scene& scene) {
     for (auto& obj : scene.objects()) {
-        // Actor
-        if (!obj->actor_type_name.empty()) {
-            const auto* atype = find_actor_type(obj->actor_type_name);
-            if (atype && atype->loaded && atype->create) {
-                obj->actor.reset(atype->create());
-                obj->actor->id_ = obj->id;
-                obj->actor->parent_id_ = obj->parent_id;
-                obj->actor->name_ = obj->name.c_str();
-                obj->actor->world_ = &world_;
-                obj->actor->transform_ = &obj->transform;
-            }
-        }
-
-        // Ensure a default Actor exists if there are components
-        if (!obj->scripts.empty() && !obj->actor) {
-            obj->actor = std::make_unique<Actor>();
-            obj->actor->id_ = obj->id;
-            obj->actor->parent_id_ = obj->parent_id;
-            obj->actor->name_ = obj->name.c_str();
-            obj->actor->world_ = &world_;
-            obj->actor->transform_ = &obj->transform;
-        }
-
-        // Components
         for (auto& comp : obj->scripts) {
             const auto* ctype = find_script_type(comp.type_name);
             if (!ctype || !ctype->loaded || !ctype->create) continue;
 
             comp.instance.reset(ctype->create());
-            comp.instance->owner_ = obj->actor.get();
+            comp.instance->node_ = obj.get();
+            comp.instance->world_ = &world_;
+            comp.instance->transform_ = &obj->transform;
+            comp.instance->id_ = obj->id;
+            comp.instance->name_ = obj->name.c_str();
 
             if (!comp.serialized.empty()) {
                 auto_deserialize_fields(ctype->fields, comp.instance.get(), comp.serialized);
@@ -580,17 +497,6 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
 }
 
 void ScriptManager::draw_inspector(SceneNode& obj) {
-    // Actor fields
-    if (obj.actor && !obj.actor_type_name.empty()) {
-        const auto* atype = find_actor_type(obj.actor_type_name);
-        if (atype && atype->loaded && !atype->fields.empty()) {
-            if (ImGui::CollapsingHeader(atype->name.c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-                draw_fields_inspector(atype->fields, obj.actor.get());
-            }
-        }
-    }
-
-    // Component fields
     std::string remove_name;
     for (auto& comp : obj.scripts) {
         const auto* ctype = find_script_type(comp.type_name);
