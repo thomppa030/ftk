@@ -78,9 +78,10 @@ void AudioEngine::play(uint32_t node_id, Scene& scene, const Project* project) {
     if (!is_initialized()) return;
 
     auto* node = scene.find(node_id);
-    if (!node || !node->audio) return;
+    auto* audio_ptr = node ? node->components.get<AudioSourceComponent>() : nullptr;
+    if (!audio_ptr) return;
 
-    auto& audio = *node->audio;
+    auto& audio = *audio_ptr;
     if (audio.clip_path.empty()) return;
 
     // Stop existing sound for this node
@@ -134,7 +135,8 @@ void AudioEngine::stop_all() {
 
 void AudioEngine::start_play(Scene& scene, const Project* project) {
     for (auto& obj : scene.objects()) {
-        if (obj->audio && obj->audio->play_on_start) {
+        auto* au = obj->components.get<AudioSourceComponent>();
+        if (au && au->play_on_start) {
             play(obj->id, scene, project);
         }
     }

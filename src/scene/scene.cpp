@@ -1,5 +1,6 @@
 #include "scene/scene.hpp"
 #include "animation/animator_component.hpp"
+#include "audio/audio_component.hpp"
 #include "renderer/arrow_component.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
@@ -62,16 +63,16 @@ void SceneNode::clone_base_into(SceneNode& target) const {
     if (const auto* arr = components.get<ArrowComponent>()) {
         target.components.add<ArrowComponent>(*arr);
     }
-    if (audio) {
-        target.audio = AudioSourceComponent{};
-        target.audio->clip_path = audio->clip_path;
-        target.audio->volume = audio->volume;
-        target.audio->pitch = audio->pitch;
-        target.audio->min_distance = audio->min_distance;
-        target.audio->max_distance = audio->max_distance;
-        target.audio->loop = audio->loop;
-        target.audio->spatial = audio->spatial;
-        target.audio->play_on_start = audio->play_on_start;
+    if (const auto* au = components.get<AudioSourceComponent>()) {
+        auto& copy = target.components.add<AudioSourceComponent>();
+        copy.clip_path = au->clip_path;
+        copy.volume = au->volume;
+        copy.pitch = au->pitch;
+        copy.min_distance = au->min_distance;
+        copy.max_distance = au->max_distance;
+        copy.loop = au->loop;
+        copy.spatial = au->spatial;
+        copy.play_on_start = au->play_on_start;
     }
 }
 
@@ -423,17 +424,16 @@ void Scene::save(const std::string& path) {
             };
         }
 
-        if (obj->audio) {
-            auto& au = *obj->audio;
+        if (const auto* au = obj->components.get<AudioSourceComponent>()) {
             jobj["audio"] = {
-                {"clip", au.clip_path},
-                {"volume", au.volume},
-                {"pitch", au.pitch},
-                {"min_distance", au.min_distance},
-                {"max_distance", au.max_distance},
-                {"loop", au.loop},
-                {"spatial", au.spatial},
-                {"play_on_start", au.play_on_start}
+                {"clip", au->clip_path},
+                {"volume", au->volume},
+                {"pitch", au->pitch},
+                {"min_distance", au->min_distance},
+                {"max_distance", au->max_distance},
+                {"loop", au->loop},
+                {"spatial", au->spatial},
+                {"play_on_start", au->play_on_start}
             };
         }
 
@@ -840,7 +840,7 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
         // Load audio source
         if (jobj.contains("audio") && node) {
             auto& jau = jobj["audio"];
-            AudioSourceComponent au;
+            auto& au = node->components.add<AudioSourceComponent>();
             au.clip_path = jau.value("clip", "");
             au.volume = jau.value("volume", 1.0f);
             au.pitch = jau.value("pitch", 1.0f);
@@ -849,7 +849,6 @@ Scene Scene::load(const std::string& path, ResourceManager& resources,
             au.loop = jau.value("loop", false);
             au.spatial = jau.value("spatial", true);
             au.play_on_start = jau.value("play_on_start", false);
-            node->audio = au;
         }
 
         // Load arrow
