@@ -7,7 +7,7 @@
 #include "core/thread_pool.hpp"
 #include "core/layer_stack.hpp"
 #include "core/play_session.hpp"
-#include "core/project.hpp"
+#include "core/project_manager.hpp"
 #include "core/window.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
@@ -63,7 +63,6 @@ public:
     void set_scene_override(const std::string& scene_name);
 
 private:
-    void scan_models();
     void add_model_to_scene(const std::string& path);
     void add_skeletal_model_to_scene(const std::string& mesh_path,
                                       const std::string& skel_path,
@@ -83,14 +82,8 @@ private:
     [[nodiscard]] bool is_playing() const { return play_session_ != nullptr; }
     void draw_play_overlay();
 
-    void open_project(const std::filesystem::path& path);
-    void load_project_scripts();
-    void close_project();
-    void scan_scenes();
     void load_scene(const std::string& path);
-    [[nodiscard]] Project* active_project() {
-        return project_ ? &*project_ : nullptr;
-    }
+    void load_project_scripts();
 
     static constexpr const char* SCENE_FILE = "scene.fjell";
 
@@ -122,13 +115,9 @@ private:
 #endif
 
     // Project
-    std::optional<Project> project_;
+    ProjectManager project_mgr_;
     bool game_mode_{false};
     std::string current_scene_path_;
-    std::vector<std::string> available_scenes_;
-
-    // Available model files
-    std::vector<std::string> available_models_;
 
     // Delegate connections (UI callbacks, etc.)
     std::vector<Connection> connections_;

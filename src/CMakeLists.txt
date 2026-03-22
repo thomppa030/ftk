@@ -119,6 +119,7 @@ add_executable(fjell
     ui/file_browser.cpp
     ui/imgui_layer.cpp
     ui/nvim_panel.cpp
+    core/project_manager.cpp
     core/command_history.cpp
     ui/content_browser.cpp
     ui/hierarchy_panel.cpp

@@ -85,7 +85,10 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     // Open project if path given
     if (!project_path.empty()) {
-        open_project(project_path);
+        project_mgr_.open(project_path);
+        if (project_mgr_.active()) {
+            window_.set_title("Fjell - " + project_mgr_.active()->config().name);
+        }
     }
 
     window_.set_input(&input_);
@@ -143,12 +146,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png"));
-    scan_models();
-
     // Determine which scene to load
-    if (project_) {
-        current_scene_path_ = project_->resolve(project_->config().default_scene);
-        scan_scenes();
+    if (project_mgr_.active()) {
+        current_scene_path_ = project_mgr_.active()->resolve(project_mgr_.active()->config().default_scene);
     } else if (game_mode_) {
         // In game mode, scenes are alongside the binary
         current_scene_path_ = base_path::resolve("scenes/main.fjell");
@@ -157,16 +157,16 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     }
 
     if (std::filesystem::exists(current_scene_path_)) {
-        scene_ = Scene::load(current_scene_path_, *resource_manager_, active_project());
+        scene_ = Scene::load(current_scene_path_, *resource_manager_, project_mgr_.active());
     } else {
         create_default_scene();
     }
 
     // Test: auto-load skeletal mesh if present in project
-    if (project_) {
-        auto skel_mesh = project_->root() / "assets/Animations/output/UAL1.fjmesh";
-        auto skel_file = project_->root() / "assets/Animations/output/UAL1.fjskel";
-        auto anim_file = project_->root() / "assets/Animations/output/UAL1_Idle_Loop.fjanim";
+    if (project_mgr_.active()) {
+        auto skel_mesh = project_mgr_.active()->root() / "assets/Animations/output/UAL1.fjmesh";
+        auto skel_file = project_mgr_.active()->root() / "assets/Animations/output/UAL1.fjskel";
+        auto anim_file = project_mgr_.active()->root() / "assets/Animations/output/UAL1_Idle_Loop.fjanim";
         if (std::filesystem::exists(skel_mesh) && std::filesystem::exists(skel_file)) {
             add_skeletal_model_to_scene(
                 skel_mesh.string(), skel_file.string(),
@@ -205,8 +205,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         }));
     connections_.push_back(content_browser_.on_load_scene.bind(
         [this](const std::string& path) { load_scene(path); }));
-    if (project_) {
-        content_browser_.set_root(project_->root());
+    if (project_mgr_.active()) {
+        content_browser_.set_root(project_mgr_.active()->root());
     }
 
     hierarchy_panel_.init(&scene_, &viewport_manager_, &selected_id_, &command_history_,
@@ -245,7 +245,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     // Load game UI — check project first, then fall back to engine assets
     {
-        auto proj_ui = base_path::resolve_asset("assets/ui/test.fjui", active_project());
+        auto proj_ui = base_path::resolve_asset("assets/ui/test.fjui", project_mgr_.active());
         auto engine_ui = base_path::resolve("assets/ui/test.fjui");
         auto ui_path = std::filesystem::exists(proj_ui) ? proj_ui : engine_ui;
         auto css_path = ui_path.substr(0, ui_path.size() - 5) + ".fjss";
@@ -296,28 +296,6 @@ Engine::~Engine() {
     FJELL_CORE_INFO("Engine shut down");
 }
 
-void Engine::scan_models() {
-    available_models_.clear();
-    const auto models_dir = std::filesystem::path(
-        base_path::resolve_asset("assets/models", active_project()));
-    if (!std::filesystem::exists(models_dir)) return;
-
-    // Compute the root to make paths relative to (project root or engine root)
-    auto root = project_ ? project_->root() : base_path::dir();
-
-    for (const auto& entry : std::filesystem::directory_iterator(models_dir)) {
-        if (!entry.is_regular_file()) continue;
-        auto ext = entry.path().extension().string();
-        if (ext == ".gltf" || ext == ".glb") {
-            // Store relative path (e.g. "assets/models/cube.glb") for scene portability
-            auto relative = std::filesystem::relative(entry.path(), root);
-            available_models_.push_back(relative.string());
-        }
-    }
-    std::sort(available_models_.begin(), available_models_.end());
-    FJELL_CORE_INFO("Found {} model(s) in assets/models/", available_models_.size());
-}
-
 void Engine::save_material_assets() {
     auto* cache = vulkan_context_->pipeline_cache();
     auto& bindless = vulkan_context_->bindless_textures();
@@ -339,7 +317,7 @@ void Engine::save_material_assets() {
 
         // Read current params back from CPU buffer
         std::string mat_path = base_path::resolve_asset(
-            mesh->material_name, active_project());
+            mesh->material_name, project_mgr_.active());
 
         MaterialAsset asset;
         try {
@@ -400,7 +378,7 @@ void Engine::add_model_to_scene(const std::string& path) {
     vulkan_context_->wait_idle();
 
     auto model_handle = resource_manager_->load_model(
-        base_path::resolve_asset(path, active_project()));
+        base_path::resolve_asset(path, project_mgr_.active()));
     auto tex = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png"));
     auto mat_handle = resource_manager_->create_material("default", tex);
@@ -425,8 +403,8 @@ void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
                                           const std::string& anim_path) {
     vulkan_context_->wait_idle();
 
-    auto resolved_mesh = base_path::resolve_asset(mesh_path, active_project());
-    auto resolved_skel = base_path::resolve_asset(skel_path, active_project());
+    auto resolved_mesh = base_path::resolve_asset(mesh_path, project_mgr_.active());
+    auto resolved_skel = base_path::resolve_asset(skel_path, project_mgr_.active());
 
     auto skel_model_handle = resource_manager_->load_skeletal_model(resolved_mesh);
     auto* skel_model = resource_manager_->get(skel_model_handle);
@@ -461,7 +439,7 @@ void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
 
     // Play animation clip if provided
     if (!anim_path.empty()) {
-        auto resolved_anim = base_path::resolve_asset(anim_path, active_project());
+        auto resolved_anim = base_path::resolve_asset(anim_path, project_mgr_.active());
         auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_anim));
         smc.animator->play(clip.get());
         smc.clips.push_back(clip);
@@ -642,30 +620,9 @@ void Engine::draw_code_editor() {
 #endif
 }
 
-void Engine::open_project(const std::filesystem::path& path) {
-    auto proj = Project::open(path);
-    if (!proj) return;
-
-    project_ = std::move(proj);
-    window_.set_title("Fjell - " + project_->config().name);
-    scan_models();
-    scan_scenes();
-    content_browser_.set_root(project_->root());
-
-    // Defer layout restore to the first frame (ImGui needs a frame to set up docking)
-    if (!project_->config().layout.empty()) {
-        auto layout_path = project_->root() / "layouts" / (project_->config().layout + ".ini");
-        if (std::filesystem::exists(layout_path)) {
-            pending_layout_load_ = layout_path.string();
-            menu_bar_.set_active_layout(project_->config().layout);
-            has_saved_layout_ = true;
-        }
-    }
-}
-
 void Engine::load_project_scripts() {
-    if (!project_) return;
-    auto so_path = project_->root() / "game.so";
+    if (!project_mgr_.active()) return;
+    auto so_path = project_mgr_.active()->root() / "game.so";
     if (std::filesystem::exists(so_path)) {
         script_manager_.load(so_path);
         script_manager_.deserialize_all(scene_);
@@ -675,35 +632,10 @@ void Engine::load_project_scripts() {
     }
 }
 
-void Engine::close_project() {
-    project_.reset();
-    available_scenes_.clear();
-    current_scene_path_ = base_path::resolve(SCENE_FILE);
-    window_.set_title("Fjell Engine");
-    scan_models();
-    content_browser_.set_root({});
-}
-
-void Engine::scan_scenes() {
-    available_scenes_.clear();
-    if (!project_) return;
-
-    auto scenes_dir = std::filesystem::path(project_->resolve("scenes"));
-    if (!std::filesystem::exists(scenes_dir)) return;
-
-    for (const auto& entry : std::filesystem::directory_iterator(scenes_dir)) {
-        if (!entry.is_regular_file()) continue;
-        if (entry.path().extension() == ".fjell") {
-            available_scenes_.push_back(entry.path().string());
-        }
-    }
-    std::sort(available_scenes_.begin(), available_scenes_.end());
-}
-
 void Engine::load_scene(const std::string& path) {
     vulkan_context_->wait_idle();
     current_scene_path_ = path;
-    scene_ = Scene::load(path, *resource_manager_, active_project());
+    scene_ = Scene::load(path, *resource_manager_, project_mgr_.active());
     selected_id_ = 0;
     command_history_.clear();
 }
@@ -717,118 +649,28 @@ void Engine::bind_menu_bar() {
     connections_.push_back(menu_bar_.on_load_scene.bind(
         [this]() { load_scene(current_scene_path_); }));
     connections_.push_back(menu_bar_.on_close_project.bind(
-        [this]() { close_project(); }));
+        [this]() { project_mgr_.close(); }));
     connections_.push_back(menu_bar_.on_build_game.bind(
         [this]() {
-            if (project_) {
-                auto output = project_->root() / "build";
-                GameBuilder::build(*project_, output);
+            if (project_mgr_.active()) {
+                auto output = project_mgr_.active()->root() / "build";
+                GameBuilder::build(*project_mgr_.active(), output);
             }
         }));
     connections_.push_back(menu_bar_.on_build_scripts.bind(
-        [this]() {
-            if (!project_) return;
-            // Refresh scripting headers
-            Project::refresh_headers(*project_);
-
-            auto scripts_dir = project_->root() / "scripts";
-            auto build_dir = scripts_dir / "build";
-
-            // Auto-generate register_all.cpp
-            {
-                std::ofstream reg(scripts_dir / "register_all.cpp");
-                if (reg.is_open()) {
-                    reg << "// Auto-generated -- do not edit.\n";
-                    reg << "#include \"fjell/registry.hpp\"\n\n";
-                    reg << "FJELL_REGISTER()\n";
-                }
-            }
-
-            Project::refresh_headers(*project_);
-            Project::write_scripts_cmake(*project_);
-
-            auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
-                       " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
-                       "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
-
-            FJELL_CORE_INFO("Building scripts...");
-
-            std::string build_output;
-            int ret = platform::run_command(cmd, build_output);
-            bool success = (ret == 0);
-
-            std::istringstream iss(build_output);
-            std::string s;
-            while (std::getline(iss, s)) {
-                while (!s.empty() && (s.back() == '\r')) s.pop_back();
-                if (s.empty()) continue;
-                if (s.find("error") != std::string::npos) {
-                    FJELL_CORE_ERROR("[build] {}", s);
-                } else if (s.find("warning") != std::string::npos) {
-                    FJELL_CORE_WARN("[build] {}", s);
-                } else {
-                    FJELL_CORE_INFO("[build] {}", s);
-                }
-            }
-
-            if (success) {
-                FJELL_CORE_INFO("Scripts built successfully");
-                auto so_path = project_->root() / "game.so";
-                if (std::filesystem::exists(so_path)) {
-                    script_manager_.reload(scene_, so_path);
-                }
-            } else {
-                FJELL_CORE_ERROR("Script build failed");
-            }
-        }));
+        [this]() { project_mgr_.build_scripts(script_manager_, scene_); }));
     connections_.push_back(menu_bar_.on_new_script.bind(
-        [this](const std::string& name) {
-            if (!project_) return;
-            std::string filename = name;
-            for (auto& c : filename) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-
-            auto script_dir = project_->root() / "scripts";
-            auto path = script_dir / (filename + ".cpp");
-
-            std::ofstream file(path);
-            if (file.is_open()) {
-                file << "#include \"fjell/registry.hpp\"\n"
-                     << "#include \"fjell/world.hpp\"\n"
-                     << "#include <array>\n"
-                     << "#include <cmath>\n"
-                     << "\n"
-                     << "class " << name << " : public fjell::ScriptComponent {\n"
-                     << "  FJELL_COMPONENT(" << name << ")\n"
-                     << "\n"
-                     << "  static auto reflect() {\n"
-                     << "    return std::array{\n"
-                     << "    };\n"
-                     << "  }\n"
-                     << "\n"
-                     << "  void begin_play() override {\n"
-                     << "  }\n"
-                     << "\n"
-                     << "  void tick(float dt) override {\n"
-                     << "    (void)dt;\n"
-                     << "  }\n"
-                     << "\n"
-                     << "private:\n"
-                     << "};\n";
-
-                FJELL_CORE_INFO("Created script: {}", path.string());
-            } else {
-                FJELL_CORE_ERROR("Failed to create script: {}", path.string());
-            }
-        }));
+        [this](const std::string& name) { project_mgr_.create_script(name); }));
     connections_.push_back(menu_bar_.on_start_play.bind(
         [this]() { start_play(); }));
     connections_.push_back(menu_bar_.on_stop_play.bind(
         [this]() { stop_play(); }));
     connections_.push_back(menu_bar_.on_open_project.bind(
         [this](const std::filesystem::path& path) {
-            open_project(path);
-            if (project_) {
-                current_scene_path_ = project_->resolve(project_->config().default_scene);
+            project_mgr_.open(path);
+            if (project_mgr_.active()) {
+                current_scene_path_ = project_mgr_.active()->resolve(
+                    project_mgr_.active()->config().default_scene);
                 if (std::filesystem::exists(current_scene_path_)) {
                     load_scene(current_scene_path_);
                 } else {
@@ -840,16 +682,35 @@ void Engine::bind_menu_bar() {
         }));
     connections_.push_back(menu_bar_.on_create_project.bind(
         [this](const std::filesystem::path& path, const std::string& name) {
-            project_ = Project::create(path, name);
-            if (project_) {
-                window_.set_title("Fjell - " + project_->config().name);
-                scan_models();
-                scan_scenes();
-                content_browser_.set_root(project_->root());
-                current_scene_path_ = project_->resolve(project_->config().default_scene);
+            project_mgr_.create(path, name);
+            if (project_mgr_.active()) {
+                current_scene_path_ = project_mgr_.active()->resolve(
+                    project_mgr_.active()->config().default_scene);
                 scene_.clear();
                 create_default_scene();
             }
+        }));
+    // React to project open/close from any source
+    connections_.push_back(project_mgr_.on_opened.bind(
+        [this](const std::string& name) {
+            window_.set_title("Fjell - " + name);
+            content_browser_.set_root(project_mgr_.active()->root());
+            // Defer layout restore
+            auto& layout = project_mgr_.active()->config().layout;
+            if (!layout.empty()) {
+                auto lp = project_mgr_.active()->root() / "layouts" / (layout + ".ini");
+                if (std::filesystem::exists(lp)) {
+                    pending_layout_load_ = lp.string();
+                    menu_bar_.set_active_layout(layout);
+                    has_saved_layout_ = true;
+                }
+            }
+        }));
+    connections_.push_back(project_mgr_.on_closed.bind(
+        [this]() {
+            current_scene_path_ = base_path::resolve(SCENE_FILE);
+            window_.set_title("Fjell Engine");
+            content_browser_.set_root({});
         }));
 }
 
@@ -858,7 +719,7 @@ void Engine::draw_ui() {
     // Update window title with unsaved indicator
     {
         std::string title = "Fjell";
-        if (project_) title += " - " + project_->config().name;
+        if (project_mgr_.active()) title += " - " + project_mgr_.active()->config().name;
         if (scene_.is_dirty()) title += " *";
         window_.set_title(title);
     }
@@ -897,7 +758,7 @@ void Engine::draw_ui() {
         pending_layout_load_.clear();
     }
 
-    menu_bar_.set_project(active_project());
+    menu_bar_.set_project(project_mgr_.active());
     menu_bar_.set_playing(is_playing());
     menu_bar_.set_scene_path(current_scene_path_);
     menu_bar_.set_vulkan_context(vulkan_context_.get());
@@ -928,7 +789,7 @@ void Engine::start_play() {
     script_manager_.prepare(scene_, input_, clock_, play_session_->physics_world());
     script_manager_.deserialize_all(scene_);
     script_manager_.call_begin_play(scene_);
-    audio_engine_.start_play(scene_, active_project());
+    audio_engine_.start_play(scene_, project_mgr_.active());
     vulkan_context_->set_playing(true);
     game_ui_.mark_dirty();
     input_.set_cursor_captured(window_.handle(), true);
@@ -1014,8 +875,8 @@ void Engine::set_scene_override(const std::string& scene_name) {
     std::string filename = scene_name;
     if (!filename.ends_with(".fjell")) filename += ".fjell";
     std::string path;
-    if (project_) {
-        path = project_->resolve("scenes/" + filename);
+    if (project_mgr_.active()) {
+        path = project_mgr_.active()->resolve("scenes/" + filename);
     } else {
         path = base_path::resolve("scenes/" + filename);
     }
