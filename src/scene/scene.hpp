@@ -24,11 +24,13 @@
 namespace fjell {
 
 class Actor;
+class AnimatorComponent;
 class ScriptComponent;
 class Model;
 class Material;
 class Project;
 class ResourceManager;
+class SkeletalModel;
 
 // ── Script entry ────────────────────────────────────────────────────────
 
@@ -53,6 +55,22 @@ struct MeshComponent : NodeComponent {
     std::string material_name;
 };
 
+// ── Skeletal mesh component ─────────────────────────────────────────────
+
+struct SkeletalMeshComponent : NodeComponent {
+    SkeletalModelHandle skeletal_model_handle;
+    MaterialHandle material_handle;
+    SkeletalModel* skeletal_model{nullptr};
+    Material* material{nullptr};
+    std::string material_name;
+    std::unique_ptr<AnimatorComponent> animator;
+
+    SkeletalMeshComponent();
+    ~SkeletalMeshComponent();
+    SkeletalMeshComponent(SkeletalMeshComponent&&) noexcept;
+    SkeletalMeshComponent& operator=(SkeletalMeshComponent&&) noexcept;
+};
+
 // ── Scene node ──────────────────────────────────────────────────────────
 
 struct SceneNode {
@@ -72,6 +90,7 @@ struct SceneNode {
 
     // Components — built-in (typed access) + script (polymorphic)
     std::optional<MeshComponent> mesh;
+    std::optional<SkeletalMeshComponent> skeletal_mesh;
     std::optional<RigidbodyComponent> rigidbody;
     std::optional<ColliderComponent> collider;
     std::optional<EmitterComponent> emitter;

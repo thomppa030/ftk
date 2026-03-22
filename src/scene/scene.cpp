@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "animation/animator_component.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
 #include "renderer/material.hpp"
@@ -27,6 +28,11 @@ ScriptEntry::ScriptEntry() = default;
 ScriptEntry::~ScriptEntry() = default;
 ScriptEntry::ScriptEntry(ScriptEntry&&) noexcept = default;
 ScriptEntry& ScriptEntry::operator=(ScriptEntry&&) noexcept = default;
+
+SkeletalMeshComponent::SkeletalMeshComponent() = default;
+SkeletalMeshComponent::~SkeletalMeshComponent() = default;
+SkeletalMeshComponent::SkeletalMeshComponent(SkeletalMeshComponent&&) noexcept = default;
+SkeletalMeshComponent& SkeletalMeshComponent::operator=(SkeletalMeshComponent&&) noexcept = default;
 
 SceneNode::SceneNode() = default;
 SceneNode::~SceneNode() = default;

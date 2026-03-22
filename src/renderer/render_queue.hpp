@@ -12,6 +12,7 @@
 namespace fjell {
 
 class Model;
+class SkeletalModel;
 struct RenderStats;
 
 struct DrawCommand {
@@ -19,6 +20,7 @@ struct DrawCommand {
     glm::mat4 world_matrix{1.0f};
     PbrPushConstants push{};
     Model* model{nullptr};
+    SkeletalModel* skeletal_model{nullptr};
     AABB world_aabb;           // pre-computed in frustum cull, reused in indirect batch build
     float camera_distance{0.0f};
     uint32_t pipeline_id{0};

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/resource_handle.hpp"
+#include "renderer/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 
 #include <glm/glm.hpp>
@@ -46,6 +47,14 @@ public:
     void fail_model(ModelHandle handle);
     [[nodiscard]] LoadState model_state(ModelHandle handle) const;
 
+    // Skeletal models
+    SkeletalModelHandle load_skeletal_model(const std::string& path);
+    [[nodiscard]] SkeletalModelHandle find_skeletal_model(const std::string& path) const;
+    SkeletalModelHandle reserve_skeletal_model(const std::string& path);
+    void emplace_skeletal_model(SkeletalModelHandle handle, std::unique_ptr<SkeletalModel> model);
+    void fail_skeletal_model(SkeletalModelHandle handle);
+    [[nodiscard]] LoadState skeletal_model_state(SkeletalModelHandle handle) const;
+
     MaterialHandle create_material(const std::string& name,
                                    TextureHandle base_color,
                                    TextureHandle normal_map = {},
@@ -64,6 +73,7 @@ public:
                                        const Project* project = nullptr);
 
     [[nodiscard]] Model* get(ModelHandle handle) const;
+    [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;
     [[nodiscard]] Texture* get(TextureHandle handle) const;
     [[nodiscard]] Material* get(MaterialHandle handle) const;
 
@@ -108,6 +118,7 @@ private:
     std::filesystem::path cache_dir_;
 
     Pool<Model, ModelHandle> models_;
+    Pool<SkeletalModel, SkeletalModelHandle> skeletal_models_;
     Pool<Texture, TextureHandle> textures_;
     Pool<Material, MaterialHandle> materials_;
 

@@ -1,5 +1,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "animation/animation_system.hpp"
+#include "renderer/skeletal_model.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/frustum.hpp"
@@ -612,7 +613,51 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
-                    if (!obj->mesh || !obj->mesh->model || obj->sprite) continue;
+                    if (obj->sprite) continue;
+
+                    // Skeletal mesh path
+                    if (obj->skeletal_mesh && obj->skeletal_mesh->skeletal_model) {
+                        local_total[chunk_id]++;
+
+                        DrawCommand dc{};
+                        dc.world_matrix = obj->world_matrix_;
+                        dc.push.model = obj->world_matrix_;
+                        dc.skeletal_model = obj->skeletal_mesh->skeletal_model;
+                        dc.skinned = true;
+                        dc.node_id = obj->id;
+                        if (obj->skeletal_mesh->material) {
+                            dc.push.material_id = obj->skeletal_mesh->material->material_id();
+                            dc.pipeline_id = obj->skeletal_mesh->material->pipeline_id();
+                            dc.sort_key = RenderQueue::make_sort_key(
+                                dc.pipeline_id, obj->skeletal_mesh->material->material_id(),
+                                obj->id, true);
+                            dc.transparent = (obj->skeletal_mesh->material->params().base_color_factor.w < 1.0f);
+                        }
+                        dc.world_aabb = obj->skeletal_mesh->skeletal_model->local_aabb()
+                                            .transform(obj->world_matrix_);
+
+                        if (!dc.transparent) {
+                            for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
+                                if (shadow_frustums[c].intersects(dc.world_aabb)) {
+                                    shadow_cmds.push_back(dc);
+                                    break;
+                                }
+                            }
+                        }
+                        if (!camera_frustum.intersects(dc.world_aabb)) {
+                            local_culled[chunk_id]++;
+                            continue;
+                        }
+                        if (dc.transparent) {
+                            glm::vec3 obj_pos = glm::vec3(dc.world_matrix[3]);
+                            dc.camera_distance = glm::length(camera_position_ - obj_pos);
+                        }
+                        commands.push_back(dc);
+                        continue;
+                    }
+
+                    // Static mesh path
+                    if (!obj->mesh || !obj->mesh->model) continue;
 
                     local_total[chunk_id]++;
 
@@ -628,9 +673,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                     }
                     dc.model = obj->mesh->model;
                     dc.node_id = obj->id;
-                    if (animation_system_) {
-                        dc.skinned = (animation_system_->bone_count_for(obj->id) > 0);
-                    }
 
                     dc.world_aabb = obj->mesh->model->local_aabb().transform(obj->world_matrix_);
 

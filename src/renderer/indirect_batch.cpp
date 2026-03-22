@@ -109,6 +109,9 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     uint32_t range_start = 0;
 
     for (const auto& dc : opaque_commands) {
+        // Skinned meshes use per-model VBOs, not MegaBuffer — drawn separately
+        if (dc.skinned) continue;
+
         // LOD selection using squared distances (avoid sqrt)
         uint32_t lod = 0;
         if (do_lod && dc.model->lod_count() > 1) {

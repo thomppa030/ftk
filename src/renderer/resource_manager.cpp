@@ -403,6 +403,50 @@ Model* ResourceManager::get(ModelHandle handle) const {
     return models_.get(handle);
 }
 
+// ── Skeletal models ─────────────────────────────────────────────────────
+
+SkeletalModelHandle ResourceManager::load_skeletal_model(const std::string& path) {
+    auto it = skeletal_models_.name_to_handle.find(path);
+    if (it != skeletal_models_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    auto data = SkeletalModel::load_fjmesh(path);
+    auto model = std::make_unique<SkeletalModel>(device_, physical_device_, command_pool_,
+                                                  queue_, std::move(data));
+    return skeletal_models_.insert(path, std::move(model));
+}
+
+SkeletalModelHandle ResourceManager::find_skeletal_model(const std::string& path) const {
+    auto it = skeletal_models_.name_to_handle.find(path);
+    return it != skeletal_models_.name_to_handle.end() ? it->second : SkeletalModelHandle{};
+}
+
+SkeletalModelHandle ResourceManager::reserve_skeletal_model(const std::string& path) {
+    return skeletal_models_.reserve(path);
+}
+
+void ResourceManager::emplace_skeletal_model(SkeletalModelHandle handle,
+                                              std::unique_ptr<SkeletalModel> model) {
+    skeletal_models_.emplace(handle, std::move(model));
+}
+
+void ResourceManager::fail_skeletal_model(SkeletalModelHandle handle) {
+    uint32_t idx = handle.index();
+    if (idx < skeletal_models_.states.size() &&
+        skeletal_models_.generations[idx] == handle.generation()) {
+        skeletal_models_.states[idx] = LoadState::Failed;
+    }
+}
+
+LoadState ResourceManager::skeletal_model_state(SkeletalModelHandle handle) const {
+    return skeletal_models_.state(handle);
+}
+
+SkeletalModel* ResourceManager::get(SkeletalModelHandle handle) const {
+    return skeletal_models_.get(handle);
+}
+
 Texture* ResourceManager::get(TextureHandle handle) const {
     return textures_.get(handle);
 }
