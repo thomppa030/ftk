@@ -2,6 +2,8 @@
 #include "renderer/frustum.hpp"
 #include "renderer/meshlet.hpp"
 #include "renderer/vertex.hpp"
+#include "animation/fjskel.hpp"
+#include "animation/fjanim.hpp"
 #include "core/log.hpp"
 
 #include <assimp/Importer.hpp>
@@ -9,15 +11,27 @@
 #include <assimp/scene.h>
 #include <meshoptimizer.h>
 
+#include <ozz/animation/offline/animation_builder.h>
+#include <ozz/animation/offline/raw_animation.h>
+#include <ozz/animation/offline/raw_skeleton.h>
+#include <ozz/animation/offline/skeleton_builder.h>
+#include <ozz/animation/runtime/animation.h>
+#include <ozz/animation/runtime/skeleton.h>
+#include <ozz/base/io/archive.h>
+#include <ozz/base/io/stream.h>
+
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 // Layout validation — must match what the engine runtime expects
 static_assert(sizeof(fjell::Vertex) == 60, "Vertex layout changed — .fjmesh format incompatible");
+static_assert(sizeof(fjell::SkinnedVertex) == 92, "SkinnedVertex layout changed — .fjmesh format incompatible");
 static_assert(sizeof(fjell::Meshlet) == 16, "Meshlet layout changed — .fjmesh format incompatible");
 static_assert(sizeof(fjell::MeshletBounds) == 48, "MeshletBounds layout changed — .fjmesh format incompatible");
 static_assert(sizeof(fjell::FjMeshLodLevel) == 16, "FjMeshLodLevel layout changed — .fjmesh format incompatible");
@@ -389,6 +403,521 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
     return true;
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// Skinned mesh import
+// ════════════════════════════════════════════════════════════════════════
+
+struct SkinnedImportResult {
+    std::vector<fjell::SkinnedVertex> vertices;
+    std::vector<uint32_t> indices;
+    std::vector<glm::vec3> collision_vertices;
+    std::vector<uint32_t> collision_indices;
+    uint32_t joint_count{0};
+    fjell::AABB aabb;
+
+    // Joint name → index mapping (built from skeleton hierarchy)
+    std::unordered_map<std::string, uint32_t> joint_map;
+    // Inverse bind matrices per joint
+    std::vector<glm::mat4> inv_bind_matrices;
+};
+
+// Walk the aiNode tree and collect joint nodes that match bone names.
+// Build the skeleton hierarchy as an ozz RawSkeleton.
+static void collect_skeleton_joints(const aiNode* node,
+                                    const std::unordered_map<std::string, bool>& bone_names,
+                                    ozz::animation::offline::RawSkeleton::Joint& out_joint) {
+    out_joint.name = node->mName.C_Str();
+
+    // Decompose aiMatrix4x4 to ozz transform
+    aiVector3D pos, scale;
+    aiQuaternion rot;
+    node->mTransformation.Decompose(scale, rot, pos);
+    out_joint.transform.translation = ozz::math::Float3(pos.x, pos.y, pos.z);
+    out_joint.transform.rotation = ozz::math::Quaternion(rot.x, rot.y, rot.z, rot.w);
+    out_joint.transform.scale = ozz::math::Float3(scale.x, scale.y, scale.z);
+
+    for (unsigned int c = 0; c < node->mNumChildren; ++c) {
+        const aiNode* child = node->mChildren[c];
+        std::string child_name = child->mName.C_Str();
+        // Include this child if it's a bone or if any descendant is a bone
+        bool include = bone_names.count(child_name) > 0;
+        if (!include) {
+            // Check descendants recursively
+            std::function<bool(const aiNode*)> has_bone_descendant = [&](const aiNode* n) -> bool {
+                for (unsigned int i = 0; i < n->mNumChildren; ++i) {
+                    if (bone_names.count(n->mChildren[i]->mName.C_Str()) > 0) return true;
+                    if (has_bone_descendant(n->mChildren[i])) return true;
+                }
+                return false;
+            };
+            include = has_bone_descendant(child);
+        }
+        if (include) {
+            out_joint.children.emplace_back();
+            collect_skeleton_joints(child, bone_names, out_joint.children.back());
+        }
+    }
+}
+
+// Flatten joint names from a built ozz skeleton into a name→index map
+static std::unordered_map<std::string, uint32_t>
+build_joint_map(const ozz::animation::Skeleton& skeleton) {
+    std::unordered_map<std::string, uint32_t> map;
+    auto names = skeleton.joint_names();
+    for (int i = 0; i < skeleton.num_joints(); ++i) {
+        map[names[i]] = static_cast<uint32_t>(i);
+    }
+    return map;
+}
+
+// Find the armature root node (parent of all bones)
+static const aiNode* find_armature_root(const aiScene* scene,
+                                        const std::unordered_map<std::string, bool>& bone_names) {
+    // Find nodes that are bones
+    std::function<const aiNode*(const aiNode*)> find = [&](const aiNode* node) -> const aiNode* {
+        std::string name = node->mName.C_Str();
+        if (bone_names.count(name) > 0) return node;
+        for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+            auto* found = find(node->mChildren[i]);
+            if (found) return found;
+        }
+        return nullptr;
+    };
+
+    // Find the first bone, then walk up to find the armature root
+    const aiNode* first_bone = find(scene->mRootNode);
+    if (!first_bone) return nullptr;
+
+    // The armature root is the bone node whose parent is not a bone
+    const aiNode* armature = first_bone;
+    while (armature->mParent && bone_names.count(armature->mParent->mName.C_Str()) > 0) {
+        armature = armature->mParent;
+    }
+    return armature;
+}
+
+static bool import_skinned_mesh(const aiScene* scene, SkinnedImportResult& result) {
+    // Collect all bone names across all meshes
+    std::unordered_map<std::string, bool> bone_names;
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+        const aiMesh* mesh = scene->mMeshes[m];
+        if (!mesh->HasBones()) continue;
+        for (unsigned int b = 0; b < mesh->mNumBones; ++b) {
+            bone_names[mesh->mBones[b]->mName.C_Str()] = true;
+        }
+    }
+
+    if (bone_names.empty()) return false;
+
+    // Find armature root and build ozz RawSkeleton
+    const aiNode* armature = find_armature_root(scene, bone_names);
+    if (!armature) {
+        std::fprintf(stderr, "error: could not find armature root\n");
+        return false;
+    }
+
+    ozz::animation::offline::RawSkeleton raw_skel;
+    raw_skel.roots.resize(1);
+    collect_skeleton_joints(armature, bone_names, raw_skel.roots[0]);
+
+    if (!raw_skel.Validate()) {
+        std::fprintf(stderr, "error: invalid skeleton hierarchy\n");
+        return false;
+    }
+
+    // Build runtime skeleton
+    ozz::animation::offline::SkeletonBuilder skel_builder;
+    auto runtime_skel = skel_builder(raw_skel);
+    if (!runtime_skel) {
+        std::fprintf(stderr, "error: skeleton build failed\n");
+        return false;
+    }
+
+    result.joint_count = static_cast<uint32_t>(runtime_skel->num_joints());
+    result.joint_map = build_joint_map(*runtime_skel);
+    result.inv_bind_matrices.resize(result.joint_count, glm::mat4(1.0f));
+
+    std::printf("  skeleton: %u joints (armature root: %s)\n",
+                result.joint_count, armature->mName.C_Str());
+
+    // Collect inverse bind matrices from aiBone data
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+        const aiMesh* mesh = scene->mMeshes[m];
+        if (!mesh->HasBones()) continue;
+        for (unsigned int b = 0; b < mesh->mNumBones; ++b) {
+            const aiBone* bone = mesh->mBones[b];
+            auto it = result.joint_map.find(bone->mName.C_Str());
+            if (it == result.joint_map.end()) continue;
+            const aiMatrix4x4& ai_m = bone->mOffsetMatrix;
+            result.inv_bind_matrices[it->second] = glm::mat4(
+                ai_m.a1, ai_m.b1, ai_m.c1, ai_m.d1,
+                ai_m.a2, ai_m.b2, ai_m.c2, ai_m.d2,
+                ai_m.a3, ai_m.b3, ai_m.c3, ai_m.d3,
+                ai_m.a4, ai_m.b4, ai_m.c4, ai_m.d4);
+        }
+    }
+
+    // Extract skinned vertices from all meshes
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+        const aiMesh* mesh = scene->mMeshes[m];
+        if (!mesh->HasBones()) continue;
+
+        uint32_t base_vertex = static_cast<uint32_t>(result.vertices.size());
+
+        // Per-vertex bone influence accumulator
+        struct BoneInfluence { uint32_t id; float weight; };
+        std::vector<std::vector<BoneInfluence>> per_vertex_bones(mesh->mNumVertices);
+
+        for (unsigned int b = 0; b < mesh->mNumBones; ++b) {
+            const aiBone* bone = mesh->mBones[b];
+            auto it = result.joint_map.find(bone->mName.C_Str());
+            if (it == result.joint_map.end()) continue;
+            uint32_t joint_idx = it->second;
+
+            for (unsigned int w = 0; w < bone->mNumWeights; ++w) {
+                uint32_t vid = bone->mWeights[w].mVertexId;
+                float weight = bone->mWeights[w].mWeight;
+                if (weight > 0.0f) {
+                    per_vertex_bones[vid].push_back({joint_idx, weight});
+                }
+            }
+        }
+
+        for (unsigned int v = 0; v < mesh->mNumVertices; ++v) {
+            fjell::SkinnedVertex vert{};
+
+            vert.position = {mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z};
+
+            if (mesh->HasVertexColors(0)) {
+                vert.color = {mesh->mColors[0][v].r, mesh->mColors[0][v].g, mesh->mColors[0][v].b};
+            } else {
+                vert.color = glm::vec3(1.0f);
+            }
+
+            if (mesh->HasTextureCoords(0)) {
+                vert.tex_coord = {mesh->mTextureCoords[0][v].x, 1.0f - mesh->mTextureCoords[0][v].y};
+            } else {
+                vert.tex_coord = glm::vec2(0.0f);
+            }
+
+            if (mesh->HasNormals()) {
+                vert.normal = {mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z};
+            } else {
+                vert.normal = glm::vec3(0.0f, 1.0f, 0.0f);
+            }
+
+            if (mesh->HasTangentsAndBitangents()) {
+                glm::vec3 t = {mesh->mTangents[v].x, mesh->mTangents[v].y, mesh->mTangents[v].z};
+                glm::vec3 b = {mesh->mBitangents[v].x, mesh->mBitangents[v].y, mesh->mBitangents[v].z};
+                glm::vec3 n = vert.normal;
+                float w = (glm::dot(glm::cross(n, t), b) < 0.0f) ? -1.0f : 1.0f;
+                vert.tangent = glm::vec4(t, w);
+            } else {
+                vert.tangent = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+            }
+
+            // Bone influences: take top 4, normalize
+            auto& influences = per_vertex_bones[v];
+            std::sort(influences.begin(), influences.end(),
+                      [](const BoneInfluence& a, const BoneInfluence& b) {
+                          return a.weight > b.weight;
+                      });
+
+            vert.bone_ids = glm::uvec4(0);
+            vert.bone_weights = glm::vec4(0.0f);
+            float total_weight = 0.0f;
+            uint32_t count = std::min(static_cast<uint32_t>(influences.size()), 4u);
+            for (uint32_t i = 0; i < count; ++i) {
+                vert.bone_ids[i] = influences[i].id;
+                vert.bone_weights[i] = influences[i].weight;
+                total_weight += influences[i].weight;
+            }
+            // Renormalize
+            if (total_weight > 0.0f) {
+                vert.bone_weights /= total_weight;
+            } else {
+                vert.bone_weights.x = 1.0f; // bind to root if no influences
+            }
+
+            result.aabb.expand(vert.position);
+            result.vertices.push_back(vert);
+        }
+
+        // Indices
+        for (unsigned int f = 0; f < mesh->mNumFaces; ++f) {
+            const aiFace& face = mesh->mFaces[f];
+            for (unsigned int i = 0; i < face.mNumIndices; ++i) {
+                result.indices.push_back(base_vertex + face.mIndices[i]);
+            }
+        }
+
+        // Collision data
+        uint32_t collision_base = static_cast<uint32_t>(result.collision_vertices.size());
+        for (unsigned int v = 0; v < mesh->mNumVertices; ++v) {
+            result.collision_vertices.push_back(
+                {mesh->mVertices[v].x, mesh->mVertices[v].y, mesh->mVertices[v].z});
+        }
+        for (unsigned int f = 0; f < mesh->mNumFaces; ++f) {
+            const aiFace& face = mesh->mFaces[f];
+            for (unsigned int i = 0; i < face.mNumIndices; ++i) {
+                result.collision_indices.push_back(collision_base + face.mIndices[i]);
+            }
+        }
+    }
+
+    std::printf("  mesh: %zu vertices, %zu indices\n",
+                result.vertices.size(), result.indices.size());
+    return true;
+}
+
+static bool write_skinned_fjmesh(const std::string& output_path,
+                                  const SkinnedImportResult& result) {
+    FILE* f = std::fopen(output_path.c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr, "error: cannot open '%s' for writing\n", output_path.c_str());
+        return false;
+    }
+
+    uint64_t offset = sizeof(fjell::FjMeshHeader);
+    auto align_to = [](uint64_t val, uint64_t alignment) -> uint64_t {
+        return (val + alignment - 1) & ~(alignment - 1);
+    };
+
+    fjell::FjMeshHeader header{};
+    header.magic = fjell::FJMESH_MAGIC;
+    header.version = fjell::FJMESH_VERSION;
+    header.flags = fjell::FJMESH_FLAG_SKINNED;
+    header.vertex_count = static_cast<uint32_t>(result.vertices.size());
+    header.index_count = static_cast<uint32_t>(result.indices.size());
+    header.submesh_count = 0;
+    header.meshlet_count = 0;
+    header.meshlet_vertex_count = 0;
+    header.meshlet_triangle_byte_count = 0;
+    header.collision_vertex_count = static_cast<uint32_t>(result.collision_vertices.size());
+    header.collision_index_count = static_cast<uint32_t>(result.collision_indices.size());
+    header.max_meshlet_vertices = fjell::MAX_MESHLET_VERTICES;
+    header.max_meshlet_triangles = fjell::MAX_MESHLET_TRIANGLES;
+    header.lod_count = 0;
+    header.aabb_min = result.aabb.min;
+    header.aabb_max = result.aabb.max;
+    header.joint_count = result.joint_count;
+
+    // Layout: vertices (SkinnedVertex), indices, collision
+    header.vertices_offset = align_to(offset, 8);
+    offset = header.vertices_offset + header.vertex_count * sizeof(fjell::SkinnedVertex);
+
+    header.indices_offset = align_to(offset, 4);
+    offset = header.indices_offset + header.index_count * sizeof(uint32_t);
+
+    // Empty sections
+    header.submeshes_offset = offset;
+    header.meshlets_offset = offset;
+    header.meshlet_bounds_offset = offset;
+    header.meshlet_vertices_offset = offset;
+    header.meshlet_triangles_offset = offset;
+    header.lod_levels_offset = offset;
+
+    header.collision_vertices_offset = align_to(offset, 4);
+    offset = header.collision_vertices_offset + header.collision_vertex_count * sizeof(glm::vec3);
+
+    header.collision_indices_offset = align_to(offset, 4);
+    offset = header.collision_indices_offset + header.collision_index_count * sizeof(uint32_t);
+
+    uint64_t file_size = offset;
+
+    std::fwrite(&header, sizeof(header), 1, f);
+
+    auto pad_to = [&](uint64_t target) {
+        long current = std::ftell(f);
+        if (current < 0) return;
+        while (static_cast<uint64_t>(current) < target) {
+            uint8_t zero = 0;
+            std::fwrite(&zero, 1, 1, f);
+            ++current;
+        }
+    };
+
+    pad_to(header.vertices_offset);
+    std::fwrite(result.vertices.data(), sizeof(fjell::SkinnedVertex), result.vertices.size(), f);
+
+    pad_to(header.indices_offset);
+    std::fwrite(result.indices.data(), sizeof(uint32_t), result.indices.size(), f);
+
+    pad_to(header.collision_vertices_offset);
+    std::fwrite(result.collision_vertices.data(), sizeof(glm::vec3), result.collision_vertices.size(), f);
+
+    pad_to(header.collision_indices_offset);
+    std::fwrite(result.collision_indices.data(), sizeof(uint32_t), result.collision_indices.size(), f);
+
+    std::fclose(f);
+    std::printf("wrote %s (%.1f KB, skinned, %u joints)\n", output_path.c_str(),
+                static_cast<double>(file_size) / 1024.0, header.joint_count);
+    return true;
+}
+
+static bool export_skeleton(const std::string& output_path,
+                             const ozz::animation::Skeleton& skeleton,
+                             const std::vector<glm::mat4>& inv_bind_matrices) {
+    // Serialize skeleton via ozz archive
+    ozz::io::MemoryStream skel_stream;
+    ozz::io::OArchive archive(&skel_stream);
+    archive << skeleton;
+
+    fjell::FjSkelHeader header{};
+    header.magic = fjell::FJSKEL_MAGIC;
+    header.version = fjell::FJSKEL_VERSION;
+    header.num_joints = static_cast<uint32_t>(skeleton.num_joints());
+
+    uint64_t offset = sizeof(fjell::FjSkelHeader);
+    header.skeleton_offset = offset;
+    header.skeleton_size = static_cast<uint64_t>(skel_stream.Size());
+    offset += header.skeleton_size;
+
+    // Align inverse bind matrices to 16 bytes
+    offset = (offset + 15) & ~uint64_t(15);
+    header.inv_bind_offset = offset;
+
+    FILE* f = std::fopen(output_path.c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr, "error: cannot open '%s' for writing\n", output_path.c_str());
+        return false;
+    }
+
+    std::fwrite(&header, sizeof(header), 1, f);
+
+    // Write skeleton blob
+    std::fseek(f, static_cast<long>(header.skeleton_offset), SEEK_SET);
+    skel_stream.Seek(0, ozz::io::Stream::kSet);
+    std::vector<uint8_t> skel_data(skel_stream.Size());
+    skel_stream.Read(skel_data.data(), skel_data.size());
+    std::fwrite(skel_data.data(), 1, skel_data.size(), f);
+
+    // Pad + write inverse bind matrices
+    long current = std::ftell(f);
+    while (static_cast<uint64_t>(current) < header.inv_bind_offset) {
+        uint8_t zero = 0;
+        std::fwrite(&zero, 1, 1, f);
+        ++current;
+    }
+    std::fwrite(inv_bind_matrices.data(), sizeof(glm::mat4), inv_bind_matrices.size(), f);
+
+    std::fclose(f);
+    std::printf("wrote %s (%u joints)\n", output_path.c_str(), header.num_joints);
+    return true;
+}
+
+static bool export_animation(const std::string& output_path,
+                              const aiAnimation* anim,
+                              const ozz::animation::Skeleton& skeleton,
+                              const std::unordered_map<std::string, uint32_t>& joint_map) {
+    int num_joints = skeleton.num_joints();
+    float duration = static_cast<float>(anim->mDuration / anim->mTicksPerSecond);
+
+    ozz::animation::offline::RawAnimation raw_anim;
+    raw_anim.duration = duration;
+    raw_anim.name = anim->mName.C_Str();
+    raw_anim.tracks.resize(num_joints);
+
+    for (unsigned int c = 0; c < anim->mNumChannels; ++c) {
+        const aiNodeAnim* channel = anim->mChannels[c];
+        auto it = joint_map.find(channel->mNodeName.C_Str());
+        if (it == joint_map.end()) continue;
+        uint32_t joint_idx = it->second;
+
+        auto& track = raw_anim.tracks[joint_idx];
+
+        float tick_rate = static_cast<float>(anim->mTicksPerSecond);
+        if (tick_rate <= 0.0f) tick_rate = 24.0f;
+
+        for (unsigned int k = 0; k < channel->mNumPositionKeys; ++k) {
+            const auto& key = channel->mPositionKeys[k];
+            float time = static_cast<float>(key.mTime) / tick_rate;
+            track.translations.push_back({time,
+                ozz::math::Float3(key.mValue.x, key.mValue.y, key.mValue.z)});
+        }
+
+        for (unsigned int k = 0; k < channel->mNumRotationKeys; ++k) {
+            const auto& key = channel->mRotationKeys[k];
+            float time = static_cast<float>(key.mTime) / tick_rate;
+            track.rotations.push_back({time,
+                ozz::math::Quaternion(key.mValue.x, key.mValue.y, key.mValue.z, key.mValue.w)});
+        }
+
+        for (unsigned int k = 0; k < channel->mNumScalingKeys; ++k) {
+            const auto& key = channel->mScalingKeys[k];
+            float time = static_cast<float>(key.mTime) / tick_rate;
+            track.scales.push_back({time,
+                ozz::math::Float3(key.mValue.x, key.mValue.y, key.mValue.z)});
+        }
+    }
+
+    if (!raw_anim.Validate()) {
+        std::fprintf(stderr, "  warning: animation '%s' failed validation, skipping\n",
+                     anim->mName.C_Str());
+        return false;
+    }
+
+    // Build compressed runtime animation
+    ozz::animation::offline::AnimationBuilder anim_builder;
+    auto runtime_anim = anim_builder(raw_anim);
+    if (!runtime_anim) {
+        std::fprintf(stderr, "  warning: animation build failed for '%s'\n",
+                     anim->mName.C_Str());
+        return false;
+    }
+
+    // Serialize animation blob
+    ozz::io::MemoryStream anim_stream;
+    ozz::io::OArchive archive(&anim_stream);
+    archive << *runtime_anim;
+
+    std::string clip_name = anim->mName.C_Str();
+
+    fjell::FjAnimHeader header{};
+    header.magic = fjell::FJANIM_MAGIC;
+    header.version = fjell::FJANIM_VERSION;
+    header.num_tracks = static_cast<uint32_t>(num_joints);
+    header.duration = duration;
+    header.name_length = static_cast<uint32_t>(clip_name.size());
+
+    uint64_t offset = sizeof(fjell::FjAnimHeader);
+    header.name_offset = offset;
+    offset += header.name_length;
+
+    offset = (offset + 7) & ~uint64_t(7); // align data
+    header.data_offset = offset;
+    header.data_size = static_cast<uint64_t>(anim_stream.Size());
+
+    FILE* f = std::fopen(output_path.c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr, "error: cannot open '%s' for writing\n", output_path.c_str());
+        return false;
+    }
+
+    std::fwrite(&header, sizeof(header), 1, f);
+
+    // Name
+    std::fseek(f, static_cast<long>(header.name_offset), SEEK_SET);
+    std::fwrite(clip_name.data(), 1, clip_name.size(), f);
+
+    // Pad + data
+    long current = std::ftell(f);
+    while (static_cast<uint64_t>(current) < header.data_offset) {
+        uint8_t zero = 0;
+        std::fwrite(&zero, 1, 1, f);
+        ++current;
+    }
+    anim_stream.Seek(0, ozz::io::Stream::kSet);
+    std::vector<uint8_t> anim_data(anim_stream.Size());
+    anim_stream.Read(anim_data.data(), anim_data.size());
+    std::fwrite(anim_data.data(), 1, anim_data.size(), f);
+
+    std::fclose(f);
+    return true;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+
 static void print_usage(const char* prog) {
     std::fprintf(stderr, "usage: %s <input.glb|gltf|fbx> [-o output.fjmesh]\n", prog);
 }
@@ -435,18 +964,95 @@ int main(int argc, char* argv[]) {
 
     std::printf("importing %s ...\n", input_path.c_str());
 
-    ImportResult result;
-    if (!import_mesh(input_path, result)) {
+    // Load via Assimp first to detect skinned vs static
+    Assimp::Importer importer;
+    constexpr unsigned int assimp_flags =
+        aiProcess_Triangulate |
+        aiProcess_CalcTangentSpace |
+        aiProcess_JoinIdenticalVertices;
+    const aiScene* scene = importer.ReadFile(input_path, assimp_flags);
+    if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
+        std::fprintf(stderr, "error: Assimp failed to load '%s': %s\n",
+                     input_path.c_str(), importer.GetErrorString());
         return 1;
     }
 
-    if (result.vertices.empty()) {
-        std::fprintf(stderr, "error: no mesh data found in '%s'\n", input_path.c_str());
-        return 1;
+    // Check if any mesh has bones
+    bool has_skin = false;
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+        if (scene->mMeshes[m]->HasBones()) { has_skin = true; break; }
     }
 
-    if (!write_fjmesh(output_path, result)) {
-        return 1;
+    if (has_skin) {
+        // ── Skinned mesh path ──
+        SkinnedImportResult skinned_result;
+        if (!import_skinned_mesh(scene, skinned_result)) {
+            std::fprintf(stderr, "error: skinned import failed\n");
+            return 1;
+        }
+
+        if (skinned_result.vertices.empty()) {
+            std::fprintf(stderr, "error: no skinned mesh data found\n");
+            return 1;
+        }
+
+        if (!write_skinned_fjmesh(output_path, skinned_result)) {
+            return 1;
+        }
+
+        // Build runtime skeleton for export
+        std::unordered_map<std::string, bool> bone_names;
+        for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+            const aiMesh* mesh = scene->mMeshes[m];
+            if (!mesh->HasBones()) continue;
+            for (unsigned int b = 0; b < mesh->mNumBones; ++b) {
+                bone_names[mesh->mBones[b]->mName.C_Str()] = true;
+            }
+        }
+        const aiNode* armature = find_armature_root(scene, bone_names);
+        ozz::animation::offline::RawSkeleton raw_skel;
+        raw_skel.roots.resize(1);
+        collect_skeleton_joints(armature, bone_names, raw_skel.roots[0]);
+        ozz::animation::offline::SkeletonBuilder skel_builder;
+        auto runtime_skel = skel_builder(raw_skel);
+
+        // Write .fjskel
+        fs::path skel_path = fs::path(output_path).replace_extension(".fjskel");
+        export_skeleton(skel_path.string(), *runtime_skel, skinned_result.inv_bind_matrices);
+
+        // Export animations
+        fs::path stem = fs::path(output_path).stem();
+        fs::path out_dir = fs::path(output_path).parent_path();
+        uint32_t exported = 0;
+        for (unsigned int a = 0; a < scene->mNumAnimations; ++a) {
+            const aiAnimation* anim = scene->mAnimations[a];
+            std::string clip_name = anim->mName.C_Str();
+            // Sanitize clip name for filename
+            for (char& c : clip_name) {
+                if (c == '/' || c == '\\' || c == ':' || c == ' ') c = '_';
+            }
+            fs::path anim_path = out_dir / (stem.string() + "_" + clip_name + ".fjanim");
+            if (export_animation(anim_path.string(), anim, *runtime_skel,
+                                 skinned_result.joint_map)) {
+                exported++;
+            }
+        }
+        std::printf("exported %u/%u animation clips\n", exported, scene->mNumAnimations);
+    } else {
+        // ── Static mesh path (unchanged) ──
+        ImportResult result;
+        if (!import_mesh(input_path, result)) {
+            return 1;
+        }
+
+        if (result.vertices.empty()) {
+            std::fprintf(stderr, "error: no mesh data found in '%s'\n", input_path.c_str());
+            return 1;
+        }
+
+        if (!write_fjmesh(output_path, result)) {
+            return 1;
+        }
     }
 
     fjell::log::shutdown();
