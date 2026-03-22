@@ -52,18 +52,13 @@ struct has_reflect<T, std::void_t<decltype(T::reflect())>> : std::true_type {};
 
 template <typename T>
 void register_actor(FjellTypeRegistry* reg) {
-    static FjellFieldDesc fields[64]{};
-    static FjellActorType desc{};
-
+    FjellActorType desc{};
     desc.name = T::type_name;
     desc.create = []() -> Actor* { return new T(); };
 
     if constexpr (detail::has_reflect<T>::value) {
         auto arr = T::reflect();
-        for (std::size_t i = 0; i < arr.size(); ++i) {
-            fields[i] = arr[i];
-        }
-        desc.fields = fields;
+        desc.fields = arr.data();
         desc.field_count = static_cast<uint32_t>(arr.size());
     }
 
@@ -72,18 +67,13 @@ void register_actor(FjellTypeRegistry* reg) {
 
 template <typename T>
 void register_component(FjellTypeRegistry* reg) {
-    static FjellFieldDesc fields[64]{};
-    static FjellComponentTypeOOP desc{};
-
+    FjellComponentTypeOOP desc{};
     desc.name = T::type_name;
     desc.create = []() -> ScriptComponent* { return new T(); };
 
     if constexpr (detail::has_reflect<T>::value) {
         auto arr = T::reflect();
-        for (std::size_t i = 0; i < arr.size(); ++i) {
-            fields[i] = arr[i];
-        }
-        desc.fields = fields;
+        desc.fields = arr.data();
         desc.field_count = static_cast<uint32_t>(arr.size());
     }
 

@@ -285,11 +285,25 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     for (auto& obj : scene.objects()) {
         if (obj->actor) {
             obj->actor->world_ = &world_;
-            obj->actor->tick(dt);
+            try {
+                obj->actor->tick(dt);
+            } catch (const std::exception& e) {
+                FJELL_CORE_ERROR("Exception in Actor::tick on '{}': {}", obj->name, e.what());
+            } catch (...) {
+                FJELL_CORE_ERROR("Unknown exception in Actor::tick on '{}'", obj->name);
+            }
         }
         for (auto& comp : obj->scripts) {
             if (comp.instance) {
-                comp.instance->tick(dt);
+                try {
+                    comp.instance->tick(dt);
+                } catch (const std::exception& e) {
+                    FJELL_CORE_ERROR("Exception in {}.tick on '{}': {}",
+                                     comp.type_name, obj->name, e.what());
+                } catch (...) {
+                    FJELL_CORE_ERROR("Unknown exception in {}.tick on '{}'",
+                                     comp.type_name, obj->name);
+                }
             }
         }
     }
@@ -302,11 +316,25 @@ void ScriptManager::call_begin_play(Scene& scene) {
     for (auto& obj : scene.objects()) {
         if (obj->actor) {
             obj->actor->world_ = &world_;
-            obj->actor->begin_play();
+            try {
+                obj->actor->begin_play();
+            } catch (const std::exception& e) {
+                FJELL_CORE_ERROR("Exception in Actor::begin_play on '{}': {}", obj->name, e.what());
+            } catch (...) {
+                FJELL_CORE_ERROR("Unknown exception in Actor::begin_play on '{}'", obj->name);
+            }
         }
         for (auto& comp : obj->scripts) {
             if (comp.instance) {
-                comp.instance->begin_play();
+                try {
+                    comp.instance->begin_play();
+                } catch (const std::exception& e) {
+                    FJELL_CORE_ERROR("Exception in {}.begin_play on '{}': {}",
+                                     comp.type_name, obj->name, e.what());
+                } catch (...) {
+                    FJELL_CORE_ERROR("Unknown exception in {}.begin_play on '{}'",
+                                     comp.type_name, obj->name);
+                }
             }
         }
     }
@@ -317,11 +345,25 @@ void ScriptManager::call_end_play(Scene& scene) {
     for (auto& obj : scene.objects()) {
         for (auto& comp : obj->scripts) {
             if (comp.instance) {
-                comp.instance->end_play();
+                try {
+                    comp.instance->end_play();
+                } catch (const std::exception& e) {
+                    FJELL_CORE_ERROR("Exception in {}.end_play on '{}': {}",
+                                     comp.type_name, obj->name, e.what());
+                } catch (...) {
+                    FJELL_CORE_ERROR("Unknown exception in {}.end_play on '{}'",
+                                     comp.type_name, obj->name);
+                }
             }
         }
         if (obj->actor) {
-            obj->actor->end_play();
+            try {
+                obj->actor->end_play();
+            } catch (const std::exception& e) {
+                FJELL_CORE_ERROR("Exception in Actor::end_play on '{}': {}", obj->name, e.what());
+            } catch (...) {
+                FJELL_CORE_ERROR("Unknown exception in Actor::end_play on '{}'", obj->name);
+            }
         }
     }
 }
@@ -380,9 +422,15 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 *static_cast<float*>(ptr) = in[f.name].get<float>();
                 break;
             case FJELL_FIELD_INT:
-            case FJELL_FIELD_ENUM:
                 *static_cast<int32_t*>(ptr) = in[f.name].get<int32_t>();
                 break;
+            case FJELL_FIELD_ENUM: {
+                int32_t val = in[f.name].get<int32_t>();
+                int32_t max_val = static_cast<int32_t>(f.size) - 1;
+                if (max_val >= 0) val = std::clamp(val, int32_t{0}, max_val);
+                *static_cast<int32_t*>(ptr) = val;
+                break;
+            }
             case FJELL_FIELD_BOOL:
                 *static_cast<bool*>(ptr) = in[f.name].get<bool>();
                 break;
