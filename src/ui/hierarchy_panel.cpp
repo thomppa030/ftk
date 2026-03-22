@@ -14,7 +14,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstring>
 
 namespace fjell {
 
@@ -53,6 +56,117 @@ NodeVisuals node_visuals(const Node& obj) {
 
 } // namespace
 
+// ── Selection API ────────────────────────────────────────────────────────
+
+void HierarchyPanel::select(uint32_t id) {
+    selection_.clear();
+    selection_.insert(id);
+    *selected_id_ = id;
+    last_clicked_id_ = id;
+}
+
+void HierarchyPanel::toggle_select(uint32_t id) {
+    if (selection_.contains(id)) {
+        selection_.erase(id);
+        // Update primary selection
+        if (*selected_id_ == id) {
+            *selected_id_ = selection_.empty() ? 0 : *selection_.begin();
+        }
+    } else {
+        selection_.insert(id);
+        *selected_id_ = id;
+    }
+    last_clicked_id_ = id;
+}
+
+void HierarchyPanel::range_select(uint32_t id) {
+    if (last_clicked_id_ == 0 || draw_order_.empty()) {
+        select(id);
+        return;
+    }
+
+    // Find positions in draw order
+    auto it_anchor = std::find(draw_order_.begin(), draw_order_.end(), last_clicked_id_);
+    auto it_target = std::find(draw_order_.begin(), draw_order_.end(), id);
+
+    if (it_anchor == draw_order_.end() || it_target == draw_order_.end()) {
+        select(id);
+        return;
+    }
+
+    // Select everything between anchor and target (inclusive)
+    if (it_anchor > it_target) std::swap(it_anchor, it_target);
+
+    selection_.clear();
+    for (auto it = it_anchor; it <= it_target; ++it) {
+        selection_.insert(*it);
+    }
+    *selected_id_ = id;
+    // Don't update last_clicked_id_ — anchor stays for further shift-clicks
+}
+
+void HierarchyPanel::add_to_selection(uint32_t id) {
+    selection_.insert(id);
+    *selected_id_ = id;
+    last_clicked_id_ = id;
+}
+
+void HierarchyPanel::clear_selection() {
+    selection_.clear();
+    *selected_id_ = 0;
+    last_clicked_id_ = 0;
+}
+
+// ── Filter ───────────────────────────────────────────────────────────────
+
+bool HierarchyPanel::matches_filter(const Node& obj) const {
+    // Type filter: 0=All, 1=Mesh, 2=Light, 3=Camera, 4=Folder, 5=Empty
+    if (type_filter_ != 0) {
+        bool type_match = false;
+        switch (type_filter_) {
+            case 1: type_match = obj.components.get<MeshComponent>() != nullptr; break;
+            case 2: type_match = dynamic_cast<const DirectionalLightNode*>(&obj) ||
+                                 dynamic_cast<const PointLightNode*>(&obj) ||
+                                 dynamic_cast<const SpotLightNode*>(&obj); break;
+            case 3: type_match = dynamic_cast<const CameraNode*>(&obj) != nullptr; break;
+            case 4: type_match = !obj.is_spatial(); break;
+            case 5: type_match = obj.is_spatial() && !obj.components.get<MeshComponent>() &&
+                                 !dynamic_cast<const CameraNode*>(&obj) &&
+                                 !dynamic_cast<const DirectionalLightNode*>(&obj) &&
+                                 !dynamic_cast<const PointLightNode*>(&obj) &&
+                                 !dynamic_cast<const SpotLightNode*>(&obj); break;
+            default: break;
+        }
+        if (!type_match) return false;
+    }
+
+    // Text filter (case-insensitive substring)
+    if (filter_text_[0] == '\0') return true;
+
+    // Simple case-insensitive search
+    auto to_lower = [](const std::string& s) {
+        std::string out = s;
+        for (auto& c : out) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return out;
+    };
+    std::string name_lower = to_lower(obj.name);
+    std::string filter_lower = to_lower(filter_text_);
+    return name_lower.find(filter_lower) != std::string::npos;
+}
+
+bool HierarchyPanel::subtree_matches_filter(const Node& obj) const {
+    if (matches_filter(obj)) return true;
+    auto it = children_map_.find(static_cast<int32_t>(obj.id));
+    if (it != children_map_.end()) {
+        for (const auto* child : it->second) {
+            if (subtree_matches_filter(*child)) return true;
+        }
+    }
+    return false;
+}
+
+// ── Init / Draw ──────────────────────────────────────────────────────────
+
 void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
                           uint32_t* selected_id, CommandHistory* history,
                           IconCache* icons) {
@@ -67,12 +181,35 @@ void HierarchyPanel::draw() {
     if (ImGui::Begin("Hierarchy")) {
         remove_pending_id_ = 0;
 
+        // Sync selection with external changes to selected_id_
+        // (e.g. viewport click, add object, etc.)
+        if (*selected_id_ != 0 && !selection_.contains(*selected_id_)) {
+            selection_.clear();
+            selection_.insert(*selected_id_);
+            last_clicked_id_ = *selected_id_;
+        } else if (*selected_id_ == 0 && !selection_.empty()) {
+            selection_.clear();
+            last_clicked_id_ = 0;
+        }
+
+        // Build draw-order list for shift-click range selection
+        draw_order_.clear();
+
         // Add button at top
         if (ImGui::SmallButton("+")) {
             ImGui::OpenPopup("##HierarchyAdd");
         }
         ImGui::SameLine();
         ImGui::TextDisabled("Add");
+
+        // Search & type filter
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-100.0f);
+        ImGui::InputTextWithHint("##filter", "Search...", filter_text_, sizeof(filter_text_));
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-1.0f);
+        const char* type_labels[] = {"All", "Mesh", "Light", "Camera", "Folder", "Empty"};
+        ImGui::Combo("##type", &type_filter_, type_labels, 6);
 
         if (ImGui::BeginPopup("##HierarchyAdd")) {
             if (ImGui::MenuItem("Cube")) on_add_primitive.broadcast("cube");
@@ -131,6 +268,12 @@ void HierarchyPanel::draw() {
             }
         }
 
+        // Click on empty space = deselect all
+        if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() &&
+            ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            clear_selection();
+        }
+
         // Right-click on empty space
         if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() &&
             ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
@@ -159,18 +302,27 @@ void HierarchyPanel::draw() {
         // Deferred removal
         if (remove_pending_id_ != 0) {
             on_remove_object.broadcast(remove_pending_id_);
+            selection_.erase(remove_pending_id_);
         }
     }
     ImGui::End();
 }
 
 void HierarchyPanel::draw_node(Node& obj) {
+    // Skip nodes that don't match the filter (and have no matching descendants)
+    bool filtering = is_filtering();
+    if (filtering && !subtree_matches_filter(obj)) return;
+
+    // Record draw order for shift-click range selection
+    draw_order_.push_back(obj.id);
+
     auto child_it = children_map_.find(static_cast<int32_t>(obj.id));
     bool has_children = child_it != children_map_.end() && !child_it->second.empty();
 
     ImGui::PushID(static_cast<int>(obj.id));
 
-    bool is_selected = (obj.id == *selected_id_);
+    bool is_selected = selection_.contains(obj.id);
+    bool is_primary = (obj.id == *selected_id_);
 
     ImGuiTreeNodeFlags flags =
         ImGuiTreeNodeFlags_OpenOnArrow |
@@ -184,6 +336,11 @@ void HierarchyPanel::draw_node(Node& obj) {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
 
+    // Auto-expand when filtering so matches are visible
+    if (filtering && has_children) {
+        ImGui::SetNextItemOpen(true);
+    }
+
     // Determine visuals for this node type
     auto visuals = node_visuals(obj);
 
@@ -191,9 +348,15 @@ void HierarchyPanel::draw_node(Node& obj) {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {4.0f, 6.0f});
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0f, 2.0f});
 
+    // Primary selection = brighter, secondary = dimmer
     if (is_selected) {
-        ImGui::PushStyleColor(ImGuiCol_Header, {0.22f, 0.27f, 0.58f, 1.0f});
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.26f, 0.32f, 0.65f, 1.0f});
+        if (is_primary) {
+            ImGui::PushStyleColor(ImGuiCol_Header, {0.22f, 0.27f, 0.58f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.26f, 0.32f, 0.65f, 1.0f});
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Header, {0.18f, 0.22f, 0.45f, 1.0f});
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.22f, 0.27f, 0.52f, 1.0f});
+        }
         ImGui::PushStyleColor(ImGuiCol_Text, {0.95f, 0.95f, 0.95f, 1.0f});
     }
 
@@ -270,11 +433,20 @@ void HierarchyPanel::draw_node(Node& obj) {
         }
     }
 
+    // Click handling with multi-select (Ctrl / Shift)
     if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) {
-        *selected_id_ = obj.id;
+        if (ImGui::GetIO().KeyCtrl) {
+            toggle_select(obj.id);
+        } else if (ImGui::GetIO().KeyShift) {
+            range_select(obj.id);
+        } else {
+            select(obj.id);
+        }
     }
+
+    // Double-click to focus camera
     if (row_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-        *selected_id_ = obj.id;
+        select(obj.id);
         if (auto* spatial = obj.as_spatial()) {
             glm::vec3 center = glm::vec3(spatial->world_matrix_[3]);
             float radius = 1.0f;
@@ -293,10 +465,32 @@ void HierarchyPanel::draw_node(Node& obj) {
         }
     }
 
+    // Right-click context menu on node
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        // If right-clicked node isn't in selection, make it the sole selection
+        if (!selection_.contains(obj.id)) {
+            select(obj.id);
+        }
+        ImGui::OpenPopup("##NodeContext");
+    }
+    if (ImGui::BeginPopup("##NodeContext")) {
+        if (ImGui::MenuItem("Duplicate", "Ctrl+D")) {
+            on_duplicate.broadcast();
+        }
+        if (ImGui::MenuItem("Delete", "Delete")) {
+            remove_pending_id_ = obj.id;
+        }
+        ImGui::EndPopup();
+    }
+
     // Drag source — must follow immediately after TreeNodeEx
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
         ImGui::SetDragDropPayload("HIERARCHY_NODE", &obj.id, sizeof(obj.id));
-        ImGui::Text("%s", obj.name.c_str());
+        if (selection_.size() > 1 && selection_.contains(obj.id)) {
+            ImGui::Text("%zu objects", selection_.size());
+        } else {
+            ImGui::Text("%s", obj.name.c_str());
+        }
         ImGui::EndDragDropSource();
     }
 

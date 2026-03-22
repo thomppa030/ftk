@@ -232,6 +232,10 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                 scene_, id, &selected_id_,
                 [this]() { vulkan_context_->wait_idle(); }));
         }));
+    connections_.push_back(hierarchy_panel_.on_duplicate.bind(
+        [this]() {
+            duplicate_selection();
+        }));
 
     properties_panel_.init(&scene_, &selected_id_, &gizmo_op_, &light_,
                            &script_manager_, &command_history_,
@@ -585,6 +589,38 @@ void Engine::add_primitive_to_scene(const std::string& type) {
                               {}, name, "primitive:" + type);
 }
 
+void Engine::duplicate_selection() {
+    auto& sel = hierarchy_panel_.selection();
+    if (sel.empty()) return;
+
+    vulkan_context_->wait_idle();
+    std::vector<uint32_t> ids(sel.begin(), sel.end());
+    auto cmd = std::make_unique<DuplicateCommand>(scene_, ids, &selected_id_);
+    command_history_.execute(std::move(cmd));
+
+    // Update multi-selection to the new duplicates
+    auto* dup_cmd = static_cast<DuplicateCommand*>(command_history_.commands().back().get());
+    hierarchy_panel_.clear_selection();
+    for (uint32_t id : dup_cmd->created_ids()) {
+        hierarchy_panel_.add_to_selection(id);
+    }
+}
+
+void Engine::delete_selection() {
+    auto& sel = hierarchy_panel_.selection();
+    if (sel.empty()) return;
+
+    vulkan_context_->wait_idle();
+    // Delete in reverse order to avoid invalidating IDs
+    std::vector<uint32_t> ids(sel.begin(), sel.end());
+    for (uint32_t id : ids) {
+        command_history_.execute(std::make_unique<RemoveObjectCommand>(
+            scene_, id, &selected_id_,
+            [this]() { vulkan_context_->wait_idle(); }));
+    }
+    hierarchy_panel_.clear_selection();
+}
+
 void Engine::setup_dockspace() {
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -806,13 +842,22 @@ void Engine::draw_ui() {
         command_history_.redo();
     }
 
+    // Duplicate (Ctrl+D)
+    if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D)) {
+        duplicate_selection();
+    }
+    // Delete selection
+    if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+        delete_selection();
+    }
+
     // Gizmo keyboard shortcuts (skip when typing in a text field or navigating)
     bool navigating = input_.is_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
     if (!ImGui::GetIO().WantTextInput && !navigating) {
         if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmo_op_ = 0; // translate
         if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmo_op_ = 1; // rotate
         if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmo_op_ = 2; // scale
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) selected_id_ = 0;
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) hierarchy_panel_.clear_selection();
     }
 
     // Apply deferred layout load

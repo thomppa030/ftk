@@ -68,6 +68,8 @@ private:
                                       const std::string& skel_path,
                                       const std::string& anim_path = {});
     void add_primitive_to_scene(const std::string& type);
+    void duplicate_selection();
+    void delete_selection();
     void create_default_scene();
     void save_material_assets();
 

@@ -3,6 +3,7 @@
 #include "core/command.hpp"
 #include "scene/scene.hpp"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -292,6 +293,64 @@ private:
     Scene& scene_;
     int index_;
     SpotLight light_;
+};
+
+// ── Duplicate Objects ────────────────────────────────────────────────────
+
+class DuplicateCommand : public Command {
+public:
+    DuplicateCommand(Scene& scene, std::vector<uint32_t> source_ids,
+                     uint32_t* selected_id)
+        : scene_{scene}, selected_id_{selected_id} {
+        // Clone each source node with a new ID
+        for (uint32_t id : source_ids) {
+            const auto* src = scene_.find(id);
+            if (!src) continue;
+            auto copy = src->clone();
+            copy->id = 0; // will be assigned by add_node
+            copy->name = src->name + " (copy)";
+            source_names_.push_back(src->name);
+            clones_.push_back(std::move(copy));
+        }
+    }
+
+    void execute() override {
+        created_ids_.clear();
+        for (auto& clone : clones_) {
+            // Re-clone for redo cycles (after undo extracted the node)
+            if (!clone) continue;
+            uint32_t id = scene_.add_node(std::move(clone));
+            created_ids_.push_back(id);
+        }
+        clones_.clear();
+        if (!created_ids_.empty()) {
+            *selected_id_ = created_ids_.back();
+        }
+    }
+
+    void undo() override {
+        // Extract in reverse order
+        for (auto it = created_ids_.rbegin(); it != created_ids_.rend(); ++it) {
+            clones_.push_back(scene_.extract(*it));
+        }
+        std::reverse(clones_.begin(), clones_.end());
+        created_ids_.clear();
+        *selected_id_ = 0;
+    }
+
+    [[nodiscard]] std::string description() const override {
+        if (source_names_.size() == 1) return "Duplicate " + source_names_[0];
+        return "Duplicate " + std::to_string(source_names_.size()) + " objects";
+    }
+
+    [[nodiscard]] const std::vector<uint32_t>& created_ids() const { return created_ids_; }
+
+private:
+    Scene& scene_;
+    uint32_t* selected_id_;
+    std::vector<std::unique_ptr<Node>> clones_;
+    std::vector<uint32_t> created_ids_;
+    std::vector<std::string> source_names_;
 };
 
 } // namespace fjell
