@@ -155,6 +155,18 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         create_default_scene();
     }
 
+    // Test: auto-load skeletal mesh if present in project
+    if (project_) {
+        auto skel_mesh = project_->root() / "assets/Animations/output/UAL1.fjmesh";
+        auto skel_file = project_->root() / "assets/Animations/output/UAL1.fjskel";
+        auto anim_file = project_->root() / "assets/Animations/output/UAL1_Idle_Loop.fjanim";
+        if (std::filesystem::exists(skel_mesh) && std::filesystem::exists(skel_file)) {
+            add_skeletal_model_to_scene(
+                skel_mesh.string(), skel_file.string(),
+                std::filesystem::exists(anim_file) ? anim_file.string() : "");
+        }
+    }
+
     // Load game scripts
     if (game_mode_) {
         auto game_so = base_path::resolve("game.so");

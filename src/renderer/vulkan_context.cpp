@@ -1154,6 +1154,29 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             }
             render_stats_->draw_calls += indirect_batch_->opaque_draw_count(current_frame_);
             render_stats_->triangle_count += indirect_batch_->total_triangles(current_frame_);
+
+            // Draw skinned meshes (per-model VBO, not in indirect batch)
+            {
+                const auto& skinned_indices = indirect_batch_->skinned_draw_indices(current_frame_);
+                uint32_t skinned_cmd_idx = 0;
+                for (const auto& dc : render_queue_.commands()) {
+                    if (!dc.skinned || !dc.skeletal_model) continue;
+                    if (skinned_cmd_idx >= skinned_indices.size()) break;
+
+                    auto pipeline = pipeline_cache_->skinned_opaque_pipeline(dc.pipeline_id);
+                    vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                    vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                            pipeline_cache_->layout(),
+                                            0, static_cast<uint32_t>(descriptor_sets.size()),
+                                            descriptor_sets.data(), 0, nullptr);
+
+                    dc.skeletal_model->bind(cb);
+                    uint32_t draw_data_idx = skinned_indices[skinned_cmd_idx];
+                    vkCmdDrawIndexed(cb, dc.skeletal_model->index_count(), 1, 0, 0, draw_data_idx);
+                    render_stats_->draw_calls++;
+                    skinned_cmd_idx++;
+                }
+            }
 #ifdef FJELL_ENABLE_TRACY
             }
 #endif

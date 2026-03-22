@@ -104,6 +104,10 @@ public:
         return aabb_data_[frame_index].empty() ? nullptr : aabb_data_[frame_index].data();
     }
 
+    [[nodiscard]] const std::vector<uint32_t>& skinned_draw_indices(uint32_t frame_index) const {
+        return skinned_draw_indices_[frame_index];
+    }
+
 private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
 
@@ -126,6 +130,9 @@ private:
     // CPU-side staging buffers (avoid scattered writes to write-combined GPU memory)
     std::vector<VkDrawIndexedIndirectCommand> staged_indirect_;
     std::vector<GpuDrawData> staged_draw_data_;
+
+    // Per-frame skinned draw data indices (draw_index into GpuDrawData SSBO)
+    std::array<std::vector<uint32_t>, MAX_FRAMES_IN_FLIGHT> skinned_draw_indices_;
 };
 
 } // namespace fjell

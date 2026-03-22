@@ -356,7 +356,8 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     }
     if (header.flags & FJMESH_FLAG_SKINNED) {
         std::fclose(f);
-        throw std::runtime_error("Skinned .fjmesh must be loaded via SkeletalModel: " + path);
+        FJELL_GFX_WARN("Skipping skinned .fjmesh (use SkeletalModel): {}", path);
+        return {};
     }
     if (header.max_meshlet_vertices != MAX_MESHLET_VERTICES ||
         header.max_meshlet_triangles != MAX_MESHLET_TRIANGLES) {

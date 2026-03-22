@@ -77,9 +77,14 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     bool do_lod = proj_scale > 0.0f; // skip LOD for identity projection (shadow batch)
 
     // Count total mesh entries across all draw commands (opaque + transparent)
+    // Skinned commands get 1 draw data entry each (for model matrix + bone offsets)
     uint32_t total_draws = 0;
     for (const auto& dc : opaque_commands) {
-        total_draws += dc.model->mega_entry_count();
+        if (dc.skinned) {
+            total_draws += 1;
+        } else {
+            total_draws += dc.model->mega_entry_count();
+        }
     }
     total_draws += static_cast<uint32_t>(transparent_commands.size());
 
@@ -100,6 +105,9 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     auto& aabbs = aabb_data_[frame_index];
     aabbs.resize(total_draws);
 
+    auto& skinned_indices = skinned_draw_indices_[frame_index];
+    skinned_indices.clear();
+
     auto& ranges = pipeline_ranges_[frame_index];
     ranges.clear();
     ranges.reserve(16);
@@ -109,8 +117,23 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     uint32_t range_start = 0;
 
     for (const auto& dc : opaque_commands) {
-        // Skinned meshes use per-model VBOs, not MegaBuffer — drawn separately
-        if (dc.skinned) continue;
+        // Skinned meshes: write GpuDrawData (for model matrix + bone offsets)
+        // but skip VkDrawIndexedIndirectCommand (drawn manually with per-model VBO)
+        if (dc.skinned) {
+            GpuDrawData& data = draw_data[draw_index];
+            data.model = dc.push.model;
+            data.material_id = dc.push.material_id;
+            data.meshlet_offset = 0;
+            data.meshlet_count = 0;
+            data.vertex_offset = 0;
+            if (animation_system) {
+                data.bone_offset = animation_system->bone_offset_for(dc.node_id);
+                data.bone_count = animation_system->bone_count_for(dc.node_id);
+            }
+            skinned_indices.push_back(draw_index);
+            draw_index++;
+            continue;
+        }
 
         // LOD selection using squared distances (avoid sqrt)
         uint32_t lod = 0;
