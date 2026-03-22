@@ -6,7 +6,7 @@
 
 namespace fjell {
 
-struct CameraNode : SceneNode {
+struct CameraNode : Node3D {
     float fov{45.0f};
     float near_plane{0.1f};
     float far_plane{1000.0f};
@@ -29,9 +29,9 @@ struct CameraNode : SceneNode {
         return glm::vec3(world_matrix_[3]);
     }
 
-    [[nodiscard]] std::unique_ptr<SceneNode> clone() const override {
+    [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<CameraNode>();
-        clone_base_into(*copy);
+        clone_3d_into(*copy);
         copy->fov = fov;
         copy->near_plane = near_plane;
         copy->far_plane = far_plane;

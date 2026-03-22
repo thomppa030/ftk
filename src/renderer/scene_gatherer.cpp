@@ -67,14 +67,16 @@ void SceneGatherer::gather(const GatherInput& input) {
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
                     if (obj->components.has<SpriteComponent>()) continue;
+                    const auto* spatial = obj->as_spatial();
+                    if (!spatial) continue;
 
                     // Skeletal mesh path
                     if (auto* skel = obj->components.get<SkeletalMeshComponent>(); skel && skel->skeletal_model) {
                         local_total[chunk_id]++;
 
                         DrawCommand dc{};
-                        dc.world_matrix = obj->world_matrix_;
-                        dc.push.model = obj->world_matrix_;
+                        dc.world_matrix = spatial->world_matrix_;
+                        dc.push.model = spatial->world_matrix_;
                         dc.skeletal_model = skel->skeletal_model;
                         dc.skinned = true;
                         dc.node_id = obj->id;
@@ -87,7 +89,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                             dc.transparent = (skel->material->params().base_color_factor.w < 1.0f);
                         }
                         dc.world_aabb = skel->skeletal_model->local_aabb()
-                                            .transform(obj->world_matrix_);
+                                            .transform(spatial->world_matrix_);
 
                         if (!dc.transparent) {
                             for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
@@ -116,8 +118,8 @@ void SceneGatherer::gather(const GatherInput& input) {
                     local_total[chunk_id]++;
 
                     DrawCommand dc{};
-                    dc.world_matrix = obj->world_matrix_;
-                    dc.push.model = obj->world_matrix_;
+                    dc.world_matrix = spatial->world_matrix_;
+                    dc.push.model = spatial->world_matrix_;
                     if (mesh->material) {
                         dc.push.material_id = mesh->material->material_id();
                         dc.pipeline_id = mesh->material->pipeline_id();
@@ -128,7 +130,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                     dc.model = mesh->model;
                     dc.node_id = obj->id;
 
-                    dc.world_aabb = mesh->model->local_aabb().transform(obj->world_matrix_);
+                    dc.world_aabb = mesh->model->local_aabb().transform(spatial->world_matrix_);
 
                     if (!dc.transparent) {
                         for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {

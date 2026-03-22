@@ -8,16 +8,16 @@ namespace fjell {
 
 enum class LightType : uint8_t { Directional, Point, Spot };
 
-struct DirectionalLightNode : SceneNode {
+struct DirectionalLightNode : Node3D {
     glm::vec3 direction{-0.3f, -1.0f, -0.5f};
     glm::vec3 color{1.0f, 1.0f, 0.95f};
     float intensity{1.5f};
     glm::vec3 ambient_color{0.1f, 0.1f, 0.12f};
     float ambient_intensity{1.0f};
 
-    [[nodiscard]] std::unique_ptr<SceneNode> clone() const override {
+    [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<DirectionalLightNode>();
-        clone_base_into(*copy);
+        clone_3d_into(*copy);
         copy->direction = direction;
         copy->color = color;
         copy->intensity = intensity;
@@ -27,14 +27,14 @@ struct DirectionalLightNode : SceneNode {
     }
 };
 
-struct PointLightNode : SceneNode {
+struct PointLightNode : Node3D {
     glm::vec3 color{1.0f};
     float intensity{1.0f};
     float radius{10.0f};
 
-    [[nodiscard]] std::unique_ptr<SceneNode> clone() const override {
+    [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<PointLightNode>();
-        clone_base_into(*copy);
+        clone_3d_into(*copy);
         copy->color = color;
         copy->intensity = intensity;
         copy->radius = radius;
@@ -42,7 +42,7 @@ struct PointLightNode : SceneNode {
     }
 };
 
-struct SpotLightNode : SceneNode {
+struct SpotLightNode : Node3D {
     glm::vec3 direction{0.0f, -1.0f, 0.0f};
     glm::vec3 color{1.0f};
     float intensity{1.0f};
@@ -50,9 +50,9 @@ struct SpotLightNode : SceneNode {
     float inner_angle{20.0f};
     float outer_angle{30.0f};
 
-    [[nodiscard]] std::unique_ptr<SceneNode> clone() const override {
+    [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<SpotLightNode>();
-        clone_base_into(*copy);
+        clone_3d_into(*copy);
         copy->direction = direction;
         copy->color = color;
         copy->intensity = intensity;
@@ -65,7 +65,7 @@ struct SpotLightNode : SceneNode {
 
 // ── Environment nodes ────────────────────────────────────────────────────
 
-struct VolumetricFogNode : SceneNode {
+struct VolumetricFogNode : Node3D {
     float density{0.003f};
     float height_falloff{0.5f};
     float scattering{0.5f};
@@ -74,9 +74,9 @@ struct VolumetricFogNode : SceneNode {
     float temporal_blend{0.9f};
     glm::vec3 fog_color{0.8f, 0.85f, 0.9f};
 
-    [[nodiscard]] std::unique_ptr<SceneNode> clone() const override {
+    [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<VolumetricFogNode>();
-        clone_base_into(*copy);
+        clone_3d_into(*copy);
         copy->density = density;
         copy->height_falloff = height_falloff;
         copy->scattering = scattering;
@@ -84,6 +84,23 @@ struct VolumetricFogNode : SceneNode {
         copy->max_distance = max_distance;
         copy->temporal_blend = temporal_blend;
         copy->fog_color = fog_color;
+        return copy;
+    }
+};
+
+// ── World environment ────────────────────────────────────────────────────
+
+struct WorldEnvironmentNode : Node3D {
+    glm::vec3 sky_top_color{0.15f, 0.25f, 0.45f};
+    glm::vec3 sky_bottom_color{0.8f, 0.4f, 0.1f};
+    float ibl_intensity{1.0f};
+
+    [[nodiscard]] std::unique_ptr<Node> clone() const override {
+        auto copy = std::make_unique<WorldEnvironmentNode>();
+        clone_3d_into(*copy);
+        copy->sky_top_color = sky_top_color;
+        copy->sky_bottom_color = sky_bottom_color;
+        copy->ibl_intensity = ibl_intensity;
         return copy;
     }
 };

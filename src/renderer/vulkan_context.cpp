@@ -47,10 +47,10 @@ VulkanContext::VulkanContext(Window& window)
     pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
 
     depth_prepass_.create(gpu_.device_ref(), pass_resources);
+    hiz_pass_.create(gpu_.device_ref(), pass_resources);
     if (gpu_.use_mesh_shaders()) {
         meshlet_instance_pass_.create(gpu_.device(), gpu_.physical_device(),
                                        gpu_.global_set_layout());
-        hiz_pass_.create(gpu_.device_ref(), pass_resources);
         mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources);
         meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources);
         cull_pass_.create(gpu_.device(), gpu_.physical_device(),
@@ -87,6 +87,71 @@ VulkanContext::VulkanContext(Window& window)
     uv_viz_pass_.create(gpu_.device_ref(), pass_resources);
     bloom_pass_.create(gpu_.device_ref(), pass_resources);
     sky_pass_.create(gpu_.device_ref(), pass_resources);
+
+    // Sky cubemap for IBL (creates cubemap + BRDF LUT)
+    sky_cubemap_pass_.create(gpu_.device(), gpu_.physical_device(),
+                              gpu_.command_pool(), gpu_.graphics_queue());
+    sky_cubemap_pass_.set_colors(sky_pass_.top_color(), sky_pass_.bottom_color());
+
+    // Generate cubemap (one-shot at startup)
+    {
+        VkCommandBuffer init_cmd;
+        VkCommandBufferAllocateInfo cmd_ai{};
+        cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cmd_ai.commandPool = gpu_.command_pool();
+        cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cmd_ai.commandBufferCount = 1;
+        vkAllocateCommandBuffers(gpu_.device(), &cmd_ai, &init_cmd);
+
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(init_cmd, &begin);
+
+        sky_cubemap_pass_.generate(init_cmd);
+
+        vkEndCommandBuffer(init_cmd);
+
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &init_cmd;
+        vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
+        vkQueueWaitIdle(gpu_.graphics_queue());
+        vkFreeCommandBuffers(gpu_.device(), gpu_.command_pool(), 1, &init_cmd);
+    }
+
+    // Write sky cubemap (binding 6) and BRDF LUT (binding 7) into global descriptors
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDescriptorImageInfo cubemap_info{};
+        cubemap_info.sampler = sky_cubemap_pass_.cubemap_sampler();
+        cubemap_info.imageView = sky_cubemap_pass_.cubemap_view();
+        cubemap_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo brdf_info{};
+        brdf_info.sampler = sky_cubemap_pass_.brdf_lut_sampler();
+        brdf_info.imageView = sky_cubemap_pass_.brdf_lut_view();
+        brdf_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = gpu_.global_descriptor_set(i);
+        writes[0].dstBinding = 6;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo = &cubemap_info;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = gpu_.global_descriptor_set(i);
+        writes[1].dstBinding = 7;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &brdf_info;
+
+        vkUpdateDescriptorSets(gpu_.device(), static_cast<uint32_t>(writes.size()),
+                               writes.data(), 0, nullptr);
+    }
+
     transparent_pass_.create(gpu_.device_ref(), pass_resources);
     tonemap_pass_.create(gpu_.device_ref(), pass_resources);
     gtao_pass_.create(gpu_.device_ref(), pass_resources);
@@ -136,6 +201,7 @@ VulkanContext::~VulkanContext() {
     }
 
     light_cull_pass_.destroy();
+    sky_cubemap_pass_.destroy();
     sky_pass_.destroy();
     transparent_pass_.destroy();
     tonemap_pass_.destroy();
@@ -169,6 +235,20 @@ void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resource
 // ── Pass registration ────────────────────────────────────────────────────
 
 void VulkanContext::register_passes() {
+    // Sky cubemap IBL — regenerate when sky colors change
+    render_pipeline_.register_pass({
+        .name = "sky_cubemap",
+        .order = 50,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("sky_cubemap", [this](VkCommandBuffer cb) {
+                sky_cubemap_pass_.set_colors(sky_pass_.top_color(), sky_pass_.bottom_color());
+                if (sky_cubemap_pass_.dirty()) {
+                    sky_cubemap_pass_.generate(cb);
+                }
+            }, {});
+        }
+    });
+
     // Shadow pass — uses its own batch with per-cascade culled objects
     render_pipeline_.register_pass({
         .name = "shadow",
@@ -254,11 +334,9 @@ void VulkanContext::register_passes() {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Hi-Z Build");
 #endif
-                if (gpu_.use_mesh_shaders() && hiz_pass_.ready()) {
-                    FrameContext local = current_ctx_;
-                    local.cmd = cb;
-                    hiz_pass_.record(local);
-                }
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                hiz_pass_.record(local);
             }, {{imgs.depth_id, ImageUsage::compute_read}});
         }
     });
@@ -420,6 +498,22 @@ void VulkanContext::register_passes() {
                     color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
                 }
 
+                VkRenderingAttachmentInfo mr_attachment{};
+                mr_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                mr_attachment.imageView = target->msaa_mr_view();
+                mr_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                mr_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                mr_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                mr_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+                if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
+                    mr_attachment.resolveImageView = target->mr_view();
+                    mr_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                }
+
+                std::array<VkRenderingAttachmentInfo, 2> color_attachments = {color_attachment, mr_attachment};
+
                 VkRenderingAttachmentInfo depth_attachment{};
                 depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
                 depth_attachment.imageView = target->msaa_depth_view();
@@ -437,8 +531,8 @@ void VulkanContext::register_passes() {
                 ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
                 ri.renderArea.extent = target->extent();
                 ri.layerCount = 1;
-                ri.colorAttachmentCount = 1;
-                ri.pColorAttachments = &color_attachment;
+                ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
+                ri.pColorAttachments = color_attachments.data();
                 ri.pDepthAttachment = &depth_attachment;
 
                 vkCmdBeginRendering(cb, &ri);
@@ -564,6 +658,8 @@ void VulkanContext::register_passes() {
                 vkCmdEndRendering(cb);
             }, {{imgs.msaa_color_id, ImageUsage::color_attachment},
                 {imgs.color_id, ImageUsage::color_attachment},
+                {imgs.msaa_mr_id, ImageUsage::color_attachment},
+                {imgs.mr_id, ImageUsage::color_attachment},
                 {imgs.msaa_depth_id, ImageUsage::depth_attachment_read},
                 {imgs.depth_id, ImageUsage::depth_attachment}});
         }
@@ -580,9 +676,17 @@ void VulkanContext::register_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
+                // Hi-Z is lazily created during pipeline execution (order 300),
+                // so we must read it here, not from the pre-built FrameContext.
+                if (hiz_pass_.ready()) {
+                    local.hiz_view = hiz_pass_.sampled_view();
+                    local.hiz_sampler = hiz_pass_.sampler();
+                    local.hiz_mip_count = hiz_pass_.mip_count();
+                }
                 ssr_pass_.record(local);
             }, {{imgs.depth_id, ImageUsage::compute_read},
-                {imgs.color_id, ImageUsage::compute_write}});
+                {imgs.color_id, ImageUsage::compute_write},
+                {imgs.mr_id, ImageUsage::compute_read}});
         }
     });
 
@@ -924,7 +1028,13 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         ctx.gpu_driven_indirect = meshlet_instance_pass_.indirect_buffer(current_frame_);
         ctx.gpu_driven_segment_size = meshlet_instance_pass_.segment_size(current_frame_);
     }
+    ctx.mr_view = target.mr_view();
     ctx.prev_frame_color_view = prev_frame_color_view_;
+    if (hiz_pass_.ready()) {
+        ctx.hiz_view = hiz_pass_.sampled_view();
+        ctx.hiz_sampler = hiz_pass_.sampler();
+        ctx.hiz_mip_count = hiz_pass_.mip_count();
+    }
     ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
     ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
 
@@ -983,9 +1093,21 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     }
 
     // Update shadow cascades from the first viewport's camera
+    // Use scene-node light if available, matching update_uniform_buffer behavior
+    DirectionalLight shadow_light = light;
+    if (scene) {
+        for (const auto& obj : scene->objects()) {
+            if (auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
+                shadow_light.direction = dl->direction;
+                shadow_light.color = dl->color;
+                shadow_light.intensity = dl->intensity;
+                break;
+            }
+        }
+    }
     if (!viewports.empty() && viewports[0].target) {
         shadow_pass_.update(viewports[0].view, viewports[0].projection,
-                            light, 0.1f, 1000.0f);
+                            shadow_light, 0.1f, 1000.0f);
     }
 
     // Scan for volumetric fog node once per frame (before viewports)
@@ -1002,6 +1124,19 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                 volumetric_fog_pass_.max_distance_ = fog->max_distance;
                 volumetric_fog_pass_.temporal_blend_ = fog->temporal_blend;
                 volumetric_fog_pass_.fog_color_ = fog->fog_color;
+                break;
+            }
+        }
+    }
+
+    // Scan for world environment node once per frame
+    if (scene) {
+        for (const auto& obj : scene->objects()) {
+            if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
+                sky_pass_.set_top_color(env->sky_top_color);
+                sky_pass_.set_bottom_color(env->sky_bottom_color);
+                sky_cubemap_pass_.set_colors(env->sky_top_color, env->sky_bottom_color);
+                ibl_intensity_ = env->ibl_intensity;
                 break;
             }
         }
@@ -1112,7 +1247,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.light_direction = glm::vec4(glm::normalize(-dir_light.direction), dir_light.intensity);
     ubo.light_color = glm::vec4(dir_light.color, 0.0f);
     ubo.camera_position = glm::vec4(camera_position, 0.0f);
-    ubo.ambient_color = glm::vec4(dir_light.ambient_color, dir_light.ambient_intensity);
+    ubo.ambient_color = glm::vec4(dir_light.ambient_color, dir_light.ambient_intensity * ibl_intensity_);
 
     const auto& matrices = shadow_pass_.light_matrices();
     const auto& splits = shadow_pass_.cascade_splits();
@@ -1343,6 +1478,23 @@ void VulkanContext::wait_idle() {
     vkDeviceWaitIdle(gpu_.device());
 }
 
+void VulkanContext::release_imgui_textures() {
+    tonemap_pass_.invalidate_imgui_texture();
+    bloom_pass_.invalidate_imgui_texture();
+    gtao_pass_.invalidate_imgui_texture();
+    ssr_pass_.invalidate_imgui_texture();
+    volumetric_fog_pass_.invalidate_imgui_texture();
+    depth_viz_pass_.invalidate_imgui_texture();
+    wireframe_pass_.invalidate_imgui_texture();
+    normal_pass_.invalidate_imgui_texture();
+    overdraw_pass_.invalidate_imgui_texture();
+    uv_viz_pass_.invalidate_imgui_texture();
+    meshlet_viz_pass_.invalidate_imgui_texture();
+    cull_viz_pass_.invalidate_imgui_texture();
+    light_heatmap_pass_.invalidate_imgui_texture();
+    light_grid_pass_.invalidate_imgui_texture();
+}
+
 void VulkanContext::create_outline_pipeline() {
     auto read_file = [](const std::string& path) {
         auto full = base_path::resolve(path);
@@ -1447,17 +1599,23 @@ void VulkanContext::create_outline_pipeline() {
     blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     blend.alphaBlendOp = VK_BLEND_OP_ADD;
 
+    VkPipelineColorBlendAttachmentState outline_mr_blend{};
+    outline_mr_blend.colorWriteMask = 0; // Outline doesn't write MR
+    outline_mr_blend.blendEnable = VK_FALSE;
+
+    VkPipelineColorBlendAttachmentState outline_blend_attachments[] = {blend, outline_mr_blend};
+
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 1;
-    color_blending.pAttachments = &blend;
+    color_blending.attachmentCount = 2;
+    color_blending.pAttachments = outline_blend_attachments;
 
-    VkFormat color_format = OffscreenPass::COLOR_FORMAT;
     VkFormat depth_format = gpu_.device_ref().find_depth_format();
+    VkFormat outline_color_formats[] = {OffscreenPass::COLOR_FORMAT, OffscreenPass::MR_FORMAT};
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachmentFormats = &color_format;
+    rendering_info.colorAttachmentCount = 2;
+    rendering_info.pColorAttachmentFormats = outline_color_formats;
     rendering_info.depthAttachmentFormat = depth_format;
 
     VkGraphicsPipelineCreateInfo ci{};
@@ -1486,6 +1644,8 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
 
     const auto* obj = ctx.scene->find(ctx.selected_id);
     if (!obj) return;
+    const auto* spatial = obj->as_spatial();
+    if (!spatial) return;
     const auto* mesh = obj->components.get<MeshComponent>();
     if (!mesh || !mesh->model) return;
 
@@ -1510,7 +1670,7 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
         glm::vec4 color;
         float thickness;
     } push{};
-    push.model = obj->world_matrix_;
+    push.model = spatial->world_matrix_;
     push.color = {1.0f, 0.6f, 0.15f, 0.7f}; // subtle amber outline
     push.thickness = 0.015f;
 

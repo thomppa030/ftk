@@ -13,7 +13,7 @@ class CommandHistory;
 class IconCache;
 class Scene;
 class ViewportManager;
-struct SceneNode;
+struct Node;
 
 class HierarchyPanel {
 public:
@@ -23,7 +23,7 @@ public:
     void draw();
 
 private:
-    void draw_node(SceneNode& obj);
+    void draw_node(Node& obj);
 
     Scene* scene_{nullptr};
     ViewportManager* viewports_{nullptr};
@@ -40,7 +40,7 @@ public:
 private:
 
     // Per-frame parent→children lookup (avoids O(n²) scans)
-    std::unordered_map<int32_t, std::vector<SceneNode*>> children_map_;
+    std::unordered_map<int32_t, std::vector<Node*>> children_map_;
 };
 
 } // namespace fjell

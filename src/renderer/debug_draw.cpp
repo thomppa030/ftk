@@ -102,22 +102,24 @@ void DebugDraw::update(const Scene& scene) {
     for (const auto& obj : scene.objects()) {
         const auto* col_ptr = obj->components.get<ColliderComponent>();
         if (!col_ptr) continue;
+        const auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
         const auto& col = *col_ptr;
 
         uint32_t first = static_cast<uint32_t>(vertices_.size());
 
         switch (col.shape) {
             case ColliderShape::Box:
-                generate_box(col.half_extents * obj->transform.scale);
+                generate_box(col.half_extents * spatial->transform.scale);
                 break;
             case ColliderShape::Sphere:
-                generate_sphere(col.radius * std::max({obj->transform.scale.x,
-                                                        obj->transform.scale.y,
-                                                        obj->transform.scale.z}));
+                generate_sphere(col.radius * std::max({spatial->transform.scale.x,
+                                                        spatial->transform.scale.y,
+                                                        spatial->transform.scale.z}));
                 break;
             case ColliderShape::Capsule:
-                generate_capsule(col.radius * std::max(obj->transform.scale.x, obj->transform.scale.z),
-                                 col.height * obj->transform.scale.y);
+                generate_capsule(col.radius * std::max(spatial->transform.scale.x, spatial->transform.scale.z),
+                                 col.height * spatial->transform.scale.y);
                 break;
             case ColliderShape::Mesh:
                 // Mesh collider wireframe not visualized (too many lines)
@@ -129,14 +131,14 @@ void DebugDraw::update(const Scene& scene) {
 
         // Model matrix = object position + rotation + collider offset (rotated).
         // Scale is already baked into the shape dimensions, so strip it.
-        glm::mat3 rot(glm::normalize(glm::vec3(obj->world_matrix_[0])),
-                      glm::normalize(glm::vec3(obj->world_matrix_[1])),
-                      glm::normalize(glm::vec3(obj->world_matrix_[2])));
+        glm::mat3 rot(glm::normalize(glm::vec3(spatial->world_matrix_[0])),
+                      glm::normalize(glm::vec3(spatial->world_matrix_[1])),
+                      glm::normalize(glm::vec3(spatial->world_matrix_[2])));
         glm::vec3 world_offset = rot * col.offset;
         glm::mat4 model(glm::vec4(rot[0], 0.0f),
                          glm::vec4(rot[1], 0.0f),
                          glm::vec4(rot[2], 0.0f),
-                         glm::vec4(glm::vec3(obj->world_matrix_[3]) + world_offset, 1.0f));
+                         glm::vec4(glm::vec3(spatial->world_matrix_[3]) + world_offset, 1.0f));
         draw_commands_.push_back({model, first, count});
     }
 
@@ -144,6 +146,8 @@ void DebugDraw::update(const Scene& scene) {
     for (const auto& obj : scene.objects()) {
         const auto* arrow_ptr = obj->components.get<ArrowComponent>();
         if (!arrow_ptr) continue;
+        const auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
         const auto& arr = *arrow_ptr;
 
         uint32_t first = static_cast<uint32_t>(vertices_.size());
@@ -160,7 +164,7 @@ void DebugDraw::update(const Scene& scene) {
         add_line(tip, {0.0f, -head * 0.3f, -arr.length + head});
 
         uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
-        draw_commands_.push_back({obj->world_matrix_, first, count});
+        draw_commands_.push_back({spatial->world_matrix_, first, count});
     }
 
     if (vertices_.empty()) return;

@@ -384,8 +384,10 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 auto* mesh = obj->components.get<MeshComponent>();
                 if (!mesh || !mesh->model) continue;
                 if (!mesh->model->local_aabb().valid()) continue;
+                const auto* spatial = obj->as_spatial();
+                if (!spatial) continue;
 
-                AABB world_aabb = mesh->model->local_aabb().transform(obj->world_matrix_);
+                AABB world_aabb = mesh->model->local_aabb().transform(spatial->world_matrix_);
                 glm::vec3 aabb_min = world_aabb.min;
                 glm::vec3 aabb_max = world_aabb.max;
 
@@ -409,7 +411,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
             if (hit_id != 0) {
                 selected_id = hit_id;
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    if (auto* hit_obj = scene.find(hit_id)) {
+                    if (auto* hit_obj = scene.find_spatial(hit_id)) {
                         glm::vec3 center = glm::vec3(hit_obj->world_matrix_[3]);
                         float radius = 1.0f;
                         auto* hit_mesh = hit_obj->components.get<MeshComponent>();
@@ -432,7 +434,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
 
         // Gizmo — ImGuizmo expects OpenGL-style projection (Y-up NDC),
         // so undo the Vulkan Y-flip for the gizmo only.
-        if (auto* obj = scene.find(selected_id); obj) {
+        if (auto* obj = scene.find_spatial(selected_id); obj) {
             float aspect = img_w / std::max(img_h, 1.0f);
             auto view = panel.camera.view_matrix();
             auto projection = panel.camera.projection_matrix(aspect);
@@ -467,7 +469,8 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 if (obj->parent_id != -1) {
                     const auto* parent = scene.find(
                         static_cast<uint32_t>(obj->parent_id));
-                    if (parent) parent_world = parent->world_matrix_;
+                    const auto* parent_spatial = parent ? parent->as_spatial() : nullptr;
+                    if (parent_spatial) parent_world = parent_spatial->world_matrix_;
                 }
                 glm::mat4 local_matrix = glm::inverse(parent_world) * panel.gizmo_matrix;
                 obj->transform = decompose_matrix(local_matrix);

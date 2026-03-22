@@ -11,7 +11,7 @@
 namespace fjell {
 
 class ScriptManager;
-struct SceneNode;
+struct Node3D;
 
 class ScriptComponent {
 public:
@@ -27,12 +27,12 @@ public:
     [[nodiscard]] const Transform& transform() const { return *transform_; }
     [[nodiscard]] World* world() { return world_; }
     [[nodiscard]] const World* world() const { return world_; }
-    [[nodiscard]] SceneNode* node() { return node_; }
-    [[nodiscard]] const SceneNode* node() const { return node_; }
+    [[nodiscard]] Node3D* node() { return node_; }
+    [[nodiscard]] const Node3D* node() const { return node_; }
 
 private:
     friend class ScriptManager;
-    SceneNode* node_{nullptr};
+    Node3D* node_{nullptr};
     World* world_{nullptr};
     Transform* transform_{nullptr};
     uint32_t id_{0};

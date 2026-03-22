@@ -26,6 +26,7 @@
 #include "renderer/pass/overdraw_pass.hpp"
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass/sky_pass.hpp"
+#include "renderer/pass/sky_cubemap_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
@@ -71,6 +72,7 @@ public:
 
   void update_light_ssbo(uint32_t frame_index, Scene *scene);
   void wait_idle();
+  void release_imgui_textures();
   void reload_pipeline();
 
   // ── Forwarding accessors to GpuContext ────────────────────────────────
@@ -180,6 +182,7 @@ private:
   UvVizPass uv_viz_pass_;
   BloomPass bloom_pass_;
   SkyPass sky_pass_;
+  SkyCubemapPass sky_cubemap_pass_;
   TransparentPass transparent_pass_;
   TonemapPass tonemap_pass_;
 
@@ -237,6 +240,7 @@ private:
   bool playing_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
+  float ibl_intensity_{1.0f};
 };
 
 } // namespace fjell

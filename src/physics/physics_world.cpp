@@ -189,6 +189,8 @@ void PhysicsWorld::create_bodies(Scene& scene) {
     for (auto& obj : scene.objects()) {
         const auto* col_comp = obj->components.get<ColliderComponent>();
         if (!col_comp) continue;
+        auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
 
         // Default to static if no rigidbody descriptor
         static const auto default_static = [] {
@@ -202,7 +204,7 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 
         // Create shape, scaling by object's scale
         JPH::ShapeRefC shape;
-        glm::vec3 s = obj->transform.scale;
+        glm::vec3 s = spatial->transform.scale;
 
         switch (col.shape) {
             case ColliderShape::Box: {
@@ -284,8 +286,8 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 
         JPH::BodyCreationSettings body_settings(
             shape,
-            to_jolt(obj->transform.position),
-            to_jolt_quat(obj->transform.rotation),
+            to_jolt(spatial->transform.position),
+            to_jolt_quat(spatial->transform.rotation),
             motion, layer);
 
         body_settings.mFriction = rb.friction;
@@ -325,13 +327,15 @@ void PhysicsWorld::step(float dt, Scene& scene) {
     for (auto& obj : scene.objects()) {
         const auto* rb = obj->components.get<RigidbodyComponent>();
         if (!rb || rb->body_type != BodyType::Kinematic) continue;
+        auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
 
         auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;
 
         bi.MoveKinematic(it->second,
-                         to_jolt(obj->transform.position),
-                         to_jolt_quat(obj->transform.rotation),
+                         to_jolt(spatial->transform.position),
+                         to_jolt_quat(spatial->transform.rotation),
                          dt);
     }
 
@@ -345,6 +349,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
     for (auto& obj : scene.objects()) {
         const auto* rb = obj->components.get<RigidbodyComponent>();
         if (!rb || rb->body_type != BodyType::Dynamic) continue;
+        auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
 
         auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;
@@ -352,8 +358,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         auto pos = bi.GetPosition(it->second);
         auto rot = bi.GetRotation(it->second);
 
-        obj->transform.position = to_glm(pos);
-        obj->transform.rotation = to_glm_quat(rot);
+        spatial->transform.position = to_glm(pos);
+        spatial->transform.rotation = to_glm_quat(rot);
     }
 }
 

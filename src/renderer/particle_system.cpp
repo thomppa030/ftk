@@ -176,10 +176,12 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
+    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM};
+
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachmentFormats = &color_format_;
+    rendering_info.colorAttachmentCount = 2;
+    rendering_info.pColorAttachmentFormats = color_formats;
     rendering_info.depthAttachmentFormat = depth_format_;
 
     auto create_render_pipeline = [&](VkBlendFactor dst_color) {
@@ -194,10 +196,16 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
 
+        VkPipelineColorBlendAttachmentState mr_blend{};
+        mr_blend.colorWriteMask = 0; // Particles don't write MR
+        mr_blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+
         VkPipelineColorBlendStateCreateInfo color_blending{};
         color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 1;
-        color_blending.pAttachments = &blend;
+        color_blending.attachmentCount = 2;
+        color_blending.pAttachments = blend_attachments;
 
         VkGraphicsPipelineCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -433,7 +441,7 @@ void ParticleSystem::init_emitter_ranges() {
     }
 
     // Initialize counters: alive=0, dead=max_particles per emitter
-    {
+    if (emitter_count > 0) {
         std::vector<uint32_t> counters(emitter_count * 2);
         for (size_t i = 0; i < emitters_.size(); ++i) {
             counters[i * 2 + 0] = 0;
@@ -552,6 +560,8 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
 
         auto* em_ptr = obj ? obj->components.get<EmitterComponent>() : nullptr;
         if (!em_ptr) continue;
+        auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
         auto& em = *em_ptr;
 
         em.emit_accumulator += em.emission_rate * dt;
@@ -559,7 +569,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         em.emit_accumulator -= static_cast<float>(emit_count);
         if (emit_count > max_emit_count) max_emit_count = emit_count;
 
-        data.emitter_position = glm::vec3(obj->world_matrix_[3]);
+        data.emitter_position = glm::vec3(spatial->world_matrix_[3]);
         data.dt = dt;
         data.gravity = em.gravity;
         data.max_particles = gpu.max_particles;

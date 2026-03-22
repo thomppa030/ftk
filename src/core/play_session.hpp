@@ -22,7 +22,7 @@ public:
     void restore(Scene& scene);
 
 private:
-    std::vector<std::unique_ptr<SceneNode>> scene_snapshot_;
+    std::vector<std::unique_ptr<Node>> scene_snapshot_;
     uint32_t next_id_snapshot_;
     std::unique_ptr<PhysicsWorld> physics_world_;
 };

@@ -25,7 +25,7 @@ struct NodeVisuals {
     const char* icon_name;
 };
 
-NodeVisuals node_visuals(const SceneNode& obj) {
+NodeVisuals node_visuals(const Node& obj) {
     if (dynamic_cast<const DirectionalLightNode*>(&obj) ||
         dynamic_cast<const PointLightNode*>(&obj) ||
         dynamic_cast<const SpotLightNode*>(&obj)) {
@@ -36,8 +36,14 @@ NodeVisuals node_visuals(const SceneNode& obj) {
     if (dynamic_cast<const VolumetricFogNode*>(&obj)) {
         return {{0.55f, 0.70f, 0.85f, 1.0f}, "node"};
     }
+    if (dynamic_cast<const WorldEnvironmentNode*>(&obj)) {
+        return {{0.4f, 0.6f, 0.9f, 1.0f}, "node"};
+    }
     if (dynamic_cast<const CameraNode*>(&obj)) {
         return {{0.31f, 0.79f, 0.63f, 1.0f}, "camera"};
+    }
+    if (!obj.is_spatial()) {
+        return {{0.85f, 0.72f, 0.40f, 1.0f}, "folder"};
     }
     if (obj.components.get<MeshComponent>()) {
         return {{0.36f, 0.55f, 0.94f, 1.0f}, "mesh"};
@@ -75,6 +81,7 @@ void HierarchyPanel::draw() {
             ImGui::Separator();
             if (ImGui::MenuItem("Sprite")) on_add_primitive.broadcast("sprite");
             if (ImGui::MenuItem("Empty Node")) on_add_primitive.broadcast("empty");
+            if (ImGui::MenuItem("Folder")) on_add_primitive.broadcast("folder");
             ImGui::Separator();
             if (ImGui::MenuItem("Camera")) on_add_primitive.broadcast("camera");
             ImGui::Separator();
@@ -83,6 +90,7 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Spot Light")) on_add_primitive.broadcast("light:spot");
             ImGui::Separator();
             if (ImGui::MenuItem("Volumetric Fog")) on_add_primitive.broadcast("volumetric_fog");
+            if (ImGui::MenuItem("World Environment")) on_add_primitive.broadcast("world_environment");
             ImGui::EndPopup();
         }
 
@@ -135,6 +143,7 @@ void HierarchyPanel::draw() {
             ImGui::Separator();
             if (ImGui::MenuItem("Add Sprite")) on_add_primitive.broadcast("sprite");
             if (ImGui::MenuItem("Add Empty Node")) on_add_primitive.broadcast("empty");
+            if (ImGui::MenuItem("Add Folder")) on_add_primitive.broadcast("folder");
             ImGui::Separator();
             if (ImGui::MenuItem("Add Camera")) on_add_primitive.broadcast("camera");
             ImGui::Separator();
@@ -143,6 +152,7 @@ void HierarchyPanel::draw() {
             if (ImGui::MenuItem("Add Spot Light")) on_add_primitive.broadcast("light:spot");
             ImGui::Separator();
             if (ImGui::MenuItem("Add Volumetric Fog")) on_add_primitive.broadcast("volumetric_fog");
+            if (ImGui::MenuItem("Add World Environment")) on_add_primitive.broadcast("world_environment");
             ImGui::EndPopup();
         }
 
@@ -154,7 +164,7 @@ void HierarchyPanel::draw() {
     ImGui::End();
 }
 
-void HierarchyPanel::draw_node(SceneNode& obj) {
+void HierarchyPanel::draw_node(Node& obj) {
     auto child_it = children_map_.find(static_cast<int32_t>(obj.id));
     bool has_children = child_it != children_map_.end() && !child_it->second.empty();
 
@@ -265,19 +275,21 @@ void HierarchyPanel::draw_node(SceneNode& obj) {
     }
     if (row_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
         *selected_id_ = obj.id;
-        glm::vec3 center = glm::vec3(obj.world_matrix_[3]);
-        float radius = 1.0f;
-        auto* mesh = obj.components.get<MeshComponent>();
-        if (mesh && mesh->model && !mesh->model->collision_vertices().empty()) {
-            float max_r2 = 0.0f;
-            for (const auto& v : mesh->model->collision_vertices()) {
-                auto wv = glm::vec3(obj.world_matrix_ * glm::vec4(v, 1.0f));
-                max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
+        if (auto* spatial = obj.as_spatial()) {
+            glm::vec3 center = glm::vec3(spatial->world_matrix_[3]);
+            float radius = 1.0f;
+            auto* mesh = obj.components.get<MeshComponent>();
+            if (mesh && mesh->model && !mesh->model->collision_vertices().empty()) {
+                float max_r2 = 0.0f;
+                for (const auto& v : mesh->model->collision_vertices()) {
+                    auto wv = glm::vec3(spatial->world_matrix_ * glm::vec4(v, 1.0f));
+                    max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
+                }
+                radius = std::max(std::sqrt(max_r2), 0.1f);
             }
-            radius = std::max(std::sqrt(max_r2), 0.1f);
-        }
-        if (auto* cam = viewports_->active_camera()) {
-            cam->focus(center, radius);
+            if (auto* cam = viewports_->active_camera()) {
+                cam->focus(center, radius);
+            }
         }
     }
 

@@ -28,7 +28,7 @@ struct NodePin {
     std::string name;
 };
 
-struct Node {
+struct VfxNode {
     int id;
     NodeType type;
     std::string title;
@@ -72,16 +72,16 @@ public:
 
 private:
     int next_id();
-    Node& create_node(NodeType type, float x, float y);
-    void draw_node(Node& node);
+    VfxNode& create_node(NodeType type, float x, float y);
+    void draw_node(VfxNode& node);
     void apply_to_selected();
 
-    Node* find_node(NodeType type);
+    VfxNode* find_node(NodeType type);
 
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
 
-    std::vector<Node> nodes_;
+    std::vector<VfxNode> nodes_;
     std::vector<Link> links_;
     std::unordered_map<int, ImVec2> pending_positions_;
     int id_counter_{0};

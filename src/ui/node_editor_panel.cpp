@@ -74,8 +74,8 @@ void NodeEditorPanel::shutdown() {
     }
 }
 
-Node& NodeEditorPanel::create_node(NodeType type, float x, float y) {
-    Node node;
+VfxNode& NodeEditorPanel::create_node(NodeType type, float x, float y) {
+    VfxNode node;
     node.id = next_id();
     node.type = type;
 
@@ -115,7 +115,7 @@ Node& NodeEditorPanel::create_node(NodeType type, float x, float y) {
     return nodes_.back();
 }
 
-void NodeEditorPanel::draw_node(Node& node) {
+void NodeEditorPanel::draw_node(VfxNode& node) {
     ImNodes::BeginNode(node.id);
 
     ImNodes::BeginNodeTitleBar();
@@ -180,7 +180,7 @@ void NodeEditorPanel::draw_node(Node& node) {
     ImNodes::EndNode();
 }
 
-Node* NodeEditorPanel::find_node(NodeType type) {
+VfxNode* NodeEditorPanel::find_node(NodeType type) {
     for (auto& n : nodes_) {
         if (n.type == type) return &n;
     }
@@ -237,7 +237,7 @@ void NodeEditorPanel::draw() {
         // Toolbar
         {
             bool has_selection = selected_id_ && *selected_id_ != 0;
-            SceneNode* obj = has_selection ? scene_->find(*selected_id_) : nullptr;
+            Node* obj = has_selection ? scene_->find(*selected_id_) : nullptr;
             bool has_emitter = obj && obj->components.has<EmitterComponent>();
 
             if (ImGui::Button("Apply to Selected") && obj) {
@@ -333,7 +333,7 @@ void NodeEditorPanel::draw() {
                 for (int node_id : selected) {
                     // Remove links connected to this node
                     auto& n = *std::find_if(nodes_.begin(), nodes_.end(),
-                        [node_id](const Node& nd) { return nd.id == node_id; });
+                        [node_id](const VfxNode& nd) { return nd.id == node_id; });
                     auto is_connected = [&](const Link& l) {
                         for (auto& p : n.inputs)
                             if (p.id == l.start_pin || p.id == l.end_pin) return true;
@@ -342,7 +342,7 @@ void NodeEditorPanel::draw() {
                         return false;
                     };
                     std::erase_if(links_, is_connected);
-                    std::erase_if(nodes_, [node_id](const Node& nd) { return nd.id == node_id; });
+                    std::erase_if(nodes_, [node_id](const VfxNode& nd) { return nd.id == node_id; });
                 }
             }
         }
@@ -359,7 +359,7 @@ EmitterComponent NodeEditorPanel::build_emitter() const {
     EmitterComponent e{};
 
     // Find output node and trace back through links
-    const Node* output = nullptr;
+    const VfxNode* output = nullptr;
     for (auto& n : nodes_) {
         if (n.type == NodeType::output) {
             output = &n;
@@ -368,7 +368,7 @@ EmitterComponent NodeEditorPanel::build_emitter() const {
     }
     if (!output) return e;
 
-    auto find_connected_node = [&](int input_pin_id) -> const Node* {
+    auto find_connected_node = [&](int input_pin_id) -> const VfxNode* {
         for (auto& link : links_) {
             if (link.end_pin == input_pin_id) {
                 int out_pin = link.start_pin;

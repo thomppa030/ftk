@@ -42,15 +42,19 @@ struct has_reflect<T, std::void_t<decltype(T::reflect())>> : std::true_type {};
 // ── Registration helper (called from game code) ─────────────────────────
 
 template <typename T>
+struct ReflectStorage {
+    static inline const auto fields = T::reflect();
+};
+
+template <typename T>
 void register_component(FjellTypeRegistry* reg) {
     FjellComponentTypeOOP desc{};
     desc.name = T::type_name;
     desc.create = []() -> ScriptComponent* { return new T(); };
 
     if constexpr (detail::has_reflect<T>::value) {
-        auto arr = T::reflect();
-        desc.fields = arr.data();
-        desc.field_count = static_cast<uint32_t>(arr.size());
+        desc.fields = ReflectStorage<T>::fields.data();
+        desc.field_count = static_cast<uint32_t>(ReflectStorage<T>::fields.size());
     }
 
     fjell_reg_component(reg, &desc);

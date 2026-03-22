@@ -24,14 +24,14 @@ public:
         , name_{std::move(name)} {}
 
     void execute() override {
-        if (auto* obj = scene_.find(id_)) {
-            obj->transform = new_transform_;
+        if (auto* spatial = scene_.find_spatial(id_)) {
+            spatial->transform = new_transform_;
             scene_.mark_dirty();
         }
     }
     void undo() override {
-        if (auto* obj = scene_.find(id_)) {
-            obj->transform = old_transform_;
+        if (auto* spatial = scene_.find_spatial(id_)) {
+            spatial->transform = old_transform_;
             scene_.mark_dirty();
         }
     }
@@ -140,7 +140,7 @@ private:
     Scene& scene_;
     uint32_t id_;
     uint32_t* selected_id_;
-    std::unique_ptr<SceneNode> snapshot_;
+    std::unique_ptr<Node> snapshot_;
     std::string name_;
     bool first_{true};
 };
@@ -192,7 +192,7 @@ private:
     uint32_t id_;
     uint32_t* selected_id_;
     std::function<void()> pre_remove_;
-    std::unique_ptr<SceneNode> snapshot_;
+    std::unique_ptr<Node> snapshot_;
     std::string name_;
     std::vector<std::pair<uint32_t, int32_t>> orphaned_children_;
 };
