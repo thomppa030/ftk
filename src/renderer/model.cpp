@@ -325,8 +325,12 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
         throw std::runtime_error("Failed to open .fjmesh file: " + path);
     }
 
+    // Read header — v1/v2 files have a smaller header (no joint_count/pad_v3)
     FjMeshHeader header{};
-    if (std::fread(&header, sizeof(header), 1, f) != 1) {
+    constexpr size_t V2_HEADER_SIZE = offsetof(FjMeshHeader, joint_count);
+
+    // Read enough to get magic+version first
+    if (std::fread(&header, V2_HEADER_SIZE, 1, f) != 1) {
         std::fclose(f);
         throw std::runtime_error("Failed to read .fjmesh header: " + path);
     }
@@ -335,10 +339,24 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
         std::fclose(f);
         throw std::runtime_error("Invalid .fjmesh magic in: " + path);
     }
-    if (header.version != FJMESH_VERSION && header.version != 1) {
+    if (header.version < 1 || header.version > FJMESH_VERSION) {
         std::fclose(f);
         throw std::runtime_error("Unsupported .fjmesh version " +
             std::to_string(header.version) + " in: " + path);
+    }
+
+    // Read v3 extension fields if present
+    if (header.version >= 3) {
+        size_t ext_size = sizeof(FjMeshHeader) - V2_HEADER_SIZE;
+        auto* ext_ptr = reinterpret_cast<char*>(&header) + V2_HEADER_SIZE;
+        if (std::fread(ext_ptr, ext_size, 1, f) != 1) {
+            std::fclose(f);
+            throw std::runtime_error("Failed to read .fjmesh v3 header fields: " + path);
+        }
+    }
+    if (header.flags & FJMESH_FLAG_SKINNED) {
+        std::fclose(f);
+        throw std::runtime_error("Skinned .fjmesh must be loaded via SkeletalModel: " + path);
     }
     if (header.max_meshlet_vertices != MAX_MESHLET_VERTICES ||
         header.max_meshlet_triangles != MAX_MESHLET_TRIANGLES) {

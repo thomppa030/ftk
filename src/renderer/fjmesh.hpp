@@ -11,7 +11,9 @@
 namespace fjell {
 
 static constexpr uint32_t FJMESH_MAGIC   = 0x484D4A46; // "FJMH" little-endian
-static constexpr uint32_t FJMESH_VERSION = 2;
+static constexpr uint32_t FJMESH_VERSION = 3;
+
+static constexpr uint32_t FJMESH_FLAG_SKINNED = 1; // vertices are SkinnedVertex (92 bytes)
 
 // Maximum LOD levels stored in the file (LOD 0 = full detail)
 static constexpr uint32_t MAX_LOD_LEVELS = 4;
@@ -71,6 +73,10 @@ struct FjMeshHeader {
     uint64_t collision_vertices_offset;
     uint64_t collision_indices_offset;
     uint64_t lod_levels_offset;   // FjMeshLodLevel[lod_count]
+
+    // v3+ fields (appended at the end for backward compatibility)
+    uint32_t joint_count;      // 0 for static meshes, >0 for skinned
+    uint32_t pad_v3;           // alignment
 };
 
 // Layout validation — if any of these fire, the binary format is incompatible
