@@ -3,6 +3,7 @@
 
 #include <spdlog/pattern_formatter.h>
 
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 
@@ -39,6 +40,8 @@ void ConsoleSink::draw(const char* title) {
         // Toolbar
         if (ImGui::SmallButton("Clear")) {
             entries_.clear();
+            selected_.clear();
+            last_clicked_ = -1;
         }
         ImGui::SameLine();
         ImGui::Checkbox("Auto-scroll", &auto_scroll_);
@@ -69,14 +72,22 @@ void ConsoleSink::draw(const char* title) {
             for (auto& c : search_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         }
 
-        for (const auto& entry : entries_) {
-            if (entry.level < min_level) continue;
+        // Build visible index list for shift-click range selection
+        std::vector<int> visible;
+        visible.reserve(entries_.size());
+        for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
+            if (entries_[i].level < min_level) continue;
             if (has_search) {
-                // Case-insensitive substring match
-                std::string msg_lower = entry.message;
+                std::string msg_lower = entries_[i].message;
                 for (auto& c : msg_lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
                 if (msg_lower.find(search_lower) == std::string::npos) continue;
             }
+            visible.push_back(i);
+        }
+
+        for (int vi = 0; vi < static_cast<int>(visible.size()); ++vi) {
+            int idx = visible[vi];
+            const auto& entry = entries_[idx];
 
             ImVec4 color;
             switch (entry.level) {
@@ -100,8 +111,45 @@ void ConsoleSink::draw(const char* title) {
             }
 
             ImGui::PushStyleColor(ImGuiCol_Text, color);
-            ImGui::TextUnformatted(entry.message.c_str());
+            ImGui::PushID(idx);
+            bool is_sel = selected_.contains(idx);
+            if (ImGui::Selectable(entry.message.c_str(), is_sel,
+                                  ImGuiSelectableFlags_AllowOverlap)) {
+                if (ImGui::GetIO().KeyCtrl) {
+                    // Toggle individual
+                    if (is_sel) selected_.erase(idx);
+                    else selected_.insert(idx);
+                    last_clicked_ = vi;
+                } else if (ImGui::GetIO().KeyShift && last_clicked_ >= 0) {
+                    // Range select
+                    int a = std::min(last_clicked_, vi);
+                    int b = std::max(last_clicked_, vi);
+                    selected_.clear();
+                    for (int r = a; r <= b; ++r) selected_.insert(visible[r]);
+                } else {
+                    // Sole select
+                    selected_.clear();
+                    selected_.insert(idx);
+                    last_clicked_ = vi;
+                }
+            }
+            ImGui::PopID();
             ImGui::PopStyleColor();
+        }
+
+        // Ctrl+C: copy selected entries to clipboard
+        if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
+            ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C) &&
+            !selected_.empty()) {
+            // Collect in order
+            std::vector<int> sorted_sel(selected_.begin(), selected_.end());
+            std::sort(sorted_sel.begin(), sorted_sel.end());
+            std::string clipboard;
+            for (int i : sorted_sel) {
+                if (!clipboard.empty()) clipboard += '\n';
+                clipboard += entries_[i].message;
+            }
+            ImGui::SetClipboardText(clipboard.c_str());
         }
 
         if (auto_scroll_ && ImGui::GetScrollY() >= ImGui::GetScrollMaxY()) {
