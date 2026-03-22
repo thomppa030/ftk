@@ -9,11 +9,8 @@
 #include "core/play_session.hpp"
 #include "core/project.hpp"
 #include "core/window.hpp"
-#include "renderer/asset_loader.hpp"
 #include "renderer/resource_handle.hpp"
-#include "renderer/resource_manager.hpp"
 #include "renderer/uniform_types.hpp"
-#include "renderer/vulkan_context.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"
@@ -45,6 +42,10 @@
 #include <vector>
 
 namespace fjell {
+
+class AssetLoader;
+class ResourceManager;
+class VulkanContext;
 
 class Engine {
 public:
@@ -97,7 +98,7 @@ private:
     Input input_;
     Clock clock_;
     ThreadPool thread_pool_;
-    VulkanContext vulkan_context_;
+    std::unique_ptr<VulkanContext> vulkan_context_;
     std::unique_ptr<ImGuiLayer> imgui_layer_;
     std::unique_ptr<ResourceManager> resource_manager_;
     std::unique_ptr<AssetLoader> asset_loader_;

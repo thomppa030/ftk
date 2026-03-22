@@ -14,7 +14,10 @@
 #include "renderer/mesh_component.hpp"
 #include "renderer/skeletal_mesh_component.hpp"
 #include "renderer/sprite_desc.hpp"
+#include "renderer/asset_loader.hpp"
 #include "renderer/bindless.hpp"
+#include "renderer/resource_manager.hpp"
+#include "renderer/vulkan_context.hpp"
 #include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
 #include "renderer/material_asset.hpp"
@@ -59,10 +62,10 @@ private:
 Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                const std::filesystem::path& project_path)
     : window_{title, width, height}
-    , vulkan_context_{window_}
-    , animation_system_{vulkan_context_.device(), vulkan_context_.physical_device()}
+    , vulkan_context_{std::make_unique<VulkanContext>(window_)}
+    , animation_system_{vulkan_context_->device(), vulkan_context_->physical_device()}
 {
-    vulkan_context_.set_animation_system(&animation_system_);
+    vulkan_context_->set_animation_system(&animation_system_);
 #ifndef NDEBUG
     shader_watcher_.emplace(base_path::resolve("../shaders"), base_path::resolve("shaders"));
 #endif
@@ -89,22 +92,22 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     input_.attach(window_.handle());
 
     imgui_layer_ = std::make_unique<ImGuiLayer>(
-        window_.handle(), vulkan_context_.instance(),
-        vulkan_context_.physical_device(), vulkan_context_.device(),
-        vulkan_context_.graphics_family(), vulkan_context_.graphics_queue(),
-        vulkan_context_.swapchain_format(), vulkan_context_.image_count(),
+        window_.handle(), vulkan_context_->instance(),
+        vulkan_context_->physical_device(), vulkan_context_->device(),
+        vulkan_context_->graphics_family(), vulkan_context_->graphics_queue(),
+        vulkan_context_->swapchain_format(), vulkan_context_->image_count(),
         base_path::resolve("engine_assets/fonts"));
 
-    vulkan_context_.set_overlay_callback([this](VkCommandBuffer cmd) {
+    vulkan_context_->set_overlay_callback([this](VkCommandBuffer cmd) {
         imgui_layer_->render(cmd);
     });
 
     // Initialize game UI (owned by Engine, rendered via callback)
-    vulkan_context_.init_game_ui(game_ui_,
+    vulkan_context_->init_game_ui(game_ui_,
         base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"),
-        vulkan_context_.swapchain_format());
+        vulkan_context_->swapchain_format());
 
-    vulkan_context_.set_game_ui_callback(
+    vulkan_context_->set_game_ui_callback(
         [this](
                VkCommandBuffer cmd, VkDescriptorSet global_set,
                VkDescriptorSet bindless_set, VkExtent2D extent,
@@ -127,16 +130,16 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         });
 
     resource_manager_ = std::make_unique<ResourceManager>(
-        vulkan_context_.device(), vulkan_context_.physical_device(),
-        vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
-        vulkan_context_.bindless_textures(), vulkan_context_.mega_buffer(),
-        vulkan_context_.meshlet_buffer(), vulkan_context_.pipeline_cache());
+        vulkan_context_->device(), vulkan_context_->physical_device(),
+        vulkan_context_->command_pool(), vulkan_context_->graphics_queue(),
+        vulkan_context_->bindless_textures(), vulkan_context_->mega_buffer(),
+        vulkan_context_->meshlet_buffer(), vulkan_context_->pipeline_cache());
 
     asset_loader_ = std::make_unique<AssetLoader>(
         thread_pool_, *resource_manager_,
-        vulkan_context_.device(), vulkan_context_.physical_device(),
-        vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
-        vulkan_context_.mega_buffer(), vulkan_context_.meshlet_buffer());
+        vulkan_context_->device(), vulkan_context_->physical_device(),
+        vulkan_context_->command_pool(), vulkan_context_->graphics_queue(),
+        vulkan_context_->mega_buffer(), vulkan_context_->meshlet_buffer());
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png"));
@@ -183,16 +186,16 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     }
 
     icon_cache_ = std::make_unique<IconCache>(
-        vulkan_context_.device(), vulkan_context_.physical_device(),
-        vulkan_context_.command_pool(), vulkan_context_.graphics_queue(),
+        vulkan_context_->device(), vulkan_context_->physical_device(),
+        vulkan_context_->command_pool(), vulkan_context_->graphics_queue(),
         base_path::resolve("engine_assets/icons"));
 
 #ifdef FJELL_HAS_NVIM_PANEL
     content_browser_.init(icon_cache_.get(), &nvim_panel_,
-                          &vulkan_context_, resource_manager_.get());
+                          vulkan_context_.get(), resource_manager_.get());
 #else
     content_browser_.init(icon_cache_.get(), nullptr,
-                          &vulkan_context_, resource_manager_.get());
+                          vulkan_context_.get(), resource_manager_.get());
 #endif
     connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
@@ -218,16 +221,16 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         [this](uint32_t id) {
             command_history_.execute(std::make_unique<RemoveObjectCommand>(
                 scene_, id, &selected_id_,
-                [this]() { vulkan_context_.wait_idle(); }));
+                [this]() { vulkan_context_->wait_idle(); }));
         }));
 
     properties_panel_.init(&scene_, &selected_id_, &gizmo_op_, &light_,
                            &script_manager_, &command_history_,
-                           &vulkan_context_.grid_pass().settings(),
-                           vulkan_context_.pipeline_cache(),
-                           &vulkan_context_.bindless_textures());
+                           &vulkan_context_->grid_pass().settings(),
+                           vulkan_context_->pipeline_cache(),
+                           &vulkan_context_->bindless_textures());
 
-    stats_panel_.init(&vulkan_context_);
+    stats_panel_.init(vulkan_context_.get());
 
     history_panel_.init(&command_history_);
 
@@ -235,7 +238,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
-    viewport_manager_.init(vulkan_context_.device_ref(), vulkan_context_.msaa_samples());
+    viewport_manager_.init(vulkan_context_->device_ref(), vulkan_context_->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
 
     // Load game UI — check project first, then fall back to engine assets
@@ -278,9 +281,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 }
 
 Engine::~Engine() {
-    vulkan_context_.wait_idle();
-    vulkan_context_.set_overlay_callback(nullptr);
-    vulkan_context_.set_game_ui_callback(nullptr);
+    vulkan_context_->wait_idle();
+    vulkan_context_->set_overlay_callback(nullptr);
+    vulkan_context_->set_game_ui_callback(nullptr);
     game_ui_.destroy();
     node_editor_panel_.shutdown();
     scene_ = {};
@@ -314,8 +317,8 @@ void Engine::scan_models() {
 }
 
 void Engine::save_material_assets() {
-    auto* cache = vulkan_context_.pipeline_cache();
-    auto& bindless = vulkan_context_.bindless_textures();
+    auto* cache = vulkan_context_->pipeline_cache();
+    auto& bindless = vulkan_context_->bindless_textures();
     if (!cache) return;
 
     for (auto& obj : scene_.objects()) {
@@ -368,7 +371,7 @@ void Engine::save_material_assets() {
 }
 
 void Engine::create_default_scene() {
-    vulkan_context_.wait_idle();
+    vulkan_context_->wait_idle();
     auto tex = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png"));
     auto mat = resource_manager_->create_material("default", tex);
@@ -392,7 +395,7 @@ void Engine::create_default_scene() {
 }
 
 void Engine::add_model_to_scene(const std::string& path) {
-    vulkan_context_.wait_idle();
+    vulkan_context_->wait_idle();
 
     auto model_handle = resource_manager_->load_model(
         base_path::resolve_asset(path, active_project()));
@@ -418,7 +421,7 @@ void Engine::add_model_to_scene(const std::string& path) {
 void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
                                           const std::string& skel_path,
                                           const std::string& anim_path) {
-    vulkan_context_.wait_idle();
+    vulkan_context_->wait_idle();
 
     auto resolved_mesh = base_path::resolve_asset(mesh_path, active_project());
     auto resolved_skel = base_path::resolve_asset(skel_path, active_project());
@@ -468,7 +471,7 @@ void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
 }
 
 void Engine::add_primitive_to_scene(const std::string& type) {
-    vulkan_context_.wait_idle();
+    vulkan_context_->wait_idle();
 
     // Empty node: no mesh
     if (type == "empty") {
@@ -696,7 +699,7 @@ void Engine::scan_scenes() {
 }
 
 void Engine::load_scene(const std::string& path) {
-    vulkan_context_.wait_idle();
+    vulkan_context_->wait_idle();
     current_scene_path_ = path;
     scene_ = Scene::load(path, *resource_manager_, active_project());
     selected_id_ = 0;
@@ -746,7 +749,7 @@ void Engine::draw_menu_bar() {
                 viewport_manager_.add_viewport();
             }
             ImGui::Separator();
-            auto& grid = vulkan_context_.grid_pass().settings();
+            auto& grid = vulkan_context_->grid_pass().settings();
             ImGui::Checkbox("Show Grid", &grid.visible);
             ImGui::Checkbox("Snap to Grid", &grid.snap_enabled);
             ImGui::DragFloat("Grid Size", &grid.cell_size, 0.1f, 0.1f, 50.0f);
@@ -988,8 +991,9 @@ void Engine::draw_menu_bar() {
                      << "  void begin_play() override {\n"
                      << "  }\n"
                      << "\n"
-                     << "  // actor()->transform().position / .rotation / .scale\n"
+                     << "  // transform().position / .rotation / .scale\n"
                      << "  // world()->log_info(\"msg\")\n"
+                     << "  // node()->components.get<T>() for sibling components\n"
                      << "  void tick(float dt) override {\n"
                      << "    (void)dt;\n"
                      << "  }\n"
@@ -1086,7 +1090,7 @@ void Engine::draw_ui() {
 
     draw_menu_bar();
     setup_dockspace();
-    viewport_manager_.draw(vulkan_context_, scene_, selected_id_, input_, clock_.delta_time(), gizmo_op_, &command_history_);
+    viewport_manager_.draw(*vulkan_context_, scene_, selected_id_, input_, clock_.delta_time(), gizmo_op_, &command_history_);
     viewport_hovered_ = viewport_manager_.any_hovered();
     hierarchy_panel_.draw();
     properties_panel_.draw();
@@ -1111,7 +1115,7 @@ void Engine::start_play() {
     script_manager_.deserialize_all(scene_);
     script_manager_.call_begin_play(scene_);
     audio_engine_.start_play(scene_, active_project());
-    vulkan_context_.set_playing(true);
+    vulkan_context_->set_playing(true);
     game_ui_.mark_dirty();
     input_.set_cursor_captured(window_.handle(), true);
     selected_id_ = 0;
@@ -1128,7 +1132,7 @@ void Engine::stop_play() {
     script_manager_.call_end_play(scene_);
     play_session_->restore(scene_);
     script_manager_.deserialize_all(scene_);
-    vulkan_context_.set_playing(false);
+    vulkan_context_->set_playing(false);
     input_.set_cursor_captured(window_.handle(), false);
     play_session_.reset();
     focus_viewport_ = true;
@@ -1160,7 +1164,7 @@ void Engine::draw_play_overlay() {
     ImGui::PopStyleVar();
 
     // Scene image fills the window — use active viewport's offscreen
-    auto tex_id = viewport_manager_.active_texture(vulkan_context_);
+    auto tex_id = viewport_manager_.active_texture(*vulkan_context_);
     if (tex_id) {
         ImGui::Image(tex_id, viewport->WorkSize);
     }
@@ -1218,7 +1222,7 @@ void Engine::run() {
 
     while (!window_.should_close()) {
         // Phase 1: Submit previous frame to GPU (non-blocking)
-        vulkan_context_.submit_and_present();
+        vulkan_context_->submit_and_present();
 
         FJELL_PROFILE_FRAME;
 
@@ -1230,7 +1234,7 @@ void Engine::run() {
 
 #ifndef NDEBUG
         if (shader_watcher_ && shader_watcher_->poll()) {
-            vulkan_context_.reload_pipeline();
+            vulkan_context_->reload_pipeline();
         }
 #endif
 
@@ -1265,7 +1269,7 @@ void Engine::run() {
         }
 
         // Resize offscreen passes before ImGui frame so descriptors stay valid
-        viewport_manager_.apply_resize(vulkan_context_);
+        viewport_manager_.apply_resize(*vulkan_context_);
 
         imgui_layer_->begin_frame();
         if (is_playing()) {
@@ -1290,16 +1294,16 @@ void Engine::run() {
             }
         }
 
-        vulkan_context_.sync_sprite_textures(scene_, *resource_manager_);
-        vulkan_context_.set_viewport_offset(viewport_manager_.active_viewport_pos());
-        vulkan_context_.set_active_sources(viewport_manager_.active_source_mask());
+        vulkan_context_->sync_sprite_textures(scene_, *resource_manager_);
+        vulkan_context_->set_viewport_offset(viewport_manager_.active_viewport_pos());
+        vulkan_context_->set_active_sources(viewport_manager_.active_source_mask());
 
         // Phase 3: Wait for frame slot, record commands
-        vulkan_context_.wait_and_record(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, is_playing());
+        vulkan_context_->wait_and_record(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, is_playing());
     }
 
     // Submit the last recorded frame before shutting down
-    vulkan_context_.submit_and_present();
+    vulkan_context_->submit_and_present();
     FJELL_CORE_INFO("Exiting main loop");
 }
 
