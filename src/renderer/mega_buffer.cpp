@@ -15,13 +15,14 @@ MegaBuffer::MegaBuffer(VkDevice device, VkPhysicalDevice physical_device,
     , index_capacity_{INITIAL_INDEX_SIZE} {
     vertex_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, vertex_capacity_,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     index_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, index_capacity_,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     FJELL_GFX_INFO("MegaBuffer created: {}MB vertex, {}MB index",
