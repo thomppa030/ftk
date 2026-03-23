@@ -1,5 +1,6 @@
 #include "animation/animator_component.hpp"
 #include "core/log.hpp"
+#include "core/profiler.hpp"
 
 #include <ozz/base/maths/simd_math.h>
 
@@ -132,6 +133,7 @@ void AnimatorComponent::sample_layer(AnimationLayer& layer, float dt) {
 }
 
 void AnimatorComponent::update(float dt) {
+    FJELL_PROFILE_SCOPE_N("animator_update");
     if (!skeleton_ || !layers_[0].clip) return;
 
     // Evaluate state machine transitions
