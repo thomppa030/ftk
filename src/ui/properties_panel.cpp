@@ -18,6 +18,7 @@
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "scripting/script_manager.hpp"
+#include "ui/icon_cache.hpp"
 
 #include <imgui.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -103,6 +104,7 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
 
 void PropertiesPanel::draw() {
     if (ImGui::Begin("Properties")) {
+        if (auto* ic = IconCache::instance()) ic->draw_panel_icon("component");
         auto* base = scene_->find(*selected_id_);
         auto* obj = base ? base->as_spatial() : nullptr;
         if (base) {

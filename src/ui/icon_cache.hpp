@@ -1,5 +1,6 @@
 #pragma once
 
+#include <imgui.h>
 #include <vulkan/vulkan.h>
 
 #include <string>
@@ -23,9 +24,25 @@ public:
     /// Returns VK_NULL_HANDLE if not found.
     [[nodiscard]] VkDescriptorSet icon(const std::string& name) const;
 
+    /// Draw a small icon inline (for panel headers). Call right after ImGui::Begin().
+    /// Defined inline to avoid link issues with targets that don't link icon_cache.cpp.
+    inline void draw_panel_icon(const char* icon_name) const {
+        auto desc = icon(icon_name);
+        if (!desc) return;
+        float size = ImGui::GetTextLineHeight();
+        ImGui::Image((ImTextureID)desc, {size, size});
+        ImGui::SameLine();
+    }
+
     [[nodiscard]] size_t count() const { return icons_.size(); }
 
+    /// Global instance — set once at engine init, used by all panels.
+    [[nodiscard]] static IconCache* instance() { return s_instance; }
+    static void set_instance(IconCache* cache) { s_instance = cache; }
+
 private:
+    static inline IconCache* s_instance{nullptr};
+
     struct IconEntry {
         VkImage image{VK_NULL_HANDLE};
         VkDeviceMemory memory{VK_NULL_HANDLE};

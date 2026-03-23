@@ -27,11 +27,13 @@ public:
 private:
     enum class FileType {
         folder,
-        script,
+        cpp_source,
+        header,
         model,
         texture,
         scene,
         shader,
+        material,
         unknown
     };
 

@@ -195,16 +195,29 @@ void HierarchyPanel::draw() {
         // Build draw-order list for shift-click range selection
         draw_order_.clear();
 
-        // Add button at top
-        if (ImGui::SmallButton("+")) {
+        // ── Toolbar row ──────────────────────────────────────────────
+        if (auto* ic = IconCache::instance()) ic->draw_panel_icon("hierarchy");
+        ImGui::SameLine();
+        float h = ImGui::GetFrameHeight();
+        float scale = 1.3f;
+        ImGui::SetWindowFontScale(scale);
+        ImVec2 text_size = ImGui::CalcTextSize("+");
+        ImVec2 pad = {(h - text_size.x) * 0.5f, (h / scale - text_size.y) * 0.5f};
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, pad);
+        if (ImGui::Button("+")) {
             ImGui::OpenPopup("##HierarchyAdd");
         }
+        ImGui::PopStyleVar();
+        ImGui::SetWindowFontScale(1.0f);
         ImGui::SameLine();
-        ImGui::TextDisabled("Add");
 
-        // Search & type filter
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(-100.0f);
+        // Type filter combo (fixed width, right-aligned)
+        float combo_w = 70.0f;
+        float avail_w = ImGui::GetContentRegionAvail().x;
+        float search_w = avail_w - combo_w - ImGui::GetStyle().ItemSpacing.x;
+        if (search_w < 60.0f) search_w = 60.0f;
+
+        ImGui::SetNextItemWidth(search_w);
         ImGui::InputTextWithHint("##filter", "Search...", filter_text_, sizeof(filter_text_));
         ImGui::SameLine();
         ImGui::SetNextItemWidth(-1.0f);

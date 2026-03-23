@@ -1,6 +1,7 @@
 #include "ui/stats_panel.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/icon_cache.hpp"
 
 #include <imgui.h>
 
@@ -27,6 +28,7 @@ void StatsPanel::draw(float dt) {
     const auto& stats = ctx_->render_stats();
 
     if (ImGui::Begin("Stats")) {
+        if (auto* ic = IconCache::instance()) ic->draw_panel_icon("stats");
         ImGui::Text("GPU: %s", ctx_->gpu_name().c_str());
         ImGui::SameLine(0, 20);
 #ifdef FJELL_ENABLE_TRACY

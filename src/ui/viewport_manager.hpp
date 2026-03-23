@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/delegate.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/viewport_source.hpp"
@@ -72,6 +73,13 @@ public:
     // Release all offscreen ImGui textures (call before destroying ImGui)
     void release_textures();
 
+    // Play toolbar state
+    void set_playing(bool p);
+
+    Delegate<void()> on_play;
+    Delegate<void()> on_pause;
+    Delegate<void()> on_stop;
+
     // Bitmask of which ViewportSource values are active across all panels
     [[nodiscard]] uint32_t active_source_mask() const;
 
@@ -81,11 +89,14 @@ private:
                              const Input& input, float dt, int gizmo_op,
                              CommandHistory* history);
 
+    void draw_play_toolbar();
+
     Device* device_{nullptr};
     VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
     std::vector<ViewportPanel> panels_;
     int next_id_{1};
     int active_id_{0};
+    bool playing_{false};
 };
 
 } // namespace fjell

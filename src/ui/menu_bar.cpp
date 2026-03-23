@@ -3,6 +3,7 @@
 #include "core/log.hpp"
 #include "core/project.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/icon_cache.hpp"
 #include "ui/viewport_manager.hpp"
 
 #include <imgui.h>
@@ -142,18 +143,7 @@ void MenuBar::draw_scripts_menu() {
 }
 
 void MenuBar::draw_play_button() {
-    float bar_w = ImGui::GetWindowWidth();
-    float button_w = 60.0f;
-    ImGui::SameLine(bar_w * 0.5f - button_w * 0.5f);
-    if (playing_) {
-        if (ImGui::SmallButton("Stop")) {
-            on_stop_play.broadcast();
-        }
-    } else {
-        if (ImGui::SmallButton("Play")) {
-            on_start_play.broadcast();
-        }
-    }
+    // Play controls moved to viewport toolbar
 }
 
 void MenuBar::draw_popups() {

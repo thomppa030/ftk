@@ -7,6 +7,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "scene/scene.hpp"
 #include "scene/transform.hpp"
+#include "ui/icon_cache.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -246,7 +247,7 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         // Toolbar
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f, 4.0f});
 
-        // Source selector
+        // Source selector (left)
         const char* current_name = viewport_source_name(panel.source);
         ImGui::SetNextItemWidth(120.0f);
         if (ImGui::BeginCombo("##Source", current_name)) {
@@ -264,6 +265,9 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         if (ImGui::Checkbox("Colliders", &show_col)) {
             ctx.set_show_colliders(show_col);
         }
+
+        // Play/Pause/Stop (centered)
+        draw_play_toolbar();
 
         ImGui::PopStyleVar();
 
@@ -496,6 +500,59 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
     ImGui::End();
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
+}
+
+void ViewportManager::set_playing(bool p) { playing_ = p; }
+
+void ViewportManager::draw_play_toolbar() {
+    auto* icons = IconCache::instance();
+    float icon_size = ImGui::GetFrameHeight() - 4.0f;
+
+    auto icon_button = [&](const char* id, const char* icon_name,
+                           const ImVec4& tint = {1, 1, 1, 1}) -> bool {
+        auto desc = icons ? icons->icon(icon_name) : VK_NULL_HANDLE;
+        ImGui::PushStyleColor(ImGuiCol_Button, {0, 0, 0, 0});
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {1, 1, 1, 0.1f});
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, {1, 1, 1, 0.2f});
+        bool clicked = false;
+        if (desc) {
+            clicked = ImGui::ImageButton(id, (ImTextureID)desc, {icon_size, icon_size},
+                                         {0, 0}, {1, 1}, {0, 0, 0, 0}, tint);
+        } else {
+            clicked = ImGui::SmallButton(id);
+        }
+        ImGui::PopStyleColor(3);
+        return clicked;
+    };
+
+    // Center the button group
+    float button_w = icon_size + ImGui::GetStyle().FramePadding.x * 2.0f;
+    float spacing = ImGui::GetStyle().ItemSpacing.x;
+    float group_w = button_w * 3.0f + spacing * 2.0f;
+    float avail = ImGui::GetContentRegionAvail().x;
+    ImGui::SameLine((avail - group_w) * 0.5f + ImGui::GetCursorPosX());
+
+    if (playing_) {
+        // Pause (stub)
+        if (icon_button("##pause", "pause", {1.0f, 0.85f, 0.3f, 1.0f})) {
+            on_pause.broadcast();
+        }
+        ImGui::SameLine();
+        // Stop
+        if (icon_button("##stop", "stop", {1.0f, 0.4f, 0.4f, 1.0f})) {
+            on_stop.broadcast();
+        }
+        ImGui::SameLine();
+        // Step (stub)
+        if (icon_button("##step", "step", {0.7f, 0.85f, 1.0f, 1.0f})) {
+            // stub — single-frame step, not wired yet
+        }
+    } else {
+        // Play
+        if (icon_button("##play", "play", {0.4f, 1.0f, 0.5f, 1.0f})) {
+            on_play.broadcast();
+        }
+    }
 }
 
 } // namespace fjell

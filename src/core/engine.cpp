@@ -186,6 +186,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_->device(), vulkan_context_->physical_device(),
         vulkan_context_->command_pool(), vulkan_context_->graphics_queue(),
         base_path::resolve("engine_assets/icons"));
+    IconCache::set_instance(icon_cache_.get());
 
 #ifdef FJELL_HAS_NVIM_PANEL
     content_browser_.init(icon_cache_.get(), &nvim_panel_,
@@ -304,6 +305,7 @@ Engine::~Engine() {
     node_editor_panel_.shutdown();
     scene_ = {};
     resource_manager_.reset();
+    IconCache::set_instance(nullptr);
     icon_cache_.reset();
     viewport_manager_.release_textures();
     // Release ImGui descriptor sets before ImGui shuts down
@@ -750,6 +752,12 @@ void Engine::bind_menu_bar() {
         [this]() { start_play(); }));
     connections_.push_back(menu_bar_.on_stop_play.bind(
         [this]() { stop_play(); }));
+    connections_.push_back(viewport_manager_.on_play.bind(
+        [this]() { start_play(); }));
+    connections_.push_back(viewport_manager_.on_stop.bind(
+        [this]() { stop_play(); }));
+    connections_.push_back(viewport_manager_.on_pause.bind(
+        [this]() { /* TODO: pause */ }));
     connections_.push_back(menu_bar_.on_open_project.bind(
         [this](const std::filesystem::path& path) {
             project_mgr_.open(path);
@@ -856,6 +864,7 @@ void Engine::draw_ui() {
 
     menu_bar_.set_project(project_mgr_.active());
     menu_bar_.set_playing(is_playing());
+    viewport_manager_.set_playing(is_playing());
     menu_bar_.set_scene_path(current_scene_path_);
     menu_bar_.set_vulkan_context(vulkan_context_.get());
     menu_bar_.set_viewport_manager(&viewport_manager_);

@@ -76,10 +76,12 @@ void ContentBrowser::navigate_to(const std::filesystem::path& dir) {
 
 ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& path) {
     auto ext = path.extension().string();
-    if (ext == ".cpp" || ext == ".hpp" || ext == ".h") return FileType::script;
+    if (ext == ".cpp") return FileType::cpp_source;
+    if (ext == ".hpp" || ext == ".h") return FileType::header;
     if (ext == ".glb" || ext == ".gltf") return FileType::model;
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") return FileType::texture;
     if (ext == ".fjell") return FileType::scene;
+    if (ext == ".fjmat") return FileType::material;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
     return FileType::unknown;
@@ -87,13 +89,15 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
 
 const char* ContentBrowser::icon_name(FileType type) const {
     switch (type) {
-        case FileType::folder:  return "folder";
-        case FileType::script:  return "script";
-        case FileType::model:   return "mesh";
-        case FileType::texture: return "texture";
-        case FileType::scene:   return "folder";
-        case FileType::shader:  return "shader";
-        case FileType::unknown: return "node";
+        case FileType::folder:     return "folder";
+        case FileType::cpp_source: return "cpp";
+        case FileType::header:     return "header";
+        case FileType::model:      return "mesh";
+        case FileType::texture:    return "texture";
+        case FileType::scene:      return "folder";
+        case FileType::shader:     return "shader";
+        case FileType::material:   return "material";
+        case FileType::unknown:    return "node";
     }
     return "node";
 }
@@ -620,8 +624,10 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
-                case FileType::script:
+                case FileType::cpp_source:
+                case FileType::header:
                 case FileType::shader:
+                case FileType::material:
                     if (ImGui::MenuItem("Open")) {
 #ifdef FJELL_HAS_NVIM_PANEL
                         if (nvim_) {
@@ -735,8 +741,10 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
             navigate_to(entry.path);
             break;
 
-        case FileType::script:
+        case FileType::cpp_source:
+        case FileType::header:
         case FileType::shader:
+        case FileType::material:
 #ifdef FJELL_HAS_NVIM_PANEL
             if (nvim_) {
                 nvim_->open(entry.path.string());
