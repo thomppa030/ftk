@@ -5,6 +5,8 @@
 #include "scene/scene.hpp"
 #include "scripting/script_manager.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -81,19 +83,130 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
 
     auto scripts_dir = project_->root() / "scripts";
     auto build_dir = scripts_dir / "build";
+    auto generated_dir = scripts_dir / "generated";
 
-    // Auto-generate register_all.cpp
+    Project::refresh_headers(*project_);
+    Project::write_scripts_cmake(*project_);
+
+    // Run fjreflect codegen
+    namespace fs = std::filesystem;
+    fs::create_directories(generated_dir);
+
+    auto fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "fjreflect";
+    if (!fs::exists(fjreflect_path)) {
+        // Try alongside the engine binary
+        fjreflect_path = base_path::dir() / "fjreflect";
+    }
+
+    bool has_codegen = false;
+    if (fs::exists(fjreflect_path)) {
+        // Collect script source files (exclude register_all.cpp)
+        std::string source_list;
+        for (const auto& entry : fs::directory_iterator(scripts_dir)) {
+            if (!entry.is_regular_file()) continue;
+            auto name = entry.path().filename().string();
+            if (!name.ends_with(".cpp") || name == "register_all.cpp") continue;
+            source_list += " " + entry.path().string();
+        }
+
+        if (!source_list.empty()) {
+            auto include_dir = project_->root() / "include";
+            // Find GLM in the build dir (fetched by the game project CMake)
+            auto glm_dir = build_dir / "_deps" / "glm-src";
+
+            auto reflect_cmd = fjreflect_path.string() +
+                " --output-dir " + generated_dir.string() +
+                " --include-dir " + include_dir.string() +
+                " --compiler g++";
+
+            // Add GLM include if available
+            if (fs::exists(glm_dir)) {
+                reflect_cmd += " --include-dir " + glm_dir.string();
+            }
+
+            reflect_cmd += source_list + " 2>&1";
+
+            std::string reflect_output;
+            int reflect_ret = platform::run_command(reflect_cmd, reflect_output);
+            if (reflect_ret != 0) {
+                FJELL_CORE_ERROR("[fjreflect] codegen failed:");
+                std::istringstream riss(reflect_output);
+                std::string rline;
+                while (std::getline(riss, rline)) {
+                    FJELL_CORE_ERROR("[fjreflect] {}", rline);
+                }
+            } else {
+                // Log output
+                std::istringstream riss(reflect_output);
+                std::string rline;
+                while (std::getline(riss, rline)) {
+                    if (!rline.empty()) FJELL_CORE_INFO("[fjreflect] {}", rline);
+                }
+                has_codegen = true;
+            }
+        }
+    } else {
+        FJELL_CORE_WARN("fjreflect not found — skipping codegen");
+    }
+
+    // Generate register_all.cpp — wire in codegen manifest if available
     {
         std::ofstream reg(scripts_dir / "register_all.cpp");
         if (reg.is_open()) {
             reg << "// Auto-generated -- do not edit.\n";
             reg << "#include \"fjell/registry.hpp\"\n\n";
-            reg << "FJELL_REGISTER()\n";
+
+            // Read manifest and generate extern declarations
+            auto manifest_path = generated_dir / "manifest.json";
+            if (has_codegen && fs::exists(manifest_path)) {
+                std::ifstream mf(manifest_path);
+                auto manifest = nlohmann::json::parse(mf, nullptr, false);
+                if (manifest.is_object() && manifest.contains("types")) {
+                    // Extern declarations for generated symbols
+                    for (const auto& t : manifest["types"]) {
+                        auto name = t["name"].get<std::string>();
+                        auto fields_sym = t["fields_symbol"].get<std::string>();
+                        reg << "extern \"C\" const FjellFieldDesc " << fields_sym << "[];\n";
+                        reg << "extern \"C\" const uint32_t fjreflect_" << name << "_field_count;\n";
+                        if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
+                            reg << "extern \"C\" void " << t["trace_symbol"].get<std::string>()
+                                << "(void*, void*);\n";
+                        }
+                    }
+
+                    // Generated info table
+                    reg << "\nstatic const FjellGeneratedInfo fjreflect_generated[] = {\n";
+                    for (const auto& t : manifest["types"]) {
+                        auto name = t["name"].get<std::string>();
+                        auto fields_sym = t["fields_symbol"].get<std::string>();
+                        auto count = t["field_count"].get<uint32_t>();
+                        reg << "    {\"" << name << "\", " << fields_sym
+                            << ", " << count << ", ";
+                        if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
+                            reg << t["trace_symbol"].get<std::string>();
+                        } else {
+                            reg << "nullptr";
+                        }
+                        reg << "},\n";
+                    }
+                    reg << "};\n\n";
+
+                    reg << "extern \"C\" uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
+                    reg << "extern \"C\" void fjell_register(FjellTypeRegistry* registry) {\n";
+                    reg << "    fjell_set_generated_table(fjreflect_generated, "
+                        << manifest["types"].size() << ");\n";
+                    reg << "    for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
+                    reg << "}\n";
+                } else {
+                    // Manifest parse failed — fallback
+                    reg << "FJELL_REGISTER()\n";
+                }
+            } else {
+                // No codegen — use simple registration
+                reg << "FJELL_REGISTER()\n";
+            }
         }
     }
-
-    Project::refresh_headers(*project_);
-    Project::write_scripts_cmake(*project_);
 
     auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
                " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
@@ -146,23 +259,19 @@ void ProjectManager::create_script(const std::string& class_name) {
     if (file.is_open()) {
         file << "#include \"fjell/registry.hpp\"\n"
              << "#include \"fjell/world.hpp\"\n"
-             << "#include <array>\n"
-             << "#include <cmath>\n"
+             << "#include \"fjell/weak_ref.hpp\"\n"
              << "\n"
              << "class " << class_name << " : public fjell::ScriptComponent {\n"
-             << "  FJELL_COMPONENT(" << class_name << ")\n"
+             << "    FJELL_COMPONENT(" << class_name << ")\n"
              << "\n"
-             << "  static auto reflect() {\n"
-             << "    return std::array{\n"
-             << "    };\n"
-             << "  }\n"
+             << "    [[fj::property]] float speed = 0.0f;\n"
              << "\n"
-             << "  void begin_play() override {\n"
-             << "  }\n"
+             << "    void begin_play() override {\n"
+             << "    }\n"
              << "\n"
-             << "  void tick(float dt) override {\n"
-             << "    (void)dt;\n"
-             << "  }\n"
+             << "    void tick(float dt) override {\n"
+             << "        (void)dt;\n"
+             << "    }\n"
              << "\n"
              << "private:\n"
              << "};\n";

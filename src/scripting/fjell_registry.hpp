@@ -6,9 +6,7 @@
 #include "fjell_component.hpp"
 #include "fjell_api.h"
 
-#include <cstddef>
 #include <cstdint>
-#include <type_traits>
 
 // ── Type descriptors (C-compatible structs) ─────────────────────────────
 
@@ -20,32 +18,27 @@ struct FjellComponentTypeOOP {
     void (*trace)(void* instance, void* visitor);  // GC trace (null if no ref fields)
 };
 
+// ── Generated reflection info (filled by fjreflect codegen) ─────────────
+
+struct FjellGeneratedInfo {
+    const char* name;
+    const FjellFieldDesc* fields;
+    uint32_t field_count;
+    void (*trace)(void* instance, void* visitor);
+};
+
 // ── Opaque registry handle (engine-side) ────────────────────────────────
 
 struct FjellTypeRegistry;
 
-// Engine exports this via -rdynamic — game .so calls it at registration
+// Engine exports these via -rdynamic — game .so calls them at registration
 extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc);
+extern "C" void fjell_set_generated_table(const FjellGeneratedInfo* table, uint32_t count);
+extern "C" const FjellGeneratedInfo* fjell_find_generated(const char* name);
 
 namespace fjell {
 
-// ── SFINAE helper for detecting reflect() ───────────────────────────────
-
-namespace detail {
-
-template <typename T, typename = void>
-struct has_reflect : std::false_type {};
-template <typename T>
-struct has_reflect<T, std::void_t<decltype(T::reflect())>> : std::true_type {};
-
-} // namespace detail
-
 // ── Registration helper (called from game code) ─────────────────────────
-
-template <typename T>
-struct ReflectStorage {
-    static inline const auto fields = T::reflect();
-};
 
 template <typename T>
 void register_component(FjellTypeRegistry* reg) {
@@ -53,40 +46,18 @@ void register_component(FjellTypeRegistry* reg) {
     desc.name = T::type_name;
     desc.create = []() -> ScriptComponent* { return new T(); };
 
-    if constexpr (detail::has_reflect<T>::value) {
-        desc.fields = ReflectStorage<T>::fields.data();
-        desc.field_count = static_cast<uint32_t>(ReflectStorage<T>::fields.size());
+    // Fields and trace come from fjreflect codegen
+    const auto* gen = fjell_find_generated(T::type_name);
+    if (gen) {
+        desc.fields = gen->fields;
+        desc.field_count = gen->field_count;
+        desc.trace = gen->trace;
     }
 
     fjell_reg_component(reg, &desc);
 }
 
 } // namespace fjell
-
-// ── Field descriptor macros ─────────────────────────────────────────────
-
-#define FJELL_F(T, member, ftype) \
-    FjellFieldDesc { \
-        #member, ftype, \
-        static_cast<uint32_t>(offsetof(T, member)), \
-        static_cast<uint32_t>(sizeof(((T*)nullptr)->member)), \
-        nullptr, 0.0f, 0.0f, 0.0f, nullptr \
-    }
-
-#define FJELL_F_RANGE(T, member, ftype, lo, hi, spd) \
-    FjellFieldDesc { \
-        #member, ftype, \
-        static_cast<uint32_t>(offsetof(T, member)), \
-        static_cast<uint32_t>(sizeof(((T*)nullptr)->member)), \
-        nullptr, static_cast<float>(lo), static_cast<float>(hi), static_cast<float>(spd), nullptr \
-    }
-
-#define FJELL_F_ENUM(T, member, labels, count) \
-    FjellFieldDesc { \
-        #member, FJELL_FIELD_ENUM, \
-        static_cast<uint32_t>(offsetof(T, member)), \
-        count, labels, 0.0f, 0.0f, 0.0f, nullptr \
-    }
 
 // ── Auto-registration ───────────────────────────────────────────────────
 // Each FJELL_COMPONENT builds a linked list of registration functions at

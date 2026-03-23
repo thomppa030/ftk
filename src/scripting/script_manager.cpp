@@ -120,6 +120,26 @@ static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
 
 // ── C exports called by game .so during registration ────────────────────
 
+// ── Generated reflection table (set by register_all.cpp before registration) ──
+
+static const FjellGeneratedInfo* s_generated_table = nullptr;
+static uint32_t s_generated_count = 0;
+
+extern "C" void fjell_set_generated_table(const FjellGeneratedInfo* table, uint32_t count) {
+    s_generated_table = table;
+    s_generated_count = count;
+}
+
+extern "C" const FjellGeneratedInfo* fjell_find_generated(const char* name) {
+    if (!s_generated_table || !name) return nullptr;
+    for (uint32_t i = 0; i < s_generated_count; ++i) {
+        if (std::strcmp(s_generated_table[i].name, name) == 0) {
+            return &s_generated_table[i];
+        }
+    }
+    return nullptr;
+}
+
 extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc) {
     if (!reg || !desc) return;
     fjell::OwnedScriptType owned;
