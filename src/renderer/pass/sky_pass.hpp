@@ -18,6 +18,8 @@ public:
 
     void set_top_color(const glm::vec3& c) { top_color_ = c; }
     void set_bottom_color(const glm::vec3& c) { bottom_color_ = c; }
+    [[nodiscard]] const glm::vec3& top_color() const { return top_color_; }
+    [[nodiscard]] const glm::vec3& bottom_color() const { return bottom_color_; }
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
@@ -25,7 +27,7 @@ private:
     VkPipeline pipeline_{VK_NULL_HANDLE};
 
     glm::vec3 top_color_{0.15f, 0.25f, 0.45f};
-    glm::vec3 bottom_color_{0.35f, 0.35f, 0.4f};
+    glm::vec3 bottom_color_{0.8f, 0.4f, 0.1f};
 };
 
 } // namespace fjell

@@ -51,8 +51,16 @@ struct FrameContext {
     VkBuffer gpu_driven_indirect{VK_NULL_HANDLE}; // meshlet_instance_pass indirect cmds
     uint32_t gpu_driven_segment_size{0};           // instances per pipeline bin
 
+    // Metallic/roughness G-buffer (resolved) for SSR material-aware blending
+    VkImageView mr_view{VK_NULL_HANDLE};
+
     // SSR: previous frame color for reflection tracing
     VkImageView prev_frame_color_view{VK_NULL_HANDLE};
+
+    // Hi-Z pyramid (shared, built by HizPass)
+    VkImageView hiz_view{VK_NULL_HANDLE};
+    VkSampler hiz_sampler{VK_NULL_HANDLE};
+    uint32_t hiz_mip_count{0};
 
     // Forward+ light culling: tile light index SSBO for viz passes
     VkBuffer tile_light_ssbo{VK_NULL_HANDLE};

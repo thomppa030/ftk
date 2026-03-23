@@ -46,6 +46,11 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     if (images.has_msaa) {
         images.msaa_depth_id = graph.register_image(target.msaa_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
     }
+    images.mr_id = graph.register_image(target.mr_image());
+    images.msaa_mr_id = images.mr_id;
+    if (images.has_msaa) {
+        images.msaa_mr_id = graph.register_image(target.msaa_mr_image());
+    }
     graph.begin_frame();
 
     // Each entry adds itself to the graph with its image dependencies

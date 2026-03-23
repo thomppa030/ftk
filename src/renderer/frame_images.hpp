@@ -11,6 +11,8 @@ struct FrameImages {
     uint32_t msaa_color_id{0};
     uint32_t depth_id{0};
     uint32_t msaa_depth_id{0};
+    uint32_t mr_id{0};
+    uint32_t msaa_mr_id{0};
     bool has_msaa{false};
 };
 

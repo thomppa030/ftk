@@ -1,11 +1,12 @@
 #version 460
 
-// SSR composite: blend reflection color into scene color.
+// SSR composite: blend reflection color into scene color using material properties.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
 layout(set = 1, binding = 0) uniform sampler2D ssr_texture;
 layout(set = 1, binding = 1, rgba16f) uniform image2D scene_color;
+layout(set = 1, binding = 2) uniform sampler2D mr_texture;
 
 layout(push_constant) uniform PushConstants {
     uint viewport_width;
@@ -23,8 +24,16 @@ void main() {
 
     vec4 color = imageLoad(scene_color, coord);
 
-    // Additive Fresnel-weighted blend (F0 = 0.04 for dielectrics)
-    color.rgb += ssr.rgb * ssr.a * intensity;
+    // Material-aware reflection blending
+    vec2 mr = texelFetch(mr_texture, coord, 0).rg;
+    float metallic = mr.r;
+    float roughness = mr.g;
+
+    // Reflection strength: metallic surfaces get strong reflections (F0 up to 1.0),
+    // dielectrics get weak reflections (F0 = 0.04). Roughness attenuates both.
+    float reflection_strength = mix(0.04, 1.0, metallic) * (1.0 - roughness * roughness);
+
+    color.rgb += ssr.rgb * ssr.a * intensity * reflection_strength;
 
     imageStore(scene_color, coord, color);
 }

@@ -210,6 +210,7 @@ void HizPass::destroy_image() {
         hiz_memory_ = VK_NULL_HANDLE;
     }
     hiz_mip_count_ = 0;
+    last_depth_view_ = VK_NULL_HANDLE;
 }
 
 void HizPass::resize(uint32_t width, uint32_t height) {
@@ -254,20 +255,24 @@ void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
     dep.pImageMemoryBarriers = &init_barrier;
     vkCmdPipelineBarrier2(cmd, &dep);
 
-    // Update mip 0 source descriptor: depth buffer
-    VkDescriptorImageInfo depth_info{};
-    depth_info.sampler = sampler_;
-    depth_info.imageView = depth_view;
-    depth_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    // Update mip 0 source descriptor: depth buffer (only when view changes)
+    if (depth_view != last_depth_view_) {
+        last_depth_view_ = depth_view;
 
-    VkWriteDescriptorSet depth_write{};
-    depth_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    depth_write.dstSet = mip_sets_[0];
-    depth_write.dstBinding = 0;
-    depth_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    depth_write.descriptorCount = 1;
-    depth_write.pImageInfo = &depth_info;
-    vkUpdateDescriptorSets(device_, 1, &depth_write, 0, nullptr);
+        VkDescriptorImageInfo depth_info{};
+        depth_info.sampler = sampler_;
+        depth_info.imageView = depth_view;
+        depth_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet depth_write{};
+        depth_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        depth_write.dstSet = mip_sets_[0];
+        depth_write.dstBinding = 0;
+        depth_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        depth_write.descriptorCount = 1;
+        depth_write.pImageInfo = &depth_info;
+        vkUpdateDescriptorSets(device_, 1, &depth_write, 0, nullptr);
+    }
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
 

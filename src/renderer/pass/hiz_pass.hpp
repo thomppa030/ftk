@@ -56,6 +56,9 @@ private:
     std::unique_ptr<DescriptorSetLayout> set_layout_;
     std::unique_ptr<DescriptorPool> pool_;
     std::array<VkDescriptorSet, MAX_HIZ_MIPS> mip_sets_{};
+
+    // Cached depth view to avoid updating descriptor while in use
+    VkImageView last_depth_view_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell

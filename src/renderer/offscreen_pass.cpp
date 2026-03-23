@@ -76,6 +76,14 @@ void OffscreenPass::cleanup_images() {
     if (resolve_depth_image_ != VK_NULL_HANDLE) vkDestroyImage(vk, resolve_depth_image_, nullptr);
     if (resolve_depth_memory_ != VK_NULL_HANDLE) vkFreeMemory(vk, resolve_depth_memory_, nullptr);
 
+    if (mr_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, mr_view_, nullptr);
+    if (mr_image_ != VK_NULL_HANDLE) vkDestroyImage(vk, mr_image_, nullptr);
+    if (mr_memory_ != VK_NULL_HANDLE) vkFreeMemory(vk, mr_memory_, nullptr);
+
+    if (resolve_mr_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, resolve_mr_view_, nullptr);
+    if (resolve_mr_image_ != VK_NULL_HANDLE) vkDestroyImage(vk, resolve_mr_image_, nullptr);
+    if (resolve_mr_memory_ != VK_NULL_HANDLE) vkFreeMemory(vk, resolve_mr_memory_, nullptr);
+
     color_view_ = VK_NULL_HANDLE;
     color_image_ = VK_NULL_HANDLE;
     color_memory_ = VK_NULL_HANDLE;
@@ -88,6 +96,12 @@ void OffscreenPass::cleanup_images() {
     resolve_depth_view_ = VK_NULL_HANDLE;
     resolve_depth_image_ = VK_NULL_HANDLE;
     resolve_depth_memory_ = VK_NULL_HANDLE;
+    mr_view_ = VK_NULL_HANDLE;
+    mr_image_ = VK_NULL_HANDLE;
+    mr_memory_ = VK_NULL_HANDLE;
+    resolve_mr_view_ = VK_NULL_HANDLE;
+    resolve_mr_image_ = VK_NULL_HANDLE;
+    resolve_mr_memory_ = VK_NULL_HANDLE;
 }
 
 void OffscreenPass::create(uint32_t width, uint32_t height) {
@@ -265,6 +279,88 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
 
         if (vkCreateImageView(vk, &resolve_depth_view_info, nullptr, &resolve_depth_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve depth view");
+        }
+    }
+
+    // -- Metallic/roughness image (MSAA when enabled) --
+    VkImageCreateInfo mr_info{};
+    mr_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    mr_info.imageType = VK_IMAGE_TYPE_2D;
+    mr_info.format = MR_FORMAT;
+    mr_info.extent = {width, height, 1};
+    mr_info.mipLevels = 1;
+    mr_info.arrayLayers = 1;
+    mr_info.samples = msaa_samples_;
+    mr_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    mr_info.usage = msaa
+        ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+        : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    mr_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (vkCreateImage(vk, &mr_info, nullptr, &mr_image_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create offscreen MR image");
+    }
+
+    vkGetImageMemoryRequirements(vk, mr_image_, &mem_reqs);
+    alloc.allocationSize = mem_reqs.size;
+    alloc.memoryTypeIndex = Buffer::find_memory_type(
+        device_.physical_device(), mem_reqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(vk, &alloc, nullptr, &mr_memory_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate offscreen MR memory");
+    }
+    vkBindImageMemory(vk, mr_image_, mr_memory_, 0);
+
+    VkImageViewCreateInfo mr_view_info{};
+    mr_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    mr_view_info.image = mr_image_;
+    mr_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    mr_view_info.format = MR_FORMAT;
+    mr_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    if (vkCreateImageView(vk, &mr_view_info, nullptr, &mr_view_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create offscreen MR view");
+    }
+
+    // -- Resolve MR image (single-sample, only when MSAA) --
+    if (msaa) {
+        VkImageCreateInfo resolve_mr_info{};
+        resolve_mr_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        resolve_mr_info.imageType = VK_IMAGE_TYPE_2D;
+        resolve_mr_info.format = MR_FORMAT;
+        resolve_mr_info.extent = {width, height, 1};
+        resolve_mr_info.mipLevels = 1;
+        resolve_mr_info.arrayLayers = 1;
+        resolve_mr_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        resolve_mr_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        resolve_mr_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        resolve_mr_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        if (vkCreateImage(vk, &resolve_mr_info, nullptr, &resolve_mr_image_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create resolve MR image");
+        }
+
+        vkGetImageMemoryRequirements(vk, resolve_mr_image_, &mem_reqs);
+        alloc.allocationSize = mem_reqs.size;
+        alloc.memoryTypeIndex = Buffer::find_memory_type(
+            device_.physical_device(), mem_reqs.memoryTypeBits,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+        if (vkAllocateMemory(vk, &alloc, nullptr, &resolve_mr_memory_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate resolve MR memory");
+        }
+        vkBindImageMemory(vk, resolve_mr_image_, resolve_mr_memory_, 0);
+
+        VkImageViewCreateInfo resolve_mr_view_info{};
+        resolve_mr_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        resolve_mr_view_info.image = resolve_mr_image_;
+        resolve_mr_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        resolve_mr_view_info.format = MR_FORMAT;
+        resolve_mr_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        if (vkCreateImageView(vk, &resolve_mr_view_info, nullptr, &resolve_mr_view_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create resolve MR view");
         }
     }
 }

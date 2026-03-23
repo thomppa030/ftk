@@ -222,10 +222,12 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
+    std::array<VkFormat, 2> color_formats = {color_format_, VK_FORMAT_R8G8_UNORM};
+
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachmentFormats = &color_format_;
+    rendering_info.colorAttachmentCount = static_cast<uint32_t>(color_formats.size());
+    rendering_info.pColorAttachmentFormats = color_formats.data();
     rendering_info.depthAttachmentFormat = depth_format_;
 
     // ── Vertex pipeline stages ──
@@ -259,10 +261,16 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
                                   VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     opaque_blend.blendEnable = VK_FALSE;
 
+    VkPipelineColorBlendAttachmentState opaque_mr_blend{};
+    opaque_mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+    opaque_mr_blend.blendEnable = VK_FALSE;
+
+    std::array<VkPipelineColorBlendAttachmentState, 2> opaque_blend_attachments = {opaque_blend, opaque_mr_blend};
+
     VkPipelineColorBlendStateCreateInfo opaque_blending{};
     opaque_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    opaque_blending.attachmentCount = 1;
-    opaque_blending.pAttachments = &opaque_blend;
+    opaque_blending.attachmentCount = static_cast<uint32_t>(opaque_blend_attachments.size());
+    opaque_blending.pAttachments = opaque_blend_attachments.data();
 
     VkGraphicsPipelineCreateInfo pipeline_ci{};
     pipeline_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -298,10 +306,16 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     trans_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
     trans_blend.alphaBlendOp = VK_BLEND_OP_ADD;
 
+    VkPipelineColorBlendAttachmentState trans_mr_blend{};
+    trans_mr_blend.colorWriteMask = 0; // Transparent objects don't write MR
+    trans_mr_blend.blendEnable = VK_FALSE;
+
+    std::array<VkPipelineColorBlendAttachmentState, 2> trans_blend_attachments = {trans_blend, trans_mr_blend};
+
     VkPipelineColorBlendStateCreateInfo trans_blending{};
     trans_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    trans_blending.attachmentCount = 1;
-    trans_blending.pAttachments = &trans_blend;
+    trans_blending.attachmentCount = static_cast<uint32_t>(trans_blend_attachments.size());
+    trans_blending.pAttachments = trans_blend_attachments.data();
 
     VkPipelineDepthStencilStateCreateInfo trans_depth{};
     trans_depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;

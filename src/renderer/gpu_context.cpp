@@ -143,8 +143,8 @@ void GpuContext::create_descriptor_resources() {
     // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler,
     // binding 2 = light SSBO, binding 3 = tile light index SSBO,
     // binding 4 = depth texture (for light culling compute),
-    // binding 5 = AO texture
-    std::array<VkDescriptorSetLayoutBinding, 6> global_bindings{};
+    // binding 5 = AO texture, binding 6 = sky cubemap, binding 7 = BRDF LUT
+    std::array<VkDescriptorSetLayoutBinding, 8> global_bindings{};
     global_bindings[0].binding = 0;
     global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_bindings[0].descriptorCount = 1;
@@ -177,6 +177,16 @@ void GpuContext::create_descriptor_resources() {
     global_bindings[5].descriptorCount = 1;
     global_bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+    global_bindings[6].binding = 6;
+    global_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    global_bindings[6].descriptorCount = 1;
+    global_bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    global_bindings[7].binding = 7;
+    global_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    global_bindings[7].descriptorCount = 1;
+    global_bindings[7].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
     global_set_layout_ = std::make_unique<DescriptorSetLayout>(
         vk_device, std::span{global_bindings});
 
@@ -184,7 +194,7 @@ void GpuContext::create_descriptor_resources() {
     global_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
     global_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 3; // shadow map + depth texture + AO texture
+    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 5; // shadow map + depth + AO + sky cubemap + BRDF LUT
     global_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     global_pool_sizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // light SSBO + tile SSBO
 

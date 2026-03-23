@@ -26,6 +26,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 layout(set = 0, binding = 5) uniform sampler2D ao_texture;
+layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
+layout(set = 0, binding = 7) uniform sampler2D brdf_lut;
 
 struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
@@ -77,6 +79,7 @@ layout(location = 4) in mat3 frag_TBN;
 layout(location = 7) flat in uint frag_draw_index;
 
 layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec2 out_metallic_roughness;
 
 #include "fjell_pbr.glsl"
 #include "fjell_shadow.glsl"
@@ -144,6 +147,7 @@ void main() {
     if (normal_len < 0.001) {
         // No normals — render unlit
         out_color = vec4(ALBEDO, ALPHA);
+        out_metallic_roughness = vec2(0.0);
         return;
     }
 
@@ -182,9 +186,23 @@ void main() {
     // Combine screen-space AO with material AO output
     float final_ao = screen_ao * AO;
 
-    vec3 ambient = ubo.ambient_color.xyz * ubo.ambient_color.w * ALBEDO * final_ao;
+    // IBL diffuse
+    vec3 F_ibl = fresnel_schlick_roughness(NdotV, F0, ROUGHNESS);
+    vec3 kD_ibl = (1.0 - F_ibl) * (1.0 - METALLIC);
+    vec3 irradiance = textureLod(sky_cubemap, N, 5.0).rgb;
+    vec3 diffuse_ibl = kD_ibl * ALBEDO * irradiance;
+
+    // IBL specular
+    vec3 R = reflect(-V, N);
+    vec3 prefiltered = textureLod(sky_cubemap, R, ROUGHNESS * 6.0).rgb;
+    vec2 env_brdf = texture(brdf_lut, vec2(NdotV, ROUGHNESS)).rg;
+    vec3 specular_ibl = prefiltered * (F_ibl * env_brdf.x + env_brdf.y);
+
+    float ibl_intensity = ubo.ambient_color.w; // reuse ambient_intensity for IBL strength
+    vec3 ambient = (diffuse_ibl + specular_ibl) * final_ao * ibl_intensity;
 
     vec3 color = ambient + Lo * mix(final_ao, 1.0, 0.5) + EMISSION;
 
     out_color = vec4(color, ALPHA);
+    out_metallic_roughness = vec2(METALLIC, ROUGHNESS);
 }

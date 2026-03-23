@@ -62,10 +62,16 @@ void SkyPass::create(Device& device, const PassResources& resources) {
     blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
+    VkPipelineColorBlendAttachmentState mr_blend{};
+    mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+    mr_blend.blendEnable = VK_FALSE;
+
+    std::array blend_attachments = {blend, mr_blend};
+
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 1;
-    color_blending.pAttachments = &blend;
+    color_blending.attachmentCount = static_cast<uint32_t>(blend_attachments.size());
+    color_blending.pAttachments = blend_attachments.data();
 
     // Depth test: only draw where depth == 1.0 (clear value, no geometry)
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
@@ -91,13 +97,13 @@ void SkyPass::create(Device& device, const PassResources& resources) {
         throw std::runtime_error("Failed to create sky pipeline layout");
     }
 
-    VkFormat color_format = resources.color_format;
     VkFormat depth_format = resources.depth_format;
+    std::array<VkFormat, 2> color_formats = {resources.color_format, VK_FORMAT_R8G8_UNORM};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachmentFormats = &color_format;
+    rendering_info.colorAttachmentCount = static_cast<uint32_t>(color_formats.size());
+    rendering_info.pColorAttachmentFormats = color_formats.data();
     rendering_info.depthAttachmentFormat = depth_format;
 
     VkGraphicsPipelineCreateInfo pipeline_ci{};

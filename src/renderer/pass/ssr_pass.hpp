@@ -4,7 +4,6 @@
 
 #include <vulkan/vulkan.h>
 
-#include <array>
 #include <cstdint>
 
 namespace fjell {
@@ -36,8 +35,10 @@ public:
 
 private:
     void dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
-                  VkImageView depth_view, VkImageView color_view,
-                  VkImageView prev_color_view,
+                  VkImageView color_view, VkImageView prev_color_view,
+                  VkImageView hiz_view, VkSampler hiz_sampler,
+                  uint32_t hiz_mip_count,
+                  VkImageView mr_view,
                   uint32_t width, uint32_t height);
     void create_images(uint32_t width, uint32_t height);
     void destroy_images();
@@ -45,29 +46,14 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
 
-    // Hi-Z mip chain (R32_SFLOAT)
-    static constexpr uint32_t MAX_HIZ_MIPS = 12;
-    VkImage hiz_image_{VK_NULL_HANDLE};
-    VkDeviceMemory hiz_memory_{VK_NULL_HANDLE};
-    std::array<VkImageView, MAX_HIZ_MIPS> hiz_mip_views_{}; // per-mip storage write
-    VkImageView hiz_sampled_view_{VK_NULL_HANDLE};           // all mips, sampled read
-    uint32_t hiz_mip_count_{0};
-
     // SSR output (RGBA16F: rgb=reflection, a=validity)
     VkImage ssr_image_{VK_NULL_HANDLE};
     VkDeviceMemory ssr_memory_{VK_NULL_HANDLE};
     VkImageView ssr_view_{VK_NULL_HANDLE};
 
-    VkSampler nearest_sampler_{VK_NULL_HANDLE};
     VkSampler linear_sampler_{VK_NULL_HANDLE};
+    VkSampler nearest_sampler_{VK_NULL_HANDLE};
     VkExtent2D extent_{};
-
-    // Hi-Z build descriptors (per-mip)
-    VkDescriptorSetLayout hiz_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout hiz_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline hiz_pipeline_{VK_NULL_HANDLE};
-    VkDescriptorPool hiz_pool_{VK_NULL_HANDLE};
-    std::array<VkDescriptorSet, MAX_HIZ_MIPS> hiz_sets_{};
 
     // SSR trace
     VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
@@ -84,12 +70,13 @@ private:
     VkDescriptorSet composite_set_{VK_NULL_HANDLE};
 
     VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
-    bool images_need_init_{true};
 
     // Cached views for lazy descriptor updates
     VkImageView last_depth_view_{VK_NULL_HANDLE};
     VkImageView last_prev_color_view_{VK_NULL_HANDLE};
     VkImageView last_color_view_{VK_NULL_HANDLE};
+    VkImageView last_mr_view_{VK_NULL_HANDLE};
+    VkImageView last_hiz_view_{VK_NULL_HANDLE};
 
     // Parameters
     bool enabled_{true};

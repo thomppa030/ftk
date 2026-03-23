@@ -26,6 +26,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 layout(set = 0, binding = 5) uniform sampler2D ao_texture;
+layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
+layout(set = 0, binding = 7) uniform sampler2D brdf_lut;
 
 struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
@@ -77,6 +79,7 @@ layout(location = 4) in mat3 frag_TBN;
 layout(location = 7) flat in uint frag_draw_index;
 
 layout(location = 0) out vec4 out_color;
+layout(location = 1) out vec2 out_metallic_roughness;
 
 #include "fjell_pbr.glsl"
 #include "fjell_shadow.glsl"
@@ -119,6 +122,7 @@ void main() {
     if (normal_len < 0.001) {
         // No normals — render unlit (backward compatibility)
         out_color = base_color;
+        out_metallic_roughness = vec2(0.0);
         return;
     }
 
@@ -167,16 +171,28 @@ void main() {
     // Forward+ tile lights
     Lo += accumulate_tile_lights(frag_world_pos, N, V, NdotV, albedo, metallic, roughness, F0);
 
-    // Ambient occlusion — affects ambient and diffuse, not specular
+    // Screen-space AO from GTAO pass
     vec2 ao_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);
     float ao = texture(ao_texture, ao_uv).r;
 
-    // Ambient
-    vec3 ambient = ubo.ambient_color.xyz * ubo.ambient_color.w * albedo * ao;
+    // IBL diffuse
+    vec3 F_ibl = fresnel_schlick_roughness(NdotV, F0, roughness);
+    vec3 kD_ibl = (1.0 - F_ibl) * (1.0 - metallic);
+    vec3 irradiance = textureLod(sky_cubemap, N, 5.0).rgb;
+    vec3 diffuse_ibl = kD_ibl * albedo * irradiance;
 
-    // Apply AO to diffuse lighting (occluded areas receive less bounced light)
+    // IBL specular
+    vec3 R = reflect(-V, N);
+    vec3 prefiltered = textureLod(sky_cubemap, R, roughness * 6.0).rgb;
+    vec2 env_brdf = texture(brdf_lut, vec2(NdotV, roughness)).rg;
+    vec3 specular_ibl = prefiltered * (F_ibl * env_brdf.x + env_brdf.y);
+
+    float ibl_intensity = ubo.ambient_color.w; // reuse ambient_intensity for IBL strength
+    vec3 ambient = (diffuse_ibl + specular_ibl) * ao * ibl_intensity;
+
     vec3 color = ambient + Lo * mix(ao, 1.0, 0.5) + emissive;
 
     // Output linear HDR — tone mapping happens in a separate pass
     out_color = vec4(color, base_color.a);
+    out_metallic_roughness = vec2(metallic, roughness);
 }

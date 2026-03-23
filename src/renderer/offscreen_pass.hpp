@@ -45,6 +45,16 @@ public:
     void invalidate_depth_imgui_texture();
 
     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+    static constexpr VkFormat MR_FORMAT = VK_FORMAT_R8G8_UNORM;
+
+    // Returns the single-sample metallic/roughness view (resolve target when MSAA, direct when 1x).
+    [[nodiscard]] VkImageView mr_view() const { return resolve_mr_view_ ? resolve_mr_view_ : mr_view_; }
+
+    // Returns the MSAA metallic/roughness view for rendering into (same as mr_view when 1x).
+    [[nodiscard]] VkImageView msaa_mr_view() const { return mr_view_; }
+
+    [[nodiscard]] VkImage mr_image() const { return resolve_mr_image_ ? resolve_mr_image_ : mr_image_; }
+    [[nodiscard]] VkImage msaa_mr_image() const { return mr_image_; }
 
 private:
     void create(uint32_t width, uint32_t height);
@@ -75,6 +85,16 @@ private:
     VkImage resolve_depth_image_{VK_NULL_HANDLE};
     VkDeviceMemory resolve_depth_memory_{VK_NULL_HANDLE};
     VkImageView resolve_depth_view_{VK_NULL_HANDLE};
+
+    // Metallic/roughness render target (MSAA when samples > 1)
+    VkImage mr_image_{VK_NULL_HANDLE};
+    VkDeviceMemory mr_memory_{VK_NULL_HANDLE};
+    VkImageView mr_view_{VK_NULL_HANDLE};
+
+    // Metallic/roughness resolve target (single-sample, only created when MSAA)
+    VkImage resolve_mr_image_{VK_NULL_HANDLE};
+    VkDeviceMemory resolve_mr_memory_{VK_NULL_HANDLE};
+    VkImageView resolve_mr_view_{VK_NULL_HANDLE};
 
     VkExtent2D extent_{};
 
