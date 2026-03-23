@@ -10,7 +10,9 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "physics/physics_world.hpp"
+#include "audio/audio_subsystem.hpp"
 #include "renderer/resource_manager.hpp"
+#include "renderer/vfx_subsystem.hpp"
 #include "scene/scene.hpp"
 
 #include <imgui.h>
@@ -52,6 +54,8 @@ static const AssetTypeInfo* find_asset_type(const std::string& ref_type_name) {
 
 static fjell::ResourceManager* s_resource_manager = nullptr;
 static const fjell::Project* s_active_project = nullptr;
+static fjell::VfxSubsystem* s_vfx_subsystem = nullptr;
+static fjell::AudioSubsystem* s_audio_subsystem = nullptr;
 
 // ── WeakRef resolution (called from game .so via -rdynamic) ─────────────
 
@@ -201,6 +205,14 @@ void ScriptManager::set_resource_manager(ResourceManager* rm) {
 
 void ScriptManager::set_active_project(const Project* project) {
     s_active_project = project;
+}
+
+void ScriptManager::set_vfx_subsystem(VfxSubsystem* vfx) {
+    s_vfx_subsystem = vfx;
+}
+
+void ScriptManager::set_audio_subsystem(AudioSubsystem* audio) {
+    s_audio_subsystem = audio;
 }
 
 // ── Constructor / Destructor ────────────────────────────────────────────
@@ -391,6 +403,22 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
             }
         }
         return 0;
+    };
+
+    world_.spawn_vfx_fn = [](uint32_t handle_id, float x, float y, float z) {
+        if (s_vfx_subsystem && s_active_scene && s_resource_manager) {
+            s_vfx_subsystem->spawn(VfxAssetHandle{handle_id}, {x, y, z},
+                                   *s_active_scene, *s_resource_manager);
+        }
+    };
+
+    world_.play_audio_fn = [](uint32_t handle_id, float x, float y, float z,
+                              float volume, float pitch) {
+        if (s_audio_subsystem && s_resource_manager) {
+            s_audio_subsystem->play_oneshot(AudioAssetHandle{handle_id}, {x, y, z},
+                                            *s_resource_manager, volume, pitch,
+                                            s_active_project);
+        }
     };
 }
 

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include "fjell_ref.hpp"
 #include "fjell_transform.hpp"
 #include "fjell_world.hpp"
 
@@ -10,8 +11,10 @@
 
 namespace fjell {
 
-class ScriptManager;
+struct AudioAsset;
 struct Node3D;
+struct VfxAsset;
+class ScriptManager;
 
 class ScriptComponent {
 public:
@@ -43,6 +46,20 @@ public:
     [[nodiscard]] float elapsed_time() const { return world_->elapsed_time; }
 
     void destroy(uint32_t target_id) { world_->destroy(target_id); }
+
+    void spawn_vfx(const Ref<VfxAsset>& effect, const glm::vec3& pos) {
+        if (world_->spawn_vfx_fn && effect.handle_id() != 0) {
+            world_->spawn_vfx_fn(effect.handle_id(), pos.x, pos.y, pos.z);
+        }
+    }
+
+    void play_audio(const Ref<AudioAsset>& clip, const glm::vec3& pos,
+                    float volume = 1.0f, float pitch = 1.0f) {
+        if (world_->play_audio_fn && clip.handle_id() != 0) {
+            world_->play_audio_fn(clip.handle_id(), pos.x, pos.y, pos.z,
+                                  volume, pitch);
+        }
+    }
 
     void log(const char* msg) const { world_->log_info(msg); }
     void log_warn(const char* msg) const { world_->log_warn(msg); }

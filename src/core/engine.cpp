@@ -175,6 +175,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     ScriptManager::set_resource_manager(resource_manager_.get());
     ScriptManager::set_active_project(project_mgr_.active());
+    ScriptManager::set_vfx_subsystem(vfx_subsystem_);
+    ScriptManager::set_audio_subsystem(audio_subsystem_);
     // Determine which scene to load
     if (project_mgr_.active()) {
         current_scene_path_ = project_mgr_.active()->resolve(project_mgr_.active()->config().default_scene);

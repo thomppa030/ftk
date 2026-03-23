@@ -26,6 +26,11 @@ struct World {
     uint64_t (*find_node_fn)(const char* name){nullptr};  // returns packed {id, generation}
     void (*destroy_node_fn)(uint32_t id){nullptr};
 
+    // Subsystem function pointers (engine sets these)
+    void (*spawn_vfx_fn)(uint32_t handle_id, float x, float y, float z){nullptr};
+    void (*play_audio_fn)(uint32_t handle_id, float x, float y, float z,
+                          float volume, float pitch){nullptr};
+
     [[nodiscard]] const Input& input() const { return *input_; }
     [[nodiscard]] PhysicsWorld* physics() { return physics_; }
 
