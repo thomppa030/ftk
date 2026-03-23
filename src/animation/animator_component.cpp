@@ -58,6 +58,8 @@ void AnimatorComponent::load_state_machine(const std::string& path) {
             layers_[0].weight = 1.0f;
             layers_[0].looping = state->looping;
             layers_[0].context->Invalidate();
+        } else {
+            FJELL_CORE_WARN("Animator: initial state references unknown clip '{}'", state->clip);
         }
     }
 
@@ -152,6 +154,8 @@ void AnimatorComponent::update(float dt) {
                     layers_[1].weight = 0.0f;
                     layers_[1].looping = next->looping;
                     layers_[1].context->Invalidate();
+                } else {
+                    FJELL_CORE_WARN("Animator: transition target references unknown clip '{}'", next->clip);
                 }
             }
         }
@@ -180,12 +184,16 @@ void AnimatorComponent::update(float dt) {
             const auto* current = state_machine_.current_state();
             if (current) {
                 auto it = clip_map_.find(current->clip);
-                if (it != clip_map_.end() && it->second != layers_[0].clip) {
-                    layers_[0].clip = it->second;
-                    layers_[0].time = 0.0f;
-                    layers_[0].speed = current->speed;
-                    layers_[0].looping = current->looping;
-                    layers_[0].context->Invalidate();
+                if (it != clip_map_.end()) {
+                    if (it->second != layers_[0].clip) {
+                        layers_[0].clip = it->second;
+                        layers_[0].time = 0.0f;
+                        layers_[0].speed = current->speed;
+                        layers_[0].looping = current->looping;
+                        layers_[0].context->Invalidate();
+                    }
+                } else {
+                    FJELL_CORE_WARN("Animator: current state references unknown clip '{}'", current->clip);
                 }
             }
         }
