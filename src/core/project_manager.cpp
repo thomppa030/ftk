@@ -100,12 +100,12 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
 
     bool has_codegen = false;
     if (fs::exists(fjreflect_path)) {
-        // Collect script source files (exclude register_all.cpp)
+        // Collect script headers for codegen (class definitions live in .hpp)
         std::string source_list;
         for (const auto& entry : fs::directory_iterator(scripts_dir)) {
             if (!entry.is_regular_file()) continue;
             auto name = entry.path().filename().string();
-            if (!name.ends_with(".cpp") || name == "register_all.cpp") continue;
+            if (!name.ends_with(".hpp")) continue;
             source_list += " " + entry.path().string();
         }
 
@@ -253,33 +253,46 @@ void ProjectManager::create_script(const std::string& class_name) {
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 
     auto script_dir = project_->root() / "scripts";
-    auto path = script_dir / (filename + ".cpp");
+    auto hpp_path = script_dir / (filename + ".hpp");
+    auto cpp_path = script_dir / (filename + ".cpp");
 
-    std::ofstream file(path);
-    if (file.is_open()) {
-        file << "#include \"fjell/registry.hpp\"\n"
-             << "#include \"fjell/world.hpp\"\n"
-             << "#include \"fjell/weak_ref.hpp\"\n"
-             << "\n"
-             << "class " << class_name << " : public fjell::ScriptComponent {\n"
-             << "    FJELL_COMPONENT(" << class_name << ")\n"
-             << "\n"
-             << "    [[fj::property]] float speed = 0.0f;\n"
-             << "\n"
-             << "    void begin_play() override {\n"
-             << "    }\n"
-             << "\n"
-             << "    void tick(float dt) override {\n"
-             << "        (void)dt;\n"
-             << "    }\n"
-             << "\n"
-             << "private:\n"
-             << "};\n";
-
-        FJELL_CORE_INFO("Created script: {}", path.string());
-    } else {
-        FJELL_CORE_ERROR("Failed to create script: {}", path.string());
+    // Header — class definition with properties
+    {
+        std::ofstream file(hpp_path);
+        if (file.is_open()) {
+            file << "#pragma once\n"
+                 << "#include \"fjell/registry.hpp\"\n"
+                 << "#include \"fjell/world.hpp\"\n"
+                 << "\n"
+                 << "class " << class_name << " : public fjell::ScriptComponent {\n"
+                 << "    FJELL_COMPONENT(" << class_name << ")\n"
+                 << "\n"
+                 << "    [[fj::property]] float speed = 0.0f;\n"
+                 << "\n"
+                 << "    void begin_play() override;\n"
+                 << "    void tick(float dt) override;\n"
+                 << "\n"
+                 << "private:\n"
+                 << "};\n";
+        }
     }
+
+    // Implementation
+    {
+        std::ofstream file(cpp_path);
+        if (file.is_open()) {
+            file << "#include \"" << filename << ".hpp\"\n"
+                 << "\n"
+                 << "void " << class_name << "::begin_play() {\n"
+                 << "}\n"
+                 << "\n"
+                 << "void " << class_name << "::tick(float dt) {\n"
+                 << "    (void)dt;\n"
+                 << "}\n";
+        }
+    }
+
+    FJELL_CORE_INFO("Created script: {}", hpp_path.string());
 }
 
 } // namespace fjell

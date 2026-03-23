@@ -366,7 +366,8 @@ bool query_offsets(std::vector<ComponentInfo>& components,
             return false;
         }
 
-        // Stub out engine symbols that the registration macros reference
+        // Stub engine extern "C" symbols that registration macros reference.
+        // Headers only declare classes + fields, no engine method bodies.
         out << "struct FjellTypeRegistry;\n";
         out << "struct FjellComponentTypeOOP;\n";
         out << "struct FjellGeneratedInfo;\n";
@@ -379,7 +380,11 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         out << "extern \"C\" void* fjell_ref_resolve(unsigned) { return nullptr; }\n";
         out << "extern \"C\" void fjell_shared_ref_acquire(unsigned) {}\n";
         out << "extern \"C\" void fjell_shared_ref_release(unsigned) {}\n";
-        out << "extern \"C\" void* fjell_shared_ref_resolve(unsigned) { return nullptr; }\n\n";
+        out << "extern \"C\" void* fjell_shared_ref_resolve(unsigned) { return nullptr; }\n";
+        out << "extern \"C\" void fjell_gc_trace_weak(void*, void*) {}\n";
+        out << "extern \"C\" void fjell_gc_trace_ref(void*, void*) {}\n";
+        out << "extern \"C\" void fjell_gc_trace_shared(void*, void*) {}\n\n";
+
         out << "#include \"" << std::filesystem::path(source_file).filename().string() << "\"\n";
         out << "#include <cstdio>\n";
         out << "#include <cstddef>\n";
@@ -397,21 +402,19 @@ bool query_offsets(std::vector<ComponentInfo>& components,
     }
 
     // Build compiler command
-    std::string cmd = compiler + " -std=c++23 -Wno-attributes -Wno-invalid-offsetof -w";
-
-    // Add include dir for the source file itself
+    std::string includes;
     auto source_dir = std::filesystem::path(source_file).parent_path().string();
     if (!source_dir.empty()) {
-        cmd += " -I" + source_dir;
+        includes += " -I" + source_dir;
     }
-
     for (const auto& dir : include_dirs) {
-        cmd += " -I" + dir;
+        includes += " -I" + dir;
     }
 
-    cmd += " -o " + query_bin.string() + " " + query_src.string() + " 2>&1";
+    std::string cmd = compiler + " -std=c++23 -Wno-attributes -Wno-invalid-offsetof -w"
+        " -Wl,--unresolved-symbols=ignore-in-object-files"
+        + includes + " -o " + query_bin.string() + " " + query_src.string() + " 2>&1";
 
-    // Compile
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
         std::cerr << "fjreflect: cannot run compiler\n";
@@ -459,6 +462,7 @@ bool query_offsets(std::vector<ComponentInfo>& components,
     // Cleanup
     std::filesystem::remove(query_src);
     std::filesystem::remove(query_bin);
+    std::filesystem::remove(tmp_dir / "fjreflect_query.o");
 
     return true;
 }
