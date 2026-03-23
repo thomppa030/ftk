@@ -32,10 +32,30 @@ public:
     [[nodiscard]] const char* name() const { return name_; }
     [[nodiscard]] Transform& transform() { return *transform_; }
     [[nodiscard]] const Transform& transform() const { return *transform_; }
-    [[nodiscard]] World* world() { return world_; }
-    [[nodiscard]] const World* world() const { return world_; }
     [[nodiscard]] Node3D* node() { return node_; }
     [[nodiscard]] const Node3D* node() const { return node_; }
+
+    // --- Subsystem access (thin wrappers over World) ---
+
+    [[nodiscard]] const Input& input() const { return world_->input(); }
+    [[nodiscard]] PhysicsWorld* physics() { return world_->physics(); }
+    [[nodiscard]] float delta_time() const { return world_->delta_time; }
+    [[nodiscard]] float elapsed_time() const { return world_->elapsed_time; }
+
+    void destroy(uint32_t target_id) { world_->destroy(target_id); }
+
+    void log(const char* msg) const { world_->log_info(msg); }
+    void log_warn(const char* msg) const { world_->log_warn(msg); }
+    void log_error(const char* msg) const { world_->log_error(msg); }
+
+    template <typename... Args>
+    void log_f(const char* fmt, Args&&... args) const {
+        world_->log_info_f(fmt, args...);
+    }
+
+    // Kept for backward compat — prefer the direct accessors above
+    [[nodiscard]] World* world() { return world_; }
+    [[nodiscard]] const World* world() const { return world_; }
 
 private:
     friend class ScriptManager;
