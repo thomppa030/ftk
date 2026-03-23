@@ -1012,15 +1012,24 @@ void Engine::run() {
         float dt = clock_.delta_time();
 
         if (is_playing()) {
-            script_manager_.update(scene_, input_, clock_, play_session_->physics_world());
-            if (!scene_.pending_destroy().empty()) {
+            auto flush_pending = [&] {
+                if (scene_.pending_destroy().empty()) return;
                 script_manager_.trace_doomed_refs(scene_, scene_.pending_destroy());
+                if (play_session_->physics_world()) {
+                    for (uint32_t id : scene_.pending_destroy()) {
+                        play_session_->physics_world()->remove_body(id);
+                    }
+                }
                 scene_.flush_destroyed();
-            }
+            };
+
+            script_manager_.update(scene_, input_, clock_, play_session_->physics_world());
+            flush_pending();
             play_session_->physics_step(dt, scene_);
             if (play_session_->physics_world()) {
                 script_manager_.dispatch_collision_events(scene_, *play_session_->physics_world());
             }
+            flush_pending();
             if (play_session_->wants_stop(input_)) {
                 stop_play();
             }

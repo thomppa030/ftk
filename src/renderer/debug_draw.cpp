@@ -142,6 +142,23 @@ void DebugDraw::update(const Scene& scene) {
         draw_commands_.push_back({model, first, count});
     }
 
+    // Draw capsule wireframe for nodes with CharacterComponent
+    for (const auto& obj : scene.objects()) {
+        const auto* cc = obj->components.get<CharacterComponent>();
+        if (!cc) continue;
+        const auto* spatial = obj->as_spatial();
+        if (!spatial) continue;
+
+        uint32_t first = static_cast<uint32_t>(vertices_.size());
+        generate_capsule(cc->capsule_radius, cc->capsule_height);
+
+        uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
+        if (count == 0) continue;
+
+        glm::mat4 model = glm::translate(glm::mat4(1.0f), spatial->transform.position);
+        draw_commands_.push_back({model, first, count, {0.0f, 0.9f, 0.9f, 1.0f}});
+    }
+
     // Draw arrows for nodes with ArrowComponent
     for (const auto& obj : scene.objects()) {
         const auto* arrow_ptr = obj->components.get<ArrowComponent>();
@@ -195,7 +212,7 @@ void DebugDraw::draw(VkCommandBuffer cmd, VkPipelineLayout layout) const {
     for (const auto& dc : draw_commands_) {
         DebugPushConstants push{};
         push.model = dc.model;
-        push.color = {0.0f, 1.0f, 0.0f, 1.0f};
+        push.color = dc.color;
 
         vkCmdPushConstants(cmd, layout,
                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,

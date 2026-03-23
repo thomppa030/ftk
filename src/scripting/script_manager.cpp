@@ -460,8 +460,8 @@ void ScriptManager::trace_doomed_refs(Scene& scene, std::span<const uint32_t> do
 // ── Collision/trigger event dispatch ─────────────────────────────────────
 
 void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physics) {
-    // Dispatch collision events
-    for (const auto& [node_id, event] : physics.collision_events()) {
+    // Collision enter
+    for (const auto& [node_id, event] : physics.collision_enter_events()) {
         auto* node = scene.find(node_id);
         if (!node) continue;
         for (auto& comp : node->scripts) {
@@ -471,13 +471,35 @@ void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physic
         }
     }
 
-    // Dispatch trigger events
-    for (const auto& [node_id, event] : physics.trigger_events()) {
+    // Collision exit
+    for (const auto& [node_id, event] : physics.collision_exit_events()) {
+        auto* node = scene.find(node_id);
+        if (!node) continue;
+        for (auto& comp : node->scripts) {
+            if (comp.instance) {
+                comp.instance->on_collision_exit(event.other_id);
+            }
+        }
+    }
+
+    // Trigger enter
+    for (const auto& [node_id, event] : physics.trigger_enter_events()) {
         auto* node = scene.find(node_id);
         if (!node) continue;
         for (auto& comp : node->scripts) {
             if (comp.instance) {
                 comp.instance->on_trigger_enter(event.other_id);
+            }
+        }
+    }
+
+    // Trigger exit
+    for (const auto& [node_id, event] : physics.trigger_exit_events()) {
+        auto* node = scene.find(node_id);
+        if (!node) continue;
+        for (auto& comp : node->scripts) {
+            if (comp.instance) {
+                comp.instance->on_trigger_exit(event.other_id);
             }
         }
     }

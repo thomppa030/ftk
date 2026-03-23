@@ -33,6 +33,7 @@ public:
 
     void create_bodies(Scene& scene);
     void step(float dt, Scene& scene);
+    void remove_body(uint32_t object_id);
 
     void apply_force(uint32_t object_id, const glm::vec3& force);
     void apply_impulse(uint32_t object_id, const glm::vec3& impulse);
@@ -46,8 +47,10 @@ public:
 
     /// Collision/trigger events collected during the last step.
     /// Each pair appears once. Cleared at the start of each step.
-    [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& collision_events() const;
-    [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& trigger_events() const;
+    [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& collision_enter_events() const;
+    [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& collision_exit_events() const;
+    [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& trigger_enter_events() const;
+    [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& trigger_exit_events() const;
 
 private:
     struct Impl;

@@ -249,6 +249,33 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            // Character Controller
+            if (auto* cc = obj->components.get<CharacterComponent>()) {
+                colored_separator({0.2f, 0.8f, 0.8f, 1.0f});
+                if (ImGui::CollapsingHeader("Character Controller", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    ImGui::Text("Capsule Radius");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##CharRadius", &cc->capsule_radius, 0.01f, 0.01f, 10.0f);
+                    ImGui::Text("Capsule Height");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##CharHeight", &cc->capsule_height, 0.01f, 0.01f, 20.0f);
+                    ImGui::Text("Max Slope Angle");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##CharSlope", &cc->max_slope_angle, 0.5f, 0.0f, 89.0f);
+                    ImGui::Text("Mass");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##CharMass", &cc->mass, 0.5f, 1.0f, 500.0f);
+
+                    // Read-only ground state display
+                    static const char* ground_labels[] = {"On Ground", "On Steep Ground", "Not Supported", "In Air"};
+                    ImGui::TextDisabled("Ground: %s", ground_labels[static_cast<int>(cc->ground_state)]);
+
+                    if (remove_button("Remove Character Controller")) {
+                        obj->components.remove<CharacterComponent>();
+                    }
+                }
+            }
+
             // Collider
             if (auto* col = obj->components.get<ColliderComponent>()) {
                 colored_separator({0.85f, 0.45f, 0.25f, 1.0f});
@@ -286,6 +313,7 @@ void PropertiesPanel::draw() {
                     ImGui::Text("Offset");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::DragFloat3("##Offset", &col->offset.x, 0.05f);
+                    ImGui::Checkbox("Is Trigger", &col->is_trigger);
                     if (remove_button("Remove Collider")) {
                         obj->components.remove<ColliderComponent>();
                     }
@@ -555,6 +583,10 @@ void PropertiesPanel::draw() {
                 }
                 if (!obj->components.has<ArrowComponent>() && ImGui::MenuItem("Arrow")) {
                     obj->components.add<ArrowComponent>();
+                    scene_->mark_dirty();
+                }
+                if (!obj->components.has<CharacterComponent>() && ImGui::MenuItem("Character Controller")) {
+                    obj->components.add<CharacterComponent>();
                     scene_->mark_dirty();
                 }
                 ImGui::EndPopup();

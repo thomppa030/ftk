@@ -87,6 +87,13 @@ void Node::clone_base_into(Node& target) const {
         copy.spatial = au->spatial;
         copy.play_on_start = au->play_on_start;
     }
+    if (const auto* cc = components.get<CharacterComponent>()) {
+        auto& copy = target.components.add<CharacterComponent>();
+        copy.capsule_radius = cc->capsule_radius;
+        copy.capsule_height = cc->capsule_height;
+        copy.max_slope_angle = cc->max_slope_angle;
+        copy.mass = cc->mass;
+    }
 }
 
 std::unique_ptr<Node> Node::clone() const {
@@ -508,7 +515,8 @@ Result<> Scene::save(const std::string& path) {
                 {"half_extents", {col->half_extents.x, col->half_extents.y, col->half_extents.z}},
                 {"radius", col->radius},
                 {"height", col->height},
-                {"offset", {col->offset.x, col->offset.y, col->offset.z}}
+                {"offset", {col->offset.x, col->offset.y, col->offset.z}},
+                {"is_trigger", col->is_trigger}
             };
         }
 
@@ -555,6 +563,15 @@ Result<> Scene::save(const std::string& path) {
             jobj["arrow"] = {
                 {"length", arr->length},
                 {"color", {arr->color.x, arr->color.y, arr->color.z}}
+            };
+        }
+
+        if (const auto* cc = obj->components.get<CharacterComponent>()) {
+            jobj["character"] = {
+                {"capsule_radius", cc->capsule_radius},
+                {"capsule_height", cc->capsule_height},
+                {"max_slope_angle", cc->max_slope_angle},
+                {"mass", cc->mass}
             };
         }
 
@@ -928,6 +945,7 @@ Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
                 auto& o = jcol["offset"];
                 col.offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()};
             }
+            col.is_trigger = jcol.value("is_trigger", false);
         }
 
         if (jobj.contains("emitter") && node) {
@@ -999,6 +1017,15 @@ Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
                 auto& c = jar["color"];
                 arr.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
             }
+        }
+
+        if (jobj.contains("character") && node) {
+            auto& jcc = jobj["character"];
+            auto& cc = node->components.add<CharacterComponent>();
+            cc.capsule_radius = jcc.value("capsule_radius", 0.3f);
+            cc.capsule_height = jcc.value("capsule_height", 1.4f);
+            cc.max_slope_angle = jcc.value("max_slope_angle", 50.0f);
+            cc.mass = jcc.value("mass", 80.0f);
         }
 
         if (jobj.contains("components") && node) {

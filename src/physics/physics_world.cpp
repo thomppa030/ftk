@@ -26,9 +26,11 @@
 
 #include <glm/gtc/quaternion.hpp>
 
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+
 #include <cstdarg>
+#include <mutex>
 #include <thread>
-#include <unordered_set>
 
 // Jolt requires a custom trace and assert implementation
 static void jolt_trace(const char* fmt, ...) {
@@ -54,15 +56,17 @@ namespace fjell {
 // ── Broadphase layers ───────────────────────────────────────────────────
 
 namespace layers {
-static constexpr JPH::ObjectLayer NON_MOVING = 0;
+static constexpr JPH::ObjectLayer STATIC = 0;
 static constexpr JPH::ObjectLayer MOVING = 1;
-static constexpr JPH::uint NUM_LAYERS = 2;
+static constexpr JPH::ObjectLayer SENSOR = 2;
+static constexpr JPH::uint NUM_LAYERS = 3;
 } // namespace layers
 
 namespace broad_phase {
-static constexpr JPH::BroadPhaseLayer NON_MOVING(0);
+static constexpr JPH::BroadPhaseLayer STATIC(0);
 static constexpr JPH::BroadPhaseLayer MOVING(1);
-static constexpr JPH::uint NUM_LAYERS = 2;
+static constexpr JPH::BroadPhaseLayer SENSOR(2);
+static constexpr JPH::uint NUM_LAYERS = 3;
 } // namespace broad_phase
 
 class BPLayerInterface final : public JPH::BroadPhaseLayerInterface {
@@ -71,11 +75,16 @@ public:
         return broad_phase::NUM_LAYERS;
     }
     [[nodiscard]] JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override {
-        return layer == layers::NON_MOVING ? broad_phase::NON_MOVING : broad_phase::MOVING;
+        switch (layer) {
+            case layers::STATIC: return broad_phase::STATIC;
+            case layers::SENSOR: return broad_phase::SENSOR;
+            default: return broad_phase::MOVING;
+        }
     }
     [[nodiscard]] const char* GetBroadPhaseLayerName(JPH::BroadPhaseLayer layer) const override {
-        if (layer == broad_phase::NON_MOVING) return "NON_MOVING";
+        if (layer == broad_phase::STATIC) return "STATIC";
         if (layer == broad_phase::MOVING) return "MOVING";
+        if (layer == broad_phase::SENSOR) return "SENSOR";
         return "UNKNOWN";
     }
 };
@@ -84,8 +93,13 @@ class ObjectVsBroadPhaseFilter final : public JPH::ObjectVsBroadPhaseLayerFilter
 public:
     [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer obj_layer,
                                      JPH::BroadPhaseLayer bp_layer) const override {
-        if (obj_layer == layers::NON_MOVING)
-            return bp_layer == broad_phase::MOVING;
+        // Static vs static = no collision
+        if (obj_layer == layers::STATIC)
+            return bp_layer != broad_phase::STATIC;
+        // Sensors collide with everything (for contact callbacks)
+        if (obj_layer == layers::SENSOR)
+            return true;
+        // Moving collides with everything
         return true;
     }
 };
@@ -93,7 +107,8 @@ public:
 class ObjectLayerPairFilter final : public JPH::ObjectLayerPairFilter {
 public:
     [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
-        if (a == layers::NON_MOVING && b == layers::NON_MOVING)
+        // Static vs static = no collision
+        if (a == layers::STATIC && b == layers::STATIC)
             return false;
         return true;
     }
@@ -116,8 +131,9 @@ static JPH::Quat to_jolt_quat(const glm::quat& q) {
     }
     float len2 = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
     if (len2 < 1e-8f) return JPH::Quat::sIdentity();
-    auto jq = JPH::Quat(q.x, q.y, q.z, q.w);
-    return jq.IsNormalized() ? jq : jq.Normalized();
+    // Always normalize to satisfy Jolt's strict tolerance
+    float inv_len = 1.0f / std::sqrt(len2);
+    return JPH::Quat(q.x * inv_len, q.y * inv_len, q.z * inv_len, q.w * inv_len);
 }
 
 static glm::quat to_glm_quat(JPH::Quat q) {
@@ -128,17 +144,20 @@ static glm::quat to_glm_quat(JPH::Quat q) {
 
 class FjellContactListener final : public JPH::ContactListener {
 public:
-    // Back-pointers for resolving body → object ID
+    // Back-pointer for resolving body → object ID
     std::unordered_map<uint32_t, uint32_t>* body_to_object{nullptr};
-    std::unordered_set<uint32_t>* trigger_bodies{nullptr};
 
-    // Events collected this frame
-    std::vector<std::pair<uint32_t, CollisionEvent>> collision_events;
-    std::vector<std::pair<uint32_t, CollisionEvent>> trigger_events;
+    // Events collected this frame (swapped out at clear())
+    std::vector<std::pair<uint32_t, CollisionEvent>> collision_enter_events;
+    std::vector<std::pair<uint32_t, CollisionEvent>> collision_exit_events;
+    std::vector<std::pair<uint32_t, CollisionEvent>> trigger_enter_events;
+    std::vector<std::pair<uint32_t, CollisionEvent>> trigger_exit_events;
 
     void clear() {
-        collision_events.clear();
-        trigger_events.clear();
+        collision_enter_events.clear();
+        collision_exit_events.clear();
+        trigger_enter_events.clear();
+        trigger_exit_events.clear();
     }
 
     JPH::ValidateResult OnContactValidate(
@@ -146,18 +165,12 @@ public:
         [[maybe_unused]] const JPH::Body& body2,
         [[maybe_unused]] JPH::RVec3Arg base_offset,
         [[maybe_unused]] const JPH::CollideShapeResult& collision_result) override {
-        // If either body is a trigger, allow contact but mark as sensor
-        uint32_t key1 = body1.GetID().GetIndexAndSequenceNumber();
-        uint32_t key2 = body2.GetID().GetIndexAndSequenceNumber();
-        if (trigger_bodies->contains(key1) || trigger_bodies->contains(key2)) {
-            return JPH::ValidateResult::AcceptContact;
-        }
         return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
     }
 
     void OnContactAdded(
         const JPH::Body& body1, const JPH::Body& body2,
-        [[maybe_unused]] const JPH::ContactManifold& manifold,
+        const JPH::ContactManifold& manifold,
         [[maybe_unused]] JPH::ContactSettings& settings) override {
 
         uint32_t key1 = body1.GetID().GetIndexAndSequenceNumber();
@@ -170,30 +183,83 @@ public:
         uint32_t obj1 = it1->second;
         uint32_t obj2 = it2->second;
 
-        auto contact_point = to_glm(manifold.GetWorldSpaceContactPointOn1(0));
+        glm::vec3 contact_point{0.0f};
+        if (manifold.mRelativeContactPointsOn1.size() > 0) {
+            contact_point = to_glm(manifold.GetWorldSpaceContactPointOn1(0));
+        }
         auto contact_normal = to_glm(manifold.mWorldSpaceNormal);
 
-        bool is_trigger = trigger_bodies->contains(key1) || trigger_bodies->contains(key2);
+        bool is_sensor = body1.IsSensor() || body2.IsSensor();
 
-        if (is_trigger) {
-            // Disable physical response for triggers
-            settings.mCombinedFriction = 0.0f;
-            settings.mCombinedRestitution = 0.0f;
-            settings.mInvMassScale1 = 0.0f;
-            settings.mInvMassScale2 = 0.0f;
-            settings.mInvInertiaScale1 = 0.0f;
-            settings.mInvInertiaScale2 = 0.0f;
+        // Cache this contact for exit tracking
+        uint64_t pair_key = (static_cast<uint64_t>(key1) << 32) | key2;
+        {
+            std::lock_guard lock(contact_mutex_);
+            active_contacts_[pair_key] = {obj1, obj2, is_sensor};
+        }
 
-            trigger_events.push_back({obj1, {obj2, contact_point, contact_normal}});
-            trigger_events.push_back({obj2, {obj1, contact_point, -contact_normal}});
+        if (is_sensor) {
+            std::lock_guard lock(event_mutex_);
+            trigger_enter_events.push_back({obj1, {obj2, contact_point, contact_normal}});
+            trigger_enter_events.push_back({obj2, {obj1, contact_point, -contact_normal}});
         } else {
-            collision_events.push_back({obj1, {obj2, contact_point, contact_normal}});
-            collision_events.push_back({obj2, {obj1, contact_point, -contact_normal}});
+            std::lock_guard lock(event_mutex_);
+            collision_enter_events.push_back({obj1, {obj2, contact_point, contact_normal}});
+            collision_enter_events.push_back({obj2, {obj1, contact_point, -contact_normal}});
         }
     }
+
+    void OnContactRemoved(
+        const JPH::SubShapeIDPair& pair) override {
+
+        uint32_t key1 = pair.GetBody1ID().GetIndexAndSequenceNumber();
+        uint32_t key2 = pair.GetBody2ID().GetIndexAndSequenceNumber();
+        uint64_t pair_key = (static_cast<uint64_t>(key1) << 32) | key2;
+
+        CachedContact cached;
+        {
+            std::lock_guard lock(contact_mutex_);
+            auto it = active_contacts_.find(pair_key);
+            if (it == active_contacts_.end()) return;
+            cached = it->second;
+            active_contacts_.erase(it);
+        }
+
+        CollisionEvent exit_event{0, glm::vec3(0.0f), glm::vec3(0.0f)};
+
+        if (cached.is_sensor) {
+            std::lock_guard lock(event_mutex_);
+            exit_event.other_id = cached.obj_id_2;
+            trigger_exit_events.push_back({cached.obj_id_1, exit_event});
+            exit_event.other_id = cached.obj_id_1;
+            trigger_exit_events.push_back({cached.obj_id_2, exit_event});
+        } else {
+            std::lock_guard lock(event_mutex_);
+            exit_event.other_id = cached.obj_id_2;
+            collision_exit_events.push_back({cached.obj_id_1, exit_event});
+            exit_event.other_id = cached.obj_id_1;
+            collision_exit_events.push_back({cached.obj_id_2, exit_event});
+        }
+    }
+
+private:
+    struct CachedContact {
+        uint32_t obj_id_1;
+        uint32_t obj_id_2;
+        bool is_sensor;
+    };
+
+    std::mutex contact_mutex_;
+    std::mutex event_mutex_;
+    std::unordered_map<uint64_t, CachedContact> active_contacts_;
 };
 
 // ── Impl ────────────────────────────────────────────────────────────────
+
+struct CharacterEntry {
+    JPH::Ref<JPH::CharacterVirtual> character;
+    uint32_t object_id;
+};
 
 struct PhysicsWorld::Impl {
     std::unique_ptr<JPH::TempAllocatorImpl> temp_allocator;
@@ -208,7 +274,9 @@ struct PhysicsWorld::Impl {
     // Bidirectional maps: Fjell object_id <-> Jolt BodyID (stored as uint32)
     std::unordered_map<uint32_t, JPH::BodyID> object_to_body;
     std::unordered_map<uint32_t, uint32_t> body_to_object; // body.GetIndexAndSequenceNumber() -> object_id
-    std::unordered_set<uint32_t> trigger_bodies; // body keys that are triggers
+
+    // Character controllers
+    std::vector<CharacterEntry> characters;
 };
 
 static bool s_jolt_initialized = false;
@@ -251,7 +319,6 @@ PhysicsWorld::PhysicsWorld() : impl_(std::make_unique<Impl>()) {
 
     // Wire up contact listener
     impl_->contact_listener.body_to_object = &impl_->body_to_object;
-    impl_->contact_listener.trigger_bodies = &impl_->trigger_bodies;
     impl_->physics_system->SetContactListener(&impl_->contact_listener);
 }
 
@@ -266,16 +333,60 @@ PhysicsWorld::~PhysicsWorld() {
     }
 }
 
+// ── Validation helpers ───────────────────────────────────────────────────
+
+static constexpr float MIN_DIMENSION = 0.001f;
+
+static float clamp_positive(float v) {
+    return std::max(v, MIN_DIMENSION);
+}
+
+static glm::vec3 clamp_positive(const glm::vec3& v) {
+    return {std::max(v.x, MIN_DIMENSION), std::max(v.y, MIN_DIMENSION), std::max(v.z, MIN_DIMENSION)};
+}
+
 // ── Body creation ───────────────────────────────────────────────────────
 
 void PhysicsWorld::create_bodies(Scene& scene) {
     auto& bi = impl_->physics_system->GetBodyInterface();
 
     for (auto& obj : scene.objects()) {
-        const auto* col_comp = obj->components.get<ColliderComponent>();
-        if (!col_comp) continue;
         auto* spatial = obj->as_spatial();
         if (!spatial) continue;
+
+        // Character controller — handled in Step 5 section below
+        auto* char_comp = obj->components.get<CharacterComponent>();
+        if (char_comp) {
+            float r = clamp_positive(char_comp->capsule_radius);
+            float half_h = clamp_positive(char_comp->capsule_height * 0.5f);
+
+            JPH::CharacterVirtualSettings settings;
+            settings.mShape = new JPH::CapsuleShape(half_h, r);
+            settings.mMaxSlopeAngle = JPH::DegreesToRadians(char_comp->max_slope_angle);
+            settings.mMass = std::max(char_comp->mass, 1.0f);
+            settings.mUp = JPH::Vec3(0, 1, 0);
+            settings.mInnerBodyShape = new JPH::CapsuleShape(half_h, r);
+            settings.mInnerBodyLayer = layers::MOVING;
+
+            auto character = new JPH::CharacterVirtual(
+                &settings,
+                to_jolt(spatial->transform.position),
+                to_jolt_quat(spatial->transform.rotation),
+                0, // user data
+                impl_->physics_system.get());
+
+            impl_->characters.push_back({character, obj->id});
+
+            // Register inner body for contact resolution
+            auto inner_id = character->GetInnerBodyID();
+            if (!inner_id.IsInvalid()) {
+                impl_->body_to_object[inner_id.GetIndexAndSequenceNumber()] = obj->id;
+            }
+            continue;
+        }
+
+        const auto* col_comp = obj->components.get<ColliderComponent>();
+        if (!col_comp) continue;
 
         // Default to static if no rigidbody descriptor
         static const auto default_static = [] {
@@ -293,18 +404,18 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 
         switch (col.shape) {
             case ColliderShape::Box: {
-                auto he = col.half_extents * s;
+                auto he = clamp_positive(col.half_extents * s);
                 shape = new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
                 break;
             }
             case ColliderShape::Sphere: {
-                float r = col.radius * std::max({s.x, s.y, s.z});
+                float r = clamp_positive(col.radius * std::max({s.x, s.y, s.z}));
                 shape = new JPH::SphereShape(r);
                 break;
             }
             case ColliderShape::Capsule: {
-                float r = col.radius * std::max(s.x, s.z);
-                float half_h = col.height * 0.5f * s.y;
+                float r = clamp_positive(col.radius * std::max(s.x, s.z));
+                float half_h = clamp_positive(col.height * 0.5f * s.y);
                 shape = new JPH::CapsuleShape(half_h, r);
                 break;
             }
@@ -361,22 +472,32 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             effective_type = BodyType::Static;
         }
 
+        // Sensors use SENSOR layer
+        bool is_sensor = col.is_trigger;
+
         JPH::EMotionType motion;
         JPH::ObjectLayer layer;
-        switch (effective_type) {
-            case BodyType::Static:
-                motion = JPH::EMotionType::Static;
-                layer = layers::NON_MOVING;
-                break;
-            case BodyType::Kinematic:
-                motion = JPH::EMotionType::Kinematic;
-                layer = layers::NON_MOVING;
-                break;
-            case BodyType::Dynamic:
-            default:
-                motion = JPH::EMotionType::Dynamic;
-                layer = layers::MOVING;
-                break;
+        if (is_sensor) {
+            // Sensors are kinematic so they can be moved and generate contacts
+            motion = (effective_type == BodyType::Static)
+                ? JPH::EMotionType::Static : JPH::EMotionType::Kinematic;
+            layer = layers::SENSOR;
+        } else {
+            switch (effective_type) {
+                case BodyType::Static:
+                    motion = JPH::EMotionType::Static;
+                    layer = layers::STATIC;
+                    break;
+                case BodyType::Kinematic:
+                    motion = JPH::EMotionType::Kinematic;
+                    layer = layers::MOVING;
+                    break;
+                case BodyType::Dynamic:
+                default:
+                    motion = JPH::EMotionType::Dynamic;
+                    layer = layers::MOVING;
+                    break;
+            }
         }
 
         JPH::BodyCreationSettings body_settings(
@@ -391,14 +512,25 @@ void PhysicsWorld::create_bodies(Scene& scene) {
         body_settings.mAngularDamping = rb.angular_damping;
         body_settings.mGravityFactor = rb.gravity_enabled ? 1.0f : 0.0f;
 
-        if (rb.body_type == BodyType::Dynamic && rb.mass > 0.0f) {
+        // Native sensor support — Jolt handles contact callbacks without physical response
+        if (is_sensor) {
+            body_settings.mIsSensor = true;
+        }
+
+        // Enable kinematic contact generation against static and other kinematic bodies
+        if (effective_type == BodyType::Kinematic) {
+            body_settings.mCollideKinematicVsNonDynamic = true;
+        }
+
+        if (effective_type == BodyType::Dynamic) {
+            float mass = rb.mass > 0.0f ? rb.mass : 1.0f;
             body_settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-            body_settings.mMassPropertiesOverride.mMass = rb.mass;
+            body_settings.mMassPropertiesOverride.mMass = mass;
         }
 
         auto body_id = bi.CreateAndAddBody(body_settings,
-            rb.body_type == BodyType::Static ? JPH::EActivation::DontActivate
-                                             : JPH::EActivation::Activate);
+            effective_type == BodyType::Static ? JPH::EActivation::DontActivate
+                                              : JPH::EActivation::Activate);
 
         if (body_id.IsInvalid()) {
             FJELL_CORE_ERROR("Failed to create physics body for '{}'", obj->name);
@@ -407,19 +539,17 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 
         impl_->object_to_body[obj->id] = body_id;
         impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = obj->id;
-
-        if (col.is_trigger) {
-            impl_->trigger_bodies.insert(body_id.GetIndexAndSequenceNumber());
-        }
     }
 
-    FJELL_CORE_INFO("Physics: created {} bodies", impl_->object_to_body.size());
+    FJELL_CORE_INFO("Physics: created {} bodies, {} characters",
+                     impl_->object_to_body.size(), impl_->characters.size());
 }
 
 // ── Step ────────────────────────────────────────────────────────────────
 
 void PhysicsWorld::step(float dt, Scene& scene) {
     FJELL_PROFILE_SCOPE_N("physics_step");
+    if (dt <= 0.0f) return;
     impl_->contact_listener.clear();
     auto& bi = impl_->physics_system->GetBodyInterface();
 
@@ -433,10 +563,37 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;
 
-        bi.SetPositionAndRotation(it->second,
-                                  to_jolt(spatial->transform.position),
-                                  to_jolt_quat(spatial->transform.rotation),
-                                  JPH::EActivation::Activate);
+        bi.MoveKinematic(it->second,
+                         to_jolt(spatial->transform.position),
+                         to_jolt_quat(spatial->transform.rotation),
+                         std::max(dt, 1.0f / 120.0f));
+    }
+
+    // Update character controllers before physics step
+    JPH::Vec3 gravity = impl_->physics_system->GetGravity();
+    for (auto& entry : impl_->characters) {
+        auto* node = scene.find_spatial(entry.object_id);
+        if (!node) continue;
+        auto* cc = node->components.get<CharacterComponent>();
+        if (!cc) continue;
+
+        // Apply gravity if in air
+        glm::vec3 vel = cc->linear_velocity;
+        if (cc->ground_state == CharacterGroundState::InAir ||
+            cc->ground_state == CharacterGroundState::NotSupported) {
+            vel.y += gravity.GetY() * dt;
+        }
+        cc->linear_velocity = vel;
+
+        entry.character->SetLinearVelocity(to_jolt(vel));
+
+        JPH::CharacterVirtual::ExtendedUpdateSettings update_settings;
+        entry.character->ExtendedUpdate(dt, gravity, update_settings,
+            impl_->physics_system->GetDefaultBroadPhaseLayerFilter(layers::MOVING),
+            impl_->physics_system->GetDefaultLayerFilter(layers::MOVING),
+            {},
+            {},
+            *impl_->temp_allocator);
     }
 
     // Step physics
@@ -461,6 +618,50 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         spatial->transform.position = to_glm(pos);
         spatial->transform.rotation = to_glm_quat(rot);
     }
+
+    // Sync character controllers: pull Jolt state -> engine
+    for (auto& entry : impl_->characters) {
+        auto* node = scene.find_spatial(entry.object_id);
+        if (!node) continue;
+        auto* cc = node->components.get<CharacterComponent>();
+        if (!cc) continue;
+
+        node->transform.position = to_glm(entry.character->GetPosition());
+
+        cc->linear_velocity = to_glm(entry.character->GetLinearVelocity());
+        cc->ground_velocity = to_glm(entry.character->GetGroundVelocity());
+        cc->ground_normal = to_glm(entry.character->GetGroundNormal());
+
+        switch (entry.character->GetGroundState()) {
+            case JPH::CharacterVirtual::EGroundState::OnGround:
+                cc->ground_state = CharacterGroundState::OnGround;
+                break;
+            case JPH::CharacterVirtual::EGroundState::OnSteepGround:
+                cc->ground_state = CharacterGroundState::OnSteepGround;
+                break;
+            case JPH::CharacterVirtual::EGroundState::NotSupported:
+                cc->ground_state = CharacterGroundState::NotSupported;
+                break;
+            case JPH::CharacterVirtual::EGroundState::InAir:
+            default:
+                cc->ground_state = CharacterGroundState::InAir;
+                break;
+        }
+    }
+}
+
+// ── Body removal ────────────────────────────────────────────────────────
+
+void PhysicsWorld::remove_body(uint32_t object_id) {
+    auto it = impl_->object_to_body.find(object_id);
+    if (it == impl_->object_to_body.end()) return;
+
+    auto& bi = impl_->physics_system->GetBodyInterface();
+    bi.RemoveBody(it->second);
+    bi.DestroyBody(it->second);
+
+    impl_->body_to_object.erase(it->second.GetIndexAndSequenceNumber());
+    impl_->object_to_body.erase(it);
 }
 
 // ── Forces / Velocities ─────────────────────────────────────────────────
@@ -536,12 +737,20 @@ bool PhysicsWorld::raycast(const glm::vec3& origin, const glm::vec3& direction,
 
 // ── Collision/trigger event access ──────────────────────────────────────
 
-const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::collision_events() const {
-    return impl_->contact_listener.collision_events;
+const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::collision_enter_events() const {
+    return impl_->contact_listener.collision_enter_events;
 }
 
-const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::trigger_events() const {
-    return impl_->contact_listener.trigger_events;
+const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::collision_exit_events() const {
+    return impl_->contact_listener.collision_exit_events;
+}
+
+const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::trigger_enter_events() const {
+    return impl_->contact_listener.trigger_enter_events;
+}
+
+const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::trigger_exit_events() const {
+    return impl_->contact_listener.trigger_exit_events;
 }
 
 } // namespace fjell

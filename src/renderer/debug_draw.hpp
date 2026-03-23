@@ -26,6 +26,7 @@ private:
         glm::mat4 model;
         uint32_t first_vertex;
         uint32_t vertex_count;
+        glm::vec4 color{0.0f, 1.0f, 0.0f, 1.0f}; // default green
     };
 
     void generate_box(const glm::vec3& half_extents);
