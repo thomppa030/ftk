@@ -64,6 +64,7 @@ add_executable(fjell
     renderer/frame_graph.cpp
     renderer/thread_command_pools.cpp
     renderer/particle_system.cpp
+    renderer/vfx_subsystem.cpp
     renderer/sprite_renderer.cpp
     renderer/pass/bloom_pass.cpp
     renderer/pass/cull_pass.cpp
@@ -114,6 +115,7 @@ add_executable(fjell
     animation/blend_space.cpp
     animation/bone_buffer.cpp
     audio/audio_engine.cpp
+    audio/audio_subsystem.cpp
     physics/physics_world.cpp
     scene/scene.cpp
     scripting/script_manager.cpp

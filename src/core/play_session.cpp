@@ -1,7 +1,5 @@
 #include "core/play_session.hpp"
 #include "core/input.hpp"
-#include "core/profiler.hpp"
-#include "physics/physics_world.hpp"
 
 #include <GLFW/glfw3.h>
 
@@ -14,13 +12,6 @@ PlaySession::PlaySession(Scene& scene)
     for (const auto& obj : scene.objects()) {
         scene_snapshot_.push_back(obj->clone());
     }
-    physics_world_ = std::make_unique<PhysicsWorld>();
-    physics_world_->create_bodies(scene);
-}
-
-void PlaySession::physics_step(float dt, Scene& scene) {
-    FJELL_PROFILE_SCOPE_N("play_session_physics_step");
-    physics_world_->step(dt, scene);
 }
 
 bool PlaySession::wants_stop(const Input& input) const {

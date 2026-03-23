@@ -5,6 +5,11 @@
 #include "core/layer.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "animation/animation_subsystem.hpp"
+#include "audio/audio_subsystem.hpp"
+#include "physics/physics_subsystem.hpp"
+#include "renderer/vfx_subsystem.hpp"
+#include "scripting/script_subsystem.hpp"
 #include "platform/platform.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
@@ -59,13 +64,35 @@ private:
 
 } // namespace
 
+template <typename T, typename... Args>
+T* Engine::add_subsystem(Args&&... args) {
+    auto ptr = std::make_unique<T>(std::forward<Args>(args)...);
+    auto* raw = ptr.get();
+    subsystems_.push_back(std::move(ptr));
+    return raw;
+}
+
 Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                const std::filesystem::path& project_path)
     : window_{title, width, height}
     , vulkan_context_{std::make_unique<VulkanContext>(window_)}
-    , animation_system_{vulkan_context_->device(), vulkan_context_->physical_device()}
 {
-    vulkan_context_->set_animation_system(&animation_system_);
+    // Register subsystems
+    animation_subsystem_ = add_subsystem<AnimationSubsystem>(
+        vulkan_context_->device(), vulkan_context_->physical_device());
+    audio_subsystem_     = add_subsystem<AudioSubsystem>();
+    script_subsystem_    = add_subsystem<ScriptSubsystem>();
+    physics_subsystem_   = add_subsystem<PhysicsSubsystem>();
+    vfx_subsystem_       = add_subsystem<VfxSubsystem>();
+
+    // Phase groups
+    play_phase_0_.push_back(script_subsystem_);
+    play_phase_1_.push_back(physics_subsystem_);
+    play_phase_2_.push_back(vfx_subsystem_);
+    early_always_.push_back(animation_subsystem_);
+    late_always_.push_back(audio_subsystem_);
+
+    vulkan_context_->set_animation_system(&animation_subsystem_->system());
 #ifndef NDEBUG
     shader_watcher_.emplace(base_path::resolve("../shaders"), base_path::resolve("shaders"));
 #endif
@@ -172,10 +199,10 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     if (game_mode_) {
         auto game_so = base_path::resolve("game.so");
         if (std::filesystem::exists(game_so)) {
-            if (auto r = script_manager_.load(game_so); !r) {
+            if (auto r = script_subsystem_->manager().load(game_so); !r) {
                 FJELL_CORE_ERROR("{}", r.error());
             } else {
-                script_manager_.deserialize_all(scene_);
+                script_subsystem_->manager().deserialize_all(scene_);
             }
         }
     } else {
@@ -227,7 +254,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         }));
 
     properties_panel_.init(&scene_, &selected_id_, &gizmo_op_, &light_,
-                           &script_manager_, &command_history_,
+                           &script_subsystem_->manager(), &command_history_,
                            &vulkan_context_->grid_pass().settings(),
                            vulkan_context_->pipeline_cache(),
                            &vulkan_context_->bindless_textures());
@@ -697,13 +724,13 @@ void Engine::load_project_scripts() {
     if (!project_mgr_.active()) return;
     auto so_path = project_mgr_.active()->root() / "game.so";
     if (std::filesystem::exists(so_path)) {
-        if (auto r = script_manager_.load(so_path); !r) {
+        if (auto r = script_subsystem_->manager().load(so_path); !r) {
             FJELL_CORE_ERROR("{}", r.error());
             return;
         }
-        script_manager_.deserialize_all(scene_);
+        script_subsystem_->manager().deserialize_all(scene_);
 #ifndef NDEBUG
-        script_manager_.watch(so_path);
+        script_subsystem_->manager().watch(so_path);
 #endif
     }
 }
@@ -745,7 +772,7 @@ void Engine::bind_menu_bar() {
             }
         }));
     connections_.push_back(menu_bar_.on_build_scripts.bind(
-        [this]() { project_mgr_.build_scripts(script_manager_, scene_); }));
+        [this]() { project_mgr_.build_scripts(script_subsystem_->manager(), scene_); }));
     connections_.push_back(menu_bar_.on_new_script.bind(
         [this](const std::string& name) { project_mgr_.create_script(name); }));
     connections_.push_back(menu_bar_.on_start_play.bind(
@@ -887,14 +914,50 @@ void Engine::draw_ui() {
     }
 }
 
+TickContext Engine::make_frame_context() {
+    return TickContext{
+        .scene = scene_,
+        .input = input_,
+        .clock = clock_,
+        .dt = clock_.delta_time(),
+        .thread_pool = thread_pool_,
+        .physics = physics_subsystem_->world(),
+        .audio = &audio_subsystem_->engine(),
+        .vfx = nullptr,
+        .project = project_mgr_.active(),
+    };
+}
+
+void Engine::flush_pending() {
+    if (scene_.pending_destroy().empty()) return;
+    script_subsystem_->manager().trace_doomed_refs(scene_, scene_.pending_destroy());
+    if (physics_subsystem_->world()) {
+        for (uint32_t id : scene_.pending_destroy()) {
+            physics_subsystem_->world()->remove_body(id);
+        }
+    }
+    scene_.flush_destroyed();
+}
+
 void Engine::start_play() {
     command_history_.clear();
-    script_manager_.serialize_all(scene_);
+    script_subsystem_->manager().serialize_all(scene_);
     play_session_ = std::make_unique<PlaySession>(scene_);
-    script_manager_.prepare(scene_, input_, clock_, play_session_->physics_world());
-    script_manager_.deserialize_all(scene_);
-    script_manager_.call_begin_play(scene_);
-    audio_engine_.start_play(scene_, project_mgr_.active());
+
+    // Create play-mode resources (physics first, scripts need it)
+    {
+        auto ctx = make_frame_context();
+        physics_subsystem_->on_play_start(ctx);
+        vfx_subsystem_->on_play_start(ctx);
+    }
+
+    // Rebuild context now that physics exists
+    {
+        auto ctx = make_frame_context();
+        audio_subsystem_->on_play_start(ctx);
+        script_subsystem_->on_play_start(ctx);
+    }
+
     vulkan_context_->set_playing(true);
     game_ui_.mark_dirty();
     input_.set_cursor_captured(window_.handle(), true);
@@ -904,14 +967,18 @@ void Engine::start_play() {
 
 void Engine::stop_play() {
     if (game_mode_) {
-        // In game mode, ESC quits the application
         glfwSetWindowShouldClose(window_.handle(), GLFW_TRUE);
         return;
     }
-    audio_engine_.stop_play();
-    script_manager_.call_end_play(scene_);
+    auto ctx = make_frame_context();
+    audio_subsystem_->on_play_stop(ctx);
+    script_subsystem_->on_play_stop(ctx);
+    vfx_subsystem_->on_play_stop(ctx);
+
     play_session_->restore(scene_);
-    script_manager_.deserialize_all(scene_);
+    script_subsystem_->manager().deserialize_all(scene_);
+    physics_subsystem_->on_play_stop(ctx);
+
     vulkan_context_->set_playing(false);
     input_.set_cursor_captured(window_.handle(), false);
     play_session_.reset();
@@ -1018,53 +1085,41 @@ void Engine::run() {
         }
 #endif
 
-        float dt = clock_.delta_time();
+        auto ctx = make_frame_context();
 
         if (is_playing()) {
-            auto flush_pending = [&] {
-                if (scene_.pending_destroy().empty()) return;
-                script_manager_.trace_doomed_refs(scene_, scene_.pending_destroy());
-                if (play_session_->physics_world()) {
-                    for (uint32_t id : scene_.pending_destroy()) {
-                        play_session_->physics_world()->remove_body(id);
-                    }
-                }
-                scene_.flush_destroyed();
-            };
-
-            script_manager_.update(scene_, input_, clock_, play_session_->physics_world());
+            // Phase 0: Scripts
+            for (auto* s : play_phase_0_) s->tick(ctx);
             flush_pending();
-            play_session_->physics_step(dt, scene_);
-            if (play_session_->physics_world()) {
-                script_manager_.dispatch_collision_events(scene_, *play_session_->physics_world());
+
+            // Phase 1: Physics + collision dispatch
+            for (auto* s : play_phase_1_) s->tick(ctx);
+            if (physics_subsystem_->world()) {
+                script_subsystem_->manager().dispatch_collision_events(
+                    scene_, *physics_subsystem_->world());
             }
             flush_pending();
+
+            // Phase 2: VFX
+            for (auto* s : play_phase_2_) s->tick(ctx);
+
             if (play_session_->wants_stop(input_)) {
                 stop_play();
             }
         }
 
 #ifndef NDEBUG
-        if (auto r = script_manager_.poll_reload(scene_); !r) {
+        if (auto r = script_subsystem_->manager().poll_reload(scene_); !r) {
             FJELL_CORE_ERROR("{}", r.error());
         }
 #endif
 
-        animation_system_.update(scene_, dt);
+        // Always-tick subsystems (before world matrices)
+        for (auto* s : early_always_) s->tick(ctx);
         scene_.compute_world_matrices(&thread_pool_);
 
-        // Update audio listener from active camera
-        if (is_playing()) {
-            for (const auto& obj : scene_.objects()) {
-                if (auto* cam_node = dynamic_cast<const CameraNode*>(obj.get())) {
-                    glm::vec3 pos = cam_node->position();
-                    glm::vec3 fwd = -glm::normalize(glm::vec3(cam_node->world_matrix_[2]));
-                    glm::vec3 up = glm::normalize(glm::vec3(cam_node->world_matrix_[1]));
-                    audio_engine_.update(scene_, pos, fwd, up);
-                    break;
-                }
-            }
-        }
+        // Always-tick subsystems (after world matrices)
+        for (auto* s : late_always_) s->tick(ctx);
 
         // Resize offscreen passes before ImGui frame so descriptors stay valid
         viewport_manager_.apply_resize(*vulkan_context_);

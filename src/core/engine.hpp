@@ -1,9 +1,9 @@
 #pragma once
 
-#include "animation/animation_system.hpp"
-#include "audio/audio_engine.hpp"
 #include "core/clock.hpp"
+#include "core/frame_context.hpp"
 #include "core/input.hpp"
+#include "core/subsystem.hpp"
 #include "core/thread_pool.hpp"
 #include "core/layer_stack.hpp"
 #include "core/play_session.hpp"
@@ -13,7 +13,6 @@
 #include "renderer/uniform_types.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "scene/scene.hpp"
-#include "scripting/script_manager.hpp"
 #include "core/command_history.hpp"
 #include "ui/content_browser.hpp"
 #include "ui/hierarchy_panel.hpp"
@@ -43,8 +42,13 @@
 
 namespace fjell {
 
+class AnimationSubsystem;
 class AssetLoader;
+class AudioSubsystem;
+class PhysicsSubsystem;
 class ResourceManager;
+class ScriptSubsystem;
+class VfxSubsystem;
 class VulkanContext;
 
 class Engine {
@@ -86,9 +90,15 @@ private:
 
     void load_scene(const std::string& path);
     void load_project_scripts();
+    void flush_pending();
+    [[nodiscard]] TickContext make_frame_context();
+
+    template <typename T, typename... Args>
+    T* add_subsystem(Args&&... args);
 
     static constexpr const char* SCENE_FILE = "scene.fjell";
 
+    // Core
     Window window_;
     Input input_;
     Clock clock_;
@@ -97,9 +107,25 @@ private:
     std::unique_ptr<ImGuiLayer> imgui_layer_;
     std::unique_ptr<ResourceManager> resource_manager_;
     std::unique_ptr<AssetLoader> asset_loader_;
-    AnimationSystem animation_system_;
     Scene scene_;
-    ScriptManager script_manager_;
+
+    // Subsystems (owned)
+    std::vector<std::unique_ptr<Subsystem>> subsystems_;
+
+    // Typed access (non-owning, into subsystems_)
+    AnimationSubsystem* animation_subsystem_{};
+    AudioSubsystem*     audio_subsystem_{};
+    ScriptSubsystem*    script_subsystem_{};
+    PhysicsSubsystem*   physics_subsystem_{};
+    VfxSubsystem*       vfx_subsystem_{};
+
+    // Phase groups (non-owning, built once in constructor)
+    std::vector<Subsystem*> play_phase_0_;   // scripts
+    std::vector<Subsystem*> play_phase_1_;   // physics
+    std::vector<Subsystem*> play_phase_2_;   // vfx
+    std::vector<Subsystem*> early_always_;   // before compute_world_matrices
+    std::vector<Subsystem*> late_always_;    // after compute_world_matrices
+
 #ifdef FJELL_HAS_NVIM_PANEL
     NvimPanel nvim_panel_;
 #endif
@@ -129,9 +155,6 @@ private:
 
     // Lighting
     DirectionalLight light_;
-
-    // Audio
-    AudioEngine audio_engine_;
 
     // Play mode
     std::unique_ptr<PlaySession> play_session_;
