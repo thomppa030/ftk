@@ -240,6 +240,7 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
     world_.input_ = &input;
     world_.physics_ = physics;
     world_.delta_time = clock.delta_time();
+    world_.elapsed_time = clock.elapsed();
     world_.log_info_fn = [](const char* msg) { FJELL_CORE_INFO("[script] {}", msg); };
     world_.log_warn_fn = [](const char* msg) { FJELL_CORE_WARN("[script] {}", msg); };
     world_.log_error_fn = [](const char* msg) { FJELL_CORE_ERROR("[script] {}", msg); };
