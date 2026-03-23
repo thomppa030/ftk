@@ -2,6 +2,8 @@
 
 #include "core/delegate.hpp"
 
+#include <vulkan/vulkan.h>
+
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -10,13 +12,15 @@ namespace fjell {
 
 class IconCache;
 class NvimPanel;
+class ThreadPool;
 class VulkanContext;
 class ResourceManager;
 
 class ContentBrowser {
 public:
     void init(IconCache* icons, NvimPanel* nvim,
-              VulkanContext* vk_ctx, ResourceManager* resources);
+              VulkanContext* vk_ctx, ResourceManager* resources,
+              ThreadPool* pool = nullptr);
 
     void set_root(const std::filesystem::path& root);
 
@@ -55,11 +59,13 @@ private:
 
     [[nodiscard]] static FileType classify(const std::filesystem::path& path);
     [[nodiscard]] const char* icon_name(FileType type) const;
+    [[nodiscard]] std::string resolve_material_texture(const std::string& fjmat_path) const;
 
     IconCache* icons_{nullptr};
     NvimPanel* nvim_{nullptr};
     VulkanContext* vk_ctx_{nullptr};
     ResourceManager* resources_{nullptr};
+    ThreadPool* pool_{nullptr};
 
     std::filesystem::path root_;
     std::filesystem::path current_dir_;
@@ -86,9 +92,22 @@ private:
     bool show_new_script_popup_{false};
     char new_script_buf_[128]{};
 
-    // Texture preview
+    // Texture preview (full-size popup)
     bool show_texture_preview_{false};
     std::string preview_texture_path_;
+    std::string loaded_preview_path_;
+    bool preview_pending_load_{false};
+    bool preview_pending_release_{false};
+    VkDescriptorSet preview_descriptor_{VK_NULL_HANDLE};
+    VkImage preview_image_{VK_NULL_HANDLE};
+    VkDeviceMemory preview_memory_{VK_NULL_HANDLE};
+    VkImageView preview_view_{VK_NULL_HANDLE};
+    VkSampler preview_sampler_{VK_NULL_HANDLE};
+    int preview_width_{0};
+    int preview_height_{0};
+    void load_preview_texture();
+    void release_preview_texture();
+
 
 public:
     Delegate<void(const std::string&)> on_add_model;

@@ -96,6 +96,8 @@ add_executable(fjell
     renderer/shader_watcher.cpp
     renderer/skeletal_model.cpp
     renderer/stb_image.cpp
+    renderer/stb_image_resize.cpp
+    renderer/stb_image_write.cpp
     renderer/swapchain.cpp
     renderer/texture.cpp
     renderer/viz_image.cpp

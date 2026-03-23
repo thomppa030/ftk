@@ -3,13 +3,24 @@
 #include <imgui.h>
 #include <vulkan/vulkan.h>
 
+#include <cstdint>
+#include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace fjell {
 
 class IconCache {
 public:
+    struct IconEntry {
+        VkImage image{VK_NULL_HANDLE};
+        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VkImageView view{VK_NULL_HANDLE};
+        VkSampler sampler{VK_NULL_HANDLE};
+        VkDescriptorSet descriptor{VK_NULL_HANDLE};
+    };
+
     IconCache(VkDevice device, VkPhysicalDevice physical_device,
               VkCommandPool command_pool, VkQueue queue,
               const std::string& icons_dir);
@@ -21,11 +32,9 @@ public:
     IconCache& operator=(IconCache&&) = delete;
 
     /// Returns the ImGui descriptor set for a named icon (e.g. "folder", "mesh").
-    /// Returns VK_NULL_HANDLE if not found.
     [[nodiscard]] VkDescriptorSet icon(const std::string& name) const;
 
     /// Draw a small icon inline (for panel headers). Call right after ImGui::Begin().
-    /// Defined inline to avoid link issues with targets that don't link icon_cache.cpp.
     inline void draw_panel_icon(const char* icon_name) const {
         auto desc = icon(icon_name);
         if (!desc) return;
@@ -36,20 +45,33 @@ public:
 
     [[nodiscard]] size_t count() const { return icons_.size(); }
 
+    /// Get or create a thumbnail for an arbitrary image file.
+    /// Returns VK_NULL_HANDLE on failure. Thumbnails are cached by path.
+    [[nodiscard]] VkDescriptorSet thumbnail(const std::string& path);
+
+    /// Return cached thumbnail only (no loading). VK_NULL_HANDLE if not yet loaded.
+    [[nodiscard]] VkDescriptorSet thumbnail_cached(const std::string& path) const;
+
+    /// Release all cached thumbnails.
+    void clear_thumbnails();
+
+    /// Queue async thumbnail decode for a list of image paths.
+    /// CPU decode runs on background threads, GPU upload happens in poll_thumbnails().
+    void preload_thumbnails(const std::vector<std::string>& paths, class ThreadPool& pool);
+
+    /// Upload completed thumbnail data to GPU. Call once per frame from main thread.
+    void poll_thumbnails();
+
+    /// Upload RGBA pixel data as a Vulkan image + ImGui descriptor.
+    /// Reusable for icons, thumbnails, material previews, etc.
+    IconEntry upload_rgba(const uint8_t* pixels, int w, int h);
+
     /// Global instance — set once at engine init, used by all panels.
     [[nodiscard]] static IconCache* instance() { return s_instance; }
     static void set_instance(IconCache* cache) { s_instance = cache; }
 
 private:
     static inline IconCache* s_instance{nullptr};
-
-    struct IconEntry {
-        VkImage image{VK_NULL_HANDLE};
-        VkDeviceMemory memory{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        VkSampler sampler{VK_NULL_HANDLE};
-        VkDescriptorSet descriptor{VK_NULL_HANDLE};
-    };
 
     void load_icon(const std::string& name, const std::string& path);
 
@@ -59,6 +81,17 @@ private:
     VkQueue queue_;
 
     std::unordered_map<std::string, IconEntry> icons_;
+    std::unordered_map<std::string, IconEntry> thumbnails_;
+
+    // Async thumbnail pipeline: background threads decode pixels, main thread uploads
+    struct PendingThumbnail {
+        std::string path;
+        std::vector<uint8_t> pixels;
+        int width;
+        int height;
+    };
+    std::mutex pending_mutex_;
+    std::vector<PendingThumbnail> pending_thumbnails_;
 };
 
 } // namespace fjell
