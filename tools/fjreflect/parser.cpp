@@ -125,6 +125,12 @@ static bool parse_field_decl(const std::string& line, std::string& type, std::st
     }
     clean = trim(clean);
 
+    // Remove brace-initialized default value: "name{...}" -> "name"
+    auto brace = clean.find('{');
+    if (brace != std::string::npos) {
+        clean = trim(clean.substr(0, brace));
+    }
+
     // Remove default value (everything from " = " or "=" to ";")
     auto eq = clean.find('=');
     if (eq != std::string::npos) {
