@@ -1,5 +1,8 @@
 #include "audio/audio_subsystem.hpp"
 
+#include "audio/audio_asset.hpp"
+#include "core/log.hpp"
+#include "renderer/resource_manager.hpp"
 #include "scene/camera_node.hpp"
 
 namespace fjell {
@@ -16,6 +19,23 @@ void AudioSubsystem::tick(const TickContext& ctx) {
             return;
         }
     }
+}
+
+void AudioSubsystem::play_oneshot(AudioAssetHandle asset_handle,
+                                   const glm::vec3& position,
+                                   ResourceManager& resources,
+                                   float volume_scale, float pitch_scale,
+                                   const Project* project) {
+    auto* asset = resources.get(asset_handle);
+    if (!asset) {
+        FJELL_CORE_ERROR("Audio: invalid asset handle");
+        return;
+    }
+
+    engine_.play_oneshot(asset->clip_path, position,
+                         asset->volume * volume_scale,
+                         asset->pitch * pitch_scale,
+                         project);
 }
 
 } // namespace fjell

@@ -7,6 +7,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/primitives.hpp"
 #include "renderer/texture.hpp"
+#include "audio/audio_asset.hpp"
 #include "renderer/vfx_asset.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -497,6 +498,26 @@ Result<VfxAssetHandle> ResourceManager::load_vfx_asset(const std::string& path) 
 
 VfxAsset* ResourceManager::get(VfxAssetHandle handle) const {
     return vfx_assets_.get(handle);
+}
+
+// ── Audio assets ─────────────────────────────────────────────────────────
+
+Result<AudioAssetHandle> ResourceManager::load_audio_asset(const std::string& path) {
+    auto it = audio_assets_.name_to_handle.find(path);
+    if (it != audio_assets_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    try {
+        auto asset = std::make_unique<AudioAsset>(load_audio_asset_file(path));
+        return audio_assets_.insert(path, std::move(asset));
+    } catch (const std::exception& e) {
+        return make_error(e.what());
+    }
+}
+
+AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {
+    return audio_assets_.get(handle);
 }
 
 } // namespace fjell

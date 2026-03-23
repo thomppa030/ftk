@@ -23,6 +23,7 @@ struct AudioEngine::Impl {
     };
 
     std::unordered_map<uint32_t, SoundEntry> sounds;
+    std::vector<ma_sound> oneshots;
 };
 
 AudioEngine::AudioEngine() : impl_(std::make_unique<Impl>()) {
@@ -132,6 +133,50 @@ void AudioEngine::stop_all() {
         ma_sound_uninit(&entry.sound);
     }
     impl_->sounds.clear();
+
+    for (auto& s : impl_->oneshots) {
+        ma_sound_uninit(&s);
+    }
+    impl_->oneshots.clear();
+}
+
+void AudioEngine::play_oneshot(const std::string& clip_path,
+                                const glm::vec3& position,
+                                float volume, float pitch,
+                                const Project* project) {
+    if (!is_initialized()) return;
+
+    // Clean up finished oneshots
+    for (auto it = impl_->oneshots.begin(); it != impl_->oneshots.end();) {
+        if (!ma_sound_is_playing(&(*it))) {
+            ma_sound_uninit(&(*it));
+            it = impl_->oneshots.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    std::string resolved = base_path::resolve_asset(clip_path, project);
+
+    impl_->oneshots.emplace_back();
+    auto& sound = impl_->oneshots.back();
+
+    ma_result result = ma_sound_init_from_file(
+        &impl_->engine, resolved.c_str(),
+        MA_SOUND_FLAG_DECODE, nullptr, nullptr, &sound);
+
+    if (result != MA_SUCCESS) {
+        impl_->oneshots.pop_back();
+        FJELL_CORE_WARN("Failed to play oneshot: {}", clip_path);
+        return;
+    }
+
+    ma_sound_set_volume(&sound, volume);
+    ma_sound_set_pitch(&sound, pitch);
+    ma_sound_set_looping(&sound, MA_FALSE);
+    ma_sound_set_spatialization_enabled(&sound, MA_TRUE);
+    ma_sound_set_position(&sound, position.x, position.y, position.z);
+    ma_sound_start(&sound);
 }
 
 void AudioEngine::start_play(Scene& scene, const Project* project) {

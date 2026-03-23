@@ -29,6 +29,7 @@ using SkeletalModelHandle = Handle<struct SkeletalModelTag>;
 using SkeletonHandle      = Handle<struct SkeletonTag>;
 using AnimationClipHandle = Handle<struct AnimationClipTag>;
 using VfxAssetHandle      = Handle<struct VfxAssetTag>;
+using AudioAssetHandle    = Handle<struct AudioAssetTag>;
 
 enum class LoadState : uint8_t {
     Loading,

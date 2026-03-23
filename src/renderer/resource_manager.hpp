@@ -4,6 +4,7 @@
 #include "renderer/resource_handle.hpp"
 #include "renderer/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
+#include "audio/audio_asset.hpp"
 #include "renderer/vfx_asset.hpp"
 
 #include <glm/glm.hpp>
@@ -77,11 +78,15 @@ public:
     // VFX assets (.fjvfx)
     Result<VfxAssetHandle> load_vfx_asset(const std::string& path);
 
+    // Audio assets (.fjaudio)
+    Result<AudioAssetHandle> load_audio_asset(const std::string& path);
+
     [[nodiscard]] Model* get(ModelHandle handle) const;
     [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;
     [[nodiscard]] Texture* get(TextureHandle handle) const;
     [[nodiscard]] Material* get(MaterialHandle handle) const;
     [[nodiscard]] VfxAsset* get(VfxAssetHandle handle) const;
+    [[nodiscard]] AudioAsset* get(AudioAssetHandle handle) const;
 
     [[nodiscard]] MaterialHandle find_material(const std::string& name) const;
 
@@ -128,6 +133,7 @@ private:
     Pool<Texture, TextureHandle> textures_;
     Pool<Material, MaterialHandle> materials_;
     Pool<VfxAsset, VfxAssetHandle> vfx_assets_;
+    Pool<AudioAsset, AudioAssetHandle> audio_assets_;
 
     // Maps texture pool slot index → bindless texture index
     std::unordered_map<uint32_t, uint32_t> texture_to_bindless_;

@@ -50,6 +50,7 @@ add_executable(fjell
     renderer/fjsl_parser.cpp
     renderer/material.cpp
     renderer/material_asset.cpp
+    renderer/vfx_asset.cpp
     renderer/mega_buffer.cpp
     renderer/mesh.cpp
     renderer/meshlet.cpp
@@ -114,6 +115,7 @@ add_executable(fjell
     animation/animator_component.cpp
     animation/blend_space.cpp
     animation/bone_buffer.cpp
+    audio/audio_asset.cpp
     audio/audio_engine.cpp
     audio/audio_subsystem.cpp
     physics/physics_world.cpp
