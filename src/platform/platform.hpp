@@ -18,4 +18,8 @@ namespace fjell::platform {
 /// not waited on. args[0] is the executable path.
 Result<> spawn_detached(const std::vector<std::string>& args);
 
+/// Replace the current process with a new executable.
+/// args[0] is the executable path. Does not return on success.
+Result<> exec_replace(const std::vector<std::string>& args);
+
 } // namespace fjell::platform

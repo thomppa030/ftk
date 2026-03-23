@@ -66,4 +66,19 @@ Result<> spawn_detached(const std::vector<std::string>& args) {
     return {};
 }
 
+Result<> exec_replace(const std::vector<std::string>& args) {
+    if (args.empty()) return make_error("exec_replace: empty args");
+
+    std::vector<const char*> argv;
+    argv.reserve(args.size() + 1);
+    for (const auto& a : args) {
+        argv.push_back(a.c_str());
+    }
+    argv.push_back(nullptr);
+
+    execv(argv[0], const_cast<char* const*>(argv.data()));
+    // execv only returns on failure
+    return make_error("exec_replace: execv failed");
+}
+
 } // namespace fjell::platform
