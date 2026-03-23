@@ -2,15 +2,17 @@
 
 #include "core/frame_context.hpp"
 #include "core/subsystem.hpp"
+#include "renderer/resource_handle.hpp"
 
 #include <glm/glm.hpp>
 
 #include <cstdint>
-#include <string>
 #include <string_view>
 #include <vector>
 
 namespace fjell {
+
+class ResourceManager;
 
 class VfxSubsystem : public Subsystem {
 public:
@@ -21,8 +23,8 @@ public:
 
     void on_play_stop(const TickContext& ctx) override;
 
-    void spawn_particles_at(const std::string& vfx_path, const glm::vec3& position,
-                            Scene& scene);
+    void spawn(VfxAssetHandle asset, const glm::vec3& position,
+               Scene& scene, ResourceManager& resources);
 
 private:
     struct OneshotEntry {

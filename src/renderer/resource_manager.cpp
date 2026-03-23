@@ -7,6 +7,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/primitives.hpp"
 #include "renderer/texture.hpp"
+#include "renderer/vfx_asset.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project.hpp"
@@ -476,6 +477,26 @@ MaterialHandle ResourceManager::find_material(const std::string& name) const {
         return it->second;
     }
     return {};
+}
+
+// ── VFX assets ───────────────────────────────────────────────────────────
+
+Result<VfxAssetHandle> ResourceManager::load_vfx_asset(const std::string& path) {
+    auto it = vfx_assets_.name_to_handle.find(path);
+    if (it != vfx_assets_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    try {
+        auto asset = std::make_unique<VfxAsset>(load_vfx_asset_file(path));
+        return vfx_assets_.insert(path, std::move(asset));
+    } catch (const std::exception& e) {
+        return make_error(e.what());
+    }
+}
+
+VfxAsset* ResourceManager::get(VfxAssetHandle handle) const {
+    return vfx_assets_.get(handle);
 }
 
 } // namespace fjell

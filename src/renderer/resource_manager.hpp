@@ -4,6 +4,7 @@
 #include "renderer/resource_handle.hpp"
 #include "renderer/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
+#include "renderer/vfx_asset.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -73,10 +74,14 @@ public:
     Result<MaterialHandle> load_material_asset(const std::string& path,
                                                const Project* project = nullptr);
 
+    // VFX assets (.fjvfx)
+    Result<VfxAssetHandle> load_vfx_asset(const std::string& path);
+
     [[nodiscard]] Model* get(ModelHandle handle) const;
     [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;
     [[nodiscard]] Texture* get(TextureHandle handle) const;
     [[nodiscard]] Material* get(MaterialHandle handle) const;
+    [[nodiscard]] VfxAsset* get(VfxAssetHandle handle) const;
 
     [[nodiscard]] MaterialHandle find_material(const std::string& name) const;
 
@@ -122,6 +127,7 @@ private:
     Pool<SkeletalModel, SkeletalModelHandle> skeletal_models_;
     Pool<Texture, TextureHandle> textures_;
     Pool<Material, MaterialHandle> materials_;
+    Pool<VfxAsset, VfxAssetHandle> vfx_assets_;
 
     // Maps texture pool slot index → bindless texture index
     std::unordered_map<uint32_t, uint32_t> texture_to_bindless_;
