@@ -28,7 +28,7 @@ void AnimationEventTrack::fire_in_range(float prev_time, float current_time, flo
             }
         }
         for (const auto& e : events_) {
-            if (e.time >= 0.0f && e.time <= current_time) {
+            if (e.time > 0.0f && e.time <= current_time) {
                 on_event.broadcast(e);
             }
         }
