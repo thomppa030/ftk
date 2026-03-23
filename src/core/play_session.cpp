@@ -22,6 +22,7 @@ void PlaySession::restore(Scene& scene) {
     scene.objects().clear();
     scene.objects() = std::move(scene_snapshot_);
     scene.set_next_id(next_id_snapshot_);
+    scene.rebuild_id_index();
 }
 
 } // namespace fjell
