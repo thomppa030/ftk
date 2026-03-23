@@ -443,6 +443,7 @@ void Engine::setup_dockspace() {
     // Build default layout on first run (skip if restoring a saved layout)
     if (!layout_built_) {
         layout_built_ = true;
+        scene_context_->request_focus_viewport();
         if (has_saved_layout_) {
             ImGui::End();
             return;

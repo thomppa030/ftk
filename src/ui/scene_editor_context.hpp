@@ -88,6 +88,7 @@ public:
 
     // Viewport access for Engine (play mode camera override, source mask, etc.)
     ViewportManager& viewport_manager() { return viewport_manager_; }
+    void request_focus_viewport() { focus_viewport_ = true; }
 
     // Selection access
     [[nodiscard]] uint32_t selected_id() const { return selected_id_; }
