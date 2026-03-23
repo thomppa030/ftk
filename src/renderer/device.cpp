@@ -233,6 +233,7 @@ void Device::create_logical_device() {
     features.fillModeNonSolid = VK_TRUE;
     features.multiDrawIndirect = VK_TRUE;
     features.drawIndirectFirstInstance = VK_TRUE;
+    features.independentBlend = VK_TRUE;
 
     // Vulkan 1.1 shader draw parameters (for gl_BaseInstance)
     VkPhysicalDeviceVulkan11Features features_11{};
