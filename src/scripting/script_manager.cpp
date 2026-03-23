@@ -10,6 +10,7 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "physics/physics_world.hpp"
+#include "renderer/resource_manager.hpp"
 #include "scene/scene.hpp"
 
 #include <imgui.h>
@@ -18,12 +19,39 @@
 #include <array>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 
 // ── Type registry (engine-side, filled by game .so) ─────────────────────
 
 struct FjellTypeRegistry {
     std::vector<fjell::OwnedScriptType> scripts;
 };
+
+// ── Asset type registry (maps ref_type_name → file extension) ───────────
+
+struct AssetTypeInfo {
+    const char* type_name;
+    const char* extension;
+    const char* label;
+};
+
+static constexpr AssetTypeInfo s_asset_types[] = {
+    {"VfxAsset",   ".fjvfx",   "VFX Effect"},
+    {"AudioAsset", ".fjaudio", "Audio Clip"},
+    {"Material",   ".fjmat",   "Material"},
+};
+
+static const AssetTypeInfo* find_asset_type(const std::string& ref_type_name) {
+    for (const auto& t : s_asset_types) {
+        if (ref_type_name == t.type_name) return &t;
+    }
+    return nullptr;
+}
+
+// ── Resource manager for asset ref inspector ─────────────────────────────
+
+static fjell::ResourceManager* s_resource_manager = nullptr;
+static const fjell::Project* s_active_project = nullptr;
 
 // ── WeakRef resolution (called from game .so via -rdynamic) ─────────────
 
@@ -165,6 +193,14 @@ uint32_t ScriptManager::hash_type_name(const std::string& name) {
         hash *= 16777619u;
     }
     return hash;
+}
+
+void ScriptManager::set_resource_manager(ResourceManager* rm) {
+    s_resource_manager = rm;
+}
+
+void ScriptManager::set_active_project(const Project* project) {
+    s_active_project = project;
 }
 
 // ── Constructor / Destructor ────────────────────────────────────────────
@@ -550,7 +586,17 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
             }
             case FJELL_FIELD_REF: {
                 const auto* ref = static_cast<const RefData*>(ptr);
-                out[f.name] = {{"handle_id", ref->handle_id}, {"ref_token", ref->ref_token}};
+                std::string path;
+                if (ref->handle_id != 0 && s_resource_manager) {
+                    if (f.ref_type_name == "VfxAsset") {
+                        path = s_resource_manager->asset_path_of(VfxAssetHandle{ref->handle_id});
+                    } else if (f.ref_type_name == "AudioAsset") {
+                        path = s_resource_manager->asset_path_of(AudioAssetHandle{ref->handle_id});
+                    } else if (f.ref_type_name == "Material") {
+                        path = s_resource_manager->asset_path_of(MaterialHandle{ref->handle_id});
+                    }
+                }
+                out[f.name] = {{"asset_path", path}};
                 break;
             }
             case FJELL_FIELD_SHARED_REF: {
@@ -624,11 +670,14 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
             case FJELL_FIELD_REF: {
                 auto* ref = static_cast<RefData*>(ptr);
                 auto& j = in[f.name];
-                if (j.is_object()) {
-                    ref->handle_id = j.value("handle_id", uint32_t{0});
-                    ref->ref_token = j.value("ref_token", uint32_t{0});
-                    if (ref->ref_token != 0) {
-                        s_ref_table.acquire(ref->ref_token);
+                if (j.is_object() && j.contains("asset_path") && s_resource_manager) {
+                    auto path = j["asset_path"].get<std::string>();
+                    if (!path.empty()) {
+                        auto result = s_resource_manager->load_asset_by_type(
+                            f.ref_type_name, path);
+                        if (result) {
+                            ref->handle_id = *result;
+                        }
                     }
                 }
                 break;
@@ -760,7 +809,71 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
             }
             case FJELL_FIELD_REF: {
                 auto* ref = static_cast<RefData*>(ptr);
-                ImGui::Text("%s: handle %u", f.name.c_str(), ref->handle_id);
+                const auto* asset_type = find_asset_type(f.ref_type_name);
+
+                if (asset_type && s_resource_manager) {
+                    // Show current asset path
+                    std::string current_path;
+                    if (ref->handle_id != 0) {
+                        auto result = s_resource_manager->load_asset_by_type(f.ref_type_name, "");
+                        // Reverse lookup through the generic path
+                        // Use handle_id directly to find path
+                        for (const auto& at : s_asset_types) {
+                            if (f.ref_type_name != at.type_name) continue;
+                            if (f.ref_type_name == "VfxAsset") {
+                                current_path = s_resource_manager->asset_path_of(VfxAssetHandle{ref->handle_id});
+                            } else if (f.ref_type_name == "AudioAsset") {
+                                current_path = s_resource_manager->asset_path_of(AudioAssetHandle{ref->handle_id});
+                            } else if (f.ref_type_name == "Material") {
+                                current_path = s_resource_manager->asset_path_of(MaterialHandle{ref->handle_id});
+                            }
+                            break;
+                        }
+                    }
+
+                    auto display = current_path.empty() ? "(none)" : std::filesystem::path(current_path).filename().string();
+                    ImGui::Text("%s", f.name.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%s", display.c_str());
+                    ImGui::SameLine();
+
+                    if (ref->handle_id != 0) {
+                        if (ImGui::SmallButton("x")) {
+                            *ref = {};
+                        }
+                        ImGui::SameLine();
+                    }
+
+                    if (ImGui::SmallButton("Browse...")) {
+                        ImGui::OpenPopup("##asset_picker");
+                    }
+
+                    if (ImGui::BeginPopup("##asset_picker")) {
+                        // Scan project for matching files
+                        if (s_active_project) {
+                            // Use project root from base_path
+                        }
+                        // For now, accept a typed path
+                        static char path_buf[256] = {};
+                        ImGui::Text("Path (%s):", asset_type->extension);
+                        if (ImGui::InputText("##path", path_buf, sizeof(path_buf),
+                                             ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            std::string path = path_buf;
+                            auto result = s_resource_manager->load_asset_by_type(
+                                f.ref_type_name, path);
+                            if (result) {
+                                ref->handle_id = *result;
+                            } else {
+                                FJELL_CORE_ERROR("Asset picker: {}", result.error());
+                            }
+                            path_buf[0] = '\0';
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::EndPopup();
+                    }
+                } else {
+                    ImGui::Text("%s: handle %u", f.name.c_str(), ref->handle_id);
+                }
                 break;
             }
             case FJELL_FIELD_SHARED_REF: {

@@ -520,4 +520,38 @@ AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {
     return audio_assets_.get(handle);
 }
 
+// ── Generic asset loading ────────────────────────────────────────────────
+
+Result<uint32_t> ResourceManager::load_asset_by_type(const std::string& type_name,
+                                                      const std::string& path) {
+    if (type_name == "VfxAsset") {
+        auto r = load_vfx_asset(path);
+        if (!r) return make_error(r.error());
+        return r->id;
+    }
+    if (type_name == "AudioAsset") {
+        auto r = load_audio_asset(path);
+        if (!r) return make_error(r.error());
+        return r->id;
+    }
+    if (type_name == "Material") {
+        auto r = load_material_asset(path);
+        if (!r) return make_error(r.error());
+        return r->id;
+    }
+    return make_error("Unknown asset type: " + type_name);
+}
+
+std::string ResourceManager::asset_path_of(VfxAssetHandle handle) const {
+    return vfx_assets_.path_of(handle);
+}
+
+std::string ResourceManager::asset_path_of(AudioAssetHandle handle) const {
+    return audio_assets_.path_of(handle);
+}
+
+std::string ResourceManager::asset_path_of(MaterialHandle handle) const {
+    return materials_.path_of(handle);
+}
+
 } // namespace fjell

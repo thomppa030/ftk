@@ -88,6 +88,10 @@ public:
     [[nodiscard]] bool is_loaded() const { return library_.is_loaded(); }
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
+    // Set resource manager for asset ref inspector picker
+    static void set_resource_manager(class ResourceManager* rm);
+    static void set_active_project(const class Project* project);
+
 #ifndef NDEBUG
     Result<> poll_reload(Scene& scene);
     void watch(const std::filesystem::path& so_path);

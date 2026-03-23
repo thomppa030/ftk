@@ -81,6 +81,15 @@ public:
     // Audio assets (.fjaudio)
     Result<AudioAssetHandle> load_audio_asset(const std::string& path);
 
+    // Generic asset loading by ref_type_name (for inspector picker)
+    // Returns raw handle id (0 on failure). Caller must cast to the right Handle type.
+    Result<uint32_t> load_asset_by_type(const std::string& type_name, const std::string& path);
+
+    // Reverse lookup: handle → path
+    [[nodiscard]] std::string asset_path_of(VfxAssetHandle handle) const;
+    [[nodiscard]] std::string asset_path_of(AudioAssetHandle handle) const;
+    [[nodiscard]] std::string asset_path_of(MaterialHandle handle) const;
+
     [[nodiscard]] Model* get(ModelHandle handle) const;
     [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;
     [[nodiscard]] Texture* get(TextureHandle handle) const;
@@ -116,6 +125,14 @@ private:
 
         // Query load state
         [[nodiscard]] LoadState state(HandleT handle) const;
+
+        // Reverse lookup: handle → key (path)
+        [[nodiscard]] std::string path_of(HandleT handle) const {
+            for (const auto& [k, v] : name_to_handle) {
+                if (v == handle) return k;
+            }
+            return {};
+        }
     };
 
     VkDevice device_;

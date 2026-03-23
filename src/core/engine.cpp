@@ -173,6 +173,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
+    ScriptManager::set_resource_manager(resource_manager_.get());
+    ScriptManager::set_active_project(project_mgr_.active());
     // Determine which scene to load
     if (project_mgr_.active()) {
         current_scene_path_ = project_mgr_.active()->resolve(project_mgr_.active()->config().default_scene);
