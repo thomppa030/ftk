@@ -1,5 +1,6 @@
 #include "ui/content_browser.hpp"
 #include "ui/icon_cache.hpp"
+#include "core/thread_pool.hpp"
 #ifdef FJELL_HAS_NVIM_PANEL
 #include "ui/nvim_panel.hpp"
 #endif
@@ -623,6 +624,12 @@ void ContentBrowser::draw_file_grid() {
                     std::filesystem::rename(src.path, dest, ec);
                     if (!ec) {
                         FJELL_CORE_INFO("Moved: {} -> {}", src.name, dest.string());
+                        if (src.type == FileType::texture && pool_) {
+                            auto dest_str = dest.string();
+                            (void)pool_->submit([dest_str]() {
+                                IconCache::ensure_thumbnail_cache(dest_str);
+                            });
+                        }
                         refresh_current_dir();
                     } else {
                         FJELL_CORE_ERROR("Failed to move: {}", ec.message());
@@ -824,6 +831,14 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::cpp_source:
         case FileType::header:
         case FileType::shader:
+#ifdef FJELL_HAS_NVIM_PANEL
+            if (nvim_) {
+                nvim_->open(entry.path.string());
+                ImGui::SetWindowFocus("Code Editor");
+            }
+#endif
+            break;
+
         case FileType::material:
 #ifdef FJELL_HAS_NVIM_PANEL
             if (nvim_) {
@@ -831,6 +846,7 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
                 ImGui::SetWindowFocus("Code Editor");
             }
 #endif
+            on_open_asset.broadcast(entry.path.string(), "material");
             break;
 
         case FileType::model: {

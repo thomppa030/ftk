@@ -112,6 +112,8 @@ private:
 public:
     Delegate<void(const std::string&)> on_add_model;
     Delegate<void(const std::string&)> on_load_scene;
+    // Hook for opening asset-specific editor contexts (path, file type string)
+    Delegate<void(const std::string&, const std::string&)> on_open_asset;
 };
 
 } // namespace fjell
