@@ -6,7 +6,6 @@
 #include "core/subsystem.hpp"
 #include "core/thread_pool.hpp"
 #include "core/layer_stack.hpp"
-#include "core/play_session.hpp"
 #include "core/project_manager.hpp"
 #include "core/window.hpp"
 #include "renderer/resource_handle.hpp"
@@ -15,15 +14,11 @@
 #include "scene/scene.hpp"
 #include "core/command_history.hpp"
 #include "ui/content_browser.hpp"
-#include "ui/hierarchy_panel.hpp"
 #include "ui/history_panel.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/imgui_layer.hpp"
 #include "ui/menu_bar.hpp"
-#include "ui/properties_panel.hpp"
 #include "ui/stats_panel.hpp"
-#include "ui/viewport_manager.hpp"
-#include "ui/node_editor_panel.hpp"
 #ifdef FJELL_HAS_NVIM_PANEL
 #include "ui/nvim_panel.hpp"
 #endif
@@ -45,8 +40,10 @@ namespace fjell {
 class AnimationSubsystem;
 class AssetLoader;
 class AudioSubsystem;
+class EditorContext;
 class PhysicsSubsystem;
 class ResourceManager;
+class SceneEditorContext;
 class ScriptSubsystem;
 class VfxSubsystem;
 class VulkanContext;
@@ -67,13 +64,6 @@ public:
     void set_scene_override(const std::string& scene_name);
 
 private:
-    void add_model_to_scene(const std::string& path);
-    void add_skeletal_model_to_scene(const std::string& mesh_path,
-                                      const std::string& skel_path,
-                                      const std::string& anim_path = {});
-    void add_primitive_to_scene(const std::string& type);
-    void duplicate_selection();
-    void delete_selection();
     void create_default_scene();
     void save_material_assets();
 
@@ -81,17 +71,18 @@ private:
     void setup_dockspace();
     void draw_console();
     void draw_code_editor();
+    void draw_context_tabs();
     void bind_menu_bar();
-
-    void start_play();
-    void stop_play();
-    [[nodiscard]] bool is_playing() const { return play_session_ != nullptr; }
-    void draw_play_overlay();
 
     void load_scene(const std::string& path);
     void load_project_scripts();
     void flush_pending();
     [[nodiscard]] TickContext make_frame_context();
+
+    // Context management
+    [[nodiscard]] EditorContext& active_context();
+    [[nodiscard]] const EditorContext& active_context() const;
+    void switch_context(int index);
 
     template <typename T, typename... Args>
     T* add_subsystem(Args&&... args);
@@ -132,11 +123,8 @@ private:
     std::unique_ptr<IconCache> icon_cache_;
     ContentBrowser content_browser_;
     CommandHistory command_history_;
-    HierarchyPanel hierarchy_panel_;
-    PropertiesPanel properties_panel_;
     StatsPanel stats_panel_;
     HistoryPanel history_panel_;
-    NodeEditorPanel node_editor_panel_;
 
 #ifndef NDEBUG
     std::optional<ShaderWatcher> shader_watcher_;
@@ -157,7 +145,6 @@ private:
     DirectionalLight light_;
 
     // Play mode
-    std::unique_ptr<PlaySession> play_session_;
     bool play_immediate_{false};
 
     // Game UI (owned by game layer, rendered via callback)
@@ -168,17 +155,16 @@ private:
     bool viewport_hovered_{false};
 
     // UI state
-    uint32_t selected_id_{0};
-    int gizmo_op_{0}; // 0=translate, 1=rotate, 2=scale
     bool layout_built_{false};
     std::string pending_layout_load_;
     bool has_saved_layout_{false};
-    bool focus_viewport_{false};
     float fps_accum_{0.0f};
     int fps_count_{0};
 
-    // Viewports
-    ViewportManager viewport_manager_;
+    // Editor contexts
+    std::vector<std::unique_ptr<EditorContext>> contexts_;
+    int active_context_idx_{0};
+    SceneEditorContext* scene_context_{nullptr}; // non-owning, into contexts_[0]
 
     // Menu bar (owns file browsers, popup state, emits delegates)
     MenuBar menu_bar_;

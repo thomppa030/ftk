@@ -13,26 +13,17 @@
 #include "platform/platform.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
+#include "ui/editor_context.hpp"
+#include "ui/scene_editor_context.hpp"
 #include "scene/camera_node.hpp"
-#include "scene/light_node.hpp"
-#include "renderer/arrow_component.hpp"
-#include "renderer/mesh_component.hpp"
-#include "renderer/skeletal_mesh_component.hpp"
-#include "renderer/sprite_desc.hpp"
 #include "renderer/asset_loader.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
-#include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
 #include "renderer/material_asset.hpp"
-#include "renderer/model.hpp"
-#include "renderer/skeletal_model.hpp"
-#include "animation/animator_component.hpp"
-#include "animation/skeleton.hpp"
-#include "animation/animation_clip.hpp"
+#include "renderer/mesh_component.hpp"
 #include "renderer/pipeline_cache.hpp"
-#include "renderer/sprite_desc.hpp"
 #include "renderer/texture.hpp"
 
 #include <imgui.h>
@@ -228,9 +219,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 #endif
     connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
-            add_model_to_scene(path);
+            scene_context_->add_model(path);
             command_history_.execute(std::make_unique<AddObjectCommand>(
-                scene_, selected_id_, &selected_id_));
+                scene_, scene_context_->selected_id(), scene_context_->selected_id_ptr()));
         }));
     connections_.push_back(content_browser_.on_load_scene.bind(
         [this](const std::string& path) { load_scene(path); }));
@@ -238,36 +229,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         content_browser_.set_root(project_mgr_.active()->root());
     }
 
-    hierarchy_panel_.init(&scene_, &viewport_manager_, &selected_id_, &command_history_,
-                          icon_cache_.get());
-    connections_.push_back(hierarchy_panel_.on_add_primitive.bind(
-        [this](const std::string& type) {
-            add_primitive_to_scene(type);
-            command_history_.execute(std::make_unique<AddObjectCommand>(
-                scene_, selected_id_, &selected_id_));
-        }));
-    connections_.push_back(hierarchy_panel_.on_remove_object.bind(
-        [this](uint32_t id) {
-            command_history_.execute(std::make_unique<RemoveObjectCommand>(
-                scene_, id, &selected_id_,
-                [this]() { vulkan_context_->wait_idle(); }));
-        }));
-    connections_.push_back(hierarchy_panel_.on_duplicate.bind(
-        [this]() {
-            duplicate_selection();
-        }));
-
-    properties_panel_.init(&scene_, &selected_id_, &gizmo_op_, &light_,
-                           &script_subsystem_->manager(), &command_history_,
-                           &vulkan_context_->grid_pass().settings(),
-                           vulkan_context_->pipeline_cache(),
-                           &vulkan_context_->bindless_textures());
-
     stats_panel_.init(vulkan_context_.get());
-
     history_panel_.init(&command_history_);
-
-    node_editor_panel_.init(&scene_, &selected_id_);
 
     bind_menu_bar();
 
@@ -286,8 +249,34 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
-    viewport_manager_.init(vulkan_context_->device_ref(), vulkan_context_->msaa_samples());
-    viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
+    // Create scene editor context
+    {
+        SceneEditorDeps deps{
+            .scene = &scene_,
+            .vulkan_context = vulkan_context_.get(),
+            .resource_manager = resource_manager_.get(),
+            .asset_loader = asset_loader_.get(),
+            .input = &input_,
+            .clock = &clock_,
+            .command_history = &command_history_,
+            .script_subsystem = script_subsystem_,
+            .physics_subsystem = physics_subsystem_,
+            .audio_subsystem = audio_subsystem_,
+            .vfx_subsystem = vfx_subsystem_,
+            .project_mgr = &project_mgr_,
+            .icon_cache = icon_cache_.get(),
+            .light = &light_,
+            .game_ui = &game_ui_,
+            .thread_pool = &thread_pool_,
+            .window = &window_,
+            .game_mode = game_mode_,
+        };
+        auto ctx = std::make_unique<SceneEditorContext>(deps);
+        ctx->init();
+        scene_context_ = ctx.get();
+        contexts_.push_back(std::move(ctx));
+        active_context_idx_ = 0;
+    }
 
     // Load game UI — check project first, then fall back to engine assets
     {
@@ -333,12 +322,13 @@ Engine::~Engine() {
     vulkan_context_->set_overlay_callback(nullptr);
     vulkan_context_->set_game_ui_callback(nullptr);
     game_ui_.destroy();
-    node_editor_panel_.shutdown();
+    for (auto& ctx : contexts_) ctx->shutdown();
+    contexts_.clear();
+    scene_context_ = nullptr;
     scene_ = {};
     resource_manager_.reset();
     IconCache::set_instance(nullptr);
     icon_cache_.reset();
-    viewport_manager_.release_textures();
     // Release ImGui descriptor sets before ImGui shuts down
     vulkan_context_->release_imgui_textures();
     imgui_layer_.reset();
@@ -423,225 +413,6 @@ void Engine::create_default_scene() {
     FJELL_CORE_INFO("Default scene created");
 }
 
-void Engine::add_model_to_scene(const std::string& path) {
-    vulkan_context_->wait_idle();
-
-    auto model_result = resource_manager_->load_model(
-        base_path::resolve_asset(path, project_mgr_.active()));
-    if (!model_result) {
-        FJELL_CORE_ERROR("{}", model_result.error());
-        return;
-    }
-    auto model_handle = *model_result;
-
-    auto tex = resource_manager_->load_texture(
-        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
-    auto mat_handle = resource_manager_->create_material("default", tex);
-    std::string mat_name = "default";
-
-    auto* model = resource_manager_->get(model_handle);
-    if (model && !model->textures().empty()) {
-        mat_name = path + "_mat";
-        mat_handle = resource_manager_->create_material_from_texture(
-            mat_name,
-            const_cast<Texture*>(model->textures()[0].get()));
-    }
-
-    auto filename = std::filesystem::path(path).stem().string();
-    selected_id_ = scene_.add(model_handle, mat_handle, *resource_manager_,
-                              {}, filename, path, mat_name);
-    FJELL_CORE_INFO("Added model to scene: {}", path);
-}
-
-void Engine::add_skeletal_model_to_scene(const std::string& mesh_path,
-                                          const std::string& skel_path,
-                                          const std::string& anim_path) {
-    vulkan_context_->wait_idle();
-
-    auto resolved_mesh = base_path::resolve_asset(mesh_path, project_mgr_.active());
-    auto resolved_skel = base_path::resolve_asset(skel_path, project_mgr_.active());
-
-    auto skel_result = resource_manager_->load_skeletal_model(resolved_mesh);
-    if (!skel_result) {
-        FJELL_CORE_ERROR("{}", skel_result.error());
-        return;
-    }
-    auto skel_model_handle = *skel_result;
-    auto* skel_model = resource_manager_->get(skel_model_handle);
-    if (!skel_model) {
-        FJELL_CORE_ERROR("Failed to load skeletal model: {}", mesh_path);
-        return;
-    }
-
-    // Create scene node with SkeletalMeshComponent
-    auto filename = std::filesystem::path(mesh_path).stem().string();
-    auto node = std::make_unique<SceneNode>();
-    node->name = filename;
-    node->source = mesh_path;
-
-    // Set up skeletal mesh component
-    auto& smc = node->components.add<SkeletalMeshComponent>();
-    smc.skeletal_model_handle = skel_model_handle;
-    smc.skeletal_model = skel_model;
-
-    // Default material
-    auto tex = resource_manager_->load_texture(
-        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
-    smc.material_handle = resource_manager_->create_material("skel_default", tex);
-    smc.material = resource_manager_->get(smc.material_handle);
-
-    // Load skeleton (owned by the component)
-    smc.skeleton = std::make_shared<Skeleton>(Skeleton::load(resolved_skel));
-
-    // Set up animator
-    smc.animator = std::make_unique<AnimatorComponent>();
-    smc.animator->init(smc.skeleton.get());
-
-    // Play animation clip if provided
-    if (!anim_path.empty()) {
-        auto resolved_anim = base_path::resolve_asset(anim_path, project_mgr_.active());
-        auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_anim));
-        smc.animator->play(clip.get());
-        smc.clips.push_back(clip);
-        FJELL_CORE_INFO("Playing animation: {}", anim_path);
-    }
-
-    selected_id_ = scene_.add_node(std::move(node));
-    FJELL_CORE_INFO("Added skeletal model to scene: {}", mesh_path);
-}
-
-void Engine::add_primitive_to_scene(const std::string& type) {
-    vulkan_context_->wait_idle();
-
-    // Empty node: no mesh
-    if (type == "empty") {
-        selected_id_ = scene_.add_empty();
-        return;
-    }
-
-    // Folder: non-spatial organizational node
-    if (type == "folder") {
-        selected_id_ = scene_.add_folder();
-        return;
-    }
-
-    // Camera node
-    if (type == "camera") {
-        auto node = std::make_unique<CameraNode>();
-        node->name = "Camera";
-        auto& sp = node->components.add<SpriteComponent>();
-        sp.texture_path = "engine_assets/icons/icon_camera.png";
-        sp.editor_only = true;
-        node->components.add<ArrowComponent>();
-        selected_id_ = scene_.add_node(std::move(node));
-        return;
-    }
-
-    // Light nodes
-    if (type == "light:directional") {
-        auto node = std::make_unique<DirectionalLightNode>();
-        node->name = "Directional Light";
-        auto& sp = node->components.add<SpriteComponent>();
-        sp.texture_path = "engine_assets/icons/icon_dir_light.png";
-        sp.editor_only = true;
-        selected_id_ = scene_.add_node(std::move(node));
-        return;
-    }
-    if (type == "light:point") {
-        auto node = std::make_unique<PointLightNode>();
-        node->name = "Point Light";
-        auto& sp = node->components.add<SpriteComponent>();
-        sp.texture_path = "engine_assets/icons/icon_point_light.png";
-        sp.editor_only = true;
-        selected_id_ = scene_.add_node(std::move(node));
-        return;
-    }
-    if (type == "light:spot") {
-        auto node = std::make_unique<SpotLightNode>();
-        node->name = "Spot Light";
-        auto& sp = node->components.add<SpriteComponent>();
-        sp.texture_path = "engine_assets/icons/icon_point_light.png";
-        sp.editor_only = true;
-        selected_id_ = scene_.add_node(std::move(node));
-        return;
-    }
-    if (type == "volumetric_fog") {
-        auto node = std::make_unique<VolumetricFogNode>();
-        node->name = "Volumetric Fog";
-        selected_id_ = scene_.add_node(std::move(node));
-        return;
-    }
-    if (type == "world_environment") {
-        auto node = std::make_unique<WorldEnvironmentNode>();
-        node->name = "World Environment";
-        selected_id_ = scene_.add_node(std::move(node));
-        return;
-    }
-
-    // Sprite objects: plane primitive with a sprite component
-    if (type == "sprite") {
-        auto model_result = resource_manager_->create_primitive("plane");
-        if (!model_result) return;
-
-        auto tex = resource_manager_->load_texture(
-            base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
-        auto mat = resource_manager_->create_material("default", tex);
-
-        selected_id_ = scene_.add(*model_result, mat, *resource_manager_,
-                                  {}, "Sprite", "primitive:plane");
-        auto* obj = scene_.find(selected_id_);
-        if (obj) {
-            obj->components.add<SpriteComponent>();
-        }
-        return;
-    }
-
-    auto model_result = resource_manager_->create_primitive(type);
-    if (!model_result) return;
-
-    auto tex = resource_manager_->load_texture(
-        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
-    auto mat = resource_manager_->create_material("default", tex);
-
-    std::string name = type;
-    name[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(name[0])));
-
-    selected_id_ = scene_.add(*model_result, mat, *resource_manager_,
-                              {}, name, "primitive:" + type);
-}
-
-void Engine::duplicate_selection() {
-    auto& sel = hierarchy_panel_.selection();
-    if (sel.empty()) return;
-
-    vulkan_context_->wait_idle();
-    std::vector<uint32_t> ids(sel.begin(), sel.end());
-    auto cmd = std::make_unique<DuplicateCommand>(scene_, ids, &selected_id_);
-    command_history_.execute(std::move(cmd));
-
-    // Update multi-selection to the new duplicates
-    auto* dup_cmd = static_cast<DuplicateCommand*>(command_history_.commands().back().get());
-    hierarchy_panel_.clear_selection();
-    for (uint32_t id : dup_cmd->created_ids()) {
-        hierarchy_panel_.add_to_selection(id);
-    }
-}
-
-void Engine::delete_selection() {
-    auto& sel = hierarchy_panel_.selection();
-    if (sel.empty()) return;
-
-    vulkan_context_->wait_idle();
-    // Delete in reverse order to avoid invalidating IDs
-    std::vector<uint32_t> ids(sel.begin(), sel.end());
-    for (uint32_t id : ids) {
-        command_history_.execute(std::make_unique<RemoveObjectCommand>(
-            scene_, id, &selected_id_,
-            [this]() { vulkan_context_->wait_idle(); }));
-    }
-    hierarchy_panel_.clear_selection();
-}
-
 void Engine::setup_dockspace() {
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -672,7 +443,6 @@ void Engine::setup_dockspace() {
     // Build default layout on first run (skip if restoring a saved layout)
     if (!layout_built_) {
         layout_built_ = true;
-        focus_viewport_ = true;
         if (has_saved_layout_) {
             ImGui::End();
             return;
@@ -682,26 +452,18 @@ void Engine::setup_dockspace() {
         ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
         ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
 
-        // Viewport is the parent — split everything else off from it
-        ImGuiID viewport_node = dockspace_id;
-
-        // Right panel: Hierarchy + Properties
-        ImGuiID right = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Right, 0.22f, nullptr, &viewport_node);
-        ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.50f, nullptr, &right);
-
-        // Stats/Console strip below viewport (tabbed)
-        ImGuiID stats_strip = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Down, 0.20f, nullptr, &viewport_node);
-
-        // Code Editor below stats
+        // Shared bottom strip: Stats/Console + Code Editor
+        ImGuiID main_area = dockspace_id;
+        ImGuiID stats_strip = ImGui::DockBuilderSplitNode(main_area, ImGuiDir_Down, 0.20f, nullptr, &main_area);
         ImGuiID editor = ImGui::DockBuilderSplitNode(stats_strip, ImGuiDir_Down, 0.65f, nullptr, &stats_strip);
 
-        ImGui::DockBuilderDockWindow("Viewport", viewport_node);
         ImGui::DockBuilderDockWindow("Stats", stats_strip);
         ImGui::DockBuilderDockWindow("Console", stats_strip);
         ImGui::DockBuilderDockWindow("Code Editor", editor);
-        ImGui::DockBuilderDockWindow("Hierarchy", right);
-        ImGui::DockBuilderDockWindow("History", right);
-        ImGui::DockBuilderDockWindow("Properties", right_bottom);
+
+        // Let the active context build its own layout in the remaining area
+        active_context().setup_dockspace(main_area);
+
         ImGui::DockBuilderFinish(dockspace_id);
     }
 
@@ -749,7 +511,7 @@ void Engine::load_scene(const std::string& path) {
         FJELL_CORE_ERROR("{}", result.error());
         scene_.clear();
     }
-    selected_id_ = 0;
+    scene_context_->set_selected_id(0);
     command_history_.clear();
 }
 
@@ -780,15 +542,9 @@ void Engine::bind_menu_bar() {
     connections_.push_back(menu_bar_.on_new_script.bind(
         [this](const std::string& name) { project_mgr_.create_script(name); }));
     connections_.push_back(menu_bar_.on_start_play.bind(
-        [this]() { start_play(); }));
+        [this]() { scene_context_->start_play(); }));
     connections_.push_back(menu_bar_.on_stop_play.bind(
-        [this]() { stop_play(); }));
-    connections_.push_back(viewport_manager_.on_play.bind(
-        [this]() { start_play(); }));
-    connections_.push_back(viewport_manager_.on_stop.bind(
-        [this]() { stop_play(); }));
-    connections_.push_back(viewport_manager_.on_pause.bind(
-        [this]() { /* TODO: pause */ }));
+        [this]() { scene_context_->stop_play(); }));
     connections_.push_back(menu_bar_.on_open_project.bind(
         [this](const std::filesystem::path& path) {
             project_mgr_.open(path);
@@ -848,7 +604,7 @@ void Engine::draw_ui() {
         window_.set_title(title);
     }
 
-    // Global shortcuts
+    // Global shortcuts (Ctrl+S, Ctrl+Z/Y, Ctrl+Space)
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
         save_material_assets();
         if (auto r = scene_.save(current_scene_path_); !r) {
@@ -869,23 +625,8 @@ void Engine::draw_ui() {
         command_history_.redo();
     }
 
-    // Duplicate (Ctrl+D)
-    if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D)) {
-        duplicate_selection();
-    }
-    // Delete selection
-    if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
-        delete_selection();
-    }
-
-    // Gizmo keyboard shortcuts (skip when typing in a text field or navigating)
-    bool navigating = input_.is_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
-    if (!ImGui::GetIO().WantTextInput && !navigating) {
-        if (ImGui::IsKeyPressed(ImGuiKey_W)) gizmo_op_ = 0; // translate
-        if (ImGui::IsKeyPressed(ImGuiKey_E)) gizmo_op_ = 1; // rotate
-        if (ImGui::IsKeyPressed(ImGuiKey_R)) gizmo_op_ = 2; // scale
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) hierarchy_panel_.clear_selection();
-    }
+    // Context-specific shortcuts
+    active_context().handle_shortcuts();
 
     // Apply deferred layout load
     if (!pending_layout_load_.empty()) {
@@ -894,28 +635,28 @@ void Engine::draw_ui() {
     }
 
     menu_bar_.set_project(project_mgr_.active());
-    menu_bar_.set_playing(is_playing());
-    viewport_manager_.set_playing(is_playing());
+    menu_bar_.set_playing(active_context().is_playing());
+    scene_context_->viewport_manager().set_playing(active_context().is_playing());
     menu_bar_.set_scene_path(current_scene_path_);
     menu_bar_.set_vulkan_context(vulkan_context_.get());
-    menu_bar_.set_viewport_manager(&viewport_manager_);
+    menu_bar_.set_viewport_manager(&scene_context_->viewport_manager());
     menu_bar_.draw();
+
+    // Context tab bar (only when multiple contexts open)
+    if (contexts_.size() > 1) draw_context_tabs();
+
     setup_dockspace();
-    viewport_manager_.draw(*vulkan_context_, scene_, selected_id_, input_, clock_.delta_time(), gizmo_op_, &command_history_);
-    viewport_hovered_ = viewport_manager_.any_hovered();
-    hierarchy_panel_.draw();
-    properties_panel_.draw();
+
+    // Active context draws its own panels
+    active_context().draw(clock_.delta_time());
+    viewport_hovered_ = active_context().any_viewport_hovered();
+
+    // Shared panels
     content_browser_.draw();
     stats_panel_.draw(clock_.delta_time());
     history_panel_.draw();
-    node_editor_panel_.draw();
     draw_console();
     draw_code_editor();
-
-    if (focus_viewport_) {
-        ImGui::SetWindowFocus("Viewport");
-        focus_viewport_ = false;
-    }
 }
 
 TickContext Engine::make_frame_context() {
@@ -943,110 +684,6 @@ void Engine::flush_pending() {
     scene_.flush_destroyed();
 }
 
-void Engine::start_play() {
-    command_history_.clear();
-    script_subsystem_->manager().serialize_all(scene_);
-    play_session_ = std::make_unique<PlaySession>(scene_);
-
-    // Create play-mode resources (physics first, scripts need it)
-    {
-        auto ctx = make_frame_context();
-        physics_subsystem_->on_play_start(ctx);
-        vfx_subsystem_->on_play_start(ctx);
-    }
-
-    // Rebuild context now that physics exists
-    {
-        auto ctx = make_frame_context();
-        audio_subsystem_->on_play_start(ctx);
-        script_subsystem_->on_play_start(ctx);
-    }
-
-    vulkan_context_->set_playing(true);
-    game_ui_.mark_dirty();
-    input_.set_cursor_captured(window_.handle(), true);
-    selected_id_ = 0;
-    FJELL_CORE_INFO("Play mode started");
-}
-
-void Engine::stop_play() {
-    if (game_mode_) {
-        glfwSetWindowShouldClose(window_.handle(), GLFW_TRUE);
-        return;
-    }
-    auto ctx = make_frame_context();
-    audio_subsystem_->on_play_stop(ctx);
-    script_subsystem_->on_play_stop(ctx);
-    vfx_subsystem_->on_play_stop(ctx);
-
-    play_session_->restore(scene_);
-    script_subsystem_->manager().deserialize_all(scene_);
-    physics_subsystem_->on_play_stop(ctx);
-
-    vulkan_context_->set_playing(false);
-    input_.set_cursor_captured(window_.handle(), false);
-    play_session_.reset();
-    focus_viewport_ = true;
-    FJELL_CORE_INFO("Play mode stopped");
-}
-
-void Engine::draw_play_overlay() {
-    // In play mode, resize the active viewport's offscreen to fill the window
-    auto w = window_.width();
-    auto h = window_.height();
-    viewport_manager_.resize_active(w, h);
-
-    ImGuiViewport* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize(viewport->WorkSize);
-
-    ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoNavFocus |
-        ImGuiWindowFlags_NoDocking |
-        ImGuiWindowFlags_NoScrollbar;
-
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
-    ImGui::Begin("##PlayView", nullptr, flags);
-    ImGui::PopStyleVar();
-
-    // Scene image fills the window — use active viewport's offscreen
-    auto tex_id = viewport_manager_.active_texture(*vulkan_context_);
-    if (tex_id) {
-        ImGui::Image(tex_id, viewport->WorkSize);
-    }
-
-    // Overlay bar at top center
-    float bar_width = 220.0f;
-    float bar_height = 32.0f;
-    float bar_x = viewport->WorkPos.x + (viewport->WorkSize.x - bar_width) * 0.5f;
-    float bar_y = viewport->WorkPos.y + 8.0f;
-
-    ImGui::SetNextWindowPos({bar_x, bar_y});
-    ImGui::SetNextWindowSize({bar_width, bar_height});
-    ImGui::SetNextWindowBgAlpha(0.6f);
-    ImGui::Begin("##PlayBar", nullptr,
-                 ImGuiWindowFlags_NoTitleBar |
-                 ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoScrollbar |
-                 ImGuiWindowFlags_NoDocking |
-                 ImGuiWindowFlags_NoFocusOnAppearing);
-
-    ImGui::Text("Press ESC to stop");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Stop")) {
-        stop_play();
-    }
-    ImGui::End();
-
-    ImGui::End(); // ##PlayView
-}
-
 void Engine::set_scene_override(const std::string& scene_name) {
     std::string filename = scene_name;
     if (!filename.ends_with(".fjell")) filename += ".fjell";
@@ -1068,7 +705,7 @@ void Engine::run() {
 
     // Game mode or --play: start playing immediately
     if (game_mode_ || play_immediate_) {
-        start_play();
+        scene_context_->start_play();
     }
 
     while (!window_.should_close()) {
@@ -1091,7 +728,7 @@ void Engine::run() {
 
         auto ctx = make_frame_context();
 
-        if (is_playing()) {
+        if (active_context().is_playing()) {
             // Phase 0: Scripts
             for (auto* s : play_phase_0_) s->tick(ctx);
             flush_pending();
@@ -1107,8 +744,8 @@ void Engine::run() {
             // Phase 2: VFX
             for (auto* s : play_phase_2_) s->tick(ctx);
 
-            if (play_session_->wants_stop(input_)) {
-                stop_play();
+            if (scene_context_->play_wants_stop()) {
+                scene_context_->stop_play();
             }
         }
 
@@ -1126,23 +763,23 @@ void Engine::run() {
         for (auto* s : late_always_) s->tick(ctx);
 
         // Resize offscreen passes before ImGui frame so descriptors stay valid
-        viewport_manager_.apply_resize(*vulkan_context_);
+        active_context().apply_resize(*vulkan_context_);
 
         imgui_layer_->begin_frame();
-        if (is_playing()) {
-            draw_play_overlay();
+        if (active_context().is_playing()) {
+            active_context().draw_play_overlay();
         } else {
             draw_ui();
         }
         imgui_layer_->end_frame();
 
-        auto requests = viewport_manager_.build_render_requests();
+        auto requests = active_context().build_render_requests();
 
         // In play mode, override the active viewport's camera with the scene CameraNode
-        if (is_playing() && !requests.empty()) {
+        if (active_context().is_playing() && !requests.empty()) {
             for (const auto& obj : scene_.objects()) {
                 if (auto* cam_node = dynamic_cast<const CameraNode*>(obj.get())) {
-                    float aspect = viewport_manager_.active_aspect();
+                    float aspect = scene_context_->viewport_manager().active_aspect();
                     requests[0].view = cam_node->view_matrix();
                     requests[0].projection = cam_node->projection_matrix(aspect);
                     requests[0].camera_position = cam_node->position();
@@ -1152,16 +789,51 @@ void Engine::run() {
         }
 
         vulkan_context_->sync_sprite_textures(scene_, *resource_manager_);
-        vulkan_context_->set_viewport_offset(viewport_manager_.active_viewport_pos());
-        vulkan_context_->set_active_sources(viewport_manager_.active_source_mask());
+        vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
+        vulkan_context_->set_active_sources(scene_context_->viewport_manager().active_source_mask());
 
         // Phase 3: Wait for frame slot, record commands
-        vulkan_context_->wait_and_record(requests, light_, &scene_, clock_.delta_time(), selected_id_, thread_pool_, is_playing());
+        vulkan_context_->wait_and_record(requests, light_, &scene_, clock_.delta_time(),
+                                          scene_context_->selected_id(), thread_pool_,
+                                          active_context().is_playing());
     }
 
     // Submit the last recorded frame before shutting down
     vulkan_context_->submit_and_present();
     FJELL_CORE_INFO("Exiting main loop");
+}
+
+EditorContext& Engine::active_context() {
+    return *contexts_[static_cast<size_t>(active_context_idx_)];
+}
+
+const EditorContext& Engine::active_context() const {
+    return *contexts_[static_cast<size_t>(active_context_idx_)];
+}
+
+void Engine::switch_context(int index) {
+    if (index == active_context_idx_) return;
+    contexts_[static_cast<size_t>(active_context_idx_)]->on_exit();
+    active_context_idx_ = index;
+    contexts_[static_cast<size_t>(active_context_idx_)]->on_enter();
+}
+
+void Engine::draw_context_tabs() {
+    if (ImGui::BeginTabBar("##ContextTabs")) {
+        for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+            bool is_active = (i == active_context_idx_);
+            ImGuiTabItemFlags flags = is_active ? ImGuiTabItemFlags_SetSelected : 0;
+            // Scene context (index 0) is permanent — no close button
+            bool closeable = (i != 0);
+            bool open = true;
+            if (ImGui::BeginTabItem(contexts_[static_cast<size_t>(i)]->name(),
+                                     closeable ? &open : nullptr, flags)) {
+                if (!is_active) switch_context(i);
+                ImGui::EndTabItem();
+            }
+        }
+        ImGui::EndTabBar();
+    }
 }
 
 } // namespace fjell

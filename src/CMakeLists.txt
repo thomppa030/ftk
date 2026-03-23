@@ -135,6 +135,7 @@ add_executable(fjell
     ui/properties_panel.cpp
     ui/stats_panel.cpp
     ui/node_editor_panel.cpp
+    ui/scene_editor_context.cpp
     ui/viewport_manager.cpp
     ui/game_ui/fjui_parser.cpp
     ui/game_ui/fjss_parser.cpp
