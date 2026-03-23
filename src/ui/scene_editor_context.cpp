@@ -1,7 +1,6 @@
 #include "ui/scene_editor_context.hpp"
 #include "core/base_path.hpp"
 #include "core/clock.hpp"
-#include "core/command_history.hpp"
 #include "core/commands.hpp"
 #include "core/frame_context.hpp"
 #include "core/input.hpp"
@@ -49,9 +48,9 @@ void SceneEditorContext::init() {
     viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
 
     hierarchy_panel_.init(deps_.scene, &viewport_manager_, &selected_id_,
-                          deps_.command_history, deps_.icon_cache);
+                          &command_history(), deps_.icon_cache);
     properties_panel_.init(deps_.scene, &selected_id_, &gizmo_op_, deps_.light,
-                           &deps_.script_subsystem->manager(), deps_.command_history,
+                           &deps_.script_subsystem->manager(), &command_history(),
                            &deps_.vulkan_context->grid_pass().settings(),
                            deps_.vulkan_context->pipeline_cache(),
                            &deps_.vulkan_context->bindless_textures());
@@ -61,12 +60,12 @@ void SceneEditorContext::init() {
     connections_.push_back(hierarchy_panel_.on_add_primitive.bind(
         [this](const std::string& type) {
             add_primitive(type);
-            deps_.command_history->execute(std::make_unique<AddObjectCommand>(
+            command_history().execute(std::make_unique<AddObjectCommand>(
                 *deps_.scene, selected_id_, &selected_id_));
         }));
     connections_.push_back(hierarchy_panel_.on_remove_object.bind(
         [this](uint32_t id) {
-            deps_.command_history->execute(std::make_unique<RemoveObjectCommand>(
+            command_history().execute(std::make_unique<RemoveObjectCommand>(
                 *deps_.scene, id, &selected_id_,
                 [this]() { deps_.vulkan_context->wait_idle(); }));
         }));
@@ -88,7 +87,7 @@ void SceneEditorContext::shutdown() {
 
 void SceneEditorContext::draw(float dt) {
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.scene, selected_id_,
-                           *deps_.input, dt, gizmo_op_, deps_.command_history);
+                           *deps_.input, dt, gizmo_op_, &command_history());
     hierarchy_panel_.draw();
     properties_panel_.draw();
     node_editor_panel_.draw();
@@ -146,7 +145,7 @@ bool SceneEditorContext::handle_shortcuts() {
 // --- Play mode ---
 
 void SceneEditorContext::start_play() {
-    deps_.command_history->clear();
+    command_history().clear();
     deps_.script_subsystem->manager().serialize_all(*deps_.scene);
     play_session_ = std::make_unique<PlaySession>(*deps_.scene);
 
@@ -493,11 +492,11 @@ void SceneEditorContext::duplicate_selection() {
     deps_.vulkan_context->wait_idle();
     std::vector<uint32_t> ids(sel.begin(), sel.end());
     auto cmd = std::make_unique<DuplicateCommand>(*deps_.scene, ids, &selected_id_);
-    deps_.command_history->execute(std::move(cmd));
+    command_history().execute(std::move(cmd));
 
     // Update multi-selection to the new duplicates
     auto* dup_cmd = static_cast<DuplicateCommand*>(
-        deps_.command_history->commands().back().get());
+        command_history().commands().back().get());
     hierarchy_panel_.clear_selection();
     for (uint32_t id : dup_cmd->created_ids()) {
         hierarchy_panel_.add_to_selection(id);
@@ -512,7 +511,7 @@ void SceneEditorContext::delete_selection() {
     // Delete in reverse order to avoid invalidating IDs
     std::vector<uint32_t> ids(sel.begin(), sel.end());
     for (uint32_t id : ids) {
-        deps_.command_history->execute(std::make_unique<RemoveObjectCommand>(
+        command_history().execute(std::make_unique<RemoveObjectCommand>(
             *deps_.scene, id, &selected_id_,
             [this]() { deps_.vulkan_context->wait_idle(); }));
     }

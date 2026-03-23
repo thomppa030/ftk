@@ -220,7 +220,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
             scene_context_->add_model(path);
-            command_history_.execute(std::make_unique<AddObjectCommand>(
+            scene_context_->command_history().execute(std::make_unique<AddObjectCommand>(
                 scene_, scene_context_->selected_id(), scene_context_->selected_id_ptr()));
         }));
     connections_.push_back(content_browser_.on_load_scene.bind(
@@ -230,7 +230,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     }
 
     stats_panel_.init(vulkan_context_.get());
-    history_panel_.init(&command_history_);
 
     bind_menu_bar();
 
@@ -258,7 +257,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             .asset_loader = asset_loader_.get(),
             .input = &input_,
             .clock = &clock_,
-            .command_history = &command_history_,
             .script_subsystem = script_subsystem_,
             .physics_subsystem = physics_subsystem_,
             .audio_subsystem = audio_subsystem_,
@@ -277,6 +275,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         contexts_.push_back(std::move(ctx));
         active_context_idx_ = 0;
     }
+
+    history_panel_.init(&scene_context_->command_history());
 
     // Load game UI — check project first, then fall back to engine assets
     {
@@ -513,7 +513,7 @@ void Engine::load_scene(const std::string& path) {
         scene_.clear();
     }
     scene_context_->set_selected_id(0);
-    command_history_.clear();
+    scene_context_->command_history().clear();
 }
 
 void Engine::bind_menu_bar() {
@@ -617,13 +617,13 @@ void Engine::draw_ui() {
     }
     if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
         if (ImGui::GetIO().KeyShift) {
-            command_history_.redo();
+            active_context().command_history().redo();
         } else {
-            command_history_.undo();
+            active_context().command_history().undo();
         }
     }
     if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) {
-        command_history_.redo();
+        active_context().command_history().redo();
     }
 
     // Context-specific shortcuts
@@ -633,6 +633,8 @@ void Engine::draw_ui() {
     if (!pending_layout_load_.empty()) {
         ImGui::LoadIniSettingsFromDisk(pending_layout_load_.c_str());
         pending_layout_load_.clear();
+        // Focus viewport next frame (layout overrides focus in the same frame)
+        scene_context_->request_focus_viewport();
     }
 
     menu_bar_.set_project(project_mgr_.active());
@@ -817,6 +819,7 @@ void Engine::switch_context(int index) {
     contexts_[static_cast<size_t>(active_context_idx_)]->on_exit();
     active_context_idx_ = index;
     contexts_[static_cast<size_t>(active_context_idx_)]->on_enter();
+    history_panel_.init(&active_context().command_history());
 }
 
 void Engine::draw_context_tabs() {

@@ -12,7 +12,6 @@
 #include "renderer/uniform_types.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "scene/scene.hpp"
-#include "core/command_history.hpp"
 #include "ui/content_browser.hpp"
 #include "ui/history_panel.hpp"
 #include "ui/icon_cache.hpp"
@@ -122,7 +121,6 @@ private:
 #endif
     std::unique_ptr<IconCache> icon_cache_;
     ContentBrowser content_browser_;
-    CommandHistory command_history_;
     StatsPanel stats_panel_;
     HistoryPanel history_panel_;
 

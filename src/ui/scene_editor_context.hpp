@@ -17,7 +17,6 @@ namespace fjell {
 class AssetLoader;
 class AudioSubsystem;
 class Clock;
-class CommandHistory;
 class GameUi;
 class IconCache;
 class Input;
@@ -38,7 +37,6 @@ struct SceneEditorDeps {
     AssetLoader* asset_loader;
     Input* input;
     Clock* clock;
-    CommandHistory* command_history;
     ScriptSubsystem* script_subsystem;
     PhysicsSubsystem* physics_subsystem;
     AudioSubsystem* audio_subsystem;

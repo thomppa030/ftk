@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/command_history.hpp"
 #include "renderer/viewport_source.hpp"
 
 #include <imgui.h>
@@ -20,6 +21,9 @@ public:
     EditorContext& operator=(EditorContext&&) = delete;
 
     [[nodiscard]] virtual const char* name() const = 0;
+
+    // Per-context undo/redo
+    [[nodiscard]] CommandHistory& command_history() { return command_history_; }
 
     virtual void init() = 0;
     virtual void on_enter() {}
@@ -50,6 +54,7 @@ public:
     void mark_dockspace_built() { dockspace_built_ = true; }
 
 private:
+    CommandHistory command_history_;
     bool dockspace_built_{false};
 };
 
