@@ -22,11 +22,13 @@
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdarg>
 #include <thread>
+#include <unordered_set>
 
 // Jolt requires a custom trace and assert implementation
 static void jolt_trace(const char* fmt, ...) {
@@ -97,6 +99,93 @@ public:
     }
 };
 
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+static JPH::Vec3 to_jolt(const glm::vec3& v) {
+    return JPH::Vec3(v.x, v.y, v.z);
+}
+
+static glm::vec3 to_glm(JPH::Vec3 v) {
+    return {v.GetX(), v.GetY(), v.GetZ()};
+}
+
+static JPH::Quat to_jolt_quat(const glm::quat& q) {
+    return JPH::Quat(q.x, q.y, q.z, q.w);
+}
+
+static glm::quat to_glm_quat(JPH::Quat q) {
+    return glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ());
+}
+
+// ── Contact listener ────────────────────────────────────────────────────
+
+class FjellContactListener final : public JPH::ContactListener {
+public:
+    // Back-pointers for resolving body → object ID
+    std::unordered_map<uint32_t, uint32_t>* body_to_object{nullptr};
+    std::unordered_set<uint32_t>* trigger_bodies{nullptr};
+
+    // Events collected this frame
+    std::vector<std::pair<uint32_t, CollisionEvent>> collision_events;
+    std::vector<std::pair<uint32_t, CollisionEvent>> trigger_events;
+
+    void clear() {
+        collision_events.clear();
+        trigger_events.clear();
+    }
+
+    JPH::ValidateResult OnContactValidate(
+        [[maybe_unused]] const JPH::Body& body1,
+        [[maybe_unused]] const JPH::Body& body2,
+        [[maybe_unused]] JPH::RVec3Arg base_offset,
+        [[maybe_unused]] const JPH::CollideShapeResult& collision_result) override {
+        // If either body is a trigger, allow contact but mark as sensor
+        uint32_t key1 = body1.GetID().GetIndexAndSequenceNumber();
+        uint32_t key2 = body2.GetID().GetIndexAndSequenceNumber();
+        if (trigger_bodies->contains(key1) || trigger_bodies->contains(key2)) {
+            return JPH::ValidateResult::AcceptContact;
+        }
+        return JPH::ValidateResult::AcceptAllContactsForThisBodyPair;
+    }
+
+    void OnContactAdded(
+        const JPH::Body& body1, const JPH::Body& body2,
+        [[maybe_unused]] const JPH::ContactManifold& manifold,
+        [[maybe_unused]] JPH::ContactSettings& settings) override {
+
+        uint32_t key1 = body1.GetID().GetIndexAndSequenceNumber();
+        uint32_t key2 = body2.GetID().GetIndexAndSequenceNumber();
+
+        auto it1 = body_to_object->find(key1);
+        auto it2 = body_to_object->find(key2);
+        if (it1 == body_to_object->end() || it2 == body_to_object->end()) return;
+
+        uint32_t obj1 = it1->second;
+        uint32_t obj2 = it2->second;
+
+        auto contact_point = to_glm(manifold.GetWorldSpaceContactPointOn1(0));
+        auto contact_normal = to_glm(manifold.mWorldSpaceNormal);
+
+        bool is_trigger = trigger_bodies->contains(key1) || trigger_bodies->contains(key2);
+
+        if (is_trigger) {
+            // Disable physical response for triggers
+            settings.mCombinedFriction = 0.0f;
+            settings.mCombinedRestitution = 0.0f;
+            settings.mInvMassScale1 = 0.0f;
+            settings.mInvMassScale2 = 0.0f;
+            settings.mInvInertiaScale1 = 0.0f;
+            settings.mInvInertiaScale2 = 0.0f;
+
+            trigger_events.push_back({obj1, {obj2, contact_point, contact_normal}});
+            trigger_events.push_back({obj2, {obj1, contact_point, -contact_normal}});
+        } else {
+            collision_events.push_back({obj1, {obj2, contact_point, contact_normal}});
+            collision_events.push_back({obj2, {obj1, contact_point, -contact_normal}});
+        }
+    }
+};
+
 // ── Impl ────────────────────────────────────────────────────────────────
 
 struct PhysicsWorld::Impl {
@@ -107,10 +196,12 @@ struct PhysicsWorld::Impl {
     BPLayerInterface bp_layer_interface;
     ObjectVsBroadPhaseFilter obj_vs_bp_filter;
     ObjectLayerPairFilter obj_pair_filter;
+    FjellContactListener contact_listener;
 
     // Bidirectional maps: Fjell object_id <-> Jolt BodyID (stored as uint32)
     std::unordered_map<uint32_t, JPH::BodyID> object_to_body;
     std::unordered_map<uint32_t, uint32_t> body_to_object; // body.GetIndexAndSequenceNumber() -> object_id
+    std::unordered_set<uint32_t> trigger_bodies; // body keys that are triggers
 };
 
 static bool s_jolt_initialized = false;
@@ -150,6 +241,11 @@ PhysicsWorld::PhysicsWorld() : impl_(std::make_unique<Impl>()) {
         impl_->bp_layer_interface, impl_->obj_vs_bp_filter, impl_->obj_pair_filter);
 
     impl_->physics_system->SetGravity(JPH::Vec3(0.0f, -9.81f, 0.0f));
+
+    // Wire up contact listener
+    impl_->contact_listener.body_to_object = &impl_->body_to_object;
+    impl_->contact_listener.trigger_bodies = &impl_->trigger_bodies;
+    impl_->physics_system->SetContactListener(&impl_->contact_listener);
 }
 
 PhysicsWorld::~PhysicsWorld() {
@@ -161,24 +257,6 @@ PhysicsWorld::~PhysicsWorld() {
         bi.RemoveBody(body_id);
         bi.DestroyBody(body_id);
     }
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────
-
-static JPH::Vec3 to_jolt(const glm::vec3& v) {
-    return JPH::Vec3(v.x, v.y, v.z);
-}
-
-static glm::vec3 to_glm(JPH::Vec3 v) {
-    return {v.GetX(), v.GetY(), v.GetZ()};
-}
-
-static JPH::Quat to_jolt_quat(const glm::quat& q) {
-    return JPH::Quat(q.x, q.y, q.z, q.w);
-}
-
-static glm::quat to_glm_quat(JPH::Quat q) {
-    return glm::quat(q.GetW(), q.GetX(), q.GetY(), q.GetZ());
 }
 
 // ── Body creation ───────────────────────────────────────────────────────
@@ -312,6 +390,10 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 
         impl_->object_to_body[obj->id] = body_id;
         impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = obj->id;
+
+        if (col.is_trigger) {
+            impl_->trigger_bodies.insert(body_id.GetIndexAndSequenceNumber());
+        }
     }
 
     FJELL_CORE_INFO("Physics: created {} bodies", impl_->object_to_body.size());
@@ -321,6 +403,7 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 
 void PhysicsWorld::step(float dt, Scene& scene) {
     FJELL_PROFILE_SCOPE_N("physics_step");
+    impl_->contact_listener.clear();
     auto& bi = impl_->physics_system->GetBodyInterface();
 
     // Sync kinematic bodies: push engine transforms -> Jolt
@@ -432,6 +515,16 @@ bool PhysicsWorld::raycast(const glm::vec3& origin, const glm::vec3& direction,
     }
 
     return true;
+}
+
+// ── Collision/trigger event access ──────────────────────────────────────
+
+const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::collision_events() const {
+    return impl_->contact_listener.collision_events;
+}
+
+const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::trigger_events() const {
+    return impl_->contact_listener.trigger_events;
 }
 
 } // namespace fjell

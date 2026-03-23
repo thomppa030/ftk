@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <utility>
+#include <vector>
 
 // Forward-declare Jolt types to avoid leaking headers
 namespace JPH {
@@ -41,6 +43,11 @@ public:
 
     [[nodiscard]] bool raycast(const glm::vec3& origin, const glm::vec3& direction,
                                float max_distance, RaycastHit& out_hit) const;
+
+    /// Collision/trigger events collected during the last step.
+    /// Each pair appears once. Cleared at the start of each step.
+    [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& collision_events() const;
+    [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& trigger_events() const;
 
 private:
     struct Impl;

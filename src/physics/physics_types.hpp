@@ -27,6 +27,13 @@ struct ColliderComponent : NodeComponent {
     float radius{0.5f};
     float height{1.0f};
     glm::vec3 offset{0.0f};
+    bool is_trigger{false};
+};
+
+struct CollisionEvent {
+    uint32_t other_id{0};
+    glm::vec3 contact_point{0.0f};
+    glm::vec3 contact_normal{0.0f};
 };
 
 struct RaycastHit {

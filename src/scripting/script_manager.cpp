@@ -247,6 +247,7 @@ Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_pat
     }
 
     deserialize_all(scene);
+    call_begin_play(scene);
 
 #ifndef NDEBUG
     last_reload_time_ = std::chrono::steady_clock::now();
@@ -454,6 +455,32 @@ void ScriptManager::trace_doomed_refs(Scene& scene, std::span<const uint32_t> do
     }
 
     s_active_visitor = nullptr;
+}
+
+// ── Collision/trigger event dispatch ─────────────────────────────────────
+
+void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physics) {
+    // Dispatch collision events
+    for (const auto& [node_id, event] : physics.collision_events()) {
+        auto* node = scene.find(node_id);
+        if (!node) continue;
+        for (auto& comp : node->scripts) {
+            if (comp.instance) {
+                comp.instance->on_collision_enter(event.other_id, event.contact_point, event.contact_normal);
+            }
+        }
+    }
+
+    // Dispatch trigger events
+    for (const auto& [node_id, event] : physics.trigger_events()) {
+        auto* node = scene.find(node_id);
+        if (!node) continue;
+        for (auto& comp : node->scripts) {
+            if (comp.instance) {
+                comp.instance->on_trigger_enter(event.other_id);
+            }
+        }
+    }
 }
 
 // ── Auto-serialization from field descriptors ───────────────────────────

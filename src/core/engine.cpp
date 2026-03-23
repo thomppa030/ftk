@@ -1030,6 +1030,9 @@ void Engine::run() {
                 scene_.flush_destroyed();
             }
             play_session_->physics_step(dt, scene_);
+            if (play_session_->physics_world()) {
+                script_manager_.dispatch_collision_events(scene_, *play_session_->physics_world());
+            }
             if (play_session_->wants_stop(input_)) {
                 stop_play();
             }

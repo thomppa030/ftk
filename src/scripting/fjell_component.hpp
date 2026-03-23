@@ -21,6 +21,11 @@ public:
     virtual void tick(float dt) { (void)dt; }
     virtual void end_play() {}
 
+    virtual void on_collision_enter(uint32_t other_id, const glm::vec3& point, const glm::vec3& normal) {
+        (void)other_id; (void)point; (void)normal;
+    }
+    virtual void on_trigger_enter(uint32_t other_id) { (void)other_id; }
+
     [[nodiscard]] uint32_t id() const { return id_; }
     [[nodiscard]] const char* name() const { return name_; }
     [[nodiscard]] Transform& transform() { return *transform_; }

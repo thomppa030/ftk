@@ -80,6 +80,7 @@ public:
     void call_end_play(Scene& scene);
 
     void trace_doomed_refs(Scene& scene, std::span<const uint32_t> doomed_ids);
+    void dispatch_collision_events(Scene& scene, class PhysicsWorld& physics);
 
     [[nodiscard]] const OwnedScriptType* find_script_type(const std::string& name) const;
     [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }
