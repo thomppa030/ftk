@@ -1,5 +1,8 @@
 #include "scripting/script_manager.hpp"
 #include "scripting/fjell_component.hpp"
+#include "scripting/fjell_weak_ref.hpp"
+#include "scripting/fjell_ref.hpp"
+#include "scripting/fjell_shared_ref.hpp"
 #include "scripting/gc_visitor.hpp"
 #include "scripting/ref_count_table.hpp"
 #include "core/clock.hpp"
@@ -471,11 +474,21 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
             case FJELL_FIELD_STRING:
                 out[f.name] = static_cast<const char*>(ptr);
                 break;
-            case FJELL_FIELD_WEAK_REF:
-            case FJELL_FIELD_REF:
-            case FJELL_FIELD_SHARED_REF:
-                // TODO: ref type serialization (Step 9)
+            case FJELL_FIELD_WEAK_REF: {
+                const auto* ref = static_cast<const WeakRefData*>(ptr);
+                out[f.name] = {{"id", ref->id}, {"generation", ref->generation}};
                 break;
+            }
+            case FJELL_FIELD_REF: {
+                const auto* ref = static_cast<const RefData*>(ptr);
+                out[f.name] = {{"handle_id", ref->handle_id}, {"ref_token", ref->ref_token}};
+                break;
+            }
+            case FJELL_FIELD_SHARED_REF: {
+                const auto* ref = static_cast<const SharedRefData*>(ptr);
+                out[f.name] = {{"ref_token", ref->ref_token}};
+                break;
+            }
         }
     }
 }
@@ -530,11 +543,38 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 static_cast<char*>(ptr)[f.size - 1] = '\0';
                 break;
             }
-            case FJELL_FIELD_WEAK_REF:
-            case FJELL_FIELD_REF:
-            case FJELL_FIELD_SHARED_REF:
-                // TODO: ref type deserialization (Step 9)
+            case FJELL_FIELD_WEAK_REF: {
+                auto* ref = static_cast<WeakRefData*>(ptr);
+                auto& j = in[f.name];
+                if (j.is_object()) {
+                    ref->id = j.value("id", uint32_t{0});
+                    ref->generation = j.value("generation", uint32_t{0});
+                }
                 break;
+            }
+            case FJELL_FIELD_REF: {
+                auto* ref = static_cast<RefData*>(ptr);
+                auto& j = in[f.name];
+                if (j.is_object()) {
+                    ref->handle_id = j.value("handle_id", uint32_t{0});
+                    ref->ref_token = j.value("ref_token", uint32_t{0});
+                    if (ref->ref_token != 0) {
+                        s_ref_table.acquire(ref->ref_token);
+                    }
+                }
+                break;
+            }
+            case FJELL_FIELD_SHARED_REF: {
+                auto* ref = static_cast<SharedRefData*>(ptr);
+                auto& j = in[f.name];
+                if (j.is_object()) {
+                    ref->ref_token = j.value("ref_token", uint32_t{0});
+                    if (ref->ref_token != 0) {
+                        s_shared_ref_table.acquire(ref->ref_token);
+                    }
+                }
+                break;
+            }
         }
     }
 }
@@ -631,12 +671,34 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                     }
                 }
                 break;
-            case FJELL_FIELD_WEAK_REF:
-            case FJELL_FIELD_REF:
-            case FJELL_FIELD_SHARED_REF:
-                // TODO: ref type inspector (Step 9)
-                ImGui::TextDisabled("%s (ref)", f.name.c_str());
+            case FJELL_FIELD_WEAK_REF: {
+                auto* ref = static_cast<WeakRefData*>(ptr);
+                const char* target_name = "(null)";
+                if (ref->id != 0 && s_active_scene) {
+                    auto* node = s_active_scene->find(ref->id);
+                    if (node && s_active_scene->generation_of(ref->id) == ref->generation) {
+                        target_name = node->name.c_str();
+                    } else {
+                        target_name = "(stale)";
+                    }
+                }
+                ImGui::Text("%s: %s", f.name.c_str(), target_name);
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear")) {
+                    *ref = {};
+                }
                 break;
+            }
+            case FJELL_FIELD_REF: {
+                auto* ref = static_cast<RefData*>(ptr);
+                ImGui::Text("%s: handle %u", f.name.c_str(), ref->handle_id);
+                break;
+            }
+            case FJELL_FIELD_SHARED_REF: {
+                auto* ref = static_cast<SharedRefData*>(ptr);
+                ImGui::Text("%s: token %u", f.name.c_str(), ref->ref_token);
+                break;
+            }
         }
         ImGui::PopID();
     }
