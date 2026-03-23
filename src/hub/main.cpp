@@ -20,10 +20,9 @@ static constexpr int HUB_HEIGHT = 760;
 static void launch_editor(const std::string& project_path) {
     auto exe = fjell::platform::executable_path();
     auto editor_path = exe.parent_path() / "fjell";
-    auto result = fjell::platform::spawn_detached({editor_path.string(), project_path});
-    if (!result) {
-        FJELL_CORE_ERROR("Failed to launch editor: {}", result.error());
-    }
+    auto result = fjell::platform::exec_replace({editor_path.string(), project_path});
+    // exec_replace only returns on failure
+    FJELL_CORE_ERROR("Failed to launch editor: {}", result.error());
 }
 
 static void transition_image(VkCommandBuffer cmd, VkImage image,
@@ -53,6 +52,7 @@ static void transition_image(VkCommandBuffer cmd, VkImage image,
 
 int main() {
     fjell::log::init();
+    std::string pending_launch;
 
     try {
         fjell::Window window{"Fjell", HUB_WIDTH, HUB_HEIGHT};
@@ -214,7 +214,7 @@ int main() {
             frame = (frame + 1) % MAX_FRAMES;
 
             if (!launch.empty()) {
-                launch_editor(launch);
+                pending_launch = launch;
                 glfwSetWindowShouldClose(window.handle(), GLFW_TRUE);
             }
         }
@@ -234,5 +234,12 @@ int main() {
     }
 
     fjell::log::shutdown();
+
+    // exec into the editor after all cleanup — replaces this process,
+    // so the shell waits for the editor naturally and logs go to the terminal.
+    if (!pending_launch.empty()) {
+        launch_editor(pending_launch);
+    }
+
     return EXIT_SUCCESS;
 }
