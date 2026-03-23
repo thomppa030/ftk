@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -65,6 +66,14 @@ public:
     [[nodiscard]] uint32_t next_id() const { return next_id_; }
     void set_next_id(uint32_t id) { next_id_ = id; }
 
+    // Generation tracking for safe weak references
+    [[nodiscard]] uint32_t generation_of(uint32_t id) const;
+
+    // Deferred destruction for safe mid-tick removal
+    void queue_destroy(uint32_t id);
+    void flush_destroyed();
+    [[nodiscard]] std::span<const uint32_t> pending_destroy() const { return pending_destroy_; }
+
     // Point/spot lights
     [[nodiscard]] std::vector<PointLight>& point_lights() { return point_lights_; }
     [[nodiscard]] const std::vector<PointLight>& point_lights() const { return point_lights_; }
@@ -87,6 +96,8 @@ private:
     bool dirty_{false};
     bool index_dirty_{true};
     std::vector<uint8_t> computed_buf_; // reusable per-frame scratch
+    std::unordered_map<uint32_t, uint32_t> id_generation_;
+    std::vector<uint32_t> pending_destroy_;
 };
 
 } // namespace fjell

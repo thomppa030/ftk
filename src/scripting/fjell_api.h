@@ -14,7 +14,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 2
+#define FJELL_API_VERSION 3
 
 // ── Field types for inspector / serialization reflection ────────────────
 
@@ -28,7 +28,10 @@ typedef enum FjellFieldType {
     FJELL_FIELD_COLOR3,
     FJELL_FIELD_COLOR4,
     FJELL_FIELD_STRING,
-    FJELL_FIELD_ENUM
+    FJELL_FIELD_ENUM,
+    FJELL_FIELD_WEAK_REF,
+    FJELL_FIELD_REF,
+    FJELL_FIELD_SHARED_REF
 } FjellFieldType;
 
 typedef struct FjellFieldDesc {
@@ -40,6 +43,7 @@ typedef struct FjellFieldDesc {
     float              min;
     float              max;
     float              speed;        // drag speed (0 = default 0.1)
+    const char*        ref_type_name; // REF/WEAK_REF/SHARED_REF: target type name (null otherwise)
 } FjellFieldDesc;
 
 // ── Key codes (match GLFW values) ────────────────────────────────────

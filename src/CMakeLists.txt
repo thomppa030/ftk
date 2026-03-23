@@ -292,6 +292,9 @@ set(FJELL_SDK_HEADERS
     "scripting/fjell_registry.hpp:registry.hpp"
     "scripting/fjell_transform.hpp:transform.hpp"
     "scripting/fjell_input.hpp:input.hpp"
+    "scripting/fjell_weak_ref.hpp:weak_ref.hpp"
+    "scripting/fjell_ref.hpp:ref.hpp"
+    "scripting/fjell_shared_ref.hpp:shared_ref.hpp"
 )
 
 foreach(mapping ${FJELL_SDK_HEADERS})

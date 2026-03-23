@@ -17,6 +17,7 @@ struct FjellComponentTypeOOP {
     fjell::ScriptComponent* (*create)();
     const FjellFieldDesc* fields;
     uint32_t field_count;
+    void (*trace)(void* instance, void* visitor);  // GC trace (null if no ref fields)
 };
 
 // ── Opaque registry handle (engine-side) ────────────────────────────────
@@ -69,7 +70,7 @@ void register_component(FjellTypeRegistry* reg) {
         #member, ftype, \
         static_cast<uint32_t>(offsetof(T, member)), \
         static_cast<uint32_t>(sizeof(((T*)nullptr)->member)), \
-        nullptr, 0.0f, 0.0f, 0.0f \
+        nullptr, 0.0f, 0.0f, 0.0f, nullptr \
     }
 
 #define FJELL_F_RANGE(T, member, ftype, lo, hi, spd) \
@@ -77,14 +78,14 @@ void register_component(FjellTypeRegistry* reg) {
         #member, ftype, \
         static_cast<uint32_t>(offsetof(T, member)), \
         static_cast<uint32_t>(sizeof(((T*)nullptr)->member)), \
-        nullptr, static_cast<float>(lo), static_cast<float>(hi), static_cast<float>(spd) \
+        nullptr, static_cast<float>(lo), static_cast<float>(hi), static_cast<float>(spd), nullptr \
     }
 
 #define FJELL_F_ENUM(T, member, labels, count) \
     FjellFieldDesc { \
         #member, FJELL_FIELD_ENUM, \
         static_cast<uint32_t>(offsetof(T, member)), \
-        count, labels, 0.0f, 0.0f, 0.0f \
+        count, labels, 0.0f, 0.0f, 0.0f, nullptr \
     }
 
 // ── Auto-registration ───────────────────────────────────────────────────

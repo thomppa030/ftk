@@ -1,5 +1,7 @@
 #include "scripting/script_manager.hpp"
 #include "scripting/fjell_component.hpp"
+#include "scripting/gc_visitor.hpp"
+#include "scripting/ref_count_table.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
 #include "core/log.hpp"
@@ -20,6 +22,73 @@ struct FjellTypeRegistry {
     std::vector<fjell::OwnedScriptType> scripts;
 };
 
+// ── WeakRef resolution (called from game .so via -rdynamic) ─────────────
+
+static fjell::Scene* s_active_scene = nullptr;
+
+extern "C" void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation) {
+    if (!s_active_scene || id == 0) return nullptr;
+    if (s_active_scene->generation_of(id) != generation) return nullptr;
+    return s_active_scene->find_spatial(id);
+}
+
+// ── Ref<T> resolution and ref counting (called from game .so) ───────────
+
+static fjell::RefCountTable s_ref_table;
+
+extern "C" void fjell_ref_acquire(uint32_t ref_token) {
+    s_ref_table.acquire(ref_token);
+}
+
+extern "C" void fjell_ref_release(uint32_t ref_token) {
+    s_ref_table.release(ref_token);
+    // TODO: when count hits zero, queue resource for deferred cleanup
+}
+
+extern "C" void* fjell_ref_resolve(uint32_t /*handle_id*/) {
+    // TODO: resolve handle_id through ResourceManager
+    return nullptr;
+}
+
+// ── SharedRef<T> (called from game .so) ─────────────────────────────────
+
+static fjell::RefCountTable s_shared_ref_table;
+
+extern "C" void fjell_shared_ref_acquire(uint32_t ref_token) {
+    s_shared_ref_table.acquire(ref_token);
+}
+
+extern "C" void fjell_shared_ref_release(uint32_t ref_token) {
+    s_shared_ref_table.release(ref_token);
+}
+
+extern "C" void* fjell_shared_ref_resolve(uint32_t /*ref_token*/) {
+    // TODO: resolve through shared object pool
+    return nullptr;
+}
+
+// ── GC trace bridge functions (called from generated code in game .so) ──
+
+static fjell::GcVisitor* s_active_visitor = nullptr;
+
+extern "C" void fjell_gc_trace_weak(void* /*visitor*/, void* weak_ref_data) {
+    if (s_active_visitor && weak_ref_data) {
+        s_active_visitor->trace_weak(*static_cast<fjell::WeakRefData*>(weak_ref_data));
+    }
+}
+
+extern "C" void fjell_gc_trace_ref(void* /*visitor*/, void* ref_data) {
+    if (s_active_visitor && ref_data) {
+        s_active_visitor->trace_ref(*static_cast<fjell::RefData*>(ref_data));
+    }
+}
+
+extern "C" void fjell_gc_trace_shared(void* /*visitor*/, void* shared_ref_data) {
+    if (s_active_visitor && shared_ref_data) {
+        s_active_visitor->trace_shared(*static_cast<fjell::SharedRefData*>(shared_ref_data));
+    }
+}
+
 namespace fjell {
 
 static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
@@ -31,6 +100,9 @@ static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
     ofd.min = fd.min;
     ofd.max = fd.max;
     ofd.speed = fd.speed;
+    if (fd.ref_type_name) {
+        ofd.ref_type_name = fd.ref_type_name;
+    }
     if (fd.type == FJELL_FIELD_ENUM && fd.enum_labels && fd.size > 0) {
         for (uint32_t e = 0; e < fd.size; ++e) {
             if (fd.enum_labels[e]) {
@@ -51,6 +123,7 @@ extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponent
     owned.name = desc->name;
     owned.type_id = fjell::ScriptManager::hash_type_name(owned.name);
     owned.create = desc->create;
+    owned.trace = desc->trace;
     owned.loaded = true;
     for (uint32_t i = 0; i < desc->field_count; ++i) {
         owned.fields.push_back(fjell::copy_field(desc->fields[i]));
@@ -244,12 +317,28 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
     world_.log_info_fn = [](const char* msg) { FJELL_CORE_INFO("[script] {}", msg); };
     world_.log_warn_fn = [](const char* msg) { FJELL_CORE_WARN("[script] {}", msg); };
     world_.log_error_fn = [](const char* msg) { FJELL_CORE_ERROR("[script] {}", msg); };
+
+    world_.destroy_node_fn = [](uint32_t id) {
+        if (s_active_scene) s_active_scene->queue_destroy(id);
+    };
+    world_.find_node_fn = [](const char* name) -> uint64_t {
+        if (!s_active_scene) return 0;
+        for (const auto& obj : s_active_scene->objects()) {
+            if (obj->name == name) {
+                uint64_t id = obj->id;
+                uint64_t gen = s_active_scene->generation_of(obj->id);
+                return id | (gen << 32);
+            }
+        }
+        return 0;
+    };
 }
 
 // ── Prepare / Update ────────────────────────────────────────────────────
 
-void ScriptManager::prepare(Scene& /*scene*/, const Input& input, const Clock& clock,
+void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock,
                             PhysicsWorld* physics) {
+    s_active_scene = &scene;
     populate_world(input, clock, physics);
 }
 
@@ -258,6 +347,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     FJELL_PROFILE_SCOPE_N("script_update");
     if (!is_loaded()) return;
 
+    s_active_scene = &scene;
     populate_world(input, clock, physics);
 
     float dt = clock.delta_time();
@@ -321,6 +411,28 @@ void ScriptManager::call_end_play(Scene& scene) {
     }
 }
 
+// ── GC trace — null WeakRefs pointing at doomed nodes ───────────────────
+
+void ScriptManager::trace_doomed_refs(Scene& scene, std::span<const uint32_t> doomed_ids) {
+    if (doomed_ids.empty()) return;
+
+    GcVisitor visitor;
+    visitor.set_doomed_ids(doomed_ids);
+    s_active_visitor = &visitor;
+
+    for (auto& obj : scene.objects()) {
+        for (auto& comp : obj->scripts) {
+            if (!comp.instance) continue;
+            const auto* ctype = find_script_type(comp.type_name);
+            if (ctype && ctype->trace) {
+                ctype->trace(comp.instance.get(), &visitor);
+            }
+        }
+    }
+
+    s_active_visitor = nullptr;
+}
+
 // ── Auto-serialization from field descriptors ───────────────────────────
 
 void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fields,
@@ -358,6 +470,11 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
             }
             case FJELL_FIELD_STRING:
                 out[f.name] = static_cast<const char*>(ptr);
+                break;
+            case FJELL_FIELD_WEAK_REF:
+            case FJELL_FIELD_REF:
+            case FJELL_FIELD_SHARED_REF:
+                // TODO: ref type serialization (Step 9)
                 break;
         }
     }
@@ -413,6 +530,11 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 static_cast<char*>(ptr)[f.size - 1] = '\0';
                 break;
             }
+            case FJELL_FIELD_WEAK_REF:
+            case FJELL_FIELD_REF:
+            case FJELL_FIELD_SHARED_REF:
+                // TODO: ref type deserialization (Step 9)
+                break;
         }
     }
 }
@@ -508,6 +630,12 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                         ImGui::EndCombo();
                     }
                 }
+                break;
+            case FJELL_FIELD_WEAK_REF:
+            case FJELL_FIELD_REF:
+            case FJELL_FIELD_SHARED_REF:
+                // TODO: ref type inspector (Step 9)
+                ImGui::TextDisabled("%s (ref)", f.name.c_str());
                 break;
         }
         ImGui::PopID();

@@ -22,8 +22,14 @@ struct World {
     void (*log_warn_fn)(const char*){nullptr};
     void (*log_error_fn)(const char*){nullptr};
 
+    // Scene queries and manipulation
+    uint64_t (*find_node_fn)(const char* name){nullptr};  // returns packed {id, generation}
+    void (*destroy_node_fn)(uint32_t id){nullptr};
+
     [[nodiscard]] const Input& input() const { return *input_; }
     [[nodiscard]] PhysicsWorld* physics() { return physics_; }
+
+    void destroy(uint32_t id) { if (destroy_node_fn) destroy_node_fn(id); }
 
     void log_info(const char* msg) const { if (log_info_fn) log_info_fn(msg); }
     void log_warn(const char* msg) const { if (log_warn_fn) log_warn_fn(msg); }

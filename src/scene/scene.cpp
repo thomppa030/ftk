@@ -133,6 +133,7 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
     obj->name = name;
     obj->source = source;
     objects_.push_back(std::move(obj));
+    id_generation_[id] = 1;
     dirty_ = true;
     index_dirty_ = true;
     return id;
@@ -145,6 +146,7 @@ uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     obj->transform = transform;
     obj->name = name;
     objects_.push_back(std::move(obj));
+    id_generation_[id] = 1;
     dirty_ = true;
     index_dirty_ = true;
     return id;
@@ -156,6 +158,7 @@ uint32_t Scene::add_folder(const std::string& name) {
     obj->id = id;
     obj->name = name;
     objects_.push_back(std::move(obj));
+    id_generation_[id] = 1;
     dirty_ = true;
     index_dirty_ = true;
     return id;
@@ -166,6 +169,9 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
     uint32_t id = node->id;
     objects_.push_back(std::move(node));
+    if (id_generation_.find(id) == id_generation_.end()) {
+        id_generation_[id] = 1;
+    }
     dirty_ = true;
     index_dirty_ = true;
     return id;
@@ -180,6 +186,7 @@ void Scene::remove(uint32_t id) {
     auto it = std::find_if(objects_.begin(), objects_.end(),
                            [id](const auto& o) { return o->id == id; });
     if (it != objects_.end()) {
+        id_generation_[id]++;
         objects_.erase(it);
         dirty_ = true;
         index_dirty_ = true;
@@ -194,6 +201,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
     }
     auto it = std::find_if(objects_.begin(), objects_.end(),
                            [id](const auto& o) { return o->id == id; });
+    id_generation_[id]++;
     auto result = std::move(*it);
     objects_.erase(it);
     dirty_ = true;
@@ -203,6 +211,7 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
 
 void Scene::restore(std::unique_ptr<Node> node) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
+    // Keep existing generation — node is coming back
     objects_.push_back(std::move(node));
     dirty_ = true;
     index_dirty_ = true;
@@ -232,6 +241,42 @@ void Scene::clear() {
     objects_.clear();
     point_lights_.clear();
     spot_lights_.clear();
+    id_generation_.clear();
+    pending_destroy_.clear();
+    index_dirty_ = true;
+}
+
+uint32_t Scene::generation_of(uint32_t id) const {
+    auto it = id_generation_.find(id);
+    return it != id_generation_.end() ? it->second : 0;
+}
+
+void Scene::queue_destroy(uint32_t id) {
+    pending_destroy_.push_back(id);
+}
+
+void Scene::flush_destroyed() {
+    if (pending_destroy_.empty()) return;
+
+    for (uint32_t doomed : pending_destroy_) {
+        // Reparent children to root
+        for (auto& obj : objects_) {
+            if (obj->parent_id == static_cast<int32_t>(doomed)) {
+                obj->parent_id = -1;
+            }
+        }
+        // Bump generation so WeakRefs go stale
+        id_generation_[doomed]++;
+        // Erase from objects
+        auto it = std::find_if(objects_.begin(), objects_.end(),
+                               [doomed](const auto& o) { return o->id == doomed; });
+        if (it != objects_.end()) {
+            objects_.erase(it);
+        }
+    }
+
+    pending_destroy_.clear();
+    dirty_ = true;
     index_dirty_ = true;
 }
 

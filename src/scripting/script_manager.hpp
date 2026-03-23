@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -37,6 +38,7 @@ struct OwnedFieldDesc {
     float min;
     float max;
     float speed;
+    std::string ref_type_name;  // for WEAK_REF/REF/SHARED_REF: target type name
 };
 
 struct OwnedScriptType {
@@ -44,6 +46,7 @@ struct OwnedScriptType {
     uint32_t type_id;
     ScriptComponent* (*create)();
     std::vector<OwnedFieldDesc> fields;
+    void (*trace)(void* instance, void* visitor){nullptr};
     bool loaded{true};
 };
 
@@ -75,6 +78,8 @@ public:
 
     void call_begin_play(Scene& scene);
     void call_end_play(Scene& scene);
+
+    void trace_doomed_refs(Scene& scene, std::span<const uint32_t> doomed_ids);
 
     [[nodiscard]] const OwnedScriptType* find_script_type(const std::string& name) const;
     [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }

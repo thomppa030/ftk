@@ -1025,6 +1025,10 @@ void Engine::run() {
 
         if (is_playing()) {
             script_manager_.update(scene_, input_, clock_, play_session_->physics_world());
+            if (!scene_.pending_destroy().empty()) {
+                script_manager_.trace_doomed_refs(scene_, scene_.pending_destroy());
+                scene_.flush_destroyed();
+            }
             play_session_->physics_step(dt, scene_);
             if (play_session_->wants_stop(input_)) {
                 stop_play();
