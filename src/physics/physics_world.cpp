@@ -110,7 +110,14 @@ static glm::vec3 to_glm(JPH::Vec3 v) {
 }
 
 static JPH::Quat to_jolt_quat(const glm::quat& q) {
-    return JPH::Quat(q.x, q.y, q.z, q.w);
+    // Guard against NaN/zero/denormalized quaternions — Jolt asserts IsNormalized()
+    if (std::isnan(q.x) || std::isnan(q.y) || std::isnan(q.z) || std::isnan(q.w)) {
+        return JPH::Quat::sIdentity();
+    }
+    float len2 = q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w;
+    if (len2 < 1e-8f) return JPH::Quat::sIdentity();
+    auto jq = JPH::Quat(q.x, q.y, q.z, q.w);
+    return jq.IsNormalized() ? jq : jq.Normalized();
 }
 
 static glm::quat to_glm_quat(JPH::Quat q) {
@@ -302,6 +309,11 @@ void PhysicsWorld::create_bodies(Scene& scene) {
                 break;
             }
             case ColliderShape::Mesh: {
+                // Mesh colliders are static-only in Jolt
+                if (rb.body_type != BodyType::Static) {
+                    FJELL_CORE_WARN("Object '{}' has Mesh collider on non-static body — forcing static",
+                                    obj->name);
+                }
                 // Mesh colliders require CPU vertex data from the model
                 auto* mesh = obj->components.get<MeshComponent>();
                 if (!mesh || !mesh->model || mesh->model->collision_vertices().empty()) {
@@ -343,10 +355,15 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             shape = new JPH::OffsetCenterOfMassShape(shape, to_jolt(col.offset));
         }
 
-        // Determine motion type
+        // Determine motion type (mesh colliders forced to static)
+        auto effective_type = rb.body_type;
+        if (col.shape == ColliderShape::Mesh && effective_type != BodyType::Static) {
+            effective_type = BodyType::Static;
+        }
+
         JPH::EMotionType motion;
         JPH::ObjectLayer layer;
-        switch (rb.body_type) {
+        switch (effective_type) {
             case BodyType::Static:
                 motion = JPH::EMotionType::Static;
                 layer = layers::NON_MOVING;
@@ -416,10 +433,10 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         auto it = impl_->object_to_body.find(obj->id);
         if (it == impl_->object_to_body.end()) continue;
 
-        bi.MoveKinematic(it->second,
-                         to_jolt(spatial->transform.position),
-                         to_jolt_quat(spatial->transform.rotation),
-                         dt);
+        bi.SetPositionAndRotation(it->second,
+                                  to_jolt(spatial->transform.position),
+                                  to_jolt_quat(spatial->transform.rotation),
+                                  JPH::EActivation::Activate);
     }
 
     // Step physics
