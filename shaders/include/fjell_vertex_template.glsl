@@ -1,0 +1,87 @@
+#version 460
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+    mat4 inv_view_proj;
+    mat4 prev_view_proj;
+    float time;
+} ubo;
+
+struct GpuMaterial {
+    uint texture_indices[8];
+    float base_params[12];
+    uint param_offset;
+    uint param_count;
+    uint padding[2];
+};
+
+layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
+    GpuMaterial materials[];
+};
+
+layout(set = 1, binding = 2) readonly buffer ParamsBuffer {
+    float custom_params[];
+};
+
+#include "fjell_draw_data.glsl"
+
+layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
+    DrawData draws[];
+};
+
+layout(location = 0) in vec3 in_position;
+layout(location = 1) in vec3 in_color;
+layout(location = 2) in vec2 in_tex_coord;
+layout(location = 3) in vec3 in_normal;
+layout(location = 4) in vec4 in_tangent;
+
+layout(location = 0) out vec3 frag_color;
+layout(location = 1) out vec2 frag_tex_coord;
+layout(location = 2) out vec3 frag_world_pos;
+layout(location = 3) out vec3 frag_world_normal;
+layout(location = 4) out mat3 frag_TBN;
+layout(location = 7) flat out uint frag_draw_index;
+
+void main() {
+    uint draw_index = gl_BaseInstance;
+    mat4 model = draws[draw_index].model;
+    uint material_id = draws[draw_index].material_id;
+    GpuMaterial mat = materials[material_id];
+
+    vec3 VERTEX = in_position;
+    vec3 NORMAL = in_normal;
+    vec2 UV = in_tex_coord;
+    mat4 MODEL = model;
+    float TIME = ubo.time;
+
+/*FJSL_VERTEX_CUSTOM_PARAMS*/
+
+    {
+/*FJSL_VERTEX_USER_CODE*/
+    }
+
+    vec4 world_pos = model * vec4(VERTEX, 1.0);
+    gl_Position = ubo.projection * ubo.view * world_pos;
+
+    frag_color = in_color;
+    frag_tex_coord = UV;
+    frag_world_pos = world_pos.xyz;
+    frag_draw_index = draw_index;
+
+    mat3 normal_matrix = transpose(inverse(mat3(model)));
+    frag_world_normal = normal_matrix * NORMAL;
+
+    vec3 T = normalize(normal_matrix * in_tangent.xyz);
+    vec3 N = normalize(frag_world_normal);
+    vec3 B = cross(N, T) * in_tangent.w;
+    frag_TBN = mat3(T, B, N);
+}
