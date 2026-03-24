@@ -57,6 +57,8 @@ private:
     VkPipeline pipeline_{VK_NULL_HANDLE};
     VkPipeline skinned_pipeline_{VK_NULL_HANDLE};
     VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout material_set_layout_{VK_NULL_HANDLE};
 
     // Per-frame cascade data
     std::array<glm::mat4, CASCADE_COUNT> light_matrices_{};

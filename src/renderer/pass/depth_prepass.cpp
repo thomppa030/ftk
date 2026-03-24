@@ -92,7 +92,7 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
     depth_stencil.depthBoundsTestEnable = VK_FALSE;
     depth_stencil.stencilTestEnable = VK_FALSE;
 
-    std::array set_layouts = {resources.global_set_layout, draw_data_layout_};
+    std::array set_layouts = {resources.global_set_layout, resources.material_set_layout, draw_data_layout_};
 
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -221,7 +221,7 @@ void DepthPrePass::record(const FrameContext& ctx) {
     vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
     vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
 
-    std::array descriptor_sets = {ctx.global_descriptor_set, ctx.draw_data_set};
+    std::array descriptor_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, static_cast<uint32_t>(descriptor_sets.size()),
                             descriptor_sets.data(), 0, nullptr);

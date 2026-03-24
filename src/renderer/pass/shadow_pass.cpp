@@ -262,6 +262,8 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     draw_data_layout_ = resources.draw_data_layout;
+    global_set_layout_ = resources.global_set_layout;
+    material_set_layout_ = resources.material_set_layout;
 
     create_images();
 
@@ -343,10 +345,12 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
     push_range.offset = 0;
     push_range.size = sizeof(glm::mat4);
 
+    std::array shadow_set_layouts = {global_set_layout_, material_set_layout_, draw_data_layout_};
+
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.setLayoutCount = 1;
-    layout_info.pSetLayouts = &draw_data_layout_;
+    layout_info.setLayoutCount = static_cast<uint32_t>(shadow_set_layouts.size());
+    layout_info.pSetLayouts = shadow_set_layouts.data();
     layout_info.pushConstantRangeCount = 1;
     layout_info.pPushConstantRanges = &push_range;
 
@@ -497,9 +501,11 @@ void ShadowPass::record(const FrameContext& ctx) {
         vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
         vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
 
-        // Bind draw data SSBO
+        // Bind global UBO + material/params + draw data
+        std::array shadow_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                0, 1, &ctx.draw_data_set, 0, nullptr);
+                                0, static_cast<uint32_t>(shadow_sets.size()),
+                                shadow_sets.data(), 0, nullptr);
 
         // Push light_space matrix for this cascade
         vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
