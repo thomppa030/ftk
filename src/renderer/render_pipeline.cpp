@@ -1,9 +1,11 @@
 #include "renderer/render_pipeline.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/thread_command_pools.hpp"
+#include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 
 #include <algorithm>
+#include <queue>
 
 namespace fjell {
 
@@ -63,12 +65,66 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               VkSampleCountFlagBits msaa, uint32_t /*active_sources*/,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
                               uint32_t frame_index) {
-    // Sort entries by order if needed
+    FJELL_PROFILE_SCOPE_N("render_pipeline_execute");
+
+    // Topological sort by resource dependencies, order as tiebreaker
     if (!sorted_) {
-        std::sort(entries_.begin(), entries_.end(),
-                  [](const PassEntry& a, const PassEntry& b) {
-                      return a.order < b.order;
-                  });
+        size_t n = entries_.size();
+
+        // Build adjacency: if pass i writes resource R and pass j reads R, add edge i→j
+        std::vector<std::vector<size_t>> adj(n);
+        std::vector<uint32_t> in_degree(n, 0);
+
+        // Map resource name → indices of passes that write it
+        std::unordered_map<std::string, std::vector<size_t>> writers;
+        for (size_t i = 0; i < n; ++i) {
+            const auto& s = state_for(entries_[i].name);
+            for (const auto& w : s.writes) {
+                writers[w].push_back(i);
+            }
+        }
+
+        // For each pass that reads a resource, add edges from all its writers
+        // Only add edge if the writer has a lower order (respects intended ordering
+        // when multiple passes write the same resource in sequence)
+        for (size_t j = 0; j < n; ++j) {
+            const auto& s = state_for(entries_[j].name);
+            for (const auto& r : s.reads) {
+                auto it = writers.find(r);
+                if (it == writers.end()) continue;
+                for (size_t i : it->second) {
+                    if (i == j) continue;
+                    // Only add edge from writer → reader if writer has lower order
+                    if (entries_[i].order < entries_[j].order) {
+                        adj[i].push_back(j);
+                        in_degree[j]++;
+                    }
+                }
+            }
+        }
+
+        // Kahn's algorithm with priority queue (order as tiebreaker)
+        auto cmp = [this](size_t a, size_t b) {
+            return entries_[a].order > entries_[b].order; // min-heap
+        };
+        std::priority_queue<size_t, std::vector<size_t>, decltype(cmp)> pq(cmp);
+
+        for (size_t i = 0; i < n; ++i) {
+            if (in_degree[i] == 0) pq.push(i);
+        }
+
+        std::vector<PassEntry> sorted;
+        sorted.reserve(n);
+        while (!pq.empty()) {
+            size_t idx = pq.top();
+            pq.pop();
+            sorted.push_back(std::move(entries_[idx]));
+            for (size_t next : adj[idx]) {
+                if (--in_degree[next] == 0) pq.push(next);
+            }
+        }
+
+        entries_ = std::move(sorted);
         sorted_ = true;
     }
 
