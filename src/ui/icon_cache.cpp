@@ -246,44 +246,110 @@ void IconCache::load_icon(const std::string& name, const std::string& path) {
 // ── Thumbnails ──────────────────────────────────────────────────────────
 
 VkDescriptorSet IconCache::thumbnail(const std::string& path) {
+    namespace fs = std::filesystem;
+
     auto it = thumbnails_.find(path);
     if (it != thumbnails_.end()) return it->second.descriptor;
 
-    // Load and resize to thumbnail
-    int w, h, channels;
-    auto* pixels = stbi_load(path.c_str(), &w, &h, &channels, 4);
-    if (!pixels) return VK_NULL_HANDLE;
-
-    // Downscale to 80x80 with simple box filter if larger
     constexpr int thumb_size = 80;
-    std::vector<uint8_t> resized;
-    const uint8_t* upload_data = reinterpret_cast<const uint8_t*>(pixels);
-    int upload_w = w;
-    int upload_h = h;
 
-    if (w > thumb_size || h > thumb_size) {
-        float scale = static_cast<float>(thumb_size) / static_cast<float>(std::max(w, h));
-        upload_w = std::max(1, static_cast<int>(w * scale));
-        upload_h = std::max(1, static_cast<int>(h * scale));
-        resized.resize(upload_w * upload_h * 4);
+    // Check disk cache first — avoids decoding the full-res texture
+    auto src_path = fs::path(path);
+    auto cache_dir = src_path.parent_path() / ".fjcache";
+    auto cache_path = cache_dir / (src_path.stem().string() + ".thumb.png");
 
-        for (int dy = 0; dy < upload_h; ++dy) {
-            for (int dx = 0; dx < upload_w; ++dx) {
-                int sx = dx * w / upload_w;
-                int sy = dy * h / upload_h;
-                auto* src = reinterpret_cast<const uint8_t*>(pixels) + (sy * w + sx) * 4;
-                auto* dst = resized.data() + (dy * upload_w + dx) * 4;
-                dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = src[3];
-            }
-        }
-        upload_data = resized.data();
+    bool cache_valid = false;
+    if (fs::exists(cache_path) && fs::exists(src_path)) {
+        cache_valid = (fs::last_write_time(cache_path) >= fs::last_write_time(src_path));
     }
 
-    auto entry = upload_rgba(upload_data, upload_w, upload_h);
-    stbi_image_free(pixels);
+    int upload_w, upload_h;
+    std::vector<uint8_t> pixels_buf;
 
+    if (cache_valid) {
+        int channels;
+        auto* px = stbi_load(cache_path.string().c_str(), &upload_w, &upload_h, &channels, 4);
+        if (!px) return VK_NULL_HANDLE;
+        pixels_buf.assign(px, px + static_cast<size_t>(upload_w) * upload_h * 4);
+        stbi_image_free(px);
+    } else {
+        int w, h, channels;
+        auto* px = stbi_load(path.c_str(), &w, &h, &channels, 4);
+        if (!px) return VK_NULL_HANDLE;
+
+        if (w > thumb_size || h > thumb_size) {
+            float scale = static_cast<float>(thumb_size) / static_cast<float>(std::max(w, h));
+            upload_w = std::max(1, static_cast<int>(w * scale));
+            upload_h = std::max(1, static_cast<int>(h * scale));
+            pixels_buf.resize(static_cast<size_t>(upload_w) * upload_h * 4);
+
+            stbir_resize_uint8_linear(
+                px, w, h, 0,
+                pixels_buf.data(), upload_w, upload_h, 0,
+                STBIR_RGBA);
+        } else {
+            upload_w = w;
+            upload_h = h;
+            pixels_buf.assign(px, px + static_cast<size_t>(w) * h * 4);
+        }
+        stbi_image_free(px);
+
+        // Write cache to disk
+        std::error_code ec;
+        fs::create_directories(cache_dir, ec);
+        if (!ec) {
+            stbi_write_png(cache_path.string().c_str(), upload_w, upload_h, 4,
+                           pixels_buf.data(), upload_w * 4);
+        }
+    }
+
+    auto entry = upload_rgba(pixels_buf.data(), upload_w, upload_h);
     thumbnails_[path] = entry;
     return entry.descriptor;
+}
+
+void IconCache::ensure_thumbnail_cache(const std::string& path) {
+    namespace fs = std::filesystem;
+    constexpr int THUMB_SIZE = 80;
+
+    auto src_path = fs::path(path);
+    if (!fs::exists(src_path)) return;
+
+    auto cache_dir = src_path.parent_path() / ".fjcache";
+    auto cache_path = cache_dir / (src_path.stem().string() + ".thumb.png");
+
+    // Already cached and up to date
+    if (fs::exists(cache_path) &&
+        fs::last_write_time(cache_path) >= fs::last_write_time(src_path)) {
+        return;
+    }
+
+    int w, h, channels;
+    auto* pixels = stbi_load(path.c_str(), &w, &h, &channels, 4);
+    if (!pixels) return;
+
+    int tw = w, th = h;
+    std::vector<uint8_t> data;
+
+    if (w > THUMB_SIZE || h > THUMB_SIZE) {
+        float scale = static_cast<float>(THUMB_SIZE) /
+                      static_cast<float>(std::max(w, h));
+        tw = std::max(1, static_cast<int>(w * scale));
+        th = std::max(1, static_cast<int>(h * scale));
+        data.resize(static_cast<size_t>(tw) * th * 4);
+        stbir_resize_uint8_linear(pixels, w, h, 0,
+                                  data.data(), tw, th, 0, STBIR_RGBA);
+    } else {
+        data.assign(pixels, pixels + static_cast<size_t>(w) * h * 4);
+    }
+    stbi_image_free(pixels);
+
+    std::error_code ec;
+    fs::create_directories(cache_dir, ec);
+    if (!ec) {
+        stbi_write_png(cache_path.string().c_str(), tw, th, 4,
+                       data.data(), tw * 4);
+    }
 }
 
 VkDescriptorSet IconCache::thumbnail_cached(const std::string& path) const {
@@ -292,6 +358,16 @@ VkDescriptorSet IconCache::thumbnail_cached(const std::string& path) const {
 }
 
 void IconCache::clear_thumbnails() {
+    // Wait for any in-flight upload before destroying its images
+    if (in_flight_.fence) {
+        vkWaitForFences(device_, 1, &in_flight_.fence, VK_TRUE, UINT64_MAX);
+        for (auto& e : in_flight_.entries) destroy_entry(device_, e);
+        vkFreeCommandBuffers(device_, command_pool_, 1, &in_flight_.cmd);
+        vkDestroyFence(device_, in_flight_.fence, nullptr);
+        vkDestroyBuffer(device_, in_flight_.staging_buffer, nullptr);
+        vkFreeMemory(device_, in_flight_.staging_memory, nullptr);
+        in_flight_ = {};
+    }
     vkDeviceWaitIdle(device_);
     for (auto& [path, e] : thumbnails_) destroy_entry(device_, e);
     thumbnails_.clear();
@@ -368,29 +444,63 @@ void IconCache::preload_thumbnails(const std::vector<std::string>& paths, Thread
 }
 
 void IconCache::poll_thumbnails() {
-    constexpr int MAX_BATCH = 128;
+    // Step 1: Check if a previous upload has finished
+    if (in_flight_.fence) {
+        if (vkGetFenceStatus(device_, in_flight_.fence) != VK_SUCCESS)
+            return; // still in progress — don't block, don't submit more
 
+        // Upload complete — finalize all at once
+        for (size_t i = 0; i < in_flight_.entries.size(); ++i) {
+            auto& e = in_flight_.entries[i];
+
+            VkImageViewCreateInfo view_info{};
+            view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            view_info.image = e.image;
+            view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+            view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            vk_check(vkCreateImageView(device_, &view_info, nullptr, &e.view),
+                     "create batch image view");
+
+            VkSamplerCreateInfo sampler_info{};
+            sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+            sampler_info.magFilter = VK_FILTER_LINEAR;
+            sampler_info.minFilter = VK_FILTER_LINEAR;
+            sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            vk_check(vkCreateSampler(device_, &sampler_info, nullptr, &e.sampler),
+                     "create batch sampler");
+
+            e.descriptor = ImGui_ImplVulkan_AddTexture(
+                e.sampler, e.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+            thumbnails_[in_flight_.paths[i]] = e;
+        }
+
+        // Clean up in-flight resources
+        vkFreeCommandBuffers(device_, command_pool_, 1, &in_flight_.cmd);
+        vkDestroyFence(device_, in_flight_.fence, nullptr);
+        vkDestroyBuffer(device_, in_flight_.staging_buffer, nullptr);
+        vkFreeMemory(device_, in_flight_.staging_memory, nullptr);
+        in_flight_ = {};
+    }
+
+    // Step 2: Grab all pending thumbnails and submit a new upload
     std::vector<PendingThumbnail> batch;
     {
         std::lock_guard lock(pending_mutex_);
         if (pending_thumbnails_.empty()) return;
-
-        int count = std::min(static_cast<int>(pending_thumbnails_.size()), MAX_BATCH);
-        batch.assign(
-            std::make_move_iterator(pending_thumbnails_.begin()),
-            std::make_move_iterator(pending_thumbnails_.begin() + count));
-        pending_thumbnails_.erase(pending_thumbnails_.begin(),
-                                  pending_thumbnails_.begin() + count);
+        batch = std::move(pending_thumbnails_);
+        pending_thumbnails_.clear();
     }
 
-    // Filter out already-loaded
     std::erase_if(batch, [this](const PendingThumbnail& pt) {
         return thumbnails_.contains(pt.path);
     });
     if (batch.empty()) return;
 
     // Compute total staging size with alignment
-    constexpr VkDeviceSize ALIGN = 64; // conservative alignment
+    constexpr VkDeviceSize ALIGN = 64;
     VkDeviceSize total_staging = 0;
     struct UploadInfo {
         VkDeviceSize staging_offset;
@@ -431,7 +541,6 @@ void IconCache::poll_thumbnails() {
     vk_check(vkBindBufferMemory(device_, staging_buffer, staging_memory, 0),
              "bind batch staging memory");
 
-    // Map and copy all pixel data
     uint8_t* mapped = nullptr;
     vk_check(vkMapMemory(device_, staging_memory, 0, total_staging, 0,
                           reinterpret_cast<void**>(&mapped)),
@@ -471,7 +580,7 @@ void IconCache::poll_thumbnails() {
                  "bind batch image memory");
     }
 
-    // One command buffer: transition all → copy all → transition all
+    // Record command buffer
     VkCommandBufferAllocateInfo cmd_alloc{};
     cmd_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cmd_alloc.commandPool = command_pool_;
@@ -486,7 +595,6 @@ void IconCache::poll_thumbnails() {
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vk_check(vkBeginCommandBuffer(cmd, &begin), "begin batch cmd");
 
-    // Transition all to transfer dst
     for (size_t i = 0; i < entries.size(); ++i) {
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -502,7 +610,6 @@ void IconCache::poll_thumbnails() {
                              0, 0, nullptr, 0, nullptr, 1, &barrier);
     }
 
-    // Copy all
     for (size_t i = 0; i < entries.size(); ++i) {
         VkBufferImageCopy region{};
         region.bufferOffset = infos[i].staging_offset;
@@ -513,7 +620,6 @@ void IconCache::poll_thumbnails() {
                                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     }
 
-    // Transition all to shader read
     for (size_t i = 0; i < entries.size(); ++i) {
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -532,42 +638,26 @@ void IconCache::poll_thumbnails() {
 
     vk_check(vkEndCommandBuffer(cmd), "end batch cmd");
 
+    // Submit with fence — no blocking
+    VkFenceCreateInfo fence_info{};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    VkFence fence;
+    vk_check(vkCreateFence(device_, &fence_info, nullptr, &fence), "create batch fence");
+
     VkSubmitInfo submit{};
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &cmd;
-    vk_check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE), "submit batch cmd");
-    vk_check(vkQueueWaitIdle(queue_), "wait batch upload");
+    vk_check(vkQueueSubmit(queue_, 1, &submit, fence), "submit batch cmd");
 
-    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
-    vkDestroyBuffer(device_, staging_buffer, nullptr);
-    vkFreeMemory(device_, staging_memory, nullptr);
-
-    // Create views, samplers, descriptors
-    for (size_t i = 0; i < entries.size(); ++i) {
-        VkImageViewCreateInfo view_info{};
-        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        view_info.image = entries[i].image;
-        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-        view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vk_check(vkCreateImageView(device_, &view_info, nullptr, &entries[i].view),
-                 "create batch image view");
-
-        VkSamplerCreateInfo sampler_info{};
-        sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        sampler_info.magFilter = VK_FILTER_LINEAR;
-        sampler_info.minFilter = VK_FILTER_LINEAR;
-        sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        vk_check(vkCreateSampler(device_, &sampler_info, nullptr, &entries[i].sampler),
-                 "create batch sampler");
-
-        entries[i].descriptor = ImGui_ImplVulkan_AddTexture(
-            entries[i].sampler, entries[i].view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-        thumbnails_[batch[i].path] = entries[i];
-    }
+    // Stash everything for finalization when fence signals
+    in_flight_.fence = fence;
+    in_flight_.cmd = cmd;
+    in_flight_.staging_buffer = staging_buffer;
+    in_flight_.staging_memory = staging_memory;
+    in_flight_.entries = std::move(entries);
+    in_flight_.paths.clear();
+    for (auto& b : batch) in_flight_.paths.push_back(std::move(b.path));
 }
 
 } // namespace fjell

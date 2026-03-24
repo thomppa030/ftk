@@ -62,6 +62,10 @@ public:
     /// Upload completed thumbnail data to GPU. Call once per frame from main thread.
     void poll_thumbnails();
 
+    /// Generate .fjcache thumbnail on disk for an image file (no GPU work).
+    /// Safe to call from any thread. Skips if cache is already valid.
+    static void ensure_thumbnail_cache(const std::string& path);
+
     /// Upload RGBA pixel data as a Vulkan image + ImGui descriptor.
     /// Reusable for icons, thumbnails, material previews, etc.
     IconEntry upload_rgba(const uint8_t* pixels, int w, int h);
@@ -92,6 +96,17 @@ private:
     };
     std::mutex pending_mutex_;
     std::vector<PendingThumbnail> pending_thumbnails_;
+
+    // In-flight GPU upload — submitted but not yet finished
+    struct InFlightUpload {
+        VkFence fence{VK_NULL_HANDLE};
+        VkCommandBuffer cmd{VK_NULL_HANDLE};
+        VkBuffer staging_buffer{VK_NULL_HANDLE};
+        VkDeviceMemory staging_memory{VK_NULL_HANDLE};
+        std::vector<std::string> paths;
+        std::vector<IconEntry> entries;
+    };
+    InFlightUpload in_flight_;
 };
 
 } // namespace fjell
