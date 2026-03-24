@@ -254,6 +254,7 @@ private:
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
   float ibl_intensity_{1.0f};
+  float elapsed_time_{0.0f};
 };
 
 } // namespace fjell

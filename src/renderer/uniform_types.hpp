@@ -18,6 +18,7 @@ struct GlobalUbo {
     alignas(16) glm::mat4 inv_projection;
     alignas(16) glm::mat4 inv_view_proj;    // inverse(projection * view)
     alignas(16) glm::mat4 prev_view_proj;   // previous frame's projection * view
+    float time{0.0f};                       // engine elapsed time (seconds)
 };
 
 struct DirectionalLight {

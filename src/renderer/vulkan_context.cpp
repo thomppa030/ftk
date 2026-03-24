@@ -1276,6 +1276,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.inv_projection = glm::inverse(projection);
     ubo.inv_view_proj = glm::inverse(projection * view);
     ubo.prev_view_proj = gatherer_.prev_view_proj();
+    ubo.time = elapsed_time_;
 
     gpu_.uniform_buffer(frame_index).write(&ubo, sizeof(ubo));
 
@@ -1449,6 +1450,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                                  bool playing) {
     FJELL_PROFILE_SCOPE_N("record_frame");
     auto vk_device = gpu_.device();
+    elapsed_time_ += dt;
 
     gpu_.render_stats().reset();
     if (show_colliders_ && scene) {
