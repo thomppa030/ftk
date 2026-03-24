@@ -18,6 +18,7 @@ class ThreadCommandPools;
 struct PassEntry {
     std::string name;
     uint32_t order{0};
+    bool enabled{true};
 
     /// Called during execute(). Must call graph.add_pass() with its image deps.
     using BuildFunc = std::function<void(FrameGraph& graph, const FrameImages& images)>;
@@ -30,6 +31,12 @@ class RenderPipeline {
 public:
     void register_pass(PassEntry entry);
     void remove_pass(const std::string& name);
+
+    /// Enable or disable a pass by name. Disabled passes are skipped during execute().
+    void set_pass_enabled(const std::string& name, bool enabled);
+
+    /// Query whether a pass is enabled.
+    [[nodiscard]] bool is_pass_enabled(const std::string& name) const;
 
     /// Build the frame graph from registered passes and execute it.
     void execute(VkCommandBuffer cmd, OffscreenPass& target,

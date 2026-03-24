@@ -19,6 +19,22 @@ void RenderPipeline::remove_pass(const std::string& name) {
         entries_.end());
 }
 
+void RenderPipeline::set_pass_enabled(const std::string& name, bool enabled) {
+    for (auto& entry : entries_) {
+        if (entry.name == name) {
+            entry.enabled = enabled;
+            return;
+        }
+    }
+}
+
+bool RenderPipeline::is_pass_enabled(const std::string& name) const {
+    for (const auto& entry : entries_) {
+        if (entry.name == name) return entry.enabled;
+    }
+    return false;
+}
+
 void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               VkSampleCountFlagBits msaa, uint32_t /*active_sources*/,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
@@ -53,8 +69,9 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     }
     graph.begin_frame();
 
-    // Each entry adds itself to the graph with its image dependencies
+    // Each enabled entry adds itself to the graph with its image dependencies
     for (auto& entry : entries_) {
+        if (!entry.enabled) continue;
         entry.build(graph, images);
     }
 

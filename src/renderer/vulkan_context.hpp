@@ -155,6 +155,7 @@ public:
   void set_active_sources(uint32_t mask) { active_sources_ = mask; }
   [[nodiscard]] uint32_t active_sources() const { return active_sources_; }
   [[nodiscard]] RenderTargetPool& target_pool() { return target_pool_; }
+  [[nodiscard]] RenderPipeline& render_pipeline() { return render_pipeline_; }
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
 
