@@ -849,6 +849,17 @@ void VulkanContext::register_passes() {
             }, {});
         }
     });
+
+    // ── Resource declarations ──
+    // Declare what each pass reads/writes so the pipeline can track dependencies.
+    render_pipeline_.set_pass_resources("depth_prepass", {}, {"depth"});
+    render_pipeline_.set_pass_resources("hiz_build", {"depth"}, {"hiz"});
+    render_pipeline_.set_pass_resources("gtao", {"depth"}, {"ao"});
+    render_pipeline_.set_pass_resources("color", {"depth", "ao"}, {"scene_color", "metallic_roughness"});
+    render_pipeline_.set_pass_resources("ssr", {"depth", "scene_color", "metallic_roughness", "hiz"}, {"scene_color"});
+    render_pipeline_.set_pass_resources("volumetric_fog", {"depth", "scene_color"}, {"scene_color"});
+    render_pipeline_.set_pass_resources("bloom", {"scene_color"}, {"scene_color"});
+    render_pipeline_.set_pass_resources("tonemap", {"scene_color"}, {"tonemapped"});
 }
 
 // ── Command buffer recording ────────────────────────────────────────────

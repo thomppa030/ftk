@@ -7,7 +7,10 @@
 
 namespace fjell {
 
+const RenderPipeline::PassState RenderPipeline::default_state_{};
+
 void RenderPipeline::register_pass(PassEntry entry) {
+    pass_state_.try_emplace(entry.name); // create default state if not exists
     entries_.push_back(std::move(entry));
     sorted_ = false;
 }
@@ -17,22 +20,43 @@ void RenderPipeline::remove_pass(const std::string& name) {
         std::remove_if(entries_.begin(), entries_.end(),
                         [&](const PassEntry& e) { return e.name == name; }),
         entries_.end());
+    pass_state_.erase(name);
 }
 
 void RenderPipeline::set_pass_enabled(const std::string& name, bool enabled) {
-    for (auto& entry : entries_) {
-        if (entry.name == name) {
-            entry.enabled = enabled;
-            return;
-        }
-    }
+    pass_state_[name].enabled = enabled;
 }
 
 bool RenderPipeline::is_pass_enabled(const std::string& name) const {
-    for (const auto& entry : entries_) {
-        if (entry.name == name) return entry.enabled;
+    return state_for(name).enabled;
+}
+
+void RenderPipeline::set_pass_resources(const std::string& name,
+                                         std::vector<std::string> reads,
+                                         std::vector<std::string> writes) {
+    auto& s = pass_state_[name];
+    s.reads = std::move(reads);
+    s.writes = std::move(writes);
+}
+
+bool RenderPipeline::is_resource_available(const std::string& resource) const {
+    for (const auto& [name, state] : pass_state_) {
+        if (!state.enabled) continue;
+        for (const auto& w : state.writes) {
+            if (w == resource) return true;
+        }
     }
     return false;
+}
+
+RenderPipeline::PassState& RenderPipeline::state_for(const std::string& name) {
+    return pass_state_[name];
+}
+
+const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& name) const {
+    auto it = pass_state_.find(name);
+    if (it != pass_state_.end()) return it->second;
+    return default_state_;
 }
 
 void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
@@ -71,7 +95,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Each enabled entry adds itself to the graph with its image dependencies
     for (auto& entry : entries_) {
-        if (!entry.enabled) continue;
+        if (!state_for(entry.name).enabled) continue;
         entry.build(graph, images);
     }
 
