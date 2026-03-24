@@ -39,12 +39,14 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
     bindings[1].binding = 1;
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                              VK_SHADER_STAGE_MESH_BIT_EXT;
 
     bindings[2].binding = 2;
     bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                              VK_SHADER_STAGE_MESH_BIT_EXT;
 
     // Partially bound + update-after-bind on textures, update-after-bind on SSBOs
     std::array<VkDescriptorBindingFlags, 3> bind_flags{};
