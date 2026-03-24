@@ -82,6 +82,7 @@ public:
   void wait_idle();
   void release_imgui_textures();
   void reload_pipeline();
+  void sync_custom_depth_pipelines();
 
   // ── Forwarding accessors to GpuContext ────────────────────────────────
   [[nodiscard]] GpuContext& gpu() { return gpu_; }

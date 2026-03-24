@@ -15,11 +15,11 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 #include "fjell_draw_data.glsl"
 
-layout(set = 1, binding = 0) readonly buffer DrawDataBuffer {
+layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
-layout(set = 1, binding = 1) readonly buffer BoneMatrixBuffer {
+layout(set = 2, binding = 1) readonly buffer BoneMatrixBuffer {
     mat4 bone_matrices[];
 };
 

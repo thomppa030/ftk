@@ -186,6 +186,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             FJELL_CORE_ERROR("{}", result.error());
             create_default_scene();
         }
+        vulkan_context_->sync_custom_depth_pipelines();
     } else {
         create_default_scene();
     }
@@ -514,6 +515,7 @@ void Engine::load_scene(const std::string& path) {
     }
     scene_context_->set_selected_id(0);
     scene_context_->command_history().clear();
+    vulkan_context_->sync_custom_depth_pipelines();
 }
 
 void Engine::bind_menu_bar() {

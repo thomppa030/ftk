@@ -84,8 +84,12 @@ vec2 fetch_tex_coord(uint vi) {
 
 struct TaskPayload {
     uint draw_index;
-    uint meshlet_index;
+    uint meshlet_indices[32];
 };
+
+layout(push_constant) uniform PushConstants {
+    uint first_draw;
+} push;
 
 taskPayloadSharedEXT TaskPayload payload;
 
@@ -97,7 +101,7 @@ uint get_triangle_index(uint meshlet_tri_offset, uint local_tri, uint vertex_in_
 }
 
 void main() {
-    uint meshlet_idx = payload.meshlet_index;
+    uint meshlet_idx = payload.meshlet_indices[gl_WorkGroupID.x];
     Meshlet m = meshlets[meshlet_idx];
 
     DrawData dd = draws[payload.draw_index];

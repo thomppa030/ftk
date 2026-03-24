@@ -34,15 +34,27 @@ PipelineCache::PipelineCache(Device& device,
     generated_dir_ = base_path::resolve("shaders/generated");
     std::filesystem::create_directories(generated_dir_);
 
-    // Load the spatial template
-    std::string template_path = shader_source_dir_ + "/include/fjell_spatial_template.glsl";
-    std::ifstream tf(template_path);
-    if (!tf.is_open()) {
-        throw std::runtime_error("Failed to open spatial template: " + template_path);
+    auto load_template = [&](const std::string& name) -> std::string {
+        std::string path = shader_source_dir_ + "/include/" + name;
+        std::ifstream f(path);
+        if (!f.is_open()) return {};
+        std::ostringstream s;
+        s << f.rdbuf();
+        return s.str();
+    };
+
+    // Load the spatial template (required)
+    template_source_ = load_template("fjell_spatial_template.glsl");
+    if (template_source_.empty()) {
+        throw std::runtime_error("Failed to open spatial template");
     }
-    std::ostringstream ss;
-    ss << tf.rdbuf();
-    template_source_ = ss.str();
+
+    // Load vertex displacement templates (optional — empty if missing)
+    mesh_template_ = load_template("fjell_mesh_template.glsl");
+    depth_mesh_template_ = load_template("fjell_depth_mesh_template.glsl");
+    vertex_template_ = load_template("fjell_vertex_template.glsl");
+    depth_vertex_template_ = load_template("fjell_depth_vertex_template.glsl");
+    shadow_vertex_template_ = load_template("fjell_shadow_vertex_template.glsl");
 
     create_layout();
 
@@ -157,37 +169,60 @@ void PipelineCache::compile_entry(Entry& entry) {
         out << frag_source;
     }
 
-    // Compile to SPIR-V
-    std::string spv_path = compile_glsl(entry.generated_frag_path, stem);
+    // Compile fragment to SPIR-V
+    std::string frag_spv = compile_glsl(entry.generated_frag_path, stem + ".frag");
+
+    // Generate and compile vertex displacement shaders if vertex() is present
+    entry.has_custom_vertex = !entry.metadata.vertex_body.empty();
+    if (entry.has_custom_vertex) {
+        auto gen_and_compile = [&](const std::string& tmpl, const std::string& suffix) -> std::string {
+            if (tmpl.empty()) return {};
+            std::string src = generate_vertex_shader(entry.metadata, tmpl);
+            std::string path = generated_dir_ + "/" + stem + suffix;
+            std::ofstream out(path);
+            if (!out.is_open()) return {};
+            out << src;
+            out.close();
+            return compile_glsl(path, stem + suffix);
+        };
+
+        entry.vert_spv = gen_and_compile(vertex_template_, ".vert");
+        entry.mesh_spv = gen_and_compile(mesh_template_, ".mesh");
+        entry.depth_vert_spv = gen_and_compile(depth_vertex_template_, ".depth.vert");
+        entry.depth_mesh_spv = gen_and_compile(depth_mesh_template_, ".depth.mesh");
+        entry.shadow_vert_spv = gen_and_compile(shadow_vertex_template_, ".shadow.vert");
+    }
 
     // Destroy old pipelines if any
     destroy_entry_pipelines(entry);
 
     // Create new pipelines
-    create_pipelines(entry, spv_path);
+    create_pipelines(entry, frag_spv);
 }
 
-std::string PipelineCache::compile_glsl(const std::string& frag_path,
+std::string PipelineCache::compile_glsl(const std::string& source_path,
                                          const std::string& output_name) {
-    std::string spv_path = generated_dir_ + "/" + output_name + ".frag.spv";
+    std::string spv_path = generated_dir_ + "/" + output_name + ".spv";
     std::string include_dir = shader_source_dir_ + "/include";
     std::string cmd = "glslc --target-env=vulkan1.3 -I " + include_dir +
-                      " " + frag_path + " -o " + spv_path + " 2>&1";
+                      " " + source_path + " -o " + spv_path + " 2>&1";
 
     std::string output;
     int status = platform::run_command(cmd, output);
     if (status != 0) {
         FJELL_GFX_ERROR("FJSL shader compilation failed:\n{}", output);
-        throw std::runtime_error("FJSL shader compilation failed for: " + frag_path);
+        throw std::runtime_error("FJSL shader compilation failed for: " + source_path);
     }
 
-    FJELL_GFX_DEBUG("Compiled FJSL shader: {} -> {}", frag_path, spv_path);
+    FJELL_GFX_DEBUG("Compiled FJSL shader: {} -> {}", source_path, spv_path);
     return spv_path;
 }
 
 void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) {
     auto vk = device_.handle();
-    auto vert_code = read_spirv(base_path::resolve("shaders/mesh.vert.spv"));
+    auto vert_code = read_spirv(entry.has_custom_vertex && !entry.vert_spv.empty()
+        ? entry.vert_spv
+        : base_path::resolve("shaders/mesh.vert.spv"));
     auto frag_code = read_spirv(spv_path);
 
     VkShaderModule vert_module = create_shader_module(vk, vert_code);
@@ -416,7 +451,9 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     // ── GPU-driven mesh shader pipeline (if mesh shaders available) ──
     if (gpu_driven_layout_ != VK_NULL_HANDLE) {
         auto gpu_task_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.task.spv"));
-        auto gpu_mesh_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.mesh.spv"));
+        auto gpu_mesh_code = read_spirv(entry.has_custom_vertex && !entry.mesh_spv.empty()
+            ? entry.mesh_spv
+            : base_path::resolve("shaders/mesh_gpu_driven.mesh.spv"));
 
         VkShaderModule gpu_task_module = create_shader_module(vk, gpu_task_code);
         VkShaderModule gpu_mesh_module = create_shader_module(vk, gpu_mesh_code);
@@ -520,6 +557,22 @@ VkPipeline PipelineCache::skinned_transparent_pipeline(uint32_t id) const {
 
 const ShaderMetadata& PipelineCache::metadata(uint32_t id) const {
     return entries_[id].metadata;
+}
+
+bool PipelineCache::has_custom_vertex(uint32_t id) const {
+    return entries_[id].has_custom_vertex;
+}
+
+const std::string& PipelineCache::depth_vert_spv(uint32_t id) const {
+    return entries_[id].depth_vert_spv;
+}
+
+const std::string& PipelineCache::depth_mesh_spv(uint32_t id) const {
+    return entries_[id].depth_mesh_spv;
+}
+
+const std::string& PipelineCache::shadow_vert_spv(uint32_t id) const {
+    return entries_[id].shadow_vert_spv;
 }
 
 } // namespace fjell

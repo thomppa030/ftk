@@ -22,6 +22,8 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
     draw_mesh_tasks_indirect_count_ = device.draw_mesh_tasks_indirect_count_fn();
     draw_data_layout_ = resources.draw_data_layout;
     meshlet_layout_ = resources.meshlet_layout;
+    depth_format_ = resources.depth_format;
+    sample_count_ = resources.sample_count;
 
     auto task_code = read_spirv(base_path::resolve("shaders/depth_mesh.task.spv"));
     auto mesh_code = read_spirv(base_path::resolve("shaders/depth_mesh.mesh.spv"));
@@ -162,8 +164,8 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
     input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-    // Skinned depth layout: set 0 = global, set 1 = draw data (with bones)
-    std::array skinned_set_layouts = {resources.global_set_layout, draw_data_layout_};
+    // Skinned depth layout: set 0 = global, set 1 = material, set 2 = draw data (with bones)
+    std::array skinned_set_layouts = {resources.global_set_layout, resources.material_set_layout, draw_data_layout_};
     VkPipelineLayoutCreateInfo skinned_layout_info{};
     skinned_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     skinned_layout_info.setLayoutCount = static_cast<uint32_t>(skinned_set_layouts.size());
@@ -193,7 +195,99 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
     FJELL_GFX_DEBUG("Mesh shader depth pass created");
 }
 
+void MeshShaderDepthPass::register_custom_depth(uint32_t pipeline_id,
+                                                  const std::string& mesh_spv_path) {
+    if (layout_ == VK_NULL_HANDLE) return;
+
+    auto task_code = read_spirv(base_path::resolve("shaders/depth_mesh.task.spv"));
+    auto mesh_code = read_spirv(mesh_spv_path);
+    auto frag_code = read_spirv(base_path::resolve("shaders/depth_only.frag.spv"));
+
+    auto task_module = create_shader_module(device_, task_code);
+    auto mesh_module = create_shader_module(device_, mesh_code);
+    auto frag_module = create_shader_module(device_, frag_code);
+
+    std::array<VkPipelineShaderStageCreateInfo, 3> stages{};
+    stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                 VK_SHADER_STAGE_TASK_BIT_EXT, task_module, "main", nullptr};
+    stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                 VK_SHADER_STAGE_MESH_BIT_EXT, mesh_module, "main", nullptr};
+    stages[2] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
+                 VK_SHADER_STAGE_FRAGMENT_BIT, frag_module, "main", nullptr};
+
+    VkPipelineViewportStateCreateInfo viewport_state{};
+    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport_state.viewportCount = 1;
+    viewport_state.scissorCount = 1;
+
+    std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic_state{};
+    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
+    dynamic_state.pDynamicStates = dynamic_states.data();
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = sample_count_;
+
+    VkPipelineColorBlendStateCreateInfo color_blending{};
+    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    color_blending.attachmentCount = 0;
+
+    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
+    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil.depthTestEnable = VK_TRUE;
+    depth_stencil.depthWriteEnable = VK_TRUE;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
+
+    VkPipelineRenderingCreateInfo rendering_info{};
+    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    rendering_info.depthAttachmentFormat = depth_format_;
+
+    VkGraphicsPipelineCreateInfo pipeline_info{};
+    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeline_info.pNext = &rendering_info;
+    pipeline_info.stageCount = static_cast<uint32_t>(stages.size());
+    pipeline_info.pStages = stages.data();
+    pipeline_info.pVertexInputState = nullptr;
+    pipeline_info.pInputAssemblyState = nullptr;
+    pipeline_info.pViewportState = &viewport_state;
+    pipeline_info.pRasterizationState = &rasterizer;
+    pipeline_info.pMultisampleState = &multisampling;
+    pipeline_info.pDepthStencilState = &depth_stencil;
+    pipeline_info.pColorBlendState = &color_blending;
+    pipeline_info.pDynamicState = &dynamic_state;
+    pipeline_info.layout = layout_;
+
+    VkPipeline custom_pipeline = VK_NULL_HANDLE;
+    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+                                   nullptr, &custom_pipeline) == VK_SUCCESS) {
+        // Destroy old custom pipeline for this id if any
+        auto it = custom_depth_pipelines_.find(pipeline_id);
+        if (it != custom_depth_pipelines_.end()) {
+            vkDestroyPipeline(device_, it->second, nullptr);
+        }
+        custom_depth_pipelines_[pipeline_id] = custom_pipeline;
+    }
+
+    vkDestroyShaderModule(device_, task_module, nullptr);
+    vkDestroyShaderModule(device_, mesh_module, nullptr);
+    vkDestroyShaderModule(device_, frag_module, nullptr);
+}
+
 void MeshShaderDepthPass::destroy() {
+    for (auto& [id, p] : custom_depth_pipelines_) {
+        if (p != VK_NULL_HANDLE) vkDestroyPipeline(device_, p, nullptr);
+    }
+    custom_depth_pipelines_.clear();
+
     if (pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(device_, pipeline_, nullptr);
         pipeline_ = VK_NULL_HANDLE;
@@ -253,8 +347,17 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
 
     // Indirect count dispatch: one task workgroup per draw, GPU reads command buffer
     if (ctx.indirect_batch && draw_mesh_tasks_indirect_count_) {
+        VkPipeline bound_pipeline = pipeline_;
         const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
         for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
+            // Bind custom depth pipeline if this shader has vertex displacement
+            auto cit = custom_depth_pipelines_.find(ranges[r].pipeline_id);
+            VkPipeline needed = (cit != custom_depth_pipelines_.end()) ? cit->second : pipeline_;
+            if (needed != bound_pipeline) {
+                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, needed);
+                bound_pipeline = needed;
+            }
+
             uint32_t first_draw = ranges[r].first_draw;
             vkCmdPushConstants(ctx.cmd, layout_,
                                VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
