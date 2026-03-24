@@ -108,6 +108,18 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         throw std::runtime_error("FJSL: unsupported shader_type '" + meta.shader_type + "'");
     }
 
+    // Parse render_mode
+    static const std::regex render_mode_re(R"(render_mode\s+(\w+)\s*;)");
+    std::smatch rm;
+    if (std::regex_search(source, rm, render_mode_re)) {
+        std::string mode = rm[1].str();
+        if (mode == "unlit") {
+            meta.render_mode = RenderMode::Unlit;
+        } else if (mode != "spatial") {
+            FJELL_GFX_WARN("FJSL: unknown render_mode '{}', defaulting to lit", mode);
+        }
+    }
+
     // Parse uniform declarations
     // uniform <type> <name> [: <hint>[(args)]] [= <default>];
     static const std::regex uniform_re(
@@ -242,6 +254,21 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     replace("/*FJSL_CUSTOM_TEXTURES*/", tex_defines);
     replace("/*FJSL_CUSTOM_PARAMS*/", param_reads);
     replace("/*FJSL_USER_CODE*/", meta.fragment_body);
+
+    // Replace PBR lighting block with direct output for unlit shaders
+    if (meta.render_mode == RenderMode::Unlit) {
+        const std::string lighting_marker = "    // \xe2\x94\x80\xe2\x94\x80 PBR lighting";
+        auto lighting_pos = result.find(lighting_marker);
+        if (lighting_pos != std::string::npos) {
+            // Find the closing brace of main() — last '}' in the file
+            auto main_end = result.rfind('}');
+            if (main_end != std::string::npos) {
+                result.replace(lighting_pos, main_end - lighting_pos,
+                    "    out_color = vec4(ALBEDO + EMISSION, ALPHA);\n"
+                    "    out_metallic_roughness = vec2(0.0);\n");
+            }
+        }
+    }
 
     return result;
 }

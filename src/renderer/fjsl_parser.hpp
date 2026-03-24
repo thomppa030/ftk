@@ -6,6 +6,12 @@
 
 namespace fjell {
 
+// Render mode parsed from .fjsl files
+enum class RenderMode : uint8_t {
+    Lit,    // default PBR lighting
+    Unlit,  // skip lighting, output ALBEDO + EMISSION directly
+};
+
 // Uniform hint types parsed from .fjsl files
 enum class UniformHint {
     None,
@@ -44,6 +50,7 @@ struct FjslUniform {
 // Complete metadata extracted from a .fjsl file
 struct ShaderMetadata {
     std::string shader_type; // "spatial"
+    RenderMode render_mode{RenderMode::Lit};
     std::vector<FjslUniform> uniforms;
     std::string fragment_body; // contents of fragment() { ... }
     uint32_t custom_texture_count{0};

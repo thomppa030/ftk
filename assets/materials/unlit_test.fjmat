@@ -1,0 +1,7 @@
+{
+    "shader": "shaders/unlit.fjsl",
+    "textures": {},
+    "params": {
+        "color": [1.0, 0.5, 0.0]
+    }
+}
