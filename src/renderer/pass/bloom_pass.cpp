@@ -505,7 +505,7 @@ static void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
 }
 
 void BloomPass::record(const FrameContext& ctx) {
-    if (!ctx.target || output_view_ == VK_NULL_HANDLE) return;
+    if (!ctx.target || output_view_ == VK_NULL_HANDLE || !enabled_) return;
 
     auto cmd = ctx.cmd;
 

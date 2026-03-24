@@ -30,6 +30,8 @@ public:
 
     void set_threshold(float t) { threshold_ = t; }
     void set_intensity(float i) { intensity_ = i; }
+    void set_enabled(bool e) { enabled_ = e; }
+    [[nodiscard]] bool enabled() const { return enabled_; }
 
 private:
     void create_mip_chain(uint32_t width, uint32_t height);
@@ -79,6 +81,7 @@ private:
 
     float threshold_{0.35f};
     float intensity_{0.25f};
+    bool enabled_{true};
 };
 
 } // namespace fjell

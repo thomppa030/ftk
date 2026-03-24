@@ -78,23 +78,25 @@ void StatsPanel::draw(float dt) {
                          nullptr, 0.0f, 33.3f,
                          {ImGui::GetContentRegionAvail().x, 35});
 
-        // Post-processing controls
-        if (ImGui::CollapsingHeader("GTAO")) {
+        // Render pass controls
+        if (ImGui::CollapsingHeader("Render Passes")) {
             auto& gtao = ctx_->gtao_pass();
             bool gtao_on = gtao.enabled();
-            if (ImGui::Checkbox("Enabled##gtao", &gtao_on)) gtao.set_enabled(gtao_on);
-        }
+            if (ImGui::Checkbox("GTAO", &gtao_on)) gtao.set_enabled(gtao_on);
 
-        if (ImGui::CollapsingHeader("SSR")) {
             auto& ssr = ctx_->ssr_pass();
             bool ssr_on = ssr.enabled();
-            if (ImGui::Checkbox("Enabled##ssr", &ssr_on)) ssr.set_enabled(ssr_on);
+            if (ImGui::Checkbox("SSR", &ssr_on)) ssr.set_enabled(ssr_on);
             if (ssr_on) {
                 float intensity = ssr.intensity();
                 if (ImGui::SliderFloat("Intensity##ssr", &intensity, 0.0f, 2.0f)) ssr.set_intensity(intensity);
                 float thickness = ssr.thickness();
                 if (ImGui::SliderFloat("Thickness##ssr", &thickness, 0.01f, 2.0f)) ssr.set_thickness(thickness);
             }
+
+            auto& bloom = ctx_->bloom_pass();
+            bool bloom_on = bloom.enabled();
+            if (ImGui::Checkbox("Bloom", &bloom_on)) bloom.set_enabled(bloom_on);
         }
     }
     ImGui::End();
