@@ -457,8 +457,8 @@ void VulkanContext::register_passes() {
         .name = "cull_viz",
         .order = 530,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
             graph.add_pass("cull_viz", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
                 if (gpu_.use_mesh_shaders() && cull_pass_.enabled()) {
                     FrameContext local = current_ctx_;
                     local.cmd = cb;
@@ -745,8 +745,8 @@ void VulkanContext::register_passes() {
         .name = "depth_viz",
         .order = 1100,
         .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::depth)))) return;
             graph.add_pass("depth_viz", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::depth)))) return;
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 depth_viz_pass_.record(local);
@@ -758,8 +758,8 @@ void VulkanContext::register_passes() {
         .name = "wireframe",
         .order = 1110,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::wireframe)))) return;
             graph.add_pass("wireframe", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::wireframe)))) return;
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 wireframe_pass_.record(local);
@@ -771,8 +771,8 @@ void VulkanContext::register_passes() {
         .name = "normals",
         .order = 1120,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::normals)))) return;
             graph.add_pass("normals", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::normals)))) return;
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 normal_pass_.record(local);
@@ -784,8 +784,8 @@ void VulkanContext::register_passes() {
         .name = "overdraw",
         .order = 1130,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::overdraw)))) return;
             graph.add_pass("overdraw", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::overdraw)))) return;
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 overdraw_pass_.record(local);
@@ -797,8 +797,8 @@ void VulkanContext::register_passes() {
         .name = "uv_viz",
         .order = 1140,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::uv)))) return;
             graph.add_pass("uv_viz", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::uv)))) return;
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 uv_viz_pass_.record(local);
@@ -810,8 +810,8 @@ void VulkanContext::register_passes() {
         .name = "light_heatmap",
         .order = 1150,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_heatmap)))) return;
             graph.add_pass("light_heatmap", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_heatmap)))) return;
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 light_heatmap_pass_.set_tile_ssbo(current_ctx_.tile_light_ssbo,
@@ -825,8 +825,8 @@ void VulkanContext::register_passes() {
         .name = "light_grid",
         .order = 1160,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_grid)))) return;
             graph.add_pass("light_grid", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_grid)))) return;
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 light_grid_pass_.set_tile_ssbo(current_ctx_.tile_light_ssbo,
@@ -840,8 +840,8 @@ void VulkanContext::register_passes() {
         .name = "meshlet_viz",
         .order = 1170,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) return;
             graph.add_pass("meshlet_viz", [this](VkCommandBuffer cb) {
-                if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) return;
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 meshlet_viz_pass_.record(local);
@@ -1389,12 +1389,8 @@ void VulkanContext::submit_and_present() {
     has_recorded_frame_ = false;
 }
 
-void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& viewports,
-                                    const DirectionalLight& light,
-                                    Scene* scene, float dt,
-                                    uint32_t selected_id, ThreadPool& pool,
-                                    bool playing) {
-    FJELL_PROFILE_SCOPE_N("draw_frame");
+bool VulkanContext::begin_frame(ThreadPool& pool) {
+    FJELL_PROFILE_SCOPE_N("begin_frame");
     auto vk_device = gpu_.device();
 
     // Advance to next frame slot
@@ -1403,6 +1399,8 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
     VkFence frame_fence = gpu_.in_flight_fence(current_frame_);
     vkWaitForFences(vk_device, 1, &frame_fence, VK_TRUE,
                     std::numeric_limits<uint64_t>::max());
+
+    // GPU is now done with this frame slot — safe to destroy/resize resources.
 
     // Lazy-init per-thread command pools (needs thread count from pool)
     gpu_.ensure_secondary_pools(pool.thread_count());
@@ -1419,13 +1417,24 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         gpu_.swapchain().recreate();
         has_recorded_frame_ = false;
-        return;
+        return false;
     }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("Failed to acquire swapchain image");
     }
 
     vkResetFences(vk_device, 1, &frame_fence);
+    pending_image_index_ = image_index;
+    return true;
+}
+
+void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewports,
+                                 const DirectionalLight& light,
+                                 Scene* scene, float dt,
+                                 uint32_t selected_id, ThreadPool& pool,
+                                 bool playing) {
+    FJELL_PROFILE_SCOPE_N("record_frame");
+    auto vk_device = gpu_.device();
 
     gpu_.render_stats().reset();
     if (show_colliders_ && scene) {
@@ -1466,11 +1475,11 @@ void VulkanContext::wait_and_record(const std::vector<ViewportRenderRequest>& vi
     }
 
     vkResetCommandBuffer(gpu_.command_buffer(current_frame_), 0);
-    record_command_buffer(gpu_.command_buffer(current_frame_), image_index,
+    record_command_buffer(gpu_.command_buffer(current_frame_), pending_image_index_,
                           viewports, light, scene, dt, selected_id, pool, playing);
 
     recorded_frame_ = current_frame_;
-    recorded_image_index_ = image_index;
+    recorded_image_index_ = pending_image_index_;
     has_recorded_frame_ = true;
 }
 

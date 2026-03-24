@@ -218,6 +218,7 @@ void HizPass::resize(uint32_t width, uint32_t height) {
     uint32_t new_h = std::max(height / 2, 1u);
     if (new_w == hiz_width_ && new_h == hiz_height_) return;
     vkDeviceWaitIdle(device_);
+
     destroy_image();
     create_image(width, height);
 }

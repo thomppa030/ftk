@@ -247,6 +247,7 @@ void CullVizPass::destroy_image() {
 void CullVizPass::resize(uint32_t width, uint32_t height) {
     if (extent_.width == width && extent_.height == height) return;
     vkDeviceWaitIdle(device_);
+
     invalidate_imgui_texture();
     destroy_image();
     create_image(width, height);

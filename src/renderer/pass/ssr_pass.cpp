@@ -360,8 +360,8 @@ void SsrPass::destroy_images() {
 void SsrPass::resize(uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
     if (extent_.width == width && extent_.height == height) return;
-
     vkDeviceWaitIdle(device_);
+
     invalidate_imgui_texture();
     destroy_images();
     create_images(width, height);

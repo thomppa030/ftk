@@ -48,8 +48,8 @@ OffscreenPass::~OffscreenPass() {
 
 void OffscreenPass::resize(uint32_t width, uint32_t height) {
     if (extent_.width == width && extent_.height == height) return;
-
     vkDeviceWaitIdle(device_.handle());
+
     cleanup_images();
     create(width, height);
 }

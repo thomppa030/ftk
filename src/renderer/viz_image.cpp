@@ -1,6 +1,5 @@
 #include "renderer/viz_image.hpp"
 #include "renderer/buffer.hpp"
-
 #include <imgui_impl_vulkan.h>
 
 #include <stdexcept>
@@ -81,6 +80,7 @@ void VizImage::destroy_image() {
 void VizImage::resize(uint32_t width, uint32_t height) {
     if (extent_.width == width && extent_.height == height) return;
     vkDeviceWaitIdle(device_);
+
     invalidate_imgui_texture();
     destroy_image();
     create(width, height);

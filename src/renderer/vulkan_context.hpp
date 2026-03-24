@@ -64,11 +64,18 @@ public:
   /// No-op on the first call (nothing recorded yet).
   void submit_and_present();
 
-  /// Wait for the next frame slot, acquire swapchain image, record commands.
-  void wait_and_record(const std::vector<ViewportRenderRequest> &viewports,
-                       const struct DirectionalLight &light, Scene *scene,
-                       float dt, uint32_t selected_id, ThreadPool &pool,
-                       bool playing = false);
+  /// Wait for the next frame slot and acquire swapchain image.
+  /// After this returns, the GPU is done with this frame slot — safe to
+  /// destroy/resize pass resources. Returns false if the swapchain was
+  /// recreated and the frame should be skipped.
+  bool begin_frame(ThreadPool &pool);
+
+  /// Record commands for the current frame. Call after begin_frame() and
+  /// after any resize/ImGui work.
+  void record_frame(const std::vector<ViewportRenderRequest> &viewports,
+                    const struct DirectionalLight &light, Scene *scene,
+                    float dt, uint32_t selected_id, ThreadPool &pool,
+                    bool playing = false);
 
   void update_light_ssbo(uint32_t frame_index, Scene *scene);
   void wait_idle();
@@ -145,6 +152,7 @@ public:
   /// Bitmask of ViewportSource values currently displayed. Viz passes skip
   /// recording when their source bit is not set.
   void set_active_sources(uint32_t mask) { active_sources_ = mask; }
+  [[nodiscard]] uint32_t active_sources() const { return active_sources_; }
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
 
@@ -214,9 +222,10 @@ private:
   // ── Frame state ───────────────────────────────────────────────────────
   uint32_t current_frame_{MAX_FRAMES_IN_FLIGHT - 1};
 
-  // Split-frame state: carried from wait_and_record to submit_and_present
+  // Split-frame state: carried between begin_frame / record_frame / submit_and_present
   uint32_t recorded_frame_{0};
   uint32_t recorded_image_index_{0};
+  uint32_t pending_image_index_{0};
   bool has_recorded_frame_{false};
 
   // ── SSR prev-frame state ──────────────────────────────────────────────

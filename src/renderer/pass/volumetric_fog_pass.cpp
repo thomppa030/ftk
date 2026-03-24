@@ -424,14 +424,12 @@ void VolumetricFogPass::resize(uint32_t width, uint32_t height) {
         int dh = static_cast<int>(vol_h) - static_cast<int>(volume_extent_.height);
         if (std::abs(dw) < 4 && std::abs(dh) < 4) return;
     }
-
     vkDeviceWaitIdle(device_);
-    destroy_volumes();
-
-    volume_extent_ = {vol_w, vol_h, DEPTH_SLICES};
-    create_volumes();
 
     invalidate_imgui_texture();
+    destroy_volumes();
+    volume_extent_ = {vol_w, vol_h, DEPTH_SLICES};
+    create_volumes();
 }
 
 // ── Descriptor updates ──────────────────────────────────────────────────────

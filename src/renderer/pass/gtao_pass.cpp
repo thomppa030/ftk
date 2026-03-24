@@ -303,8 +303,8 @@ void GtaoPass::resize(uint32_t width, uint32_t height) {
     uint32_t half_w = std::max(1u, width / 2);
     uint32_t half_h = std::max(1u, height / 2);
     if (extent_.width == half_w && extent_.height == half_h) return;
-
     vkDeviceWaitIdle(device_);
+
     invalidate_imgui_texture();
     destroy_images();
     create_images(half_w, half_h);

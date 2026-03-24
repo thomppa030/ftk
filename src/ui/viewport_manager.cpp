@@ -128,20 +128,28 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
         auto vp_h = static_cast<uint32_t>(panel.size.y);
         if (vp_w > 0 && vp_h > 0) {
             panel.offscreen->resize(vp_w, vp_h);
-            ctx.depth_viz_pass().resize(vp_w, vp_h);
-            ctx.wireframe_pass().resize(vp_w, vp_h);
-            ctx.normal_pass().resize(vp_w, vp_h);
-            ctx.overdraw_pass().resize(vp_w, vp_h);
-            ctx.uv_viz_pass().resize(vp_w, vp_h);
+
+            // Core pipeline passes — always resize
             ctx.bloom_pass().resize(vp_w, vp_h);
             ctx.gtao_pass().resize(vp_w, vp_h);
             ctx.ssr_pass().resize(vp_w, vp_h);
             ctx.volumetric_fog_pass().resize(vp_w, vp_h);
             ctx.tonemap_pass().resize(vp_w, vp_h);
-            ctx.light_heatmap_pass().resize(vp_w, vp_h);
-            ctx.light_grid_pass().resize(vp_w, vp_h);
-            ctx.meshlet_viz_pass().resize(vp_w, vp_h);
-            ctx.cull_viz_pass().resize(vp_w, vp_h);
+
+            // Viz passes — only resize when active
+            uint32_t mask = ctx.active_sources();
+            auto active = [mask](ViewportSource src) {
+                return mask & (1u << static_cast<uint32_t>(src));
+            };
+            if (active(ViewportSource::depth))         ctx.depth_viz_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::wireframe))     ctx.wireframe_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::normals))       ctx.normal_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::overdraw))      ctx.overdraw_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::uv))            ctx.uv_viz_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::light_heatmap)) ctx.light_heatmap_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::light_grid))    ctx.light_grid_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::meshlet_viz))   ctx.meshlet_viz_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::gpu_cull))      ctx.cull_viz_pass().resize(vp_w, vp_h);
         }
     }
 }

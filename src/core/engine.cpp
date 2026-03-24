@@ -765,7 +765,12 @@ void Engine::run() {
         // Always-tick subsystems (after world matrices)
         for (auto* s : late_always_) s->tick(ctx);
 
-        // Resize offscreen passes before ImGui frame so descriptors stay valid
+        // Phase 3: Wait for frame slot — GPU is done with this slot after this
+        if (!vulkan_context_->begin_frame(thread_pool_)) continue;
+
+        // Resize offscreen passes — safe because begin_frame's fence guarantees
+        // the GPU is no longer referencing this frame slot's resources
+        vulkan_context_->set_active_sources(scene_context_->viewport_manager().active_source_mask());
         active_context().apply_resize(*vulkan_context_);
 
         imgui_layer_->begin_frame();
@@ -793,12 +798,11 @@ void Engine::run() {
 
         vulkan_context_->sync_sprite_textures(scene_, *resource_manager_);
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
-        vulkan_context_->set_active_sources(scene_context_->viewport_manager().active_source_mask());
 
-        // Phase 3: Wait for frame slot, record commands
-        vulkan_context_->wait_and_record(requests, light_, &scene_, clock_.delta_time(),
-                                          scene_context_->selected_id(), thread_pool_,
-                                          active_context().is_playing());
+        // Phase 4: Record commands
+        vulkan_context_->record_frame(requests, light_, &scene_, clock_.delta_time(),
+                                       scene_context_->selected_id(), thread_pool_,
+                                       active_context().is_playing());
     }
 
     // Submit the last recorded frame before shutting down

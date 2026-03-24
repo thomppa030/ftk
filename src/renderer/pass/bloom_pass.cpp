@@ -413,6 +413,7 @@ void BloomPass::update_descriptors() {
 void BloomPass::resize(uint32_t width, uint32_t height) {
     if (extent_.width == width && extent_.height == height) return;
     vkDeviceWaitIdle(device_);
+
     invalidate_imgui_texture();
     destroy_mip_chain();
     if (width > 0 && height > 0) {
