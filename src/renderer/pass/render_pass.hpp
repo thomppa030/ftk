@@ -9,6 +9,7 @@ class Device;
 class DebugDraw;
 class OffscreenPass;
 class RenderQueue;
+class RenderTargetPool;
 class Scene;
 
 // Shared descriptor set layouts needed by passes at pipeline creation time.
@@ -65,6 +66,9 @@ struct FrameContext {
     // Forward+ light culling: tile light index SSBO for viz passes
     VkBuffer tile_light_ssbo{VK_NULL_HANDLE};
     VkDeviceSize tile_light_ssbo_size{0};
+
+    // Transient render target pool
+    RenderTargetPool* target_pool{nullptr};
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

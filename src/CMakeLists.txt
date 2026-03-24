@@ -59,6 +59,7 @@ add_executable(fjell
     renderer/model.cpp
     renderer/offscreen_pass.cpp
     renderer/pipeline.cpp
+    renderer/render_target_pool.cpp
     renderer/pipeline_cache.cpp
     renderer/primitives.cpp
     renderer/bindless.cpp

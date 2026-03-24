@@ -33,7 +33,8 @@
 namespace fjell {
 
 VulkanContext::VulkanContext(Window& window)
-    : gpu_{window} {
+    : gpu_{window}
+    , target_pool_{gpu_.device(), gpu_.physical_device()} {
     FJELL_GFX_INFO("Initializing Vulkan context");
 
     // Scene gathering: indirect batches + draw data descriptors
@@ -1037,6 +1038,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }
     ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
     ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
+    ctx.target_pool = &target_pool_;
 
     // Store current frame context for pass build callbacks
     current_ctx_ = ctx;
@@ -1386,6 +1388,7 @@ void VulkanContext::submit_and_present() {
         throw std::runtime_error("Failed to present swapchain image");
     }
 
+    target_pool_.end_frame();
     has_recorded_frame_ = false;
 }
 

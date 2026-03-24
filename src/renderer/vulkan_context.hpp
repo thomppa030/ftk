@@ -31,6 +31,7 @@
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
+#include "renderer/render_target_pool.hpp"
 #include "renderer/sprite_renderer.hpp"
 #include "renderer/viewport_source.hpp"
 #include <glm/glm.hpp>
@@ -153,6 +154,7 @@ public:
   /// recording when their source bit is not set.
   void set_active_sources(uint32_t mask) { active_sources_ = mask; }
   [[nodiscard]] uint32_t active_sources() const { return active_sources_; }
+  [[nodiscard]] RenderTargetPool& target_pool() { return target_pool_; }
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
 
@@ -176,6 +178,7 @@ private:
   // ── GPU infrastructure ────────────────────────────────────────────────
   GpuContext gpu_;
   RenderPipeline render_pipeline_;
+  RenderTargetPool target_pool_;
   FrameContext current_ctx_{};
 
   // ── Passes ────────────────────────────────────────────────────────────
