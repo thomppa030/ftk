@@ -108,15 +108,27 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         throw std::runtime_error("FJSL: unsupported shader_type '" + meta.shader_type + "'");
     }
 
-    // Parse render_mode
-    static const std::regex render_mode_re(R"(render_mode\s+(\w+)\s*;)");
+    // Parse render_mode (comma-separated keywords)
+    static const std::regex render_mode_re(R"(render_mode\s+([^;]+);)");
     std::smatch rm;
     if (std::regex_search(source, rm, render_mode_re)) {
-        std::string mode = rm[1].str();
-        if (mode == "unlit") {
-            meta.render_mode = RenderMode::Unlit;
-        } else if (mode != "spatial") {
-            FJELL_GFX_WARN("FJSL: unknown render_mode '{}', defaulting to lit", mode);
+        std::istringstream modes(rm[1].str());
+        std::string token;
+        while (std::getline(modes, token, ',')) {
+            // Trim whitespace
+            auto s = token.find_first_not_of(" \t");
+            auto e = token.find_last_not_of(" \t");
+            if (s == std::string::npos) continue;
+            std::string mode = token.substr(s, e - s + 1);
+
+            if (mode == "unlit") meta.render_mode = RenderMode::Unlit;
+            else if (mode == "cull_disabled") meta.render_state.cull_disabled = true;
+            else if (mode == "cull_front") meta.render_state.cull_front = true;
+            else if (mode == "depth_write_disabled") meta.render_state.depth_write_disabled = true;
+            else if (mode == "depth_test_disabled") meta.render_state.depth_test_disabled = true;
+            else if (mode == "blend_add") meta.render_state.blend = BlendMode::Add;
+            else if (mode == "blend_multiply") meta.render_state.blend = BlendMode::Multiply;
+            else FJELL_GFX_WARN("FJSL: unknown render_mode '{}'", mode);
         }
     }
 

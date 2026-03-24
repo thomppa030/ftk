@@ -6,10 +6,26 @@
 
 namespace fjell {
 
-// Render mode parsed from .fjsl files
+// Lighting mode parsed from .fjsl files
 enum class RenderMode : uint8_t {
     Lit,    // default PBR lighting
     Unlit,  // skip lighting, output ALBEDO + EMISSION directly
+};
+
+// Blend mode for materials
+enum class BlendMode : uint8_t {
+    Alpha,     // default alpha blending for transparent
+    Add,       // additive (particles, holograms)
+    Multiply,  // multiplicative
+};
+
+// Per-material render state parsed from render_mode keywords
+struct RenderState {
+    bool cull_disabled{false};
+    bool cull_front{false};        // front-face culling (e.g. outline pass)
+    bool depth_write_disabled{false};
+    bool depth_test_disabled{false};
+    BlendMode blend{BlendMode::Alpha};
 };
 
 // Uniform hint types parsed from .fjsl files
@@ -51,6 +67,7 @@ struct FjslUniform {
 struct ShaderMetadata {
     std::string shader_type; // "spatial"
     RenderMode render_mode{RenderMode::Lit};
+    RenderState render_state;
     std::vector<FjslUniform> uniforms;
     std::string fragment_body; // contents of fragment() { ... }
     uint32_t custom_texture_count{0};

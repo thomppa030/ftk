@@ -1,0 +1,10 @@
+shader_type spatial;
+render_mode cull_disabled;
+
+uniform vec3 tint : hint_color = vec3(0.3, 0.7, 0.2);
+
+void fragment() {
+    ALBEDO = tint;
+    ROUGHNESS = 0.8;
+    METALLIC = 0.0;
+}

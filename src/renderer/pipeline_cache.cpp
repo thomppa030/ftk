@@ -205,11 +205,19 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
     dynamic_state.pDynamicStates = dynamic_states.data();
 
+    const auto& rs = entry.metadata.render_state;
+
     VkPipelineRasterizationStateCreateInfo rasterizer{};
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    if (rs.cull_disabled) {
+        rasterizer.cullMode = VK_CULL_MODE_NONE;
+    } else if (rs.cull_front) {
+        rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
+    } else {
+        rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    }
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -218,7 +226,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
+    depth_stencil.depthTestEnable = rs.depth_test_disabled ? VK_FALSE : VK_TRUE;
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
@@ -299,12 +307,33 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     trans_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                  VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     trans_blend.blendEnable = VK_TRUE;
-    trans_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    trans_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    trans_blend.colorBlendOp = VK_BLEND_OP_ADD;
-    trans_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    trans_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    trans_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+    switch (rs.blend) {
+        case BlendMode::Add:
+            trans_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            trans_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            trans_blend.colorBlendOp = VK_BLEND_OP_ADD;
+            trans_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            trans_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            trans_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+            break;
+        case BlendMode::Multiply:
+            trans_blend.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
+            trans_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+            trans_blend.colorBlendOp = VK_BLEND_OP_ADD;
+            trans_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_DST_ALPHA;
+            trans_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            trans_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+            break;
+        default: // Alpha
+            trans_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            trans_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            trans_blend.colorBlendOp = VK_BLEND_OP_ADD;
+            trans_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            trans_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            trans_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+            break;
+    }
 
     VkPipelineColorBlendAttachmentState trans_mr_blend{};
     trans_mr_blend.colorWriteMask = 0; // Transparent objects don't write MR
@@ -319,7 +348,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
 
     VkPipelineDepthStencilStateCreateInfo trans_depth{};
     trans_depth.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    trans_depth.depthTestEnable = VK_TRUE;
+    trans_depth.depthTestEnable = rs.depth_test_disabled ? VK_FALSE : VK_TRUE;
     trans_depth.depthWriteEnable = VK_FALSE;
     trans_depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
