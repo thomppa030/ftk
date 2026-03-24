@@ -47,7 +47,7 @@ layout(set = 1, binding = 4) buffer OutputCmds {
 struct MeshletBounds {
     vec4 bounding_sphere; // xyz = center (local space), w = radius
     vec4 cone_apex;       // xyz = cone apex (local space)
-    vec4 cone_axis_cutoff; // xyz = axis, w = cutoff (sin half-angle)
+    vec4 cone_axis_cutoff; // xyz = axis, w = cutoff (cos half-angle)
 };
 
 layout(set = 1, binding = 5) readonly buffer BoundsBuffer {
@@ -113,10 +113,17 @@ bool sphere_frustum_test(vec3 center, float radius) {
 }
 
 bool cone_cull(MeshletBounds b, mat4 model, vec3 camera_pos) {
-    // Cone backface culling disabled — causes artifacts on convex surfaces
-    // (sphere primitives). Frustum + Hi-Z occlusion culling handle the
-    // important cases. Re-enable once two-pass occlusion is in place.
-    return false;
+    float cutoff = b.cone_axis_cutoff.w;
+    // cutoff >= 1 means the cone is degenerate (normals span > 180°), skip
+    if (cutoff >= 1.0) return false;
+
+    // Transform cone apex and axis to world space
+    vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
+    vec3 axis = normalize(mat3(model) * b.cone_axis_cutoff.xyz);
+
+    // meshoptimizer perspective formula:
+    // dot(normalize(cone_apex - camera_position), cone_axis) >= cone_cutoff
+    return dot(normalize(apex - camera_pos), axis) >= cutoff;
 }
 
 bool occlusion_cull(vec3 center, float radius) {

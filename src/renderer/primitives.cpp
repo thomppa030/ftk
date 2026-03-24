@@ -111,12 +111,12 @@ PrimitiveMeshData sphere(uint32_t rings, uint32_t segments) {
             uint32_t b = a + segments + 1;
 
             indices.push_back(a);
-            indices.push_back(b);
             indices.push_back(a + 1);
+            indices.push_back(b);
 
             indices.push_back(a + 1);
-            indices.push_back(b);
             indices.push_back(b + 1);
+            indices.push_back(b);
         }
     }
 
