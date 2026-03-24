@@ -207,6 +207,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
 
     meta.custom_param_count = param_offset;
     meta.fragment_body = extract_function_body(source, "fragment");
+    meta.vertex_body = extract_function_body(source, "vertex");
 
     return meta;
 }
@@ -281,6 +282,53 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
             }
         }
     }
+
+    return result;
+}
+
+std::string generate_vertex_shader(const ShaderMetadata& meta,
+                                    const std::string& template_source) {
+    std::string result = template_source;
+
+    // Generate custom param reads (same SSBO layout as fragment)
+    std::string param_reads;
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) continue;
+
+        std::string type_str;
+        switch (u.type) {
+            case UniformType::Float: type_str = "float"; break;
+            case UniformType::Vec2: type_str = "vec2"; break;
+            case UniformType::Vec3: type_str = "vec3"; break;
+            case UniformType::Vec4: type_str = "vec4"; break;
+            default: break;
+        }
+
+        uint32_t count = uniform_float_count(u.type);
+        if (count == 1) {
+            param_reads += "    " + type_str + " " + u.name +
+                           " = custom_params[mat.param_offset + " +
+                           std::to_string(u.slot) + "];\n";
+        } else {
+            param_reads += "    " + type_str + " " + u.name + " = " + type_str + "(";
+            for (uint32_t i = 0; i < count; ++i) {
+                if (i > 0) param_reads += ", ";
+                param_reads += "custom_params[mat.param_offset + " +
+                               std::to_string(u.slot + i) + "]";
+            }
+            param_reads += ");\n";
+        }
+    }
+
+    auto replace = [&](const std::string& placeholder, const std::string& replacement) {
+        auto pos = result.find(placeholder);
+        if (pos != std::string::npos) {
+            result.replace(pos, placeholder.size(), replacement);
+        }
+    };
+
+    replace("/*FJSL_VERTEX_CUSTOM_PARAMS*/", param_reads);
+    replace("/*FJSL_VERTEX_USER_CODE*/", meta.vertex_body);
 
     return result;
 }

@@ -70,6 +70,7 @@ struct ShaderMetadata {
     RenderState render_state;
     std::vector<FjslUniform> uniforms;
     std::string fragment_body; // contents of fragment() { ... }
+    std::string vertex_body;   // contents of vertex() { ... } (empty = standard)
     uint32_t custom_texture_count{0};
     uint32_t custom_param_count{0}; // total floats needed for scalar uniforms
 };
@@ -80,6 +81,11 @@ struct ShaderMetadata {
 // Generate a complete .frag GLSL file from the spatial template + FJSL metadata.
 [[nodiscard]] std::string generate_fragment_shader(const ShaderMetadata& meta,
                                                     const std::string& template_source);
+
+// Generate a .vert or .mesh GLSL file from a vertex/mesh template + FJSL metadata.
+// Used for both vertex shaders and mesh shaders — same placeholder substitution.
+[[nodiscard]] std::string generate_vertex_shader(const ShaderMetadata& meta,
+                                                  const std::string& template_source);
 
 // Return the number of floats consumed by a uniform type.
 [[nodiscard]] uint32_t uniform_float_count(UniformType type);
