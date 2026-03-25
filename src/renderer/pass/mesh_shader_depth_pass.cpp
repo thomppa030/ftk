@@ -376,7 +376,7 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
         const auto& skinned_indices = ctx.indirect_batch->skinned_draw_indices(ctx.frame_index);
         if (!skinned_indices.empty()) {
             vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_pipeline_);
-            std::array skinned_sets = {ctx.global_descriptor_set, ctx.draw_data_set};
+            std::array skinned_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
             vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_layout_,
                                     0, static_cast<uint32_t>(skinned_sets.size()),
                                     skinned_sets.data(), 0, nullptr);
