@@ -892,11 +892,7 @@ const EditorContext& Engine::active_context() const {
 
 void Engine::switch_context(int index) {
     if (index == active_context_idx_) return;
-    vulkan_context_->wait_idle();
-    contexts_[static_cast<size_t>(active_context_idx_)]->on_exit();
-    active_context_idx_ = index;
-    contexts_[static_cast<size_t>(active_context_idx_)]->on_enter();
-    history_panel_.init(&active_context().command_history());
+    pending_context_switch_ = index;
 }
 
 void Engine::draw_context_tabs() {
@@ -933,15 +929,39 @@ void Engine::draw_context_tabs() {
         ImGui::SetCursorPosX(indent);
     }
 
+    // Apply pending context switch — set the tab flag so ImGui selects it
+    bool has_pending = pending_context_switch_ >= 0
+        && pending_context_switch_ < static_cast<int>(contexts_.size())
+        && pending_context_switch_ != active_context_idx_;
+
+    if (has_pending) {
+        // Perform the actual context transition now
+        vulkan_context_->wait_idle();
+        contexts_[static_cast<size_t>(active_context_idx_)]->on_exit();
+        active_context_idx_ = pending_context_switch_;
+        contexts_[static_cast<size_t>(active_context_idx_)]->on_enter();
+        history_panel_.init(&active_context().command_history());
+    }
+    pending_context_switch_ = -1;
+
     if (ImGui::BeginTabBar("##ContextTabs", ImGuiTabBarFlags_Reorderable)) {
         int close_idx = -1;
         for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
             ImGui::PushID(i);
             bool closeable = (i != 0);
             bool open = true;
+            ImGuiTabItemFlags flags = (has_pending && i == active_context_idx_)
+                ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
             if (ImGui::BeginTabItem(contexts_[static_cast<size_t>(i)]->name(),
-                                     closeable ? &open : nullptr)) {
-                if (i != active_context_idx_) switch_context(i);
+                                     closeable ? &open : nullptr, flags)) {
+                // Tab clicked by user — switch if different from active
+                if (!has_pending && i != active_context_idx_) {
+                    vulkan_context_->wait_idle();
+                    contexts_[static_cast<size_t>(active_context_idx_)]->on_exit();
+                    active_context_idx_ = i;
+                    contexts_[static_cast<size_t>(i)]->on_enter();
+                    history_panel_.init(&active_context().command_history());
+                }
                 ImGui::EndTabItem();
             }
             if (closeable && !open) close_idx = i;

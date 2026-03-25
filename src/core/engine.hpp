@@ -163,6 +163,7 @@ private:
     // Editor contexts
     std::vector<std::unique_ptr<EditorContext>> contexts_;
     int active_context_idx_{0};
+    int pending_context_switch_{-1}; // requested switch, applied by tab bar next frame
     SceneEditorContext* scene_context_{nullptr}; // non-owning, into contexts_[0]
 
     // Menu bar (owns file browsers, popup state, emits delegates)
