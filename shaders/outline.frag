@@ -1,7 +1,6 @@
 #version 460
 
-layout(push_constant) uniform PushConstants {
-    mat4 model;
+layout(push_constant) uniform OutlinePush {
     vec4 outline_color;
     float thickness;
 } push;

@@ -7,6 +7,8 @@
 #include "core/log.hpp"
 #include "platform/platform.hpp"
 
+#include <glm/glm.hpp>
+
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -55,6 +57,7 @@ PipelineCache::PipelineCache(Device& device,
     vertex_template_ = load_template("fjell_vertex_template.glsl");
     depth_vertex_template_ = load_template("fjell_depth_vertex_template.glsl");
     shadow_vertex_template_ = load_template("fjell_shadow_vertex_template.glsl");
+    outline_vertex_template_ = load_template("fjell_outline_vertex_template.glsl");
 
     create_layout();
 
@@ -76,6 +79,10 @@ PipelineCache::~PipelineCache() {
     if (gpu_driven_layout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(vk, gpu_driven_layout_, nullptr);
         gpu_driven_layout_ = VK_NULL_HANDLE;
+    }
+    if (outline_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(vk, outline_layout_, nullptr);
+        outline_layout_ = VK_NULL_HANDLE;
     }
 }
 
@@ -119,6 +126,24 @@ void PipelineCache::create_layout() {
             throw std::runtime_error("Failed to create GPU-driven pipeline layout");
         }
     }
+
+    // Outline layout: same sets as vertex pipeline, push constant = vec4 color + float thickness
+    {
+        VkPushConstantRange outline_push{};
+        outline_push.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        outline_push.size = sizeof(glm::vec4) + sizeof(float);
+
+        VkPipelineLayoutCreateInfo outline_ci{};
+        outline_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        outline_ci.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+        outline_ci.pSetLayouts = set_layouts.data();
+        outline_ci.pushConstantRangeCount = 1;
+        outline_ci.pPushConstantRanges = &outline_push;
+
+        if (vkCreatePipelineLayout(device_.handle(), &outline_ci, nullptr, &outline_layout_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create outline pipeline layout");
+        }
+    }
 }
 
 uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {
@@ -140,64 +165,96 @@ uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {
 }
 
 void PipelineCache::compile_entry(Entry& entry) {
-    // Read the .fjsl source
-    std::string full_path = base_path::resolve(entry.fjsl_path);
-    std::ifstream f(full_path);
-    if (!f.is_open()) {
-        throw std::runtime_error("Failed to open FJSL file: " + full_path);
-    }
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    std::string source = ss.str();
+    // Build into a temporary entry — only commit on full success
+    Entry next{};
+    next.fjsl_path = entry.fjsl_path;
 
-    // Parse FJSL
-    entry.metadata = parse_fjsl(source);
-
-    // Generate complete fragment shader
-    std::string frag_source = generate_fragment_shader(entry.metadata, template_source_);
-
-    // Determine output name from fjsl filename
-    std::string stem = std::filesystem::path(entry.fjsl_path).stem().string();
-    entry.generated_frag_path = generated_dir_ + "/" + stem + ".frag";
-
-    // Write generated .frag
-    {
-        std::ofstream out(entry.generated_frag_path);
-        if (!out.is_open()) {
-            throw std::runtime_error("Failed to write generated shader: " + entry.generated_frag_path);
+    try {
+        // Read the .fjsl source
+        std::string full_path = base_path::resolve(entry.fjsl_path);
+        std::ifstream f(full_path);
+        if (!f.is_open()) {
+            throw std::runtime_error("Failed to open FJSL file: " + full_path);
         }
-        out << frag_source;
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        std::string source = ss.str();
+
+        // Parse FJSL
+        next.metadata = parse_fjsl(source);
+
+        // Generate complete fragment shader
+        std::string frag_source = generate_fragment_shader(next.metadata, template_source_);
+
+        // Determine output name from fjsl filename
+        std::string stem = std::filesystem::path(entry.fjsl_path).stem().string();
+        next.generated_frag_path = generated_dir_ + "/" + stem + ".frag";
+
+        // Write generated .frag
+        {
+            std::ofstream out(next.generated_frag_path);
+            if (!out.is_open()) {
+                throw std::runtime_error("Failed to write generated shader: " + next.generated_frag_path);
+            }
+            out << frag_source;
+        }
+
+        // Compile fragment to SPIR-V
+        std::string frag_spv = compile_glsl(next.generated_frag_path, stem + ".frag");
+
+        // Generate and compile vertex displacement shaders if vertex() is present
+        next.has_custom_vertex = !next.metadata.vertex_body.empty();
+        if (next.has_custom_vertex) {
+            auto gen_and_compile = [&](const std::string& tmpl, const std::string& suffix) -> std::string {
+                if (tmpl.empty()) return {};
+                std::string src = generate_vertex_shader(next.metadata, tmpl);
+                std::string path = generated_dir_ + "/" + stem + suffix;
+                std::ofstream out(path);
+                if (!out.is_open()) return {};
+                out << src;
+                out.close();
+                return compile_glsl(path, stem + suffix);
+            };
+
+            next.vert_spv = gen_and_compile(vertex_template_, ".vert");
+            next.mesh_spv = gen_and_compile(mesh_template_, ".mesh");
+            next.depth_vert_spv = gen_and_compile(depth_vertex_template_, ".depth.vert");
+            next.depth_mesh_spv = gen_and_compile(depth_mesh_template_, ".depth.mesh");
+            next.shadow_vert_spv = gen_and_compile(shadow_vertex_template_, ".shadow.vert");
+            next.outline_vert_spv = gen_and_compile(outline_vertex_template_, ".outline.vert");
+        }
+
+        // Create new pipelines into the temp entry
+        create_pipelines(next, frag_spv);
+
+    } catch (const std::exception& e) {
+        // Compilation failed — keep old pipelines, store error
+        entry.compile_error = e.what();
+        FJELL_GFX_ERROR("Shader compile failed for '{}': {}", entry.fjsl_path, entry.compile_error);
+
+        // Clean up any partially created pipelines in the temp
+        destroy_entry_pipelines(next);
+        return;
     }
 
-    // Compile fragment to SPIR-V
-    std::string frag_spv = compile_glsl(entry.generated_frag_path, stem + ".frag");
-
-    // Generate and compile vertex displacement shaders if vertex() is present
-    entry.has_custom_vertex = !entry.metadata.vertex_body.empty();
-    if (entry.has_custom_vertex) {
-        auto gen_and_compile = [&](const std::string& tmpl, const std::string& suffix) -> std::string {
-            if (tmpl.empty()) return {};
-            std::string src = generate_vertex_shader(entry.metadata, tmpl);
-            std::string path = generated_dir_ + "/" + stem + suffix;
-            std::ofstream out(path);
-            if (!out.is_open()) return {};
-            out << src;
-            out.close();
-            return compile_glsl(path, stem + suffix);
-        };
-
-        entry.vert_spv = gen_and_compile(vertex_template_, ".vert");
-        entry.mesh_spv = gen_and_compile(mesh_template_, ".mesh");
-        entry.depth_vert_spv = gen_and_compile(depth_vertex_template_, ".depth.vert");
-        entry.depth_mesh_spv = gen_and_compile(depth_mesh_template_, ".depth.mesh");
-        entry.shadow_vert_spv = gen_and_compile(shadow_vertex_template_, ".shadow.vert");
-    }
-
-    // Destroy old pipelines if any
+    // Success — destroy old pipelines and swap in new ones
     destroy_entry_pipelines(entry);
-
-    // Create new pipelines
-    create_pipelines(entry, frag_spv);
+    entry.metadata = std::move(next.metadata);
+    entry.generated_frag_path = std::move(next.generated_frag_path);
+    entry.has_custom_vertex = next.has_custom_vertex;
+    entry.opaque = next.opaque;
+    entry.transparent = next.transparent;
+    entry.gpu_driven = next.gpu_driven;
+    entry.skinned_opaque = next.skinned_opaque;
+    entry.skinned_transparent = next.skinned_transparent;
+    entry.outline = next.outline;
+    entry.vert_spv = std::move(next.vert_spv);
+    entry.mesh_spv = std::move(next.mesh_spv);
+    entry.depth_vert_spv = std::move(next.depth_vert_spv);
+    entry.depth_mesh_spv = std::move(next.depth_mesh_spv);
+    entry.shadow_vert_spv = std::move(next.shadow_vert_spv);
+    entry.outline_vert_spv = std::move(next.outline_vert_spv);
+    entry.compile_error.clear();
 }
 
 std::string PipelineCache::compile_glsl(const std::string& source_path,
@@ -492,6 +549,69 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         vkDestroyShaderModule(vk, gpu_mesh_module, nullptr);
     }
 
+    // ── Outline pipeline ──
+    {
+        auto outline_vert_code = read_spirv(entry.has_custom_vertex && !entry.outline_vert_spv.empty()
+            ? entry.outline_vert_spv
+            : base_path::resolve("shaders/outline.vert.spv"));
+
+        VkShaderModule outline_vert_mod = create_shader_module(vk, outline_vert_code);
+        auto outline_frag_code = read_spirv(base_path::resolve("shaders/outline.frag.spv"));
+        VkShaderModule outline_frag_mod = create_shader_module(vk, outline_frag_code);
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> outline_stages{};
+        outline_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        outline_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        outline_stages[0].module = outline_vert_mod;
+        outline_stages[0].pName = "main";
+        outline_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        outline_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        outline_stages[1].module = outline_frag_mod;
+        outline_stages[1].pName = "main";
+
+        // Outline: cull front, alpha blend, no depth write
+        rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
+
+        VkPipelineColorBlendAttachmentState outline_blend{};
+        outline_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                       VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        outline_blend.blendEnable = VK_TRUE;
+        outline_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        outline_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        outline_blend.colorBlendOp = VK_BLEND_OP_ADD;
+        outline_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        outline_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        outline_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendAttachmentState outline_mr{};
+        outline_mr.colorWriteMask = 0;
+        outline_mr.blendEnable = VK_FALSE;
+
+        std::array outline_blend_attachments = {outline_blend, outline_mr};
+
+        VkPipelineColorBlendStateCreateInfo outline_blending{};
+        outline_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        outline_blending.attachmentCount = static_cast<uint32_t>(outline_blend_attachments.size());
+        outline_blending.pAttachments = outline_blend_attachments.data();
+
+        pipeline_ci.stageCount = static_cast<uint32_t>(outline_stages.size());
+        pipeline_ci.pStages = outline_stages.data();
+        pipeline_ci.pVertexInputState = &vertex_input;
+        pipeline_ci.pInputAssemblyState = &input_assembly;
+        pipeline_ci.pColorBlendState = &outline_blending;
+        pipeline_ci.pDepthStencilState = &depth_stencil;
+        pipeline_ci.layout = outline_layout_;
+
+        if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.outline) != VK_SUCCESS) {
+            vkDestroyShaderModule(vk, outline_vert_mod, nullptr);
+            vkDestroyShaderModule(vk, outline_frag_mod, nullptr);
+            throw std::runtime_error("Failed to create outline pipeline for: " + entry.fjsl_path);
+        }
+
+        vkDestroyShaderModule(vk, outline_vert_mod, nullptr);
+        vkDestroyShaderModule(vk, outline_frag_mod, nullptr);
+    }
+
     vkDestroyShaderModule(vk, frag_module, nullptr);
     vkDestroyShaderModule(vk, vert_module, nullptr);
 }
@@ -518,6 +638,10 @@ void PipelineCache::destroy_entry_pipelines(Entry& entry) {
         vkDestroyPipeline(vk, entry.skinned_transparent, nullptr);
         entry.skinned_transparent = VK_NULL_HANDLE;
     }
+    if (entry.outline != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vk, entry.outline, nullptr);
+        entry.outline = VK_NULL_HANDLE;
+    }
 }
 
 void PipelineCache::reload(uint32_t id) {
@@ -529,30 +653,46 @@ void PipelineCache::reload(uint32_t id) {
 
 void PipelineCache::recreate_all() {
     vkDeviceWaitIdle(device_.handle());
+    int failures = 0;
     for (auto& entry : entries_) {
         compile_entry(entry);
+        if (!entry.compile_error.empty()) failures++;
     }
-    FJELL_GFX_INFO("Recreated all {} FJSL pipelines", entries_.size());
+    if (failures > 0) {
+        FJELL_GFX_WARN("Recreated FJSL pipelines: {}/{} failed", failures, entries_.size());
+    } else {
+        FJELL_GFX_INFO("Recreated all {} FJSL pipelines", entries_.size());
+    }
 }
 
 VkPipeline PipelineCache::opaque_pipeline(uint32_t id) const {
-    return entries_[id].opaque;
+    auto p = entries_[id].opaque;
+    return p != VK_NULL_HANDLE ? p : entries_[0].opaque;
 }
 
 VkPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
-    return entries_[id].transparent;
+    auto p = entries_[id].transparent;
+    return p != VK_NULL_HANDLE ? p : entries_[0].transparent;
 }
 
 VkPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {
-    return entries_[id].gpu_driven;
+    auto p = entries_[id].gpu_driven;
+    return p != VK_NULL_HANDLE ? p : entries_[0].gpu_driven;
 }
 
 VkPipeline PipelineCache::skinned_opaque_pipeline(uint32_t id) const {
-    return entries_[id].skinned_opaque;
+    auto p = entries_[id].skinned_opaque;
+    return p != VK_NULL_HANDLE ? p : entries_[0].skinned_opaque;
 }
 
 VkPipeline PipelineCache::skinned_transparent_pipeline(uint32_t id) const {
-    return entries_[id].skinned_transparent;
+    auto p = entries_[id].skinned_transparent;
+    return p != VK_NULL_HANDLE ? p : entries_[0].skinned_transparent;
+}
+
+VkPipeline PipelineCache::outline_pipeline(uint32_t id) const {
+    auto p = entries_[id].outline;
+    return p != VK_NULL_HANDLE ? p : entries_[0].outline;
 }
 
 const ShaderMetadata& PipelineCache::metadata(uint32_t id) const {
@@ -573,6 +713,10 @@ const std::string& PipelineCache::depth_mesh_spv(uint32_t id) const {
 
 const std::string& PipelineCache::shadow_vert_spv(uint32_t id) const {
     return entries_[id].shadow_vert_spv;
+}
+
+const std::string& PipelineCache::outline_vert_spv(uint32_t id) const {
+    return entries_[id].outline_vert_spv;
 }
 
 } // namespace fjell

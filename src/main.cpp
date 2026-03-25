@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
     }
 
     try {
-        fjell::Engine engine{"Fjell Engine", 2560, 1440, project_path};
+        fjell::Engine engine{"Fjell Engine", 2560, 1360, project_path};
         if (!scene_override.empty()) engine.set_scene_override(scene_override);
         if (play_immediate) engine.set_play_immediate(true);
         engine.run();

@@ -1,4 +1,5 @@
 #include "ui/stats_panel.hpp"
+#include "renderer/pipeline_cache.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
@@ -77,6 +78,19 @@ void StatsPanel::draw(float dt, const char* title) {
                          FRAME_TIME_HISTORY_SIZE, frame_time_index_,
                          nullptr, 0.0f, 33.3f,
                          {ImGui::GetContentRegionAvail().x, 35});
+
+        // Shader compile errors
+        if (auto* cache = ctx_->pipeline_cache()) {
+            for (uint32_t i = 0; i < cache->shader_count(); ++i) {
+                if (cache->has_compile_error(i)) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, {0.9f, 0.3f, 0.3f, 1.0f});
+                    ImGui::TextWrapped("Shader error [%s]: %s",
+                        cache->shader_path(i).c_str(),
+                        cache->compile_error(i).c_str());
+                    ImGui::PopStyleColor();
+                }
+            }
+        }
 
         // Render pass controls
         if (ImGui::CollapsingHeader("Render Passes")) {

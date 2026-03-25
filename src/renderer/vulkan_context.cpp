@@ -166,8 +166,7 @@ VulkanContext::VulkanContext(Window& window)
     particle_system_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Creating sprite renderer");
     sprite_renderer_.create(gpu_.device_ref(), pass_resources);
-    FJELL_GFX_DEBUG("Creating outline pipeline");
-    create_outline_pipeline();
+    FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.physical_device());
 
@@ -180,8 +179,6 @@ VulkanContext::~VulkanContext() {
     auto vk_device = gpu_.device();
 
     debug_draw_.reset();
-    if (outline_pipeline_) { vkDestroyPipeline(vk_device, outline_pipeline_, nullptr); outline_pipeline_ = VK_NULL_HANDLE; }
-    if (outline_layout_) { vkDestroyPipelineLayout(vk_device, outline_layout_, nullptr); outline_layout_ = VK_NULL_HANDLE; }
     sprite_renderer_.destroy();
     particle_system_.destroy();
     light_grid_pass_.destroy();
@@ -1520,150 +1517,6 @@ void VulkanContext::release_imgui_textures() {
     light_grid_pass_.invalidate_imgui_texture();
 }
 
-void VulkanContext::create_outline_pipeline() {
-    auto read_file = [](const std::string& path) {
-        auto full = base_path::resolve(path);
-        std::ifstream f(full, std::ios::ate | std::ios::binary);
-        if (!f.is_open()) throw std::runtime_error("Failed to open: " + full);
-        auto sz = static_cast<size_t>(f.tellg());
-        std::vector<char> buf(sz);
-        f.seekg(0);
-        f.read(buf.data(), static_cast<std::streamsize>(sz));
-        return buf;
-    };
-
-    auto vert_code = read_file("shaders/outline.vert.spv");
-    auto frag_code = read_file("shaders/outline.frag.spv");
-
-    auto create_module = [&](const std::vector<char>& code) {
-        VkShaderModuleCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        ci.codeSize = code.size();
-        ci.pCode = reinterpret_cast<const uint32_t*>(code.data());
-        VkShaderModule mod;
-        vkCreateShaderModule(gpu_.device(), &ci, nullptr, &mod);
-        return mod;
-    };
-
-    auto vert_mod = create_module(vert_code);
-    auto frag_mod = create_module(frag_code);
-
-    // Push constants: mat4 model + vec4 color + float thickness = 84 bytes
-    VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-    push_range.size = sizeof(glm::mat4) + sizeof(glm::vec4) + sizeof(float);
-
-    VkDescriptorSetLayout set_layout = gpu_.global_set_layout();
-    VkPipelineLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_ci.setLayoutCount = 1;
-    layout_ci.pSetLayouts = &set_layout;
-    layout_ci.pushConstantRangeCount = 1;
-    layout_ci.pPushConstantRanges = &push_range;
-    vkCreatePipelineLayout(gpu_.device(), &layout_ci, nullptr, &outline_layout_);
-
-    VkPipelineShaderStageCreateInfo stages[2]{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vert_mod;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = frag_mod;
-    stages[1].pName = "main";
-
-    auto binding = Vertex::get_binding_description();
-    auto attribs = Vertex::get_attribute_descriptions();
-    VkPipelineVertexInputStateCreateInfo vertex_input{};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input.vertexBindingDescriptionCount = 1;
-    vertex_input.pVertexBindingDescriptions = &binding;
-    vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribs.size());
-    vertex_input.pVertexAttributeDescriptions = attribs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    VkDynamicState dyn_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = 2;
-    dynamic_state.pDynamicStates = dyn_states;
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT; // cull front faces → only back faces show as outline
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = gpu_.msaa_samples();
-
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkPipelineColorBlendAttachmentState blend{};
-    blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    blend.blendEnable = VK_TRUE;
-    blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.colorBlendOp = VK_BLEND_OP_ADD;
-    blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-    blend.alphaBlendOp = VK_BLEND_OP_ADD;
-
-    VkPipelineColorBlendAttachmentState outline_mr_blend{};
-    outline_mr_blend.colorWriteMask = 0; // Outline doesn't write MR
-    outline_mr_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState outline_blend_attachments[] = {blend, outline_mr_blend};
-
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 2;
-    color_blending.pAttachments = outline_blend_attachments;
-
-    VkFormat depth_format = gpu_.device_ref().find_depth_format();
-    VkFormat outline_color_formats[] = {OffscreenPass::COLOR_FORMAT, OffscreenPass::MR_FORMAT};
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 2;
-    rendering_info.pColorAttachmentFormats = outline_color_formats;
-    rendering_info.depthAttachmentFormat = depth_format;
-
-    VkGraphicsPipelineCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    ci.pNext = &rendering_info;
-    ci.stageCount = 2;
-    ci.pStages = stages;
-    ci.pVertexInputState = &vertex_input;
-    ci.pInputAssemblyState = &input_assembly;
-    ci.pViewportState = &viewport_state;
-    ci.pRasterizationState = &rasterizer;
-    ci.pMultisampleState = &multisampling;
-    ci.pDepthStencilState = &depth_stencil;
-    ci.pColorBlendState = &color_blending;
-    ci.pDynamicState = &dynamic_state;
-    ci.layout = outline_layout_;
-
-    vkCreateGraphicsPipelines(gpu_.device(), VK_NULL_HANDLE, 1, &ci, nullptr, &outline_pipeline_);
-
-    vkDestroyShaderModule(gpu_.device(), vert_mod, nullptr);
-    vkDestroyShaderModule(gpu_.device(), frag_mod, nullptr);
-}
-
 void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
     if (ctx.selected_id == 0 || !ctx.scene) return;
 
@@ -1672,12 +1525,22 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
     const auto* spatial = obj->as_spatial();
     if (!spatial) return;
     const auto* mesh = obj->components.get<MeshComponent>();
-    if (!mesh || !mesh->model) return;
+    if (!mesh || !mesh->model || !mesh->material) return;
 
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, outline_pipeline_);
+    auto* cache = gpu_.pipeline_cache();
+    uint32_t pid = mesh->material->pipeline_id();
+    auto pipeline = cache->outline_pipeline(pid);
+    auto layout = cache->outline_layout();
 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, outline_layout_,
-                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+    // Bind all 3 descriptor sets (global + material + draw_data)
+    std::array descriptor_sets = {ctx.global_descriptor_set,
+                                   gpu_.bindless_textures().descriptor_set(),
+                                   gatherer_.draw_data_descriptor().descriptor_set(current_frame_)};
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
+                            0, static_cast<uint32_t>(descriptor_sets.size()),
+                            descriptor_sets.data(), 0, nullptr);
 
     VkViewport vp{};
     vp.width = static_cast<float>(ctx.target->extent().width);
@@ -1689,22 +1552,31 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
     sc.extent = ctx.target->extent();
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
-    // Push: model mat4 + outline_color vec4 + thickness float
+    // Push: outline_color vec4 + thickness float
     struct {
-        glm::mat4 model;
         glm::vec4 color;
         float thickness;
     } push{};
-    push.model = spatial->world_matrix_;
-    push.color = {1.0f, 0.6f, 0.15f, 0.7f}; // subtle amber outline
-    push.thickness = 0.015f;
+    push.color = {1.0f, 0.6f, 0.15f, 0.7f};
+    push.thickness = 0.003f;
 
-    vkCmdPushConstants(cmd, outline_layout_,
+    vkCmdPushConstants(cmd, layout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(push), &push);
 
+    // Find the draw index for this object in the draw data SSBO
+    const auto& queue = gatherer_.render_queue();
+    uint32_t draw_index = 0;
+    bool found = false;
+    for (const auto& dc : queue.commands()) {
+        if (dc.node_id == ctx.selected_id) { found = true; break; }
+        draw_index++;
+    }
+    if (!found) return;
+
+    // Draw with firstInstance = draw_index so gl_BaseInstance reads the right DrawData
     gpu_.mega_buffer()->bind(cmd);
-    mesh->model->draw(cmd);
+    mesh->model->draw(cmd, draw_index);
 }
 
 void VulkanContext::reload_pipeline() {

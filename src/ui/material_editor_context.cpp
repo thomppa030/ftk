@@ -11,6 +11,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/material_params_widget.hpp"
+#include "ui/nvim_panel.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -108,6 +109,12 @@ void MaterialEditorContext::open_material(const std::string& fjmat_path) {
 
     if (auto* cam = viewport_manager_.active_camera()) {
         cam->focus({0.0f, 0.0f, 0.0f}, 1.5f);
+    }
+
+    // Open the .fjsl source in the code editor
+    if (deps_.nvim && !material_->shader_path().empty()) {
+        auto shader_abs = base_path::resolve(material_->shader_path());
+        deps_.nvim->open(shader_abs);
     }
 
     FJELL_CORE_INFO("Material editor opened: {}", fjmat_path);

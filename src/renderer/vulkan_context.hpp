@@ -240,9 +240,6 @@ private:
   VkExtent2D prev_frame_extent_{};
 
   // ── Selection outline ─────────────────────────────────────────────────
-  VkPipelineLayout outline_layout_{VK_NULL_HANDLE};
-  VkPipeline outline_pipeline_{VK_NULL_HANDLE};
-  void create_outline_pipeline();
   void draw_outline(VkCommandBuffer cmd, const FrameContext &ctx);
 
   // ── Editor / game state ───────────────────────────────────────────────

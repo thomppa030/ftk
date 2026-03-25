@@ -280,6 +280,21 @@ void Model::draw(VkCommandBuffer cmd) const {
     }
 }
 
+void Model::draw(VkCommandBuffer cmd, uint32_t first_instance) const {
+    for (auto& mesh : meshes_) {
+        if (mesh->has_mega_entry()) {
+            const auto& entry = mesh->mega_entry();
+            vkCmdDrawIndexed(cmd, entry.index_count, 1,
+                             entry.first_index,
+                             static_cast<int32_t>(entry.vertex_offset),
+                             first_instance);
+        } else {
+            mesh->bind(cmd);
+            mesh->draw(cmd);
+        }
+    }
+}
+
 uint32_t Model::total_indices() const {
     uint32_t total = 0;
     for (auto& mesh : meshes_) {

@@ -66,6 +66,7 @@ public:
     [[nodiscard]] static FjMeshData load_fjmesh(const std::string& path);
 
     void draw(VkCommandBuffer cmd) const;
+    void draw(VkCommandBuffer cmd, uint32_t first_instance) const;
 
     [[nodiscard]] const std::vector<std::unique_ptr<Texture>>& textures() const {
         return textures_;

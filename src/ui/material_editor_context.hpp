@@ -16,6 +16,7 @@ class Clock;
 class IconCache;
 class Input;
 class Material;
+class NvimPanel;
 class PipelineCache;
 class ProjectManager;
 class ResourceManager;
@@ -28,6 +29,7 @@ struct MaterialEditorDeps {
     Clock* clock;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
+    NvimPanel* nvim;
 };
 
 class MaterialEditorContext final : public EditorContext {

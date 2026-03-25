@@ -45,15 +45,21 @@ public:
     [[nodiscard]] VkPipeline gpu_driven_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline skinned_opaque_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline skinned_transparent_pipeline(uint32_t id) const;
+    [[nodiscard]] VkPipeline outline_pipeline(uint32_t id) const;
+    [[nodiscard]] VkPipelineLayout outline_layout() const { return outline_layout_; }
     [[nodiscard]] const ShaderMetadata& metadata(uint32_t id) const;
     [[nodiscard]] bool has_custom_vertex(uint32_t id) const;
     [[nodiscard]] const std::string& depth_vert_spv(uint32_t id) const;
     [[nodiscard]] const std::string& depth_mesh_spv(uint32_t id) const;
     [[nodiscard]] const std::string& shadow_vert_spv(uint32_t id) const;
+    [[nodiscard]] const std::string& outline_vert_spv(uint32_t id) const;
     [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
     [[nodiscard]] VkPipelineLayout gpu_driven_layout() const { return gpu_driven_layout_; }
     [[nodiscard]] bool has_mesh_shaders() const { return meshlet_layout_ != VK_NULL_HANDLE; }
     [[nodiscard]] uint32_t shader_count() const { return static_cast<uint32_t>(entries_.size()); }
+    [[nodiscard]] const std::string& compile_error(uint32_t id) const { return entries_[id].compile_error; }
+    [[nodiscard]] bool has_compile_error(uint32_t id) const { return !entries_[id].compile_error.empty(); }
+    [[nodiscard]] const std::string& shader_path(uint32_t id) const { return entries_[id].fjsl_path; }
 
     // Recreate all pipelines (e.g. after hot-reload of shared shaders)
     void recreate_all();
@@ -69,12 +75,16 @@ private:
         VkPipeline gpu_driven{VK_NULL_HANDLE};
         VkPipeline skinned_opaque{VK_NULL_HANDLE};
         VkPipeline skinned_transparent{VK_NULL_HANDLE};
+        VkPipeline outline{VK_NULL_HANDLE};
         // Custom vertex SPIR-V paths (empty = use standard shaders)
         std::string vert_spv;
         std::string mesh_spv;
         std::string depth_vert_spv;
         std::string depth_mesh_spv;
         std::string shadow_vert_spv;
+        std::string outline_vert_spv;
+        // Last compile error (empty = success)
+        std::string compile_error;
     };
 
     void create_layout();
@@ -97,6 +107,7 @@ private:
 
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipelineLayout gpu_driven_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout outline_layout_{VK_NULL_HANDLE};
     std::vector<Entry> entries_;
     std::unordered_map<std::string, uint32_t> path_to_id_;
     std::string template_source_;
@@ -105,6 +116,7 @@ private:
     std::string vertex_template_;
     std::string depth_vertex_template_;
     std::string shadow_vertex_template_;
+    std::string outline_vertex_template_;
     std::string shader_source_dir_;
     std::string generated_dir_;
 };

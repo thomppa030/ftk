@@ -281,7 +281,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                     .input = &input_,
                     .clock = &clock_,
                     .project_mgr = &project_mgr_,
-                    .icon_cache = icon_cache_.get()
+                    .icon_cache = icon_cache_.get(),
+                    .nvim = &nvim_panel_
                 };
                 auto mat_ctx = std::make_unique<MaterialEditorContext>(deps);
                 mat_ctx->init();
