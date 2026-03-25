@@ -13,6 +13,7 @@
 #include "platform/platform.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
+#include "ui/theme.hpp"
 #include "ui/animation_editor_context.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
@@ -474,12 +475,6 @@ void Engine::setup_dockspace() {
     ImGui::Begin("##DockHost", nullptr, host_flags);
     ImGui::PopStyleVar(3);
 
-    // Context tab bar (above dockspace, only when multiple contexts open)
-    if (contexts_.size() > 1) {
-        draw_context_tabs();
-        ImGui::Separator();
-    }
-
     // Per-context dockspaces — each context gets its own
     // Only draw the active one; the others retain their layout in ImGui state
     for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
@@ -707,10 +702,8 @@ void Engine::draw_ui() {
     menu_bar_.set_viewport_manager(&scene_context_->viewport_manager());
     menu_bar_.draw();
 
-    setup_dockspace();
-
-    // Context tab bar (dockable panel)
     draw_context_tabs();
+    setup_dockspace();
 
     // Active context draws its own panels
     active_context().draw(clock_.delta_time());
@@ -907,30 +900,71 @@ void Engine::switch_context(int index) {
 }
 
 void Engine::draw_context_tabs() {
-    if (ImGui::Begin("Editors")) {
-        if (ImGui::BeginTabBar("##ContextTabs")) {
-            for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
-                ImGui::PushID(i);
-                bool closeable = (i != 0);
-                bool open = true;
-                if (ImGui::BeginTabItem(contexts_[static_cast<size_t>(i)]->name(),
-                                         closeable ? &open : nullptr)) {
-                    if (i != active_context_idx_) switch_context(i);
-                    ImGui::EndTabItem();
-                }
-                ImGui::PopID();
-                if (closeable && !open) {
-                    contexts_[i]->shutdown();
-                    contexts_.erase(contexts_.begin() + i);
-                    if (active_context_idx_ >= static_cast<int>(contexts_.size())) {
-                        switch_context(static_cast<int>(contexts_.size()) - 1);
-                    }
-                    break;
-                }
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+
+    // Tab sizing — push FramePadding early so bar_height accounts for it
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {14.0f, 8.0f});
+    float bar_height = ImGui::GetFrameHeight() + 4.0f;
+
+    // Match menu bar background, minimal window padding
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImGui::GetStyleColorVec4(ImGuiCol_MenuBarBg));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0f, 2.0f});
+    if (!ImGui::BeginViewportSideBar("##ContextBar", viewport, ImGuiDir_Up, bar_height,
+                                      ImGuiWindowFlags_NoScrollbar |
+                                      ImGuiWindowFlags_NoScrollWithMouse)) {
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor();
+        return;
+    }
+    ImGui::PopStyleVar();   // WindowPadding
+    ImGui::PopStyleColor(); // WindowBg
+
+    // Tab colors
+    ImGui::PushStyleColor(ImGuiCol_Tab, theme::srgb(0.067f, 0.071f, 0.078f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, theme::srgb(0.169f, 0.176f, 0.192f));
+    ImGui::PushStyleColor(ImGuiCol_TabSelected, theme::srgb(0.118f, 0.122f, 0.133f));
+    ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 4.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 1.0f);
+
+    // Indent tabs to align with the viewport (past the left dock panels)
+    float indent = scene_context_->viewport_manager().active_viewport_pos().x;
+    if (indent > 4.0f) {
+        ImGui::SetCursorPosX(indent);
+    }
+
+    if (ImGui::BeginTabBar("##ContextTabs", ImGuiTabBarFlags_Reorderable)) {
+        int close_idx = -1;
+        for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+            ImGui::PushID(i);
+            bool closeable = (i != 0);
+            bool open = true;
+            if (ImGui::BeginTabItem(contexts_[static_cast<size_t>(i)]->name(),
+                                     closeable ? &open : nullptr)) {
+                if (i != active_context_idx_) switch_context(i);
+                ImGui::EndTabItem();
             }
-            ImGui::EndTabBar();
+            if (closeable && !open) close_idx = i;
+            ImGui::PopID();
+        }
+        ImGui::EndTabBar();
+
+        // Defer close until after the tab bar is fully drawn
+        if (close_idx >= 0) {
+            contexts_[close_idx]->shutdown();
+            contexts_.erase(contexts_.begin() + close_idx);
+            if (close_idx < active_context_idx_) {
+                active_context_idx_--;
+            } else if (active_context_idx_ >= static_cast<int>(contexts_.size())) {
+                switch_context(static_cast<int>(contexts_.size()) - 1);
+            }
         }
     }
+
+    ImGui::PopStyleVar(2);   // TabRounding, TabBorderSize
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar();    // FramePadding
+
     ImGui::End();
 }
 

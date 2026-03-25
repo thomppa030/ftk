@@ -336,12 +336,8 @@ void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
     // Bottom strip: Stats / Console (tabs) — 32%
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.32f, nullptr, &center);
 
-    // Editors tab strip above viewport — small fixed height
-    ImGuiID editors_strip = ImGui::DockBuilderSplitNode(center, ImGuiDir_Up, 0.07f, nullptr, &center);
-
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("History##ctx0", left_bottom);
-    ImGui::DockBuilderDockWindow("Editors", editors_strip);
     ImGui::DockBuilderDockWindow("Viewport", center);
     ImGui::DockBuilderDockWindow("Code Editor##ctx0", center);
     ImGui::DockBuilderDockWindow("Properties", right);

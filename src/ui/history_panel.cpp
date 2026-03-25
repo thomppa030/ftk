@@ -83,6 +83,8 @@ void HistoryPanel::draw(const char* title) {
 
         // Command entries
         for (int i = 0; i < static_cast<int>(cmds.size()); ++i) {
+            ImGui::PushID(i);
+
             bool is_current = (i == current);
             bool is_undone = (i > current);
 
@@ -95,7 +97,6 @@ void HistoryPanel::draw(const char* title) {
 
             if (has_markers && !is_undone) {
                 // Use an invisible selectable for click, then draw colored text
-                ImGui::PushID(i);
                 if (ImGui::Selectable("##cmd", is_current)) {
                     history_->jump_to(i);
                 }
@@ -105,7 +106,6 @@ void HistoryPanel::draw(const char* title) {
                 // Dummy to start the line, then draw_colored_text uses SameLine
                 ImGui::SetCursorPosX(ImGui::GetTreeNodeToLabelSpacing());
                 draw_colored_text(desc);
-                ImGui::PopID();
             } else {
                 if (ImGui::Selectable(desc.c_str(), is_current)) {
                     history_->jump_to(i);
@@ -115,6 +115,8 @@ void HistoryPanel::draw(const char* title) {
             if (is_undone) {
                 ImGui::PopStyleColor();
             }
+
+            ImGui::PopID();
         }
 
         // Auto-scroll to current

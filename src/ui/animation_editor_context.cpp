@@ -95,7 +95,6 @@ void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
     std::snprintf(history, sizeof(history), "History##ctx%d", ci);
     std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
 
-    ImGui::DockBuilderDockWindow("Editors", left);
     ImGui::DockBuilderDockWindow("Bone Tree", left);
     ImGui::DockBuilderDockWindow("Clip List", left_bottom);
     ImGui::DockBuilderDockWindow(history, left_bottom);
@@ -307,10 +306,12 @@ void AnimationEditorContext::draw_clip_list() {
             ImGui::TextDisabled("No clips found");
         } else {
             for (int i = 0; i < static_cast<int>(available_clip_names_.size()); ++i) {
+                ImGui::PushID(i);
                 bool selected = (i == selected_clip_);
                 if (ImGui::Selectable(available_clip_names_[i].c_str(), selected)) {
                     load_clip(i);
                 }
+                ImGui::PopID();
             }
         }
     }

@@ -54,6 +54,26 @@ NodeVisuals node_visuals(const Node& obj) {
     return {{0.50f, 0.50f, 0.50f, 1.0f}, "node"};
 }
 
+// Draw the shared "add object" menu items used by both toolbar + and context menu
+void draw_add_object_menu(Delegate<void(const std::string&)>& on_add) {
+    if (ImGui::MenuItem("Cube")) on_add.broadcast("cube");
+    if (ImGui::MenuItem("Plane")) on_add.broadcast("plane");
+    if (ImGui::MenuItem("Sphere")) on_add.broadcast("sphere");
+    ImGui::Separator();
+    if (ImGui::MenuItem("Sprite")) on_add.broadcast("sprite");
+    if (ImGui::MenuItem("Empty Node")) on_add.broadcast("empty");
+    if (ImGui::MenuItem("Folder")) on_add.broadcast("folder");
+    ImGui::Separator();
+    if (ImGui::MenuItem("Camera")) on_add.broadcast("camera");
+    ImGui::Separator();
+    if (ImGui::MenuItem("Directional Light")) on_add.broadcast("light:directional");
+    if (ImGui::MenuItem("Point Light")) on_add.broadcast("light:point");
+    if (ImGui::MenuItem("Spot Light")) on_add.broadcast("light:spot");
+    ImGui::Separator();
+    if (ImGui::MenuItem("Volumetric Fog")) on_add.broadcast("volumetric_fog");
+    if (ImGui::MenuItem("World Environment")) on_add.broadcast("world_environment");
+}
+
 } // namespace
 
 // ── Selection API ────────────────────────────────────────────────────────
@@ -225,22 +245,7 @@ void HierarchyPanel::draw() {
         ImGui::Combo("##type", &type_filter_, type_labels, 6);
 
         if (ImGui::BeginPopup("##HierarchyAdd")) {
-            if (ImGui::MenuItem("Cube")) on_add_primitive.broadcast("cube");
-            if (ImGui::MenuItem("Plane")) on_add_primitive.broadcast("plane");
-            if (ImGui::MenuItem("Sphere")) on_add_primitive.broadcast("sphere");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Sprite")) on_add_primitive.broadcast("sprite");
-            if (ImGui::MenuItem("Empty Node")) on_add_primitive.broadcast("empty");
-            if (ImGui::MenuItem("Folder")) on_add_primitive.broadcast("folder");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Camera")) on_add_primitive.broadcast("camera");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Directional Light")) on_add_primitive.broadcast("light:directional");
-            if (ImGui::MenuItem("Point Light")) on_add_primitive.broadcast("light:point");
-            if (ImGui::MenuItem("Spot Light")) on_add_primitive.broadcast("light:spot");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Volumetric Fog")) on_add_primitive.broadcast("volumetric_fog");
-            if (ImGui::MenuItem("World Environment")) on_add_primitive.broadcast("world_environment");
+            draw_add_object_menu(on_add_primitive);
             ImGui::EndPopup();
         }
 
@@ -293,22 +298,7 @@ void HierarchyPanel::draw() {
             ImGui::OpenPopup("##HierarchyContext");
         }
         if (ImGui::BeginPopup("##HierarchyContext")) {
-            if (ImGui::MenuItem("Add Cube")) on_add_primitive.broadcast("cube");
-            if (ImGui::MenuItem("Add Plane")) on_add_primitive.broadcast("plane");
-            if (ImGui::MenuItem("Add Sphere")) on_add_primitive.broadcast("sphere");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Add Sprite")) on_add_primitive.broadcast("sprite");
-            if (ImGui::MenuItem("Add Empty Node")) on_add_primitive.broadcast("empty");
-            if (ImGui::MenuItem("Add Folder")) on_add_primitive.broadcast("folder");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Add Camera")) on_add_primitive.broadcast("camera");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Add Directional Light")) on_add_primitive.broadcast("light:directional");
-            if (ImGui::MenuItem("Add Point Light")) on_add_primitive.broadcast("light:point");
-            if (ImGui::MenuItem("Add Spot Light")) on_add_primitive.broadcast("light:spot");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Add Volumetric Fog")) on_add_primitive.broadcast("volumetric_fog");
-            if (ImGui::MenuItem("Add World Environment")) on_add_primitive.broadcast("world_environment");
+            draw_add_object_menu(on_add_primitive);
             ImGui::EndPopup();
         }
 

@@ -421,6 +421,8 @@ void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir) 
         flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
     }
 
+    ImGui::PushID(dir.c_str());
+
     // Draw folder icon inline
     auto folder_desc = icons_ ? icons_->icon("folder") : VK_NULL_HANDLE;
     if (folder_desc) {
@@ -449,6 +451,8 @@ void ContentBrowser::draw_directory_tree_node(const std::filesystem::path& dir) 
         }
         ImGui::TreePop();
     }
+
+    ImGui::PopID();
 }
 
 void ContentBrowser::draw_file_grid() {
