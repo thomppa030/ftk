@@ -210,6 +210,7 @@ target_link_libraries(fjell PRIVATE
     msdfgen::msdfgen-core
     meshoptimizer
     ozz_animation
+    ozz_animation_offline
     msdfgen::msdfgen-ext
     Freetype::Freetype
     ${FJELL_NVIM_LIBS}
@@ -259,6 +260,10 @@ endif()
 get_target_property(OZZ_ANIM_DIRS ozz_animation INTERFACE_INCLUDE_DIRECTORIES)
 if(OZZ_ANIM_DIRS)
     target_include_directories(fjell SYSTEM PRIVATE ${OZZ_ANIM_DIRS})
+endif()
+get_target_property(OZZ_OFFLINE_DIRS ozz_animation_offline INTERFACE_INCLUDE_DIRECTORIES)
+if(OZZ_OFFLINE_DIRS)
+    target_include_directories(fjell SYSTEM PRIVATE ${OZZ_OFFLINE_DIRS})
 endif()
 
 # Treat msdfgen headers as system headers to suppress warnings from them

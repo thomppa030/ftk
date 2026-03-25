@@ -1,5 +1,7 @@
 #pragma once
 
+#include "animation/fjskel.hpp"
+
 #include <ozz/animation/runtime/skeleton.h>
 
 #include <glm/glm.hpp>
@@ -12,6 +14,7 @@ namespace fjell {
 class Skeleton {
 public:
     [[nodiscard]] static Skeleton load(const std::string& path);
+    void save(const std::string& path) const;
 
     [[nodiscard]] const ozz::animation::Skeleton& raw() const { return skeleton_; }
     [[nodiscard]] int num_joints() const { return skeleton_.num_joints(); }
@@ -23,9 +26,15 @@ public:
         return inverse_bind_matrices_;
     }
 
+    [[nodiscard]] const std::vector<FjSkelJoint>& joints() const { return joints_; }
+    [[nodiscard]] const std::vector<BoneSlot>& slots() const { return slots_; }
+    [[nodiscard]] std::vector<BoneSlot>& slots() { return slots_; }
+
 private:
     ozz::animation::Skeleton skeleton_;
     std::vector<glm::mat4> inverse_bind_matrices_;
+    std::vector<FjSkelJoint> joints_;
+    std::vector<BoneSlot> slots_;
 };
 
 } // namespace fjell

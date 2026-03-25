@@ -11,6 +11,8 @@
 #include <assimp/scene.h>
 #include <meshoptimizer.h>
 
+#include <nlohmann/json.hpp>
+
 #include <ozz/animation/offline/animation_builder.h>
 #include <ozz/animation/offline/raw_animation.h>
 #include <ozz/animation/offline/raw_skeleton.h>
@@ -19,12 +21,15 @@
 #include <ozz/animation/runtime/skeleton.h>
 #include <ozz/base/io/archive.h>
 #include <ozz/base/io/stream.h>
+#include <ozz/base/maths/simd_math.h>
+#include <ozz/base/maths/soa_transform.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -756,53 +761,59 @@ static bool write_skinned_fjmesh(const std::string& output_path,
 }
 
 static bool export_skeleton(const std::string& output_path,
-                             const ozz::animation::Skeleton& skeleton,
-                             const std::vector<glm::mat4>& inv_bind_matrices) {
-    // Serialize skeleton via ozz archive
-    ozz::io::MemoryStream skel_stream;
-    ozz::io::OArchive archive(&skel_stream);
-    archive << skeleton;
+                             const ozz::animation::Skeleton& skeleton) {
+    // Flatten ozz skeleton into JSON joint array (depth-first order)
+    int num_joints = skeleton.num_joints();
+    auto names = skeleton.joint_names();
+    auto parents = skeleton.joint_parents();
+    auto rest_poses = skeleton.joint_rest_poses();
 
-    fjell::FjSkelHeader header{};
-    header.magic = fjell::FJSKEL_MAGIC;
-    header.version = fjell::FJSKEL_VERSION;
-    header.num_joints = static_cast<uint32_t>(skeleton.num_joints());
+    // Helper: extract a float from lane `lane` of a SimdFloat4
+    auto lane_f = [](const ozz::math::SimdFloat4& v, int lane) -> float {
+        alignas(16) float tmp[4];
+        ozz::math::StorePtrU(v, tmp);
+        return tmp[lane];
+    };
 
-    uint64_t offset = sizeof(fjell::FjSkelHeader);
-    header.skeleton_offset = offset;
-    header.skeleton_size = static_cast<uint64_t>(skel_stream.Size());
-    offset += header.skeleton_size;
+    nlohmann::json j;
+    j["joints"] = nlohmann::json::array();
 
-    // Align inverse bind matrices to 16 bytes
-    offset = (offset + 15) & ~uint64_t(15);
-    header.inv_bind_offset = offset;
+    for (int i = 0; i < num_joints; ++i) {
+        int soa_idx = i / 4;
+        int lane = i % 4;
+        const auto& soa = rest_poses[soa_idx];
 
-    FILE* f = std::fopen(output_path.c_str(), "wb");
-    if (!f) {
+        nlohmann::json jj;
+        jj["name"] = std::string(names[i]);
+        jj["parent"] = static_cast<int>(parents[i]);
+        jj["translation"] = {
+            lane_f(soa.translation.x, lane),
+            lane_f(soa.translation.y, lane),
+            lane_f(soa.translation.z, lane)
+        };
+        jj["rotation"] = {
+            lane_f(soa.rotation.x, lane),
+            lane_f(soa.rotation.y, lane),
+            lane_f(soa.rotation.z, lane),
+            lane_f(soa.rotation.w, lane)
+        };
+        jj["scale"] = {
+            lane_f(soa.scale.x, lane),
+            lane_f(soa.scale.y, lane),
+            lane_f(soa.scale.z, lane)
+        };
+        j["joints"].push_back(jj);
+    }
+
+    j["slots"] = nlohmann::json::array();
+
+    std::ofstream file(output_path);
+    if (!file.is_open()) {
         std::fprintf(stderr, "error: cannot open '%s' for writing\n", output_path.c_str());
         return false;
     }
-
-    std::fwrite(&header, sizeof(header), 1, f);
-
-    // Write skeleton blob
-    std::fseek(f, static_cast<long>(header.skeleton_offset), SEEK_SET);
-    skel_stream.Seek(0, ozz::io::Stream::kSet);
-    std::vector<uint8_t> skel_data(skel_stream.Size());
-    skel_stream.Read(skel_data.data(), skel_data.size());
-    std::fwrite(skel_data.data(), 1, skel_data.size(), f);
-
-    // Pad + write inverse bind matrices
-    long current = std::ftell(f);
-    while (static_cast<uint64_t>(current) < header.inv_bind_offset) {
-        uint8_t zero = 0;
-        std::fwrite(&zero, 1, 1, f);
-        ++current;
-    }
-    std::fwrite(inv_bind_matrices.data(), sizeof(glm::mat4), inv_bind_matrices.size(), f);
-
-    std::fclose(f);
-    std::printf("wrote %s (%u joints)\n", output_path.c_str(), header.num_joints);
+    file << j.dump(2);
+    std::printf("wrote %s (%d joints)\n", output_path.c_str(), num_joints);
     return true;
 }
 
@@ -1018,7 +1029,7 @@ int main(int argc, char* argv[]) {
 
         // Write .fjskel
         fs::path skel_path = fs::path(output_path).replace_extension(".fjskel");
-        export_skeleton(skel_path.string(), *runtime_skel, skinned_result.inv_bind_matrices);
+        export_skeleton(skel_path.string(), *runtime_skel);
 
         // Export animations
         fs::path stem = fs::path(output_path).stem();
