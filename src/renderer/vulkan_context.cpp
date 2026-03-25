@@ -1744,6 +1744,11 @@ void VulkanContext::sync_custom_depth_pipelines() {
         if (!depth_vert.empty()) {
             depth_prepass_.register_custom_depth(id, depth_vert);
         }
+
+        const auto& shadow_vert = pc->shadow_vert_spv(id);
+        if (!shadow_vert.empty()) {
+            shadow_pass_.register_custom_shadow(id, shadow_vert);
+        }
     }
 }
 

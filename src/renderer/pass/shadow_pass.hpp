@@ -7,6 +7,8 @@
 
 #include <array>
 #include <cstdint>
+#include <string>
+#include <unordered_map>
 
 namespace fjell {
 
@@ -27,6 +29,10 @@ public:
     // Call before record().
     void update(const glm::mat4& view, const glm::mat4& projection,
                 const DirectionalLight& light, float near, float far);
+
+    /// Create a custom shadow pipeline for a specific shader pipeline ID
+    /// using a custom vertex shader SPV.
+    void register_custom_shadow(uint32_t pipeline_id, const std::string& vert_spv_path);
 
     [[nodiscard]] VkImageView cascade_view(uint32_t index) const { return cascade_views_[index]; }
     [[nodiscard]] VkImageView array_view() const { return array_view_; }
@@ -59,6 +65,9 @@ private:
     VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout material_set_layout_{VK_NULL_HANDLE};
+
+    // Per-pipeline-id custom shadow pipelines (for vertex displacement)
+    std::unordered_map<uint32_t, VkPipeline> custom_shadow_pipelines_;
 
     // Per-frame cascade data
     std::array<glm::mat4, CASCADE_COUNT> light_matrices_{};
