@@ -15,6 +15,7 @@
 #include "ui/console.hpp"
 #include "ui/theme.hpp"
 #include "ui/animation_editor_context.hpp"
+#include "ui/material_editor_context.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
 #include "scene/camera_node.hpp"
@@ -261,6 +262,31 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                     ctx->open_clip(path);
                 }
                 contexts_.push_back(std::move(ctx));
+                switch_context(static_cast<int>(contexts_.size()) - 1);
+            }
+            if (type == "material") {
+                // Reuse existing material editor for this path
+                for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+                    if (auto* mat_ctx = dynamic_cast<MaterialEditorContext*>(contexts_[i].get())) {
+                        if (mat_ctx->material_path() == path) {
+                            switch_context(i);
+                            return;
+                        }
+                    }
+                }
+                // Create new material editor context
+                MaterialEditorDeps deps{
+                    .vulkan_context = vulkan_context_.get(),
+                    .resource_manager = resource_manager_.get(),
+                    .input = &input_,
+                    .clock = &clock_,
+                    .project_mgr = &project_mgr_,
+                    .icon_cache = icon_cache_.get()
+                };
+                auto mat_ctx = std::make_unique<MaterialEditorContext>(deps);
+                mat_ctx->init();
+                mat_ctx->open_material(path);
+                contexts_.push_back(std::move(mat_ctx));
                 switch_context(static_cast<int>(contexts_.size()) - 1);
             }
         }));
@@ -666,6 +692,9 @@ void Engine::draw_ui() {
     // Global shortcuts (Ctrl+S, Ctrl+Z/Y, Ctrl+Space)
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
         save_material_assets();
+        if (auto* mat_ctx = dynamic_cast<MaterialEditorContext*>(&active_context())) {
+            mat_ctx->save_material();
+        }
         if (auto r = scene_.save(current_scene_path_); !r) {
             FJELL_CORE_ERROR("{}", r.error());
         }
