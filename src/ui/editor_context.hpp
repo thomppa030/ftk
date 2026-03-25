@@ -57,13 +57,16 @@ public:
     [[nodiscard]] bool dockspace_built() const { return dockspace_built_; }
     void mark_dockspace_built() { dockspace_built_ = true; }
 
-    // Per-context dockspace ID (set by Engine)
+    // Per-context dockspace ID and index (set by Engine)
     void set_dockspace_id(ImGuiID id) { dockspace_id_ = id; }
     [[nodiscard]] ImGuiID dockspace_id() const { return dockspace_id_; }
+    void set_context_index(int idx) { context_index_ = idx; }
+    [[nodiscard]] int context_index() const { return context_index_; }
 
 private:
     CommandHistory command_history_;
     ImGuiID dockspace_id_{0};
+    int context_index_{0};
     bool dockspace_built_{false};
 };
 

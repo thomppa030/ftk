@@ -7,7 +7,7 @@ class CommandHistory;
 class HistoryPanel {
 public:
     void init(CommandHistory* history);
-    void draw();
+    void draw(const char* title = "History");
 
 private:
     CommandHistory* history_{nullptr};

@@ -11,7 +11,7 @@ void StatsPanel::init(VulkanContext* ctx) {
     ctx_ = ctx;
 }
 
-void StatsPanel::draw(float dt) {
+void StatsPanel::draw(float dt, const char* title) {
     // FPS calculation
     frame_count_++;
     fps_timer_ += dt;
@@ -27,7 +27,7 @@ void StatsPanel::draw(float dt) {
 
     const auto& stats = ctx_->render_stats();
 
-    if (ImGui::Begin("Stats")) {
+    if (ImGui::Begin(title)) {
         if (auto* ic = IconCache::instance()) ic->draw_panel_icon("stats");
         ImGui::Text("GPU: %s", ctx_->gpu_name().c_str());
         ImGui::SameLine(0, 20);

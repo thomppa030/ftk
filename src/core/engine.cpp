@@ -488,6 +488,7 @@ void Engine::setup_dockspace() {
         std::snprintf(id_buf, sizeof(id_buf), "CtxDock%d", i);
         ImGuiID ctx_dock_id = ImGui::GetID(id_buf);
         ctx.set_dockspace_id(ctx_dock_id);
+        ctx.set_context_index(i);
 
         if (i == active_context_idx_) {
             // Active: draw the dockspace
@@ -715,12 +716,26 @@ void Engine::draw_ui() {
     active_context().draw(clock_.delta_time());
     viewport_hovered_ = active_context().any_viewport_hovered();
 
-    // Shared panels
+    // Shared panels — each drawn with a per-context window name so they
+    // dock independently in each context's dockspace
+    char stats_title[32], history_title[32], console_title[32], code_title[32];
+    std::snprintf(stats_title, sizeof(stats_title), "Stats##ctx%d", active_context_idx_);
+    std::snprintf(history_title, sizeof(history_title), "History##ctx%d", active_context_idx_);
+    std::snprintf(console_title, sizeof(console_title), "Console##ctx%d", active_context_idx_);
+    std::snprintf(code_title, sizeof(code_title), "Code Editor##ctx%d", active_context_idx_);
+
     content_browser_.draw();
-    stats_panel_.draw(clock_.delta_time());
-    history_panel_.draw();
-    draw_console();
-    draw_code_editor();
+    stats_panel_.draw(clock_.delta_time(), stats_title);
+    history_panel_.draw(history_title);
+    if (auto& sink = log::console_sink(); sink) {
+        sink->draw(console_title);
+    }
+#ifdef FJELL_HAS_NVIM_PANEL
+    nvim_panel_.poll();
+    ImGui::PushID(active_context_idx_);
+    nvim_panel_.draw();
+    ImGui::PopID();
+#endif
 }
 
 TickContext Engine::make_frame_context() {
@@ -884,6 +899,7 @@ const EditorContext& Engine::active_context() const {
 
 void Engine::switch_context(int index) {
     if (index == active_context_idx_) return;
+    vulkan_context_->wait_idle();
     contexts_[static_cast<size_t>(active_context_idx_)]->on_exit();
     active_context_idx_ = index;
     contexts_[static_cast<size_t>(active_context_idx_)]->on_enter();

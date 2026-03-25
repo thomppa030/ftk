@@ -19,6 +19,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
 
 namespace fjell {
@@ -86,16 +87,24 @@ void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
     // Bottom: timeline + stats/console — 32%
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.32f, nullptr, &center);
 
+    // Per-context shared panel names
+    int ci = context_index();
+    char stats[32], console[32], history[32], code[32];
+    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
+    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
+    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
+    std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
+
     ImGui::DockBuilderDockWindow("Editors", left);
     ImGui::DockBuilderDockWindow("Bone Tree", left);
     ImGui::DockBuilderDockWindow("Clip List", left_bottom);
-    ImGui::DockBuilderDockWindow("History", left_bottom);
+    ImGui::DockBuilderDockWindow(history, left_bottom);
     ImGui::DockBuilderDockWindow("Anim Preview", center);
+    ImGui::DockBuilderDockWindow(code, center);
     ImGui::DockBuilderDockWindow("Anim Properties", right);
     ImGui::DockBuilderDockWindow("Anim Timeline", bottom);
-    ImGui::DockBuilderDockWindow("Stats", bottom);
-    ImGui::DockBuilderDockWindow("Console", bottom);
-    ImGui::DockBuilderDockWindow("Code Editor", center);
+    ImGui::DockBuilderDockWindow(stats, bottom);
+    ImGui::DockBuilderDockWindow(console, bottom);
 }
 
 bool AnimationEditorContext::handle_shortcuts() {
@@ -120,8 +129,19 @@ std::vector<ViewportRenderRequest> AnimationEditorContext::build_render_requests
     return viewport_manager_.build_render_requests();
 }
 
-void AnimationEditorContext::apply_resize(VulkanContext& vk) {
-    viewport_manager_.apply_resize(vk);
+void AnimationEditorContext::apply_resize(VulkanContext& /*vk*/) {
+    // Don't resize global render passes — the animation preview reuses
+    // the scene context's pipeline. Only the offscreen pass itself needs
+    // to match the viewport panel size, which ViewportManager handles
+    // internally via OffscreenPass::resize().
+    for (auto* panel = viewport_manager_.active_panel(); panel; panel = nullptr) {
+        if (!panel->offscreen) break;
+        auto w = static_cast<uint32_t>(panel->size.x);
+        auto h = static_cast<uint32_t>(panel->size.y);
+        if (w > 0 && h > 0) {
+            panel->offscreen->resize(w, h);
+        }
+    }
 }
 
 bool AnimationEditorContext::any_viewport_hovered() const {

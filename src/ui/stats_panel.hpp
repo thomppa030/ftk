@@ -10,7 +10,7 @@ class VulkanContext;
 class StatsPanel {
 public:
     void init(VulkanContext* ctx);
-    void draw(float dt);
+    void draw(float dt, const char* title = "Stats");
 
 private:
     static constexpr int FRAME_TIME_HISTORY_SIZE = 120;

@@ -326,24 +326,27 @@ void SceneEditorContext::draw_play_toolbar() {
 void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID center = main_area;
 
-    // Left panel: Hierarchy (top) + History (bottom) — 14% width
+    // Left panel: Hierarchy (top) + History (bottom) — 14%
     ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.14f, nullptr, &center);
     ImGuiID left_bottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.50f, nullptr, &left);
 
-    // Right panel: Properties — 19% width
+    // Right panel: Properties — 19%
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
 
-    // Bottom strip: Stats / Console (tabs) — 32% height
+    // Bottom strip: Stats / Console (tabs) — 32%
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.32f, nullptr, &center);
 
-    ImGui::DockBuilderDockWindow("Editors", left);
+    // Editors tab strip above viewport — small fixed height
+    ImGuiID editors_strip = ImGui::DockBuilderSplitNode(center, ImGuiDir_Up, 0.07f, nullptr, &center);
+
     ImGui::DockBuilderDockWindow("Hierarchy", left);
-    ImGui::DockBuilderDockWindow("History", left_bottom);
-    ImGui::DockBuilderDockWindow("Code Editor", center);
+    ImGui::DockBuilderDockWindow("History##ctx0", left_bottom);
+    ImGui::DockBuilderDockWindow("Editors", editors_strip);
     ImGui::DockBuilderDockWindow("Viewport", center);
+    ImGui::DockBuilderDockWindow("Code Editor##ctx0", center);
     ImGui::DockBuilderDockWindow("Properties", right);
-    ImGui::DockBuilderDockWindow("Stats", bottom);
-    ImGui::DockBuilderDockWindow("Console", bottom);
+    ImGui::DockBuilderDockWindow("Stats##ctx0", bottom);
+    ImGui::DockBuilderDockWindow("Console##ctx0", bottom);
 }
 
 bool SceneEditorContext::handle_shortcuts() {
