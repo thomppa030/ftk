@@ -7,6 +7,9 @@
 #include "ui/viewport_manager.hpp"
 #include "core/delegate.hpp"
 #include "core/play_session.hpp"
+#include "scene/transform.hpp"
+
+#include <glm/glm.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -96,6 +99,15 @@ public:
 private:
     void duplicate_selection();
     void delete_selection();
+    void draw_picking(ViewportPanel& vp);
+    void draw_gizmo(ViewportPanel& vp);
+    void draw_play_toolbar();
+
+    // Gizmo drag state
+    bool gizmo_dragging_{false};
+    glm::mat4 gizmo_matrix_{1.0f};
+    glm::mat4 gizmo_start_world_{1.0f};
+    Transform gizmo_start_transform_{};
 
     // Dependencies (non-owning)
     SceneEditorDeps deps_;

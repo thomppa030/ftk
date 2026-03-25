@@ -33,7 +33,12 @@
 
 #include <imgui.h>
 #include <imgui_internal.h>
+#include <ImGuizmo.h>
 #include <GLFW/glfw3.h>
+
+#include <glm/gtc/type_ptr.hpp>
+
+#include <limits>
 
 #include <filesystem>
 
@@ -71,12 +76,6 @@ void SceneEditorContext::init() {
         }));
     connections_.push_back(hierarchy_panel_.on_duplicate.bind(
         [this]() { duplicate_selection(); }));
-    connections_.push_back(viewport_manager_.on_play.bind(
-        [this]() { start_play(); }));
-    connections_.push_back(viewport_manager_.on_stop.bind(
-        [this]() { stop_play(); }));
-    connections_.push_back(viewport_manager_.on_pause.bind(
-        []() { /* TODO: pause */ }));
 }
 
 void SceneEditorContext::shutdown() {
@@ -86,8 +85,20 @@ void SceneEditorContext::shutdown() {
 }
 
 void SceneEditorContext::draw(float dt) {
-    viewport_manager_.draw(*deps_.vulkan_context, *deps_.scene, selected_id_,
-                           *deps_.input, dt, gizmo_op_, &command_history());
+    viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
+
+    // Picking and gizmo on the active viewport
+    auto* vp = viewport_manager_.active_panel();
+    if (vp && vp->hovered) {
+        draw_picking(*vp);
+    }
+    if (vp) {
+        draw_gizmo(*vp);
+    }
+
+    // Play toolbar (centered in viewport toolbar area)
+    draw_play_toolbar();
+
     hierarchy_panel_.draw();
     properties_panel_.draw();
     node_editor_panel_.draw();
@@ -96,6 +107,218 @@ void SceneEditorContext::draw(float dt) {
         ImGui::SetWindowFocus("Viewport");
         focus_viewport_ = false;
     }
+}
+
+void SceneEditorContext::draw_picking(ViewportPanel& vp) {
+    if (!ImGuizmo::IsUsing() && !ImGuizmo::IsOver() &&
+        (ImGui::IsMouseClicked(ImGuiMouseButton_Left) ||
+         ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))) {
+        auto mouse = ImGui::GetMousePos();
+        float mx = (mouse.x - vp.img_pos.x) / vp.img_size.x;
+        float my = (mouse.y - vp.img_pos.y) / vp.img_size.y;
+
+        float aspect = vp.img_size.x / std::max(vp.img_size.y, 1.0f);
+        auto view = vp.camera.view_matrix();
+        auto proj = vp.camera.projection_matrix(aspect);
+        auto inv_vp = glm::inverse(proj * view);
+
+        glm::vec4 ndc_near{mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 0.0f, 1.0f};
+        glm::vec4 ndc_far {mx * 2.0f - 1.0f, my * 2.0f - 1.0f, 1.0f, 1.0f};
+
+        glm::vec4 world_near = inv_vp * ndc_near;
+        glm::vec4 world_far  = inv_vp * ndc_far;
+        world_near /= world_near.w;
+        world_far  /= world_far.w;
+
+        glm::vec3 ray_origin = glm::vec3(world_near);
+        glm::vec3 ray_dir = glm::normalize(glm::vec3(world_far - world_near));
+
+        float closest_t = std::numeric_limits<float>::max();
+        uint32_t hit_id = 0;
+
+        for (const auto& obj : deps_.scene->objects()) {
+            auto* mesh = obj->components.get<MeshComponent>();
+            if (!mesh || !mesh->model) continue;
+            if (!mesh->model->local_aabb().valid()) continue;
+            const auto* spatial = obj->as_spatial();
+            if (!spatial) continue;
+
+            AABB world_aabb = mesh->model->local_aabb().transform(spatial->world_matrix_);
+            glm::vec3 aabb_min = world_aabb.min;
+            glm::vec3 aabb_max = world_aabb.max;
+
+            glm::vec3 inv_dir = 1.0f / ray_dir;
+            glm::vec3 t1 = (aabb_min - ray_origin) * inv_dir;
+            glm::vec3 t2 = (aabb_max - ray_origin) * inv_dir;
+            glm::vec3 t_min_v = glm::min(t1, t2);
+            glm::vec3 t_max_v = glm::max(t1, t2);
+            float t_enter = std::max({t_min_v.x, t_min_v.y, t_min_v.z});
+            float t_exit  = std::min({t_max_v.x, t_max_v.y, t_max_v.z});
+
+            if (t_enter <= t_exit && t_exit >= 0.0f) {
+                float t = t_enter >= 0.0f ? t_enter : t_exit;
+                if (t < closest_t) {
+                    closest_t = t;
+                    hit_id = obj->id;
+                }
+            }
+        }
+
+        if (hit_id != 0) {
+            selected_id_ = hit_id;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                if (auto* hit_obj = deps_.scene->find_spatial(hit_id)) {
+                    glm::vec3 center = glm::vec3(hit_obj->world_matrix_[3]);
+                    float radius = 1.0f;
+                    auto* hit_mesh = hit_obj->components.get<MeshComponent>();
+                    if (hit_mesh && hit_mesh->model &&
+                        !hit_mesh->model->collision_vertices().empty()) {
+                        float max_r2 = 0.0f;
+                        for (const auto& v : hit_mesh->model->collision_vertices()) {
+                            auto wv = glm::vec3(hit_obj->world_matrix_ * glm::vec4(v, 1.0f));
+                            max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
+                        }
+                        radius = std::max(std::sqrt(max_r2), 0.1f);
+                    }
+                    vp.camera.focus(center, radius);
+                }
+            }
+        } else {
+            selected_id_ = 0;
+        }
+    }
+}
+
+void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
+    auto* obj = deps_.scene->find_spatial(selected_id_);
+    if (!obj) {
+        gizmo_dragging_ = false;
+        return;
+    }
+
+    // Must draw inside the viewport window for ImGuizmo
+    if (!ImGui::Begin(vp.title.c_str())) {
+        ImGui::End();
+        gizmo_dragging_ = false;
+        return;
+    }
+
+    float aspect = vp.img_size.x / std::max(vp.img_size.y, 1.0f);
+    auto view = vp.camera.view_matrix();
+    auto projection = vp.camera.projection_matrix(aspect);
+    projection[1][1] *= -1.0f; // undo Vulkan Y-flip for ImGuizmo
+
+    ImGuizmo::SetRect(vp.img_pos.x, vp.img_pos.y, vp.img_size.x, vp.img_size.y);
+    ImGuizmo::SetOrthographic(false);
+    ImGuizmo::SetDrawlist();
+
+    // Snapshot at drag start
+    if (!gizmo_dragging_) {
+        gizmo_matrix_ = obj->world_matrix_;
+        gizmo_start_world_ = obj->world_matrix_;
+        gizmo_start_transform_ = obj->transform;
+    }
+
+    ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
+    if (gizmo_op_ == 1) op = ImGuizmo::ROTATE;
+    if (gizmo_op_ == 2) op = ImGuizmo::SCALE;
+
+    ImGuizmo::Manipulate(
+        glm::value_ptr(view),
+        glm::value_ptr(projection),
+        op,
+        ImGuizmo::LOCAL,
+        glm::value_ptr(gizmo_matrix_));
+
+    ImGui::End();
+
+    auto apply_gizmo = [&] {
+        glm::mat4 parent_world{1.0f};
+        if (obj->parent_id != -1) {
+            const auto* parent = deps_.scene->find(
+                static_cast<uint32_t>(obj->parent_id));
+            const auto* parent_spatial = parent ? parent->as_spatial() : nullptr;
+            if (parent_spatial) parent_world = parent_spatial->world_matrix_;
+        }
+        glm::mat4 local_matrix = glm::inverse(parent_world) * gizmo_matrix_;
+        obj->transform = decompose_matrix(local_matrix);
+        obj->world_matrix_ = gizmo_matrix_;
+    };
+
+    if (ImGuizmo::IsUsing()) {
+        gizmo_dragging_ = true;
+        apply_gizmo();
+        deps_.scene->mark_dirty();
+    } else if (gizmo_dragging_) {
+        gizmo_dragging_ = false;
+        apply_gizmo();
+        command_history().execute(std::make_unique<TransformCommand>(
+            *deps_.scene, obj->id,
+            gizmo_start_transform_, obj->transform,
+            obj->name));
+    }
+}
+
+void SceneEditorContext::draw_play_toolbar() {
+    auto* vp = viewport_manager_.active_panel();
+    if (!vp) return;
+
+    auto* icons = IconCache::instance();
+    if (!icons) return;
+
+    // Must draw inside the viewport window's Begin/End
+    if (!ImGui::Begin(vp->title.c_str())) {
+        ImGui::End();
+        return;
+    }
+
+    float icon_size = ImGui::GetFrameHeight() + 4.0f;
+
+    float pad = 6.0f;
+    float box_w = icon_size + pad * 2.0f;
+    float box_h = icon_size + pad * 2.0f;
+    float box_x = vp->img_pos.x + (vp->img_size.x - box_w) * 0.5f;
+    float box_y = vp->img_pos.y + pad;
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    draw_list->AddRectFilled(
+        {box_x, box_y}, {box_x + box_w, box_y + box_h},
+        IM_COL32(0, 0, 0, 128), 6.0f);
+
+    // Invisible button for hit testing
+    ImGui::SetCursorScreenPos({box_x + pad, box_y + pad});
+    bool hovered = false;
+    bool clicked = ImGui::InvisibleButton("##play_btn", {icon_size, icon_size});
+    hovered = ImGui::IsItemHovered();
+
+    // Draw icon with color change on hover
+    const char* icon_name = is_playing() ? "stop" : "play";
+    ImVec4 tint = is_playing()
+        ? ImVec4{1.0f, 0.4f, 0.4f, 1.0f}
+        : ImVec4{0.4f, 1.0f, 0.5f, 1.0f};
+    if (hovered) {
+        tint = is_playing()
+            ? ImVec4{1.0f, 0.6f, 0.6f, 1.0f}
+            : ImVec4{0.6f, 1.0f, 0.7f, 1.0f};
+    }
+
+    auto desc = icons->icon(icon_name);
+    if (desc) {
+        draw_list->AddImage((ImTextureID)desc,
+            {box_x + pad, box_y + pad},
+            {box_x + pad + icon_size, box_y + pad + icon_size},
+            {0, 0}, {1, 1}, ImGui::ColorConvertFloat4ToU32(tint));
+    }
+
+    if (clicked) {
+        if (is_playing()) {
+            stop_play();
+        } else {
+            start_play();
+        }
+    }
+
+    ImGui::End();
 }
 
 void SceneEditorContext::setup_dockspace(ImGuiID main_area) {

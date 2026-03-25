@@ -641,7 +641,6 @@ void Engine::draw_ui() {
 
     menu_bar_.set_project(project_mgr_.active());
     menu_bar_.set_playing(active_context().is_playing());
-    scene_context_->viewport_manager().set_playing(active_context().is_playing());
     menu_bar_.set_scene_path(current_scene_path_);
     menu_bar_.set_vulkan_context(vulkan_context_.get());
     menu_bar_.set_viewport_manager(&scene_context_->viewport_manager());
