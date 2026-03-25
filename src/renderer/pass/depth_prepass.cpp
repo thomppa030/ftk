@@ -2,7 +2,6 @@
 #include "renderer/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/mega_buffer.hpp"
-#include "renderer/model.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/skeletal_model.hpp"
@@ -21,8 +20,11 @@ namespace fjell {
 void DepthPrePass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     draw_data_layout_ = resources.draw_data_layout;
-    depth_format_ = resources.depth_format;
-    sample_count_ = resources.sample_count;
+
+    // Store config for creating custom pipelines later
+    depth_config_.depth_format = resources.depth_format;
+    depth_config_.samples = resources.sample_count;
+    depth_config_.depth_compare = VK_COMPARE_OP_LESS;
 
     auto vert_code = read_spirv(base_path::resolve("shaders/depth.vert.spv"));
     auto frag_code = read_spirv(base_path::resolve("shaders/depth_only.frag.spv"));
@@ -108,6 +110,8 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
         throw std::runtime_error("Failed to create depth prepass pipeline layout");
     }
 
+    depth_config_.layout = layout_;
+
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     rendering_info.colorAttachmentCount = 0;
@@ -171,104 +175,12 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
 
 void DepthPrePass::register_custom_depth(uint32_t pipeline_id,
                                           const std::string& vert_spv_path) {
-    if (layout_ == VK_NULL_HANDLE) return;
-
-    auto vert_code = read_spirv(vert_spv_path);
-    auto frag_code = read_spirv(base_path::resolve("shaders/depth_only.frag.spv"));
-
-    auto vert_module = create_shader_module(device_, vert_code);
-    auto frag_module = create_shader_module(device_, frag_code);
-
-    std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
-    stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-                 VK_SHADER_STAGE_VERTEX_BIT, vert_module, "main", nullptr};
-    stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0,
-                 VK_SHADER_STAGE_FRAGMENT_BIT, frag_module, "main", nullptr};
-
-    auto binding_desc = Vertex::get_binding_description();
-    auto attrib_descs = Vertex::get_attribute_descriptions();
-
-    VkPipelineVertexInputStateCreateInfo vertex_input{};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input.vertexBindingDescriptionCount = 1;
-    vertex_input.pVertexBindingDescriptions = &binding_desc;
-    vertex_input.vertexAttributeDescriptionCount = static_cast<uint32_t>(attrib_descs.size());
-    vertex_input.pVertexAttributeDescriptions = attrib_descs.data();
-
-    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    VkPipelineViewportStateCreateInfo viewport_state{};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.scissorCount = 1;
-
-    std::array dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-    VkPipelineDynamicStateCreateInfo dynamic_state{};
-    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamic_state.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
-    dynamic_state.pDynamicStates = dynamic_states.data();
-
-    VkPipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-
-    VkPipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = sample_count_;
-
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 0;
-
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_TRUE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
-
-    VkPipelineRenderingCreateInfo rendering_info{};
-    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.depthAttachmentFormat = depth_format_;
-
-    VkGraphicsPipelineCreateInfo pipeline_info{};
-    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.pNext = &rendering_info;
-    pipeline_info.stageCount = static_cast<uint32_t>(stages.size());
-    pipeline_info.pStages = stages.data();
-    pipeline_info.pVertexInputState = &vertex_input;
-    pipeline_info.pInputAssemblyState = &input_assembly;
-    pipeline_info.pViewportState = &viewport_state;
-    pipeline_info.pRasterizationState = &rasterizer;
-    pipeline_info.pMultisampleState = &multisampling;
-    pipeline_info.pDepthStencilState = &depth_stencil;
-    pipeline_info.pColorBlendState = &color_blending;
-    pipeline_info.pDynamicState = &dynamic_state;
-    pipeline_info.layout = layout_;
-
-    VkPipeline custom_pipeline = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
-                                   nullptr, &custom_pipeline) == VK_SUCCESS) {
-        auto it = custom_depth_pipelines_.find(pipeline_id);
-        if (it != custom_depth_pipelines_.end()) {
-            vkDestroyPipeline(device_, it->second, nullptr);
-        }
-        custom_depth_pipelines_[pipeline_id] = custom_pipeline;
-    }
-
-    vkDestroyShaderModule(device_, vert_module, nullptr);
-    vkDestroyShaderModule(device_, frag_module, nullptr);
+    auto pipeline = create_depth_vertex_pipeline(device_, vert_spv_path, depth_config_);
+    register_pipeline(device_, custom_depth_pipelines_, pipeline_id, pipeline);
 }
 
 void DepthPrePass::destroy() {
-    for (auto& [id, p] : custom_depth_pipelines_) {
-        if (p != VK_NULL_HANDLE) vkDestroyPipeline(device_, p, nullptr);
-    }
-    custom_depth_pipelines_.clear();
+    destroy_pipeline_map(device_, custom_depth_pipelines_);
 
     if (pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(device_, pipeline_, nullptr);
@@ -331,28 +243,13 @@ void DepthPrePass::record(const FrameContext& ctx) {
     if (ctx.mega_buffer && ctx.indirect_batch) {
         ctx.mega_buffer->bind(ctx.cmd);
 
-        VkPipeline bound_pipeline = pipeline_;
-        const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-        for (const auto& range : ranges) {
-            if (range.skinned) continue; // handled separately below
-
-            // Bind custom depth pipeline if this shader has vertex displacement
-            auto cit = custom_depth_pipelines_.find(range.pipeline_id);
-            VkPipeline needed = (cit != custom_depth_pipelines_.end()) ? cit->second : pipeline_;
-            if (needed != bound_pipeline) {
-                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, needed);
-                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                                        0, static_cast<uint32_t>(descriptor_sets.size()),
-                                        descriptor_sets.data(), 0, nullptr);
-                bound_pipeline = needed;
-            }
-
-            VkDeviceSize offset = range.first_draw * sizeof(VkDrawIndexedIndirectCommand);
-            vkCmdDrawIndexedIndirect(ctx.cmd,
-                                     ctx.indirect_batch->indirect_buffer(ctx.frame_index),
-                                     offset, range.draw_count,
-                                     sizeof(VkDrawIndexedIndirectCommand));
-        }
+        draw_indirect_per_range(ctx.cmd, pipeline_, custom_depth_pipelines_,
+                                *ctx.indirect_batch, ctx.frame_index,
+                                [&](VkCommandBuffer cmd) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
+                                    0, static_cast<uint32_t>(descriptor_sets.size()),
+                                    descriptor_sets.data(), 0, nullptr);
+        });
     }
 
     // Skinned depth draws

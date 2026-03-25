@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/pass/depth_pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <vulkan/vulkan.h>

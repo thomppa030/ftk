@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/pass/depth_pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
@@ -66,8 +67,8 @@ private:
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout material_set_layout_{VK_NULL_HANDLE};
 
-    // Per-pipeline-id custom shadow pipelines (for vertex displacement)
     std::unordered_map<uint32_t, VkPipeline> custom_shadow_pipelines_;
+    DepthPipelineConfig shadow_config_;
 
     // Per-frame cascade data
     std::array<glm::mat4, CASCADE_COUNT> light_matrices_{};

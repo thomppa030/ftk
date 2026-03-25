@@ -267,15 +267,9 @@ void MeshShaderDepthPass::register_custom_depth(uint32_t pipeline_id,
     pipeline_info.layout = layout_;
 
     VkPipeline custom_pipeline = VK_NULL_HANDLE;
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
-                                   nullptr, &custom_pipeline) == VK_SUCCESS) {
-        // Destroy old custom pipeline for this id if any
-        auto it = custom_depth_pipelines_.find(pipeline_id);
-        if (it != custom_depth_pipelines_.end()) {
-            vkDestroyPipeline(device_, it->second, nullptr);
-        }
-        custom_depth_pipelines_[pipeline_id] = custom_pipeline;
-    }
+    vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+                               nullptr, &custom_pipeline);
+    register_pipeline(device_, custom_depth_pipelines_, pipeline_id, custom_pipeline);
 
     vkDestroyShaderModule(device_, task_module, nullptr);
     vkDestroyShaderModule(device_, mesh_module, nullptr);
@@ -283,10 +277,7 @@ void MeshShaderDepthPass::register_custom_depth(uint32_t pipeline_id,
 }
 
 void MeshShaderDepthPass::destroy() {
-    for (auto& [id, p] : custom_depth_pipelines_) {
-        if (p != VK_NULL_HANDLE) vkDestroyPipeline(device_, p, nullptr);
-    }
-    custom_depth_pipelines_.clear();
+    destroy_pipeline_map(device_, custom_depth_pipelines_);
 
     if (pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(device_, pipeline_, nullptr);
