@@ -89,7 +89,7 @@ public:
 
     // Viewport access for Engine (play mode camera override, source mask, etc.)
     ViewportManager& viewport_manager() { return viewport_manager_; }
-    void request_focus_viewport() { focus_viewport_ = true; }
+    void request_focus_viewport() { focus_viewport_frames_ = 2; }
 
     // Selection access
     [[nodiscard]] uint32_t selected_id() const { return selected_id_; }
@@ -121,7 +121,7 @@ private:
     // Context-owned state
     uint32_t selected_id_{0};
     int gizmo_op_{0};
-    bool focus_viewport_{false};
+    int focus_viewport_frames_{0}; // countdown: focus viewport after N frames
     std::unique_ptr<PlaySession> play_session_;
 
     // Delegate connections (context-level bindings)

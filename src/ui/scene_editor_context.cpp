@@ -105,9 +105,10 @@ void SceneEditorContext::draw(float dt) {
         node_editor_panel_.draw();
     }
 
-    if (focus_viewport_) {
-        ImGui::SetWindowFocus("Viewport");
-        focus_viewport_ = false;
+    if (focus_viewport_frames_ > 0) {
+        if (--focus_viewport_frames_ == 0) {
+            ImGui::SetWindowFocus("Viewport");
+        }
     }
 }
 
@@ -338,8 +339,8 @@ void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
 
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("History##ctx0", left_bottom);
-    ImGui::DockBuilderDockWindow("Viewport", center);
     ImGui::DockBuilderDockWindow("Code Editor##ctx0", center);
+    ImGui::DockBuilderDockWindow("Viewport", center); // last = active tab
     ImGui::DockBuilderDockWindow("Properties", right);
     ImGui::DockBuilderDockWindow("Stats##ctx0", bottom);
     ImGui::DockBuilderDockWindow("Console##ctx0", bottom);
@@ -450,7 +451,7 @@ void SceneEditorContext::stop_play() {
     deps_.vulkan_context->set_playing(false);
     deps_.input->set_cursor_captured(deps_.window->handle(), false);
     play_session_.reset();
-    focus_viewport_ = true;
+    focus_viewport_frames_ = 2;
     FJELL_CORE_INFO("Play mode stopped");
 }
 
