@@ -951,12 +951,23 @@ void Engine::draw_context_tabs() {
 
         // Defer close until after the tab bar is fully drawn
         if (close_idx >= 0) {
+            vulkan_context_->wait_idle();
+
+            // If closing the active tab, switch away first
+            if (close_idx == active_context_idx_) {
+                int new_idx = close_idx > 0 ? close_idx - 1 : 0;
+                contexts_[close_idx]->on_exit();
+                active_context_idx_ = new_idx;
+                contexts_[active_context_idx_]->on_enter();
+                history_panel_.init(&active_context().command_history());
+            }
+
             contexts_[close_idx]->shutdown();
             contexts_.erase(contexts_.begin() + close_idx);
+
+            // Adjust active index if a tab before it was removed
             if (close_idx < active_context_idx_) {
                 active_context_idx_--;
-            } else if (active_context_idx_ >= static_cast<int>(contexts_.size())) {
-                switch_context(static_cast<int>(contexts_.size()) - 1);
             }
         }
     }
