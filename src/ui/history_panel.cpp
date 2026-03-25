@@ -58,8 +58,8 @@ void HistoryPanel::init(CommandHistory* history) {
     history_ = history;
 }
 
-void HistoryPanel::draw() {
-    if (ImGui::Begin("History")) {
+void HistoryPanel::draw(const char* title) {
+    if (ImGui::Begin(title)) {
         if (!history_ || history_->commands().empty()) {
             ImGui::TextDisabled("No history");
             ImGui::End();
