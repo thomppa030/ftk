@@ -9,6 +9,7 @@
 
 namespace fjell {
 
+class Scene;
 class VulkanContext;
 
 class EditorContext {
@@ -44,6 +45,9 @@ public:
     [[nodiscard]] virtual bool is_playing() const { return false; }
     virtual void draw_play_overlay() {}
 
+    // Scene to render (nullptr = use main scene)
+    [[nodiscard]] virtual Scene* render_scene() { return nullptr; }
+
     // Viewport render requests
     [[nodiscard]] virtual std::vector<ViewportRenderRequest> build_render_requests() = 0;
     virtual void apply_resize(VulkanContext& vk) = 0;
@@ -53,8 +57,13 @@ public:
     [[nodiscard]] bool dockspace_built() const { return dockspace_built_; }
     void mark_dockspace_built() { dockspace_built_ = true; }
 
+    // Per-context dockspace ID (set by Engine)
+    void set_dockspace_id(ImGuiID id) { dockspace_id_ = id; }
+    [[nodiscard]] ImGuiID dockspace_id() const { return dockspace_id_; }
+
 private:
     CommandHistory command_history_;
+    ImGuiID dockspace_id_{0};
     bool dockspace_built_{false};
 };
 

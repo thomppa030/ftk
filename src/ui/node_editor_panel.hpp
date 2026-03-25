@@ -67,6 +67,9 @@ public:
     void shutdown();
     void draw();
 
+    void set_visible(bool v) { visible_ = v; }
+    [[nodiscard]] bool visible() const { return visible_; }
+
     [[nodiscard]] EmitterComponent build_emitter() const;
     void load_from_emitter(const EmitterComponent& e);
 
@@ -87,6 +90,7 @@ private:
     int id_counter_{0};
     bool initialized_{false};
     bool auto_apply_{false};
+    bool visible_{false};
 };
 
 } // namespace fjell

@@ -101,7 +101,9 @@ void SceneEditorContext::draw(float dt) {
 
     hierarchy_panel_.draw();
     properties_panel_.draw();
-    node_editor_panel_.draw();
+    if (node_editor_panel_.visible()) {
+        node_editor_panel_.draw();
+    }
 
     if (focus_viewport_) {
         ImGui::SetWindowFocus("Viewport");
@@ -322,17 +324,26 @@ void SceneEditorContext::draw_play_toolbar() {
 }
 
 void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
-    // Right panel: Hierarchy + Properties
-    ImGuiID viewport_node = main_area;
-    ImGuiID right = ImGui::DockBuilderSplitNode(viewport_node, ImGuiDir_Right,
-                                                 0.22f, nullptr, &viewport_node);
-    ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down,
-                                                        0.50f, nullptr, &right);
+    ImGuiID center = main_area;
 
-    ImGui::DockBuilderDockWindow("Viewport", viewport_node);
-    ImGui::DockBuilderDockWindow("Hierarchy", right);
-    ImGui::DockBuilderDockWindow("History", right);
-    ImGui::DockBuilderDockWindow("Properties", right_bottom);
+    // Left panel: Hierarchy (top) + History (bottom) — 14% width
+    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.14f, nullptr, &center);
+    ImGuiID left_bottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.50f, nullptr, &left);
+
+    // Right panel: Properties — 19% width
+    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
+
+    // Bottom strip: Stats / Console (tabs) — 32% height
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.32f, nullptr, &center);
+
+    ImGui::DockBuilderDockWindow("Editors", left);
+    ImGui::DockBuilderDockWindow("Hierarchy", left);
+    ImGui::DockBuilderDockWindow("History", left_bottom);
+    ImGui::DockBuilderDockWindow("Code Editor", center);
+    ImGui::DockBuilderDockWindow("Viewport", center);
+    ImGui::DockBuilderDockWindow("Properties", right);
+    ImGui::DockBuilderDockWindow("Stats", bottom);
+    ImGui::DockBuilderDockWindow("Console", bottom);
 }
 
 bool SceneEditorContext::handle_shortcuts() {

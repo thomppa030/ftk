@@ -13,6 +13,7 @@
 #include "platform/platform.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
+#include "ui/animation_editor_context.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
 #include "scene/camera_node.hpp"
@@ -226,6 +227,42 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         }));
     connections_.push_back(content_browser_.on_load_scene.bind(
         [this](const std::string& path) { load_scene(path); }));
+    connections_.push_back(content_browser_.on_open_asset.bind(
+        [this](const std::string& path, const std::string& type) {
+            if (type == "skeleton" || type == "animation" || type == "animset") {
+                // Reuse existing animation editor if open
+                for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+                    if (auto* anim_ctx = dynamic_cast<AnimationEditorContext*>(contexts_[i].get())) {
+                        if (type == "animation") {
+                            anim_ctx->open_clip(path);
+                        } else {
+                            anim_ctx->open_skeleton(path);
+                        }
+                        switch_context(i);
+                        return;
+                    }
+                }
+                // Create new animation editor context
+                AnimationEditorDeps deps{
+                    .vulkan_context = vulkan_context_.get(),
+                    .resource_manager = resource_manager_.get(),
+                    .input = &input_,
+                    .clock = &clock_,
+                    .animation_subsystem = animation_subsystem_,
+                    .project_mgr = &project_mgr_,
+                    .icon_cache = icon_cache_.get()
+                };
+                auto ctx = std::make_unique<AnimationEditorContext>(deps);
+                ctx->init();
+                if (type == "skeleton") {
+                    ctx->open_skeleton(path);
+                } else {
+                    ctx->open_clip(path);
+                }
+                contexts_.push_back(std::move(ctx));
+                switch_context(static_cast<int>(contexts_.size()) - 1);
+            }
+        }));
     if (project_mgr_.active()) {
         content_browser_.set_root(project_mgr_.active()->root());
     }
@@ -437,36 +474,59 @@ void Engine::setup_dockspace() {
     ImGui::Begin("##DockHost", nullptr, host_flags);
     ImGui::PopStyleVar(3);
 
-    ImGuiID dockspace_id = ImGui::GetID("MainDockspace");
-    ImGui::DockSpace(dockspace_id, {0.0f, 0.0f},
-                     ImGuiDockNodeFlags_PassthruCentralNode);
+    // Context tab bar (above dockspace, only when multiple contexts open)
+    if (contexts_.size() > 1) {
+        draw_context_tabs();
+        ImGui::Separator();
+    }
 
-    // Build default layout on first run (skip if restoring a saved layout)
-    if (!layout_built_) {
-        layout_built_ = true;
-        scene_context_->request_focus_viewport();
-        if (has_saved_layout_) {
-            ImGui::End();
-            return;
+    // Per-context dockspaces — each context gets its own
+    // Only draw the active one; the others retain their layout in ImGui state
+    for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+        auto& ctx = *contexts_[static_cast<size_t>(i)];
+        char id_buf[32];
+        std::snprintf(id_buf, sizeof(id_buf), "CtxDock%d", i);
+        ImGuiID ctx_dock_id = ImGui::GetID(id_buf);
+        ctx.set_dockspace_id(ctx_dock_id);
+
+        if (i == active_context_idx_) {
+            // Active: draw the dockspace
+            ImGui::DockSpace(ctx_dock_id, {0.0f, 0.0f},
+                             ImGuiDockNodeFlags_PassthruCentralNode);
+        } else {
+            // Inactive: keep node alive but don't render
+            // (ImGui retains layout state as long as the DockSpace ID persists)
+            ImGui::DockSpace(ctx_dock_id, {0.0f, 0.0f},
+                             ImGuiDockNodeFlags_PassthruCentralNode |
+                             ImGuiDockNodeFlags_KeepAliveOnly);
+        }
+    }
+
+    // Build layout for contexts that haven't been set up yet
+    for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+        auto& ctx = *contexts_[static_cast<size_t>(i)];
+        if (ctx.dockspace_built()) continue;
+        ctx.mark_dockspace_built();
+
+        // Scene context: skip layout if restoring saved layout
+        if (i == 0 && has_saved_layout_) {
+            scene_context_->request_focus_viewport();
+            continue;
         }
 
-        ImGui::DockBuilderRemoveNode(dockspace_id);
-        ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(dockspace_id, viewport->WorkSize);
+        ImGuiID ctx_dock_id = ctx.dockspace_id();
+        ImGui::DockBuilderRemoveNode(ctx_dock_id);
+        ImGui::DockBuilderAddNode(ctx_dock_id, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(ctx_dock_id, viewport->WorkSize);
 
-        // Shared bottom strip: Stats/Console + Code Editor
-        ImGuiID main_area = dockspace_id;
-        ImGuiID stats_strip = ImGui::DockBuilderSplitNode(main_area, ImGuiDir_Down, 0.20f, nullptr, &main_area);
-        ImGuiID editor = ImGui::DockBuilderSplitNode(stats_strip, ImGuiDir_Down, 0.65f, nullptr, &stats_strip);
+        ImGuiID main_area = ctx_dock_id;
 
-        ImGui::DockBuilderDockWindow("Stats", stats_strip);
-        ImGui::DockBuilderDockWindow("Console", stats_strip);
-        ImGui::DockBuilderDockWindow("Code Editor", editor);
+        if (i == 0) {
+            scene_context_->request_focus_viewport();
+        }
 
-        // Let the active context build its own layout in the remaining area
-        active_context().setup_dockspace(main_area);
-
-        ImGui::DockBuilderFinish(dockspace_id);
+        ctx.setup_dockspace(main_area);
+        ImGui::DockBuilderFinish(ctx_dock_id);
     }
 
     ImGui::End();
@@ -646,10 +706,10 @@ void Engine::draw_ui() {
     menu_bar_.set_viewport_manager(&scene_context_->viewport_manager());
     menu_bar_.draw();
 
-    // Context tab bar (only when multiple contexts open)
-    if (contexts_.size() > 1) draw_context_tabs();
-
     setup_dockspace();
+
+    // Context tab bar (dockable panel)
+    draw_context_tabs();
 
     // Active context draws its own panels
     active_context().draw(clock_.delta_time());
@@ -797,11 +857,14 @@ void Engine::run() {
             }
         }
 
-        vulkan_context_->sync_sprite_textures(scene_, *resource_manager_);
+        Scene* render_scene = active_context().render_scene();
+        if (!render_scene) render_scene = &scene_;
+
+        vulkan_context_->sync_sprite_textures(*render_scene, *resource_manager_);
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
 
         // Phase 4: Record commands
-        vulkan_context_->record_frame(requests, light_, &scene_, clock_.delta_time(),
+        vulkan_context_->record_frame(requests, light_, render_scene, clock_.delta_time(),
                                        scene_context_->selected_id(), thread_pool_,
                                        active_context().is_playing());
     }
@@ -828,21 +891,31 @@ void Engine::switch_context(int index) {
 }
 
 void Engine::draw_context_tabs() {
-    if (ImGui::BeginTabBar("##ContextTabs")) {
-        for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
-            bool is_active = (i == active_context_idx_);
-            ImGuiTabItemFlags flags = is_active ? ImGuiTabItemFlags_SetSelected : 0;
-            // Scene context (index 0) is permanent — no close button
-            bool closeable = (i != 0);
-            bool open = true;
-            if (ImGui::BeginTabItem(contexts_[static_cast<size_t>(i)]->name(),
-                                     closeable ? &open : nullptr, flags)) {
-                if (!is_active) switch_context(i);
-                ImGui::EndTabItem();
+    if (ImGui::Begin("Editors")) {
+        if (ImGui::BeginTabBar("##ContextTabs")) {
+            for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+                ImGui::PushID(i);
+                bool closeable = (i != 0);
+                bool open = true;
+                if (ImGui::BeginTabItem(contexts_[static_cast<size_t>(i)]->name(),
+                                         closeable ? &open : nullptr)) {
+                    if (i != active_context_idx_) switch_context(i);
+                    ImGui::EndTabItem();
+                }
+                ImGui::PopID();
+                if (closeable && !open) {
+                    contexts_[i]->shutdown();
+                    contexts_.erase(contexts_.begin() + i);
+                    if (active_context_idx_ >= static_cast<int>(contexts_.size())) {
+                        switch_context(static_cast<int>(contexts_.size()) - 1);
+                    }
+                    break;
+                }
             }
+            ImGui::EndTabBar();
         }
-        ImGui::EndTabBar();
     }
+    ImGui::End();
 }
 
 } // namespace fjell

@@ -36,6 +36,7 @@
 
 namespace fjell {
 
+class AnimationEditorContext;
 class AnimationSubsystem;
 class AssetLoader;
 class AudioSubsystem;

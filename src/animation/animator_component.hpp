@@ -49,6 +49,10 @@ public:
     void set_param(const std::string& name, float value);
     [[nodiscard]] float get_param(const std::string& name) const;
 
+    // Set playback time directly (for scrubbing).
+    void set_time(float t) { layers_[0].time = t; }
+    [[nodiscard]] float current_time() const { return layers_[0].time; }
+
     // Advance animation and compute skin matrices. Call once per frame.
     void update(float dt);
 

@@ -108,6 +108,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") return FileType::texture;
     if (ext == ".fjell") return FileType::scene;
     if (ext == ".fjmat") return FileType::material;
+    if (ext == ".fjskel" || ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
     return FileType::unknown;
@@ -123,6 +124,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::scene:      return "folder";
         case FileType::shader:     return "shader";
         case FileType::material:   return "material";
+        case FileType::animation:  return "node";
         case FileType::unknown:    return "node";
     }
     return "node";
@@ -793,6 +795,7 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
+                case FileType::animation:
                 case FileType::unknown:
                     if (ImGui::MenuItem("Rename")) {
                         renaming_ = true;
@@ -863,6 +866,19 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::scene:
             on_load_scene.broadcast(entry.path.string());
             break;
+
+        case FileType::animation: {
+            auto rel = std::filesystem::relative(entry.path, root_);
+            auto ext = entry.path.extension().string();
+            if (ext == ".fjskel") {
+                on_open_asset.broadcast(rel.string(), "skeleton");
+            } else if (ext == ".fjanim") {
+                on_open_asset.broadcast(rel.string(), "animation");
+            } else if (ext == ".fjanimset") {
+                on_open_asset.broadcast(rel.string(), "animset");
+            }
+            break;
+        }
 
         case FileType::unknown:
             break;

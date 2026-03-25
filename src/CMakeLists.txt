@@ -136,6 +136,7 @@ add_executable(fjell
     ui/properties_panel.cpp
     ui/stats_panel.cpp
     ui/node_editor_panel.cpp
+    ui/animation_editor_context.cpp
     ui/scene_editor_context.cpp
     ui/timeline_widget.cpp
     ui/viewport_manager.cpp

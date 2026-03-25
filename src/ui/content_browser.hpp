@@ -38,6 +38,7 @@ private:
         scene,
         shader,
         material,
+        animation,
         unknown
     };
 
