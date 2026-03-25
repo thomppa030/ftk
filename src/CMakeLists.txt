@@ -126,7 +126,8 @@ add_executable(fjell
     ui/menu_bar.cpp
     ui/file_browser.cpp
     ui/imgui_layer.cpp
-    ui/nvim_panel.cpp
+    ui/code_editor.cpp
+    ui/code_editor_syntax.cpp
     core/project_manager.cpp
     core/command_history.cpp
     ui/content_browser.cpp
@@ -184,23 +185,6 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${miniaudio_SOURCE_DIR}
 )
 
-# Nvim panel requires libvterm + libutil (Linux-only, will be removed)
-option(FJELL_ENABLE_NVIM_PANEL "Enable embedded neovim terminal panel" ON)
-if(FJELL_ENABLE_NVIM_PANEL)
-    find_library(VTERM_LIB vterm)
-    if(VTERM_LIB)
-        set(FJELL_NVIM_LIBS ${VTERM_LIB} util)
-    else()
-        message(WARNING "libvterm not found — disabling nvim panel")
-        set(FJELL_ENABLE_NVIM_PANEL OFF)
-    endif()
-endif()
-if(FJELL_ENABLE_NVIM_PANEL)
-    target_compile_definitions(fjell PRIVATE FJELL_HAS_NVIM_PANEL)
-else()
-    set_source_files_properties(ui/nvim_panel.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
-endif()
-
 target_link_libraries(fjell PRIVATE
     fjell-platform
     fastgltf::fastgltf
@@ -217,7 +201,6 @@ target_link_libraries(fjell PRIVATE
     ozz_animation_offline
     msdfgen::msdfgen-ext
     Freetype::Freetype
-    ${FJELL_NVIM_LIBS}
     ${CMAKE_DL_LIBS}
 )
 

@@ -11,6 +11,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <sstream>
 #include <stdexcept>
 
@@ -199,13 +200,20 @@ void PipelineCache::compile_entry(Entry& entry) {
             out << frag_source;
         }
 
-        // Compile fragment to SPIR-V
-        std::string frag_spv = compile_glsl(next.generated_frag_path, stem + ".frag");
-
-        // Generate and compile vertex displacement shaders if vertex() is present
+        // Generate vertex shaders to disk (fast, must happen before parallel compile)
         next.has_custom_vertex = !next.metadata.vertex_body.empty();
+
+        struct ShaderJob {
+            std::string source_path;
+            std::string output_name;
+        };
+        std::vector<ShaderJob> jobs;
+
+        // Fragment is always compiled
+        jobs.push_back({next.generated_frag_path, stem + ".frag"});
+
         if (next.has_custom_vertex) {
-            auto gen_and_compile = [&](const std::string& tmpl, const std::string& suffix) -> std::string {
+            auto gen_source = [&](const std::string& tmpl, const std::string& suffix) -> std::string {
                 if (tmpl.empty()) return {};
                 std::string src = generate_vertex_shader(next.metadata, tmpl);
                 std::string path = generated_dir_ + "/" + stem + suffix;
@@ -213,15 +221,48 @@ void PipelineCache::compile_entry(Entry& entry) {
                 if (!out.is_open()) return {};
                 out << src;
                 out.close();
-                return compile_glsl(path, stem + suffix);
+                return path;
             };
 
-            next.vert_spv = gen_and_compile(vertex_template_, ".vert");
-            next.mesh_spv = gen_and_compile(mesh_template_, ".mesh");
-            next.depth_vert_spv = gen_and_compile(depth_vertex_template_, ".depth.vert");
-            next.depth_mesh_spv = gen_and_compile(depth_mesh_template_, ".depth.mesh");
-            next.shadow_vert_spv = gen_and_compile(shadow_vertex_template_, ".shadow.vert");
-            next.outline_vert_spv = gen_and_compile(outline_vertex_template_, ".outline.vert");
+            auto add_job = [&](const std::string& tmpl, const std::string& suffix) {
+                std::string path = gen_source(tmpl, suffix);
+                if (!path.empty()) {
+                    jobs.push_back({path, stem + suffix});
+                }
+            };
+
+            add_job(vertex_template_, ".vert");
+            add_job(mesh_template_, ".mesh");
+            add_job(depth_vertex_template_, ".depth.vert");
+            add_job(depth_mesh_template_, ".depth.mesh");
+            add_job(shadow_vertex_template_, ".shadow.vert");
+            add_job(outline_vertex_template_, ".outline.vert");
+        }
+
+        // Compile all shaders in parallel via glslc
+        std::vector<std::future<std::string>> futures;
+        futures.reserve(jobs.size());
+        for (auto& job : jobs) {
+            futures.push_back(std::async(std::launch::async,
+                [this](std::string src, std::string out_name) {
+                    return compile_glsl(src, out_name);
+                }, job.source_path, job.output_name));
+        }
+
+        // Collect results
+        std::string frag_spv = futures[0].get(); // fragment is always index 0
+
+        if (next.has_custom_vertex) {
+            size_t idx = 1;
+            auto collect = [&]() -> std::string {
+                return (idx < futures.size()) ? futures[idx++].get() : std::string{};
+            };
+            if (!vertex_template_.empty()) next.vert_spv = collect();
+            if (!mesh_template_.empty()) next.mesh_spv = collect();
+            if (!depth_vertex_template_.empty()) next.depth_vert_spv = collect();
+            if (!depth_mesh_template_.empty()) next.depth_mesh_spv = collect();
+            if (!shadow_vertex_template_.empty()) next.shadow_vert_spv = collect();
+            if (!outline_vertex_template_.empty()) next.outline_vert_spv = collect();
         }
 
         // Create new pipelines into the temp entry

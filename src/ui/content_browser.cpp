@@ -1,9 +1,7 @@
 #include "ui/content_browser.hpp"
 #include "ui/icon_cache.hpp"
 #include "core/thread_pool.hpp"
-#ifdef FJELL_HAS_NVIM_PANEL
-#include "ui/nvim_panel.hpp"
-#endif
+#include "ui/code_editor.hpp"
 #include "core/log.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "renderer/vk_check.hpp"
@@ -21,11 +19,11 @@
 
 namespace fjell {
 
-void ContentBrowser::init(IconCache* icons, NvimPanel* nvim,
+void ContentBrowser::init(IconCache* icons, CodeEditor* code_editor,
                           VulkanContext* vk_ctx, ResourceManager* resources,
                           ThreadPool* pool) {
     icons_ = icons;
-    nvim_ = nvim;
+    code_editor_ = code_editor;
     vk_ctx_ = vk_ctx;
     resources_ = resources;
     pool_ = pool;
@@ -109,6 +107,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjell") return FileType::scene;
     if (ext == ".fjmat") return FileType::material;
     if (ext == ".fjskel" || ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
+    if (ext == ".fjsl" || ext == ".fjui" || ext == ".fjss") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
     return FileType::unknown;
@@ -722,12 +721,10 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::shader:
                 case FileType::material:
                     if (ImGui::MenuItem("Open")) {
-#ifdef FJELL_HAS_NVIM_PANEL
-                        if (nvim_) {
-                            nvim_->open(entry.path.string());
+                        if (code_editor_) {
+                            code_editor_->open(entry.path.string());
                             ImGui::SetWindowFocus("Code Editor");
                         }
-#endif
                         ImGui::CloseCurrentPopup();
                     }
                     ImGui::Separator();
@@ -838,21 +835,17 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::cpp_source:
         case FileType::header:
         case FileType::shader:
-#ifdef FJELL_HAS_NVIM_PANEL
-            if (nvim_) {
-                nvim_->open(entry.path.string());
+            if (code_editor_) {
+                code_editor_->open(entry.path.string());
                 ImGui::SetWindowFocus("Code Editor");
             }
-#endif
             break;
 
         case FileType::material:
-#ifdef FJELL_HAS_NVIM_PANEL
-            if (nvim_) {
-                nvim_->open(entry.path.string());
+            if (code_editor_) {
+                code_editor_->open(entry.path.string());
                 ImGui::SetWindowFocus("Code Editor");
             }
-#endif
             on_open_asset.broadcast(entry.path.string(), "material");
             break;
 

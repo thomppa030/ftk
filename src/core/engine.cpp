@@ -214,13 +214,22 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         base_path::resolve("engine_assets/icons"));
     IconCache::set_instance(icon_cache_.get());
 
-#ifdef FJELL_HAS_NVIM_PANEL
-    content_browser_.init(icon_cache_.get(), &nvim_panel_,
+    content_browser_.init(icon_cache_.get(), &code_editor_,
                           vulkan_context_.get(), resource_manager_.get());
-#else
-    content_browser_.init(icon_cache_.get(), nullptr,
-                          vulkan_context_.get(), resource_manager_.get());
-#endif
+    code_editor_.on_save = [this](const std::string& path, Language lang) {
+        if (lang == Language::Fjsl || lang == Language::Glsl) {
+            // Copy to build shader dir so compile_entry reads the updated source
+            namespace fs = std::filesystem;
+            auto build_shader_dir = fs::path(base_path::dir()) / "shaders";
+            auto filename = fs::path(path).filename();
+            auto dest = build_shader_dir / filename;
+            if (fs::exists(build_shader_dir)) {
+                std::error_code ec;
+                fs::copy_file(path, dest, fs::copy_options::overwrite_existing, ec);
+            }
+            vulkan_context_->reload_pipeline();
+        }
+    };
     connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
             scene_context_->add_model(path);
@@ -282,7 +291,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                     .clock = &clock_,
                     .project_mgr = &project_mgr_,
                     .icon_cache = icon_cache_.get(),
-                    .nvim = &nvim_panel_
+                    .code_editor = &code_editor_
                 };
                 auto mat_ctx = std::make_unique<MaterialEditorContext>(deps);
                 mat_ctx->init();
@@ -565,10 +574,7 @@ void Engine::draw_console() {
 }
 
 void Engine::draw_code_editor() {
-#ifdef FJELL_HAS_NVIM_PANEL
-    nvim_panel_.poll();
-    nvim_panel_.draw();
-#endif
+    code_editor_.draw("Code Editor");
 }
 
 void Engine::load_project_scripts() {
@@ -692,6 +698,7 @@ void Engine::draw_ui() {
 
     // Global shortcuts (Ctrl+S, Ctrl+Z/Y, Ctrl+Space)
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+        code_editor_.save_active();
         save_material_assets();
         if (auto* mat_ctx = dynamic_cast<MaterialEditorContext*>(&active_context())) {
             mat_ctx->save_material();
@@ -753,12 +760,9 @@ void Engine::draw_ui() {
     if (auto& sink = log::console_sink(); sink) {
         sink->draw(console_title);
     }
-#ifdef FJELL_HAS_NVIM_PANEL
-    nvim_panel_.poll();
     ImGui::PushID(active_context_idx_);
-    nvim_panel_.draw();
+    code_editor_.draw(code_title);
     ImGui::PopID();
-#endif
 }
 
 TickContext Engine::make_frame_context() {

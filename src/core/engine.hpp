@@ -18,9 +18,7 @@
 #include "ui/imgui_layer.hpp"
 #include "ui/menu_bar.hpp"
 #include "ui/stats_panel.hpp"
-#ifdef FJELL_HAS_NVIM_PANEL
-#include "ui/nvim_panel.hpp"
-#endif
+#include "ui/code_editor.hpp"
 
 #ifndef NDEBUG
 #include "renderer/shader_watcher.hpp"
@@ -117,9 +115,7 @@ private:
     std::vector<Subsystem*> early_always_;   // before compute_world_matrices
     std::vector<Subsystem*> late_always_;    // after compute_world_matrices
 
-#ifdef FJELL_HAS_NVIM_PANEL
-    NvimPanel nvim_panel_;
-#endif
+    CodeEditor code_editor_;
     std::unique_ptr<IconCache> icon_cache_;
     ContentBrowser content_browser_;
     StatsPanel stats_panel_;

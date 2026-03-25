@@ -11,7 +11,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/material_params_widget.hpp"
-#include "ui/nvim_panel.hpp"
+#include "ui/code_editor.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -112,9 +112,9 @@ void MaterialEditorContext::open_material(const std::string& fjmat_path) {
     }
 
     // Open the .fjsl source in the code editor
-    if (deps_.nvim && !material_->shader_path().empty()) {
+    if (deps_.code_editor && !material_->shader_path().empty()) {
         auto shader_abs = base_path::resolve(material_->shader_path());
-        deps_.nvim->open(shader_abs);
+        deps_.code_editor->open(shader_abs);
     }
 
     FJELL_CORE_INFO("Material editor opened: {}", fjmat_path);

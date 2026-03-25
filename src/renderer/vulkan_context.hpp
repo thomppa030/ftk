@@ -161,6 +161,7 @@ public:
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
 
 private:
+  void update_shadow_descriptors();
   void
   record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                         const std::vector<ViewportRenderRequest> &viewports,

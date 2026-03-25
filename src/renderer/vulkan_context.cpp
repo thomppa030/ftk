@@ -61,24 +61,7 @@ VulkanContext::VulkanContext(Window& window)
     shadow_pass_.create(gpu_.device_ref(), pass_resources);
     depth_viz_pass_.create(gpu_.device_ref(), pass_resources);
 
-    // Write shadow map sampler into global descriptor sets (binding 1)
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDescriptorImageInfo shadow_info{};
-        shadow_info.sampler = shadow_pass_.sampler();
-        shadow_info.imageView = shadow_pass_.array_view();
-        shadow_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = gpu_.global_descriptor_set(i);
-        write.dstBinding = 1;
-        write.dstArrayElement = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &shadow_info;
-
-        vkUpdateDescriptorSets(gpu_.device(), 1, &write, 0, nullptr);
-    }
+    update_shadow_descriptors();
 
     debug_pass_.create(gpu_.device_ref(), pass_resources);
     grid_pass_.create(gpu_.device_ref(), pass_resources);
@@ -1579,23 +1562,30 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
     mesh->model->draw(cmd, draw_index);
 }
 
+void VulkanContext::update_shadow_descriptors() {
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDescriptorImageInfo shadow_info{};
+        shadow_info.sampler = shadow_pass_.sampler();
+        shadow_info.imageView = shadow_pass_.array_view();
+        shadow_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = gpu_.global_descriptor_set(i);
+        write.dstBinding = 1;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo = &shadow_info;
+
+        vkUpdateDescriptorSets(gpu_.device(), 1, &write, 0, nullptr);
+    }
+}
+
 void VulkanContext::reload_pipeline() {
     gpu_.pipeline()->recreate();
     gpu_.pipeline_cache()->recreate_all();
-
-    VkFormat depth_format = gpu_.device_ref().find_depth_format();
-    PassResources pass_resources{};
-    pass_resources.global_set_layout = gpu_.global_set_layout();
-    pass_resources.material_set_layout = gpu_.bindless_textures().layout();
-    pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
-    pass_resources.meshlet_layout = gpu_.use_mesh_shaders() ? gpu_.meshlet_descriptor().layout() : VK_NULL_HANDLE;
-    pass_resources.depth_format = depth_format;
-    pass_resources.color_format = OffscreenPass::COLOR_FORMAT;
-    pass_resources.sample_count = gpu_.msaa_samples();
-    depth_prepass_.recreate(gpu_.device_ref(), pass_resources);
-    shadow_pass_.recreate(gpu_.device_ref(), pass_resources);
-    debug_pass_.recreate(gpu_.device_ref(), pass_resources);
-    grid_pass_.recreate(gpu_.device_ref(), pass_resources);
+    sync_custom_depth_pipelines();
 }
 
 void VulkanContext::sync_custom_depth_pipelines() {

@@ -11,14 +11,14 @@
 namespace fjell {
 
 class IconCache;
-class NvimPanel;
+class CodeEditor;
 class ThreadPool;
 class VulkanContext;
 class ResourceManager;
 
 class ContentBrowser {
 public:
-    void init(IconCache* icons, NvimPanel* nvim,
+    void init(IconCache* icons, CodeEditor* code_editor,
               VulkanContext* vk_ctx, ResourceManager* resources,
               ThreadPool* pool = nullptr);
 
@@ -63,7 +63,7 @@ private:
     [[nodiscard]] std::string resolve_material_texture(const std::string& fjmat_path) const;
 
     IconCache* icons_{nullptr};
-    NvimPanel* nvim_{nullptr};
+    CodeEditor* code_editor_{nullptr};
     VulkanContext* vk_ctx_{nullptr};
     ResourceManager* resources_{nullptr};
     ThreadPool* pool_{nullptr};
