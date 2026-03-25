@@ -1727,15 +1727,22 @@ void VulkanContext::reload_pipeline() {
 }
 
 void VulkanContext::sync_custom_depth_pipelines() {
-    if (!gpu_.use_mesh_shaders()) return;
     auto* pc = gpu_.pipeline_cache();
     if (!pc) return;
 
     for (uint32_t id = 0; id < pc->shader_count(); ++id) {
         if (!pc->has_custom_vertex(id)) continue;
-        const auto& depth_mesh = pc->depth_mesh_spv(id);
-        if (!depth_mesh.empty()) {
-            mesh_shader_depth_pass_.register_custom_depth(id, depth_mesh);
+
+        if (gpu_.use_mesh_shaders()) {
+            const auto& depth_mesh = pc->depth_mesh_spv(id);
+            if (!depth_mesh.empty()) {
+                mesh_shader_depth_pass_.register_custom_depth(id, depth_mesh);
+            }
+        }
+
+        const auto& depth_vert = pc->depth_vert_spv(id);
+        if (!depth_vert.empty()) {
+            depth_prepass_.register_custom_depth(id, depth_vert);
         }
     }
 }
