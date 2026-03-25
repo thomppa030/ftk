@@ -27,6 +27,11 @@ struct SkeletalMeshComponent : NodeComponent {
     std::shared_ptr<Skeleton> skeleton;
     std::vector<std::shared_ptr<AnimationClip>> clips;
 
+    // Asset paths for serialization
+    std::string skeleton_path;
+    std::vector<std::string> clip_paths;
+    std::string animset_path;
+
     SkeletalMeshComponent();
     ~SkeletalMeshComponent();
     SkeletalMeshComponent(SkeletalMeshComponent&&) noexcept;

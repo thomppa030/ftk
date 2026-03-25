@@ -366,6 +366,7 @@ void SceneEditorContext::add_skeletal_model(const std::string& mesh_path,
     smc.material = deps_.resource_manager->get(smc.material_handle);
 
     // Load skeleton (owned by the component)
+    smc.skeleton_path = skel_path;
     smc.skeleton = std::make_shared<Skeleton>(Skeleton::load(resolved_skel));
 
     // Set up animator
@@ -378,6 +379,7 @@ void SceneEditorContext::add_skeletal_model(const std::string& mesh_path,
         auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_anim));
         smc.animator->play(clip.get());
         smc.clips.push_back(clip);
+        smc.clip_paths.push_back(anim_path);
         FJELL_CORE_INFO("Playing animation: {}", anim_path);
     }
 

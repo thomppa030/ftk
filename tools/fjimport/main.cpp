@@ -822,12 +822,23 @@ static bool export_animation(const std::string& output_path,
                               const ozz::animation::Skeleton& skeleton,
                               const std::unordered_map<std::string, uint32_t>& joint_map) {
     int num_joints = skeleton.num_joints();
-    float duration = static_cast<float>(anim->mDuration / anim->mTicksPerSecond);
 
-    ozz::animation::offline::RawAnimation raw_anim;
-    raw_anim.duration = duration;
-    raw_anim.name = anim->mName.C_Str();
-    raw_anim.tracks.resize(num_joints);
+    float tick_rate = static_cast<float>(anim->mTicksPerSecond);
+    if (tick_rate <= 0.0f) tick_rate = 24.0f;
+
+    // Build per-joint track data
+    nlohmann::json j;
+    j["name"] = std::string(anim->mName.C_Str());
+
+    // Initialize empty tracks for all joints
+    j["tracks"] = nlohmann::json::array();
+    for (int i = 0; i < num_joints; ++i) {
+        j["tracks"].push_back({
+            {"translations", nlohmann::json::array()},
+            {"rotations", nlohmann::json::array()},
+            {"scales", nlohmann::json::array()}
+        });
+    }
 
     for (unsigned int c = 0; c < anim->mNumChannels; ++c) {
         const aiNodeAnim* channel = anim->mChannels[c];
@@ -835,95 +846,38 @@ static bool export_animation(const std::string& output_path,
         if (it == joint_map.end()) continue;
         uint32_t joint_idx = it->second;
 
-        auto& track = raw_anim.tracks[joint_idx];
-
-        float tick_rate = static_cast<float>(anim->mTicksPerSecond);
-        if (tick_rate <= 0.0f) tick_rate = 24.0f;
+        auto& jtrack = j["tracks"][joint_idx];
 
         for (unsigned int k = 0; k < channel->mNumPositionKeys; ++k) {
             const auto& key = channel->mPositionKeys[k];
             float time = static_cast<float>(key.mTime) / tick_rate;
-            track.translations.push_back({time,
-                ozz::math::Float3(key.mValue.x, key.mValue.y, key.mValue.z)});
+            jtrack["translations"].push_back({time,
+                {key.mValue.x, key.mValue.y, key.mValue.z}});
         }
 
         for (unsigned int k = 0; k < channel->mNumRotationKeys; ++k) {
             const auto& key = channel->mRotationKeys[k];
             float time = static_cast<float>(key.mTime) / tick_rate;
-            track.rotations.push_back({time,
-                ozz::math::Quaternion(key.mValue.x, key.mValue.y, key.mValue.z, key.mValue.w)});
+            jtrack["rotations"].push_back({time,
+                {key.mValue.x, key.mValue.y, key.mValue.z, key.mValue.w}});
         }
 
         for (unsigned int k = 0; k < channel->mNumScalingKeys; ++k) {
             const auto& key = channel->mScalingKeys[k];
             float time = static_cast<float>(key.mTime) / tick_rate;
-            track.scales.push_back({time,
-                ozz::math::Float3(key.mValue.x, key.mValue.y, key.mValue.z)});
+            jtrack["scales"].push_back({time,
+                {key.mValue.x, key.mValue.y, key.mValue.z}});
         }
     }
 
-    if (!raw_anim.Validate()) {
-        std::fprintf(stderr, "  warning: animation '%s' failed validation, skipping\n",
-                     anim->mName.C_Str());
-        return false;
-    }
+    j["events"] = nlohmann::json::array();
 
-    // Build compressed runtime animation
-    ozz::animation::offline::AnimationBuilder anim_builder;
-    auto runtime_anim = anim_builder(raw_anim);
-    if (!runtime_anim) {
-        std::fprintf(stderr, "  warning: animation build failed for '%s'\n",
-                     anim->mName.C_Str());
-        return false;
-    }
-
-    // Serialize animation blob
-    ozz::io::MemoryStream anim_stream;
-    ozz::io::OArchive archive(&anim_stream);
-    archive << *runtime_anim;
-
-    std::string clip_name = anim->mName.C_Str();
-
-    fjell::FjAnimHeader header{};
-    header.magic = fjell::FJANIM_MAGIC;
-    header.version = fjell::FJANIM_VERSION;
-    header.num_tracks = static_cast<uint32_t>(num_joints);
-    header.duration = duration;
-    header.name_length = static_cast<uint32_t>(clip_name.size());
-
-    uint64_t offset = sizeof(fjell::FjAnimHeader);
-    header.name_offset = offset;
-    offset += header.name_length;
-
-    offset = (offset + 7) & ~uint64_t(7); // align data
-    header.data_offset = offset;
-    header.data_size = static_cast<uint64_t>(anim_stream.Size());
-
-    FILE* f = std::fopen(output_path.c_str(), "wb");
-    if (!f) {
+    std::ofstream file(output_path);
+    if (!file.is_open()) {
         std::fprintf(stderr, "error: cannot open '%s' for writing\n", output_path.c_str());
         return false;
     }
-
-    std::fwrite(&header, sizeof(header), 1, f);
-
-    // Name
-    std::fseek(f, static_cast<long>(header.name_offset), SEEK_SET);
-    std::fwrite(clip_name.data(), 1, clip_name.size(), f);
-
-    // Pad + data
-    long current = std::ftell(f);
-    while (static_cast<uint64_t>(current) < header.data_offset) {
-        uint8_t zero = 0;
-        std::fwrite(&zero, 1, 1, f);
-        ++current;
-    }
-    anim_stream.Seek(0, ozz::io::Stream::kSet);
-    std::vector<uint8_t> anim_data(anim_stream.Size());
-    anim_stream.Read(anim_data.data(), anim_data.size());
-    std::fwrite(anim_data.data(), 1, anim_data.size(), f);
-
-    std::fclose(f);
+    file << j.dump();  // compact output — animation files can be large
     return true;
 }
 
