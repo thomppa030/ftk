@@ -146,13 +146,36 @@ void UiEditorContext::open_ui(const std::string& fjui_path) {
     action_log_.clear();
     auto* root = preview_ui_->root();
     if (root) {
-        // Collect action names first, then bind — avoids vector reallocation
-        // during push_back which would destroy moved Connection objects
-        std::vector<std::string> action_names;
+        // Collect action names and auto-generate bindings from class:name="key==value"
+        discovered_actions_.clear();
+        auto& action_names = discovered_actions_;
         std::function<void(UiNode*)> collect_actions = [&](UiNode* node) {
-            auto it = node->attributes.find("on:click");
-            if (it != node->attributes.end() && !it->second.empty()) {
-                action_names.push_back(it->second);
+            auto click_it = node->attributes.find("on:click");
+            if (click_it != node->attributes.end() && !click_it->second.empty()) {
+                const auto& action = click_it->second;
+                action_names.push_back(action);
+
+                // Auto-bind: if same node has class:X="key==value", infer action → set key=value
+                for (const auto& [attr, condition] : node->attributes) {
+                    if (attr.starts_with("class:")) {
+                        auto eq = condition.find("==");
+                        if (eq != std::string::npos) {
+                            std::string key = condition.substr(0, eq);
+                            std::string value = condition.substr(eq + 2);
+                            // Only add if not already manually bound
+                            bool exists = false;
+                            for (const auto& b : action_bindings_) {
+                                if (b.action == action && b.key == key) {
+                                    exists = true;
+                                    break;
+                                }
+                            }
+                            if (!exists) {
+                                action_bindings_.push_back({action, key, value});
+                            }
+                        }
+                    }
+                }
             }
             for (auto& child : node->children) {
                 collect_actions(child.get());
@@ -716,25 +739,40 @@ void UiEditorContext::draw_mock_data() {
             action_bindings_.erase(action_bindings_.begin() + remove_bind);
         }
 
-        // Add new binding
-        ImGui::SetNextItemWidth(100);
-        ImGui::InputTextWithHint("##bact", "action", bind_action_buf_, sizeof(bind_action_buf_));
-        ImGui::SameLine();
-        ImGui::TextDisabled("->");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(80);
-        ImGui::InputTextWithHint("##bkey", "key", bind_key_buf_, sizeof(bind_key_buf_));
-        ImGui::SameLine();
-        ImGui::Text("=");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(60);
-        ImGui::InputTextWithHint("##bval", "value", bind_value_buf_, sizeof(bind_value_buf_));
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Bind") && bind_action_buf_[0] != '\0' && bind_key_buf_[0] != '\0') {
-            action_bindings_.push_back({bind_action_buf_, bind_key_buf_, bind_value_buf_});
-            bind_action_buf_[0] = '\0';
-            bind_key_buf_[0] = '\0';
-            bind_value_buf_[0] = '\0';
+        // Add new binding — action from dropdown, key/value as text
+        if (!discovered_actions_.empty()) {
+            ImGui::SetNextItemWidth(120);
+            if (ImGui::BeginCombo("##bact",
+                    bind_action_idx_ < static_cast<int>(discovered_actions_.size())
+                        ? discovered_actions_[bind_action_idx_].c_str() : "")) {
+                for (int i = 0; i < static_cast<int>(discovered_actions_.size()); ++i) {
+                    bool selected = (i == bind_action_idx_);
+                    if (ImGui::Selectable(discovered_actions_[i].c_str(), selected)) {
+                        bind_action_idx_ = i;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("->");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(80);
+            ImGui::InputTextWithHint("##bkey", "key", bind_key_buf_, sizeof(bind_key_buf_));
+            ImGui::SameLine();
+            ImGui::Text("=");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(60);
+            ImGui::InputTextWithHint("##bval", "value", bind_value_buf_, sizeof(bind_value_buf_));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Bind") && bind_key_buf_[0] != '\0') {
+                action_bindings_.push_back({
+                    discovered_actions_[bind_action_idx_],
+                    bind_key_buf_, bind_value_buf_});
+                bind_key_buf_[0] = '\0';
+                bind_value_buf_[0] = '\0';
+            }
+        } else {
+            ImGui::TextDisabled("No on:click actions found in .fjui");
         }
     }
     ImGui::End();

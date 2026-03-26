@@ -105,7 +105,8 @@ private:
         std::string value;
     };
     std::vector<ActionBinding> action_bindings_;
-    char bind_action_buf_[128]{};
+    std::vector<std::string> discovered_actions_; // scanned from on:click attributes
+    int bind_action_idx_{0};
     char bind_key_buf_[128]{};
     char bind_value_buf_[256]{};
 
