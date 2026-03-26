@@ -39,10 +39,9 @@ std::unique_ptr<UiNode> FjuiParser::parse_document() {
             if (pos_ + 1 < source_.size() && source_[pos_ + 1] == '/') break;
 
             auto child = parse_element();
-            if (child) {
-                child->parent = root.get();
-                root->children.push_back(std::move(child));
-            }
+            if (!child) return nullptr; // malformed element — fail fast
+            child->parent = root.get();
+            root->children.push_back(std::move(child));
         } else {
             auto text = parse_text();
             if (text && !text->text_content.empty()) {

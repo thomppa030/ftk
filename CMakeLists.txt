@@ -12,6 +12,9 @@ include(cmake/CompileShaders.cmake)
 add_subdirectory(src)
 add_subdirectory(tools)
 
+enable_testing()
+add_subdirectory(tests)
+
 # --- Packaging ---
 set(CPACK_PACKAGE_NAME "Fjell")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")

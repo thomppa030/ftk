@@ -1,0 +1,396 @@
+#include "ui/game_ui/fjss_parser.hpp"
+#include "core/log.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+
+using namespace fjell;
+
+static struct LogInit {
+    LogInit() { if (!log::core()) log::init(); }
+} s_log_init;
+
+// --- Selector parsing ---
+
+TEST_CASE("Parse tag selector", "[fjss]") {
+    auto sheet = FjssParser::parse("div { width: 100; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.tag == "div");
+}
+
+TEST_CASE("Parse class selector", "[fjss]") {
+    auto sheet = FjssParser::parse(".panel { width: 100; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "panel");
+    REQUIRE(sheet.rules[0].selector.tag.empty());
+}
+
+TEST_CASE("Parse id selector", "[fjss]") {
+    auto sheet = FjssParser::parse("#hud { opacity: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.id == "hud");
+}
+
+TEST_CASE("Parse pseudo-class selector", "[fjss]") {
+    auto sheet = FjssParser::parse(".slot:hover { border-color: #888; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "slot");
+    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+}
+
+TEST_CASE("Parse tag + class selector", "[fjss]") {
+    auto sheet = FjssParser::parse("div.panel { width: 100; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.tag == "div");
+    REQUIRE(sheet.rules[0].selector.class_ == "panel");
+}
+
+TEST_CASE("Parse tag + id selector", "[fjss]") {
+    auto sheet = FjssParser::parse("panel#hud { opacity: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.tag == "panel");
+    REQUIRE(sheet.rules[0].selector.id == "hud");
+}
+
+TEST_CASE("Parse descendant combinator", "[fjss]") {
+    auto sheet = FjssParser::parse("panel .label { color: #fff; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.parent == "panel");
+    REQUIRE(sheet.rules[0].selector.class_ == "label");
+}
+
+// --- Specificity ---
+
+TEST_CASE("Specificity: tag = 1", "[fjss]") {
+    auto sheet = FjssParser::parse("div { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.specificity() == 1);
+}
+
+TEST_CASE("Specificity: class = 10", "[fjss]") {
+    auto sheet = FjssParser::parse(".foo { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.specificity() == 10);
+}
+
+TEST_CASE("Specificity: id = 100", "[fjss]") {
+    auto sheet = FjssParser::parse("#bar { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.specificity() == 100);
+}
+
+TEST_CASE("Specificity: pseudo = 10", "[fjss]") {
+    auto sheet = FjssParser::parse(".slot:hover { width: 1; }");
+    // class(10) + pseudo(10) = 20
+    REQUIRE(sheet.rules[0].selector.specificity() == 20);
+}
+
+TEST_CASE("Specificity: tag + class + pseudo", "[fjss]") {
+    auto sheet = FjssParser::parse("div.slot:active { width: 1; }");
+    // tag(1) + class(10) + pseudo(10) = 21
+    REQUIRE(sheet.rules[0].selector.specificity() == 21);
+}
+
+// --- Declarations ---
+
+TEST_CASE("Parse single declaration", "[fjss]") {
+    auto sheet = FjssParser::parse(".box { width: 100; }");
+    REQUIRE(sheet.rules[0].properties.size() == 1);
+    REQUIRE(sheet.rules[0].properties.at("width") == "100");
+}
+
+TEST_CASE("Parse multiple declarations", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        .slot {
+            width: 48;
+            height: 48;
+            background-color: #222222;
+            border: 2 solid #555;
+        }
+    )");
+    REQUIRE(sheet.rules.size() == 1);
+    auto& props = sheet.rules[0].properties;
+    REQUIRE(props.at("width") == "48");
+    REQUIRE(props.at("height") == "48");
+    REQUIRE(props.at("background-color") == "#222222");
+    REQUIRE(props.at("border") == "2 solid #555");
+}
+
+TEST_CASE("Trailing semicolons are optional for last declaration", "[fjss]") {
+    auto sheet = FjssParser::parse(".box { width: 100 }");
+    REQUIRE(sheet.rules[0].properties.at("width") == "100");
+}
+
+// --- Multiple rules ---
+
+TEST_CASE("Parse multiple rules", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        .slot { width: 48; }
+        .slot:hover { border-color: #888; }
+        .active { border-color: #d4a054; }
+    )");
+    REQUIRE(sheet.rules.size() == 3);
+    REQUIRE(sheet.rules[0].selector.class_ == "slot");
+    REQUIRE(sheet.rules[1].selector.pseudo == "hover");
+    REQUIRE(sheet.rules[2].selector.class_ == "active");
+}
+
+// --- Comments ---
+
+TEST_CASE("Comments are skipped between rules", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        /* top-level comment */
+        .a { width: 1; }
+        /* another comment */
+        .b { height: 2; }
+    )");
+    REQUIRE(sheet.rules.size() == 2);
+}
+
+TEST_CASE("Comments are skipped inside declarations", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        .a {
+            width: 1;
+            /* comment */
+            height: 2;
+        }
+    )");
+    REQUIRE(sheet.rules[0].properties.size() == 2);
+}
+
+// --- Edge cases ---
+
+TEST_CASE("Empty input produces empty stylesheet", "[fjss]") {
+    auto sheet = FjssParser::parse("");
+    REQUIRE(sheet.rules.empty());
+}
+
+TEST_CASE("Transition property value is preserved", "[fjss]") {
+    auto sheet = FjssParser::parse(".slot { transition: all 0.15s ease-in-out; }");
+    REQUIRE(sheet.rules[0].properties.at("transition") == "all 0.15s ease-in-out");
+}
+
+// --- Selector edge cases ---
+
+TEST_CASE("Hyphenated class name", "[fjss]") {
+    auto sheet = FjssParser::parse(".my-class { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.class_ == "my-class");
+}
+
+TEST_CASE("Hyphenated id name", "[fjss]") {
+    auto sheet = FjssParser::parse("#health-bar { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.id == "health-bar");
+}
+
+TEST_CASE("Underscored class name", "[fjss]") {
+    auto sheet = FjssParser::parse(".my_class { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.class_ == "my_class");
+}
+
+TEST_CASE("Class name with numbers", "[fjss]") {
+    auto sheet = FjssParser::parse(".slot2 { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.class_ == "slot2");
+}
+
+TEST_CASE("Tag + pseudo without class", "[fjss]") {
+    auto sheet = FjssParser::parse("div:hover { opacity: 1; }");
+    REQUIRE(sheet.rules[0].selector.tag == "div");
+    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+    REQUIRE(sheet.rules[0].selector.class_.empty());
+}
+
+TEST_CASE("ID + class + pseudo combo", "[fjss]") {
+    auto sheet = FjssParser::parse("#hud.panel:hover { opacity: 1; }");
+    REQUIRE(sheet.rules[0].selector.id == "hud");
+    REQUIRE(sheet.rules[0].selector.class_ == "panel");
+    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+}
+
+TEST_CASE("Descendant with class and pseudo on child", "[fjss]") {
+    auto sheet = FjssParser::parse("panel .slot:hover { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.parent == "panel");
+    REQUIRE(sheet.rules[0].selector.class_ == "slot");
+    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+}
+
+TEST_CASE("Descendant with tag child", "[fjss]") {
+    auto sheet = FjssParser::parse("panel div { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.parent == "panel");
+    REQUIRE(sheet.rules[0].selector.tag == "div");
+}
+
+TEST_CASE("All pseudo-classes parse correctly", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        .a:hover { width: 1; }
+        .b:active { width: 1; }
+        .c:focus { width: 1; }
+    )");
+    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+    REQUIRE(sheet.rules[1].selector.pseudo == "active");
+    REQUIRE(sheet.rules[2].selector.pseudo == "focus");
+}
+
+TEST_CASE("Specificity: id + class + tag + pseudo", "[fjss]") {
+    // Build selector manually since parser can't do all 4 in one selector string easily
+    StyleSelector sel;
+    sel.id = "hud";
+    sel.class_ = "panel";
+    sel.tag = "div";
+    sel.pseudo = "hover";
+    // 100 + 10 + 1 + 10 = 121
+    REQUIRE(sel.specificity() == 121);
+}
+
+TEST_CASE("Specificity: empty selector = 0", "[fjss]") {
+    StyleSelector sel;
+    REQUIRE(sel.specificity() == 0);
+}
+
+// --- Declaration edge cases ---
+
+TEST_CASE("Hyphenated property names", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        .a {
+            background-color: #ff0000;
+            border-radius: 4;
+            flex-direction: row;
+        }
+    )");
+    auto& props = sheet.rules[0].properties;
+    REQUIRE(props.at("background-color") == "#ff0000");
+    REQUIRE(props.at("border-radius") == "4");
+    REQUIRE(props.at("flex-direction") == "row");
+}
+
+TEST_CASE("Property value with multiple spaces preserved", "[fjss]") {
+    auto sheet = FjssParser::parse(".a { box-shadow: 0 2 4 0 #000000; }");
+    REQUIRE(sheet.rules[0].properties.at("box-shadow") == "0 2 4 0 #000000");
+}
+
+TEST_CASE("Empty value is skipped", "[fjss]") {
+    auto sheet = FjssParser::parse(".a { width:; height: 10; }");
+    auto& props = sheet.rules[0].properties;
+    // width has empty value — should be skipped
+    REQUIRE(props.count("width") == 0);
+    REQUIRE(props.at("height") == "10");
+}
+
+TEST_CASE("Malformed declaration without colon is skipped", "[fjss]") {
+    auto sheet = FjssParser::parse(".a { garbage; width: 10; }");
+    auto& props = sheet.rules[0].properties;
+    REQUIRE(props.count("garbage") == 0);
+    REQUIRE(props.at("width") == "10");
+}
+
+TEST_CASE("Duplicate property last wins", "[fjss]") {
+    auto sheet = FjssParser::parse(".a { width: 10; width: 20; }");
+    REQUIRE(sheet.rules[0].properties.at("width") == "20");
+}
+
+TEST_CASE("Property value trailing whitespace is trimmed", "[fjss]") {
+    auto sheet = FjssParser::parse(".a { width: 100   ; }");
+    REQUIRE(sheet.rules[0].properties.at("width") == "100");
+}
+
+// --- Rule edge cases ---
+
+TEST_CASE("Rule with empty body is not added", "[fjss]") {
+    auto sheet = FjssParser::parse(".empty {} .real { width: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "real");
+}
+
+TEST_CASE("Multiple rules with same selector are both kept", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        .slot { width: 48; }
+        .slot { height: 48; }
+    )");
+    REQUIRE(sheet.rules.size() == 2);
+    REQUIRE(sheet.rules[0].properties.at("width") == "48");
+    REQUIRE(sheet.rules[1].properties.at("height") == "48");
+}
+
+// --- Comment edge cases ---
+
+TEST_CASE("Unclosed comment consumes to EOF", "[fjss]") {
+    auto sheet = FjssParser::parse(".a { width: 1; } /* never closed");
+    // First rule parses, comment eats the rest
+    REQUIRE(sheet.rules.size() == 1);
+}
+
+TEST_CASE("Comment-only input", "[fjss]") {
+    auto sheet = FjssParser::parse("/* just a comment */");
+    REQUIRE(sheet.rules.empty());
+}
+
+TEST_CASE("Nested-looking comment (not real nesting)", "[fjss]") {
+    // CSS comments don't nest: first */ closes it
+    auto sheet = FjssParser::parse("/* outer /* inner */ .a { width: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+}
+
+// --- Whitespace handling ---
+
+TEST_CASE("Whitespace-only input", "[fjss]") {
+    auto sheet = FjssParser::parse("   \n\t\r\n   ");
+    REQUIRE(sheet.rules.empty());
+}
+
+TEST_CASE("Extra whitespace around declarations", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        .a   {
+            width   :   100   ;
+            height  :  200  ;
+        }
+    )");
+    auto& props = sheet.rules[0].properties;
+    REQUIRE(props.at("width") == "100");
+    REQUIRE(props.at("height") == "200");
+}
+
+TEST_CASE("No whitespace at all", "[fjss]") {
+    auto sheet = FjssParser::parse(".a{width:100;height:200}");
+    auto& props = sheet.rules[0].properties;
+    REQUIRE(props.at("width") == "100");
+    REQUIRE(props.at("height") == "200");
+}
+
+// --- Stress ---
+
+TEST_CASE("Many rules", "[fjss]") {
+    std::string css;
+    for (int i = 0; i < 100; i++) {
+        css += ".c" + std::to_string(i) + " { width: " + std::to_string(i) + "; }\n";
+    }
+    auto sheet = FjssParser::parse(css);
+    REQUIRE(sheet.rules.size() == 100);
+    REQUIRE(sheet.rules[0].properties.at("width") == "0");
+    REQUIRE(sheet.rules[99].properties.at("width") == "99");
+}
+
+TEST_CASE("Many properties in one rule", "[fjss]") {
+    std::string css = ".a {";
+    for (int i = 0; i < 50; i++) {
+        css += " p" + std::to_string(i) + ": " + std::to_string(i) + ";";
+    }
+    css += " }";
+    auto sheet = FjssParser::parse(css);
+    REQUIRE(sheet.rules[0].properties.size() == 50);
+}
+
+TEST_CASE("Real-world stylesheet", "[fjss]") {
+    auto sheet = FjssParser::parse(R"(
+        .slot {
+            width: 48; height: 48;
+            background-color: #222222;
+            border: 2 solid #555;
+            border-radius: 6;
+            transition: all 0.15s ease-in-out;
+        }
+        .slot:hover { border-color: #888; }
+        .slot:active { background-color: #444; }
+        .active { border-color: #d4a054; }
+    )");
+    REQUIRE(sheet.rules.size() == 4);
+    REQUIRE(sheet.rules[0].selector.class_ == "slot");
+    REQUIRE(sheet.rules[0].properties.size() == 6);
+    REQUIRE(sheet.rules[1].selector.pseudo == "hover");
+    REQUIRE(sheet.rules[2].selector.pseudo == "active");
+    REQUIRE(sheet.rules[3].selector.class_ == "active");
+}

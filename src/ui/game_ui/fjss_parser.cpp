@@ -148,7 +148,7 @@ void FjssParser::parse_declarations(std::unordered_map<std::string, std::string>
 
         // Property name
         std::string name;
-        while (!at_end() && peek() != ':' && peek() != '}' &&
+        while (!at_end() && peek() != ':' && peek() != '}' && peek() != ';' &&
                !std::isspace(static_cast<unsigned char>(peek()))) {
             name += advance();
         }
