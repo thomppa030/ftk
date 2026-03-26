@@ -51,6 +51,8 @@ add_executable(fjell
     renderer/material.cpp
     renderer/material_asset.cpp
     renderer/vfx_asset.cpp
+    renderer/vfx_module.cpp
+    renderer/vfx_emitter.cpp
     renderer/mega_buffer.cpp
     renderer/mesh.cpp
     renderer/meshlet.cpp
