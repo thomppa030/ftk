@@ -735,6 +735,241 @@ TEST_CASE("Multiple classes: conflicting rules, last class rule wins", "[style][
     REQUIRE(root->style.background_color.r == Catch::Approx(0.0f));
 }
 
+// --- Gradient parsing ---
+
+TEST_CASE("Linear gradient with angle and two colors", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { background: linear-gradient(90deg, #ff0000, #0000ff); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.gradient.angle == Catch::Approx(90.0f));
+    REQUIRE(root->style.gradient.from.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.gradient.to.b == Catch::Approx(1.0f));
+    REQUIRE(root->style.gradient.active());
+}
+
+TEST_CASE("Linear gradient with 'to right' direction", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { background: linear-gradient(to right, #000, #fff); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.gradient.angle == Catch::Approx(90.0f));
+}
+
+TEST_CASE("Linear gradient with two colors only (no angle)", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { background: linear-gradient(#ff0000, #00ff00); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.gradient.angle == Catch::Approx(180.0f)); // default
+    REQUIRE(root->style.gradient.from.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.gradient.to.g == Catch::Approx(1.0f));
+}
+
+// --- Box shadow parsing ---
+
+TEST_CASE("Box shadow with hex color", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { box-shadow: 2 4 8 #000000; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.box_shadow.offset_x == Catch::Approx(2.0f));
+    REQUIRE(root->style.box_shadow.offset_y == Catch::Approx(4.0f));
+    REQUIRE(root->style.box_shadow.blur == Catch::Approx(8.0f));
+    REQUIRE(root->style.box_shadow.color.a == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Box shadow with spread and hex color", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { box-shadow: 0 2 4 1 #00000080; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.box_shadow.spread == Catch::Approx(1.0f));
+    REQUIRE(root->style.box_shadow.color.a == Catch::Approx(0x80 / 255.0f));
+}
+
+TEST_CASE("Box shadow none resets", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse(R"(
+        div { box-shadow: 0 4 8 #000; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.box_shadow.blur == Catch::Approx(8.0f));
+
+    // Now apply "none"
+    auto sheet2 = FjssParser::parse("div { box-shadow: none; }");
+    resolver.resolve(*root, sheet2);
+    REQUIRE(root->style.box_shadow.blur == Catch::Approx(0.0f));
+}
+
+// --- Color parsing edge cases ---
+
+TEST_CASE("rgba() color parsing", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { color: rgba(255, 128, 0, 0.5); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.color.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.color.g == Catch::Approx(128.0f / 255.0f));
+    REQUIRE(root->style.color.b == Catch::Approx(0.0f));
+    REQUIRE(root->style.color.a == Catch::Approx(0.5f));
+}
+
+TEST_CASE("rgb() color parsing", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { color: rgb(0, 255, 128); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.color.r == Catch::Approx(0.0f));
+    REQUIRE(root->style.color.g == Catch::Approx(1.0f));
+    REQUIRE(root->style.color.b == Catch::Approx(128.0f / 255.0f));
+    REQUIRE(root->style.color.a == Catch::Approx(1.0f));
+}
+
+TEST_CASE("All named colors parse", "[style][edge]") {
+    StyleResolver resolver;
+    auto test_color = [&](const std::string& name) {
+        auto root = make_node("div");
+        auto sheet = FjssParser::parse("div { color: " + name + "; }");
+        resolver.resolve(*root, sheet);
+        return root->style.color;
+    };
+
+    REQUIRE(test_color("red").r == Catch::Approx(1.0f));
+    REQUIRE(test_color("green").g == Catch::Approx(0.5f)); // CSS green is 0,128,0
+    REQUIRE(test_color("blue").b == Catch::Approx(1.0f));
+    REQUIRE(test_color("yellow").r == Catch::Approx(1.0f));
+    REQUIRE(test_color("yellow").g == Catch::Approx(1.0f));
+    REQUIRE(test_color("cyan").g == Catch::Approx(1.0f));
+    REQUIRE(test_color("magenta").r == Catch::Approx(1.0f));
+    REQUIRE(test_color("gray").r == Catch::Approx(0.5f));
+    REQUIRE(test_color("grey").r == Catch::Approx(0.5f)); // british spelling
+    REQUIRE(test_color("orange").r == Catch::Approx(1.0f));
+    REQUIRE(test_color("black").r == Catch::Approx(0.0f));
+    REQUIRE(test_color("black").a == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Unknown color name defaults to opaque black", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { color: nonexistent; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.color.r == Catch::Approx(0.0f));
+    REQUIRE(root->style.color.g == Catch::Approx(0.0f));
+    REQUIRE(root->style.color.b == Catch::Approx(0.0f));
+    REQUIRE(root->style.color.a == Catch::Approx(1.0f)); // UiColor default alpha
+}
+
+// --- Edges shorthand: 3 values ---
+
+TEST_CASE("Padding shorthand: 3 values (top, horizontal, bottom)", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { padding: 10 20 30; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.padding.top == Catch::Approx(10.0f));
+    REQUIRE(root->style.padding.right == Catch::Approx(20.0f));
+    REQUIRE(root->style.padding.bottom == Catch::Approx(30.0f));
+    REQUIRE(root->style.padding.left == Catch::Approx(20.0f)); // same as right
+}
+
+// --- Overflow / flex properties ---
+
+TEST_CASE("Overflow scroll", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { overflow: scroll; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.overflow == UiOverflow::scroll);
+}
+
+TEST_CASE("Flex grow and shrink", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { flex-grow: 1; flex-shrink: 0; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.flex_grow == Catch::Approx(1.0f));
+    REQUIRE(root->style.flex_shrink == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Justify-content space-evenly", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { justify-content: space-evenly; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.justify_content == UiJustify::space_evenly);
+}
+
+TEST_CASE("Align-items baseline", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { align-items: baseline; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.align_items == UiAlign::baseline);
+}
+
+TEST_CASE("Flex-wrap wrap-reverse", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { flex-wrap: wrap-reverse; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.flex_wrap == UiFlexWrap::wrap_reverse);
+}
+
+TEST_CASE("Min/max width and height", "[style][edge]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { min-width: 50; max-width: 300; min-height: 20; max-height: 400; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.min_width == Catch::Approx(50.0f));
+    REQUIRE(root->style.max_width == Catch::Approx(300.0f));
+    REQUIRE(root->style.min_height == Catch::Approx(20.0f));
+    REQUIRE(root->style.max_height == Catch::Approx(400.0f));
+}
+
+// --- Selector: combined hovered + active ---
+
+TEST_CASE("Hovered AND active simultaneously", "[style][edge]") {
+    auto root = make_node("div", "", {"btn"});
+    root->interaction_state = 1 | 2; // hovered + active
+
+    auto sheet = FjssParser::parse(R"(
+        .btn { opacity: 1.0; }
+        .btn:hover { opacity: 0.8; }
+        .btn:active { opacity: 0.6; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    // :active(specificity 20) == :hover(specificity 20), but :active is later → wins
+    REQUIRE(root->style.opacity == Catch::Approx(0.6f));
+}
+
+TEST_CASE("Selector with tag + class + id all required", "[style][edge]") {
+    // tag(div) + class(panel) + id(main) selector parsed from "div.panel#main"
+    // The FJSS parser may not support this combo — let's test what happens
+    auto sheet = FjssParser::parse("div.panel#main { width: 42; }");
+    REQUIRE(sheet.rules.size() == 1);
+
+    auto matching = make_node("div", "main", {"panel"});
+    auto wrong_tag = make_node("span", "main", {"panel"});
+    auto wrong_class = make_node("div", "main", {"other"});
+    auto wrong_id = make_node("div", "wrong", {"panel"});
+
+    StyleResolver resolver;
+    resolver.resolve(*matching, sheet);
+    REQUIRE(matching->style.width == Catch::Approx(42.0f));
+
+    resolver.resolve(*wrong_tag, sheet);
+    REQUIRE(wrong_tag->style.width == Catch::Approx(-1.0f));
+
+    resolver.resolve(*wrong_class, sheet);
+    REQUIRE(wrong_class->style.width == Catch::Approx(-1.0f));
+
+    resolver.resolve(*wrong_id, sheet);
+    REQUIRE(wrong_id->style.width == Catch::Approx(-1.0f));
+}
+
 TEST_CASE("Many rules resolved correctly", "[style]") {
     auto root = make_node("div", "", {"a", "b", "c"});
 
