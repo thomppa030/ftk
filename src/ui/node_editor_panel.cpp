@@ -222,10 +222,10 @@ void NodeEditorPanel::apply_to_selected() {
     if (!existing) {
         obj->components.add<EmitterComponent>(std::move(built));
     } else {
-        // Preserve runtime accumulator
-        float acc = existing->emit_accumulator;
+        // Preserve runtime effect state
+        auto saved_effect = existing->effect;
         *existing = built;
-        existing->emit_accumulator = acc;
+        existing->effect = saved_effect;
     }
     scene_->mark_dirty();
 }

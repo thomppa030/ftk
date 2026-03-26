@@ -481,20 +481,26 @@ void ParticleSystem::init_emitter_ranges() {
     vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
 }
 
-void ParticleSystem::sync_emitters(const Scene& scene) {
+void ParticleSystem::sync_emitters(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("particle_sync_emitters");
 
-    // Collect current emitters from scene
+    // Collect GPU emitters from all VfxEffects in the scene
     struct EmitterInfo {
-        uint32_t id;
+        uint32_t object_id;
+        uint32_t emitter_index;  // index within VfxEffect::emitters
         uint32_t max_particles;
         ParticleBlendMode blend_mode;
     };
     std::vector<EmitterInfo> scene_emitters;
     for (const auto& obj : scene.objects()) {
-        const auto* em = obj->components.get<EmitterComponent>();
-        if (!em) continue;
-        scene_emitters.push_back({obj->id, em->max_particles, em->blend_mode});
+        auto* ec = obj->components.get<EmitterComponent>();
+        if (!ec) continue;
+        ec->ensure_effect();
+        if (!ec->effect) continue;
+        for (uint32_t i = 0; i < static_cast<uint32_t>(ec->effect->emitters.size()); ++i) {
+            auto& sub = ec->effect->emitters[i];
+            scene_emitters.push_back({obj->id, i, sub.max_particles, sub.blend_mode});
+        }
     }
 
     // Sort by blend mode (additive first) for render batching
@@ -506,7 +512,8 @@ void ParticleSystem::sync_emitters(const Scene& scene) {
     bool changed = (scene_emitters.size() != emitters_.size());
     if (!changed) {
         for (size_t i = 0; i < emitters_.size(); ++i) {
-            if (emitters_[i].object_id != scene_emitters[i].id ||
+            if (emitters_[i].object_id != scene_emitters[i].object_id ||
+                emitters_[i].emitter_index != scene_emitters[i].emitter_index ||
                 emitters_[i].max_particles != scene_emitters[i].max_particles ||
                 emitters_[i].blend_mode != scene_emitters[i].blend_mode) {
                 changed = true;
@@ -524,7 +531,8 @@ void ParticleSystem::sync_emitters(const Scene& scene) {
     additive_count_ = 0;
     for (const auto& info : scene_emitters) {
         EmitterGpu gpu{};
-        gpu.object_id = info.id;
+        gpu.object_id = info.object_id;
+        gpu.emitter_index = info.emitter_index;
         gpu.max_particles = info.max_particles;
         gpu.base_offset = offset;
         gpu.blend_mode = info.blend_mode;
@@ -539,7 +547,6 @@ void ParticleSystem::sync_emitters(const Scene& scene) {
     bool needs_realloc = total > total_particle_capacity_ || count > emitter_capacity_;
 
     if (needs_realloc) {
-        // Need larger buffers — wait for GPU, reallocate, then init
         vkDeviceWaitIdle(device_);
         uint32_t new_total = std::max(total, total_particle_capacity_ * 2);
         uint32_t new_count = std::max(count, emitter_capacity_ * 2);
@@ -547,7 +554,6 @@ void ParticleSystem::sync_emitters(const Scene& scene) {
         if (new_count == 0) new_count = count;
         rebuild_mega_buffers(new_total, new_count);
     } else {
-        // Capacity sufficient — just wait for previous frame's compute to finish
         vkQueueWaitIdle(queue_);
     }
 
@@ -568,59 +574,51 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     emitter_data_cache_.resize(emitter_count);
     uint32_t max_emit_count = 0;
 
+    auto* module_ptr = static_cast<uint8_t*>(module_buffer_->mapped());
+    uint32_t module_word_offset = 0;
+
     for (size_t i = 0; i < emitters_.size(); ++i) {
         auto& gpu = emitters_[i];
         auto* obj = scene.find(gpu.object_id);
         auto& data = emitter_data_cache_[i];
         std::memset(&data, 0, sizeof(data));
 
-        auto* em_ptr = obj ? obj->components.get<EmitterComponent>() : nullptr;
-        if (!em_ptr) continue;
+        auto* ec = obj ? obj->components.get<EmitterComponent>() : nullptr;
+        if (!ec || !ec->effect) continue;
         auto* spatial = obj->as_spatial();
         if (!spatial) continue;
-        auto& em = *em_ptr;
+        if (gpu.emitter_index >= ec->effect->emitters.size()) continue;
 
-        em.emit_accumulator += em.emission_rate * dt;
-        uint32_t emit_count = static_cast<uint32_t>(em.emit_accumulator);
-        em.emit_accumulator -= static_cast<float>(emit_count);
+        auto& sub = ec->effect->emitters[gpu.emitter_index];
+
+        // CPU-side emission accumulation (per sub-emitter)
+        sub.emit_accumulator += sub.emission_rate() * dt;
+        uint32_t emit_count = static_cast<uint32_t>(sub.emit_accumulator);
+        sub.emit_accumulator -= static_cast<float>(emit_count);
         if (emit_count > max_emit_count) max_emit_count = emit_count;
 
         data.emitter_position = glm::vec3(spatial->world_matrix_[3]);
         data.dt = dt;
-        data.gravity = em.gravity;
+        data.gravity = {}; // read from modules now
         data.max_particles = gpu.max_particles;
-        data.color_start = em.color_start;
-        data.color_end = em.color_end;
-        data.size_start = em.size_start;
-        data.size_end = em.size_end;
-        data.lifetime_min = em.lifetime_min;
-        data.lifetime_max = em.lifetime_max;
-        data.velocity_min = em.velocity_min;
+        data.color_start = {}; // read from modules
+        data.color_end = {};
+        data.size_start = 0.0f;
+        data.size_end = 0.0f;
+        data.lifetime_min = sub.lifetime_min();
+        data.lifetime_max = sub.lifetime_max();
+        data.velocity_min = {};
         data.emit_count = emit_count;
-        data.velocity_max = em.velocity_max;
-        data.random_seed = frame_seed_ ^ (gpu.object_id * 2654435761u);
+        data.velocity_max = {};
+        data.random_seed = frame_seed_ ^ ((gpu.object_id * 31 + gpu.emitter_index) * 2654435761u);
         data.base_offset = gpu.base_offset;
         data.counter_offset = static_cast<uint32_t>(i) * 2;
         data.dead_list_offset = gpu.base_offset;
-        data.module_offset = 0; // set below after module buffer is built
-    }
 
-    // Build and upload module data from VfxEmitter stacks
-    {
-        auto* module_ptr = static_cast<uint8_t*>(module_buffer_->mapped());
-        uint32_t module_word_offset = 0;
-
-        for (size_t i = 0; i < emitters_.size(); ++i) {
-            auto* obj = scene.find(emitters_[i].object_id);
-            auto* em_ptr = obj ? obj->components.get<EmitterComponent>() : nullptr;
-            if (!em_ptr) continue;
-
-            em_ptr->ensure_vfx();
-            emitter_data_cache_[i].module_offset = module_word_offset;
-
-            uint32_t bytes = em_ptr->vfx->write_gpu_modules(module_ptr + module_word_offset * 4);
-            module_word_offset += bytes / 4;
-        }
+        // Write module data
+        data.module_offset = module_word_offset;
+        uint32_t bytes = sub.write_gpu_modules(module_ptr + module_word_offset * 4);
+        module_word_offset += bytes / 4;
     }
 
     // Upload emitter data

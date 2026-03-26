@@ -9,7 +9,7 @@
 
 namespace fjell {
 
-struct VfxEmitter;
+struct VfxEffect;
 
 enum class ParticleBlendMode : uint8_t {
     additive,   // fire, sparks, magic
@@ -31,14 +31,11 @@ struct EmitterComponent : NodeComponent {
     float size_end{0.02f};
     ParticleBlendMode blend_mode{ParticleBlendMode::additive};
 
-    // ── Module-based emitter (the actual runtime config) ──
-    std::shared_ptr<VfxEmitter> vfx;
+    // ── Multi-emitter effect (the actual runtime config) ──
+    std::shared_ptr<VfxEffect> effect;
 
-    /// Ensure the module stack is built (call before GPU upload)
-    void ensure_vfx();
-
-    // Runtime (not serialized)
-    float emit_accumulator{0.0f};
+    /// Ensure the effect is built (call before GPU upload)
+    void ensure_effect();
 };
 
 } // namespace fjell

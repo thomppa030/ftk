@@ -3,9 +3,9 @@
 
 namespace fjell {
 
-void EmitterComponent::ensure_vfx() {
-    if (!vfx) {
-        vfx = std::make_shared<VfxEmitter>(VfxEmitter::from_legacy(*this));
+void EmitterComponent::ensure_effect() {
+    if (!effect) {
+        effect = std::make_shared<VfxEffect>(VfxEffect::from_legacy(*this));
     }
 }
 
@@ -132,6 +132,30 @@ uint32_t VfxEmitter::write_gpu_modules(uint8_t* buffer) const {
     }
 
     return offset;
+}
+
+// ── VfxEffect ────────────────────────────────────────────────────────────
+
+VfxEffect VfxEffect::from_legacy(const EmitterComponent& ec) {
+    VfxEffect effect;
+    effect.name = "effect";
+    effect.emitters.push_back(VfxEmitter::from_legacy(ec));
+    return effect;
+}
+
+uint32_t VfxEffect::total_max_particles() const {
+    uint32_t total = 0;
+    for (const auto& e : emitters) total += e.max_particles;
+    return total;
+}
+
+float VfxEffect::max_lifetime() const {
+    float max_lt = 0.0f;
+    for (const auto& e : emitters) {
+        float lt = e.lifetime_max();
+        if (lt > max_lt) max_lt = lt;
+    }
+    return max_lt;
 }
 
 } // namespace fjell

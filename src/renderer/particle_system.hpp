@@ -47,7 +47,7 @@ public:
     void create(Device& device, const PassResources& resources);
     void destroy();
 
-    void sync_emitters(const Scene& scene);
+    void sync_emitters(Scene& scene);
     void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene);
     void insert_barriers(VkCommandBuffer cmd);
     void record_render(const FrameContext& ctx);
@@ -55,6 +55,7 @@ public:
 private:
     struct EmitterGpu {
         uint32_t object_id{0};
+        uint32_t emitter_index{0};  // index into VfxEffect::emitters
         uint32_t max_particles{0};
         uint32_t base_offset{0};
         ParticleBlendMode blend_mode{ParticleBlendMode::additive};
