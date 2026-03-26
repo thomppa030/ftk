@@ -1016,7 +1016,9 @@ Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
 
         uint32_t loaded_id = jobj.value("id", 0u);
         int32_t loaded_parent = jobj.value("parent_id", -1);
-        auto* node = scene.find(id);
+        // Use the last added object — find() can return wrong node when
+        // auto-assigned IDs collide with previously-overridden loaded IDs
+        auto* node = scene.objects().back().get();
         if (loaded_id > 0 && node) {
             node->id = loaded_id;
             if (loaded_id > max_id) max_id = loaded_id;
