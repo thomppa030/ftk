@@ -90,6 +90,7 @@ private:
 
     // Node editor state
     bool nodes_initialized_{false};
+    void* imnodes_ctx_{nullptr}; // ImNodesContext*, opaque to avoid imnodes include
     int node_id_counter_{0};
     struct EmitterNode {
         int node_id;

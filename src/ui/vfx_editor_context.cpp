@@ -78,10 +78,9 @@ void VfxEditorContext::init() {
 
 void VfxEditorContext::shutdown() {
     timeline_connections_.clear();
-    if (nodes_initialized_) {
-        ImNodes::DestroyContext();
-        nodes_initialized_ = false;
-    }
+    // Don't destroy the imnodes context — it's shared with the scene editor
+    imnodes_ctx_ = nullptr;
+    nodes_initialized_ = false;
     viewport_manager_.release_textures();
 }
 
@@ -192,9 +191,12 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
     name_ = fs::path(fjvfx_path).stem().string();
     selected_emitter_ = effect_->emitters.empty() ? -1 : 0;
 
-    // Initialize imnodes context
+    // Reuse the existing imnodes context (created by NodeEditorPanel in scene editor)
     if (!nodes_initialized_) {
-        ImNodes::CreateContext();
+        imnodes_ctx_ = static_cast<void*>(ImNodes::GetCurrentContext());
+        if (!imnodes_ctx_) {
+            imnodes_ctx_ = static_cast<void*>(ImNodes::CreateContext());
+        }
 
         ImNodesStyle& style = ImNodes::GetStyle();
         style.Flags |= ImNodesStyleFlags_GridSnapping;
@@ -281,7 +283,7 @@ void VfxEditorContext::setup_preview() {
 
 void VfxEditorContext::draw_node_editor() {
     if (ImGui::Begin("VFX Graph")) {
-        if (!effect_ || !nodes_initialized_) {
+        if (!effect_ || !nodes_initialized_ || !imnodes_ctx_) {
             ImGui::TextDisabled("No effect loaded");
             ImGui::End();
             return;
@@ -309,6 +311,7 @@ void VfxEditorContext::draw_node_editor() {
         ImGui::SameLine();
         ImGui::SliderFloat("Speed", &time_scale_, 0.0f, 3.0f, "%.1f");
 
+        ImNodes::SetCurrentContext(static_cast<ImNodesContext*>(imnodes_ctx_));
         ImNodes::BeginNodeEditor();
 
         // Draw emitter nodes
