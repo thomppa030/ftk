@@ -34,14 +34,14 @@ TEST_CASE("Linear easing: halfway through gives halfway value", "[anim]") {
     UiAnimation anim;
     anim.update(*root, 0.0f); // snapshot
 
-    root->style.opacity = 0.0f;
-    anim.update(*root, 0.0f); // detect change
+    root->style.opacity = 0.0f; // style resolver sets target
+    anim.update(*root, 0.0f); // detect change, start transition
 
-    root->style.opacity = 0.0f;
+    // Don't re-set opacity — animation wrote the interpolated value back,
+    // and prev_style was snapshotted. Let the transition play out.
     anim.update(*root, 0.5f); // 50% through
     REQUIRE(root->style.opacity == Catch::Approx(0.5f).margin(0.05f));
 
-    root->style.opacity = 0.0f;
     anim.update(*root, 0.5f); // complete
     REQUIRE(root->style.opacity == Catch::Approx(0.0f));
 }
@@ -57,8 +57,6 @@ TEST_CASE("Ease-in starts slow", "[anim]") {
     root->style.opacity = 0.0f;
     anim.update(*root, 0.0f);
 
-    // At 25% time, ease-in (t²) = 0.0625 → still near start
-    root->style.opacity = 0.0f;
     anim.update(*root, 0.25f);
     REQUIRE(root->style.opacity > 0.9f);
 }
@@ -74,8 +72,6 @@ TEST_CASE("Ease-out starts fast", "[anim]") {
     root->style.opacity = 0.0f;
     anim.update(*root, 0.0f);
 
-    // At 25% time, ease-out t(2-t) = 0.4375 → already moved a lot
-    root->style.opacity = 0.0f;
     anim.update(*root, 0.25f);
     REQUIRE(root->style.opacity < 0.6f);
 }
@@ -147,8 +143,7 @@ TEST_CASE("Duration in seconds", "[anim]") {
     root->style.opacity = 0.0f;
     anim.update(*root, 0.0f);
 
-    root->style.opacity = 0.0f;
-    anim.update(*root, 0.15f); // 50% of 0.3s
+    anim.update(*root, 0.15f);
     REQUIRE(root->style.opacity == Catch::Approx(0.5f).margin(0.05f));
 }
 
@@ -163,7 +158,6 @@ TEST_CASE("Duration in milliseconds", "[anim]") {
     root->style.opacity = 0.0f;
     anim.update(*root, 0.0f);
 
-    root->style.opacity = 0.0f;
     anim.update(*root, 0.15f);
     REQUIRE(root->style.opacity == Catch::Approx(0.5f).margin(0.05f));
 }
@@ -181,7 +175,6 @@ TEST_CASE("Background color transition interpolates RGBA", "[anim]") {
     root->style.background_color = {0.0f, 0.0f, 1.0f, 1.0f};
     anim.update(*root, 0.0f);
 
-    root->style.background_color = {0.0f, 0.0f, 1.0f, 1.0f};
     anim.update(*root, 0.5f);
 
     REQUIRE(root->style.background_color.r == Catch::Approx(0.5f).margin(0.05f));
@@ -203,8 +196,6 @@ TEST_CASE("'all' transitions multiple properties simultaneously", "[anim]") {
     root->style.border_width = 4.0f;
     anim.update(*root, 0.0f);
 
-    root->style.opacity = 0.0f;
-    root->style.border_width = 4.0f;
     anim.update(*root, 0.5f);
 
     REQUIRE(root->style.opacity == Catch::Approx(0.5f).margin(0.05f));
@@ -225,10 +216,9 @@ TEST_CASE("Transitions apply to children independently", "[anim]") {
     UiAnimation anim;
     anim.update(*root, 0.0f);
 
-    child->style.opacity = 0.0f; // only child changes
+    child->style.opacity = 0.0f;
     anim.update(*root, 0.0f);
 
-    child->style.opacity = 0.0f;
     anim.update(*root, 0.5f);
 
     REQUIRE(root->style.opacity == Catch::Approx(1.0f));

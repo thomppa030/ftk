@@ -122,9 +122,9 @@ void UiAnimation::update_node(UiNode& node, float dt, bool& any_active) {
         auto spec = parse_transition(node.style.transition);
         auto& state = states_[&node];
 
-        // Compare current resolved style against previous snapshot
-        bool first = state.transitions.empty() &&
-                     state.prev_style.opacity == UiComputedStyle{}.opacity;
+        // First time seeing this node — snapshot only, don't start transitions
+        bool first = !state.initialized;
+        if (!state.initialized) state.initialized = true;
 
         const auto& props = (spec.property == "all") ? animatable_props()
                             : std::vector<std::string>{spec.property};

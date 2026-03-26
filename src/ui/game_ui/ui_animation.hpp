@@ -42,6 +42,7 @@ private:
     struct NodeState {
         UiComputedStyle prev_style;
         std::vector<ActiveTransition> transitions;
+        bool initialized{false};
     };
 
     void update_node(UiNode& node, float dt, bool& any_active);
