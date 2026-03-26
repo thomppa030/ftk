@@ -40,6 +40,7 @@ private:
         material,
         animation,
         ui_layout,
+        vfx,
         unknown
     };
 

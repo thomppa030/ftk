@@ -108,6 +108,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjmat") return FileType::material;
     if (ext == ".fjskel" || ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
     if (ext == ".fjui" || ext == ".fjss") return FileType::ui_layout;
+    if (ext == ".fjvfx") return FileType::vfx;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
@@ -126,6 +127,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::material:   return "material";
         case FileType::animation:  return "node";
         case FileType::ui_layout:  return "shader";
+        case FileType::vfx:        return "node";
         case FileType::unknown:    return "node";
     }
     return "node";
@@ -829,6 +831,25 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
+                case FileType::vfx:
+                    if (ImGui::MenuItem("Open in VFX Editor")) {
+                        auto rel = std::filesystem::relative(entry.path, root_);
+                        on_open_asset.broadcast(rel.string(), "vfx");
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Rename")) {
+                        renaming_ = true;
+                        rename_index_ = context_menu_index_;
+                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
+                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+                    }
+                    if (ImGui::MenuItem("Delete")) {
+                        delete_index_ = context_menu_index_;
+                        show_delete_confirm_ = true;
+                    }
+                    break;
+
                 case FileType::animation:
                 case FileType::unknown:
                     if (ImGui::MenuItem("Rename")) {
@@ -921,6 +942,12 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
                 auto rel = std::filesystem::relative(entry.path, root_);
                 on_open_asset.broadcast(rel.string(), "ui");
             }
+            break;
+        }
+
+        case FileType::vfx: {
+            auto rel = std::filesystem::relative(entry.path, root_);
+            on_open_asset.broadcast(rel.string(), "vfx");
             break;
         }
 

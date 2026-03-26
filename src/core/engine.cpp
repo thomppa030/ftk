@@ -17,6 +17,7 @@
 #include "ui/animation_editor_context.hpp"
 #include "ui/material_editor_context.hpp"
 #include "ui/ui_editor_context.hpp"
+#include "ui/vfx_editor_context.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
 #include "scene/camera_node.hpp"
@@ -325,6 +326,30 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                 ui_ctx->init();
                 ui_ctx->open_ui(path);
                 contexts_.push_back(std::move(ui_ctx));
+                switch_context(static_cast<int>(contexts_.size()) - 1);
+            }
+            if (type == "vfx") {
+                // Reuse existing VFX editor for this path
+                for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+                    if (auto* vfx_ctx = dynamic_cast<VfxEditorContext*>(contexts_[i].get())) {
+                        if (vfx_ctx->effect_path() == path) {
+                            switch_context(i);
+                            return;
+                        }
+                    }
+                }
+                VfxEditorDeps deps{
+                    .vulkan_context = vulkan_context_.get(),
+                    .resource_manager = resource_manager_.get(),
+                    .input = &input_,
+                    .clock = &clock_,
+                    .project_mgr = &project_mgr_,
+                    .icon_cache = icon_cache_.get()
+                };
+                auto vfx_ctx = std::make_unique<VfxEditorContext>(deps);
+                vfx_ctx->init();
+                vfx_ctx->open_effect(path);
+                contexts_.push_back(std::move(vfx_ctx));
                 switch_context(static_cast<int>(contexts_.size()) - 1);
             }
         }));

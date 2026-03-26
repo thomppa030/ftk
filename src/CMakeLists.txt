@@ -142,6 +142,7 @@ add_executable(fjell
     ui/animation_editor_context.cpp
     ui/material_editor_context.cpp
     ui/ui_editor_context.cpp
+    ui/vfx_editor_context.cpp
     ui/material_params_widget.cpp
     ui/scene_editor_context.cpp
     ui/timeline_widget.cpp
