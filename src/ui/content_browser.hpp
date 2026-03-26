@@ -39,6 +39,7 @@ private:
         shader,
         material,
         animation,
+        ui_layout,
         unknown
     };
 

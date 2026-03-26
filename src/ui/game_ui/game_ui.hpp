@@ -32,6 +32,18 @@ struct PassResources;
 
 /// Orchestrator for the game UI system.
 /// Owns parsers, layout engine, style resolver, context, font atlas, and renderer.
+///
+/// Usage from game code:
+///
+///   game_ui.load("assets/ui/hud.fjui", "assets/ui/hud.fjss");
+///
+///   auto& ctx = game_ui.context();
+///   ctx.set("player.health", "72");
+///   ctx.set("player.max_health", "100");
+///   ctx.set("show_debug", "1");
+///   ctx.set("active_slot", "2");
+///   ctx.bind_action("select_slot_1", [&ctx] { ctx.set("active_slot", "1"); });
+///
 class GameUi {
 public:
     void create(Device& device, const PassResources& resources,
@@ -58,6 +70,9 @@ public:
     void set_resource_manager(ResourceManager* rm);
 
     [[nodiscard]] UiContext& context() { return context_; }
+    [[nodiscard]] const UiContext& context() const { return context_; }
+    [[nodiscard]] UiNode* root() { return root_.get(); }
+    [[nodiscard]] const UiNode* root() const { return root_.get(); }
     [[nodiscard]] bool loaded() const { return root_ != nullptr; }
     [[nodiscard]] bool needs_redraw() const;
     void mark_dirty();

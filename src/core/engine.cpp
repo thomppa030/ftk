@@ -16,6 +16,7 @@
 #include "ui/theme.hpp"
 #include "ui/animation_editor_context.hpp"
 #include "ui/material_editor_context.hpp"
+#include "ui/ui_editor_context.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
 #include "scene/camera_node.hpp"
@@ -299,6 +300,32 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                 contexts_.push_back(std::move(mat_ctx));
                 switch_context(static_cast<int>(contexts_.size()) - 1);
             }
+            if (type == "ui") {
+                // Reuse existing UI editor for this path
+                for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+                    if (auto* ui_ctx = dynamic_cast<UiEditorContext*>(contexts_[i].get())) {
+                        if (ui_ctx->ui_path() == path) {
+                            switch_context(i);
+                            return;
+                        }
+                    }
+                }
+                // Create new UI editor context
+                UiEditorDeps deps{
+                    .vulkan_context = vulkan_context_.get(),
+                    .resource_manager = resource_manager_.get(),
+                    .input = &input_,
+                    .clock = &clock_,
+                    .project_mgr = &project_mgr_,
+                    .icon_cache = icon_cache_.get(),
+                    .code_editor = &code_editor_
+                };
+                auto ui_ctx = std::make_unique<UiEditorContext>(deps);
+                ui_ctx->init();
+                ui_ctx->open_ui(path);
+                contexts_.push_back(std::move(ui_ctx));
+                switch_context(static_cast<int>(contexts_.size()) - 1);
+            }
         }));
     if (project_mgr_.active()) {
         content_browser_.set_root(project_mgr_.active()->root());
@@ -352,42 +379,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     }
 
     history_panel_.init(&scene_context_->command_history());
-
-    // Load game UI — check project first, then fall back to engine assets
-    {
-        auto proj_ui = base_path::resolve_asset("assets/ui/test.fjui", project_mgr_.active());
-        auto engine_ui = base_path::resolve("assets/ui/test.fjui");
-        auto ui_path = std::filesystem::exists(proj_ui) ? proj_ui : engine_ui;
-        auto css_path = ui_path.substr(0, ui_path.size() - 5) + ".fjss";
-        if (std::filesystem::exists(ui_path)) {
-            game_ui_.load(ui_path, css_path);
-
-            // Seed demo context values for the test HUD
-            auto& ctx = game_ui_.context();
-            ctx.set("player.health", "72");
-            ctx.set("player.max_health", "100");
-            ctx.set("show_debug", "1");
-            ctx.set("fps", "60");
-            ctx.set("player.pos", "0, 0, 0");
-            ctx.set("active_slot", "2"); // slot 2 starts active
-            connections_.push_back(ctx.bind_action("select_slot_1", [&ctx] {
-                FJELL_CORE_INFO("UI: slot 1 clicked");
-                ctx.set("active_slot", "1");
-            }));
-            connections_.push_back(ctx.bind_action("select_slot_2", [&ctx] {
-                FJELL_CORE_INFO("UI: slot 2 clicked");
-                ctx.set("active_slot", "2");
-            }));
-            connections_.push_back(ctx.bind_action("select_slot_3", [&ctx] {
-                FJELL_CORE_INFO("UI: slot 3 clicked");
-                ctx.set("active_slot", "3");
-            }));
-            connections_.push_back(ctx.bind_action("select_slot_4", [&ctx] {
-                FJELL_CORE_INFO("UI: slot 4 clicked");
-                ctx.set("active_slot", "4");
-            }));
-        }
-    }
 
     FJELL_CORE_INFO("Engine initialized");
 }

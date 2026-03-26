@@ -107,7 +107,8 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjell") return FileType::scene;
     if (ext == ".fjmat") return FileType::material;
     if (ext == ".fjskel" || ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
-    if (ext == ".fjsl" || ext == ".fjui" || ext == ".fjss") return FileType::shader;
+    if (ext == ".fjui" || ext == ".fjss") return FileType::ui_layout;
+    if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
     return FileType::unknown;
@@ -124,6 +125,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::shader:     return "shader";
         case FileType::material:   return "material";
         case FileType::animation:  return "node";
+        case FileType::ui_layout:  return "shader";
         case FileType::unknown:    return "node";
     }
     return "node";
@@ -796,6 +798,32 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
+                case FileType::ui_layout:
+                    if (ImGui::MenuItem("Open in UI Editor")) {
+                        auto rel = std::filesystem::relative(entry.path, root_);
+                        on_open_asset.broadcast(rel.string(), "ui");
+                        ImGui::CloseCurrentPopup();
+                    }
+                    if (ImGui::MenuItem("Open in Code Editor")) {
+                        if (code_editor_) {
+                            code_editor_->open(entry.path.string());
+                            ImGui::SetWindowFocus("Code Editor");
+                        }
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Rename")) {
+                        renaming_ = true;
+                        rename_index_ = context_menu_index_;
+                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
+                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+                    }
+                    if (ImGui::MenuItem("Delete")) {
+                        delete_index_ = context_menu_index_;
+                        show_delete_confirm_ = true;
+                    }
+                    break;
+
                 case FileType::animation:
                 case FileType::unknown:
                     if (ImGui::MenuItem("Rename")) {
@@ -873,6 +901,20 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
                 on_open_asset.broadcast(rel.string(), "animation");
             } else if (ext == ".fjanimset") {
                 on_open_asset.broadcast(rel.string(), "animset");
+            }
+            break;
+        }
+
+        case FileType::ui_layout: {
+            if (code_editor_) {
+                code_editor_->open(entry.path.string());
+                ImGui::SetWindowFocus("Code Editor");
+            }
+            // Only open .fjui files in editor (not .fjss — those are opened via their .fjui)
+            auto ext = entry.path.extension().string();
+            if (ext == ".fjui") {
+                auto rel = std::filesystem::relative(entry.path, root_);
+                on_open_asset.broadcast(rel.string(), "ui");
             }
             break;
         }
