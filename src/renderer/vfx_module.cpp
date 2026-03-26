@@ -45,6 +45,9 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "ColorOverLife")    return std::make_unique<ColorOverLifeModule>();
     if (type_name == "SizeOverLife")     return std::make_unique<SizeOverLifeModule>();
     if (type_name == "Drag")             return std::make_unique<DragModule>();
+    if (type_name == "Noise")            return std::make_unique<NoiseModule>();
+    if (type_name == "Attract")          return std::make_unique<AttractModule>();
+    if (type_name == "VelocityLimit")    return std::make_unique<VelocityLimitModule>();
     if (type_name == "Billboard")        return std::make_unique<BillboardModule>();
     return nullptr;
 }
@@ -152,40 +155,65 @@ void InitialPositionModule::from_json(const nlohmann::json& j) {
 // ─── InitialVelocity ─────────────────────────────────────────────────────
 
 uint32_t InitialVelocityModule::write_gpu_data(uint8_t* buffer) const {
-    // mode(1) + pad(1) + vel_min(3) + pad(1) + vel_max(3) + pad(1) = 10 words
-    uint32_t total = write_header(buffer, type(), 8);
+    // mode(1) + pad(1) + vel_min(3) + pad(1) + vel_max(3) + pad(1)
+    // + direction(3) + angle(1) + speed_min(1) + speed_max(1) + pad(2) = 18 words
+    uint32_t total = write_header(buffer, type(), 16);
     write_uint(buffer, 8, static_cast<uint32_t>(mode));
     write_float(buffer, 12, 0.0f); // pad
     write_vec3(buffer, 16, velocity_min);
     write_float(buffer, 28, 0.0f); // pad
     write_vec3(buffer, 32, velocity_max);
     write_float(buffer, 44, 0.0f); // pad
+    write_vec3(buffer, 48, direction);
+    write_float(buffer, 60, glm::radians(angle));
+    write_float(buffer, 64, speed_min);
+    write_float(buffer, 68, speed_max);
+    write_float(buffer, 72, 0.0f); // pad
+    write_float(buffer, 76, 0.0f); // pad
     return total;
 }
 
 bool InitialVelocityModule::draw_inspector() {
     bool changed = false;
-    const char* modes[] = {"Directional", "Random"};
+    const char* modes[] = {"Directional", "Random", "Cone"};
     int m = static_cast<int>(mode);
-    if (ImGui::Combo("Mode", &m, modes, 2)) {
+    if (ImGui::Combo("Mode", &m, modes, 3)) {
         mode = static_cast<VelocityMode>(m);
         changed = true;
     }
-    changed |= ImGui::DragFloat3("Min", &velocity_min.x, 0.1f);
-    changed |= ImGui::DragFloat3("Max", &velocity_max.x, 0.1f);
+    if (mode == VelocityMode::random) {
+        changed |= ImGui::DragFloat3("Min", &velocity_min.x, 0.1f);
+        changed |= ImGui::DragFloat3("Max", &velocity_max.x, 0.1f);
+    } else if (mode == VelocityMode::directional) {
+        changed |= ImGui::DragFloat3("Min", &velocity_min.x, 0.1f);
+        changed |= ImGui::DragFloat3("Max", &velocity_max.x, 0.1f);
+    } else if (mode == VelocityMode::cone) {
+        changed |= ImGui::DragFloat3("Direction", &direction.x, 0.01f);
+        changed |= ImGui::DragFloat("Angle", &angle, 0.5f, 0.0f, 90.0f);
+        changed |= ImGui::DragFloat("Speed Min", &speed_min, 0.1f, 0.0f, 100.0f);
+        changed |= ImGui::DragFloat("Speed Max", &speed_max, 0.1f, 0.0f, 100.0f);
+    }
     return changed;
 }
 
 void InitialVelocityModule::to_json(nlohmann::json& j) const {
     j["type"] = "InitialVelocity";
-    j["mode"] = mode == VelocityMode::directional ? "directional" : "random";
+    const char* mode_names[] = {"directional", "random", "cone"};
+    j["mode"] = mode_names[static_cast<int>(mode)];
     j["velocity_min"] = {velocity_min.x, velocity_min.y, velocity_min.z};
     j["velocity_max"] = {velocity_max.x, velocity_max.y, velocity_max.z};
+    j["direction"] = {direction.x, direction.y, direction.z};
+    j["angle"] = angle;
+    j["speed_min"] = speed_min;
+    j["speed_max"] = speed_max;
 }
 
 void InitialVelocityModule::from_json(const nlohmann::json& j) {
-    mode = j.value("mode", "random") == "directional"
-        ? VelocityMode::directional : VelocityMode::random;
+    auto m = j.value("mode", "random");
+    if (m == "directional") mode = VelocityMode::directional;
+    else if (m == "cone") mode = VelocityMode::cone;
+    else mode = VelocityMode::random;
+
     if (j.contains("velocity_min")) {
         auto& v = j["velocity_min"];
         velocity_min = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
@@ -194,6 +222,13 @@ void InitialVelocityModule::from_json(const nlohmann::json& j) {
         auto& v = j["velocity_max"];
         velocity_max = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
     }
+    if (j.contains("direction")) {
+        auto& d = j["direction"];
+        direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
+    }
+    angle = j.value("angle", 30.0f);
+    speed_min = j.value("speed_min", 2.0f);
+    speed_max = j.value("speed_max", 5.0f);
 }
 
 // ─── InitialColor ────────────────────────────────────────────────────────
@@ -353,6 +388,95 @@ void DragModule::to_json(nlohmann::json& j) const {
 
 void DragModule::from_json(const nlohmann::json& j) {
     drag = j.value("drag", 0.1f);
+}
+
+// ─── Noise ───────────────────────────────────────────────────────────
+
+uint32_t NoiseModule::write_gpu_data(uint8_t* buffer) const {
+    uint32_t total = write_header(buffer, type(), 4);
+    write_float(buffer, 8, strength);
+    write_float(buffer, 12, frequency);
+    write_float(buffer, 16, scroll_speed);
+    write_float(buffer, 20, 0.0f); // pad
+    return total;
+}
+
+bool NoiseModule::draw_inspector() {
+    bool changed = false;
+    changed |= ImGui::DragFloat("Strength", &strength, 0.1f, 0.0f, 100.0f);
+    changed |= ImGui::DragFloat("Frequency", &frequency, 0.1f, 0.01f, 50.0f);
+    changed |= ImGui::DragFloat("Scroll Speed", &scroll_speed, 0.1f, 0.0f, 10.0f);
+    return changed;
+}
+
+void NoiseModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Noise";
+    j["strength"] = strength;
+    j["frequency"] = frequency;
+    j["scroll_speed"] = scroll_speed;
+}
+
+void NoiseModule::from_json(const nlohmann::json& j) {
+    strength = j.value("strength", 1.0f);
+    frequency = j.value("frequency", 2.0f);
+    scroll_speed = j.value("scroll_speed", 0.5f);
+}
+
+// ─── Attract ─────────────────────────────────────────────────────────
+
+uint32_t AttractModule::write_gpu_data(uint8_t* buffer) const {
+    uint32_t total = write_header(buffer, type(), 6);
+    write_vec3(buffer, 8, position);
+    write_float(buffer, 20, strength);
+    write_float(buffer, 24, radius);
+    write_float(buffer, 28, 0.0f); // pad
+    return total;
+}
+
+bool AttractModule::draw_inspector() {
+    bool changed = false;
+    changed |= ImGui::DragFloat3("Position", &position.x, 0.1f);
+    changed |= ImGui::DragFloat("Strength", &strength, 0.1f, 0.0f, 100.0f);
+    changed |= ImGui::DragFloat("Radius", &radius, 0.1f, 0.01f, 1000.0f);
+    return changed;
+}
+
+void AttractModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Attract";
+    j["position"] = {position.x, position.y, position.z};
+    j["strength"] = strength;
+    j["radius"] = radius;
+}
+
+void AttractModule::from_json(const nlohmann::json& j) {
+    if (j.contains("position")) {
+        auto& p = j["position"];
+        position = {p[0].get<float>(), p[1].get<float>(), p[2].get<float>()};
+    }
+    strength = j.value("strength", 5.0f);
+    radius = j.value("radius", 10.0f);
+}
+
+// ─── VelocityLimit ───────────────────────────────────────────────────
+
+uint32_t VelocityLimitModule::write_gpu_data(uint8_t* buffer) const {
+    uint32_t total = write_header(buffer, type(), 2);
+    write_float(buffer, 8, max_speed);
+    write_float(buffer, 12, 0.0f); // pad
+    return total;
+}
+
+bool VelocityLimitModule::draw_inspector() {
+    return ImGui::DragFloat("Max Speed", &max_speed, 0.1f, 0.0f, 1000.0f);
+}
+
+void VelocityLimitModule::to_json(nlohmann::json& j) const {
+    j["type"] = "VelocityLimit";
+    j["max_speed"] = max_speed;
+}
+
+void VelocityLimitModule::from_json(const nlohmann::json& j) {
+    max_speed = j.value("max_speed", 10.0f);
 }
 
 // ─── Billboard ───────────────────────────────────────────────────────────

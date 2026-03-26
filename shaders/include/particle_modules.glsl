@@ -13,6 +13,9 @@
 #define MOD_COLOR_OVER_LIFE    101
 #define MOD_SIZE_OVER_LIFE     102
 #define MOD_DRAG               103
+#define MOD_NOISE              104
+#define MOD_ATTRACT            105
+#define MOD_VELOCITY_LIMIT     106
 
 #define MOD_TERMINATOR         0xFFFFFFFF
 
@@ -25,6 +28,7 @@
 // Velocity modes (InitialVelocity)
 #define VELMODE_DIRECTIONAL 0
 #define VELMODE_RANDOM      1
+#define VELMODE_CONE        2
 
 // Helpers — require module_data[] to be declared before including this file
 #define MOD_FLOAT(base, word) uintBitsToFloat(module_data[(base) + (word)])

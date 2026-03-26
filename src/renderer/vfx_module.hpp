@@ -25,6 +25,9 @@ enum class ModuleType : uint32_t {
     color_over_life    = 101,
     size_over_life     = 102,
     drag               = 103,
+    noise              = 104,
+    attract            = 105,
+    velocity_limit     = 106,
 
     // Render modules
     billboard          = 200,
@@ -42,6 +45,7 @@ enum class SpawnShape : uint32_t {
 enum class VelocityMode : uint32_t {
     directional = 0,
     random      = 1,
+    cone        = 2,
 };
 
 /// Base class for VFX modules. Each module represents a small behavior unit
@@ -117,6 +121,11 @@ struct InitialVelocityModule final : VfxModule {
     VelocityMode mode{VelocityMode::random};
     glm::vec3 velocity_min{-0.5f, 1.0f, -0.5f};
     glm::vec3 velocity_max{0.5f, 3.0f, 0.5f};
+    // Cone mode params
+    glm::vec3 direction{0.0f, 1.0f, 0.0f};
+    float angle{30.0f};        // half-angle in degrees
+    float speed_min{2.0f};
+    float speed_max{5.0f};
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_velocity; }
     [[nodiscard]] const char* name() const override { return "Initial Velocity"; }
@@ -189,6 +198,43 @@ struct DragModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::drag; }
     [[nodiscard]] const char* name() const override { return "Drag"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct NoiseModule final : VfxModule {
+    float strength{1.0f};
+    float frequency{2.0f};
+    float scroll_speed{0.5f};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::noise; }
+    [[nodiscard]] const char* name() const override { return "Noise"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct AttractModule final : VfxModule {
+    glm::vec3 position{0.0f, 0.0f, 0.0f};
+    float strength{5.0f};
+    float radius{10.0f};   // falloff radius
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::attract; }
+    [[nodiscard]] const char* name() const override { return "Attract"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct VelocityLimitModule final : VfxModule {
+    float max_speed{10.0f};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::velocity_limit; }
+    [[nodiscard]] const char* name() const override { return "Velocity Limit"; }
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;

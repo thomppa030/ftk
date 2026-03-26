@@ -1,6 +1,7 @@
 #version 460
 
 #include "include/particle_common.glsl"
+#include "include/noise.glsl"
 
 layout(local_size_x = 256) in;
 
@@ -78,6 +79,31 @@ void main() {
         else if (mtype == MOD_DRAG) {
             float drag_coeff = MOD_FLOAT(mo, 2);
             p.velocity *= max(0.0, 1.0 - drag_coeff * dt);
+        }
+        else if (mtype == MOD_NOISE) {
+            float strength = MOD_FLOAT(mo, 2);
+            float freq = MOD_FLOAT(mo, 3);
+            float scroll = MOD_FLOAT(mo, 4);
+            vec3 sample_pos = p.position * freq + vec3(0.0, scroll * (p.max_lifetime - p.lifetime), 0.0);
+            p.velocity += curl_noise(sample_pos) * strength * dt;
+        }
+        else if (mtype == MOD_ATTRACT) {
+            vec3 attract_pos = MOD_VEC3(mo, 2);
+            float strength = MOD_FLOAT(mo, 5);
+            float radius = MOD_FLOAT(mo, 6);
+            vec3 dir = attract_pos - p.position;
+            float dist = length(dir);
+            if (dist > 0.001) {
+                float falloff = clamp(1.0 - dist / radius, 0.0, 1.0);
+                p.velocity += normalize(dir) * strength * falloff * dt;
+            }
+        }
+        else if (mtype == MOD_VELOCITY_LIMIT) {
+            float max_speed = MOD_FLOAT(mo, 2);
+            float spd = length(p.velocity);
+            if (spd > max_speed) {
+                p.velocity = normalize(p.velocity) * max_speed;
+            }
         }
 
         mo += msize;
