@@ -35,8 +35,8 @@ void StyleResolver::resolve_single(UiNode& node, const Stylesheet& sheet) {
         }
     }
 
-    std::sort(matches.begin(), matches.end(),
-              [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
+    std::stable_sort(matches.begin(), matches.end(),
+                     [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
 
     for (const auto& match : matches) {
         for (const auto& [name, value] : *match.props) {
@@ -74,8 +74,8 @@ void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
     }
 
     // Sort by specificity (lower first, so higher specificity wins)
-    std::sort(matches.begin(), matches.end(),
-              [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
+    std::stable_sort(matches.begin(), matches.end(),
+                     [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
 
     // Apply properties in order (higher specificity overwrites)
     for (const auto& match : matches) {

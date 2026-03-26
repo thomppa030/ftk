@@ -5,6 +5,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/material_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC ${CMAKE_SOURCE_DIR}/src)
@@ -26,6 +27,7 @@ add_executable(fjell-tests
     test_fjui_parser.cpp
     test_fjss_parser.cpp
     test_fjsl_parser.cpp
+    test_style_resolver.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

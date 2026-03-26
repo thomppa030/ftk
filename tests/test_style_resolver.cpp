@@ -1,0 +1,753 @@
+#include "ui/game_ui/style_resolver.hpp"
+#include "ui/game_ui/fjss_parser.hpp"
+#include "core/log.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
+
+using namespace fjell;
+
+static struct LogInit {
+    LogInit() { if (!log::core()) log::init(); }
+} s_log_init;
+
+// --- Helpers to build node trees without the FJUI parser ---
+
+static std::unique_ptr<UiNode> make_node(const std::string& tag,
+                                          const std::string& id = {},
+                                          std::vector<std::string> classes = {}) {
+    auto n = std::make_unique<UiNode>();
+    n->type = UiNodeType::element;
+    n->tag = tag;
+    n->id = id;
+    n->classes = std::move(classes);
+    return n;
+}
+
+static UiNode* add_child(UiNode& parent, std::unique_ptr<UiNode> child) {
+    child->parent = &parent;
+    parent.children.push_back(std::move(child));
+    return parent.children.back().get();
+}
+
+// --- Selector matching ---
+
+TEST_CASE("Tag selector matches", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { width: 100; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(100.0f));
+}
+
+TEST_CASE("Tag selector doesn't match wrong tag", "[style]") {
+    auto root = make_node("span");
+    auto sheet = FjssParser::parse("div { width: 100; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(-1.0f)); // default auto
+}
+
+TEST_CASE("Class selector matches", "[style]") {
+    auto root = make_node("div", "", {"panel"});
+    auto sheet = FjssParser::parse(".panel { width: 200; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(200.0f));
+}
+
+TEST_CASE("Class selector doesn't match wrong class", "[style]") {
+    auto root = make_node("div", "", {"other"});
+    auto sheet = FjssParser::parse(".panel { width: 200; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+}
+
+TEST_CASE("ID selector matches", "[style]") {
+    auto root = make_node("div", "hud");
+    auto sheet = FjssParser::parse("#hud { opacity: 0.5; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.opacity == Catch::Approx(0.5f));
+}
+
+TEST_CASE("Descendant selector matches ancestor", "[style]") {
+    auto root = make_node("panel");
+    auto* child = add_child(*root, make_node("div", "", {"label"}));
+
+    auto sheet = FjssParser::parse("panel .label { width: 50; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.width == Catch::Approx(50.0f));
+}
+
+TEST_CASE("Descendant selector doesn't match without ancestor", "[style]") {
+    auto root = make_node("other");
+    auto* child = add_child(*root, make_node("div", "", {"label"}));
+
+    auto sheet = FjssParser::parse("panel .label { width: 50; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.width == Catch::Approx(-1.0f));
+}
+
+TEST_CASE("Descendant selector matches deep ancestor", "[style]") {
+    auto root = make_node("panel");
+    auto* mid = add_child(*root, make_node("div"));
+    auto* deep = add_child(*mid, make_node("span", "", {"label"}));
+
+    auto sheet = FjssParser::parse("panel .label { width: 75; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(deep->style.width == Catch::Approx(75.0f));
+}
+
+// --- Pseudo-class matching ---
+
+TEST_CASE("Hover pseudo-class matches when hovered", "[style]") {
+    auto root = make_node("div", "", {"btn"});
+    root->interaction_state = 1; // hovered
+
+    auto sheet = FjssParser::parse(".btn:hover { opacity: 0.8; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.opacity == Catch::Approx(0.8f));
+}
+
+TEST_CASE("Hover pseudo-class doesn't match when not hovered", "[style]") {
+    auto root = make_node("div", "", {"btn"});
+    root->interaction_state = 0;
+
+    auto sheet = FjssParser::parse(".btn:hover { opacity: 0.8; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.opacity == Catch::Approx(1.0f)); // default
+}
+
+TEST_CASE("Active pseudo-class matches when active", "[style]") {
+    auto root = make_node("div", "", {"btn"});
+    root->interaction_state = 2; // active
+
+    auto sheet = FjssParser::parse(".btn:active { opacity: 0.6; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.opacity == Catch::Approx(0.6f));
+}
+
+TEST_CASE("Focus pseudo-class matches when focused", "[style]") {
+    auto root = make_node("div", "", {"input"});
+    root->interaction_state = 4; // focused
+
+    auto sheet = FjssParser::parse(".input:focus { border-width: 2; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.border_width == Catch::Approx(2.0f));
+}
+
+// --- Specificity ordering ---
+
+TEST_CASE("Higher specificity overrides lower", "[style]") {
+    auto root = make_node("div", "main", {"panel"});
+
+    // tag(1) vs class(10) vs id(100) — all set width differently
+    auto sheet = FjssParser::parse(R"(
+        div { width: 10; }
+        .panel { width: 20; }
+        #main { width: 30; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(30.0f)); // id wins
+}
+
+TEST_CASE("Equal specificity: last rule wins", "[style]") {
+    auto root = make_node("div", "", {"a", "b"});
+
+    auto sheet = FjssParser::parse(R"(
+        .a { width: 10; }
+        .b { width: 20; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    // Both have specificity 10. Sort is stable for equal specificity,
+    // so .b (later in rules) is applied after .a.
+    REQUIRE(root->style.width == Catch::Approx(20.0f));
+}
+
+TEST_CASE("Pseudo-class adds specificity", "[style]") {
+    auto root = make_node("div", "", {"btn"});
+    root->interaction_state = 1; // hovered
+
+    // .btn = 10, .btn:hover = 20
+    auto sheet = FjssParser::parse(R"(
+        .btn:hover { width: 200; }
+        .btn { width: 100; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    // .btn:hover(20) > .btn(10), so hover wins regardless of rule order
+    REQUIRE(root->style.width == Catch::Approx(200.0f));
+}
+
+// --- Inheritance ---
+
+TEST_CASE("Color inherits from parent", "[style]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+
+    auto sheet = FjssParser::parse("div { color: #ff0000; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    REQUIRE(child->style.color.r == Catch::Approx(1.0f));
+    REQUIRE(child->style.color.g == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Font-size inherits from parent", "[style]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+
+    auto sheet = FjssParser::parse("div { font-size: 24; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.font_size == Catch::Approx(24.0f));
+}
+
+TEST_CASE("Opacity inherits from parent", "[style]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+
+    auto sheet = FjssParser::parse("div { opacity: 0.5; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.opacity == Catch::Approx(0.5f));
+}
+
+TEST_CASE("Width does NOT inherit", "[style]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+
+    auto sheet = FjssParser::parse("div { width: 100; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.width == Catch::Approx(-1.0f)); // auto, not 100
+}
+
+TEST_CASE("Child rule overrides inherited value", "[style]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+
+    auto sheet = FjssParser::parse(R"(
+        div { color: #ff0000; }
+        span { color: #00ff00; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.color.r == Catch::Approx(0.0f));
+    REQUIRE(child->style.color.g == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Inheritance chains through multiple levels", "[style]") {
+    auto root = make_node("div");
+    auto* mid = add_child(*root, make_node("span"));
+    auto* deep = add_child(*mid, make_node("text"));
+
+    auto sheet = FjssParser::parse("div { font-size: 32; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(deep->style.font_size == Catch::Approx(32.0f));
+}
+
+// --- Inline style-* attributes ---
+
+TEST_CASE("Inline style-* overrides stylesheet", "[style]") {
+    auto root = make_node("div", "", {"panel"});
+    root->attributes["style-width"] = "999";
+
+    auto sheet = FjssParser::parse(".panel { width: 100; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(999.0f));
+}
+
+TEST_CASE("Inline style-* with no stylesheet", "[style]") {
+    auto root = make_node("div");
+    root->attributes["style-opacity"] = "0.3";
+
+    Stylesheet empty;
+    StyleResolver resolver;
+    resolver.resolve(*root, empty);
+    REQUIRE(root->style.opacity == Catch::Approx(0.3f));
+}
+
+// --- Color parsing ---
+
+TEST_CASE("Parse #RRGGBB color", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { color: #ff8040; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.color.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.color.g == Catch::Approx(0x80 / 255.0f));
+    REQUIRE(root->style.color.b == Catch::Approx(0x40 / 255.0f));
+    REQUIRE(root->style.color.a == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Parse #RRGGBBAA color", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { background-color: #ff000080; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.background_color.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.background_color.a == Catch::Approx(0x80 / 255.0f));
+}
+
+TEST_CASE("Parse #RGB shorthand color", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { color: #f00; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.color.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.color.g == Catch::Approx(0.0f));
+    REQUIRE(root->style.color.b == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Parse named color", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { color: white; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.color.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.color.g == Catch::Approx(1.0f));
+    REQUIRE(root->style.color.b == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Parse transparent color", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { background-color: transparent; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.background_color.a == Catch::Approx(0.0f));
+}
+
+// --- Edge shorthand parsing ---
+
+TEST_CASE("Margin shorthand: 1 value", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { margin: 10; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.margin.top == Catch::Approx(10.0f));
+    REQUIRE(root->style.margin.right == Catch::Approx(10.0f));
+    REQUIRE(root->style.margin.bottom == Catch::Approx(10.0f));
+    REQUIRE(root->style.margin.left == Catch::Approx(10.0f));
+}
+
+TEST_CASE("Margin shorthand: 2 values (vertical horizontal)", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { margin: 10 20; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.margin.top == Catch::Approx(10.0f));
+    REQUIRE(root->style.margin.right == Catch::Approx(20.0f));
+    REQUIRE(root->style.margin.bottom == Catch::Approx(10.0f));
+    REQUIRE(root->style.margin.left == Catch::Approx(20.0f));
+}
+
+TEST_CASE("Margin shorthand: 4 values", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { margin: 1 2 3 4; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.margin.top == Catch::Approx(1.0f));
+    REQUIRE(root->style.margin.right == Catch::Approx(2.0f));
+    REQUIRE(root->style.margin.bottom == Catch::Approx(3.0f));
+    REQUIRE(root->style.margin.left == Catch::Approx(4.0f));
+}
+
+TEST_CASE("Individual margin sides", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { margin-top: 5; margin-left: 15; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.margin.top == Catch::Approx(5.0f));
+    REQUIRE(root->style.margin.left == Catch::Approx(15.0f));
+    REQUIRE(root->style.margin.right == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Border-radius shorthand: 1 value", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { border-radius: 8; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.border_radius.top_left == Catch::Approx(8.0f));
+    REQUIRE(root->style.border_radius.bottom_right == Catch::Approx(8.0f));
+}
+
+TEST_CASE("Border-radius shorthand: 4 values", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { border-radius: 1 2 3 4; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.border_radius.top_left == Catch::Approx(1.0f));
+    REQUIRE(root->style.border_radius.top_right == Catch::Approx(2.0f));
+    REQUIRE(root->style.border_radius.bottom_right == Catch::Approx(3.0f));
+    REQUIRE(root->style.border_radius.bottom_left == Catch::Approx(4.0f));
+}
+
+// --- Property application ---
+
+TEST_CASE("Display property", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { display: none; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.display == UiDisplay::none);
+}
+
+TEST_CASE("Flex-direction property", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { flex-direction: row; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.flex_direction == UiFlexDirection::row);
+}
+
+TEST_CASE("Position absolute", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { position: absolute; top: 10; left: 20; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.position == UiPosition::absolute);
+    REQUIRE(root->style.inset.top == Catch::Approx(10.0f));
+    REQUIRE(root->style.inset.left == Catch::Approx(20.0f));
+}
+
+TEST_CASE("Auto width parses as -1", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { width: auto; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+}
+
+TEST_CASE("Gap shorthand sets both row and column gap", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { gap: 8; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.row_gap == Catch::Approx(8.0f));
+    REQUIRE(root->style.column_gap == Catch::Approx(8.0f));
+}
+
+TEST_CASE("Border shorthand parses width and color", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { border: 2 solid #ff0000; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.border_width == Catch::Approx(2.0f));
+    REQUIRE(root->style.border_color.r == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Transition property is stored as string", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse("div { transition: all 0.3s ease-in-out; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.transition == "all 0.3s ease-in-out");
+}
+
+// --- resolve_single ---
+
+TEST_CASE("resolve_single re-applies rules with updated state", "[style]") {
+    auto root = make_node("div", "", {"btn"});
+    auto sheet = FjssParser::parse(R"(
+        .btn { opacity: 1; }
+        .btn:hover { opacity: 0.8; }
+    )");
+
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.opacity == Catch::Approx(1.0f));
+
+    // Simulate hover
+    root->interaction_state = 1;
+    resolver.resolve_single(*root, sheet);
+    REQUIRE(root->style.opacity == Catch::Approx(0.8f));
+
+    // Simulate unhover
+    root->interaction_state = 0;
+    resolver.resolve_single(*root, sheet);
+    REQUIRE(root->style.opacity == Catch::Approx(1.0f));
+}
+
+TEST_CASE("resolve_single inherits from parent", "[style]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+
+    auto sheet = FjssParser::parse("div { font-size: 24; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    // Re-resolve child — should still inherit font-size
+    resolver.resolve_single(*child, sheet);
+    REQUIRE(child->style.font_size == Catch::Approx(24.0f));
+}
+
+// --- Complex real-world scenario ---
+
+TEST_CASE("Full cascade: tag + class + id + pseudo + inheritance + inline", "[style]") {
+    auto root = make_node("panel", "hud");
+    auto* slot = add_child(*root, make_node("div", "", {"slot"}));
+    slot->interaction_state = 1; // hovered
+    slot->attributes["style-border-radius"] = "12";
+
+    auto sheet = FjssParser::parse(R"(
+        panel { color: #ffffff; font-size: 14; }
+        .slot { width: 48; height: 48; background-color: #222222; border: 2 solid #555555; border-radius: 6; }
+        .slot:hover { border-color: #888888; }
+        #hud { opacity: 0.9; }
+    )");
+
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    // Root: id rule sets opacity
+    REQUIRE(root->style.opacity == Catch::Approx(0.9f));
+
+    // Slot: class rule sets dimensions + border
+    REQUIRE(slot->style.width == Catch::Approx(48.0f));
+    REQUIRE(slot->style.height == Catch::Approx(48.0f));
+    REQUIRE(slot->style.border_width == Catch::Approx(2.0f));
+
+    // Slot: hover pseudo overrides border-color
+    REQUIRE(slot->style.border_color.r == Catch::Approx(0x88 / 255.0f));
+
+    // Slot: inline style-* overrides stylesheet border-radius
+    REQUIRE(slot->style.border_radius.top_left == Catch::Approx(12.0f));
+
+    // Slot: inherits color and font-size from panel
+    REQUIRE(slot->style.color.r == Catch::Approx(1.0f));
+    REQUIRE(slot->style.font_size == Catch::Approx(14.0f));
+
+    // Slot: inherits opacity from parent (which was set by #hud rule)
+    REQUIRE(slot->style.opacity == Catch::Approx(0.9f));
+}
+
+// --- Empty / edge cases ---
+
+TEST_CASE("Empty stylesheet leaves defaults", "[style]") {
+    auto root = make_node("div");
+    Stylesheet empty;
+    StyleResolver resolver;
+    resolver.resolve(*root, empty);
+    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+    REQUIRE(root->style.opacity == Catch::Approx(1.0f));
+    REQUIRE(root->style.display == UiDisplay::flex);
+}
+
+TEST_CASE("No matching rules leaves defaults", "[style]") {
+    auto root = make_node("div");
+    auto sheet = FjssParser::parse(".nonexistent { width: 999; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+}
+
+// --- Stability & ordering edge cases ---
+
+TEST_CASE("Equal specificity: rule order must be preserved (stable sort)", "[style][edge]") {
+    // If std::sort is used instead of std::stable_sort, equal-specificity
+    // rules can be reordered. With many rules this becomes likely.
+    auto root = make_node("div", "", {"x"});
+
+    // 50 class rules, all specificity 10, each setting width differently.
+    // The LAST one must win. std::sort may reorder equal elements.
+    std::string css;
+    for (int i = 0; i < 50; i++) {
+        css += ".x { width: " + std::to_string(i) + "; }\n";
+    }
+    auto sheet = FjssParser::parse(css);
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(49.0f));
+}
+
+TEST_CASE("Equal specificity with interleaved properties: last per-property wins", "[style][edge]") {
+    // Two rules with same specificity set overlapping properties.
+    // Even if sort reorders them, each property should get the value
+    // from the last rule that sets it in stylesheet order.
+    auto root = make_node("div", "", {"a"});
+
+    auto sheet = FjssParser::parse(R"(
+        .a { width: 10; height: 100; }
+        .a { width: 20; opacity: 0.5; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    // width: second rule (20) should win over first (10)
+    REQUIRE(root->style.width == Catch::Approx(20.0f));
+    // height: only first rule sets it
+    REQUIRE(root->style.height == Catch::Approx(100.0f));
+    // opacity: only second rule sets it
+    REQUIRE(root->style.opacity == Catch::Approx(0.5f));
+}
+
+TEST_CASE("Tag+class selector requires both to match", "[style][edge]") {
+    // "div.panel" should NOT match <span class="panel">
+    auto span_panel = make_node("span", "", {"panel"});
+    auto div_panel = make_node("div", "", {"panel"});
+    auto div_only = make_node("div");
+
+    auto sheet = FjssParser::parse("div.panel { width: 42; }");
+    StyleResolver resolver;
+
+    resolver.resolve(*span_panel, sheet);
+    REQUIRE(span_panel->style.width == Catch::Approx(-1.0f)); // no match
+
+    resolver.resolve(*div_panel, sheet);
+    REQUIRE(div_panel->style.width == Catch::Approx(42.0f)); // match
+
+    resolver.resolve(*div_only, sheet);
+    REQUIRE(div_only->style.width == Catch::Approx(-1.0f)); // no match (no class)
+}
+
+TEST_CASE("Descendant selector matches ancestor by class", "[style][edge]") {
+    // "panel .label" — ancestor check tests tag, class, AND id.
+    // So a parent with class="panel" should match the descendant selector.
+    auto root = make_node("div", "", {"panel"}); // class, not tag
+    auto* child = add_child(*root, make_node("span", "", {"label"}));
+
+    auto sheet = FjssParser::parse("panel .label { width: 77; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    // "panel" in descendant selector matches parent's class "panel"
+    REQUIRE(child->style.width == Catch::Approx(77.0f));
+}
+
+TEST_CASE("Descendant selector matches ancestor by id", "[style][edge]") {
+    auto root = make_node("div", "panel");
+    auto* child = add_child(*root, make_node("span", "", {"label"}));
+
+    auto sheet = FjssParser::parse("panel .label { width: 88; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.width == Catch::Approx(88.0f));
+}
+
+TEST_CASE("Calling resolve twice without reset accumulates properties", "[style][edge]") {
+    auto root = make_node("div");
+
+    auto sheet1 = FjssParser::parse("div { width: 100; }");
+    auto sheet2 = FjssParser::parse("div { height: 200; }");
+
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet1);
+    REQUIRE(root->style.width == Catch::Approx(100.0f));
+    REQUIRE(root->style.height == Catch::Approx(-1.0f));
+
+    resolver.resolve(*root, sheet2);
+    // width from first resolve is still there (no reset)
+    REQUIRE(root->style.width == Catch::Approx(100.0f));
+    REQUIRE(root->style.height == Catch::Approx(200.0f));
+}
+
+TEST_CASE("resolve_single resets non-inherited properties", "[style][edge]") {
+    auto root = make_node("div", "", {"box"});
+
+    auto sheet = FjssParser::parse(".box { width: 100; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == Catch::Approx(100.0f));
+
+    // Re-resolve with empty sheet — should reset width to default
+    Stylesheet empty;
+    resolver.resolve_single(*root, empty);
+    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+}
+
+TEST_CASE("Hover rule doesn't leak into non-hovered sibling", "[style][edge]") {
+    auto root = make_node("div");
+    auto* a = add_child(*root, make_node("span", "", {"btn"}));
+    auto* b = add_child(*root, make_node("span", "", {"btn"}));
+    a->interaction_state = 1; // hovered
+    b->interaction_state = 0; // not hovered
+
+    auto sheet = FjssParser::parse(R"(
+        .btn { opacity: 1.0; }
+        .btn:hover { opacity: 0.5; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    REQUIRE(a->style.opacity == Catch::Approx(0.5f));
+    REQUIRE(b->style.opacity == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Inherited property overridden by child, then child re-resolved", "[style][edge]") {
+    auto root = make_node("div");
+    auto* child = add_child(*root, make_node("span"));
+
+    auto sheet = FjssParser::parse(R"(
+        div { color: #ff0000; }
+        span { color: #00ff00; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    // Child has green from its own rule
+    REQUIRE(child->style.color.g == Catch::Approx(1.0f));
+
+    // Re-resolve child with same sheet — should still be green, not red
+    resolver.resolve_single(*child, sheet);
+    REQUIRE(child->style.color.g == Catch::Approx(1.0f));
+    REQUIRE(child->style.color.r == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Multiple classes: rules for each class both apply", "[style][edge]") {
+    auto root = make_node("div", "", {"wide", "tall"});
+
+    auto sheet = FjssParser::parse(R"(
+        .wide { width: 200; }
+        .tall { height: 300; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    REQUIRE(root->style.width == Catch::Approx(200.0f));
+    REQUIRE(root->style.height == Catch::Approx(300.0f));
+}
+
+TEST_CASE("Multiple classes: conflicting rules, last class rule wins", "[style][edge]") {
+    auto root = make_node("div", "", {"red", "blue"});
+
+    auto sheet = FjssParser::parse(R"(
+        .red { background-color: #ff0000; }
+        .blue { background-color: #0000ff; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    // Both match, same specificity (10), .blue is later — should win
+    REQUIRE(root->style.background_color.b == Catch::Approx(1.0f));
+    REQUIRE(root->style.background_color.r == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Many rules resolved correctly", "[style]") {
+    auto root = make_node("div", "", {"a", "b", "c"});
+
+    std::string css;
+    css += ".a { width: 10; }\n";
+    css += ".b { height: 20; }\n";
+    css += ".c { opacity: 0.5; }\n";
+
+    auto sheet = FjssParser::parse(css);
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+
+    REQUIRE(root->style.width == Catch::Approx(10.0f));
+    REQUIRE(root->style.height == Catch::Approx(20.0f));
+    REQUIRE(root->style.opacity == Catch::Approx(0.5f));
+}
