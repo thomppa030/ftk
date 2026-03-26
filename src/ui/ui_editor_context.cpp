@@ -34,13 +34,15 @@ void UiEditorContext::init() {
 }
 
 void UiEditorContext::shutdown() {
-    // Clear connections before destroying the UI (they reference delegates in UiContext)
+    // Clear the UiContext's action delegates before disconnecting connections.
+    // Disconnecting via swap-and-pop can destroy other listeners' callbacks,
+    // causing use-after-free when the next connection tries to disconnect.
+    if (preview_ui_) {
+        preview_ui_->context().clear();
+    }
     action_connections_.clear();
     selected_node_ = nullptr;
     if (preview_ui_) {
-        // destroy() frees Vulkan resources, then reset() destroys the object.
-        // FontAtlas::~FontAtlas() calls destroy() again (safe, handles are nulled).
-        // UiRenderer has no destructor, so destroy() must be called explicitly.
         preview_ui_->destroy();
         preview_ui_.reset();
     }
@@ -138,28 +140,34 @@ void UiEditorContext::open_ui(const std::string& fjui_path) {
     action_log_.clear();
     auto* root = preview_ui_->root();
     if (root) {
-        std::function<void(UiNode*)> scan_actions = [&](UiNode* node) {
+        // Collect action names first, then bind — avoids vector reallocation
+        // during push_back which would destroy moved Connection objects
+        std::vector<std::string> action_names;
+        std::function<void(UiNode*)> collect_actions = [&](UiNode* node) {
             auto it = node->attributes.find("on:click");
             if (it != node->attributes.end() && !it->second.empty()) {
-                const std::string& action_name = it->second;
-                action_connections_.push_back(
-                    preview_ui_->context().bind_action(action_name,
-                        [this, action_name]() {
-                            action_log_.push_back({action_name, elapsed_time_});
-                            // Apply action bindings
-                            for (const auto& bind : action_bindings_) {
-                                if (bind.action == action_name) {
-                                    preview_ui_->context().set(bind.key, bind.value);
-                                    preview_ui_->mark_dirty();
-                                }
-                            }
-                        }));
+                action_names.push_back(it->second);
             }
             for (auto& child : node->children) {
-                scan_actions(child.get());
+                collect_actions(child.get());
             }
         };
-        scan_actions(root);
+        collect_actions(root);
+
+        action_connections_.reserve(action_names.size());
+        for (const auto& action_name : action_names) {
+            action_connections_.push_back(
+                preview_ui_->context().bind_action(action_name,
+                    [this, action_name]() {
+                        action_log_.push_back({action_name, elapsed_time_});
+                        for (const auto& bind : action_bindings_) {
+                            if (bind.action == action_name) {
+                                preview_ui_->context().set(bind.key, bind.value);
+                                preview_ui_->mark_dirty();
+                            }
+                        }
+                    }));
+        }
     }
 
     // Open the .fjui source in the code editor
