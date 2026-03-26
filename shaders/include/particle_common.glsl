@@ -31,7 +31,7 @@ struct EmitterData {
     uint  base_offset;
     uint  counter_offset;
     uint  dead_list_offset;
-    uint  pad0;
+    uint  module_offset;
 };
 
 #endif

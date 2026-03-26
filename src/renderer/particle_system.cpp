@@ -2,6 +2,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/shader_utils.hpp"
+#include "renderer/vfx_emitter.hpp"
 #include "renderer/vk_check.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -32,10 +33,11 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     }
     queue_ = device.graphics_queue();
 
-    // ── Compute descriptor set layout (5 bindings) ──
+    // ── Compute descriptor set layout (6 bindings) ──
+    // 0=particles, 1=counters, 2=dead_list, 3=emitter_data, 4=indirect, 5=modules
 
-    VkDescriptorSetLayoutBinding compute_bindings[5]{};
-    for (int i = 0; i < 5; ++i) {
+    VkDescriptorSetLayoutBinding compute_bindings[6]{};
+    for (int i = 0; i < 6; ++i) {
         compute_bindings[i].binding = static_cast<uint32_t>(i);
         compute_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         compute_bindings[i].descriptorCount = 1;
@@ -44,7 +46,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 5;
+    layout_ci.bindingCount = 6;
     layout_ci.pBindings = compute_bindings;
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &compute_set_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create particle compute set layout");
@@ -239,7 +241,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = 6; // 5 compute + 1 render
+    pool_size.descriptorCount = 7; // 6 compute + 1 render
 
     VkDescriptorPoolCreateInfo desc_pool_ci{};
     desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -260,6 +262,7 @@ void ParticleSystem::destroy() {
     mega_dead_list_buffer_.reset();
     mega_indirect_buffer_.reset();
     emitter_data_buffer_.reset();
+    module_buffer_.reset();
     emitters_.clear();
 
     auto safe_destroy = [&](auto& handle, auto destroy_fn) {
@@ -325,6 +328,14 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     emitter_data_buffer_->map();
 
+    // Module buffer: conservative 512 bytes per emitter
+    VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * 512;
+    module_buffer_ = std::make_unique<Buffer>(
+        device_, physical_device_, module_size,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    module_buffer_->map();
+
     // ── Allocate descriptor sets ──
 
     VkDescriptorSetAllocateInfo alloc{};
@@ -351,8 +362,9 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkDescriptorBufferInfo dead_list_info{mega_dead_list_buffer_->handle(), 0, mega_dead_list_buffer_->size()};
     VkDescriptorBufferInfo emitter_info{emitter_data_buffer_->handle(), 0, emitter_data_buffer_->size()};
     VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, mega_indirect_buffer_->size()};
+    VkDescriptorBufferInfo module_info{module_buffer_->handle(), 0, module_buffer_->size()};
 
-    VkWriteDescriptorSet writes[6]{};
+    VkWriteDescriptorSet writes[7]{};
     for (auto& w : writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 
     writes[0].dstSet = compute_set_; writes[0].dstBinding = 0;
@@ -375,11 +387,15 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[4].descriptorCount = 1; writes[4].pBufferInfo = &indirect_info;
 
-    writes[5].dstSet = render_set_; writes[5].dstBinding = 0;
+    writes[5].dstSet = compute_set_; writes[5].dstBinding = 5;
     writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[5].descriptorCount = 1; writes[5].pBufferInfo = &particle_info;
+    writes[5].descriptorCount = 1; writes[5].pBufferInfo = &module_info;
 
-    vkUpdateDescriptorSets(device_, 6, writes, 0, nullptr);
+    writes[6].dstSet = render_set_; writes[6].dstBinding = 0;
+    writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[6].descriptorCount = 1; writes[6].pBufferInfo = &particle_info;
+
+    vkUpdateDescriptorSets(device_, 7, writes, 0, nullptr);
 
     FJELL_GFX_DEBUG("Particle mega-buffers rebuilt: {} particles, {} emitters",
                     total_particles, emitter_count);
@@ -586,6 +602,25 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         data.base_offset = gpu.base_offset;
         data.counter_offset = static_cast<uint32_t>(i) * 2;
         data.dead_list_offset = gpu.base_offset;
+        data.module_offset = 0; // set below after module buffer is built
+    }
+
+    // Build and upload module data from legacy EmitterComponent fields
+    {
+        auto* module_ptr = static_cast<uint8_t*>(module_buffer_->mapped());
+        uint32_t module_word_offset = 0;
+
+        for (size_t i = 0; i < emitters_.size(); ++i) {
+            auto* obj = scene.find(emitters_[i].object_id);
+            auto* em_ptr = obj ? obj->components.get<EmitterComponent>() : nullptr;
+            if (!em_ptr) continue;
+
+            auto vfx = VfxEmitter::from_legacy(*em_ptr);
+            emitter_data_cache_[i].module_offset = module_word_offset;
+
+            uint32_t bytes = vfx.write_gpu_modules(module_ptr + module_word_offset * 4);
+            module_word_offset += bytes / 4;
+        }
     }
 
     // Upload emitter data

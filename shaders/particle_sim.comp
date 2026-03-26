@@ -20,6 +20,12 @@ layout(std430, set = 0, binding = 3) readonly buffer EmitterBuffer {
     EmitterData emitters[];
 };
 
+layout(std430, set = 0, binding = 5) readonly buffer ModuleBuffer {
+    uint module_data[];
+};
+
+#include "include/particle_modules.glsl"
+
 layout(push_constant) uniform PushConstants {
     float dt;
     uint  random_seed;
@@ -39,7 +45,6 @@ void main() {
     p.lifetime -= dt;
     if (p.lifetime <= 0.0) {
         particles[idx].lifetime = 0.0;
-        // Return local index to dead list
         uint local_idx = idx - em.base_offset;
         uint slot = atomicAdd(counters[em.counter_offset + 1], 1);
         dead_indices[em.dead_list_offset + slot] = local_idx;
@@ -47,12 +52,37 @@ void main() {
         return;
     }
 
-    p.velocity += em.gravity * dt;
-    p.position += p.velocity * dt;
-
     float age = 1.0 - (p.lifetime / p.max_lifetime);
-    p.color = mix(em.color_start, em.color_end, age);
-    p.size = mix(em.size_start, p.size_end, age);
 
+    // Walk update modules
+    uint mo = em.module_offset;
+    while (true) {
+        uint mtype = module_data[mo];
+        uint msize = module_data[mo + 1];
+        if (mtype == MOD_TERMINATOR) break;
+
+        if (mtype == MOD_GRAVITY) {
+            vec3 force = MOD_VEC3(mo, 2);
+            p.velocity += force * dt;
+        }
+        else if (mtype == MOD_COLOR_OVER_LIFE) {
+            vec4 col_start = MOD_VEC4(mo, 2);
+            vec4 col_end = MOD_VEC4(mo, 6);
+            p.color = mix(col_start, col_end, age);
+        }
+        else if (mtype == MOD_SIZE_OVER_LIFE) {
+            float s_start = MOD_FLOAT(mo, 2);
+            float s_end = MOD_FLOAT(mo, 3);
+            p.size = mix(s_start, s_end, age);
+        }
+        else if (mtype == MOD_DRAG) {
+            float drag_coeff = MOD_FLOAT(mo, 2);
+            p.velocity *= max(0.0, 1.0 - drag_coeff * dt);
+        }
+
+        mo += msize;
+    }
+
+    p.position += p.velocity * dt;
     particles[idx] = p;
 }

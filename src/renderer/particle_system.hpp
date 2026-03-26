@@ -26,7 +26,7 @@ struct GpuEmitterData {
     uint32_t base_offset;
     uint32_t counter_offset;
     uint32_t dead_list_offset;
-    uint32_t pad0;
+    uint32_t module_offset;       // offset into module buffer (in uint32_t units)
 };
 static_assert(sizeof(GpuEmitterData) == 128);
 
@@ -92,6 +92,7 @@ private:
     std::unique_ptr<Buffer> mega_dead_list_buffer_;
     std::unique_ptr<Buffer> mega_indirect_buffer_;
     std::unique_ptr<Buffer> emitter_data_buffer_;  // HOST_VISIBLE, mapped
+    std::unique_ptr<Buffer> module_buffer_;         // HOST_VISIBLE, per-emitter module data
 
     // Emitter tracking
     std::vector<EmitterGpu> emitters_;
