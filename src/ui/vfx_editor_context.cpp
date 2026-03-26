@@ -1,10 +1,12 @@
 #include "ui/vfx_editor_context.hpp"
 #include "renderer/particle_emitter.hpp"
+#include "renderer/resource_handle.hpp"
 #include "renderer/vfx_asset.hpp"
 #include "renderer/vfx_emitter.hpp"
 #include "renderer/vfx_module.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "renderer/resource_manager.hpp"
+#include "scene/transform.hpp"
 #include "core/base_path.hpp"
 #include "core/input.hpp"
 #include "core/log.hpp"
@@ -35,9 +37,7 @@ void VfxEditorContext::shutdown() {
 }
 
 void VfxEditorContext::draw(float dt) {
-    if (playing_) {
-        preview_scene_.compute_world_matrices(nullptr);
-    }
+    preview_scene_.compute_world_matrices(nullptr);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_emitter_list();
     draw_module_stack();
@@ -136,6 +136,20 @@ void VfxEditorContext::setup_preview() {
     preview_scene_.clear();
 
     if (!effect_) return;
+
+    // Add a tiny ground plane so the renderer initializes the color pass
+    // (particles render in the color pass which needs at least one gathered object)
+    auto plane = deps_.resource_manager->create_primitive("plane");
+    if (plane) {
+        auto tex = deps_.resource_manager->load_texture(
+            base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
+        auto mat = deps_.resource_manager->create_material("vfx_ground", tex);
+        Transform ground_tf;
+        ground_tf.position = {0.0f, -0.01f, 0.0f};
+        ground_tf.scale = {3.0f, 1.0f, 3.0f};
+        preview_scene_.add(*plane, mat, *deps_.resource_manager,
+                           ground_tf, "ground", "primitive:plane");
+    }
 
     auto node = std::make_unique<SceneNode>();
     node->name = "vfx_preview";
