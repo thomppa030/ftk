@@ -97,6 +97,17 @@ private:
     char new_key_buf_[128]{};
     char new_value_buf_[256]{};
 
+    // Action bindings: action name → (key, value) to set on dispatch
+    struct ActionBinding {
+        std::string action;
+        std::string key;
+        std::string value;
+    };
+    std::vector<ActionBinding> action_bindings_;
+    char bind_action_buf_[128]{};
+    char bind_key_buf_[128]{};
+    char bind_value_buf_[256]{};
+
     // Preview resolution
     float preview_width_{800.0f};
     float preview_height_{600.0f};

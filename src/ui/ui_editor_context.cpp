@@ -141,6 +141,13 @@ void UiEditorContext::open_ui(const std::string& fjui_path) {
                     preview_ui_->context().bind_action(action_name,
                         [this, action_name]() {
                             action_log_.push_back({action_name, elapsed_time_});
+                            // Apply action bindings
+                            for (const auto& bind : action_bindings_) {
+                                if (bind.action == action_name) {
+                                    preview_ui_->context().set(bind.key, bind.value);
+                                    preview_ui_->mark_dirty();
+                                }
+                            }
                         }));
             }
             for (auto& child : node->children) {
@@ -664,6 +671,53 @@ void UiEditorContext::draw_mock_data() {
             preview_ui_->mark_dirty();
             new_key_buf_[0] = '\0';
             new_value_buf_[0] = '\0';
+        }
+
+        // ── Action Bindings ──────────────────────────────────────────
+        ImGui::Spacing();
+        ImGui::SeparatorText("Action Bindings");
+        ImGui::TextDisabled("on:click action -> set key = value");
+
+        int remove_bind = -1;
+        for (int i = 0; i < static_cast<int>(action_bindings_.size()); ++i) {
+            ImGui::PushID(1000 + i);
+            auto& b = action_bindings_[i];
+            ImGui::Text("%s", b.action.c_str());
+            ImGui::SameLine();
+            ImGui::TextDisabled("->");
+            ImGui::SameLine();
+            ImGui::Text("%s = %s", b.key.c_str(), b.value.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("X")) {
+                remove_bind = i;
+            }
+            ImGui::PopID();
+        }
+        if (remove_bind >= 0) {
+            action_bindings_.erase(action_bindings_.begin() + remove_bind);
+        }
+
+        // Add new binding
+        ImGui::SetNextItemWidth(100);
+        ImGui::InputTextWithHint("##bact", "action", bind_action_buf_, sizeof(bind_action_buf_));
+        ImGui::SameLine();
+        ImGui::TextDisabled("->");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80);
+        ImGui::InputTextWithHint("##bkey", "key", bind_key_buf_, sizeof(bind_key_buf_));
+        ImGui::SameLine();
+        ImGui::Text("=");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(60);
+        ImGui::InputTextWithHint("##bval", "value", bind_value_buf_, sizeof(bind_value_buf_));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Bind") && bind_action_buf_[0] != '\0' && bind_key_buf_[0] != '\0') {
+            action_bindings_.push_back({bind_action_buf_, bind_key_buf_, bind_value_buf_});
+            bind_action_buf_[0] = '\0';
+            bind_key_buf_[0] = '\0';
+            bind_value_buf_[0] = '\0';
+            // Re-bind actions to pick up new bindings
+            open_ui(fjui_path_);
         }
     }
     ImGui::End();
