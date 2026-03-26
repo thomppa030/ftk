@@ -1,6 +1,13 @@
 #include "renderer/vfx_emitter.hpp"
+#include "renderer/particle_emitter.hpp"
 
 namespace fjell {
+
+void EmitterComponent::ensure_vfx() {
+    if (!vfx) {
+        vfx = std::make_shared<VfxEmitter>(VfxEmitter::from_legacy(*this));
+    }
+}
 
 VfxEmitter VfxEmitter::make_default() {
     VfxEmitter e;

@@ -605,7 +605,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         data.module_offset = 0; // set below after module buffer is built
     }
 
-    // Build and upload module data from legacy EmitterComponent fields
+    // Build and upload module data from VfxEmitter stacks
     {
         auto* module_ptr = static_cast<uint8_t*>(module_buffer_->mapped());
         uint32_t module_word_offset = 0;
@@ -615,10 +615,10 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
             auto* em_ptr = obj ? obj->components.get<EmitterComponent>() : nullptr;
             if (!em_ptr) continue;
 
-            auto vfx = VfxEmitter::from_legacy(*em_ptr);
+            em_ptr->ensure_vfx();
             emitter_data_cache_[i].module_offset = module_word_offset;
 
-            uint32_t bytes = vfx.write_gpu_modules(module_ptr + module_word_offset * 4);
+            uint32_t bytes = em_ptr->vfx->write_gpu_modules(module_ptr + module_word_offset * 4);
             module_word_offset += bytes / 4;
         }
     }
