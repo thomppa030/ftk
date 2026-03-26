@@ -586,7 +586,12 @@ void ContentBrowser::draw_file_grid() {
                 selected_index_ = i;
             }
             if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                handle_double_click(entry);
+                // Copy entry — handle_double_click may invalidate entries_ via navigate_to
+                Entry entry_copy = entry;
+                handle_double_click(entry_copy);
+                // entries_ may be invalidated — stop processing this frame
+                ImGui::PopID();
+                break;
             }
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
                 selected_index_ = i;

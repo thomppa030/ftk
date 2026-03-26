@@ -34,8 +34,13 @@ void UiEditorContext::init() {
 }
 
 void UiEditorContext::shutdown() {
+    // Clear connections before destroying the UI (they reference delegates in UiContext)
     action_connections_.clear();
+    selected_node_ = nullptr;
     if (preview_ui_) {
+        // destroy() frees Vulkan resources, then reset() destroys the object.
+        // FontAtlas::~FontAtlas() calls destroy() again (safe, handles are nulled).
+        // UiRenderer has no destructor, so destroy() must be called explicitly.
         preview_ui_->destroy();
         preview_ui_.reset();
     }
@@ -716,8 +721,6 @@ void UiEditorContext::draw_mock_data() {
             bind_action_buf_[0] = '\0';
             bind_key_buf_[0] = '\0';
             bind_value_buf_[0] = '\0';
-            // Re-bind actions to pick up new bindings
-            open_ui(fjui_path_);
         }
     }
     ImGui::End();
