@@ -122,8 +122,14 @@ void UiEditorContext::open_ui(const std::string& fjui_path) {
     // Initialize preview GameUi if needed
     if (!preview_ui_) {
         preview_ui_ = std::make_unique<GameUi>();
-        deps_.vulkan_context->init_game_ui(*preview_ui_,
-            base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"));
+        if (deps_.engine_game_ui) {
+            // Share font atlas from the engine's GameUi (avoids ~1s msdfgen rebuild)
+            deps_.vulkan_context->init_game_ui_shared(*preview_ui_,
+                                                       deps_.engine_game_ui->font());
+        } else {
+            deps_.vulkan_context->init_game_ui(*preview_ui_,
+                base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"));
+        }
         preview_ui_->set_resource_manager(deps_.resource_manager);
     }
 

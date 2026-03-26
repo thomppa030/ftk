@@ -141,6 +141,10 @@ public:
   void init_game_ui(class GameUi& ui, const std::string& font_path,
                     VkFormat output_format = VK_FORMAT_R8G8B8A8_SRGB);
 
+  /// Initialize a GameUi using a shared font atlas (no msdfgen rebuild).
+  void init_game_ui_shared(class GameUi& ui, const class FontAtlas& shared_atlas,
+                           VkFormat output_format = VK_FORMAT_R8G8B8A8_SRGB);
+
   /// Callback for game UI rendering. Set by the game layer.
   /// Receives: cmd, global_set, bindless_set, extent, frame_index.
   using GameUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,

@@ -27,6 +27,7 @@ struct UiEditorDeps {
     ProjectManager* project_mgr;
     IconCache* icon_cache;
     CodeEditor* code_editor;
+    GameUi* engine_game_ui; // for sharing font atlas
 };
 
 class UiEditorContext final : public EditorContext {

@@ -1338,6 +1338,21 @@ void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
               font_path, output_format);
 }
 
+void VulkanContext::init_game_ui_shared(GameUi& ui, const FontAtlas& shared_atlas,
+                                         VkFormat output_format) {
+    PassResources res{};
+    res.global_set_layout = gpu_.global_set_layout();
+    res.material_set_layout = gpu_.bindless_textures().layout();
+    res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
+    res.meshlet_layout = gpu_.use_mesh_shaders() ? gpu_.meshlet_descriptor().layout() : VK_NULL_HANDLE;
+    res.depth_format = gpu_.device_ref().find_depth_format();
+    res.color_format = OffscreenPass::COLOR_FORMAT;
+    res.sample_count = gpu_.msaa_samples();
+
+    ui.create_with_shared_font(gpu_.device_ref(), res, gpu_.bindless_textures(),
+                                shared_atlas, output_format);
+}
+
 void VulkanContext::submit_and_present() {
     if (!has_recorded_frame_) return;
 

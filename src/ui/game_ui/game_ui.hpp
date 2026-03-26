@@ -51,6 +51,14 @@ public:
                 VkCommandPool command_pool, VkQueue queue,
                 const std::string& font_path,
                 VkFormat output_format = VK_FORMAT_UNDEFINED);
+
+    /// Create with a shared font atlas (avoids expensive re-generation).
+    /// The caller must keep the source GameUi alive for the font atlas lifetime.
+    void create_with_shared_font(Device& device, const PassResources& resources,
+                                 BindlessTextures& bindless,
+                                 const FontAtlas& shared_atlas,
+                                 VkFormat output_format = VK_FORMAT_UNDEFINED);
+
     void destroy();
 
     /// Load a .fjui + .fjss pair from disk.
@@ -71,6 +79,7 @@ public:
 
     [[nodiscard]] UiContext& context() { return context_; }
     [[nodiscard]] const UiContext& context() const { return context_; }
+    [[nodiscard]] const FontAtlas& font() const { return shared_font_atlas_ ? *shared_font_atlas_ : font_atlas_; }
     [[nodiscard]] UiNode* root() { return root_.get(); }
     [[nodiscard]] const UiNode* root() const { return root_.get(); }
     [[nodiscard]] bool loaded() const { return root_ != nullptr; }
@@ -93,6 +102,7 @@ private:
     UiDataBind data_bind_;
     UiAnimation animation_;
     FontAtlas font_atlas_;
+    const FontAtlas* shared_font_atlas_{nullptr}; // non-owning, overrides font_atlas_ when set
     bool dirty_{true};
     bool needs_redraw_{true};
     uint32_t redraw_countdown_{0}; // force N frames of redraw after a change

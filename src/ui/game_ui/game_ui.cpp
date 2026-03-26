@@ -29,6 +29,15 @@ void GameUi::create(Device& device, const PassResources& resources,
     }
 }
 
+void GameUi::create_with_shared_font(Device& device, const PassResources& resources,
+                                      BindlessTextures& bindless,
+                                      const FontAtlas& shared_atlas,
+                                      VkFormat output_format) {
+    bindless_ = &bindless;
+    renderer_.create(device, resources, output_format);
+    shared_font_atlas_ = &shared_atlas;
+}
+
 void GameUi::set_resource_manager(ResourceManager* rm) {
     resource_manager_ = rm;
 }
@@ -156,7 +165,7 @@ void GameUi::update(float viewport_width, float viewport_height,
     renderer_.update(*root_, viewport_width, viewport_height, frame_index);
 
     // 8. Shape and upload text for all text nodes
-    if (font_atlas_.valid()) {
+    if (font().valid()) {
         shape_text_nodes(*root_, viewport_width, viewport_height, frame_index);
     }
 }
@@ -171,11 +180,12 @@ void GameUi::shape_text_nodes(UiNode& node, float viewport_width, float viewport
         float font_size = layout_node->style.font_size;
         float line_height = layout_node->style.line_height;
 
-        auto shaped = TextShaper::shape(node.text_content, font_atlas_,
+        auto& fa = font();
+        auto shaped = TextShaper::shape(node.text_content, fa,
                                         font_size, max_width, line_height);
         renderer_.update_text(shaped.glyphs, *layout_node,
-                              font_atlas_.atlas_bindless_index(),
-                              font_atlas_.pixel_range(),
+                              fa.atlas_bindless_index(),
+                              fa.pixel_range(),
                               viewport_width, viewport_height, frame_index);
     }
 
