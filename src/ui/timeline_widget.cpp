@@ -100,9 +100,46 @@ void TimelineWidget::draw_transport() {
     ImGui::Text("%.2f / %.2fs", time_, duration_);
 }
 
+void TimelineWidget::draw_lanes(float bar_x, float bar_y, float bar_width,
+                                 float lane_height) {
+    if (lanes_.empty() || duration_ <= 0.0f) return;
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    for (int i = 0; i < static_cast<int>(lanes_.size()); ++i) {
+        const auto& lane = lanes_[i];
+        float y = bar_y + static_cast<float>(i) * lane_height;
+        float x0 = bar_x + (lane.start / duration_) * bar_width;
+        float x1 = bar_x + ((lane.start + lane.duration) / duration_) * bar_width;
+
+        // Clamp to bar bounds
+        x0 = std::max(x0, bar_x);
+        x1 = std::min(x1, bar_x + bar_width);
+        if (x1 <= x0) continue;
+
+        // Lane bar
+        uint32_t col = lane.color;
+        if (lane.selected) {
+            // Brighten selected lane
+            col = (col & 0xFF000000) |
+                  std::min(255u, ((col >> 0) & 0xFF) + 40) |
+                  (std::min(255u, ((col >> 8) & 0xFF) + 40) << 8) |
+                  (std::min(255u, ((col >> 16) & 0xFF) + 40) << 16);
+        }
+        draw_list->AddRectFilled({x0, y + 2}, {x1, y + lane_height - 2},
+                                  col, 3.0f);
+
+        // Lane label
+        draw_list->AddText({x0 + 4, y + 3}, IM_COL32(255, 255, 255, 220),
+                           lane.name.c_str());
+    }
+}
+
 void TimelineWidget::draw_timeline_bar() {
     ImVec2 avail = ImGui::GetContentRegionAvail();
-    float bar_height = 28.0f;
+    float lane_height = lanes_.empty() ? 0.0f : 22.0f;
+    float lanes_total = static_cast<float>(lanes_.size()) * lane_height;
+    float bar_height = 28.0f + lanes_total;
     if (avail.x < 10.0f || avail.y < bar_height) return;
 
     ImVec2 bar_pos = ImGui::GetCursorScreenPos();
@@ -139,6 +176,10 @@ void TimelineWidget::draw_timeline_bar() {
                 IM_COL32(80, 80, 80, 255), label);
         }
     }
+
+    // Lanes (emitter bars, clip bars, etc.)
+    float lane_h = lanes_.empty() ? 0.0f : 22.0f;
+    draw_lanes(bar_pos.x, bar_pos.y + 28.0f, bar_width, lane_h);
 
     // Markers
     for (int i = 0; i < static_cast<int>(markers_.size()); ++i) {

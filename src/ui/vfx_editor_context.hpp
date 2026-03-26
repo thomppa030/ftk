@@ -1,7 +1,9 @@
 #pragma once
 
 #include "ui/editor_context.hpp"
+#include "ui/timeline_widget.hpp"
 #include "ui/viewport_manager.hpp"
+#include "core/delegate.hpp"
 #include "scene/scene.hpp"
 
 #include <string>
@@ -18,6 +20,16 @@ class VulkanContext;
 struct VfxEffect;
 struct VfxEmitter;
 struct VfxModule;
+
+/// VFX-specific timeline with emitter lane bars and drag-to-offset.
+class VfxTimeline final : public TimelineWidget {
+public:
+    Delegate<void(int)> on_lane_selected; // emitter index clicked
+
+protected:
+    void draw_lanes(float bar_x, float bar_y, float bar_width,
+                    float lane_height) override;
+};
 
 struct VfxEditorDeps {
     VulkanContext* vulkan_context;
@@ -54,7 +66,7 @@ public:
     [[nodiscard]] const std::string& effect_path() const { return fjvfx_path_; }
 
 private:
-    void draw_emitter_list();
+    void draw_node_editor();
     void draw_module_stack();
     void draw_module_palette();
     void setup_preview();
@@ -76,11 +88,24 @@ private:
     uint32_t preview_node_id_{0};
     ViewportManager viewport_manager_;
 
+    // Node editor state
+    bool nodes_initialized_{false};
+    int node_id_counter_{0};
+    struct EmitterNode {
+        int node_id;
+        int emitter_index;  // index into effect_->emitters
+        int output_pin_id;  // for future linking
+    };
+    std::vector<EmitterNode> emitter_nodes_;
+
     // Selection
-    int selected_emitter_{0};
+    int selected_emitter_{-1};
+
+    // Timeline
+    VfxTimeline timeline_;
+    std::vector<Connection> timeline_connections_;
 
     // Playback
-    bool playing_{true};
     float time_scale_{1.0f};
 };
 
