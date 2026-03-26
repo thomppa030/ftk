@@ -33,6 +33,7 @@ struct EmitterComponent : NodeComponent {
 
     // ── Multi-emitter effect (the actual runtime config) ──
     std::shared_ptr<VfxEffect> effect;
+    std::string vfx_path; // .fjvfx asset path (empty = legacy inline)
 
     /// Ensure the effect is built (call before GPU upload)
     void ensure_effect();

@@ -7,6 +7,8 @@
 #include "renderer/arrow_component.hpp"
 #include "renderer/mesh_component.hpp"
 #include "renderer/particle_emitter.hpp"
+#include "renderer/vfx_asset.hpp"
+#include "renderer/vfx_emitter.hpp"
 #include "renderer/skeletal_mesh_component.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "core/thread_pool.hpp"
@@ -537,20 +539,26 @@ Result<> Scene::save(const std::string& path) {
         }
 
         if (const auto* em = obj->components.get<EmitterComponent>()) {
-            jobj["emitter"] = {
-                {"emission_rate", em->emission_rate},
-                {"lifetime_min", em->lifetime_min},
-                {"lifetime_max", em->lifetime_max},
-                {"max_particles", em->max_particles},
-                {"velocity_min", {em->velocity_min.x, em->velocity_min.y, em->velocity_min.z}},
-                {"velocity_max", {em->velocity_max.x, em->velocity_max.y, em->velocity_max.z}},
-                {"gravity", {em->gravity.x, em->gravity.y, em->gravity.z}},
-                {"color_start", {em->color_start.r, em->color_start.g, em->color_start.b, em->color_start.a}},
-                {"color_end", {em->color_end.r, em->color_end.g, em->color_end.b, em->color_end.a}},
-                {"size_start", em->size_start},
-                {"size_end", em->size_end},
-                {"blend_mode", static_cast<int>(em->blend_mode)}
-            };
+            if (!em->vfx_path.empty()) {
+                // v2: reference .fjvfx asset
+                jobj["vfx"] = em->vfx_path;
+            } else {
+                // Legacy inline emitter
+                jobj["emitter"] = {
+                    {"emission_rate", em->emission_rate},
+                    {"lifetime_min", em->lifetime_min},
+                    {"lifetime_max", em->lifetime_max},
+                    {"max_particles", em->max_particles},
+                    {"velocity_min", {em->velocity_min.x, em->velocity_min.y, em->velocity_min.z}},
+                    {"velocity_max", {em->velocity_max.x, em->velocity_max.y, em->velocity_max.z}},
+                    {"gravity", {em->gravity.x, em->gravity.y, em->gravity.z}},
+                    {"color_start", {em->color_start.r, em->color_start.g, em->color_start.b, em->color_start.a}},
+                    {"color_end", {em->color_end.r, em->color_end.g, em->color_end.b, em->color_end.a}},
+                    {"size_start", em->size_start},
+                    {"size_end", em->size_end},
+                    {"blend_mode", static_cast<int>(em->blend_mode)}
+                };
+            }
         }
 
         if (const auto* sp = obj->components.get<SpriteComponent>()) {
@@ -1086,6 +1094,22 @@ Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
             em.size_start = jem.value("size_start", 0.1f);
             em.size_end = jem.value("size_end", 0.02f);
             em.blend_mode = static_cast<ParticleBlendMode>(jem.value("blend_mode", 0));
+        }
+
+        // VFX effect asset reference (v2 multi-emitter)
+        if (jobj.contains("vfx") && node) {
+            std::string vfx_path = jobj["vfx"].get<std::string>();
+            auto resolved = base_path::resolve_asset(vfx_path, project);
+            try {
+                auto effect = load_vfx_effect(resolved);
+                auto& ec = node->components.get<EmitterComponent>()
+                    ? *node->components.get<EmitterComponent>()
+                    : node->components.add<EmitterComponent>();
+                ec.effect = std::make_shared<VfxEffect>(std::move(effect));
+                ec.vfx_path = vfx_path;
+            } catch (const std::exception& e) {
+                FJELL_CORE_ERROR("Failed to load VFX: {}", e.what());
+            }
         }
 
         if (jobj.contains("sprite") && node) {
