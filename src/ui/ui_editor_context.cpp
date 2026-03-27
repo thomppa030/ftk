@@ -464,6 +464,9 @@ void UiEditorContext::draw_node_tree(UiNode* node) {
         flags |= ImGuiTreeNodeFlags_Selected;
     }
 
+    // Skip foreach template nodes (hidden, only clones are visible)
+    if (node->is_foreach_template) return;
+
     // Build display label: <tag> .class #id "text..."
     std::string label;
     if (node->type == UiNodeType::text) {
@@ -474,24 +477,43 @@ void UiEditorContext::draw_node_tree(UiNode* node) {
         }
         label = "\"" + text + "\"";
         flags |= ImGuiTreeNodeFlags_Leaf;
+    } else if (node->is_widget) {
+        // Widget nodes: show original tag name with widget marker
+        label = "<" + node->widget_tag + "/>";
+        if (!node->id.empty()) {
+            label += " #" + node->id;
+        }
+    } else if (node->foreach_item_index >= 0) {
+        // Foreach clones: show index
+        label = "<" + node->tag + "> [" + std::to_string(node->foreach_item_index) + "]";
     } else {
         label = "<" + (node->tag.empty() ? "root" : node->tag) + ">";
         if (!node->id.empty()) {
             label += " #" + node->id;
         }
         for (const auto& cls : node->classes) {
+            // Skip auto-generated scope classes
+            if (cls.starts_with("__w_")) continue;
             label += " ." + cls;
         }
     }
 
-    // Gray out hidden nodes
-    if (node->hidden_by_if || node->style.display == UiDisplay::none) {
+    // Color widget nodes purple, foreach items teal
+    bool color_pushed = false;
+    if (node->is_widget) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.6f, 0.45f, 0.8f, 1.0f});
+        color_pushed = true;
+    } else if (node->foreach_item_index >= 0) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.3f, 0.75f, 0.7f, 1.0f});
+        color_pushed = true;
+    } else if (node->hidden_by_if || node->style.display == UiDisplay::none) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        color_pushed = true;
     }
 
     bool open = ImGui::TreeNodeEx(node, flags, "%s", label.c_str());
 
-    if (node->hidden_by_if || node->style.display == UiDisplay::none) {
+    if (color_pushed) {
         ImGui::PopStyleColor();
     }
 
@@ -528,10 +550,13 @@ void UiEditorContext::draw_inspector() {
         if (!node->classes.empty()) {
             std::string cls_str;
             for (const auto& c : node->classes) {
+                if (c.starts_with("__w_")) continue; // skip scope classes
                 if (!cls_str.empty()) cls_str += ", ";
                 cls_str += "." + c;
             }
-            ImGui::Text("Classes: %s", cls_str.c_str());
+            if (!cls_str.empty()) {
+                ImGui::Text("Classes: %s", cls_str.c_str());
+            }
         }
         if (node->type == UiNodeType::text) {
             ImGui::TextWrapped("Text: %s", node->text_content.c_str());
@@ -543,10 +568,48 @@ void UiEditorContext::draw_inspector() {
             ImGui::TextColored({1.0f, 0.5f, 0.3f, 1.0f}, "Hidden by if directive");
         }
 
+        // Widget info
+        if (node->is_widget) {
+            ImGui::SeparatorText("Widget");
+            ImGui::TextColored({0.6f, 0.45f, 0.8f, 1.0f}, "<%s/>", node->widget_tag.c_str());
+
+            if (!node->prop_map.empty()) {
+                ImGui::Text("Props:");
+                ImGui::Indent();
+                for (const auto& [inner, outer] : node->prop_map) {
+                    ImGui::Text("%s = %s", inner.c_str(), outer.c_str());
+                }
+                ImGui::Unindent();
+            }
+
+            if (!node->event_map.empty()) {
+                ImGui::Text("Events:");
+                ImGui::Indent();
+                for (const auto& [event, action] : node->event_map) {
+                    ImGui::Text("on:%s -> %s", event.c_str(), action.c_str());
+                }
+                ImGui::Unindent();
+            }
+
+            if (node->scoped_context) {
+                ImGui::TextDisabled("(scoped context active)");
+            }
+        }
+
+        // Foreach info
+        if (node->foreach_item_index >= 0) {
+            ImGui::SeparatorText("Foreach");
+            ImGui::TextColored({0.3f, 0.75f, 0.7f, 1.0f}, "Item [%d]", node->foreach_item_index);
+            if (node->foreach_context) {
+                ImGui::TextDisabled("(item context active)");
+            }
+        }
+
         // Attributes
         if (!node->attributes.empty()) {
             ImGui::SeparatorText("Attributes");
             for (const auto& [key, value] : node->attributes) {
+                if (key.starts_with("_")) continue; // skip internal attributes
                 ImGui::Text("%s: %s", key.c_str(), value.c_str());
             }
         }
