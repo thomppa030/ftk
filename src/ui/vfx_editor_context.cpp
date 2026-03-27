@@ -78,8 +78,10 @@ void VfxEditorContext::init() {
 
 void VfxEditorContext::shutdown() {
     timeline_connections_.clear();
-    // Don't destroy the imnodes context — it's shared with the scene editor
-    imnodes_ctx_ = nullptr;
+    if (imnodes_ctx_) {
+        ImNodes::DestroyContext(static_cast<ImNodesContext*>(imnodes_ctx_));
+        imnodes_ctx_ = nullptr;
+    }
     nodes_initialized_ = false;
     viewport_manager_.release_textures();
 }
@@ -186,12 +188,12 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
     name_ = fs::path(fjvfx_path).stem().string();
     selected_emitter_ = effect_->emitters.empty() ? -1 : 0;
 
-    // Reuse the existing imnodes context (created by NodeEditorPanel in scene editor)
+    // Create own imnodes context (separate from scene editor's NodeEditorPanel)
     if (!nodes_initialized_) {
-        imnodes_ctx_ = static_cast<void*>(ImNodes::GetCurrentContext());
-        if (!imnodes_ctx_) {
-            imnodes_ctx_ = static_cast<void*>(ImNodes::CreateContext());
-        }
+        auto* prev_ctx = ImNodes::GetCurrentContext();
+        imnodes_ctx_ = static_cast<void*>(ImNodes::CreateContext());
+        // Restore scene editor's context as the global default
+        ImNodes::SetCurrentContext(prev_ctx);
 
         ImNodesStyle& style = ImNodes::GetStyle();
         style.Flags |= ImNodesStyleFlags_GridSnapping;
@@ -312,6 +314,7 @@ void VfxEditorContext::draw_node_editor() {
         ImGui::SameLine();
         ImGui::SliderFloat("Speed", &time_scale_, 0.0f, 3.0f, "%.1f");
 
+        auto* prev_imnodes = ImNodes::GetCurrentContext();
         ImNodes::SetCurrentContext(static_cast<ImNodesContext*>(imnodes_ctx_));
         ImNodes::BeginNodeEditor();
 
@@ -398,6 +401,8 @@ void VfxEditorContext::draw_node_editor() {
                 static_cast<int>(effect_->emitters.size()) - 1);
             setup_preview();
         }
+
+        ImNodes::SetCurrentContext(prev_imnodes);
     }
     ImGui::End();
 }
