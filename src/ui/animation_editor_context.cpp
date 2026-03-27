@@ -356,16 +356,14 @@ void AnimationEditorContext::scan_clips() {
         }
     }
 
-    std::sort(available_clip_names_.begin(), available_clip_names_.end());
-
-    // Sort paths to match names order
+    // Sort names and paths together so indices stay in sync
     std::vector<std::pair<std::string, std::string>> pairs;
-    for (size_t i = 0; i < available_clip_paths_.size(); ++i) {
-        pairs.emplace_back(fs::path(available_clip_paths_[i]).stem().string(),
-                           available_clip_paths_[i]);
+    for (size_t i = 0; i < available_clip_names_.size(); ++i) {
+        pairs.emplace_back(available_clip_names_[i], available_clip_paths_[i]);
     }
     std::sort(pairs.begin(), pairs.end());
     for (size_t i = 0; i < pairs.size(); ++i) {
+        available_clip_names_[i] = pairs[i].first;
         available_clip_paths_[i] = pairs[i].second;
     }
 }
