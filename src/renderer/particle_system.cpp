@@ -283,6 +283,14 @@ void ParticleSystem::destroy() {
 }
 
 void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count) {
+    // Save old buffers for data copy
+    auto old_particle = std::move(mega_particle_buffer_);
+    auto old_counter = std::move(mega_counter_buffer_);
+    auto old_dead_list = std::move(mega_dead_list_buffer_);
+    auto old_indirect = std::move(mega_indirect_buffer_);
+    uint32_t old_particle_cap = total_particle_capacity_;
+    uint32_t old_emitter_cap = emitter_capacity_;
+
     // Free old descriptor sets if they exist
     if (compute_set_ != VK_NULL_HANDLE) {
         vkFreeDescriptorSets(device_, pool_, 1, &compute_set_);
@@ -296,6 +304,10 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     total_particle_capacity_ = total_particles;
     emitter_capacity_ = emitter_count;
 
+    constexpr auto STORAGE_SRC_DST = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
     VkDeviceSize particle_size = static_cast<VkDeviceSize>(total_particles) * 64;
     VkDeviceSize counter_size = static_cast<VkDeviceSize>(emitter_count) * 2 * sizeof(uint32_t);
     VkDeviceSize dead_list_size = static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t);
@@ -304,23 +316,64 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     mega_particle_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, particle_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        STORAGE_SRC_DST, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     mega_counter_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, counter_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        STORAGE_SRC_DST, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     mega_dead_list_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, dead_list_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        STORAGE_SRC_DST, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
     mega_indirect_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, indirect_size,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        STORAGE_SRC_DST | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    // Copy old data to new buffers if we had previous data
+    if (old_particle && old_particle_cap > 0) {
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandPool = command_pool_;
+        alloc_info.commandBufferCount = 1;
+
+        VkCommandBuffer cmd;
+        vk_check(vkAllocateCommandBuffers(device_, &alloc_info, &cmd), "alloc copy cmd");
+
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vk_check(vkBeginCommandBuffer(cmd, &begin), "begin copy cmd");
+
+        VkDeviceSize old_particle_bytes = static_cast<VkDeviceSize>(old_particle_cap) * 64;
+        VkBufferCopy region{0, 0, old_particle_bytes};
+        vkCmdCopyBuffer(cmd, old_particle->handle(), mega_particle_buffer_->handle(), 1, &region);
+
+        VkDeviceSize old_counter_bytes = static_cast<VkDeviceSize>(old_emitter_cap) * 2 * sizeof(uint32_t);
+        region = {0, 0, old_counter_bytes};
+        vkCmdCopyBuffer(cmd, old_counter->handle(), mega_counter_buffer_->handle(), 1, &region);
+
+        VkDeviceSize old_dead_bytes = static_cast<VkDeviceSize>(old_particle_cap) * sizeof(uint32_t);
+        region = {0, 0, old_dead_bytes};
+        vkCmdCopyBuffer(cmd, old_dead_list->handle(), mega_dead_list_buffer_->handle(), 1, &region);
+
+        VkDeviceSize old_indirect_bytes = static_cast<VkDeviceSize>(old_emitter_cap) * 4 * sizeof(uint32_t);
+        region = {0, 0, old_indirect_bytes};
+        vkCmdCopyBuffer(cmd, old_indirect->handle(), mega_indirect_buffer_->handle(), 1, &region);
+
+        vk_check(vkEndCommandBuffer(cmd), "end copy cmd");
+
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &cmd;
+        vk_check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE), "submit copy cmd");
+        vkQueueWaitIdle(queue_);
+
+        vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
+    }
 
     emitter_data_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, emitter_data_size,
@@ -402,9 +455,11 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 }
 
 void ParticleSystem::init_emitter_ranges() {
-    // Initialize all emitter ranges in a single command buffer submission.
-    // Uses vkCmdFillBuffer (zero particles/indirect) + vkCmdUpdateBuffer
-    // (dead lists + counters) to avoid staging buffers and multiple queue waits.
+    init_emitter_range(0, static_cast<uint32_t>(emitters_.size()));
+}
+
+void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
+    if (from >= to) return;
 
     VkCommandBufferAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -422,26 +477,23 @@ void ParticleSystem::init_emitter_ranges() {
     vk_check(vkBeginCommandBuffer(cmd, &begin_info),
              "Failed to begin particle init command buffer");
 
-    // Zero particle buffer and indirect buffer in bulk
-    uint32_t total_particles = 0;
-    for (const auto& em : emitters_) total_particles += em.max_particles;
+    // Zero particle buffer and indirect draw commands for the target range
+    for (uint32_t i = from; i < to; ++i) {
+        const auto& em = emitters_[i];
+        VkDeviceSize particle_offset = static_cast<VkDeviceSize>(em.base_offset) * 64;
+        VkDeviceSize particle_size = static_cast<VkDeviceSize>(em.max_particles) * 64;
+        vkCmdFillBuffer(cmd, mega_particle_buffer_->handle(), particle_offset, particle_size, 0);
 
-    if (total_particles > 0) {
-        vkCmdFillBuffer(cmd, mega_particle_buffer_->handle(), 0,
-                        static_cast<VkDeviceSize>(total_particles) * 64, 0);
-    }
-    uint32_t emitter_count = static_cast<uint32_t>(emitters_.size());
-    if (emitter_count > 0) {
-        vkCmdFillBuffer(cmd, mega_indirect_buffer_->handle(), 0,
-                        static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t), 0);
+        VkDeviceSize indirect_offset = static_cast<VkDeviceSize>(i) * 4 * sizeof(uint32_t);
+        vkCmdFillBuffer(cmd, mega_indirect_buffer_->handle(), indirect_offset, 4 * sizeof(uint32_t), 0);
     }
 
-    // Initialize dead lists per emitter using vkCmdUpdateBuffer (max 65536 bytes per call)
+    // Initialize dead lists per emitter
     constexpr VkDeviceSize max_update = 65536;
-    for (const auto& em : emitters_) {
-        // Build local index sequence [0, 1, 2, ... max_particles-1]
+    for (uint32_t i = from; i < to; ++i) {
+        const auto& em = emitters_[i];
         std::vector<uint32_t> indices(em.max_particles);
-        for (uint32_t i = 0; i < em.max_particles; ++i) indices[i] = i;
+        for (uint32_t j = 0; j < em.max_particles; ++j) indices[j] = j;
 
         VkDeviceSize offset = static_cast<VkDeviceSize>(em.base_offset) * sizeof(uint32_t);
         VkDeviceSize remaining = static_cast<VkDeviceSize>(em.max_particles) * sizeof(uint32_t);
@@ -456,15 +508,12 @@ void ParticleSystem::init_emitter_ranges() {
         }
     }
 
-    // Initialize counters: alive=0, dead=max_particles per emitter
-    if (emitter_count > 0) {
-        std::vector<uint32_t> counters(emitter_count * 2);
-        for (size_t i = 0; i < emitters_.size(); ++i) {
-            counters[i * 2 + 0] = 0;
-            counters[i * 2 + 1] = emitters_[i].max_particles;
-        }
-        VkDeviceSize size = static_cast<VkDeviceSize>(emitter_count) * 2 * sizeof(uint32_t);
-        vkCmdUpdateBuffer(cmd, mega_counter_buffer_->handle(), 0, size, counters.data());
+    // Initialize counters for the target range only
+    for (uint32_t i = from; i < to; ++i) {
+        uint32_t counters[2] = {0, emitters_[i].max_particles};
+        VkDeviceSize counter_offset = static_cast<VkDeviceSize>(i) * 2 * sizeof(uint32_t);
+        vkCmdUpdateBuffer(cmd, mega_counter_buffer_->handle(), counter_offset,
+                          sizeof(counters), counters);
     }
 
     vk_check(vkEndCommandBuffer(cmd), "Failed to end particle init command buffer");
@@ -484,14 +533,14 @@ void ParticleSystem::init_emitter_ranges() {
 void ParticleSystem::sync_emitters(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("particle_sync_emitters");
 
-    // Collect GPU emitters from all VfxEffects in the scene
-    struct EmitterInfo {
+    // Collect current scene emitters
+    struct EmitterKey {
         uint32_t object_id;
-        uint32_t emitter_index;  // index within VfxEffect::emitters
+        uint32_t emitter_index;
         uint32_t max_particles;
         ParticleBlendMode blend_mode;
     };
-    std::vector<EmitterInfo> scene_emitters;
+    std::vector<EmitterKey> scene_emitters;
     for (const auto& obj : scene.objects()) {
         auto* ec = obj->components.get<EmitterComponent>();
         if (!ec) continue;
@@ -503,45 +552,68 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         }
     }
 
-    // Sort by blend mode (additive first) for render batching
-    std::sort(scene_emitters.begin(), scene_emitters.end(), [](const auto& a, const auto& b) {
-        return static_cast<uint8_t>(a.blend_mode) < static_cast<uint8_t>(b.blend_mode);
-    });
+    // Build set of alive emitter keys for fast lookup
+    auto key_match = [](const EmitterGpu& gpu, const EmitterKey& key) {
+        return gpu.object_id == key.object_id && gpu.emitter_index == key.emitter_index;
+    };
 
-    // Check if emitter set has changed
-    bool changed = (scene_emitters.size() != emitters_.size());
-    if (!changed) {
-        for (size_t i = 0; i < emitters_.size(); ++i) {
-            if (emitters_[i].object_id != scene_emitters[i].object_id ||
-                emitters_[i].emitter_index != scene_emitters[i].emitter_index ||
-                emitters_[i].max_particles != scene_emitters[i].max_particles ||
-                emitters_[i].blend_mode != scene_emitters[i].blend_mode) {
-                changed = true;
-                break;
-            }
+    // Remove dead emitters (keep offsets stable — just mark slots as dead)
+    // We don't reclaim their particle buffer space to avoid shifting offsets.
+    // Space is reclaimed on full realloc.
+    for (auto it = emitters_.begin(); it != emitters_.end();) {
+        bool alive = false;
+        for (const auto& se : scene_emitters) {
+            if (key_match(*it, se)) { alive = true; break; }
+        }
+        if (!alive) {
+            it = emitters_.erase(it);
+        } else {
+            ++it;
         }
     }
 
-    if (!changed) return;
-
-    // Rebuild emitter list with offsets
-    emitters_.clear();
-    emitters_.reserve(scene_emitters.size());
-    uint32_t offset = 0;
-    additive_count_ = 0;
-    for (const auto& info : scene_emitters) {
-        EmitterGpu gpu{};
-        gpu.object_id = info.object_id;
-        gpu.emitter_index = info.emitter_index;
-        gpu.max_particles = info.max_particles;
-        gpu.base_offset = offset;
-        gpu.blend_mode = info.blend_mode;
-        if (info.blend_mode == ParticleBlendMode::additive) ++additive_count_;
-        emitters_.push_back(gpu);
-        offset += info.max_particles;
+    // Find new emitters not in the current list
+    std::vector<EmitterKey> new_emitters;
+    for (const auto& se : scene_emitters) {
+        bool found = false;
+        for (const auto& existing : emitters_) {
+            if (key_match(existing, se)) { found = true; break; }
+        }
+        if (!found) new_emitters.push_back(se);
     }
 
-    uint32_t total = offset;
+    if (new_emitters.empty()) return;
+
+    FJELL_GFX_DEBUG("Particle sync: {} existing, {} new",
+                    emitters_.size(), new_emitters.size());
+
+    // Compute next free offset (end of all existing allocations)
+    uint32_t next_offset = 0;
+    for (const auto& em : emitters_) {
+        uint32_t end = em.base_offset + em.max_particles;
+        if (end > next_offset) next_offset = end;
+    }
+
+    // Append new emitters at the end
+    uint32_t first_new = static_cast<uint32_t>(emitters_.size());
+    for (const auto& ne : new_emitters) {
+        EmitterGpu gpu{};
+        gpu.object_id = ne.object_id;
+        gpu.emitter_index = ne.emitter_index;
+        gpu.max_particles = ne.max_particles;
+        gpu.base_offset = next_offset;
+        gpu.blend_mode = ne.blend_mode;
+        emitters_.push_back(gpu);
+        next_offset += ne.max_particles;
+    }
+
+    // Recount additive emitters for render batching
+    additive_count_ = 0;
+    for (const auto& em : emitters_) {
+        if (em.blend_mode == ParticleBlendMode::additive) ++additive_count_;
+    }
+
+    uint32_t total = next_offset;
     uint32_t count = static_cast<uint32_t>(emitters_.size());
 
     bool needs_realloc = total > total_particle_capacity_ || count > emitter_capacity_;
@@ -553,11 +625,13 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         if (new_total == 0) new_total = total;
         if (new_count == 0) new_count = count;
         rebuild_mega_buffers(new_total, new_count);
+        // Old data was copied — only initialize new emitters
+        init_emitter_range(first_new, count);
     } else {
+        // Buffer has capacity — only initialize new emitters
         vkQueueWaitIdle(queue_);
+        init_emitter_range(first_new, count);
     }
-
-    init_emitter_ranges();
 }
 
 void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene) {

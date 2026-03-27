@@ -425,7 +425,6 @@ void VulkanContext::register_passes() {
 #endif
                 if (current_ctx_.scene) {
                     auto& scene_ref = const_cast<Scene&>(*current_ctx_.scene);
-                    particle_system_.sync_emitters(scene_ref);
                     particle_system_.dispatch_compute(cb, current_ctx_.delta_time, scene_ref);
                     particle_system_.insert_barriers(cb);
                 }
@@ -1372,7 +1371,9 @@ void VulkanContext::submit_and_present() {
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &render_finished[recorded_image_index_];
 
-    if (vkQueueSubmit(gpu_.graphics_queue(), 1, &submit_info, gpu_.in_flight_fence(recorded_frame_)) != VK_SUCCESS) {
+    VkResult submit_result = vkQueueSubmit(gpu_.graphics_queue(), 1, &submit_info, gpu_.in_flight_fence(recorded_frame_));
+    if (submit_result != VK_SUCCESS) {
+        FJELL_CORE_CRITICAL("vkQueueSubmit failed: {}", static_cast<int>(submit_result));
         throw std::runtime_error("Failed to submit draw command buffer");
     }
 
@@ -1427,12 +1428,14 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
         gpu_.swapchain().recreate();
         has_recorded_frame_ = false;
-        return false;
+        return false;  // fence stays signaled — next wait will pass through
     }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("Failed to acquire swapchain image");
     }
 
+    // Reset fence only after successful acquire — ensures the fence stays
+    // signaled on the error/recreate path so the next vkWaitForFences doesn't hang
     vkResetFences(vk_device, 1, &frame_fence);
     pending_image_index_ = image_index;
     return true;
@@ -1450,6 +1453,11 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     gpu_.render_stats().reset();
     if (show_colliders_ && scene) {
         debug_draw_->update(*scene);
+    }
+
+    // Sync particle emitters before recording — may rebuild GPU buffers
+    if (scene) {
+        particle_system_.sync_emitters(*scene);
     }
 
     // Update binding 4 (depth texture for light culling) before recording
