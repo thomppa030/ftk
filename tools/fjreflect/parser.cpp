@@ -28,6 +28,7 @@ static std::string map_field_type(const std::string& cpp_type,
     if (bare == "glm::vec2") return "FJELL_FIELD_VEC2";
     if (bare == "glm::vec3") return "FJELL_FIELD_VEC3";
     if (bare == "glm::vec4") return "FJELL_FIELD_VEC4";
+    if (bare == "std::string") return "FJELL_FIELD_STRING";
 
     // WeakRef<T>
     if (bare.starts_with("WeakRef<")) {
@@ -177,17 +178,26 @@ ParseResult parse_file(const std::string& filepath) {
         lines.push_back(line);
     }
 
-    // Find FJELL_COMPONENT(ClassName) — extract class name
-    // Then find [[fj::property]] fields within that class scope
+    // Find FJELL_COMPONENT(ClassName) or FJELL_UI_COMPONENT(ClassName, "tag")
     std::regex comp_re(R"(FJELL_COMPONENT\(\s*(\w+)\s*\))");
+    std::regex ui_comp_re(R"RE(FJELL_UI_COMPONENT\(\s*(\w+)\s*,\s*"([^"]+)"\s*\))RE");
 
     for (size_t i = 0; i < lines.size(); ++i) {
         std::smatch m;
-        if (!std::regex_search(lines[i], m, comp_re)) continue;
+        bool is_ui = false;
+        if (std::regex_search(lines[i], m, ui_comp_re)) {
+            is_ui = true;
+        } else if (!std::regex_search(lines[i], m, comp_re)) {
+            continue;
+        }
 
         ComponentInfo comp;
         comp.class_name = m[1];
         comp.source_file = filepath;
+        comp.is_ui_component = is_ui;
+        if (is_ui) {
+            comp.widget_tag = m[2];
+        }
 
         // Detect enclosing namespace by scanning backwards
         std::string ns;
@@ -250,6 +260,51 @@ ParseResult parse_file(const std::string& filepath) {
 
             auto trimmed = trim(ln);
 
+            // Check for [[fj::action]] on void methods before skipping
+            auto attrs_early = extract_fj_attrs(ln);
+            if (!attrs_early.empty() && attrs_early.find("fj::action") != std::string::npos) {
+                // Parse action: [[fj::action]] void method_name(int param) { ... }
+                // or [[fj::action]] on its own line, method on next
+                auto action_line = trimmed;
+                // Strip [[...]]
+                auto bracket_start = action_line.find("[[");
+                auto bracket_end = action_line.find("]]");
+                if (bracket_start != std::string::npos && bracket_end != std::string::npos) {
+                    action_line = trim(action_line.substr(bracket_end + 2));
+                }
+                if (action_line.empty() && j + 1 < lines.size()) {
+                    // Attribute on its own line, method on next
+                    ++j;
+                    action_line = trim(lines[j]);
+                    for (char c : lines[j]) {
+                        if (c == '{') brace_depth++;
+                        else if (c == '}') brace_depth--;
+                    }
+                }
+                // Parse "void method_name(...)"
+                if (action_line.starts_with("void ")) {
+                    auto rest = action_line.substr(5);
+                    auto paren = rest.find('(');
+                    if (paren != std::string::npos) {
+                        ActionInfo ai;
+                        ai.method_name = trim(rest.substr(0, paren));
+                        ai.name = ai.method_name;  // default: action name = method name
+                        // Check for int param
+                        auto params = rest.substr(paren + 1);
+                        auto close_paren = params.find(')');
+                        if (close_paren != std::string::npos) {
+                            auto param_str = trim(params.substr(0, close_paren));
+                            ai.has_int_param = (param_str == "int" ||
+                                                param_str.starts_with("int ") ||
+                                                param_str.find("int ") != std::string::npos);
+                        }
+                        comp.actions.push_back(std::move(ai));
+                    }
+                }
+                pending_attrs.clear();
+                continue;
+            }
+
             // Skip access specifiers, methods, nested structs, etc.
             if (trimmed.starts_with("public:") || trimmed.starts_with("private:") ||
                 trimmed.starts_with("protected:") || trimmed.starts_with("//") ||
@@ -266,7 +321,15 @@ ParseResult parse_file(const std::string& filepath) {
             // Check for [[fj::...]] attributes
             auto attrs = extract_fj_attrs(ln);
 
-            if (!attrs.empty() && attrs.find("fj::property") != std::string::npos) {
+            bool is_property = attrs.find("fj::property") != std::string::npos;
+            bool is_bind = attrs.find("fj::bind_list") != std::string::npos ? false
+                         : attrs.find("fj::bind") != std::string::npos;
+            bool is_bind_list = attrs.find("fj::bind_list") != std::string::npos;
+
+            // fj::bind and fj::bind_list imply fj::property
+            if (is_bind || is_bind_list) is_property = true;
+
+            if (!attrs.empty() && is_property) {
                 // Attribute and field might be on same line or attribute on its own line
                 std::string type_str, name_str;
                 if (parse_field_decl(ln, type_str, name_str)) {
@@ -307,6 +370,8 @@ ParseResult parse_file(const std::string& filepath) {
                 fi.fj_field_type = fj_type;
                 fi.ref_target = ref_target;
                 fi.line = pending_line;
+                fi.is_bind = is_bind;
+                fi.is_bind_list = is_bind_list;
                 if (parse_range(pending_attrs, fi.hint_min, fi.hint_max)) {
                     fi.has_range = true;
                 }
@@ -318,6 +383,10 @@ ParseResult parse_file(const std::string& filepath) {
 
             // Check if this line is a field following a pending attribute
             if (!pending_attrs.empty()) {
+                bool p_is_bind = pending_attrs.find("fj::bind_list") != std::string::npos ? false
+                               : pending_attrs.find("fj::bind") != std::string::npos;
+                bool p_is_bind_list = pending_attrs.find("fj::bind_list") != std::string::npos;
+
                 std::string type_str, name_str;
                 if (parse_field_decl(ln, type_str, name_str)) {
                     if (is_engine_pointer(type_str)) {
@@ -340,6 +409,8 @@ ParseResult parse_file(const std::string& filepath) {
                             fi.fj_field_type = fj_type;
                             fi.ref_target = ref_target;
                             fi.line = static_cast<unsigned>(j + 1);
+                            fi.is_bind = p_is_bind;
+                            fi.is_bind_list = p_is_bind_list;
                             if (parse_range(pending_attrs, fi.hint_min, fi.hint_max)) {
                                 fi.has_range = true;
                             }
@@ -361,7 +432,7 @@ ParseResult parse_file(const std::string& filepath) {
             }
         }
 
-        if (!comp.fields.empty()) {
+        if (!comp.fields.empty() || !comp.actions.empty() || comp.is_ui_component) {
             result.components.push_back(std::move(comp));
         }
     }
@@ -393,9 +464,14 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         // Headers only declare classes + fields, no engine method bodies.
         out << "struct FjellTypeRegistry;\n";
         out << "struct FjellComponentTypeOOP;\n";
+        out << "struct FjellUiComponentTypeOOP;\n";
         out << "struct FjellGeneratedInfo;\n";
+        out << "struct FjellUiGeneratedInfo;\n";
         out << "extern \"C\" void fjell_reg_component(FjellTypeRegistry*, const FjellComponentTypeOOP*) {}\n";
+        out << "extern \"C\" void fjell_reg_ui_component(FjellTypeRegistry*, const FjellUiComponentTypeOOP*) {}\n";
         out << "extern \"C\" void fjell_set_generated_table(const FjellGeneratedInfo*, unsigned) {}\n";
+        out << "extern \"C\" void fjell_set_ui_generated_table(const FjellUiGeneratedInfo*, unsigned) {}\n";
+        out << "extern \"C\" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char*) { return nullptr; }\n";
         out << "extern \"C\" const FjellGeneratedInfo* fjell_find_generated(const char*) { return nullptr; }\n";
         out << "extern \"C\" void* fjell_resolve_weak_ref(unsigned, unsigned) { return nullptr; }\n";
         out << "extern \"C\" void fjell_ref_acquire(unsigned) {}\n";
