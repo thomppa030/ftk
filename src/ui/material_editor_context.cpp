@@ -146,6 +146,12 @@ void MaterialEditorContext::save_material() {
     FJELL_CORE_INFO("Material saved: {}", fjmat_abs_path_);
 }
 
+bool MaterialEditorContext::save() {
+    if (fjmat_path_.empty()) return false;
+    save_material();
+    return true;
+}
+
 // ── Preview scene ────────────────────────────────────────────────────────
 
 void MaterialEditorContext::setup_preview_scene() {

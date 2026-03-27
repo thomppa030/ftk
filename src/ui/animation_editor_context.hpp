@@ -40,6 +40,7 @@ public:
     explicit AnimationEditorContext(AnimationEditorDeps deps);
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
+    [[nodiscard]] std::string asset_path() const override { return skeleton_path_; }
 
     void init() override;
     void shutdown() override;

@@ -36,6 +36,7 @@ public:
     ~UiEditorContext() override;
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
+    [[nodiscard]] std::string asset_path() const override { return fjui_path_; }
 
     void init() override;
     void shutdown() override;

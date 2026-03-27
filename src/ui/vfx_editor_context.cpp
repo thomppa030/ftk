@@ -154,11 +154,6 @@ bool VfxEditorContext::handle_shortcuts() {
         return true;
     }
 
-    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
-        save_effect();
-        return true;
-    }
-
     return false;
 }
 
@@ -249,6 +244,12 @@ void VfxEditorContext::save_effect() {
     if (fjvfx_abs_path_.empty() || !effect_) return;
     save_vfx_effect(fjvfx_abs_path_, *effect_);
     FJELL_CORE_INFO("VFX saved: {}", fjvfx_abs_path_);
+}
+
+bool VfxEditorContext::save() {
+    if (fjvfx_path_.empty()) return false;
+    save_effect();
+    return true;
 }
 
 void VfxEditorContext::setup_preview() {

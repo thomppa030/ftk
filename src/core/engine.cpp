@@ -716,12 +716,12 @@ void Engine::draw_ui() {
     // Global shortcuts (Ctrl+S, Ctrl+Z/Y, Ctrl+Space)
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
         code_editor_.save_active();
-        save_material_assets();
-        if (auto* mat_ctx = dynamic_cast<MaterialEditorContext*>(&active_context())) {
-            mat_ctx->save_material();
-        }
-        if (auto r = scene_.save(current_scene_path_); !r) {
-            FJELL_CORE_ERROR("{}", r.error());
+        active_context().save();
+        if (&active_context() == scene_context_) {
+            save_material_assets();
+            if (auto r = scene_.save(current_scene_path_); !r) {
+                FJELL_CORE_ERROR("{}", r.error());
+            }
         }
     }
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space)) {

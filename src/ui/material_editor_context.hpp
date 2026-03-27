@@ -37,6 +37,8 @@ public:
     explicit MaterialEditorContext(MaterialEditorDeps deps);
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
+    [[nodiscard]] std::string asset_path() const override { return fjmat_path_; }
+    bool save() override;
 
     void init() override;
     void shutdown() override;
