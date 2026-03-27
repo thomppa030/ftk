@@ -10,6 +10,7 @@
 #include "physics/physics_subsystem.hpp"
 #include "renderer/vfx_subsystem.hpp"
 #include "scripting/script_subsystem.hpp"
+#include "ui/game_ui/ui_subsystem.hpp"
 #include "platform/platform.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
@@ -138,22 +139,40 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                VkCommandBuffer cmd, VkDescriptorSet global_set,
                VkDescriptorSet bindless_set, VkExtent2D extent,
                uint32_t frame_index) {
+            // FPS counter (shared across all UI instances)
+            fps_accum_ += clock_.delta_time();
+            ++fps_count_;
+            if (fps_accum_ >= 0.5f) {
+                int fps = static_cast<int>(static_cast<float>(fps_count_) / fps_accum_ + 0.5f);
+                game_ui_.context().set("fps", std::to_string(fps));
+                fps_accum_ = 0.0f;
+                fps_count_ = 0;
+            }
+
+            // Editor preview UI (non-play mode, loaded from UI editor context)
             if (game_ui_.loaded()) {
-                fps_accum_ += clock_.delta_time();
-                ++fps_count_;
-                if (fps_accum_ >= 0.5f) {
-                    int fps = static_cast<int>(static_cast<float>(fps_count_) / fps_accum_ + 0.5f);
-                    game_ui_.context().set("fps", std::to_string(fps));
-                    fps_accum_ = 0.0f;
-                    fps_count_ = 0;
-                }
                 game_ui_.update(static_cast<float>(extent.width),
                                 static_cast<float>(extent.height),
                                 frame_index, clock_.delta_time(), &input_);
                 game_ui_.record(cmd, global_set, bindless_set, extent,
                                 frame_index);
             }
+
+            // Runtime UI instances from GameUiNodes (play mode)
+            for (auto& inst : ui_subsystem_->instances()) {
+                if (!inst.game_ui || !inst.game_ui->loaded()) continue;
+                inst.game_ui->context().set("fps", std::to_string(fps_count_));
+                inst.game_ui->update(static_cast<float>(extent.width),
+                                     static_cast<float>(extent.height),
+                                     frame_index, clock_.delta_time(), &input_);
+                inst.game_ui->record(cmd, global_set, bindless_set, extent,
+                                     frame_index);
+            }
         });
+
+    // Create UI subsystem (after game_ui_ font atlas is ready)
+    ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_, game_ui_);
+    play_phase_0_.push_back(ui_subsystem_);
 
     resource_manager_ = std::make_unique<ResourceManager>(
         vulkan_context_->device(), vulkan_context_->physical_device(),
@@ -299,6 +318,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             .icon_cache = icon_cache_.get(),
             .light = &light_,
             .game_ui = &game_ui_,
+            .ui_subsystem = ui_subsystem_,
             .thread_pool = &thread_pool_,
             .window = &window_,
             .game_mode = game_mode_,

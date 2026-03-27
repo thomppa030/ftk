@@ -28,6 +28,7 @@ class ProjectManager;
 class ResourceManager;
 class ScriptSubsystem;
 class ThreadPool;
+class UiSubsystem;
 class VfxSubsystem;
 class VulkanContext;
 class Window;
@@ -48,6 +49,7 @@ struct SceneEditorDeps {
     IconCache* icon_cache;
     DirectionalLight* light;
     GameUi* game_ui;
+    UiSubsystem* ui_subsystem;
     ThreadPool* thread_pool;
     Window* window;
     bool game_mode;

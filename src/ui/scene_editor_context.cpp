@@ -26,7 +26,9 @@
 #include "renderer/vulkan_context.hpp"
 #include "renderer/vfx_subsystem.hpp"
 #include "scene/camera_node.hpp"
+#include "scene/game_ui_node.hpp"
 #include "scene/light_node.hpp"
+#include "ui/game_ui/ui_subsystem.hpp"
 #include "scripting/script_subsystem.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/icon_cache.hpp"
@@ -415,6 +417,7 @@ void SceneEditorContext::start_play() {
         };
         deps_.audio_subsystem->on_play_start(ctx);
         deps_.script_subsystem->on_play_start(ctx);
+        deps_.ui_subsystem->on_play_start(ctx);
     }
 
     deps_.vulkan_context->set_playing(true);
@@ -440,6 +443,7 @@ void SceneEditorContext::stop_play() {
         .vfx = nullptr,
         .project = deps_.project_mgr->active(),
     };
+    deps_.ui_subsystem->on_play_stop(ctx);
     deps_.audio_subsystem->on_play_stop(ctx);
     deps_.script_subsystem->on_play_stop(ctx);
     deps_.vfx_subsystem->on_play_stop(ctx);
@@ -685,6 +689,12 @@ void SceneEditorContext::add_primitive(const std::string& type) {
     if (type == "world_environment") {
         auto node = std::make_unique<WorldEnvironmentNode>();
         node->name = "World Environment";
+        selected_id_ = deps_.scene->add_node(std::move(node));
+        return;
+    }
+    if (type == "game_ui") {
+        auto node = std::make_unique<GameUiNode>();
+        node->name = "Game UI";
         selected_id_ = deps_.scene->add_node(std::move(node));
         return;
     }

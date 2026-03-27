@@ -44,6 +44,7 @@ class PhysicsSubsystem;
 class ResourceManager;
 class SceneEditorContext;
 class ScriptSubsystem;
+class UiSubsystem;
 class VfxSubsystem;
 class VulkanContext;
 
@@ -108,6 +109,7 @@ private:
     ScriptSubsystem*    script_subsystem_{};
     PhysicsSubsystem*   physics_subsystem_{};
     VfxSubsystem*       vfx_subsystem_{};
+    UiSubsystem*        ui_subsystem_{};
 
     // Phase groups (non-owning, built once in constructor)
     std::vector<Subsystem*> play_phase_0_;   // scripts
