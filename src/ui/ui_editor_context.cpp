@@ -25,10 +25,6 @@ namespace fs = std::filesystem;
 UiEditorContext::UiEditorContext(UiEditorDeps deps)
     : deps_{deps} {}
 
-UiEditorContext::~UiEditorContext() {
-    shutdown();
-}
-
 void UiEditorContext::init() {
     // Preview GameUi is initialized lazily when a .fjui file is opened
 }

@@ -33,7 +33,6 @@ struct UiEditorDeps {
 class UiEditorContext final : public EditorContext {
 public:
     explicit UiEditorContext(UiEditorDeps deps);
-    ~UiEditorContext() override;
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
     [[nodiscard]] std::string asset_path() const override { return fjui_path_; }
