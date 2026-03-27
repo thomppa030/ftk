@@ -246,8 +246,9 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
         }
     }
 
+    static uint32_t s_reload_counter = 0;
     auto temp = so_path.parent_path() /
-        ("game_" + std::to_string(std::time(nullptr)) + ".so");
+        ("game_" + std::to_string(++s_reload_counter) + ".so");
     std::filesystem::copy_file(so_path, temp,
                                std::filesystem::copy_options::overwrite_existing);
 
@@ -258,7 +259,8 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
 
     so_path_ = so_path;
 
-    if (!loaded_temp_path_.empty()) {
+    // Delete old temp after new one is loaded (old dlopen handle is already closed by unload())
+    if (!loaded_temp_path_.empty() && loaded_temp_path_ != temp) {
         std::filesystem::remove(loaded_temp_path_);
     }
     loaded_temp_path_ = temp;
@@ -394,16 +396,30 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
     world_.destroy_node_fn = [](uint32_t id) {
         if (s_active_scene) s_active_scene->queue_destroy(id);
     };
-    world_.find_node_fn = [](const char* name) -> uint64_t {
+    world_.find_node_fn = [](const char* name) -> uint32_t {
         if (!s_active_scene) return 0;
         for (const auto& obj : s_active_scene->objects()) {
-            if (obj->name == name) {
-                uint64_t id = obj->id;
-                uint64_t gen = s_active_scene->generation_of(obj->id);
-                return id | (gen << 32);
-            }
+            if (obj->name == name) return obj->id;
         }
         return 0;
+    };
+
+    world_.get_transform_fn = [](uint32_t node_id) -> Transform* {
+        if (!s_active_scene) return nullptr;
+        auto* node = s_active_scene->find_spatial(node_id);
+        return node ? &node->transform : nullptr;
+    };
+
+    world_.get_component_fn = [](uint32_t node_id,
+                                 const char* type_name) -> ScriptComponent* {
+        if (!s_active_scene || !type_name) return nullptr;
+        auto* node = s_active_scene->find(node_id);
+        if (!node) return nullptr;
+        for (auto& entry : node->scripts) {
+            if (entry.instance && entry.type_name == type_name)
+                return entry.instance.get();
+        }
+        return nullptr;
     };
 
     world_.spawn_vfx_fn = [](uint32_t handle_id, float x, float y, float z) {

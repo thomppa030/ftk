@@ -25,7 +25,7 @@ SharedLibrary& SharedLibrary::operator=(SharedLibrary&& other) noexcept {
 
 bool SharedLibrary::load(const std::filesystem::path& path) {
     unload();
-    handle_ = dlopen(path.c_str(), RTLD_NOW);
+    handle_ = dlopen(path.c_str(), RTLD_NOW | RTLD_LOCAL);
     if (!handle_) {
         const char* err = dlerror();
         error_ = err ? err : "unknown dlopen error";

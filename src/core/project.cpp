@@ -229,7 +229,7 @@ void Project::write_scripts_cmake(const Project& project) {
                << "if(MSVC)\n"
                << "    target_compile_options(game PRIVATE /W3)\n"
                << "else()\n"
-               << "    target_compile_options(game PRIVATE -Wall -Wextra -Wno-invalid-offsetof -Wno-attributes)\n"
+               << "    target_compile_options(game PRIVATE -Wall -Wextra -Wno-invalid-offsetof -Wno-attributes -fno-gnu-unique)\n"
                << "endif()\n\n"
                << "set_target_properties(game PROPERTIES\n"
                << "    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..\n"
