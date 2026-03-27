@@ -47,6 +47,22 @@ public:
 
     void destroy(uint32_t target_id) { world_->destroy(target_id); }
 
+    // --- Scene queries ---
+
+    [[nodiscard]] uint32_t find_node(const char* name) const {
+        return world_->find_node_fn ? world_->find_node_fn(name) : 0;
+    }
+
+    [[nodiscard]] Transform* get_transform(uint32_t node_id) const {
+        return world_->get_transform_fn ? world_->get_transform_fn(node_id) : nullptr;
+    }
+
+    template <typename T>
+    [[nodiscard]] T* get_component(uint32_t node_id) const {
+        if (!world_->get_component_fn) return nullptr;
+        return static_cast<T*>(world_->get_component_fn(node_id, T::type_name));
+    }
+
     void spawn_vfx(const Ref<VfxAsset>& effect, const glm::vec3& pos) {
         if (world_->spawn_vfx_fn && effect.handle_id() != 0) {
             world_->spawn_vfx_fn(effect.handle_id(), pos.x, pos.y, pos.z);

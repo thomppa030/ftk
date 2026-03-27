@@ -4,12 +4,14 @@
 #pragma once
 
 #include "fjell_input.hpp"
+#include "fjell_transform.hpp"
 
 #include <cstdio>
 
 namespace fjell {
 
 class PhysicsWorld;
+class ScriptComponent;
 
 struct World {
     const Input* input_{nullptr};
@@ -23,8 +25,10 @@ struct World {
     void (*log_error_fn)(const char*){nullptr};
 
     // Scene queries and manipulation
-    uint64_t (*find_node_fn)(const char* name){nullptr};  // returns packed {id, generation}
+    uint32_t (*find_node_fn)(const char* name){nullptr};
     void (*destroy_node_fn)(uint32_t id){nullptr};
+    Transform* (*get_transform_fn)(uint32_t node_id){nullptr};
+    ScriptComponent* (*get_component_fn)(uint32_t node_id, const char* type_name){nullptr};
 
     // Subsystem function pointers (engine sets these)
     void (*spawn_vfx_fn)(uint32_t handle_id, float x, float y, float z){nullptr};
