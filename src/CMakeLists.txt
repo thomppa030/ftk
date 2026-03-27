@@ -124,6 +124,11 @@ add_executable(fjell
     physics/physics_world.cpp
     scene/scene.cpp
     scripting/script_manager.cpp
+    scripting/script_globals.cpp
+    scripting/log_api.cpp
+    scripting/audio_api.cpp
+    scripting/vfx_api.cpp
+    scripting/scene_api.cpp
     ui/console.cpp
     ui/menu_bar.cpp
     ui/file_browser.cpp
