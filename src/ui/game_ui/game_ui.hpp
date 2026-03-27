@@ -11,6 +11,7 @@
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/style_resolver.hpp"
+#include "ui/game_ui/widget_resolver.hpp"
 
 #ifndef NDEBUG
 #include "ui/game_ui/ui_watcher.hpp"
@@ -101,6 +102,7 @@ private:
     UiInput ui_input_;
     UiDataBind data_bind_;
     UiAnimation animation_;
+    WidgetResolver widget_resolver_;
     FontAtlas font_atlas_;
     const FontAtlas* shared_font_atlas_{nullptr}; // non-owning, overrides font_atlas_ when set
     bool dirty_{true};

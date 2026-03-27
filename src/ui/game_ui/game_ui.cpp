@@ -80,6 +80,10 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
         stylesheet_ = FjssParser::parse(fjss_ss.str());
     }
 
+    // Resolve widget tags: <health-bar/> → widgets/health_bar.fjui
+    auto base_dir = std::filesystem::path(fjui_path).parent_path().string();
+    widget_resolver_.resolve(*root_, base_dir, stylesheet_, context_);
+
     // Initialize text templates: save original text_content as template
     // before data binding resolves {key} placeholders
     init_text_templates(*root_);

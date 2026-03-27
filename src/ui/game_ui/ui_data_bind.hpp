@@ -8,14 +8,19 @@ class UiContext;
 
 /// Resolves {key} placeholders in text content from UiContext values,
 /// and evaluates if="condition" attributes to toggle node visibility.
+/// Supports scoped widget contexts: when a node has a scoped_context,
+/// its children resolve against that context instead of the root.
+/// Handles foreach directives: stamps out cloned nodes per list entry.
 class UiDataBind {
 public:
     /// Resolve all bindings in the tree.
     /// Returns true if any text or visibility changed.
-    bool resolve(UiNode& root, const UiContext& context);
+    bool resolve(UiNode& root, UiContext& context);
 
 private:
-    void resolve_node(UiNode& node, const UiContext& context, bool& changed);
+    void resolve_node(UiNode& node, UiContext& context, bool& changed);
+    void resolve_foreach(UiNode& parent, UiContext& context, bool& changed);
+    static std::unique_ptr<UiNode> clone_node(const UiNode& source, UiNode* new_parent);
     static std::string resolve_template(const std::string& tmpl, const UiContext& context);
 };
 

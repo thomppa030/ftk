@@ -1,5 +1,6 @@
 #pragma once
 
+#include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/ui_style.hpp"
 #include "ui/game_ui/ui_types.hpp"
 
@@ -46,6 +47,18 @@ struct UiNode {
     // Resolved texture/material indices (set during load)
     uint32_t resolved_texture_id{0};
     uint32_t resolved_material_id{UINT32_MAX};
+
+    // Widget composition
+    bool is_widget{false};
+    std::string widget_tag;   // original tag name before resolution (e.g., "health-bar")
+    std::unique_ptr<UiContext> scoped_context; // widget's local context (nullptr for non-widgets)
+    std::unordered_map<std::string, std::string> prop_map; // inner key → outer expression
+    std::unordered_map<std::string, std::string> event_map; // child event → parent action
+
+    // Foreach directive
+    bool is_foreach_template{false}; // hidden template node, preserved for cloning
+    int foreach_item_index{-1};      // which list index this cloned node represents
+    UiContext* foreach_context{nullptr}; // non-owning, points to list item context
 
     std::vector<std::unique_ptr<UiNode>> children;
     UiNode* parent{nullptr};

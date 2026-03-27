@@ -6,20 +6,35 @@
 
 namespace fjell {
 
-bool UiDataBind::resolve(UiNode& root, const UiContext& context) {
+bool UiDataBind::resolve(UiNode& root, UiContext& context) {
     FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
     bool changed = false;
     resolve_node(root, context, changed);
     return changed;
 }
 
-void UiDataBind::resolve_node(UiNode& node, const UiContext& context, bool& changed) {
+void UiDataBind::resolve_node(UiNode& node, UiContext& context, bool& changed) {
+    // Determine which context to use for this node and its children.
+    // Priority: foreach item context > widget scoped context > parent context
+    UiContext& ctx = node.foreach_context ? *node.foreach_context
+                   : node.scoped_context  ? *node.scoped_context
+                   : context;
+
+    // Sync props: resolve outer expressions against parent context,
+    // write results into the widget's scoped context
+    if (node.is_widget && node.scoped_context) {
+        for (const auto& [inner_key, outer_expr] : node.prop_map) {
+            auto resolved = resolve_template(outer_expr, context);
+            node.scoped_context->set(inner_key, resolved);
+        }
+    }
+
     // Evaluate if="key" directive
     auto if_it = node.attributes.find("if");
     if (if_it != node.attributes.end()) {
         const auto& key = if_it->second;
         bool visible = false;
-        auto val = context.get(key);
+        auto val = ctx.get(key);
         // Truthy: non-empty, not "0", not "false"
         if (!val.empty() && val != "0" && val != "false") {
             visible = true;
@@ -41,10 +56,10 @@ void UiDataBind::resolve_node(UiNode& node, const UiContext& context, bool& chan
             // "key==value" — compare context value to literal
             auto key = condition.substr(0, eq_pos);
             auto expected = condition.substr(eq_pos + 2);
-            should_have = (context.get(key) == expected);
+            should_have = (ctx.get(key) == expected);
         } else {
             // Just a key — truthy check
-            auto val = context.get(condition);
+            auto val = ctx.get(condition);
             should_have = !val.empty() && val != "0" && val != "false";
         }
 
@@ -62,7 +77,7 @@ void UiDataBind::resolve_node(UiNode& node, const UiContext& context, bool& chan
 
     // Resolve {key} templates in text content
     if (node.type == UiNodeType::text && !node.text_template.empty()) {
-        auto resolved = resolve_template(node.text_template, context);
+        auto resolved = resolve_template(node.text_template, ctx);
         if (resolved != node.text_content) {
             node.text_content = std::move(resolved);
             changed = true;
@@ -74,8 +89,8 @@ void UiDataBind::resolve_node(UiNode& node, const UiContext& context, bool& chan
         auto val_it = node.attributes.find("value");
         auto max_it = node.attributes.find("max");
         if (val_it != node.attributes.end() && max_it != node.attributes.end()) {
-            auto val_str = resolve_template(val_it->second, context);
-            auto max_str = resolve_template(max_it->second, context);
+            auto val_str = resolve_template(val_it->second, ctx);
+            auto max_str = resolve_template(max_it->second, ctx);
             float val = 0.0f;
             float max = 1.0f;
             try { val = std::stof(val_str); } catch (...) {}
@@ -90,8 +105,107 @@ void UiDataBind::resolve_node(UiNode& node, const UiContext& context, bool& chan
         }
     }
 
+    // Process foreach directives in children before recursing
+    resolve_foreach(node, ctx, changed);
+
     for (auto& child : node.children) {
-        resolve_node(*child, context, changed);
+        if (child->is_foreach_template) continue; // skip hidden template
+        resolve_node(*child, ctx, changed);
+    }
+}
+
+std::unique_ptr<UiNode> UiDataBind::clone_node(const UiNode& source, UiNode* new_parent) {
+    auto clone = std::make_unique<UiNode>();
+    clone->type = source.type;
+    clone->tag = source.tag;
+    clone->id = source.id;
+    clone->classes = source.classes;
+    clone->attributes = source.attributes;
+    clone->text_content = source.text_content;
+    clone->text_template = source.text_template;
+    clone->parent = new_parent;
+    clone->resolved_texture_id = source.resolved_texture_id;
+    clone->resolved_material_id = source.resolved_material_id;
+
+    // Copy widget state
+    clone->is_widget = source.is_widget;
+    clone->widget_tag = source.widget_tag;
+    clone->prop_map = source.prop_map;
+    clone->event_map = source.event_map;
+
+    for (const auto& child : source.children) {
+        clone->children.push_back(clone_node(*child, clone.get()));
+    }
+    return clone;
+}
+
+void UiDataBind::resolve_foreach(UiNode& parent, UiContext& context, bool& changed) {
+    for (size_t i = 0; i < parent.children.size(); ++i) {
+        auto& child = *parent.children[i];
+        auto foreach_it = child.attributes.find("foreach");
+        if (foreach_it == child.attributes.end()) continue;
+
+        const auto& list_key = foreach_it->second;
+
+        // First time: mark as template and hide
+        if (!child.is_foreach_template) {
+            child.is_foreach_template = true;
+            child.hidden_by_if = true;
+            changed = true;
+        }
+
+        // Get list from context (mutable — we need to set __index on items)
+        std::vector<UiContext>* list = context.get_list(list_key);
+        size_t list_count = list ? list->size() : 0;
+
+        // Count existing foreach clones after the template
+        size_t clone_start = i + 1;
+        size_t existing_clones = 0;
+        for (size_t j = clone_start; j < parent.children.size(); ++j) {
+            if (parent.children[j]->foreach_item_index >= 0) {
+                ++existing_clones;
+            } else {
+                break; // clones are contiguous after template
+            }
+        }
+
+        if (existing_clones != list_count) {
+            changed = true;
+
+            // Remove excess clones
+            if (existing_clones > list_count) {
+                auto erase_begin = parent.children.begin()
+                    + static_cast<ptrdiff_t>(clone_start + list_count);
+                auto erase_end = parent.children.begin()
+                    + static_cast<ptrdiff_t>(clone_start + existing_clones);
+                parent.children.erase(erase_begin, erase_end);
+            }
+
+            // Add missing clones
+            for (size_t j = existing_clones; j < list_count; ++j) {
+                auto clone = clone_node(child, &parent);
+                clone->is_foreach_template = false;
+                clone->hidden_by_if = false;
+                clone->foreach_item_index = static_cast<int>(j);
+                clone->attributes.erase("foreach");
+                parent.children.insert(
+                    parent.children.begin() + static_cast<ptrdiff_t>(clone_start + j),
+                    std::move(clone));
+            }
+        }
+
+        // Point each clone's scoped context at the corresponding list item.
+        // List items are non-const UiContexts with parent = &context (set by set_list).
+        // The clone's scoped_context is a pointer wrapper — the item context IS the scope.
+        if (list) {
+            for (size_t j = 0; j < list_count; ++j) {
+                auto& clone = *parent.children[clone_start + j];
+                auto& item_ctx = (*list)[j];
+                item_ctx.set("__index", std::to_string(j));
+                // Point clone at the item context (non-owning)
+                clone.foreach_context = &item_ctx;
+            }
+        }
     }
 }
 
