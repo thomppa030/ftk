@@ -60,9 +60,9 @@ void register_component(FjellTypeRegistry* reg) {
 } // namespace fjell
 
 // ── Auto-registration ───────────────────────────────────────────────────
-// Each FJELL_COMPONENT builds a linked list of registration functions at
-// static-init time. fjell_register() walks the list when the engine loads
-// the .so. No central register file needed.
+// Each FJELL_COMPONENT / FJELL_UI_COMPONENT builds a linked list of
+// registration functions at static-init time. fjell_register() walks both
+// lists when the engine loads the .so. No central register file needed.
 
 struct FjellAutoReg {
     using Fn = void(*)(FjellTypeRegistry*);
@@ -72,6 +72,14 @@ struct FjellAutoReg {
 
 inline FjellAutoReg*& fjell_auto_reg_head() {
     static FjellAutoReg* head = nullptr;
+    return head;
+}
+
+// UI component auto-registration (defined in ui_registry.hpp, but declared
+// here so FJELL_REGISTER() can walk both lists even when no UI components exist)
+struct FjellUiAutoReg;
+inline FjellUiAutoReg*& fjell_ui_auto_reg_head() {
+    static FjellUiAutoReg* head = nullptr;
     return head;
 }
 
@@ -94,4 +102,5 @@ inline FjellAutoReg*& fjell_auto_reg_head() {
     extern "C" uint32_t fjell_api_version() { return FJELL_API_VERSION; } \
     extern "C" void fjell_register(FjellTypeRegistry* registry) { \
         for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry); \
+        for (auto* r = fjell_ui_auto_reg_head(); r; r = r->next) r->fn(registry); \
     }

@@ -1,6 +1,8 @@
 #include "scripting/script_manager.hpp"
 #include "scripting/script_globals.hpp"
 #include "scripting/fjell/component.hpp"
+#include "scripting/fjell/ui_component.hpp"
+#include "scripting/fjell/ui_registry.hpp"
 #include "scripting/fjell/weak_ref.hpp"
 #include "scripting/fjell/ref.hpp"
 #include "scripting/fjell/shared_ref.hpp"
@@ -27,6 +29,7 @@
 
 struct FjellTypeRegistry {
     std::vector<fjell::OwnedScriptType> scripts;
+    std::vector<fjell::OwnedUiComponentType> ui_components;
 };
 
 // ── Asset type registry (maps ref_type_name → file extension) ───────────
@@ -180,6 +183,39 @@ extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponent
         owned.fields.push_back(fjell::copy_field(desc->fields[i]));
     }
     reg->scripts.push_back(std::move(owned));
+}
+
+// UI generated reflection table (parallel to script table)
+static const FjellUiGeneratedInfo* s_ui_generated_table = nullptr;
+static uint32_t s_ui_generated_count = 0;
+
+extern "C" void fjell_set_ui_generated_table(const FjellUiGeneratedInfo* table, uint32_t count) {
+    s_ui_generated_table = table;
+    s_ui_generated_count = count;
+}
+
+extern "C" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char* name) {
+    if (!s_ui_generated_table || !name) return nullptr;
+    for (uint32_t i = 0; i < s_ui_generated_count; ++i) {
+        if (std::strcmp(s_ui_generated_table[i].name, name) == 0) {
+            return &s_ui_generated_table[i];
+        }
+    }
+    return nullptr;
+}
+
+extern "C" void fjell_reg_ui_component(FjellTypeRegistry* reg, const FjellUiComponentTypeOOP* desc) {
+    if (!reg || !desc) return;
+    fjell::OwnedUiComponentType owned;
+    owned.name = desc->name;
+    owned.widget_tag = desc->widget_tag;
+    owned.create = desc->create;
+    owned.trace = desc->trace;
+    owned.loaded = true;
+    for (uint32_t i = 0; i < desc->field_count; ++i) {
+        owned.fields.push_back(fjell::copy_field(desc->fields[i]));
+    }
+    reg->ui_components.push_back(std::move(owned));
 }
 
 namespace fjell {
@@ -337,6 +373,11 @@ void ScriptManager::build_registry() {
         script_type_map_[ct.type_id] = script_type_list_.size();
         script_type_list_.push_back(std::move(ct));
     }
+
+    ui_type_list_.clear();
+    for (auto& ut : registry.ui_components) {
+        ui_type_list_.push_back(std::move(ut));
+    }
 }
 
 // ── Type lookups ────────────────────────────────────────────────────────
@@ -346,6 +387,13 @@ const OwnedScriptType* ScriptManager::find_script_type(const std::string& name) 
     auto it = script_type_map_.find(id);
     if (it == script_type_map_.end()) return nullptr;
     return &script_type_list_[it->second];
+}
+
+const OwnedUiComponentType* ScriptManager::find_ui_type_by_tag(const std::string& tag) const {
+    for (const auto& ut : ui_type_list_) {
+        if (ut.widget_tag == tag) return &ut;
+    }
+    return nullptr;
 }
 
 // ── Component management ────────────────────────────────────────────────
