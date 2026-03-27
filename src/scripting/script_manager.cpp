@@ -1,8 +1,8 @@
 #include "scripting/script_manager.hpp"
-#include "scripting/fjell_component.hpp"
-#include "scripting/fjell_weak_ref.hpp"
-#include "scripting/fjell_ref.hpp"
-#include "scripting/fjell_shared_ref.hpp"
+#include "scripting/fjell/component.hpp"
+#include "scripting/fjell/weak_ref.hpp"
+#include "scripting/fjell/ref.hpp"
+#include "scripting/fjell/shared_ref.hpp"
 #include "scripting/gc_visitor.hpp"
 #include "scripting/ref_count_table.hpp"
 #include "core/clock.hpp"
@@ -10,6 +10,8 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "physics/physics_world.hpp"
+#include "physics/physics_types.hpp"
+#include "renderer/mesh_component.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "core/base_path.hpp"
 #include "renderer/resource_manager.hpp"
@@ -61,6 +63,7 @@ static fjell::AudioSubsystem* s_audio_subsystem = nullptr;
 // ── WeakRef resolution (called from game .so via -rdynamic) ─────────────
 
 static fjell::Scene* s_active_scene = nullptr;
+static fjell::ScriptManager* s_active_script_mgr = nullptr;
 
 extern "C" void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation) {
     if (!s_active_scene || id == 0) return nullptr;
@@ -422,6 +425,41 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
         return nullptr;
     };
 
+    world_.spawn_empty_fn = [](const char* name, const Transform* t) -> uint32_t {
+        if (!s_active_scene) return 0;
+        Transform transform = t ? *t : Transform{};
+        return s_active_scene->add_empty(transform, name ? name : "Spawned");
+    };
+
+    world_.add_component_fn = [](uint32_t node_id,
+                                 const char* type_name) -> void* {
+        if (!s_active_scene || !type_name) return nullptr;
+        auto* node = s_active_scene->find(node_id);
+        if (!node) return nullptr;
+
+        // Engine components — match by name, add to ComponentStorage
+        std::string_view tn{type_name};
+        if (tn == "RigidbodyComponent")
+            return &node->components.add<RigidbodyComponent>();
+        if (tn == "ColliderComponent")
+            return &node->components.add<ColliderComponent>();
+        if (tn == "CharacterComponent")
+            return &node->components.add<CharacterComponent>();
+        if (tn == "MeshComponent")
+            return &node->components.add<MeshComponent>();
+
+        // Script components — add via ScriptManager
+        auto* spatial = node->as_spatial();
+        if (!spatial || !s_active_script_mgr) return nullptr;
+        auto result = s_active_script_mgr->add_script(*spatial, type_name);
+        if (!result) return nullptr;
+        // Return the newly added instance (last in the scripts vector)
+        auto& scripts = spatial->scripts;
+        if (!scripts.empty() && scripts.back().instance)
+            return scripts.back().instance.get();
+        return nullptr;
+    };
+
     world_.spawn_vfx_fn = [](uint32_t handle_id, float x, float y, float z) {
         if (s_vfx_subsystem && s_active_scene && s_resource_manager) {
             s_vfx_subsystem->spawn(VfxAssetHandle{handle_id}, {x, y, z},
@@ -444,6 +482,7 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
 void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock,
                             PhysicsWorld* physics) {
     s_active_scene = &scene;
+    s_active_script_mgr = this;
     populate_world(input, clock, physics);
 }
 
@@ -453,6 +492,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     if (!is_loaded()) return;
 
     s_active_scene = &scene;
+    s_active_script_mgr = this;
     populate_world(input, clock, physics);
 
     float dt = clock.delta_time();
