@@ -128,19 +128,8 @@ std::vector<ViewportRenderRequest> AnimationEditorContext::build_render_requests
     return viewport_manager_.build_render_requests();
 }
 
-void AnimationEditorContext::apply_resize(VulkanContext& /*vk*/) {
-    // Don't resize global render passes — the animation preview reuses
-    // the scene context's pipeline. Only the offscreen pass itself needs
-    // to match the viewport panel size, which ViewportManager handles
-    // internally via OffscreenPass::resize().
-    for (auto* panel = viewport_manager_.active_panel(); panel; panel = nullptr) {
-        if (!panel->offscreen) break;
-        auto w = static_cast<uint32_t>(panel->size.x);
-        auto h = static_cast<uint32_t>(panel->size.y);
-        if (w > 0 && h > 0) {
-            panel->offscreen->resize(w, h);
-        }
-    }
+void AnimationEditorContext::apply_resize(VulkanContext& vk) {
+    viewport_manager_.apply_resize(vk);
 }
 
 bool AnimationEditorContext::any_viewport_hovered() const {
