@@ -1,4 +1,5 @@
 #include "scene/scene.hpp"
+#include "scene/game_ui_node.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
 #include "animation/skeleton.hpp"
@@ -661,6 +662,11 @@ Result<> Scene::save(const std::string& path) {
                 {"sky_bottom_color", {env->sky_bottom_color.x, env->sky_bottom_color.y, env->sky_bottom_color.z}},
                 {"ibl_intensity", env->ibl_intensity}
             };
+        } else if (auto* gui = dynamic_cast<const GameUiNode*>(obj.get())) {
+            jobj["node_type"] = "game_ui";
+            jobj["ui"] = {
+                {"path", gui->ui_path}
+            };
         }
 
         j["objects"].push_back(jobj);
@@ -863,6 +869,13 @@ Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
                     env->ibl_intensity = js.value("ibl_intensity", 1.0f);
                 }
                 node = std::move(env);
+            } else if (node_type == "game_ui") {
+                auto gui = std::make_unique<GameUiNode>();
+                if (jobj.contains("ui")) {
+                    auto& ju = jobj["ui"];
+                    gui->ui_path = ju.value("path", "");
+                }
+                node = std::move(gui);
             }
 
             if (node) {

@@ -16,6 +16,7 @@
 #include "renderer/pass/grid_pass.hpp"
 #include "physics/physics_types.hpp"
 #include "scene/camera_node.hpp"
+#include "scene/game_ui_node.hpp"
 #include "scene/light_node.hpp"
 #include "scripting/script_manager.hpp"
 #include "ui/icon_cache.hpp"
@@ -494,6 +495,16 @@ void PropertiesPanel::draw() {
                     ImGui::Text("IBL Intensity");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::SliderFloat("##IBLIntensity", &env->ibl_intensity, 0.0f, 5.0f);
+                }
+            }
+
+            // Game UI
+            if (auto* gui = dynamic_cast<GameUiNode*>(obj)) {
+                colored_separator({0.6f, 0.45f, 0.8f, 1.0f});
+                if (ImGui::CollapsingHeader("Game UI", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    if (asset_path_field("UI Layout", "##GameUiPath", gui->ui_path)) {
+                        scene_->mark_dirty();
+                    }
                 }
             }
 
