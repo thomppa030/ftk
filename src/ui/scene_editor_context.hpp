@@ -66,6 +66,9 @@ public:
     void setup_dockspace(ImGuiID main_area) override;
     bool handle_shortcuts() override;
 
+    // Scene to render
+    [[nodiscard]] Scene* render_scene() override { return deps_.scene; }
+
     // Play mode
     [[nodiscard]] bool supports_play() const override { return true; }
     [[nodiscard]] bool is_playing() const override { return play_session_ != nullptr; }

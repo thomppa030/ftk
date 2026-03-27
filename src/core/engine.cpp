@@ -944,6 +944,9 @@ void Engine::run() {
             }
         }
 
+        // Contexts with 3D viewports return their scene (main or preview).
+        // Contexts without one (e.g. UI editor) return nullptr — fall back to main scene
+        // so the renderer always has valid geometry to reference.
         Scene* render_scene = active_context().render_scene();
         if (!render_scene) render_scene = &scene_;
 
