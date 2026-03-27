@@ -13,6 +13,7 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "scene/scene.hpp"
 #include "ui/content_browser.hpp"
+#include "ui/context_registry.hpp"
 #include "ui/history_panel.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/imgui_layer.hpp"
@@ -157,6 +158,7 @@ private:
     int fps_count_{0};
 
     // Editor contexts
+    ContextRegistry context_registry_;
     std::vector<std::unique_ptr<EditorContext>> contexts_;
     int active_context_idx_{0};
     int pending_context_switch_{-1}; // requested switch, applied by tab bar next frame

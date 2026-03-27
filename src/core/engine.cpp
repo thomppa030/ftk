@@ -242,116 +242,22 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         [this](const std::string& path) { load_scene(path); }));
     connections_.push_back(content_browser_.on_open_asset.bind(
         [this](const std::string& path, const std::string& type) {
-            if (type == "skeleton" || type == "animation" || type == "animset") {
-                // Reuse existing animation editor if open
-                for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
-                    if (auto* anim_ctx = dynamic_cast<AnimationEditorContext*>(contexts_[i].get())) {
-                        if (type == "animation") {
-                            anim_ctx->open_clip(path);
-                        } else {
-                            anim_ctx->open_skeleton(path);
-                        }
-                        switch_context(i);
-                        return;
-                    }
+            auto* entry = context_registry_.find(type);
+            if (!entry) return;
+
+            // Reuse existing context if one matches
+            for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
+                if (entry->matches(*contexts_[i], path)) {
+                    entry->open(*contexts_[i], path);
+                    switch_context(i);
+                    return;
                 }
-                // Create new animation editor context
-                AnimationEditorDeps deps{
-                    .vulkan_context = vulkan_context_.get(),
-                    .resource_manager = resource_manager_.get(),
-                    .input = &input_,
-                    .clock = &clock_,
-                    .animation_subsystem = animation_subsystem_,
-                    .project_mgr = &project_mgr_,
-                    .icon_cache = icon_cache_.get()
-                };
-                auto ctx = std::make_unique<AnimationEditorContext>(deps);
-                ctx->init();
-                if (type == "skeleton") {
-                    ctx->open_skeleton(path);
-                } else {
-                    ctx->open_clip(path);
-                }
-                contexts_.push_back(std::move(ctx));
-                switch_context(static_cast<int>(contexts_.size()) - 1);
             }
-            if (type == "material") {
-                // Reuse existing material editor for this path
-                for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
-                    if (auto* mat_ctx = dynamic_cast<MaterialEditorContext*>(contexts_[i].get())) {
-                        if (mat_ctx->material_path() == path) {
-                            switch_context(i);
-                            return;
-                        }
-                    }
-                }
-                // Create new material editor context
-                MaterialEditorDeps deps{
-                    .vulkan_context = vulkan_context_.get(),
-                    .resource_manager = resource_manager_.get(),
-                    .input = &input_,
-                    .clock = &clock_,
-                    .project_mgr = &project_mgr_,
-                    .icon_cache = icon_cache_.get(),
-                    .code_editor = &code_editor_
-                };
-                auto mat_ctx = std::make_unique<MaterialEditorContext>(deps);
-                mat_ctx->init();
-                mat_ctx->open_material(path);
-                contexts_.push_back(std::move(mat_ctx));
-                switch_context(static_cast<int>(contexts_.size()) - 1);
-            }
-            if (type == "ui") {
-                // Reuse existing UI editor for this path
-                for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
-                    if (auto* ui_ctx = dynamic_cast<UiEditorContext*>(contexts_[i].get())) {
-                        if (ui_ctx->ui_path() == path) {
-                            switch_context(i);
-                            return;
-                        }
-                    }
-                }
-                // Create new UI editor context
-                UiEditorDeps deps{
-                    .vulkan_context = vulkan_context_.get(),
-                    .resource_manager = resource_manager_.get(),
-                    .input = &input_,
-                    .clock = &clock_,
-                    .project_mgr = &project_mgr_,
-                    .icon_cache = icon_cache_.get(),
-                    .code_editor = &code_editor_,
-                    .engine_game_ui = &game_ui_
-                };
-                auto ui_ctx = std::make_unique<UiEditorContext>(deps);
-                ui_ctx->init();
-                ui_ctx->open_ui(path);
-                contexts_.push_back(std::move(ui_ctx));
-                switch_context(static_cast<int>(contexts_.size()) - 1);
-            }
-            if (type == "vfx") {
-                // Reuse existing VFX editor for this path
-                for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
-                    if (auto* vfx_ctx = dynamic_cast<VfxEditorContext*>(contexts_[i].get())) {
-                        if (vfx_ctx->effect_path() == path) {
-                            switch_context(i);
-                            return;
-                        }
-                    }
-                }
-                VfxEditorDeps deps{
-                    .vulkan_context = vulkan_context_.get(),
-                    .resource_manager = resource_manager_.get(),
-                    .input = &input_,
-                    .clock = &clock_,
-                    .project_mgr = &project_mgr_,
-                    .icon_cache = icon_cache_.get()
-                };
-                auto vfx_ctx = std::make_unique<VfxEditorContext>(deps);
-                vfx_ctx->init();
-                vfx_ctx->open_effect(path);
-                contexts_.push_back(std::move(vfx_ctx));
-                switch_context(static_cast<int>(contexts_.size()) - 1);
-            }
+
+            // Create new context
+            auto ctx = entry->create(path);
+            contexts_.push_back(std::move(ctx));
+            switch_context(static_cast<int>(contexts_.size()) - 1);
         }));
     if (project_mgr_.active()) {
         content_browser_.set_root(project_mgr_.active()->root());
@@ -405,6 +311,128 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     }
 
     history_panel_.init(&scene_context_->command_history());
+
+    // Register context factories for asset types
+    context_registry_.register_type("material", {
+        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+            MaterialEditorDeps deps{
+                .vulkan_context = vulkan_context_.get(),
+                .resource_manager = resource_manager_.get(),
+                .input = &input_,
+                .clock = &clock_,
+                .project_mgr = &project_mgr_,
+                .icon_cache = icon_cache_.get(),
+                .code_editor = &code_editor_
+            };
+            auto ctx = std::make_unique<MaterialEditorContext>(deps);
+            ctx->init();
+            ctx->open_material(path);
+            return ctx;
+        },
+        .open = [](EditorContext&, const std::string&) {},
+        .matches = [](const EditorContext& ctx, const std::string& path) {
+            return ctx.asset_path() == path;
+        }
+    });
+
+    context_registry_.register_type("ui", {
+        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+            UiEditorDeps deps{
+                .vulkan_context = vulkan_context_.get(),
+                .resource_manager = resource_manager_.get(),
+                .input = &input_,
+                .clock = &clock_,
+                .project_mgr = &project_mgr_,
+                .icon_cache = icon_cache_.get(),
+                .code_editor = &code_editor_,
+                .engine_game_ui = &game_ui_
+            };
+            auto ctx = std::make_unique<UiEditorContext>(deps);
+            ctx->init();
+            ctx->open_ui(path);
+            return ctx;
+        },
+        .open = [](EditorContext&, const std::string&) {},
+        .matches = [](const EditorContext& ctx, const std::string& path) {
+            return ctx.asset_path() == path;
+        }
+    });
+
+    context_registry_.register_type("vfx", {
+        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+            VfxEditorDeps deps{
+                .vulkan_context = vulkan_context_.get(),
+                .resource_manager = resource_manager_.get(),
+                .input = &input_,
+                .clock = &clock_,
+                .project_mgr = &project_mgr_,
+                .icon_cache = icon_cache_.get()
+            };
+            auto ctx = std::make_unique<VfxEditorContext>(deps);
+            ctx->init();
+            ctx->open_effect(path);
+            return ctx;
+        },
+        .open = [](EditorContext&, const std::string&) {},
+        .matches = [](const EditorContext& ctx, const std::string& path) {
+            return ctx.asset_path() == path;
+        }
+    });
+
+    // Animation is special: reuses any existing animation context (matches by type, not path)
+    auto anim_factory = [this](const std::string&) -> std::unique_ptr<EditorContext> {
+        AnimationEditorDeps deps{
+            .vulkan_context = vulkan_context_.get(),
+            .resource_manager = resource_manager_.get(),
+            .input = &input_,
+            .clock = &clock_,
+            .animation_subsystem = animation_subsystem_,
+            .project_mgr = &project_mgr_,
+            .icon_cache = icon_cache_.get()
+        };
+        auto ctx = std::make_unique<AnimationEditorContext>(deps);
+        ctx->init();
+        return ctx;
+    };
+    auto anim_matches = [](const EditorContext& ctx, const std::string&) {
+        return dynamic_cast<const AnimationEditorContext*>(&ctx) != nullptr;
+    };
+
+    context_registry_.register_type("skeleton", {
+        .create = [anim_factory](const std::string& path) {
+            auto ctx = anim_factory(path);
+            static_cast<AnimationEditorContext&>(*ctx).open_skeleton(path);
+            return ctx;
+        },
+        .open = [](EditorContext& ctx, const std::string& path) {
+            static_cast<AnimationEditorContext&>(ctx).open_skeleton(path);
+        },
+        .matches = anim_matches
+    });
+
+    context_registry_.register_type("animation", {
+        .create = [anim_factory](const std::string& path) {
+            auto ctx = anim_factory(path);
+            static_cast<AnimationEditorContext&>(*ctx).open_clip(path);
+            return ctx;
+        },
+        .open = [](EditorContext& ctx, const std::string& path) {
+            static_cast<AnimationEditorContext&>(ctx).open_clip(path);
+        },
+        .matches = anim_matches
+    });
+
+    context_registry_.register_type("animset", {
+        .create = [anim_factory](const std::string& path) {
+            auto ctx = anim_factory(path);
+            static_cast<AnimationEditorContext&>(*ctx).open_skeleton(path);
+            return ctx;
+        },
+        .open = [](EditorContext& ctx, const std::string& path) {
+            static_cast<AnimationEditorContext&>(ctx).open_skeleton(path);
+        },
+        .matches = anim_matches
+    });
 
     FJELL_CORE_INFO("Engine initialized");
 }
