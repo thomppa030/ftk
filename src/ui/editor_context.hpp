@@ -40,6 +40,10 @@ public:
     // Handle context-specific shortcuts. Return true if consumed.
     virtual bool handle_shortcuts() = 0;
 
+    // Asset path and save support
+    [[nodiscard]] virtual std::string asset_path() const { return {}; }
+    virtual bool save() { return false; }
+
     // Play mode
     [[nodiscard]] virtual bool supports_play() const { return false; }
     [[nodiscard]] virtual bool is_playing() const { return false; }
