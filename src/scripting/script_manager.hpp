@@ -1,9 +1,9 @@
 #pragma once
 
 #include "core/result.hpp"
-#include "scripting/fjell_api.h"
-#include "scripting/fjell_registry.hpp"
-#include "scripting/fjell_world.hpp"
+#include "scripting/fjell/api.h"
+#include "scripting/fjell/registry.hpp"
+#include "scripting/fjell/world.hpp"
 #include "platform/shared_library.hpp"
 
 #ifndef NDEBUG

@@ -18,7 +18,7 @@
 #include "renderer/resource_manager.hpp"
 #include "renderer/skeletal_model.hpp"
 #include "renderer/texture.hpp"
-#include "scripting/fjell_component.hpp"
+#include "scripting/fjell/component.hpp"
 #include "core/base_path.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"

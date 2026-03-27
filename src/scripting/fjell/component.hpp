@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include "fjell_ref.hpp"
-#include "fjell_transform.hpp"
-#include "fjell_world.hpp"
+#include "fjell/ref.hpp"
+#include "fjell/transform.hpp"
+#include "fjell/world.hpp"
 
 #include <cstdint>
 
@@ -61,6 +61,16 @@ public:
     [[nodiscard]] T* get_component(uint32_t node_id) const {
         if (!world_->get_component_fn) return nullptr;
         return static_cast<T*>(world_->get_component_fn(node_id, T::type_name));
+    }
+
+    uint32_t spawn_empty(const char* name, const Transform& t = {}) const {
+        return world_->spawn_empty_fn ? world_->spawn_empty_fn(name, &t) : 0;
+    }
+
+    template <typename T>
+    T* add_component(uint32_t node_id) {
+        if (!world_->add_component_fn) return nullptr;
+        return static_cast<T*>(world_->add_component_fn(node_id, T::type_name));
     }
 
     void spawn_vfx(const Ref<VfxAsset>& effect, const glm::vec3& pos) {

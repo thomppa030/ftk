@@ -110,13 +110,13 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
         }
 
         if (!source_list.empty()) {
-            auto include_dir = project_->root() / "include";
+            auto sdk_include = base_path::dir() / ".." / "src" / "scripting";
             // Find GLM in the build dir (fetched by the game project CMake)
             auto glm_dir = build_dir / "_deps" / "glm-src";
 
             auto reflect_cmd = fjreflect_path.string() +
                 " --output-dir " + generated_dir.string() +
-                " --include-dir " + include_dir.string() +
+                " --include-dir " + sdk_include.string() +
                 " --compiler g++";
 
             // Add GLM include if available

@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "fjell_component.hpp"
-#include "fjell_api.h"
+#include "fjell/component.hpp"
+#include "fjell/api.h"
 
 #include <cstdint>
 

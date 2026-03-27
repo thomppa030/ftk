@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "fjell_input.hpp"
-#include "fjell_transform.hpp"
+#include "fjell/input.hpp"
+#include "fjell/transform.hpp"
 
 #include <cstdio>
 
@@ -29,6 +29,8 @@ struct World {
     void (*destroy_node_fn)(uint32_t id){nullptr};
     Transform* (*get_transform_fn)(uint32_t node_id){nullptr};
     ScriptComponent* (*get_component_fn)(uint32_t node_id, const char* type_name){nullptr};
+    uint32_t (*spawn_empty_fn)(const char* name, const Transform* t){nullptr};
+    void* (*add_component_fn)(uint32_t node_id, const char* type_name){nullptr};
 
     // Subsystem function pointers (engine sets these)
     void (*spawn_vfx_fn)(uint32_t handle_id, float x, float y, float z){nullptr};

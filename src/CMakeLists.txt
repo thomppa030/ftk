@@ -179,6 +179,7 @@ add_executable(fjell
 
 target_include_directories(fjell PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripting
     ${stb_SOURCE_DIR}
 )
 
@@ -284,35 +285,8 @@ add_dependencies(fjell fjell_shader_resources)
 file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBOLIC)
 file(CREATE_LINK "${CMAKE_SOURCE_DIR}/engine_assets" "${CMAKE_BINARY_DIR}/engine_assets" SYMBOLIC)
 
-# Stage SDK headers into build/sdk/fjell/ with clean names
-set(FJELL_SDK_DIR "${CMAKE_BINARY_DIR}/sdk/fjell")
-file(MAKE_DIRECTORY "${FJELL_SDK_DIR}")
-
-# SDK source → destination mapping (fjell_ prefix stripped for clean includes)
-set(FJELL_SDK_HEADERS
-    "scripting/fjell_api.h:api.h"
-    "scripting/fjell_actor.hpp:actor.hpp"
-    "scripting/fjell_component.hpp:component.hpp"
-    "scripting/fjell_world.hpp:world.hpp"
-    "scripting/fjell_registry.hpp:registry.hpp"
-    "scripting/fjell_transform.hpp:transform.hpp"
-    "scripting/fjell_input.hpp:input.hpp"
-    "scripting/fjell_weak_ref.hpp:weak_ref.hpp"
-    "scripting/fjell_ref.hpp:ref.hpp"
-    "scripting/fjell_shared_ref.hpp:shared_ref.hpp"
-)
-
-foreach(mapping ${FJELL_SDK_HEADERS})
-    string(REPLACE ":" ";" parts "${mapping}")
-    list(GET parts 0 src_rel)
-    list(GET parts 1 dst_name)
-    set(src_file "${CMAKE_CURRENT_SOURCE_DIR}/${src_rel}")
-    set(dst_file "${FJELL_SDK_DIR}/${dst_name}")
-    # Read, rewrite fjell_ prefixed includes to clean names, write
-    file(READ "${src_file}" _content)
-    string(REGEX REPLACE "#include \"fjell_([^\"]+)\"" "#include \"\\1\"" _content "${_content}")
-    file(WRITE "${dst_file}" "${_content}")
-endforeach()
+# SDK headers live in src/scripting/fjell/ — projects include directly via
+# -I<engine_src>/src/scripting, so #include <fjell/component.hpp> works.
 
 # --- Fjell Hub (launcher) ---
 add_executable(fjell-hub
@@ -368,4 +342,4 @@ install(DIRECTORY "${SHADER_OUTPUT_DIR}/" DESTINATION shaders
         FILES_MATCHING PATTERN "*.spv")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/" DESTINATION assets)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/engine_assets/" DESTINATION engine_assets)
-install(DIRECTORY "${CMAKE_BINARY_DIR}/sdk/" DESTINATION sdk)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell" DESTINATION sdk)

@@ -113,83 +113,10 @@ void Project::save() const {
     FJELL_CORE_INFO("Project saved: {}", path.string());
 }
 
-void Project::refresh_headers(const Project& project) {
-    namespace fs = std::filesystem;
-    const auto& root = project.root();
-
-    // Source from the staged SDK directory (build/sdk/fjell/)
-    auto sdk_dir = base_path::dir() / "sdk" / "fjell";
-    if (!fs::is_directory(sdk_dir)) {
-        FJELL_CORE_WARN("SDK directory not found: {}", sdk_dir.string());
-        return;
-    }
-
-    // Clean old layout dirs from previous versions
-    auto include_dir = root / "include";
-    for (const auto& old_dir : {"scripting", "scene", "core"}) {
-        auto old_path = include_dir / old_dir;
-        if (fs::is_directory(old_path)) {
-            fs::remove_all(old_path);
-        }
-    }
-
-    // Remove + recreate include/fjell/ to clean stale files
-    auto dst_dir = include_dir / "fjell";
-    if (fs::is_directory(dst_dir)) {
-        fs::remove_all(dst_dir);
-    }
-    fs::create_directories(dst_dir);
-
-    // Copy all files from sdk/fjell/ to include/fjell/
-    for (const auto& entry : fs::directory_iterator(sdk_dir)) {
-        if (entry.is_regular_file()) {
-            fs::copy_file(entry.path(), dst_dir / entry.path().filename(),
-                          fs::copy_options::overwrite_existing);
-        }
-    }
-
-    // Migrate old include paths in project scripts
-    auto scripts_dir = root / "scripts";
-    if (fs::is_directory(scripts_dir)) {
-        for (const auto& entry : fs::directory_iterator(scripts_dir)) {
-            if (!entry.is_regular_file()) continue;
-            auto ext = entry.path().extension().string();
-            if (ext != ".cpp" && ext != ".hpp" && ext != ".h") continue;
-
-            std::ifstream in(entry.path());
-            std::string content((std::istreambuf_iterator<char>(in)),
-                                 std::istreambuf_iterator<char>());
-            in.close();
-
-            std::string updated = content;
-            // "scripting/fjell_X.hpp" → "fjell/X.hpp"
-            // "scripting/fjell_X.h"   → "fjell/X.h"
-            // "scene/transform.hpp"   → "fjell/transform.hpp"
-            // "core/input.hpp"        → "fjell/input.hpp"
-            const std::pair<std::string, std::string> replacements[] = {
-                {"\"scripting/fjell_api.h\"",          "\"fjell/api.h\""},
-                {"\"scripting/fjell_actor.hpp\"",      "\"fjell/actor.hpp\""},
-                {"\"scripting/fjell_component.hpp\"",  "\"fjell/component.hpp\""},
-                {"\"scripting/fjell_world.hpp\"",      "\"fjell/world.hpp\""},
-                {"\"scripting/fjell_registry.hpp\"",   "\"fjell/registry.hpp\""},
-                {"\"scene/transform.hpp\"",            "\"fjell/transform.hpp\""},
-                {"\"core/input.hpp\"",                 "\"fjell/input.hpp\""},
-            };
-            for (const auto& [old_inc, new_inc] : replacements) {
-                std::string::size_type pos = 0;
-                while ((pos = updated.find(old_inc, pos)) != std::string::npos) {
-                    updated.replace(pos, old_inc.size(), new_inc);
-                    pos += new_inc.size();
-                }
-            }
-
-            if (updated != content) {
-                std::ofstream out(entry.path());
-                out << updated;
-                FJELL_CORE_INFO("Migrated includes: {}", entry.path().filename().string());
-            }
-        }
-    }
+void Project::refresh_headers(const Project& /*project*/) {
+    // SDK headers are included directly from engine source via
+    // -I<engine>/src/scripting in the generated CMakeLists.txt.
+    // No copying or symlinking needed.
 }
 
 void Project::write_scripts_cmake(const Project& project) {
@@ -222,7 +149,7 @@ void Project::write_scripts_cmake(const Project& project) {
                << "file(GLOB VERIFY_SOURCES \"${CMAKE_CURRENT_SOURCE_DIR}/generated/*.verify.cpp\")\n\n"
                << "add_library(game SHARED ${GAME_SOURCES} ${GENERATED_SOURCES} ${VERIFY_SOURCES})\n\n"
                << "target_include_directories(game PRIVATE\n"
-               << "    ${CMAKE_CURRENT_SOURCE_DIR}/../include\n"
+               << "    " << (base_path::dir() / ".." / "src" / "scripting").string() << "\n"
                << "    ${CMAKE_CURRENT_SOURCE_DIR}\n"
                << ")\n\n"
                << "target_link_libraries(game PRIVATE glm::glm)\n\n"

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "scripting/fjell_weak_ref.hpp"
-#include "scripting/fjell_ref.hpp"
-#include "scripting/fjell_shared_ref.hpp"
+#include "scripting/fjell/weak_ref.hpp"
+#include "scripting/fjell/ref.hpp"
+#include "scripting/fjell/shared_ref.hpp"
 
 #include <cstdint>
 #include <unordered_set>
