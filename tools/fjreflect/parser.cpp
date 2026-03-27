@@ -189,6 +189,23 @@ ParseResult parse_file(const std::string& filepath) {
         comp.class_name = m[1];
         comp.source_file = filepath;
 
+        // Detect enclosing namespace by scanning backwards
+        std::string ns;
+        std::regex ns_re(R"(namespace\s+(\w+))");
+        int ns_brace_depth = 0;
+        for (size_t j = i; j-- > 0;) {
+            for (auto ch : lines[j]) {
+                if (ch == '}') ns_brace_depth++;
+                if (ch == '{') ns_brace_depth--;
+            }
+            std::smatch nm;
+            if (ns_brace_depth < 0 && std::regex_search(lines[j], nm, ns_re)) {
+                ns = nm[1].str();
+                break;
+            }
+        }
+        comp.qualified_name = ns.empty() ? comp.class_name : ns + "::" + comp.class_name;
+
         // Scan forward for fields until we hit closing brace or end of file
         // Track brace depth to know when the class ends
         int brace_depth = 0;
@@ -399,8 +416,8 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         for (const auto& comp : components) {
             for (const auto& f : comp.fields) {
                 out << "    printf(\"" << comp.class_name << " " << f.name
-                    << " %zu %zu\\n\", offsetof(" << comp.class_name << ", " << f.name
-                    << "), sizeof(((" << comp.class_name << "*)nullptr)->" << f.name << "));\n";
+                    << " %zu %zu\\n\", offsetof(" << comp.qualified_name << ", " << f.name
+                    << "), sizeof(((" << comp.qualified_name << "*)nullptr)->" << f.name << "));\n";
             }
         }
 

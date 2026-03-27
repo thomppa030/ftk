@@ -90,9 +90,9 @@ static void write_verify_cpp(const ComponentInfo& comp,
     out << "#include <cstddef>\n\n";
 
     for (const auto& f : comp.fields) {
-        out << "static_assert(offsetof(" << comp.class_name << ", " << f.name
+        out << "static_assert(offsetof(" << comp.qualified_name << ", " << f.name
             << ") == " << f.offset << ", \"fjreflect layout mismatch: "
-            << comp.class_name << "::" << f.name << "\");\n";
+            << comp.qualified_name << "::" << f.name << "\");\n";
     }
 }
 

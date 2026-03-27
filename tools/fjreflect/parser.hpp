@@ -23,7 +23,8 @@ struct FieldInfo {
 };
 
 struct ComponentInfo {
-    std::string class_name;
+    std::string class_name;       // bare name: "CoinCollectible"
+    std::string qualified_name;   // namespace-qualified: "fjell::CoinCollectible" (or bare if global)
     std::string source_file;
     std::vector<FieldInfo> fields;
 };
