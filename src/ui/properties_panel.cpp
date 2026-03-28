@@ -17,6 +17,7 @@
 #include "physics/physics_types.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/game_ui_node.hpp"
+#include "ui/game_ui/ui_widget_component.hpp"
 #include "scene/light_node.hpp"
 #include "scripting/script_manager.hpp"
 #include "ui/icon_cache.hpp"
@@ -508,6 +509,29 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            // UI Widget
+            if (auto* wc = obj->components.get<UiWidgetComponent>()) {
+                colored_separator({0.3f, 0.85f, 0.75f, 1.0f});
+                if (ImGui::CollapsingHeader("UI Widget", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    if (asset_path_field("UI Layout", "##UiWidgetPath", wc->fjui_path)) {
+                        scene_->mark_dirty();
+                    }
+                    char type_buf[128];
+                    std::strncpy(type_buf, wc->widget_type.c_str(), sizeof(type_buf) - 1);
+                    type_buf[sizeof(type_buf) - 1] = '\0';
+                    if (ImGui::InputText("Widget Type", type_buf, sizeof(type_buf))) {
+                        wc->widget_type = type_buf;
+                        scene_->mark_dirty();
+                    }
+                    int mode = static_cast<int>(wc->render_mode);
+                    const char* modes[] = {"Screen Space", "World Space"};
+                    if (ImGui::Combo("Render Mode", &mode, modes, 2)) {
+                        wc->render_mode = static_cast<UiWidgetComponent::RenderMode>(mode);
+                        scene_->mark_dirty();
+                    }
+                }
+            }
+
             // Audio Source
             if (auto* au = obj->components.get<AudioSourceComponent>()) {
                 colored_separator({0.55f, 0.70f, 0.85f, 1.0f});
@@ -601,6 +625,10 @@ void PropertiesPanel::draw() {
                 }
                 if (!obj->components.has<CharacterComponent>() && ImGui::MenuItem("Character Controller")) {
                     obj->components.add<CharacterComponent>();
+                    scene_->mark_dirty();
+                }
+                if (!obj->components.has<UiWidgetComponent>() && ImGui::MenuItem("UI Widget")) {
+                    obj->components.add<UiWidgetComponent>();
                     scene_->mark_dirty();
                 }
                 ImGui::EndPopup();

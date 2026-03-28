@@ -3,6 +3,7 @@
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "scene/game_ui_node.hpp"
+#include "ui/game_ui/ui_widget_component.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
 #include "animation/skeleton.hpp"
@@ -172,6 +173,18 @@ nlohmann::json serialize_node(const Node& node) {
             {"max_slope_angle", cc->max_slope_angle},
             {"mass", cc->mass}
         };
+    }
+
+    // UI Widget
+    if (const auto* wc = node.components.get<UiWidgetComponent>()) {
+        nlohmann::json jw;
+        jw["fjui_path"] = wc->fjui_path;
+        if (!wc->widget_type.empty()) jw["widget_type"] = wc->widget_type;
+        if (wc->render_mode != UiWidgetComponent::RenderMode::screen_space) {
+            jw["render_mode"] = static_cast<int>(wc->render_mode);
+        }
+        if (!wc->style_classes.empty()) jw["style_classes"] = wc->style_classes;
+        j["ui_widget"] = jw;
     }
 
     // Scripts
@@ -393,6 +406,19 @@ static void load_components(Node& node, const nlohmann::json& j,
         cc.capsule_height = jcc.value("capsule_height", 1.4f);
         cc.max_slope_angle = jcc.value("max_slope_angle", 50.0f);
         cc.mass = jcc.value("mass", 80.0f);
+    }
+
+    if (j.contains("ui_widget")) {
+        auto& jw = j["ui_widget"];
+        auto& wc = node.components.add<UiWidgetComponent>();
+        wc.fjui_path = jw.value("fjui_path", "");
+        wc.widget_type = jw.value("widget_type", "");
+        wc.render_mode = static_cast<UiWidgetComponent::RenderMode>(jw.value("render_mode", 0));
+        if (jw.contains("style_classes") && jw["style_classes"].is_array()) {
+            for (const auto& cls : jw["style_classes"]) {
+                wc.style_classes.push_back(cls.get<std::string>());
+            }
+        }
     }
 
     if (j.contains("components")) {

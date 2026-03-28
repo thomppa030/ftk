@@ -1,6 +1,7 @@
 #include "scene/scene.hpp"
 #include "scene/node_serializer.hpp"
 #include "scene/game_ui_node.hpp"
+#include "ui/game_ui/ui_widget_component.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
 #include "animation/skeleton.hpp"
@@ -101,6 +102,9 @@ void Node::clone_base_into(Node& target) const {
         copy.capsule_height = cc->capsule_height;
         copy.max_slope_angle = cc->max_slope_angle;
         copy.mass = cc->mass;
+    }
+    if (const auto* wc = components.get<UiWidgetComponent>()) {
+        target.components.add<UiWidgetComponent>(*wc);
     }
 }
 
