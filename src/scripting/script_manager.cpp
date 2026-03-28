@@ -204,11 +204,10 @@ extern "C" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char* name)
     return nullptr;
 }
 
-extern "C" void fjell_reg_ui_component(FjellTypeRegistry* reg, const FjellUiComponentTypeOOP* desc) {
+extern "C" void fjell_reg_ui_component(FjellTypeRegistry* reg, const FjellUiWidgetTypeOOP* desc) {
     if (!reg || !desc) return;
-    fjell::OwnedUiComponentType owned;
+    fjell::OwnedUiWidgetType owned;
     owned.name = desc->name;
-    owned.widget_tag = desc->widget_tag;
     owned.create = desc->create;
     owned.trace = desc->trace;
     owned.loaded = true;
@@ -389,11 +388,15 @@ const OwnedScriptType* ScriptManager::find_script_type(const std::string& name) 
     return &script_type_list_[it->second];
 }
 
-const OwnedUiComponentType* ScriptManager::find_ui_type_by_tag(const std::string& tag) const {
+const OwnedUiWidgetType* ScriptManager::find_ui_widget_type(const std::string& name) const {
     for (const auto& ut : ui_type_list_) {
-        if (ut.widget_tag == tag) return &ut;
+        if (ut.name == name) return &ut;
     }
     return nullptr;
+}
+
+const OwnedUiWidgetType* ScriptManager::find_ui_type_by_tag(const std::string& tag) const {
+    return find_ui_widget_type(tag); // backward compat — just match by name
 }
 
 // ── Component management ────────────────────────────────────────────────
@@ -646,6 +649,9 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
                 out[f.name] = {{"ref_token", ref->ref_token}};
                 break;
             }
+            case FJELL_FIELD_WIDGET_PTR:
+                // Resolved at runtime by UiSubsystem, not serialized
+                break;
         }
     }
 }
@@ -735,6 +741,9 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                 }
                 break;
             }
+            case FJELL_FIELD_WIDGET_PTR:
+                // Resolved at runtime by UiSubsystem, not serialized
+                break;
         }
     }
 }
@@ -909,6 +918,12 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
             case FJELL_FIELD_SHARED_REF: {
                 auto* ref = static_cast<SharedRefData*>(ptr);
                 ImGui::Text("%s: token %u", f.name.c_str(), ref->ref_token);
+                break;
+            }
+            case FJELL_FIELD_WIDGET_PTR: {
+                auto* widget = *static_cast<UiComponent**>(ptr);
+                ImGui::Text("%s: %s", f.name.c_str(),
+                            widget ? f.ref_type_name.c_str() : "(unbound)");
                 break;
             }
         }

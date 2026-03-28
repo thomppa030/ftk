@@ -178,14 +178,17 @@ ParseResult parse_file(const std::string& filepath) {
         lines.push_back(line);
     }
 
-    // Find FJELL_COMPONENT(ClassName) or FJELL_UI_COMPONENT(ClassName, "tag")
+    // Find FJELL_COMPONENT, FJELL_UI_WIDGET, or FJELL_UI_COMPONENT
     std::regex comp_re(R"(FJELL_COMPONENT\(\s*(\w+)\s*\))");
+    std::regex ui_widget_re(R"(FJELL_UI_WIDGET\(\s*(\w+)\s*\))");
     std::regex ui_comp_re(R"RE(FJELL_UI_COMPONENT\(\s*(\w+)\s*,\s*"([^"]+)"\s*\))RE");
 
     for (size_t i = 0; i < lines.size(); ++i) {
         std::smatch m;
         bool is_ui = false;
-        if (std::regex_search(lines[i], m, ui_comp_re)) {
+        if (std::regex_search(lines[i], m, ui_widget_re)) {
+            is_ui = true;
+        } else if (std::regex_search(lines[i], m, ui_comp_re)) {
             is_ui = true;
         } else if (!std::regex_search(lines[i], m, comp_re)) {
             continue;
@@ -195,9 +198,6 @@ ParseResult parse_file(const std::string& filepath) {
         comp.class_name = m[1];
         comp.source_file = filepath;
         comp.is_ui_component = is_ui;
-        if (is_ui) {
-            comp.widget_tag = m[2];
-        }
 
         // Detect enclosing namespace by scanning backwards
         std::string ns;
@@ -344,6 +344,25 @@ ParseResult parse_file(const std::string& filepath) {
                 }
 
                 // Process the field
+                // [[fj::bind]] on a non-engine pointer → widget pointer binding
+                if (is_bind && type_str.ends_with("*") && !is_engine_pointer(type_str)) {
+                    FieldInfo fi;
+                    fi.name = name_str;
+                    fi.cpp_type = type_str;
+                    fi.fj_field_type = "FJELL_FIELD_WIDGET_PTR";
+                    // Extract pointed-to type name (strip trailing * and namespace)
+                    auto bare = type_str.substr(0, type_str.size() - 1);
+                    while (!bare.empty() && bare.back() == ' ') bare.pop_back();
+                    if (auto ns = bare.rfind("::"); ns != std::string::npos)
+                        bare = bare.substr(ns + 2);
+                    fi.ref_target = bare;
+                    fi.line = pending_line;
+                    fi.is_bind = true;
+                    comp.fields.push_back(std::move(fi));
+                    pending_attrs.clear();
+                    continue;
+                }
+
                 if (is_engine_pointer(type_str)) {
                     result.errors.push_back(
                         filepath + ":" + std::to_string(j + 1) +
@@ -389,7 +408,21 @@ ParseResult parse_file(const std::string& filepath) {
 
                 std::string type_str, name_str;
                 if (parse_field_decl(ln, type_str, name_str)) {
-                    if (is_engine_pointer(type_str)) {
+                    // [[fj::bind]] on a non-engine pointer → widget pointer binding
+                    if (p_is_bind && type_str.ends_with("*") && !is_engine_pointer(type_str)) {
+                        FieldInfo fi;
+                        fi.name = name_str;
+                        fi.cpp_type = type_str;
+                        fi.fj_field_type = "FJELL_FIELD_WIDGET_PTR";
+                        auto bare = type_str.substr(0, type_str.size() - 1);
+                        while (!bare.empty() && bare.back() == ' ') bare.pop_back();
+                        if (auto ns = bare.rfind("::"); ns != std::string::npos)
+                            bare = bare.substr(ns + 2);
+                        fi.ref_target = bare;
+                        fi.line = static_cast<unsigned>(j + 1);
+                        fi.is_bind = true;
+                        comp.fields.push_back(std::move(fi));
+                    } else if (is_engine_pointer(type_str)) {
                         result.errors.push_back(
                             filepath + ":" + std::to_string(j + 1) +
                             ": error: [[fj::property]] on raw pointer '" + type_str +
@@ -464,11 +497,12 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         // Headers only declare classes + fields, no engine method bodies.
         out << "struct FjellTypeRegistry;\n";
         out << "struct FjellComponentTypeOOP;\n";
-        out << "struct FjellUiComponentTypeOOP;\n";
+        out << "struct FjellUiWidgetTypeOOP;\n";
+        out << "using FjellUiComponentTypeOOP = FjellUiWidgetTypeOOP;\n";
         out << "struct FjellGeneratedInfo;\n";
         out << "struct FjellUiGeneratedInfo;\n";
         out << "extern \"C\" void fjell_reg_component(FjellTypeRegistry*, const FjellComponentTypeOOP*) {}\n";
-        out << "extern \"C\" void fjell_reg_ui_component(FjellTypeRegistry*, const FjellUiComponentTypeOOP*) {}\n";
+        out << "extern \"C\" void fjell_reg_ui_component(FjellTypeRegistry*, const FjellUiWidgetTypeOOP*) {}\n";
         out << "extern \"C\" void fjell_set_generated_table(const FjellGeneratedInfo*, unsigned) {}\n";
         out << "extern \"C\" void fjell_set_ui_generated_table(const FjellUiGeneratedInfo*, unsigned) {}\n";
         out << "extern \"C\" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char*) { return nullptr; }\n";

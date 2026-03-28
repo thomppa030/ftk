@@ -1,27 +1,28 @@
-// fjell_ui_registry.hpp — Type registration for UiComponent game .so files
+// fjell_ui_registry.hpp — Type registration for UiWidget game .so files
 #pragma once
 
-#include "fjell/ui_component.hpp"
+#include "fjell/ui_widget.hpp"
 #include "fjell/registry.hpp"
 
 #include <cstdint>
 
-// ── UI component type descriptor (C-compatible) ──────────────────────────
+// ── UI widget type descriptor (C-compatible) ──────────────────────────
 
-struct FjellUiComponentTypeOOP {
+struct FjellUiWidgetTypeOOP {
     const char* name;
-    const char* widget_tag;  // e.g., "health-bar"
-    fjell::UiComponent* (*create)();
+    fjell::UiWidget* (*create)();
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);
 };
 
+// Backward compat alias
+using FjellUiComponentTypeOOP = FjellUiWidgetTypeOOP;
+
 // ── Generated reflection info (filled by fjreflect codegen) ──────────────
 
 struct FjellUiGeneratedInfo {
     const char* name;
-    const char* widget_tag;
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);
@@ -30,7 +31,7 @@ struct FjellUiGeneratedInfo {
 // ── Engine exports ───────────────────────────────────────────────────────
 
 struct FjellTypeRegistry;
-extern "C" void fjell_reg_ui_component(FjellTypeRegistry* reg, const FjellUiComponentTypeOOP* desc);
+extern "C" void fjell_reg_ui_component(FjellTypeRegistry* reg, const FjellUiWidgetTypeOOP* desc);
 extern "C" void fjell_set_ui_generated_table(const FjellUiGeneratedInfo* table, uint32_t count);
 extern "C" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char* name);
 
@@ -39,11 +40,10 @@ namespace fjell {
 // ── Registration helper ──────────────────────────────────────────────────
 
 template <typename T>
-void register_ui_component(FjellTypeRegistry* reg) {
-    FjellUiComponentTypeOOP desc{};
+void register_ui_widget(FjellTypeRegistry* reg) {
+    FjellUiWidgetTypeOOP desc{};
     desc.name = T::type_name;
-    desc.widget_tag = T::widget_tag_name;
-    desc.create = []() -> UiComponent* { return new T(); };
+    desc.create = []() -> UiWidget* { return new T(); };
 
     const auto* gen = fjell_find_ui_generated(T::type_name);
     if (gen) {
@@ -55,18 +55,21 @@ void register_ui_component(FjellTypeRegistry* reg) {
     fjell_reg_ui_component(reg, &desc);
 }
 
+// Backward compat
+template <typename T>
+void register_ui_component(FjellTypeRegistry* reg) { register_ui_widget<T>(reg); }
+
 } // namespace fjell
 
 // ── Auto-registration (FjellUiAutoReg + head declared in registry.hpp) ──
 
-// ── Macro ────────────────────────────────────────────────────────────────
+// ── Macros ────────────────────────────────────────────────────────────────
 
-#define FJELL_UI_COMPONENT(T, tag) \
+#define FJELL_UI_WIDGET(T) \
     public: static constexpr const char* type_name = #T; \
-    public: static constexpr const char* widget_tag_name = tag; \
     private: \
     static inline FjellUiAutoReg _fjell_ui_reg_{ \
-        [](FjellTypeRegistry* r) { fjell::register_ui_component<T>(r); }, \
+        [](FjellTypeRegistry* r) { fjell::register_ui_widget<T>(r); }, \
         nullptr}; \
     struct _FjellUiRegInit { _FjellUiRegInit() { \
         _fjell_ui_reg_.next = fjell_ui_auto_reg_head(); \
@@ -74,3 +77,6 @@ void register_ui_component(FjellTypeRegistry* reg) {
     }}; \
     static inline _FjellUiRegInit _fjell_ui_reg_init_{}; \
     public:
+
+// Backward compat — accepts and ignores the tag parameter
+#define FJELL_UI_COMPONENT(T, ...) FJELL_UI_WIDGET(T)

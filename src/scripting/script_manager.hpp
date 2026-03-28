@@ -23,7 +23,8 @@
 namespace fjell {
 
 class ScriptComponent;
-class UiComponent;
+class UiWidget;
+using UiComponent = UiWidget; // backward compat
 class Scene;
 class Input;
 class Clock;
@@ -51,14 +52,16 @@ struct OwnedScriptType {
     bool loaded{true};
 };
 
-struct OwnedUiComponentType {
+struct OwnedUiWidgetType {
     std::string name;
-    std::string widget_tag;
-    UiComponent* (*create)();
+    UiWidget* (*create)();
     std::vector<OwnedFieldDesc> fields;
     void (*trace)(void* instance, void* visitor){nullptr};
     bool loaded{true};
 };
+
+// Backward compat alias
+using OwnedUiComponentType = OwnedUiWidgetType;
 
 class ScriptManager {
 public:
@@ -95,8 +98,9 @@ public:
     [[nodiscard]] const OwnedScriptType* find_script_type(const std::string& name) const;
     [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }
 
-    [[nodiscard]] const OwnedUiComponentType* find_ui_type_by_tag(const std::string& tag) const;
-    [[nodiscard]] const std::vector<OwnedUiComponentType>& ui_types() const { return ui_type_list_; }
+    [[nodiscard]] const OwnedUiWidgetType* find_ui_widget_type(const std::string& name) const;
+    [[nodiscard]] const OwnedUiWidgetType* find_ui_type_by_tag(const std::string& tag) const; // backward compat
+    [[nodiscard]] const std::vector<OwnedUiWidgetType>& ui_types() const { return ui_type_list_; }
 
     [[nodiscard]] bool is_loaded() const { return library_.is_loaded(); }
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);

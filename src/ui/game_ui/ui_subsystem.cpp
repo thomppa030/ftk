@@ -6,11 +6,10 @@
 #include "renderer/texture.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/scene.hpp"
+#include "scripting/fjell/api.h"
 #include "ui/game_ui/ui_widget_component.hpp"
-#include "scripting/fjell/ui_component.hpp"
 #include "scripting/script_manager.hpp"
 
-#include <cstring>
 #include <filesystem>
 
 namespace fjell {
@@ -56,83 +55,121 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         inst.node_id = obj->id;
         inst.game_ui = std::move(game_ui);
 
-        // Walk the resolved UI tree and create controllers for widget nodes
+        // Walk the resolved UI tree and create widget instances for widget nodes
         if (script_manager_ && script_manager_->is_loaded()) {
             auto* root = inst.game_ui->root();
             if (root) {
-                collect_controllers(*root, inst);
+                collect_widgets(*root, inst);
             }
         }
 
-        // Call begin_play on all controllers
-        for (auto& ctrl : inst.controllers) {
-            ctrl.component->begin_play();
+        for (auto& wi : inst.widgets) {
+            wi.widget->begin_play();
         }
 
-        FJELL_CORE_INFO("UiSubsystem: loaded UI '{}' for node {} ({} controllers)",
-                        ui_rel_path, obj->id, inst.controllers.size());
+        FJELL_CORE_INFO("UiSubsystem: loaded UI '{}' for node {} ({} widgets)",
+                        ui_rel_path, obj->id, inst.widgets.size());
 
         instances_.push_back(std::move(inst));
     }
+
+    // Resolve [[fj::bind]] UiWidget* pointers on ScriptComponents
+    resolve_widget_bindings(ctx.scene);
 }
 
-void UiSubsystem::collect_controllers(UiNode& node, UiInstance& instance) {
-    if (node.is_widget && node.scoped_context && !node.widget_tag.empty()) {
-        auto* ui_type = script_manager_->find_ui_type_by_tag(node.widget_tag);
-        if (ui_type && ui_type->create) {
-            ControllerInstance ctrl;
-            ctrl.type = ui_type;
-            ctrl.widget_context = node.scoped_context.get();
-            ctrl.component.reset(ui_type->create());
+void UiSubsystem::resolve_widget_bindings(Scene& scene) {
+    if (!script_manager_ || !script_manager_->is_loaded()) return;
 
-            // Set up the component's world pointer (for input, delta_time, etc.)
-            // The world is managed by ScriptManager — we share it
-            // For now, controllers don't have world access until we wire it
-            // TODO: wire world pointer from ScriptManager
+    // Build lookup: node_id → UiWidget pointer
+    std::unordered_map<uint32_t, UiWidget*> node_to_widget;
+    for (auto& inst : instances_) {
+        if (!inst.widgets.empty()) {
+            node_to_widget[inst.node_id] = inst.widgets[0].widget.get();
+        }
+    }
+
+    for (const auto& obj : scene.objects()) {
+        if (obj->scripts.empty()) continue;
+
+        for (auto& script_entry : obj->scripts) {
+            if (!script_entry.instance) continue;
+
+            auto* script_type = script_manager_->find_script_type(script_entry.type_name);
+            if (!script_type) continue;
+
+            auto* base = reinterpret_cast<uint8_t*>(script_entry.instance.get());
+
+            for (const auto& field : script_type->fields) {
+                if (field.type != FJELL_FIELD_WIDGET_PTR) continue;
+
+                for (const auto& child : scene.objects()) {
+                    if (child->parent_id != static_cast<int32_t>(obj->id)) continue;
+                    if (child->name != field.name) continue;
+
+                    auto it = node_to_widget.find(child->id);
+                    if (it != node_to_widget.end()) {
+                        auto** ptr = reinterpret_cast<UiWidget**>(base + field.offset);
+                        *ptr = it->second;
+                        FJELL_CORE_INFO("UiSubsystem: bound {}.{} -> widget on '{}'",
+                                        script_entry.type_name, field.name, child->name);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+}
+
+void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
+    if (node.is_widget && node.scoped_context && !node.widget_tag.empty()) {
+        auto* ui_type = script_manager_->find_ui_widget_type(node.widget_tag);
+        if (ui_type && ui_type->create) {
+            WidgetInstance wi;
+            wi.type = ui_type;
+            wi.widget_context = node.scoped_context.get();
+            wi.widget.reset(ui_type->create());
 
             node.has_controller = true;
 
-            FJELL_CORE_INFO("UiSubsystem: created controller '{}' for <{}>",
+            FJELL_CORE_INFO("UiSubsystem: created widget '{}' for <{}>",
                             ui_type->name, node.widget_tag);
 
-            instance.controllers.push_back(std::move(ctrl));
+            instance.widgets.push_back(std::move(wi));
         }
     }
 
     for (auto& child : node.children) {
-        collect_controllers(*child, instance);
+        collect_widgets(*child, instance);
     }
 }
 
-void UiSubsystem::sync_bind_fields(ControllerInstance& ctrl) {
-    if (!ctrl.component || !ctrl.type || !ctrl.widget_context) return;
+void UiSubsystem::sync_bind_fields(WidgetInstance& wi) {
+    if (!wi.widget || !wi.type || !wi.widget_context) return;
 
-    auto* base = reinterpret_cast<const uint8_t*>(ctrl.component.get());
+    auto* base = reinterpret_cast<const uint8_t*>(wi.widget.get());
 
-    for (const auto& field : ctrl.type->fields) {
+    for (const auto& field : wi.type->fields) {
         const void* ptr = base + field.offset;
         const char* key = field.name.c_str();
 
         switch (field.type) {
             case FJELL_FIELD_FLOAT:
-                ctrl.widget_context->set_float(key, *static_cast<const float*>(ptr));
+                wi.widget_context->set_float(key, *static_cast<const float*>(ptr));
                 break;
             case FJELL_FIELD_INT: {
                 int val = *static_cast<const int*>(ptr);
-                ctrl.widget_context->set_int(key, val);
+                wi.widget_context->set_int(key, val);
                 break;
             }
             case FJELL_FIELD_BOOL:
-                ctrl.widget_context->set_bool(key, *static_cast<const bool*>(ptr));
+                wi.widget_context->set_bool(key, *static_cast<const bool*>(ptr));
                 break;
             case FJELL_FIELD_STRING: {
-                // std::string at offset — read the c_str
                 const auto* str = reinterpret_cast<const std::string*>(ptr);
-                ctrl.widget_context->set(key, *str);
+                wi.widget_context->set(key, *str);
                 break;
             }
             default:
-                // vec2/3/4, color, refs — not synced to UI context for now
                 break;
         }
     }
@@ -140,27 +177,22 @@ void UiSubsystem::sync_bind_fields(ControllerInstance& ctrl) {
 
 void UiSubsystem::tick(const TickContext& ctx) {
     for (auto& inst : instances_) {
-        for (auto& ctrl : inst.controllers) {
-            if (!ctrl.component) continue;
-
-            // Tick the controller
-            ctrl.component->tick(ctx.dt);
-
-            // Sync [[fj::bind]] fields → widget scoped context
-            sync_bind_fields(ctrl);
+        for (auto& wi : inst.widgets) {
+            if (!wi.widget) continue;
+            wi.widget->tick(ctx.dt);
+            sync_bind_fields(wi);
         }
     }
 }
 
 void UiSubsystem::on_play_stop(const TickContext& /*ctx*/) {
-    // Call end_play on all controllers
     for (auto& inst : instances_) {
-        for (auto& ctrl : inst.controllers) {
-            if (ctrl.component) {
-                ctrl.component->end_play();
+        for (auto& wi : inst.widgets) {
+            if (wi.widget) {
+                wi.widget->end_play();
             }
-            ctrl.connections.clear();
-            ctrl.component.reset();
+            wi.connections.clear();
+            wi.widget.reset();
         }
     }
 

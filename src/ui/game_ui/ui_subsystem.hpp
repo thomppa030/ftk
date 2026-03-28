@@ -2,25 +2,24 @@
 
 #include "core/delegate.hpp"
 #include "core/subsystem.hpp"
-#include "scripting/fjell/ui_component.hpp"
+#include "scripting/fjell/ui_widget.hpp"
 #include "ui/game_ui/game_ui.hpp"
 
 #include <cstdint>
 #include <memory>
-#include <string>
 #include <vector>
 
 namespace fjell {
 
+class Scene;
 class ScriptManager;
-class UiComponent;
 class VulkanContext;
-struct OwnedUiComponentType;
+struct OwnedUiWidgetType;
 struct UiNode;
 
 /// Manages runtime game UI instances. Finds nodes with UiWidgetComponent in
 /// the scene on play start, creates a GameUi per node, and tears them down
-/// on stop. Creates UiComponent controller instances and auto-syncs bind fields.
+/// on stop. Creates UiWidget instances and auto-syncs bind fields.
 class UiSubsystem : public Subsystem {
 public:
     UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui);
@@ -34,25 +33,25 @@ public:
 
     void set_script_manager(ScriptManager* sm) { script_manager_ = sm; }
 
-    /// Access runtime UI instances (for render callback)
-    struct ControllerInstance {
-        std::unique_ptr<UiComponent> component;
-        const OwnedUiComponentType* type;
-        UiContext* widget_context;  // the widget's scoped context
+    struct WidgetInstance {
+        std::unique_ptr<UiWidget> widget;
+        const OwnedUiWidgetType* type;
+        UiContext* widget_context;
         std::vector<Connection> connections;
     };
 
     struct UiInstance {
         uint32_t node_id;
         std::unique_ptr<GameUi> game_ui;
-        std::vector<ControllerInstance> controllers;
+        std::vector<WidgetInstance> widgets;
     };
     [[nodiscard]] std::vector<UiInstance>& instances() { return instances_; }
     [[nodiscard]] const std::vector<UiInstance>& instances() const { return instances_; }
 
 private:
-    void collect_controllers(UiNode& node, UiInstance& instance);
-    void sync_bind_fields(ControllerInstance& ctrl);
+    void collect_widgets(UiNode& node, UiInstance& instance);
+    void sync_bind_fields(WidgetInstance& wi);
+    void resolve_widget_bindings(Scene& scene);
 
     VulkanContext& vulkan_context_;
     GameUi& editor_game_ui_;

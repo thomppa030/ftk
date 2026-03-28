@@ -211,10 +211,9 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
                         reg << "static const FjellUiGeneratedInfo fjreflect_ui_generated[] = {\n";
                         for (const auto& t : ui_types) {
                             auto name = t["name"].get<std::string>();
-                            auto tag = t["widget_tag"].get<std::string>();
                             auto fields_sym = t["fields_symbol"].get<std::string>();
                             auto count = t["field_count"].get<uint32_t>();
-                            reg << "    {\"" << name << "\", \"" << tag << "\", "
+                            reg << "    {\"" << name << "\", "
                                 << fields_sym << ", " << count << ", ";
                             if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
                                 reg << t["trace_symbol"].get<std::string>();

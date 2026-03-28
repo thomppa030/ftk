@@ -149,7 +149,6 @@ static void write_manifest(const std::vector<ComponentInfo>& components,
         out << "      \"name\": \"" << comp.class_name << "\",\n";
         if (comp.is_ui_component) {
             out << "      \"is_ui_component\": true,\n";
-            out << "      \"widget_tag\": \"" << comp.widget_tag << "\",\n";
         }
         out << "      \"fields_symbol\": \"fjreflect_" << comp.class_name << "_fields\",\n";
         out << "      \"field_count\": " << comp.fields.size() << ",\n";
