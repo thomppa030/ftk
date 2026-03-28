@@ -2,6 +2,7 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "scripting/script_manager.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/texture.hpp"
 #include "core/base_path.hpp"
 #include "core/clock.hpp"
@@ -32,14 +33,20 @@ void UiEditorContext::init() {
 }
 
 void UiEditorContext::shutdown() {
+    // Clear preview callback before destroying resources
+    deps_.vulkan_context->set_ui_preview_callback(nullptr);
+
     // Clear the UiContext's action delegates before disconnecting connections.
-    // Disconnecting via swap-and-pop can destroy other listeners' callbacks,
-    // causing use-after-free when the next connection tries to disconnect.
     if (preview_ui_) {
         preview_ui_->context().clear();
     }
     action_connections_.clear();
     selected_node_ = nullptr;
+
+    deps_.vulkan_context->wait_idle();
+    for (auto& pass : offscreen_) {
+        pass.reset();
+    }
     if (preview_ui_) {
         preview_ui_->destroy();
         preview_ui_.reset();
@@ -121,14 +128,34 @@ void UiEditorContext::open_ui(const std::string& fjui_path) {
     if (!preview_ui_) {
         preview_ui_ = std::make_unique<GameUi>();
         if (deps_.engine_game_ui) {
-            // Share font atlas from the engine's GameUi (avoids ~1s msdfgen rebuild)
+            // Share font atlas; use offscreen color format (not swapchain format)
             deps_.vulkan_context->init_game_ui_shared(*preview_ui_,
-                                                       deps_.engine_game_ui->font());
+                                                       deps_.engine_game_ui->font(),
+                                                       OffscreenPass::COLOR_FORMAT);
         } else {
             deps_.vulkan_context->init_game_ui(*preview_ui_,
-                base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"));
+                base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"),
+                OffscreenPass::COLOR_FORMAT);
         }
         preview_ui_->set_resource_manager(deps_.resource_manager);
+
+        // Create offscreen passes for pixel-perfect preview (one per frame in flight)
+        offscreen_width_ = 800;
+        offscreen_height_ = 600;
+        for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
+            offscreen_[i] = std::make_unique<OffscreenPass>(
+                deps_.vulkan_context->device_ref(), 800, 600, VK_SAMPLE_COUNT_1_BIT);
+        }
+
+        // Register preview callback — renders to the current frame's offscreen pass
+        deps_.vulkan_context->set_ui_preview_callback(
+            [this](uint32_t frame_index) {
+                if (!preview_ui_ || !preview_ui_->loaded()) return;
+                auto& target = offscreen_[frame_index % PREVIEW_FRAMES];
+                if (!target) return;
+                deps_.vulkan_context->record_game_ui_offscreen(
+                    *preview_ui_, *target, frame_index);
+            });
     }
 
     // Load the .fjui + .fjss
@@ -276,8 +303,6 @@ void UiEditorContext::draw_preview(float dt) {
         }
 
         // Resolution controls
-        float prev_w = preview_width_;
-        float prev_h = preview_height_;
         ImGui::Text("Resolution:");
         ImGui::SameLine();
         if (ImGui::SmallButton("800x600")) { preview_width_ = 800; preview_height_ = 600; }
@@ -315,14 +340,21 @@ void UiEditorContext::draw_preview(float dt) {
             ImGui::Checkbox("Layout", &show_layout_overlay_);
         }
 
-        // Resolution changed — force layout recompute
-        if (preview_width_ != prev_w || preview_height_ != prev_h) {
+        // Resolution changed — resize all offscreen passes
+        uint32_t new_w = static_cast<uint32_t>(preview_width_);
+        uint32_t new_h = static_cast<uint32_t>(preview_height_);
+        if ((new_w != offscreen_width_ || new_h != offscreen_height_) &&
+            new_w > 0 && new_h > 0) {
+            for (auto& pass : offscreen_) {
+                if (pass) pass->resize(new_w, new_h);
+            }
+            offscreen_width_ = new_w;
+            offscreen_height_ = new_h;
             preview_ui_->mark_dirty();
         }
 
         ImGui::Separator();
 
-        // Draw preview area — render layout rects using ImGui DrawList
         ImVec2 avail = ImGui::GetContentRegionAvail();
         if (avail.x < 1.0f || avail.y < 1.0f) {
             ImGui::End();
@@ -333,9 +365,11 @@ void UiEditorContext::draw_preview(float dt) {
         for (const auto& [key, value] : mock_entries_) {
             preview_ui_->context().set(key, value);
         }
+        sync_mock_lists();
 
-        // Update the preview UI (layout, data bind, etc.)
-        preview_ui_->update(preview_width_, preview_height_, 0, dt);
+        // Update the preview UI (layout, data bind, input in play mode)
+        const Input* input_ptr = play_mode_ ? deps_.input : nullptr;
+        preview_ui_->update(preview_width_, preview_height_, 0, dt, input_ptr);
 
         // Scale to fit available area
         float scale_x = avail.x / preview_width_;
@@ -351,26 +385,34 @@ void UiEditorContext::draw_preview(float dt) {
         float offset_y = (avail.y - scaled_h) * 0.5f;
         ImVec2 origin = {cursor.x + offset_x, cursor.y + offset_y};
 
-        ImDrawList* draw_list = ImGui::GetWindowDrawList();
-
-        // Dark background
-        draw_list->AddRectFilled(origin, {origin.x + scaled_w, origin.y + scaled_h},
-                                  IM_COL32(24, 24, 28, 255));
-        draw_list->AddRect(origin, {origin.x + scaled_w, origin.y + scaled_h},
-                           IM_COL32(60, 60, 68, 255));
-
-        // Draw UI nodes as colored rectangles
-        auto* root = preview_ui_->root();
-        if (root) {
-            draw_node_preview(root, draw_list, origin, scale);
-
-            // Edit mode: layout debug overlay (drawn on top of everything)
-            if (!play_mode_ && show_layout_overlay_) {
-                draw_layout_overlay(root, draw_list, origin, scale);
+        // Display offscreen render as ImGui image
+        // Show the most recently completed frame's pass
+        {
+            // Use frame_index 0 as a simple read target — the callback writes
+            // to frame_index % PREVIEW_FRAMES, and we read whichever has a valid texture.
+            // With 3 frames in flight, at least one is always fully rendered.
+            VkDescriptorSet tex = VK_NULL_HANDLE;
+            for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
+                if (offscreen_[i]) {
+                    tex = offscreen_[i]->imgui_texture();
+                    if (tex) break;
+                }
+            }
+            if (tex) {
+                ImGui::SetCursorScreenPos(origin);
+                ImGui::Image(reinterpret_cast<ImTextureID>(tex),
+                             {scaled_w, scaled_h});
             }
         }
 
-        // Invisible button for interaction
+        // Overlay: layout debug (Edit mode only, drawn via ImGui DrawList on top)
+        auto* root = preview_ui_->root();
+        if (!play_mode_ && show_layout_overlay_ && root) {
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            draw_layout_overlay(root, draw_list, origin, scale);
+        }
+
+        // Invisible button for interaction (placed over the image)
         ImGui::SetCursorScreenPos(origin);
         ImGui::InvisibleButton("##preview_area", {scaled_w, scaled_h});
 

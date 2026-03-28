@@ -151,6 +151,14 @@ public:
                                             VkDescriptorSet, VkExtent2D, uint32_t)>;
   void set_game_ui_callback(GameUiCallback cb) { game_ui_callback_ = std::move(cb); }
 
+  /// Record a GameUi into an offscreen pass (for editor preview).
+  void record_game_ui_offscreen(class GameUi& ui, OffscreenPass& target,
+                                 uint32_t frame_index);
+
+  /// Callback for UI editor preview rendering (offscreen, called during record_frame).
+  using UiPreviewCallback = std::function<void(uint32_t frame_index)>;
+  void set_ui_preview_callback(UiPreviewCallback cb) { ui_preview_callback_ = std::move(cb); }
+
   /// Set by ViewportManager each frame — top-left of the active viewport in
   /// window pixels.
   void set_viewport_offset(glm::vec2 offset) { viewport_offset_ = offset; }
@@ -251,6 +259,7 @@ private:
   std::unique_ptr<DebugDraw> debug_draw_;
   OverlayCallback overlay_callback_;
   GameUiCallback game_ui_callback_;
+  UiPreviewCallback ui_preview_callback_;
   glm::vec2 viewport_offset_{0.0f, 0.0f};
   bool show_colliders_{false};
   bool playing_{false};

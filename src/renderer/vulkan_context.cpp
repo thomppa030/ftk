@@ -1143,6 +1143,11 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool);
     }
 
+    // --- UI editor preview offscreen pass ---
+    if (ui_preview_callback_) {
+        ui_preview_callback_(current_frame_);
+    }
+
     // --- Render ImGui to swapchain ---
     {
         // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
@@ -1350,6 +1355,73 @@ void VulkanContext::init_game_ui_shared(GameUi& ui, const FontAtlas& shared_atla
 
     ui.create_with_shared_font(gpu_.device_ref(), res, gpu_.bindless_textures(),
                                 shared_atlas, output_format);
+}
+
+void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
+                                              uint32_t frame_index) {
+    if (!ui.loaded()) return;
+
+    VkCommandBuffer cmd = gpu_.command_buffer(frame_index);
+    VkExtent2D extent = target.extent();
+
+    // Transition offscreen color to color attachment
+    VkImageMemoryBarrier to_attach{};
+    to_attach.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    to_attach.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    to_attach.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    to_attach.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    to_attach.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    to_attach.image = target.color_image();
+    to_attach.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &to_attach);
+
+    // Begin dynamic rendering targeting offscreen color
+    VkRenderingAttachmentInfo color_att{};
+    color_att.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    color_att.imageView = target.msaa_color_view();
+    color_att.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_att.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    color_att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    color_att.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+    // Resolve attachment if MSAA
+    if (target.sample_count() != VK_SAMPLE_COUNT_1_BIT) {
+        color_att.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+        color_att.resolveImageView = target.color_view();
+        color_att.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+
+    VkRenderingInfo ri{};
+    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    ri.renderArea.extent = extent;
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &color_att;
+
+    vkCmdBeginRendering(cmd, &ri);
+
+    ui.record(cmd, gpu_.global_descriptor_set(frame_index),
+              gpu_.bindless_textures().descriptor_set(),
+              extent, frame_index);
+
+    vkCmdEndRendering(cmd);
+
+    // Transition to shader read for ImGui display
+    VkImageMemoryBarrier to_read{};
+    to_read.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    to_read.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    to_read.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    to_read.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    to_read.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    to_read.image = target.color_image();
+    to_read.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd,
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0, 0, nullptr, 0, nullptr, 1, &to_read);
 }
 
 void VulkanContext::submit_and_present() {

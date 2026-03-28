@@ -3,6 +3,7 @@
 #include "ui/editor_context.hpp"
 #include "core/delegate.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -82,6 +83,12 @@ private:
 
     // Dedicated GameUi instance for isolated preview
     std::unique_ptr<GameUi> preview_ui_;
+
+    // Offscreen render targets for pixel-perfect preview (one per frame in flight)
+    static constexpr uint32_t PREVIEW_FRAMES = 3;
+    std::unique_ptr<class OffscreenPass> offscreen_[PREVIEW_FRAMES];
+    uint32_t offscreen_width_{0};
+    uint32_t offscreen_height_{0};
 
     // Selection
     UiNode* selected_node_{nullptr};
