@@ -100,9 +100,14 @@ void Camera::update(const Input& input, float dt) {
 
     // Zoom: scroll wheel
     if (scroll_d.y != 0.0) {
-        float zoom_scale = zoom_sensitivity_ * (distance_ / max_distance_);
-        distance_ -= static_cast<float>(scroll_d.y) * zoom_scale * distance_;
-        distance_ = std::clamp(distance_, min_distance_, max_distance_);
+        if (mode_ == EditorCameraMode::orthographic) {
+            float zoom_factor = 1.0f - static_cast<float>(scroll_d.y) * 0.1f;
+            ortho_size_ = std::clamp(ortho_size_ * zoom_factor, 0.1f, 500.0f);
+        } else {
+            float zoom_scale = zoom_sensitivity_ * (distance_ / max_distance_);
+            distance_ -= static_cast<float>(scroll_d.y) * zoom_scale * distance_;
+            distance_ = std::clamp(distance_, min_distance_, max_distance_);
+        }
     }
 
     update_position();
@@ -113,7 +118,14 @@ glm::mat4 Camera::view_matrix() const {
 }
 
 glm::mat4 Camera::projection_matrix(float aspect) const {
-    auto proj = glm::perspective(glm::radians(fov_), aspect, near_, far_);
+    glm::mat4 proj;
+    if (mode_ == EditorCameraMode::perspective) {
+        proj = glm::perspectiveZO(glm::radians(fov_), aspect, near_, far_);
+    } else {
+        float half_h = ortho_size_;
+        float half_w = ortho_size_ * aspect;
+        proj = glm::orthoZO(-half_w, half_w, -half_h, half_h, near_, far_);
+    }
     proj[1][1] *= -1; // Vulkan Y-flip
     return proj;
 }

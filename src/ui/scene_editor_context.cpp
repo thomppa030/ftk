@@ -338,6 +338,25 @@ void SceneEditorContext::draw_play_toolbar() {
         }
     }
 
+    // Perspective / Orthographic toggle (top-right of viewport)
+    {
+        const char* label = vp->camera.mode() == EditorCameraMode::perspective
+                            ? "Persp" : "Ortho";
+        ImVec2 label_size = ImGui::CalcTextSize(label);
+        float btn_w = label_size.x + 12.0f;
+        float btn_h = ImGui::GetFrameHeight();
+        float btn_x = vp->img_pos.x + vp->img_size.x - btn_w - pad;
+        float btn_y = vp->img_pos.y + pad;
+
+        ImGui::SetCursorScreenPos({btn_x, btn_y});
+        if (ImGui::Button(label, {btn_w, btn_h})) {
+            auto new_mode = vp->camera.mode() == EditorCameraMode::perspective
+                            ? EditorCameraMode::orthographic
+                            : EditorCameraMode::perspective;
+            vp->camera.set_mode(new_mode);
+        }
+    }
+
     ImGui::End();
 }
 
