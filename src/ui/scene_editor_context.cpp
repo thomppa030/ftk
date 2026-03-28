@@ -12,6 +12,7 @@
 #include "animation/skeleton.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"
+#include "scene/camera_subsystem.hpp"
 #include "physics/physics_world.hpp"
 #include "renderer/arrow_component.hpp"
 #include "renderer/asset_loader.hpp"
@@ -449,6 +450,7 @@ void SceneEditorContext::start_play() {
             .vfx = nullptr,
             .project = deps_.project_mgr->active(),
         };
+        deps_.camera_subsystem->on_play_start(ctx);
         deps_.audio_subsystem->on_play_start(ctx);
         deps_.script_subsystem->on_play_start(ctx);
         deps_.ui_subsystem->on_play_start(ctx);
@@ -478,6 +480,7 @@ void SceneEditorContext::stop_play() {
         .project = deps_.project_mgr->active(),
     };
     deps_.ui_subsystem->on_play_stop(ctx);
+    deps_.camera_subsystem->on_play_stop(ctx);
     deps_.audio_subsystem->on_play_stop(ctx);
     deps_.script_subsystem->on_play_stop(ctx);
     deps_.vfx_subsystem->on_play_stop(ctx);

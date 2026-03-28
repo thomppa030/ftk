@@ -19,6 +19,7 @@ namespace fjell {
 
 class AssetLoader;
 class AudioSubsystem;
+class CameraSubsystem;
 class Clock;
 class GameUi;
 class IconCache;
@@ -44,6 +45,7 @@ struct SceneEditorDeps {
     ScriptSubsystem* script_subsystem;
     PhysicsSubsystem* physics_subsystem;
     AudioSubsystem* audio_subsystem;
+    CameraSubsystem* camera_subsystem;
     VfxSubsystem* vfx_subsystem;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
