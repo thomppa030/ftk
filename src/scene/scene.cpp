@@ -1,6 +1,5 @@
 #include "scene/scene.hpp"
 #include "scene/node_serializer.hpp"
-#include "scene/game_ui_node.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"

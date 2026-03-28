@@ -2,7 +2,6 @@
 #include "scene/node.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
-#include "scene/game_ui_node.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
@@ -249,11 +248,6 @@ nlohmann::json serialize_node(const Node& node) {
             {"sky_top_color", {env->sky_top_color.x, env->sky_top_color.y, env->sky_top_color.z}},
             {"sky_bottom_color", {env->sky_bottom_color.x, env->sky_bottom_color.y, env->sky_bottom_color.z}},
             {"ibl_intensity", env->ibl_intensity}
-        };
-    } else if (auto* gui = dynamic_cast<const GameUiNode*>(&node)) {
-        j["node_type"] = "game_ui";
-        j["ui"] = {
-            {"path", gui->ui_path}
         };
     }
 
@@ -557,12 +551,13 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             }
             node = std::move(env);
         } else if (node_type == "game_ui") {
-            auto gui = std::make_unique<GameUiNode>();
+            // Legacy: convert GameUiNode → Node3D + UiWidgetComponent
+            node = std::make_unique<Node3D>();
             if (j.contains("ui")) {
                 auto& ju = j["ui"];
-                gui->ui_path = ju.value("path", "");
+                auto& wc = node->components.add<UiWidgetComponent>();
+                wc.fjui_path = ju.value("path", "");
             }
-            node = std::move(gui);
         }
 
         if (node) {

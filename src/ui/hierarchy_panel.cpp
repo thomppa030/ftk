@@ -3,7 +3,6 @@
 #include "core/commands.hpp"
 #include "scene/scene.hpp"
 #include "scene/camera_node.hpp"
-#include "scene/game_ui_node.hpp"
 #include "scene/light_node.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/viewport_manager.hpp"
@@ -46,9 +45,6 @@ NodeVisuals node_visuals(const Node& obj) {
     if (dynamic_cast<const CameraNode*>(&obj)) {
         return {{0.31f, 0.79f, 0.63f, 1.0f}, "camera"};
     }
-    if (dynamic_cast<const GameUiNode*>(&obj)) {
-        return {{0.6f, 0.45f, 0.8f, 1.0f}, "node"};
-    }
     if (!obj.preset_source.empty()) {
         return {{0.3f, 0.7f, 0.65f, 1.0f}, "node"};
     }
@@ -79,7 +75,6 @@ void draw_add_object_menu(Delegate<void(const std::string&)>& on_add) {
     ImGui::Separator();
     if (ImGui::MenuItem("Volumetric Fog")) on_add.broadcast("volumetric_fog");
     if (ImGui::MenuItem("World Environment")) on_add.broadcast("world_environment");
-    if (ImGui::MenuItem("Game UI")) on_add.broadcast("game_ui");
 }
 
 } // namespace

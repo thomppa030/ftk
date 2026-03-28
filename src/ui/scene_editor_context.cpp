@@ -26,7 +26,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "renderer/vfx_subsystem.hpp"
 #include "scene/camera_node.hpp"
-#include "scene/game_ui_node.hpp"
 #include "scene/preset.hpp"
 #include "scene/light_node.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
@@ -705,12 +704,6 @@ void SceneEditorContext::add_primitive(const std::string& type) {
     if (type == "world_environment") {
         auto node = std::make_unique<WorldEnvironmentNode>();
         node->name = "World Environment";
-        selected_id_ = deps_.scene->add_node(std::move(node));
-        return;
-    }
-    if (type == "game_ui") {
-        auto node = std::make_unique<GameUiNode>();
-        node->name = "Game UI";
         selected_id_ = deps_.scene->add_node(std::move(node));
         return;
     }

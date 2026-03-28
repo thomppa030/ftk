@@ -18,9 +18,9 @@ class VulkanContext;
 struct OwnedUiComponentType;
 struct UiNode;
 
-/// Manages runtime game UI instances. Finds GameUiNode nodes in the scene
-/// on play start, creates a GameUi per node, and tears them down on stop.
-/// Creates UiComponent controller instances and auto-syncs [[fj::bind]] fields.
+/// Manages runtime game UI instances. Finds nodes with UiWidgetComponent in
+/// the scene on play start, creates a GameUi per node, and tears them down
+/// on stop. Creates UiComponent controller instances and auto-syncs bind fields.
 class UiSubsystem : public Subsystem {
 public:
     UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui);

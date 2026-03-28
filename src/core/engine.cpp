@@ -159,7 +159,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                                 frame_index);
             }
 
-            // Runtime UI instances from GameUiNodes (play mode)
+            // Runtime UI instances from UiWidgetComponent nodes (play mode)
             for (auto& inst : ui_subsystem_->instances()) {
                 if (!inst.game_ui || !inst.game_ui->loaded()) continue;
                 inst.game_ui->context().set("fps", std::to_string(fps_count_));
