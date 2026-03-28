@@ -150,10 +150,10 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
     obj->transform = transform;
     obj->name = name;
     obj->source = source;
+    id_to_index_[id] = static_cast<int>(objects_.size());
     objects_.push_back(std::move(obj));
     id_generation_[id] = 1;
     dirty_ = true;
-    index_dirty_ = true;
     return id;
 }
 
@@ -163,10 +163,10 @@ uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     obj->id = id;
     obj->transform = transform;
     obj->name = name;
+    id_to_index_[id] = static_cast<int>(objects_.size());
     objects_.push_back(std::move(obj));
     id_generation_[id] = 1;
     dirty_ = true;
-    index_dirty_ = true;
     return id;
 }
 
@@ -175,10 +175,10 @@ uint32_t Scene::add_folder(const std::string& name) {
     auto obj = std::make_unique<Node>();
     obj->id = id;
     obj->name = name;
+    id_to_index_[id] = static_cast<int>(objects_.size());
     objects_.push_back(std::move(obj));
     id_generation_[id] = 1;
     dirty_ = true;
-    index_dirty_ = true;
     return id;
 }
 
@@ -186,12 +186,12 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
     if (node->id == 0) node->id = next_id_++;
     if (node->id >= next_id_) next_id_ = node->id + 1;
     uint32_t id = node->id;
+    id_to_index_[id] = static_cast<int>(objects_.size());
     objects_.push_back(std::move(node));
-    if (id_generation_.find(id) == id_generation_.end()) {
+    if (!id_generation_.contains(id)) {
         id_generation_[id] = 1;
     }
     dirty_ = true;
-    index_dirty_ = true;
     return id;
 }
 
@@ -201,14 +201,21 @@ void Scene::remove(uint32_t id) {
             obj->parent_id = -1;
         }
     }
-    auto it = std::find_if(objects_.begin(), objects_.end(),
-                           [id](const auto& o) { return o->id == id; });
-    if (it != objects_.end()) {
-        id_generation_[id]++;
-        objects_.erase(it);
-        dirty_ = true;
-        index_dirty_ = true;
+    if (index_dirty_) { rebuild_id_index(); index_dirty_ = false; }
+    auto map_it = id_to_index_.find(id);
+    if (map_it == id_to_index_.end()) return;
+
+    int idx = map_it->second;
+    id_generation_[id]++;
+    // Swap-and-pop: O(1) removal instead of O(n) shift
+    if (idx < static_cast<int>(objects_.size()) - 1) {
+        uint32_t back_id = objects_.back()->id;
+        std::swap(objects_[idx], objects_.back());
+        id_to_index_[back_id] = idx;
     }
+    objects_.pop_back();
+    id_to_index_.erase(map_it);
+    dirty_ = true;
 }
 
 std::unique_ptr<Node> Scene::extract(uint32_t id) {
@@ -217,22 +224,30 @@ std::unique_ptr<Node> Scene::extract(uint32_t id) {
             obj->parent_id = -1;
         }
     }
-    auto it = std::find_if(objects_.begin(), objects_.end(),
-                           [id](const auto& o) { return o->id == id; });
+    if (index_dirty_) { rebuild_id_index(); index_dirty_ = false; }
+    auto map_it = id_to_index_.find(id);
     id_generation_[id]++;
-    auto result = std::move(*it);
-    objects_.erase(it);
+
+    int idx = map_it->second;
+    auto result = std::move(objects_[idx]);
+    // Swap-and-pop
+    if (idx < static_cast<int>(objects_.size()) - 1) {
+        objects_[idx] = std::move(objects_.back());
+        id_to_index_[objects_[idx]->id] = idx;
+    }
+    objects_.pop_back();
+    id_to_index_.erase(map_it);
     dirty_ = true;
-    index_dirty_ = true;
     return result;
 }
 
 void Scene::restore(std::unique_ptr<Node> node) {
     if (node->id >= next_id_) next_id_ = node->id + 1;
     // Keep existing generation — node is coming back
+    uint32_t id = node->id;
+    id_to_index_[id] = static_cast<int>(objects_.size());
     objects_.push_back(std::move(node));
     dirty_ = true;
-    index_dirty_ = true;
 }
 
 void Scene::insert_point_light(int index, const PointLight& light) {
@@ -261,7 +276,8 @@ void Scene::clear() {
     spot_lights_.clear();
     id_generation_.clear();
     pending_destroy_.clear();
-    index_dirty_ = true;
+    id_to_index_.clear();
+    index_dirty_ = false;
 }
 
 uint32_t Scene::generation_of(uint32_t id) const {
@@ -276,6 +292,8 @@ void Scene::queue_destroy(uint32_t id) {
 void Scene::flush_destroyed() {
     if (pending_destroy_.empty()) return;
 
+    if (index_dirty_) { rebuild_id_index(); index_dirty_ = false; }
+
     for (uint32_t doomed : pending_destroy_) {
         // Reparent children to root
         for (auto& obj : objects_) {
@@ -285,17 +303,21 @@ void Scene::flush_destroyed() {
         }
         // Bump generation so WeakRefs go stale
         id_generation_[doomed]++;
-        // Erase from objects
-        auto it = std::find_if(objects_.begin(), objects_.end(),
-                               [doomed](const auto& o) { return o->id == doomed; });
-        if (it != objects_.end()) {
-            objects_.erase(it);
+        // Swap-and-pop removal via index map
+        auto map_it = id_to_index_.find(doomed);
+        if (map_it == id_to_index_.end()) continue;
+        int idx = map_it->second;
+        if (idx < static_cast<int>(objects_.size()) - 1) {
+            uint32_t back_id = objects_.back()->id;
+            std::swap(objects_[idx], objects_.back());
+            id_to_index_[back_id] = idx;
         }
+        objects_.pop_back();
+        id_to_index_.erase(map_it);
     }
 
     pending_destroy_.clear();
     dirty_ = true;
-    index_dirty_ = true;
 }
 
 void Scene::rebuild_id_index() {
@@ -307,23 +329,18 @@ void Scene::rebuild_id_index() {
 }
 
 Node* Scene::find(uint32_t id) {
+    if (index_dirty_) { rebuild_id_index(); index_dirty_ = false; }
     auto it = id_to_index_.find(id);
-    if (it != id_to_index_.end() && it->second < static_cast<int>(objects_.size())) {
+    if (it != id_to_index_.end()) {
         return objects_[it->second].get();
-    }
-    for (auto& obj : objects_) {
-        if (obj->id == id) return obj.get();
     }
     return nullptr;
 }
 
 const Node* Scene::find(uint32_t id) const {
     auto it = id_to_index_.find(id);
-    if (it != id_to_index_.end() && it->second < static_cast<int>(objects_.size())) {
+    if (it != id_to_index_.end()) {
         return objects_[it->second].get();
-    }
-    for (const auto& obj : objects_) {
-        if (obj->id == id) return obj.get();
     }
     return nullptr;
 }
@@ -339,15 +356,20 @@ std::vector<const Node*> Scene::collect_subtree(uint32_t root_id) const {
     const Node* root = find(root_id);
     if (!root) return result;
 
-    result.push_back(root);
+    // Build parent→children map once (O(n)), then BFS is O(subtree_size)
+    std::unordered_map<int32_t, std::vector<const Node*>> children_map;
+    children_map.reserve(objects_.size());
+    for (const auto& obj : objects_) {
+        if (obj->parent_id >= 0) {
+            children_map[obj->parent_id].push_back(obj.get());
+        }
+    }
 
-    // BFS: collect all descendants
+    result.push_back(root);
     for (size_t i = 0; i < result.size(); ++i) {
-        auto parent_id = static_cast<int32_t>(result[i]->id);
-        for (const auto& obj : objects_) {
-            if (obj->parent_id == parent_id) {
-                result.push_back(obj.get());
-            }
+        auto it = children_map.find(static_cast<int32_t>(result[i]->id));
+        if (it != children_map.end()) {
+            result.insert(result.end(), it->second.begin(), it->second.end());
         }
     }
 

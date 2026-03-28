@@ -34,11 +34,10 @@ void SceneGatherer::gather(const GatherInput& input) {
     projection_matrix_ = input.projection;
 
     // Build render queue with parallel frustum culling
-    std::vector<DrawCommand> shadow_commands;
+    shadow_commands_.clear();
     if (input.scene) {
         render_queue_.clear();
         render_queue_.reserve(input.scene->objects().size());
-        shadow_commands.reserve(input.scene->objects().size());
         Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
 
         // Build per-cascade shadow caster frustums from light matrices.
@@ -54,15 +53,19 @@ void SceneGatherer::gather(const GatherInput& input) {
         auto object_count = static_cast<uint32_t>(objects.size());
 
         uint32_t num_chunks = input.pool->thread_count() + 1;
-        std::vector<std::vector<DrawCommand>> local_commands(num_chunks);
-        std::vector<std::vector<DrawCommand>> local_shadow_commands(num_chunks);
-        std::vector<uint32_t> local_total(num_chunks, 0);
-        std::vector<uint32_t> local_culled(num_chunks, 0);
+        local_commands_.resize(num_chunks);
+        local_shadow_commands_.resize(num_chunks);
+        local_total_.assign(num_chunks, 0);
+        local_culled_.assign(num_chunks, 0);
+        for (uint32_t c = 0; c < num_chunks; ++c) {
+            local_commands_[c].clear();
+            local_shadow_commands_[c].clear();
+        }
 
         input.pool->parallel_for(0, object_count,
             [&](uint32_t chunk_id, uint32_t begin, uint32_t end) {
-                auto& commands = local_commands[chunk_id];
-                auto& shadow_cmds = local_shadow_commands[chunk_id];
+                auto& commands = local_commands_[chunk_id];
+                auto& shadow_cmds = local_shadow_commands_[chunk_id];
 
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
@@ -72,7 +75,7 @@ void SceneGatherer::gather(const GatherInput& input) {
 
                     // Skeletal mesh path
                     if (auto* skel = obj->components.get<SkeletalMeshComponent>(); skel && skel->skeletal_model) {
-                        local_total[chunk_id]++;
+                        local_total_[chunk_id]++;
 
                         DrawCommand dc{};
                         dc.world_matrix = spatial->world_matrix_;
@@ -100,12 +103,12 @@ void SceneGatherer::gather(const GatherInput& input) {
                             }
                         }
                         if (!camera_frustum.intersects(dc.world_aabb)) {
-                            local_culled[chunk_id]++;
+                            local_culled_[chunk_id]++;
                             continue;
                         }
                         if (dc.transparent) {
-                            glm::vec3 obj_pos = glm::vec3(dc.world_matrix[3]);
-                            dc.camera_distance = glm::length(camera_position_ - obj_pos);
+                            glm::vec3 diff = camera_position_ - glm::vec3(dc.world_matrix[3]);
+                            dc.camera_distance = glm::dot(diff, diff);
                         }
                         commands.push_back(dc);
                         continue;
@@ -115,7 +118,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                     auto* mesh = obj->components.get<MeshComponent>();
                     if (!mesh || !mesh->model) continue;
 
-                    local_total[chunk_id]++;
+                    local_total_[chunk_id]++;
 
                     DrawCommand dc{};
                     dc.world_matrix = spatial->world_matrix_;
@@ -142,13 +145,13 @@ void SceneGatherer::gather(const GatherInput& input) {
                     }
 
                     if (!camera_frustum.intersects(dc.world_aabb)) {
-                        local_culled[chunk_id]++;
+                        local_culled_[chunk_id]++;
                         continue;
                     }
 
                     if (dc.transparent) {
-                        glm::vec3 obj_pos = glm::vec3(dc.world_matrix[3]);
-                        dc.camera_distance = glm::length(camera_position_ - obj_pos);
+                        glm::vec3 diff = camera_position_ - glm::vec3(dc.world_matrix[3]);
+                        dc.camera_distance = glm::dot(diff, diff);
                     }
 
                     commands.push_back(dc);
@@ -157,13 +160,13 @@ void SceneGatherer::gather(const GatherInput& input) {
 
         // Merge per-chunk results
         for (uint32_t i = 0; i < num_chunks; ++i) {
-            input.stats->objects_total += local_total[i];
-            input.stats->objects_culled += local_culled[i];
-            for (const auto& dc : local_commands[i]) {
+            input.stats->objects_total += local_total_[i];
+            input.stats->objects_culled += local_culled_[i];
+            for (const auto& dc : local_commands_[i]) {
                 render_queue_.push(dc);
             }
-            for (const auto& dc : local_shadow_commands[i]) {
-                shadow_commands.push_back(dc);
+            for (const auto& dc : local_shadow_commands_[i]) {
+                shadow_commands_.push_back(dc);
             }
         }
         render_queue_.sort(camera_position_);
@@ -182,8 +185,8 @@ void SceneGatherer::gather(const GatherInput& input) {
                            input.animation_system);
 
     // Build shadow indirect batch from all shadow casters (not camera-culled)
-    std::vector<DrawCommand> empty_transparent;
-    shadow_batch_->build(shadow_commands, empty_transparent, input.frame_index);
+    empty_transparent_.clear();
+    shadow_batch_->build(shadow_commands_, empty_transparent_, input.frame_index);
 
     // Update draw data descriptor for this frame
     if (indirect_batch_->draw_data_count(input.frame_index) > 0) {

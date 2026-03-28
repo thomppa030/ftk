@@ -3,7 +3,7 @@
 #include "animation/bone_buffer.hpp"
 
 #include <cstdint>
-#include <unordered_map>
+#include <vector>
 
 namespace fjell {
 
@@ -29,12 +29,15 @@ public:
     [[nodiscard]] BoneBuffer& bone_buffer() { return bone_buffer_; }
     [[nodiscard]] const BoneBuffer& bone_buffer() const { return bone_buffer_; }
 
-    [[nodiscard]] bool has_bones_this_frame() const { return !bone_offsets_.empty(); }
+    [[nodiscard]] bool has_bones_this_frame() const { return bone_entry_count_ > 0; }
 
 private:
     BoneBuffer bone_buffer_;
-    std::unordered_map<uint32_t, uint32_t> bone_offsets_;  // node_id → SSBO offset
-    std::unordered_map<uint32_t, uint32_t> bone_counts_;   // node_id → joint count
+    // Flat arrays for O(1) lookup by node_id (sparse, resized to max_id+1)
+    std::vector<uint32_t> bone_offsets_;  // node_id → SSBO offset (0xFFFFFFFF = none)
+    std::vector<uint32_t> bone_counts_;   // node_id → joint count (0 = none)
+    std::vector<uint32_t> active_ids_;    // IDs written this frame (for fast clearing)
+    uint32_t bone_entry_count_{0};
 };
 
 } // namespace fjell

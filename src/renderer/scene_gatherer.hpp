@@ -74,6 +74,14 @@ private:
     DrawDataDescriptor draw_data_descriptor_;
     std::unique_ptr<IndirectBatch> shadow_batch_;
     DrawDataDescriptor shadow_draw_data_;
+
+    // Reusable per-frame scratch (avoid heap allocs every frame)
+    std::vector<DrawCommand> shadow_commands_;
+    std::vector<std::vector<DrawCommand>> local_commands_;
+    std::vector<std::vector<DrawCommand>> local_shadow_commands_;
+    std::vector<uint32_t> local_total_;
+    std::vector<uint32_t> local_culled_;
+    std::vector<DrawCommand> empty_transparent_;
 };
 
 } // namespace fjell

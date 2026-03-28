@@ -235,13 +235,11 @@ void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection
     FJELL_PROFILE_SCOPE_N("sprite_update");
     Frustum frustum = Frustum::from_vp_matrix(view_projection);
 
-    // Gather visible sprites
-    std::vector<GpuSprite> sprites;
-    struct SortEntry {
-        float distance;
-        uint32_t index;
-    };
-    std::vector<SortEntry> sort_entries;
+    // Gather visible sprites (reuse persistent scratch vectors)
+    auto& sprites = sprites_scratch_;
+    auto& sort_entries = sort_scratch_;
+    sprites.clear();
+    sort_entries.clear();
 
     for (const auto& obj : scene.objects()) {
         const auto* sp = obj->components.get<SpriteComponent>();
@@ -272,8 +270,9 @@ void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection
         uint32_t idx = static_cast<uint32_t>(sprites.size());
         sprites.push_back(gs);
 
-        float dist = glm::distance(camera_position, pos);
-        sort_entries.push_back({dist, idx});
+        glm::vec3 diff = camera_position - pos;
+        float dist_sq = glm::dot(diff, diff);
+        sort_entries.push_back({dist_sq, idx});
     }
 
     // Sort back-to-front for correct alpha blending

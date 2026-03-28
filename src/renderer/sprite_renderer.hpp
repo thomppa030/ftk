@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace fjell {
 
@@ -69,6 +70,14 @@ private:
 
   static constexpr uint32_t MAX_SPRITES = 4096;
   static constexpr VkDeviceSize SSBO_SIZE = MAX_SPRITES * sizeof(GpuSprite);
+
+  // Reusable per-frame scratch (avoid heap allocs every frame)
+  struct SortEntry {
+    float distance;
+    uint32_t index;
+  };
+  std::vector<GpuSprite> sprites_scratch_;
+  std::vector<SortEntry> sort_scratch_;
 };
 
 } // namespace fjell
