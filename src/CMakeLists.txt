@@ -125,10 +125,12 @@ add_executable(fjell
     scene/scene.cpp
     scene/node_serializer.cpp
     scene/preset.cpp
+    scene/camera_subsystem.cpp
     scripting/script_manager.cpp
     scripting/script_globals.cpp
     scripting/log_api.cpp
     scripting/audio_api.cpp
+    scripting/camera_api.cpp
     scripting/vfx_api.cpp
     scripting/scene_api.cpp
     ui/console.cpp

@@ -43,6 +43,7 @@ class EditorContext;
 class PhysicsSubsystem;
 class ResourceManager;
 class SceneEditorContext;
+class CameraSubsystem;
 class ScriptSubsystem;
 class UiSubsystem;
 class VfxSubsystem;
@@ -109,6 +110,7 @@ private:
     ScriptSubsystem*    script_subsystem_{};
     PhysicsSubsystem*   physics_subsystem_{};
     VfxSubsystem*       vfx_subsystem_{};
+    CameraSubsystem*    camera_subsystem_{};
     UiSubsystem*        ui_subsystem_{};
 
     // Phase groups (non-owning, built once in constructor)

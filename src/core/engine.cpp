@@ -22,6 +22,7 @@
 #include "ui/editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
 #include "scene/camera_node.hpp"
+#include "scene/camera_subsystem.hpp"
 #include "scene/preset.hpp"
 #include "renderer/asset_loader.hpp"
 #include "renderer/bindless.hpp"
@@ -82,9 +83,11 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     script_subsystem_    = add_subsystem<ScriptSubsystem>();
     physics_subsystem_   = add_subsystem<PhysicsSubsystem>();
     vfx_subsystem_       = add_subsystem<VfxSubsystem>();
+    camera_subsystem_    = add_subsystem<CameraSubsystem>();
 
     // Phase groups
     play_phase_0_.push_back(script_subsystem_);
+    play_phase_0_.push_back(camera_subsystem_);
     play_phase_1_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
     early_always_.push_back(animation_subsystem_);
@@ -208,6 +211,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     ScriptManager::set_active_project(project_mgr_.active());
     ScriptManager::set_vfx_subsystem(vfx_subsystem_);
     ScriptManager::set_audio_subsystem(audio_subsystem_);
+    ScriptManager::set_camera_subsystem(camera_subsystem_);
     ui_subsystem_->set_script_manager(&script_subsystem_->manager());
     // Determine which scene to load
     if (project_mgr_.active()) {
@@ -954,15 +958,12 @@ void Engine::run() {
 
         if (active_context().is_playing()) {
             // Update camera state for worldspace UI billboard computation
-            for (const auto& obj : scene_.objects()) {
-                if (auto* cam_node = dynamic_cast<const CameraNode*>(obj.get())) {
-                    float aspect = scene_context_->viewport_manager().active_aspect();
-                    ui_subsystem_->set_camera(
-                        cam_node->position(),
-                        cam_node->view_matrix(),
-                        cam_node->projection_matrix(aspect));
-                    break;
-                }
+            if (auto* cam_node = camera_subsystem_->active_camera(scene_)) {
+                float aspect = scene_context_->viewport_manager().active_aspect();
+                ui_subsystem_->set_camera(
+                    cam_node->position(),
+                    cam_node->view_matrix(),
+                    cam_node->projection_matrix(aspect));
             }
 
             // Phase 0: Scripts
@@ -1018,14 +1019,11 @@ void Engine::run() {
 
         // In play mode, override the active viewport's camera with the scene CameraNode
         if (active_context().is_playing() && !requests.empty()) {
-            for (const auto& obj : scene_.objects()) {
-                if (auto* cam_node = dynamic_cast<const CameraNode*>(obj.get())) {
-                    float aspect = scene_context_->viewport_manager().active_aspect();
-                    requests[0].view = cam_node->view_matrix();
-                    requests[0].projection = cam_node->projection_matrix(aspect);
-                    requests[0].camera_position = cam_node->position();
-                    break;
-                }
+            if (auto* cam_node = camera_subsystem_->active_camera(scene_)) {
+                float aspect = scene_context_->viewport_manager().active_aspect();
+                requests[0].view = cam_node->view_matrix();
+                requests[0].projection = cam_node->projection_matrix(aspect);
+                requests[0].camera_position = cam_node->position();
             }
         }
 

@@ -110,6 +110,7 @@ public:
     static void set_active_project(const class Project* project);
     static void set_vfx_subsystem(class VfxSubsystem* vfx);
     static void set_audio_subsystem(class AudioSubsystem* audio);
+    static void set_camera_subsystem(class CameraSubsystem* camera);
 
 #ifndef NDEBUG
     Result<> poll_reload(Scene& scene);

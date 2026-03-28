@@ -9,6 +9,7 @@ class ScriptManager;
 class ResourceManager;
 class VfxSubsystem;
 class AudioSubsystem;
+class CameraSubsystem;
 class Project;
 
 // Set by ScriptManager::prepare/update each frame
@@ -20,5 +21,6 @@ ResourceManager*& script_resource_manager();
 const Project*& script_active_project();
 VfxSubsystem*& script_vfx_subsystem();
 AudioSubsystem*& script_audio_subsystem();
+CameraSubsystem*& script_camera_subsystem();
 
 } // namespace fjell

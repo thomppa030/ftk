@@ -246,6 +246,10 @@ void ScriptManager::set_audio_subsystem(AudioSubsystem* audio) {
     script_audio_subsystem() = audio;
 }
 
+void ScriptManager::set_camera_subsystem(CameraSubsystem* camera) {
+    script_camera_subsystem() = camera;
+}
+
 // ── Constructor / Destructor ────────────────────────────────────────────
 
 ScriptManager::ScriptManager() = default;
