@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
@@ -69,6 +70,11 @@ struct FrameContext {
 
     // Transient render target pool
     RenderTargetPool* target_pool{nullptr};
+
+    // Per-cascade shadow batches (indexed by cascade index)
+    static constexpr uint32_t MAX_SHADOW_CASCADES = 3;
+    std::array<IndirectBatch*, MAX_SHADOW_CASCADES> shadow_cascade_batches{};
+    std::array<VkDescriptorSet, MAX_SHADOW_CASCADES> shadow_cascade_draw_data{};
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

@@ -2,9 +2,11 @@
 
 #include "renderer/draw_data_descriptor.hpp"
 #include "renderer/indirect_batch.hpp"
+#include "renderer/pass/render_pass.hpp"
 #include "renderer/render_queue.hpp"
 #include <glm/glm.hpp>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -43,9 +45,9 @@ public:
     [[nodiscard]] const RenderQueue& render_queue() const { return render_queue_; }
     [[nodiscard]] RenderQueue& render_queue() { return render_queue_; }
     [[nodiscard]] IndirectBatch* indirect_batch() { return indirect_batch_.get(); }
-    [[nodiscard]] IndirectBatch* shadow_batch() { return shadow_batch_.get(); }
+    [[nodiscard]] IndirectBatch* shadow_batch(uint32_t cascade) { return shadow_batches_[cascade].get(); }
     [[nodiscard]] DrawDataDescriptor& draw_data_descriptor() { return draw_data_descriptor_; }
-    [[nodiscard]] DrawDataDescriptor& shadow_draw_data() { return shadow_draw_data_; }
+    [[nodiscard]] DrawDataDescriptor& shadow_draw_data(uint32_t cascade) { return shadow_draw_data_[cascade]; }
 
     [[nodiscard]] const glm::vec3& camera_position() const { return camera_position_; }
     [[nodiscard]] const glm::mat4& view_matrix() const { return view_matrix_; }
@@ -72,13 +74,16 @@ private:
 
     std::unique_ptr<IndirectBatch> indirect_batch_;
     DrawDataDescriptor draw_data_descriptor_;
-    std::unique_ptr<IndirectBatch> shadow_batch_;
-    DrawDataDescriptor shadow_draw_data_;
+
+    // Per-cascade shadow batches (each cascade only draws its own geometry)
+    std::array<std::unique_ptr<IndirectBatch>, FrameContext::MAX_SHADOW_CASCADES> shadow_batches_;
+    std::array<DrawDataDescriptor, FrameContext::MAX_SHADOW_CASCADES> shadow_draw_data_;
 
     // Reusable per-frame scratch (avoid heap allocs every frame)
-    std::vector<DrawCommand> shadow_commands_;
+    std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES> shadow_commands_;
     std::vector<std::vector<DrawCommand>> local_commands_;
-    std::vector<std::vector<DrawCommand>> local_shadow_commands_;
+    // Per-chunk, per-cascade shadow command scratch
+    std::vector<std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES>> local_shadow_commands_;
     std::vector<uint32_t> local_total_;
     std::vector<uint32_t> local_culled_;
     std::vector<DrawCommand> empty_transparent_;

@@ -241,8 +241,11 @@ void VulkanContext::register_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                local.indirect_batch = gatherer_.shadow_batch();
-                local.draw_data_set = gatherer_.shadow_draw_data().descriptor_set(current_frame_);
+                for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+                    local.shadow_cascade_batches[c] = gatherer_.shadow_batch(c);
+                    local.shadow_cascade_draw_data[c] =
+                        gatherer_.shadow_draw_data(c).descriptor_set(current_frame_);
+                }
                 shadow_pass_.record(local);
             }, {}, 1);
         }

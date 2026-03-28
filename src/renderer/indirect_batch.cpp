@@ -88,6 +88,16 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     }
     total_draws += static_cast<uint32_t>(transparent_commands.size());
 
+    if (total_draws == 0) {
+        opaque_counts_[frame_index] = 0;
+        draw_data_counts_[frame_index] = 0;
+        total_triangles_[frame_index] = 0;
+        total_meshlet_instances_[frame_index] = 0;
+        pipeline_ranges_[frame_index].clear();
+        skinned_draw_indices_[frame_index].clear();
+        return;
+    }
+
     ensure_capacity(frame_index, total_draws);
 
     // Stage to CPU-side vectors (L1/L2 cached) to avoid scattered writes

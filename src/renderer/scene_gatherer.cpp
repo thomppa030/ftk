@@ -21,9 +21,11 @@ void SceneGatherer::init(GpuContext& gpu) {
         gpu.device(), gpu.physical_device());
     draw_data_descriptor_.create(gpu.device());
 
-    shadow_batch_ = std::make_unique<IndirectBatch>(
-        gpu.device(), gpu.physical_device());
-    shadow_draw_data_.create(gpu.device());
+    for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+        shadow_batches_[c] = std::make_unique<IndirectBatch>(
+            gpu.device(), gpu.physical_device());
+        shadow_draw_data_[c].create(gpu.device());
+    }
 }
 
 void SceneGatherer::gather(const GatherInput& input) {
@@ -34,7 +36,7 @@ void SceneGatherer::gather(const GatherInput& input) {
     projection_matrix_ = input.projection;
 
     // Build render queue with parallel frustum culling
-    shadow_commands_.clear();
+    for (auto& cmds : shadow_commands_) cmds.clear();
     if (input.scene) {
         render_queue_.clear();
         render_queue_.reserve(input.scene->objects().size());
@@ -43,8 +45,8 @@ void SceneGatherer::gather(const GatherInput& input) {
         // Build per-cascade shadow caster frustums from light matrices.
         // Near plane removed so objects behind the cascade (toward the light)
         // are included — they may cast shadows into the visible area.
-        std::array<Frustum, ShadowPass::CASCADE_COUNT> shadow_frustums;
-        for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
+        std::array<Frustum, FrameContext::MAX_SHADOW_CASCADES> shadow_frustums;
+        for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
             shadow_frustums[c] = Frustum::from_vp_matrix_zo(
                 input.shadow_pass->light_matrices()[c]).without_near_plane();
         }
@@ -57,15 +59,15 @@ void SceneGatherer::gather(const GatherInput& input) {
         local_shadow_commands_.resize(num_chunks);
         local_total_.assign(num_chunks, 0);
         local_culled_.assign(num_chunks, 0);
-        for (uint32_t c = 0; c < num_chunks; ++c) {
-            local_commands_[c].clear();
-            local_shadow_commands_[c].clear();
+        for (uint32_t ch = 0; ch < num_chunks; ++ch) {
+            local_commands_[ch].clear();
+            for (auto& sc : local_shadow_commands_[ch]) sc.clear();
         }
 
         input.pool->parallel_for(0, object_count,
             [&](uint32_t chunk_id, uint32_t begin, uint32_t end) {
                 auto& commands = local_commands_[chunk_id];
-                auto& shadow_cmds = local_shadow_commands_[chunk_id];
+                auto& cascade_cmds = local_shadow_commands_[chunk_id];
 
                 for (uint32_t i = begin; i < end; ++i) {
                     const auto& obj = objects[i];
@@ -95,10 +97,9 @@ void SceneGatherer::gather(const GatherInput& input) {
                                             .transform(spatial->world_matrix_);
 
                         if (!dc.transparent) {
-                            for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
+                            for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
                                 if (shadow_frustums[c].intersects(dc.world_aabb)) {
-                                    shadow_cmds.push_back(dc);
-                                    break;
+                                    cascade_cmds[c].push_back(dc);
                                 }
                             }
                         }
@@ -136,10 +137,9 @@ void SceneGatherer::gather(const GatherInput& input) {
                     dc.world_aabb = mesh->model->local_aabb().transform(spatial->world_matrix_);
 
                     if (!dc.transparent) {
-                        for (uint32_t c = 0; c < ShadowPass::CASCADE_COUNT; ++c) {
+                        for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
                             if (shadow_frustums[c].intersects(dc.world_aabb)) {
-                                shadow_cmds.push_back(dc);
-                                break;
+                                cascade_cmds[c].push_back(dc);
                             }
                         }
                     }
@@ -165,8 +165,10 @@ void SceneGatherer::gather(const GatherInput& input) {
             for (const auto& dc : local_commands_[i]) {
                 render_queue_.push(dc);
             }
-            for (const auto& dc : local_shadow_commands_[i]) {
-                shadow_commands_.push_back(dc);
+            for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+                for (const auto& dc : local_shadow_commands_[i][c]) {
+                    shadow_commands_[c].push_back(dc);
+                }
             }
         }
         render_queue_.sort(camera_position_);
@@ -184,9 +186,11 @@ void SceneGatherer::gather(const GatherInput& input) {
                            projection_matrix_, camera_position_,
                            input.animation_system);
 
-    // Build shadow indirect batch from all shadow casters (not camera-culled)
+    // Build per-cascade shadow indirect batches (each cascade only draws its own geometry)
     empty_transparent_.clear();
-    shadow_batch_->build(shadow_commands_, empty_transparent_, input.frame_index);
+    for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+        shadow_batches_[c]->build(shadow_commands_[c], empty_transparent_, input.frame_index);
+    }
 
     // Update draw data descriptor for this frame
     if (indirect_batch_->draw_data_count(input.frame_index) > 0) {
@@ -207,12 +211,14 @@ void SceneGatherer::gather(const GatherInput& input) {
         }
     }
 
-    // Update shadow draw data descriptor
-    if (shadow_batch_->draw_data_count(input.frame_index) > 0) {
-        shadow_draw_data_.update(
-            shadow_batch_->draw_data_buffer(input.frame_index),
-            shadow_batch_->draw_data_size(input.frame_index),
-            input.frame_index);
+    // Update per-cascade shadow draw data descriptors
+    for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+        if (shadow_batches_[c]->draw_data_count(input.frame_index) > 0) {
+            shadow_draw_data_[c].update(
+                shadow_batches_[c]->draw_data_buffer(input.frame_index),
+                shadow_batches_[c]->draw_data_size(input.frame_index),
+                input.frame_index);
+        }
     }
 }
 

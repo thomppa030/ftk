@@ -473,6 +473,51 @@ void ShadowPass::record(const FrameContext& ctx) {
     scissor.extent = {MAP_SIZE, MAP_SIZE};
 
     for (uint32_t c = 0; c < CASCADE_COUNT; ++c) {
+        // Skip cascade if it has no geometry or descriptor not yet initialized
+        auto* cascade_batch = ctx.shadow_cascade_batches[c];
+        if (!cascade_batch || cascade_batch->opaque_draw_count(ctx.frame_index) == 0
+            || ctx.shadow_cascade_draw_data[c] == VK_NULL_HANDLE) {
+            // Still need to clear the cascade layer for correct sampling
+            VkImageMemoryBarrier2 barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+            barrier.srcAccessMask = 0;
+            barrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT;
+            barrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = image_;
+            barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, c, 1};
+
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.imageMemoryBarrierCount = 1;
+            dep.pImageMemoryBarriers = &barrier;
+            vkCmdPipelineBarrier2(ctx.cmd, &dep);
+
+            VkRenderingAttachmentInfo depth_attachment{};
+            depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            depth_attachment.imageView = cascade_views_[c];
+            depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depth_attachment.clearValue.depthStencil = {1.0f, 0};
+
+            VkRenderingInfo rendering_info{};
+            rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            rendering_info.renderArea.offset = {0, 0};
+            rendering_info.renderArea.extent = {MAP_SIZE, MAP_SIZE};
+            rendering_info.layerCount = 1;
+            rendering_info.pDepthAttachment = &depth_attachment;
+            vkCmdBeginRendering(ctx.cmd, &rendering_info);
+            vkCmdEndRendering(ctx.cmd);
+            continue;
+        }
+
+        VkDescriptorSet cascade_draw_data = ctx.shadow_cascade_draw_data[c];
+
         // Transition cascade layer: UNDEFINED → DEPTH_ATTACHMENT_OPTIMAL
         VkImageMemoryBarrier2 barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -519,8 +564,8 @@ void ShadowPass::record(const FrameContext& ctx) {
         vkCmdSetViewport(ctx.cmd, 0, 1, &viewport);
         vkCmdSetScissor(ctx.cmd, 0, 1, &scissor);
 
-        // Bind global UBO + material/params + draw data
-        std::array shadow_sets = {ctx.global_descriptor_set, ctx.bindless_set, ctx.draw_data_set};
+        // Bind global UBO + material/params + per-cascade draw data
+        std::array shadow_sets = {ctx.global_descriptor_set, ctx.bindless_set, cascade_draw_data};
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                                 0, static_cast<uint32_t>(shadow_sets.size()),
                                 shadow_sets.data(), 0, nullptr);
@@ -529,12 +574,12 @@ void ShadowPass::record(const FrameContext& ctx) {
         vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
                            0, sizeof(glm::mat4), &light_matrices_[c]);
 
-        // Draw all opaques via MDI, with per-range pipeline switching for vertex displacement
-        if (ctx.mega_buffer && ctx.indirect_batch) {
+        // Draw only this cascade's geometry via MDI
+        if (ctx.mega_buffer) {
             ctx.mega_buffer->bind(ctx.cmd);
 
             draw_indirect_per_range(ctx.cmd, pipeline_, custom_shadow_pipelines_,
-                                    *ctx.indirect_batch, ctx.frame_index,
+                                    *cascade_batch, ctx.frame_index,
                                     [&](VkCommandBuffer cmd) {
                 vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                                         0, static_cast<uint32_t>(shadow_sets.size()),
