@@ -5,8 +5,8 @@
 #include "core/project.hpp"
 #include "renderer/texture.hpp"
 #include "renderer/vulkan_context.hpp"
-#include "scene/game_ui_node.hpp"
 #include "scene/scene.hpp"
+#include "ui/game_ui/ui_widget_component.hpp"
 #include "scripting/fjell/ui_component.hpp"
 #include "scripting/script_manager.hpp"
 
@@ -22,14 +22,16 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
     instances_.clear();
 
     for (const auto& obj : ctx.scene.objects()) {
-        auto* gui_node = dynamic_cast<const GameUiNode*>(obj.get());
-        if (!gui_node || gui_node->ui_path.empty()) continue;
+        const auto* wc = obj->components.get<UiWidgetComponent>();
+        if (!wc || wc->fjui_path.empty()) continue;
+
+        std::string ui_rel_path = wc->fjui_path;
 
         std::string fjui_path;
         if (ctx.project) {
-            fjui_path = ctx.project->resolve(gui_node->ui_path);
+            fjui_path = ctx.project->resolve(ui_rel_path);
         } else {
-            fjui_path = base_path::resolve(gui_node->ui_path);
+            fjui_path = base_path::resolve(ui_rel_path);
         }
 
         if (!std::filesystem::exists(fjui_path)) {
@@ -51,7 +53,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         game_ui->mark_dirty();
 
         UiInstance inst;
-        inst.node_id = gui_node->id;
+        inst.node_id = obj->id;
         inst.game_ui = std::move(game_ui);
 
         // Walk the resolved UI tree and create controllers for widget nodes
@@ -68,7 +70,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         }
 
         FJELL_CORE_INFO("UiSubsystem: loaded UI '{}' for node {} ({} controllers)",
-                        gui_node->ui_path, gui_node->id, inst.controllers.size());
+                        ui_rel_path, obj->id, inst.controllers.size());
 
         instances_.push_back(std::move(inst));
     }
