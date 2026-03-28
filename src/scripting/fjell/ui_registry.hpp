@@ -31,6 +31,7 @@ struct FjellUiGeneratedInfo {
 
 struct FjellTypeRegistry;
 extern "C" void fjell_reg_ui_component(FjellTypeRegistry* reg, const FjellUiComponentTypeOOP* desc);
+extern "C" void fjell_set_ui_generated_table(const FjellUiGeneratedInfo* table, uint32_t count);
 extern "C" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char* name);
 
 namespace fjell {

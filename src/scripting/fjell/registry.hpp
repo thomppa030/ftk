@@ -75,9 +75,14 @@ inline FjellAutoReg*& fjell_auto_reg_head() {
     return head;
 }
 
-// UI component auto-registration (defined in ui_registry.hpp, but declared
-// here so FJELL_REGISTER() can walk both lists even when no UI components exist)
-struct FjellUiAutoReg;
+// UI component auto-registration (full definition here so both
+// FJELL_REGISTER and FJELL_UI_COMPONENT can use it as a complete type)
+struct FjellUiAutoReg {
+    using Fn = void(*)(FjellTypeRegistry*);
+    Fn fn;
+    FjellUiAutoReg* next;
+};
+
 inline FjellUiAutoReg*& fjell_ui_auto_reg_head() {
     static FjellUiAutoReg* head = nullptr;
     return head;

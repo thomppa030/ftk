@@ -162,7 +162,19 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
                 std::ifstream mf(manifest_path);
                 auto manifest = nlohmann::json::parse(mf, nullptr, false);
                 if (manifest.is_object() && manifest.contains("types")) {
-                    // Extern declarations for generated symbols
+                    // Split types into script components and UI components
+                    std::vector<nlohmann::json> script_types;
+                    std::vector<nlohmann::json> ui_types;
+                    for (const auto& t : manifest["types"]) {
+                        bool is_ui = t.value("is_ui_component", false);
+                        if (is_ui) {
+                            ui_types.push_back(t);
+                        } else {
+                            script_types.push_back(t);
+                        }
+                    }
+
+                    // Extern declarations for all generated symbols
                     for (const auto& t : manifest["types"]) {
                         auto name = t["name"].get<std::string>();
                         auto fields_sym = t["fields_symbol"].get<std::string>();
@@ -174,28 +186,58 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
                         }
                     }
 
-                    // Generated info table
-                    reg << "\nstatic const FjellGeneratedInfo fjreflect_generated[] = {\n";
-                    for (const auto& t : manifest["types"]) {
-                        auto name = t["name"].get<std::string>();
-                        auto fields_sym = t["fields_symbol"].get<std::string>();
-                        auto count = t["field_count"].get<uint32_t>();
-                        reg << "    {\"" << name << "\", " << fields_sym
-                            << ", " << count << ", ";
-                        if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
-                            reg << t["trace_symbol"].get<std::string>();
-                        } else {
-                            reg << "nullptr";
+                    // Script component generated info table
+                    if (!script_types.empty()) {
+                        reg << "\nstatic const FjellGeneratedInfo fjreflect_generated[] = {\n";
+                        for (const auto& t : script_types) {
+                            auto name = t["name"].get<std::string>();
+                            auto fields_sym = t["fields_symbol"].get<std::string>();
+                            auto count = t["field_count"].get<uint32_t>();
+                            reg << "    {\"" << name << "\", " << fields_sym
+                                << ", " << count << ", ";
+                            if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
+                                reg << t["trace_symbol"].get<std::string>();
+                            } else {
+                                reg << "nullptr";
+                            }
+                            reg << "},\n";
                         }
-                        reg << "},\n";
+                        reg << "};\n";
                     }
-                    reg << "};\n\n";
 
-                    reg << "extern \"C\" uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
+                    // UI component generated info table
+                    if (!ui_types.empty()) {
+                        reg << "\n#include \"fjell/ui_registry.hpp\"\n";
+                        reg << "static const FjellUiGeneratedInfo fjreflect_ui_generated[] = {\n";
+                        for (const auto& t : ui_types) {
+                            auto name = t["name"].get<std::string>();
+                            auto tag = t["widget_tag"].get<std::string>();
+                            auto fields_sym = t["fields_symbol"].get<std::string>();
+                            auto count = t["field_count"].get<uint32_t>();
+                            reg << "    {\"" << name << "\", \"" << tag << "\", "
+                                << fields_sym << ", " << count << ", ";
+                            if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
+                                reg << t["trace_symbol"].get<std::string>();
+                            } else {
+                                reg << "nullptr";
+                            }
+                            reg << "},\n";
+                        }
+                        reg << "};\n";
+                    }
+
+                    reg << "\nextern \"C\" uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
                     reg << "extern \"C\" void fjell_register(FjellTypeRegistry* registry) {\n";
-                    reg << "    fjell_set_generated_table(fjreflect_generated, "
-                        << manifest["types"].size() << ");\n";
+                    if (!script_types.empty()) {
+                        reg << "    fjell_set_generated_table(fjreflect_generated, "
+                            << script_types.size() << ");\n";
+                    }
+                    if (!ui_types.empty()) {
+                        reg << "    fjell_set_ui_generated_table(fjreflect_ui_generated, "
+                            << ui_types.size() << ");\n";
+                    }
                     reg << "    for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
+                    reg << "    for (auto* r = fjell_ui_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
                     reg << "}\n";
                 } else {
                     // Manifest parse failed — fallback
