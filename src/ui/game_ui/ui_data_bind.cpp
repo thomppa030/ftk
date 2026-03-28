@@ -21,8 +21,9 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, bool& changed) {
                    : context;
 
     // Sync props: resolve outer expressions against parent context,
-    // write results into the widget's scoped context
-    if (node.is_widget && node.scoped_context) {
+    // write results into the widget's scoped context.
+    // Skip if a controller manages this widget (controller owns the data).
+    if (node.is_widget && node.scoped_context && !node.has_controller) {
         for (const auto& [inner_key, outer_expr] : node.prop_map) {
             auto resolved = resolve_template(outer_expr, context);
             node.scoped_context->set(inner_key, resolved);

@@ -50,6 +50,7 @@ struct UiNode {
 
     // Widget composition
     bool is_widget{false};
+    bool has_controller{false}; // true when a UiComponent controller manages this widget
     std::string widget_tag;   // original tag name before resolution (e.g., "health-bar")
     std::unique_ptr<UiContext> scoped_context; // widget's local context (nullptr for non-widgets)
     std::unordered_map<std::string, std::string> prop_map; // inner key → outer expression
