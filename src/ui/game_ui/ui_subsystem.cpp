@@ -5,11 +5,14 @@
 #include "core/project.hpp"
 #include "renderer/texture.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scripting/fjell/api.h"
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "scripting/script_manager.hpp"
+
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <filesystem>
 
@@ -69,10 +72,16 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
             fjss_path.clear();
         }
 
+        auto render_mode = wc->render_mode;
+
         auto game_ui = std::make_unique<GameUi>();
-        vulkan_context_.init_game_ui_shared(*game_ui,
-            editor_game_ui_.font(),
-            vulkan_context_.swapchain_format());
+        if (render_mode == UiWidgetComponent::RenderMode::world_space) {
+            vulkan_context_.init_game_ui_world(*game_ui, editor_game_ui_.font());
+        } else {
+            vulkan_context_.init_game_ui_shared(*game_ui,
+                editor_game_ui_.font(),
+                vulkan_context_.swapchain_format());
+        }
 
         game_ui->load(fjui_path, fjss_path);
         game_ui->mark_dirty();
@@ -80,6 +89,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         UiInstance inst;
         inst.node_id = obj->id;
         inst.game_ui = std::move(game_ui);
+        inst.render_mode = render_mode;
 
         if (script_manager_ && script_manager_->is_loaded()) {
             // Create the top-level widget from .fjwidget class name
@@ -222,6 +232,61 @@ void UiSubsystem::tick(const TickContext& ctx) {
             sync_bind_fields(wi);
         }
     }
+
+    // Rebuild world-space UI records for rendering
+    world_records_.clear();
+    for (auto& inst : instances_) {
+        if (inst.render_mode != UiWidgetComponent::RenderMode::world_space) continue;
+        if (!inst.game_ui || !inst.game_ui->loaded()) continue;
+
+        auto* spatial = ctx.scene.find_spatial(inst.node_id);
+        if (!spatial) continue;
+
+        const auto* wc = ctx.scene.find(inst.node_id)->components.get<UiWidgetComponent>();
+        if (!wc) continue;
+
+        // World position with local offset
+        glm::vec3 world_pos = glm::vec3(spatial->world_matrix_[3])
+                            + glm::mat3(spatial->world_matrix_) * wc->offset;
+
+        // Build world transform (billboard or node rotation)
+        glm::mat4 world_transform;
+        if (wc->billboard) {
+            glm::vec3 to_camera = camera_position_ - world_pos;
+            float dist = glm::length(to_camera);
+            if (dist > 0.001f) {
+                to_camera /= dist;
+            } else {
+                to_camera = glm::vec3(0.0f, 0.0f, 1.0f);
+            }
+            glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f);
+            glm::vec3 right = glm::normalize(glm::cross(up, to_camera));
+            up = glm::cross(to_camera, right);
+            world_transform = glm::mat4(
+                glm::vec4(right, 0.0f),
+                glm::vec4(up, 0.0f),
+                glm::vec4(to_camera, 0.0f),
+                glm::vec4(world_pos, 1.0f)
+            );
+        } else {
+            world_transform = spatial->world_matrix_;
+            world_transform[3] = glm::vec4(world_pos, 1.0f);
+        }
+
+        UiWorldPushConstants push{};
+        push.mvp = projection_matrix_ * view_matrix_ * world_transform;
+        push.pixels_per_unit = wc->pixels_per_unit;
+        push.viewport_width = wc->virtual_viewport.x;
+        push.viewport_height = wc->virtual_viewport.y;
+
+        world_records_.push_back({inst.game_ui.get(), push});
+    }
+}
+
+void UiSubsystem::set_camera(const glm::vec3& pos, const glm::mat4& view, const glm::mat4& proj) {
+    camera_position_ = pos;
+    view_matrix_ = view;
+    projection_matrix_ = proj;
 }
 
 void UiSubsystem::on_play_stop(const TickContext& /*ctx*/) {

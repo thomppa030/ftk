@@ -18,7 +18,9 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
                                       VkFormat color_format, VkFormat depth_format,
                                       const std::string& vert_path,
                                       const std::string& frag_path,
-                                      UiPipelineMode mode = UiPipelineMode::transparent) {
+                                      UiPipelineMode mode = UiPipelineMode::transparent,
+                                      VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT,
+                                      VkFormat mr_format = VK_FORMAT_UNDEFINED) {
     auto vert_mod = create_shader_module(device, read_spirv(vert_path));
     auto frag_mod = create_shader_module(device, read_spirv(frag_path));
 
@@ -59,7 +61,7 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisampling.rasterizationSamples = msaa;
 
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -92,15 +94,24 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
         blend.alphaBlendOp = VK_BLEND_OP_ADD;
     }
 
+    // Second color attachment (M/R): no writes when present
+    VkPipelineColorBlendAttachmentState mr_blend{};
+    mr_blend.colorWriteMask = 0; // no writes to M/R from UI
+
+    bool has_mr = (mr_format != VK_FORMAT_UNDEFINED);
+    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 1;
-    color_blending.pAttachments = &blend;
+    color_blending.attachmentCount = has_mr ? 2 : 1;
+    color_blending.pAttachments = blend_attachments;
+
+    VkFormat color_formats[] = {color_format, mr_format};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 1;
-    rendering_info.pColorAttachmentFormats = &color_format;
+    rendering_info.colorAttachmentCount = has_mr ? 2 : 1;
+    rendering_info.pColorAttachmentFormats = color_formats;
     if (use_depth) {
         rendering_info.depthAttachmentFormat = depth_format;
     }
@@ -256,6 +267,10 @@ void UiRenderer::destroy() {
     for (auto& ssbo : quad_ssbos_) ssbo.reset();
     for (auto& ssbo : text_ssbos_) ssbo.reset();
     safe_destroy(pool_, vkDestroyDescriptorPool);
+    safe_destroy(world_text_pipeline_, vkDestroyPipeline);
+    safe_destroy(world_transparent_pipeline_, vkDestroyPipeline);
+    safe_destroy(world_opaque_pipeline_, vkDestroyPipeline);
+    safe_destroy(world_layout_, vkDestroyPipelineLayout);
     safe_destroy(text_pipeline_, vkDestroyPipeline);
     safe_destroy(opaque_pipeline_, vkDestroyPipeline);
     safe_destroy(pipeline_, vkDestroyPipeline);
@@ -536,6 +551,102 @@ void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescr
     if (has_text) {
         vkCmdSetScissor(cmd, 0, 1, &full_scissor);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, text_pipeline_);
+        vkCmdDraw(cmd, text_counts_[frame_index] * 6, 1, 0, 0);
+    }
+}
+
+void UiRenderer::create_world_pipelines(Device& /*device*/, const PassResources& resources) {
+    // Pipeline layout: set 0 = global, set 1 = bindless, set 2 = UI SSBOs + push constants
+    VkDescriptorSetLayout sets[] = {global_set_layout_, bindless_set_layout_, quad_set_layout_};
+
+    VkPushConstantRange push_range{};
+    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    push_range.offset = 0;
+    push_range.size = sizeof(UiWorldPushConstants);
+
+    VkPipelineLayoutCreateInfo pipe_layout_ci{};
+    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipe_layout_ci.setLayoutCount = 3;
+    pipe_layout_ci.pSetLayouts = sets;
+    pipe_layout_ci.pushConstantRangeCount = 1;
+    pipe_layout_ci.pPushConstantRanges = &push_range;
+    if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &world_layout_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create worldspace UI pipeline layout");
+    }
+
+    auto msaa = resources.sample_count;
+    auto color_fmt = resources.color_format;
+    auto depth_fmt = resources.depth_format;
+
+    // Color pass has 2 color attachments (color + metallic/roughness).
+    // UI doesn't write to M/R, but the pipeline must declare both.
+    constexpr VkFormat mr_fmt = VK_FORMAT_R8G8_UNORM;
+
+    world_transparent_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
+        base_path::resolve("shaders/ui_quad_world.vert.spv"),
+        base_path::resolve("shaders/ui_quad.frag.spv"),
+        UiPipelineMode::transparent, msaa, mr_fmt);
+
+    world_opaque_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
+        base_path::resolve("shaders/ui_quad_world.vert.spv"),
+        base_path::resolve("shaders/ui_quad.frag.spv"),
+        UiPipelineMode::opaque, msaa, mr_fmt);
+
+    world_text_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
+        base_path::resolve("shaders/ui_text_world.vert.spv"),
+        base_path::resolve("shaders/ui_text.frag.spv"),
+        UiPipelineMode::transparent, msaa, mr_fmt);
+
+    FJELL_GFX_DEBUG("Worldspace UI pipelines created ({}x MSAA)", static_cast<uint32_t>(msaa));
+}
+
+void UiRenderer::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
+                               VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push) {
+    FJELL_PROFILE_SCOPE_N("ui_renderer_record_world");
+    uint32_t total_quads = quad_counts_[frame_index];
+    bool has_text = text_counts_[frame_index] > 0;
+    if (total_quads == 0 && !has_text) return;
+
+    VkViewport vp{};
+    vp.width = static_cast<float>(extent.width);
+    vp.height = static_cast<float>(extent.height);
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &vp);
+
+    VkRect2D full_scissor{};
+    full_scissor.extent = extent;
+    vkCmdSetScissor(cmd, 0, 1, &full_scissor);
+
+    // Bind shared descriptor sets on worldspace layout
+    VkDescriptorSet desc_sets[] = {global_set, bindless_set, quad_sets_[frame_index]};
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, world_layout_,
+                            0, 3, desc_sets, 0, nullptr);
+
+    // Push worldspace constants
+    vkCmdPushConstants(cmd, world_layout_, VK_SHADER_STAGE_VERTEX_BIT,
+                       0, sizeof(UiWorldPushConstants), &push);
+
+    // Pass 1: Opaque quads
+    const auto& opaque_groups = opaque_groups_[frame_index];
+    if (!opaque_groups.empty()) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, world_opaque_pipeline_);
+        for (const auto& group : opaque_groups) {
+            vkCmdDraw(cmd, group.vertex_count, 1, group.first_vertex, 0);
+        }
+    }
+
+    // Pass 2: Transparent quads
+    const auto& transparent_groups = transparent_groups_[frame_index];
+    if (!transparent_groups.empty()) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, world_transparent_pipeline_);
+        for (const auto& group : transparent_groups) {
+            vkCmdDraw(cmd, group.vertex_count, 1, group.first_vertex, 0);
+        }
+    }
+
+    // Pass 3: Text glyphs
+    if (has_text) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, world_text_pipeline_);
         vkCmdDraw(cmd, text_counts_[frame_index] * 6, 1, 0, 0);
     }
 }

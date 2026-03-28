@@ -4,6 +4,10 @@
 #include "core/subsystem.hpp"
 #include "scripting/fjell/ui_widget.hpp"
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/ui_renderer.hpp"
+#include "ui/game_ui/ui_widget_component.hpp"
+
+#include <glm/glm.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -44,9 +48,18 @@ public:
         uint32_t node_id;
         std::unique_ptr<GameUi> game_ui;
         std::vector<WidgetInstance> widgets;
+        UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};
     };
     [[nodiscard]] std::vector<UiInstance>& instances() { return instances_; }
     [[nodiscard]] const std::vector<UiInstance>& instances() const { return instances_; }
+
+    struct WorldUiRecord {
+        GameUi* game_ui;
+        UiWorldPushConstants push;
+    };
+    [[nodiscard]] const std::vector<WorldUiRecord>& world_records() const { return world_records_; }
+
+    void set_camera(const glm::vec3& pos, const glm::mat4& view, const glm::mat4& proj);
 
 private:
     void collect_widgets(UiNode& node, UiInstance& instance);
@@ -57,6 +70,11 @@ private:
     GameUi& editor_game_ui_;
     ScriptManager* script_manager_{nullptr};
     std::vector<UiInstance> instances_;
+    std::vector<WorldUiRecord> world_records_;
+
+    glm::vec3 camera_position_{0.0f};
+    glm::mat4 view_matrix_{1.0f};
+    glm::mat4 projection_matrix_{1.0f};
 };
 
 } // namespace fjell

@@ -182,6 +182,12 @@ nlohmann::json serialize_node(const Node& node) {
             jw["render_mode"] = static_cast<int>(wc->render_mode);
         }
         if (!wc->style_classes.empty()) jw["style_classes"] = wc->style_classes;
+        if (wc->render_mode == UiWidgetComponent::RenderMode::world_space) {
+            jw["pixels_per_unit"] = wc->pixels_per_unit;
+            jw["billboard"] = wc->billboard;
+            jw["virtual_viewport"] = {wc->virtual_viewport.x, wc->virtual_viewport.y};
+            jw["offset"] = {wc->offset.x, wc->offset.y, wc->offset.z};
+        }
         j["ui_widget"] = jw;
     }
 
@@ -410,6 +416,16 @@ static void load_components(Node& node, const nlohmann::json& j,
             for (const auto& cls : jw["style_classes"]) {
                 wc.style_classes.push_back(cls.get<std::string>());
             }
+        }
+        wc.pixels_per_unit = jw.value("pixels_per_unit", 100.0f);
+        wc.billboard = jw.value("billboard", true);
+        if (jw.contains("virtual_viewport")) {
+            auto& vv = jw["virtual_viewport"];
+            wc.virtual_viewport = {vv[0].get<float>(), vv[1].get<float>()};
+        }
+        if (jw.contains("offset")) {
+            auto& off = jw["offset"];
+            wc.offset = {off[0].get<float>(), off[1].get<float>(), off[2].get<float>()};
         }
     }
 

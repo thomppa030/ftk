@@ -155,6 +155,14 @@ public:
   void record_game_ui_offscreen(class GameUi& ui, OffscreenPass& target,
                                  uint32_t frame_index);
 
+  /// Callback for worldspace UI rendering (color pass, after transparent objects).
+  using WorldUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
+                                              VkDescriptorSet, VkExtent2D, uint32_t)>;
+  void set_world_ui_callback(WorldUiCallback cb) { world_ui_callback_ = std::move(cb); }
+
+  /// Initialize a GameUi for worldspace rendering (HDR format + scene MSAA).
+  void init_game_ui_world(class GameUi& ui, const class FontAtlas& shared_atlas);
+
   /// Callback for UI editor preview rendering (offscreen, called during record_frame).
   using UiPreviewCallback = std::function<void(uint32_t frame_index)>;
   void set_ui_preview_callback(UiPreviewCallback cb) { ui_preview_callback_ = std::move(cb); }
@@ -259,6 +267,7 @@ private:
   std::unique_ptr<DebugDraw> debug_draw_;
   OverlayCallback overlay_callback_;
   GameUiCallback game_ui_callback_;
+  WorldUiCallback world_ui_callback_;
   UiPreviewCallback ui_preview_callback_;
   glm::vec2 viewport_offset_{0.0f, 0.0f};
   bool show_colliders_{false};

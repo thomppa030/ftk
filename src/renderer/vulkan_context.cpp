@@ -633,6 +633,15 @@ void VulkanContext::register_passes() {
                 draw_outline(cb, local);
                 sprite_renderer_.record_render(local);
                 transparent_pass_.record(local);
+
+                // Worldspace UI: renders after transparent objects, before particles
+                if (world_ui_callback_ && playing_) {
+                    world_ui_callback_(cb,
+                        gpu_.global_descriptor_set(current_frame_),
+                        gpu_.bindless_textures().descriptor_set(),
+                        target->extent(), current_frame_);
+                }
+
                 particle_system_.record_render(local);
 
                 vkCmdEndRendering(cb);
@@ -1355,6 +1364,21 @@ void VulkanContext::init_game_ui_shared(GameUi& ui, const FontAtlas& shared_atla
 
     ui.create_with_shared_font(gpu_.device_ref(), res, gpu_.bindless_textures(),
                                 shared_atlas, output_format);
+}
+
+void VulkanContext::init_game_ui_world(GameUi& ui, const FontAtlas& shared_atlas) {
+    PassResources res{};
+    res.global_set_layout = gpu_.global_set_layout();
+    res.material_set_layout = gpu_.bindless_textures().layout();
+    res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
+    res.meshlet_layout = gpu_.use_mesh_shaders() ? gpu_.meshlet_descriptor().layout() : VK_NULL_HANDLE;
+    res.depth_format = gpu_.device_ref().find_depth_format();
+    res.color_format = OffscreenPass::COLOR_FORMAT;
+    res.sample_count = gpu_.msaa_samples();
+
+    ui.create_with_shared_font(gpu_.device_ref(), res, gpu_.bindless_textures(),
+                                shared_atlas, OffscreenPass::COLOR_FORMAT);
+    ui.create_world_pipelines(gpu_.device_ref(), res);
 }
 
 void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,

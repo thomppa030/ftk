@@ -76,6 +76,13 @@ public:
     void record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
                 VkExtent2D extent, uint32_t frame_index);
 
+    /// Create worldspace pipelines (HDR + scene MSAA). Call after create/create_with_shared_font.
+    void create_world_pipelines(Device& device, const PassResources& resources);
+
+    /// Record worldspace draw commands with push constants.
+    void record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
+                      VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push);
+
     void set_resource_manager(ResourceManager* rm);
 
     [[nodiscard]] UiContext& context() { return context_; }

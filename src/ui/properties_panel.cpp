@@ -511,6 +511,16 @@ void PropertiesPanel::draw() {
                         wc->render_mode = static_cast<UiWidgetComponent::RenderMode>(mode);
                         scene_->mark_dirty();
                     }
+                    if (wc->render_mode == UiWidgetComponent::RenderMode::world_space) {
+                        if (ImGui::DragFloat("Pixels/Unit", &wc->pixels_per_unit, 1.0f, 1.0f, 1000.0f))
+                            scene_->mark_dirty();
+                        if (ImGui::Checkbox("Billboard", &wc->billboard))
+                            scene_->mark_dirty();
+                        if (ImGui::DragFloat2("Virtual Viewport", &wc->virtual_viewport.x, 1.0f, 1.0f, 2048.0f))
+                            scene_->mark_dirty();
+                        if (ImGui::DragFloat3("Offset", &wc->offset.x, 0.05f))
+                            scene_->mark_dirty();
+                    }
                 }
             }
 

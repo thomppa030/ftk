@@ -216,6 +216,15 @@ void GameUi::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescripto
     renderer_.record(cmd, global_set, bindless_set, extent, frame_index);
 }
 
+void GameUi::create_world_pipelines(Device& device, const PassResources& resources) {
+    renderer_.create_world_pipelines(device, resources);
+}
+
+void GameUi::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
+                           VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push) {
+    renderer_.record_world(cmd, global_set, bindless_set, extent, frame_index, push);
+}
+
 void GameUi::resolve_textures(UiNode& node) {
     // Resolve src="path" → bindless texture index
     auto src_it = node.attributes.find("src");

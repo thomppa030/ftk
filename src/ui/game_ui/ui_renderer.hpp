@@ -18,6 +18,16 @@ namespace fjell {
 class Device;
 struct UiNode;
 
+/// Push constants for worldspace UI rendering.
+struct UiWorldPushConstants {
+    glm::mat4 mvp;            // proj * view * world_transform (billboard baked in)
+    float pixels_per_unit;     // UI pixels per world unit
+    float viewport_width;      // virtual viewport width
+    float viewport_height;     // virtual viewport height
+    float _pad{0.0f};
+};
+static_assert(sizeof(UiWorldPushConstants) == 80);
+
 class UiRenderer {
 public:
     void create(Device& device, const PassResources& resources,
@@ -38,6 +48,13 @@ public:
     /// Record draw commands into the command buffer (quads + text).
     void record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
                 VkExtent2D extent, uint32_t frame_index);
+
+    /// Create worldspace pipelines (HDR format + scene MSAA). Call after create().
+    void create_world_pipelines(Device& device, const PassResources& resources);
+
+    /// Record worldspace draw commands with push constants.
+    void record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
+                      VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push);
 
 private:
     struct GpuUiQuad {
@@ -98,6 +115,12 @@ private:
 
     // Text pipeline (shares layout)
     VkPipeline text_pipeline_{VK_NULL_HANDLE};
+
+    // Worldspace pipelines (HDR + scene MSAA, with push constants)
+    VkPipelineLayout world_layout_{VK_NULL_HANDLE};
+    VkPipeline world_opaque_pipeline_{VK_NULL_HANDLE};
+    VkPipeline world_transparent_pipeline_{VK_NULL_HANDLE};
+    VkPipeline world_text_pipeline_{VK_NULL_HANDLE};
 
     // Double-buffered SSBOs (quads)
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> quad_ssbos_;

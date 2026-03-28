@@ -159,8 +159,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                                 frame_index);
             }
 
-            // Runtime UI instances from UiWidgetComponent nodes (play mode)
+            // Runtime screen-space UI instances from UiWidgetComponent nodes (play mode)
             for (auto& inst : ui_subsystem_->instances()) {
+                if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) continue;
                 if (!inst.game_ui || !inst.game_ui->loaded()) continue;
                 inst.game_ui->context().set("fps", std::to_string(fps_count_));
                 inst.game_ui->update(static_cast<float>(extent.width),
@@ -174,6 +175,20 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     // Create UI subsystem (after game_ui_ font atlas is ready)
     ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_, game_ui_);
     play_phase_0_.push_back(ui_subsystem_);
+
+    // Worldspace UI callback (renders in color pass after transparent objects)
+    vulkan_context_->set_world_ui_callback(
+        [this](VkCommandBuffer cmd, VkDescriptorSet global_set,
+               VkDescriptorSet bindless_set, VkExtent2D extent,
+               uint32_t frame_index) {
+            for (const auto& rec : ui_subsystem_->world_records()) {
+                rec.game_ui->update(rec.push.viewport_width,
+                                     rec.push.viewport_height,
+                                     frame_index, clock_.delta_time(), nullptr);
+                rec.game_ui->record_world(cmd, global_set, bindless_set,
+                                           extent, frame_index, rec.push);
+            }
+        });
 
     resource_manager_ = std::make_unique<ResourceManager>(
         vulkan_context_->device(), vulkan_context_->physical_device(),
@@ -938,6 +953,18 @@ void Engine::run() {
         auto ctx = make_frame_context();
 
         if (active_context().is_playing()) {
+            // Update camera state for worldspace UI billboard computation
+            for (const auto& obj : scene_.objects()) {
+                if (auto* cam_node = dynamic_cast<const CameraNode*>(obj.get())) {
+                    float aspect = scene_context_->viewport_manager().active_aspect();
+                    ui_subsystem_->set_camera(
+                        cam_node->position(),
+                        cam_node->view_matrix(),
+                        cam_node->projection_matrix(aspect));
+                    break;
+                }
+            }
+
             // Phase 0: Scripts
             for (auto* s : play_phase_0_) s->tick(ctx);
             flush_pending();

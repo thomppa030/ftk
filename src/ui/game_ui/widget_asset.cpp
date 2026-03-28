@@ -26,7 +26,7 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
     asset.fjss_path = j.value("style", "");
 
     if (asset.class_name.empty()) {
-        return make_error("Widget asset missing 'class' field: " + path);
+        FJELL_CORE_WARN("Widget asset has no 'class' field: {}", path);
     }
     if (asset.fjui_path.empty()) {
         return make_error("Widget asset missing 'ui' field: " + path);
