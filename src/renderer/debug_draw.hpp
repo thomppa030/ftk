@@ -11,12 +11,14 @@ namespace fjell {
 
 class Buffer;
 class Scene;
+struct CameraNode;
 
 class DebugDraw {
 public:
     DebugDraw(VkDevice device, VkPhysicalDevice physical_device);
 
-    void update(const Scene& scene);
+    void update(const Scene& scene, uint32_t selected_id = 0,
+                bool show_colliders = true);
     void draw(VkCommandBuffer cmd, VkPipelineLayout layout) const;
 
     [[nodiscard]] bool empty() const { return draw_commands_.empty(); }
@@ -32,6 +34,7 @@ private:
     void generate_box(const glm::vec3& half_extents);
     void generate_sphere(float radius, uint32_t segments = 24);
     void generate_capsule(float radius, float height, uint32_t segments = 16);
+    void generate_frustum(const CameraNode& cam, float aspect);
 
     void add_line(const glm::vec3& a, const glm::vec3& b);
     void add_circle(const glm::vec3& center, const glm::vec3& axis_a,

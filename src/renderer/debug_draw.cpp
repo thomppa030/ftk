@@ -4,6 +4,7 @@
 #include "physics/physics_types.hpp"
 #include "renderer/uniform_types.hpp"
 #include "core/profiler.hpp"
+#include "scene/camera_node.hpp"
 #include "scene/scene.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -92,13 +93,62 @@ void DebugDraw::generate_capsule(float radius, float height, uint32_t segments) 
     }
 }
 
+void DebugDraw::generate_frustum(const CameraNode& cam, float aspect) {
+    // Compute the 8 corners of the frustum in local camera space (looking down -Z)
+    float n = cam.near_plane;
+    float f = cam.far_plane;
+
+    float near_h, near_w, far_h, far_w;
+    if (cam.projection == CameraProjection::perspective) {
+        float half_fov = glm::radians(cam.fov * 0.5f);
+        near_h = n * std::tan(half_fov);
+        near_w = near_h * aspect;
+        far_h = f * std::tan(half_fov);
+        far_w = far_h * aspect;
+    } else {
+        near_h = cam.ortho_size;
+        near_w = cam.ortho_size * aspect;
+        far_h = near_h;
+        far_w = near_w;
+    }
+
+    // Near plane corners (camera looks down -Z)
+    glm::vec3 ntl{-near_w,  near_h, -n};
+    glm::vec3 ntr{ near_w,  near_h, -n};
+    glm::vec3 nbl{-near_w, -near_h, -n};
+    glm::vec3 nbr{ near_w, -near_h, -n};
+
+    // Far plane corners
+    glm::vec3 ftl{-far_w,  far_h, -f};
+    glm::vec3 ftr{ far_w,  far_h, -f};
+    glm::vec3 fbl{-far_w, -far_h, -f};
+    glm::vec3 fbr{ far_w, -far_h, -f};
+
+    // Near rect
+    add_line(ntl, ntr); add_line(ntr, nbr);
+    add_line(nbr, nbl); add_line(nbl, ntl);
+
+    // Far rect
+    add_line(ftl, ftr); add_line(ftr, fbr);
+    add_line(fbr, fbl); add_line(fbl, ftl);
+
+    // Connecting edges
+    add_line(ntl, ftl); add_line(ntr, ftr);
+    add_line(nbl, fbl); add_line(nbr, fbr);
+
+    // Far plane diagonals (cross) for visibility at distance
+    add_line(ftl, fbr); add_line(ftr, fbl);
+}
+
 // ── Update ──────────────────────────────────────────────────────────────
 
-void DebugDraw::update(const Scene& scene) {
+void DebugDraw::update(const Scene& scene, uint32_t selected_id,
+                       bool show_colliders) {
     FJELL_PROFILE_SCOPE_N("debug_draw_update");
     vertices_.clear();
     draw_commands_.clear();
 
+    if (show_colliders) {
     for (const auto& obj : scene.objects()) {
         const auto* col_ptr = obj->components.get<ColliderComponent>();
         if (!col_ptr) continue;
@@ -182,6 +232,24 @@ void DebugDraw::update(const Scene& scene) {
 
         uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
         draw_commands_.push_back({spatial->world_matrix_, first, count});
+    }
+    } // show_colliders
+
+    // Camera frustum gizmo for selected camera nodes (always shown)
+    if (selected_id != 0) {
+        const auto* obj = scene.find(selected_id);
+        if (obj) {
+            const auto* cam = dynamic_cast<const CameraNode*>(obj);
+            if (cam) {
+                uint32_t first = static_cast<uint32_t>(vertices_.size());
+                generate_frustum(*cam, 16.0f / 9.0f);
+                uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
+                if (count > 0) {
+                    draw_commands_.push_back(
+                        {cam->world_matrix_, first, count, {0.9f, 0.8f, 0.3f, 1.0f}});
+                }
+            }
+        }
     }
 
     if (vertices_.empty()) return;

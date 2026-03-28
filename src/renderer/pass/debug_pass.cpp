@@ -171,7 +171,7 @@ void DebugPass::destroy() {
 }
 
 void DebugPass::record(const FrameContext& ctx) {
-    if (!ctx.show_colliders || !ctx.debug_draw || ctx.debug_draw->empty()) return;
+    if (!ctx.debug_draw || ctx.debug_draw->empty()) return;
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,

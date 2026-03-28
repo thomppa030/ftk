@@ -1550,8 +1550,8 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     elapsed_time_ += dt;
 
     gpu_.render_stats().reset();
-    if (show_colliders_ && scene) {
-        debug_draw_->update(*scene);
+    if (scene && (show_colliders_ || selected_id != 0)) {
+        debug_draw_->update(*scene, selected_id, show_colliders_);
     }
 
     // Sync particle emitters before recording — may rebuild GPU buffers
