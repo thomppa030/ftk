@@ -172,7 +172,8 @@ void FrameGraph::execute(VkCommandBuffer primary, ThreadPool* pool,
         }
 
         // Record each pass on a secondary command buffer, in parallel
-        std::vector<VkCommandBuffer> secondaries(group_size);
+        secondaries_scratch_.resize(group_size);
+        auto& secondaries = secondaries_scratch_;
         std::latch done(static_cast<ptrdiff_t>(group_size));
 
         for (size_t p = 0; p < group_size; ++p) {

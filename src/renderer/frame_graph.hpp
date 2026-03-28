@@ -79,6 +79,9 @@ private:
 
     std::vector<TrackedImage> images_;
     std::vector<PassDecl> passes_;
+
+    // Reusable scratch for parallel group secondary command buffers
+    std::vector<VkCommandBuffer> secondaries_scratch_;
 };
 
 } // namespace fjell
