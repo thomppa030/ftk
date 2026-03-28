@@ -23,6 +23,7 @@ UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui)
 
 void UiSubsystem::on_play_start(const TickContext& ctx) {
     instances_.clear();
+    world_records_.clear();
 
     for (const auto& obj : ctx.scene.objects()) {
         const auto* wc = obj->components.get<UiWidgetComponent>();
@@ -290,6 +291,7 @@ void UiSubsystem::set_camera(const glm::vec3& pos, const glm::mat4& view, const 
 }
 
 void UiSubsystem::on_play_stop(const TickContext& /*ctx*/) {
+    world_records_.clear();
     for (auto& inst : instances_) {
         for (auto& wi : inst.widgets) {
             if (wi.widget) {
