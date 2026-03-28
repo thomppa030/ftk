@@ -365,7 +365,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                 .project_mgr = &project_mgr_,
                 .icon_cache = icon_cache_.get(),
                 .code_editor = &code_editor_,
-                .engine_game_ui = &game_ui_
+                .engine_game_ui = &game_ui_,
+                .script_manager = &script_subsystem_->manager()
             };
             auto ctx = std::make_unique<UiEditorContext>(deps);
             ctx->init();

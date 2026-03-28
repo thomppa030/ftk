@@ -16,6 +16,7 @@ class IconCache;
 class Input;
 class ProjectManager;
 class ResourceManager;
+class ScriptManager;
 class VulkanContext;
 struct UiNode;
 
@@ -27,7 +28,8 @@ struct UiEditorDeps {
     ProjectManager* project_mgr;
     IconCache* icon_cache;
     CodeEditor* code_editor;
-    GameUi* engine_game_ui; // for sharing font atlas
+    GameUi* engine_game_ui;       // for sharing font atlas
+    ScriptManager* script_manager; // for looking up UiComponent types
 };
 
 class UiEditorContext final : public EditorContext {
@@ -98,6 +100,19 @@ private:
     char new_key_buf_[128]{};
     char new_value_buf_[256]{};
 
+    // Mock list data for foreach directives
+    struct MockListItem {
+        std::vector<std::pair<std::string, std::string>> fields; // key/value per item
+    };
+    struct MockList {
+        std::string key;               // context list key (matches foreach="key")
+        std::vector<MockListItem> items;
+    };
+    std::vector<MockList> mock_lists_;
+    char new_list_key_buf_[128]{};
+
+    void sync_mock_lists();
+
     // Action bindings: action name → (key, value) to set on dispatch
     struct ActionBinding {
         std::string action;
@@ -109,6 +124,10 @@ private:
     int bind_action_idx_{0};
     char bind_key_buf_[128]{};
     char bind_value_buf_[256]{};
+
+    // Widget isolation: true when editing a file from widgets/ directory
+    bool is_widget_file_{false};
+    std::vector<std::string> discovered_props_; // {key} templates found in the widget
 
     // Preview resolution
     float preview_width_{800.0f};

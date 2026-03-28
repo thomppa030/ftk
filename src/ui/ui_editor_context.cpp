@@ -1,5 +1,7 @@
 #include "ui/ui_editor_context.hpp"
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/ui_context.hpp"
+#include "scripting/script_manager.hpp"
 #include "renderer/texture.hpp"
 #include "core/base_path.hpp"
 #include "core/clock.hpp"
@@ -192,6 +194,65 @@ void UiEditorContext::open_ui(const std::string& fjui_path) {
                             }
                         }
                     }));
+        }
+    }
+
+    // Detect widget isolation mode (file is in a widgets/ directory)
+    is_widget_file_ = (fjui_path.find("/widgets/") != std::string::npos ||
+                       fjui_path.find("\\widgets\\") != std::string::npos);
+
+    // Auto-discover {key} prop templates in the widget
+    discovered_props_.clear();
+    if (is_widget_file_ && root) {
+        std::function<void(const UiNode*)> collect_props = [&](const UiNode* n) {
+            // Scan text templates
+            if (!n->text_template.empty()) {
+                size_t pos = 0;
+                while (pos < n->text_template.size()) {
+                    auto open = n->text_template.find('{', pos);
+                    if (open == std::string::npos) break;
+                    auto close = n->text_template.find('}', open + 1);
+                    if (close == std::string::npos) break;
+                    auto key = n->text_template.substr(open + 1, close - open - 1);
+                    if (std::find(discovered_props_.begin(), discovered_props_.end(), key)
+                        == discovered_props_.end()) {
+                        discovered_props_.push_back(key);
+                    }
+                    pos = close + 1;
+                }
+            }
+            // Scan value/max attributes on bar elements
+            for (const auto& [attr, val] : n->attributes) {
+                if (val.find('{') == std::string::npos) continue;
+                size_t pos = 0;
+                while (pos < val.size()) {
+                    auto open = val.find('{', pos);
+                    if (open == std::string::npos) break;
+                    auto close = val.find('}', open + 1);
+                    if (close == std::string::npos) break;
+                    auto key = val.substr(open + 1, close - open - 1);
+                    if (std::find(discovered_props_.begin(), discovered_props_.end(), key)
+                        == discovered_props_.end()) {
+                        discovered_props_.push_back(key);
+                    }
+                    pos = close + 1;
+                }
+            }
+            for (const auto& child : n->children) {
+                collect_props(child.get());
+            }
+        };
+        collect_props(root);
+
+        // Auto-create mock entries for discovered props that don't exist yet
+        for (const auto& prop : discovered_props_) {
+            bool exists = false;
+            for (const auto& [k, v] : mock_entries_) {
+                if (k == prop) { exists = true; break; }
+            }
+            if (!exists) {
+                mock_entries_.emplace_back(prop, "");
+            }
         }
     }
 
@@ -594,6 +655,37 @@ void UiEditorContext::draw_inspector() {
             if (node->scoped_context) {
                 ImGui::TextDisabled("(scoped context active)");
             }
+
+            // Controller info
+            if (deps_.script_manager && deps_.script_manager->is_loaded()) {
+                auto* ui_type = deps_.script_manager->find_ui_type_by_tag(node->widget_tag);
+                if (ui_type) {
+                    ImGui::Spacing();
+                    ImGui::TextColored({0.4f, 0.8f, 0.4f, 1.0f}, "Controller: %s",
+                                       ui_type->name.c_str());
+                    if (!ui_type->fields.empty()) {
+                        ImGui::Text("Bind fields:");
+                        ImGui::Indent();
+                        for (const auto& f : ui_type->fields) {
+                            const char* type_name = "?";
+                            switch (f.type) {
+                                case FJELL_FIELD_FLOAT: type_name = "float"; break;
+                                case FJELL_FIELD_INT: type_name = "int"; break;
+                                case FJELL_FIELD_BOOL: type_name = "bool"; break;
+                                case FJELL_FIELD_STRING: type_name = "string"; break;
+                                case FJELL_FIELD_VEC2: type_name = "vec2"; break;
+                                case FJELL_FIELD_VEC3: type_name = "vec3"; break;
+                                case FJELL_FIELD_VEC4: type_name = "vec4"; break;
+                                default: break;
+                            }
+                            ImGui::Text("%s %s", type_name, f.name.c_str());
+                        }
+                        ImGui::Unindent();
+                    }
+                } else {
+                    ImGui::TextDisabled("No controller registered");
+                }
+            }
         }
 
         // Foreach info
@@ -714,7 +806,12 @@ void UiEditorContext::draw_mock_data() {
             return;
         }
 
-        ImGui::TextDisabled("Key/value pairs for {key} data binding");
+        if (is_widget_file_) {
+            ImGui::TextColored({0.6f, 0.45f, 0.8f, 1.0f}, "Widget isolation mode");
+            ImGui::TextDisabled("Props auto-discovered from {key} templates");
+        } else {
+            ImGui::TextDisabled("Key/value pairs for {key} data binding");
+        }
         ImGui::Separator();
 
         // Existing entries
@@ -772,6 +869,99 @@ void UiEditorContext::draw_mock_data() {
             preview_ui_->mark_dirty();
             new_key_buf_[0] = '\0';
             new_value_buf_[0] = '\0';
+        }
+
+        // ── List Data (for foreach) ─────────────────────────────────
+        ImGui::Spacing();
+        ImGui::SeparatorText("Lists (foreach)");
+        ImGui::TextDisabled("List data for foreach directives");
+
+        bool lists_changed = false;
+        int remove_list = -1;
+        for (int li = 0; li < static_cast<int>(mock_lists_.size()); ++li) {
+            ImGui::PushID(2000 + li);
+            auto& list = mock_lists_[li];
+
+            bool list_open = ImGui::TreeNodeEx(list.key.c_str(),
+                ImGuiTreeNodeFlags_DefaultOpen);
+            ImGui::SameLine();
+            if (ImGui::SmallButton("X##list")) { remove_list = li; }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+Item")) {
+                list.items.push_back({});
+                lists_changed = true;
+            }
+
+            if (list_open) {
+                int remove_item = -1;
+                for (int ii = 0; ii < static_cast<int>(list.items.size()); ++ii) {
+                    ImGui::PushID(ii);
+                    auto& item = list.items[ii];
+
+                    ImGui::TextDisabled("[%d]", ii);
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("X##item")) { remove_item = ii; }
+
+                    // Existing fields
+                    for (auto& [fk, fv] : item.fields) {
+                        ImGui::Indent();
+                        ImGui::Text("%s", fk.c_str());
+                        ImGui::SameLine(150);
+                        char fbuf[256];
+                        std::snprintf(fbuf, sizeof(fbuf), "%s", fv.c_str());
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::InputText("##fval", fbuf, sizeof(fbuf))) {
+                            fv = fbuf;
+                            lists_changed = true;
+                        }
+                        ImGui::Unindent();
+                    }
+
+                    // Add field button
+                    ImGui::Indent();
+                    static char field_key[64]{};
+                    static char field_val[128]{};
+                    ImGui::SetNextItemWidth(80);
+                    ImGui::InputTextWithHint("##fk", "key", field_key, sizeof(field_key));
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(80);
+                    ImGui::InputTextWithHint("##fv", "value", field_val, sizeof(field_val));
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("+") && field_key[0] != '\0') {
+                        item.fields.emplace_back(field_key, field_val);
+                        field_key[0] = '\0';
+                        field_val[0] = '\0';
+                        lists_changed = true;
+                    }
+                    ImGui::Unindent();
+
+                    ImGui::PopID();
+                }
+                if (remove_item >= 0) {
+                    list.items.erase(list.items.begin() + remove_item);
+                    lists_changed = true;
+                }
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+        }
+        if (remove_list >= 0) {
+            mock_lists_.erase(mock_lists_.begin() + remove_list);
+            lists_changed = true;
+        }
+
+        // Add new list
+        ImGui::SetNextItemWidth(120);
+        ImGui::InputTextWithHint("##newlistkey", "list key", new_list_key_buf_, sizeof(new_list_key_buf_));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Add List") && new_list_key_buf_[0] != '\0') {
+            mock_lists_.push_back({new_list_key_buf_, {}});
+            new_list_key_buf_[0] = '\0';
+            lists_changed = true;
+        }
+
+        if (lists_changed) {
+            sync_mock_lists();
         }
 
         // ── Action Bindings ──────────────────────────────────────────
@@ -835,6 +1025,27 @@ void UiEditorContext::draw_mock_data() {
         }
     }
     ImGui::End();
+}
+
+// ── List sync ────────────────────────────────────────────────────────────
+
+void UiEditorContext::sync_mock_lists() {
+    if (!preview_ui_) return;
+    auto& ctx = preview_ui_->context();
+
+    for (const auto& ml : mock_lists_) {
+        std::vector<UiContext> items;
+        items.reserve(ml.items.size());
+        for (const auto& item : ml.items) {
+            UiContext item_ctx;
+            for (const auto& [k, v] : item.fields) {
+                item_ctx.set(k, v);
+            }
+            items.push_back(std::move(item_ctx));
+        }
+        ctx.set_list(ml.key, std::move(items));
+    }
+    preview_ui_->mark_dirty();
 }
 
 // ── Action Log Panel ─────────────────────────────────────────────────────
