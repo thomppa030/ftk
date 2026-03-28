@@ -205,11 +205,17 @@ nlohmann::json serialize_node(const Node& node) {
     // Typed node data (node_type + type-specific properties)
     if (auto* cam = dynamic_cast<const CameraNode*>(&node)) {
         j["node_type"] = "camera";
-        j["camera"] = {
-            {"fov", cam->fov},
-            {"near", cam->near_plane},
-            {"far", cam->far_plane}
-        };
+        nlohmann::json jc;
+        jc["fov"] = cam->fov;
+        jc["near"] = cam->near_plane;
+        jc["far"] = cam->far_plane;
+        if (cam->projection != CameraProjection::perspective) {
+            jc["projection"] = static_cast<int>(cam->projection);
+        }
+        if (cam->ortho_size != 10.0f) {
+            jc["ortho_size"] = cam->ortho_size;
+        }
+        j["camera"] = jc;
     } else if (auto* dl = dynamic_cast<const DirectionalLightNode*>(&node)) {
         j["node_type"] = "directional_light";
         j["light"] = {
@@ -481,6 +487,8 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 cam->fov = jc.value("fov", 45.0f);
                 cam->near_plane = jc.value("near", 0.1f);
                 cam->far_plane = jc.value("far", 1000.0f);
+                cam->projection = static_cast<CameraProjection>(jc.value("projection", 0));
+                cam->ortho_size = jc.value("ortho_size", 10.0f);
             }
             node = std::move(cam);
         } else if (node_type == "directional_light") {

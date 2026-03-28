@@ -384,15 +384,33 @@ void PropertiesPanel::draw() {
             if (auto* cam = dynamic_cast<CameraNode*>(obj)) {
                 colored_separator({0.31f, 0.79f, 0.63f, 1.0f});
                 if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    ImGui::Text("FOV");
+                    int proj_mode = static_cast<int>(cam->projection);
+                    const char* proj_modes[] = {"Perspective", "Orthographic"};
+                    ImGui::Text("Projection");
                     ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##CamFOV", &cam->fov, 0.5f, 1.0f, 179.0f);
+                    if (ImGui::Combo("##CamProjection", &proj_mode, proj_modes, 2)) {
+                        cam->projection = static_cast<CameraProjection>(proj_mode);
+                        scene_->mark_dirty();
+                    }
+                    if (cam->projection == CameraProjection::perspective) {
+                        ImGui::Text("FOV");
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::DragFloat("##CamFOV", &cam->fov, 0.5f, 1.0f, 179.0f))
+                            scene_->mark_dirty();
+                    } else {
+                        ImGui::Text("Ortho Size");
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::DragFloat("##CamOrthoSize", &cam->ortho_size, 0.1f, 0.1f, 1000.0f))
+                            scene_->mark_dirty();
+                    }
                     ImGui::Text("Near Plane");
                     ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##CamNear", &cam->near_plane, 0.01f, 0.001f, 100.0f);
+                    if (ImGui::DragFloat("##CamNear", &cam->near_plane, 0.01f, 0.001f, 100.0f))
+                        scene_->mark_dirty();
                     ImGui::Text("Far Plane");
                     ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##CamFar", &cam->far_plane, 10.0f, 1.0f, 100000.0f);
+                    if (ImGui::DragFloat("##CamFar", &cam->far_plane, 10.0f, 1.0f, 100000.0f))
+                        scene_->mark_dirty();
                 }
             }
 
