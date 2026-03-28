@@ -124,6 +124,7 @@ add_executable(fjell
     physics/physics_world.cpp
     scene/scene.cpp
     scene/node_serializer.cpp
+    scene/preset.cpp
     scripting/script_manager.cpp
     scripting/script_globals.cpp
     scripting/log_api.cpp
