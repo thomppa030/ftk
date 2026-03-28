@@ -7,8 +7,7 @@
 namespace fjell {
 
 struct UiWidgetComponent {
-    std::string fjui_path;    // relative path to .fjui template
-    std::string widget_type;  // registered UiComponent type name (for controller binding)
+    std::string widget_path;  // relative path to .fjwidget asset
 
     enum class RenderMode : uint8_t {
         screen_space,

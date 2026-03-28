@@ -109,6 +109,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjskel" || ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
     if (ext == ".fjui" || ext == ".fjss") return FileType::ui_layout;
     if (ext == ".fjvfx") return FileType::vfx;
+    if (ext == ".fjwidget") return FileType::widget;
     if (ext == ".fjp") return FileType::preset;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
@@ -129,6 +130,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::animation:  return "node";
         case FileType::ui_layout:  return "shader";
         case FileType::vfx:        return "node";
+        case FileType::widget:     return "node";
         case FileType::preset:     return "node";
         case FileType::unknown:    return "node";
     }
@@ -533,6 +535,8 @@ void ContentBrowser::draw_file_grid() {
             ImVec4 icon_tint = {1.0f, 1.0f, 1.0f, 1.0f};
             if (entry.type == FileType::preset) {
                 icon_tint = {0.3f, 0.85f, 0.75f, 1.0f};
+            } else if (entry.type == FileType::widget) {
+                icon_tint = {0.6f, 0.45f, 0.85f, 1.0f};
             }
             ImGui::Image(icon_desc, {cell_size, cell_size},
                          ImVec2(0, 0), ImVec2(1, 1), icon_tint, ImVec4(0, 0, 0, 0));
@@ -872,6 +876,25 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
+                case FileType::widget:
+                    if (ImGui::MenuItem("Open in UI Editor")) {
+                        auto rel = std::filesystem::relative(entry.path, root_);
+                        on_open_asset.broadcast(rel.string(), "ui");
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Rename")) {
+                        renaming_ = true;
+                        rename_index_ = context_menu_index_;
+                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
+                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+                    }
+                    if (ImGui::MenuItem("Delete")) {
+                        delete_index_ = context_menu_index_;
+                        show_delete_confirm_ = true;
+                    }
+                    break;
+
                 case FileType::preset:
                     if (ImGui::MenuItem("Instantiate in Scene")) {
                         auto rel = std::filesystem::relative(entry.path, root_);
@@ -989,6 +1012,12 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::vfx: {
             auto rel = std::filesystem::relative(entry.path, root_);
             on_open_asset.broadcast(rel.string(), "vfx");
+            break;
+        }
+
+        case FileType::widget: {
+            auto rel = std::filesystem::relative(entry.path, root_);
+            on_open_asset.broadcast(rel.string(), "ui");
             break;
         }
 

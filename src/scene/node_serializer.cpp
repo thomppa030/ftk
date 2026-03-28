@@ -177,8 +177,7 @@ nlohmann::json serialize_node(const Node& node) {
     // UI Widget
     if (const auto* wc = node.components.get<UiWidgetComponent>()) {
         nlohmann::json jw;
-        jw["fjui_path"] = wc->fjui_path;
-        if (!wc->widget_type.empty()) jw["widget_type"] = wc->widget_type;
+        jw["widget"] = wc->widget_path;
         if (wc->render_mode != UiWidgetComponent::RenderMode::screen_space) {
             jw["render_mode"] = static_cast<int>(wc->render_mode);
         }
@@ -405,8 +404,7 @@ static void load_components(Node& node, const nlohmann::json& j,
     if (j.contains("ui_widget")) {
         auto& jw = j["ui_widget"];
         auto& wc = node.components.add<UiWidgetComponent>();
-        wc.fjui_path = jw.value("fjui_path", "");
-        wc.widget_type = jw.value("widget_type", "");
+        wc.widget_path = jw.value("widget", "");
         wc.render_mode = static_cast<UiWidgetComponent::RenderMode>(jw.value("render_mode", 0));
         if (jw.contains("style_classes") && jw["style_classes"].is_array()) {
             for (const auto& cls : jw["style_classes"]) {
@@ -551,13 +549,9 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             }
             node = std::move(env);
         } else if (node_type == "game_ui") {
-            // Legacy: convert GameUiNode → Node3D + UiWidgetComponent
+            // Legacy: GameUiNode no longer supported, load as empty Node3D
+            FJELL_CORE_WARN("game_ui node type is deprecated — use UiWidgetComponent with .fjwidget");
             node = std::make_unique<Node3D>();
-            if (j.contains("ui")) {
-                auto& ju = j["ui"];
-                auto& wc = node->components.add<UiWidgetComponent>();
-                wc.fjui_path = ju.value("path", "");
-            }
         }
 
         if (node) {

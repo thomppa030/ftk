@@ -1,5 +1,6 @@
 #include "ui/ui_editor_context.hpp"
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "scripting/script_manager.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -111,18 +112,37 @@ void UiEditorContext::apply_resize(VulkanContext& /*vk*/) {
 
 // ── Open from asset ──────────────────────────────────────────────────────
 
-void UiEditorContext::open_ui(const std::string& fjui_path) {
-    fjui_path_ = fjui_path;
+void UiEditorContext::open_ui(const std::string& path) {
+    auto abs_path = base_path::resolve_asset(path, deps_.project_mgr->active());
 
-    auto abs_path = base_path::resolve_asset(fjui_path, deps_.project_mgr->active());
-
-    // Derive .fjss path: same name, .fjss extension
-    auto fjss = fs::path(abs_path);
-    fjss.replace_extension(".fjss");
-    fjss_path_ = fjss.string();
+    // If opening a .fjwidget, read the manifest to get .fjui/.fjss paths
+    if (path.ends_with(".fjwidget")) {
+        auto result = load_widget_asset(abs_path);
+        if (result) {
+            fjui_path_ = result->fjui_path;
+            abs_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
+            if (!result->fjss_path.empty()) {
+                fjss_path_ = base_path::resolve_asset(result->fjss_path, deps_.project_mgr->active());
+            } else {
+                auto fjss = fs::path(abs_path);
+                fjss.replace_extension(".fjss");
+                fjss_path_ = fjss.string();
+            }
+        } else {
+            FJELL_CORE_WARN("UiEditor: {}", result.error());
+            fjui_path_ = path;
+            fjss_path_.clear();
+        }
+    } else {
+        fjui_path_ = path;
+        // Derive .fjss path: same name, .fjss extension
+        auto fjss = fs::path(abs_path);
+        fjss.replace_extension(".fjss");
+        fjss_path_ = fjss.string();
+    }
 
     // Set tab name to filename
-    name_ = fs::path(fjui_path).stem().string();
+    name_ = fs::path(path).stem().string();
 
     // Initialize preview GameUi if needed
     if (!preview_ui_) {
@@ -225,8 +245,8 @@ void UiEditorContext::open_ui(const std::string& fjui_path) {
     }
 
     // Detect widget isolation mode (file is in a widgets/ directory)
-    is_widget_file_ = (fjui_path.find("/widgets/") != std::string::npos ||
-                       fjui_path.find("\\widgets\\") != std::string::npos);
+    is_widget_file_ = (fjui_path_.find("/widgets/") != std::string::npos ||
+                       fjui_path_.find("\\widgets\\") != std::string::npos);
 
     // Auto-discover {key} prop templates in the widget
     discovered_props_.clear();
@@ -289,7 +309,7 @@ void UiEditorContext::open_ui(const std::string& fjui_path) {
     }
 
     selected_node_ = nullptr;
-    FJELL_CORE_INFO("UI editor opened: {}", fjui_path);
+    FJELL_CORE_INFO("UI editor opened: {}", fjui_path_);
 }
 
 // ── Preview Panel ────────────────────────────────────────────────────────

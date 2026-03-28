@@ -41,6 +41,7 @@ private:
         animation,
         ui_layout,
         vfx,
+        widget,
         preset,
         unknown
     };

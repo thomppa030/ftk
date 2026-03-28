@@ -8,6 +8,7 @@
 #include "scene/scene.hpp"
 #include "scripting/fjell/api.h"
 #include "ui/game_ui/ui_widget_component.hpp"
+#include "ui/game_ui/widget_asset.hpp"
 #include "scripting/script_manager.hpp"
 
 #include <filesystem>
@@ -22,15 +23,29 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
 
     for (const auto& obj : ctx.scene.objects()) {
         const auto* wc = obj->components.get<UiWidgetComponent>();
-        if (!wc || wc->fjui_path.empty()) continue;
+        if (!wc || wc->widget_path.empty()) continue;
 
-        std::string ui_rel_path = wc->fjui_path;
+        // Load the .fjwidget asset
+        std::string widget_resolved;
+        if (ctx.project) {
+            widget_resolved = ctx.project->resolve(wc->widget_path);
+        } else {
+            widget_resolved = base_path::resolve(wc->widget_path);
+        }
 
+        auto widget_result = load_widget_asset(widget_resolved);
+        if (!widget_result) {
+            FJELL_CORE_WARN("UiSubsystem: {}", widget_result.error());
+            continue;
+        }
+        const auto& widget_asset = *widget_result;
+
+        // Resolve .fjui path
         std::string fjui_path;
         if (ctx.project) {
-            fjui_path = ctx.project->resolve(ui_rel_path);
+            fjui_path = ctx.project->resolve(widget_asset.fjui_path);
         } else {
-            fjui_path = base_path::resolve(ui_rel_path);
+            fjui_path = base_path::resolve(widget_asset.fjui_path);
         }
 
         if (!std::filesystem::exists(fjui_path)) {
@@ -38,7 +53,18 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
             continue;
         }
 
-        auto fjss_path = std::filesystem::path(fjui_path).replace_extension(".fjss").string();
+        // Resolve .fjss path
+        std::string fjss_path;
+        if (!widget_asset.fjss_path.empty()) {
+            if (ctx.project) {
+                fjss_path = ctx.project->resolve(widget_asset.fjss_path);
+            } else {
+                fjss_path = base_path::resolve(widget_asset.fjss_path);
+            }
+        } else {
+            // Default: same name as .fjui with .fjss extension
+            fjss_path = std::filesystem::path(fjui_path).replace_extension(".fjss").string();
+        }
         if (!std::filesystem::exists(fjss_path)) {
             fjss_path.clear();
         }
@@ -55,8 +81,21 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         inst.node_id = obj->id;
         inst.game_ui = std::move(game_ui);
 
-        // Walk the resolved UI tree and create widget instances for widget nodes
         if (script_manager_ && script_manager_->is_loaded()) {
+            // Create the top-level widget from .fjwidget class name
+            if (!widget_asset.class_name.empty()) {
+                auto* wt = script_manager_->find_ui_widget_type(widget_asset.class_name);
+                if (wt && wt->create) {
+                    WidgetInstance wi;
+                    wi.type = wt;
+                    wi.widget_context = &inst.game_ui->context();
+                    wi.widget.reset(wt->create());
+                    inst.widgets.push_back(std::move(wi));
+                    FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
+                }
+            }
+
+            // Also walk the resolved UI tree for sub-widgets (embedded via tags)
             auto* root = inst.game_ui->root();
             if (root) {
                 collect_widgets(*root, inst);
@@ -67,8 +106,8 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
             wi.widget->begin_play();
         }
 
-        FJELL_CORE_INFO("UiSubsystem: loaded UI '{}' for node {} ({} widgets)",
-                        ui_rel_path, obj->id, inst.widgets.size());
+        FJELL_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets)",
+                        wc->widget_path, obj->id, inst.widgets.size());
 
         instances_.push_back(std::move(inst));
     }
