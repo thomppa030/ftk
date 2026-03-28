@@ -59,6 +59,7 @@ void Node::clone_base_into(Node& target) const {
     target.parent_id = parent_id;
     target.name = name;
     target.source = source;
+    target.preset_source = preset_source;
     if (const auto* mc = components.get<MeshComponent>()) {
         target.components.add<MeshComponent>(*mc);
     }

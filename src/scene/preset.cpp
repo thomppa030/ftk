@@ -148,11 +148,6 @@ Preset Preset::from_subtree(const Scene& scene, uint32_t root_id) {
             }
         }
 
-        // Tag the root with preset source
-        if (node->id == root_id) {
-            clone->source = "";
-        }
-
         preset.nodes_.push_back(std::move(clone));
     }
 

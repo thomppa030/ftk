@@ -58,6 +58,8 @@ public:
     Delegate<void(const std::string&)> on_add_primitive;
     Delegate<void(uint32_t)> on_remove_object;
     Delegate<void()> on_duplicate;
+    // Preset: instantiate a .fjp (path, parent_id to instantiate under)
+    Delegate<void(const std::string&, int32_t)> on_instantiate_preset;
 
 private:
 

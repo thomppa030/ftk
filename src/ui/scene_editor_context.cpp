@@ -27,6 +27,7 @@
 #include "renderer/vfx_subsystem.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/game_ui_node.hpp"
+#include "scene/preset.hpp"
 #include "scene/light_node.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
 #include "scripting/script_subsystem.hpp"
@@ -78,6 +79,21 @@ void SceneEditorContext::init() {
         }));
     connections_.push_back(hierarchy_panel_.on_duplicate.bind(
         [this]() { duplicate_selection(); }));
+    connections_.push_back(hierarchy_panel_.on_instantiate_preset.bind(
+        [this](const std::string& rel_path, int32_t parent_id) {
+            const auto* project = deps_.project_mgr ? deps_.project_mgr->active() : nullptr;
+            auto resolved = base_path::resolve_asset(rel_path, project);
+            auto result = Preset::load(resolved, *deps_.resource_manager, project);
+            if (!result) {
+                FJELL_CORE_ERROR("Failed to load preset: {}", result.error());
+                return;
+            }
+            auto root_id = result->instantiate(*deps_.scene, parent_id);
+            if (auto* root = deps_.scene->find(root_id)) {
+                root->preset_source = rel_path;
+            }
+            selected_id_ = root_id;
+        }));
 }
 
 void SceneEditorContext::shutdown() {

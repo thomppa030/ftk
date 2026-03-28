@@ -109,6 +109,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjskel" || ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
     if (ext == ".fjui" || ext == ".fjss") return FileType::ui_layout;
     if (ext == ".fjvfx") return FileType::vfx;
+    if (ext == ".fjp") return FileType::preset;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
@@ -128,6 +129,7 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::animation:  return "node";
         case FileType::ui_layout:  return "shader";
         case FileType::vfx:        return "node";
+        case FileType::preset:     return "node";
         case FileType::unknown:    return "node";
     }
     return "node";
@@ -528,7 +530,12 @@ void ContentBrowser::draw_file_grid() {
             icon_desc = icons_->icon(icon_name(entry.type));
         }
         if (icon_desc) {
-            ImGui::Image(icon_desc, {cell_size, cell_size});
+            ImVec4 icon_tint = {1.0f, 1.0f, 1.0f, 1.0f};
+            if (entry.type == FileType::preset) {
+                icon_tint = {0.3f, 0.85f, 0.75f, 1.0f};
+            }
+            ImGui::Image(icon_desc, {cell_size, cell_size},
+                         ImVec2(0, 0), ImVec2(1, 1), icon_tint, ImVec4(0, 0, 0, 0));
         } else {
             ImGui::Dummy({cell_size, cell_size});
         }
@@ -661,6 +668,21 @@ void ContentBrowser::draw_file_grid() {
             ImGui::SameLine(0, padding);
         } else {
             col = 0;
+        }
+    }
+
+    // Invisible drop zone covering remaining space — accepts hierarchy node drops
+    {
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+        if (avail.y < 30.0f) avail.y = 30.0f; // minimum drop area
+        ImGui::InvisibleButton("##preset_drop_zone", avail);
+        if (ImGui::BeginDragDropTarget()) {
+            if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
+                uint32_t node_id = *static_cast<const uint32_t*>(payload->Data);
+                on_create_preset.broadcast(node_id, current_dir_.string());
+                refresh_current_dir();
+            }
+            ImGui::EndDragDropTarget();
         }
     }
 
@@ -850,6 +872,25 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
+                case FileType::preset:
+                    if (ImGui::MenuItem("Instantiate in Scene")) {
+                        auto rel = std::filesystem::relative(entry.path, root_);
+                        on_instantiate_preset.broadcast(rel.string());
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Rename")) {
+                        renaming_ = true;
+                        rename_index_ = context_menu_index_;
+                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
+                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+                    }
+                    if (ImGui::MenuItem("Delete")) {
+                        delete_index_ = context_menu_index_;
+                        show_delete_confirm_ = true;
+                    }
+                    break;
+
                 case FileType::animation:
                 case FileType::unknown:
                     if (ImGui::MenuItem("Rename")) {
@@ -948,6 +989,12 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::vfx: {
             auto rel = std::filesystem::relative(entry.path, root_);
             on_open_asset.broadcast(rel.string(), "vfx");
+            break;
+        }
+
+        case FileType::preset: {
+            auto rel = std::filesystem::relative(entry.path, root_);
+            on_instantiate_preset.broadcast(rel.string());
             break;
         }
 

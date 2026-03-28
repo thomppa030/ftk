@@ -22,6 +22,7 @@
 #include "ui/editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
 #include "scene/camera_node.hpp"
+#include "scene/preset.hpp"
 #include "renderer/asset_loader.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/resource_manager.hpp"
@@ -278,6 +279,41 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             auto ctx = entry->create(path);
             contexts_.push_back(std::move(ctx));
             switch_context(static_cast<int>(contexts_.size()) - 1);
+        }));
+    connections_.push_back(content_browser_.on_create_preset.bind(
+        [this](uint32_t node_id, const std::string& directory) {
+            auto preset = Preset::from_subtree(scene_, node_id);
+            auto* node = scene_.find(node_id);
+            std::string name = node ? node->name : "preset";
+            auto path = std::filesystem::path(directory) / (name + ".fjp");
+            // Avoid overwriting — append number if file exists
+            if (std::filesystem::exists(path)) {
+                for (int i = 1; i < 100; ++i) {
+                    auto alt = std::filesystem::path(directory) / (name + "_" + std::to_string(i) + ".fjp");
+                    if (!std::filesystem::exists(alt)) { path = alt; break; }
+                }
+            }
+            auto result = preset.save(path.string());
+            if (!result) {
+                FJELL_CORE_ERROR("Failed to save preset: {}", result.error());
+            }
+        }));
+    connections_.push_back(content_browser_.on_instantiate_preset.bind(
+        [this](const std::string& rel_path) {
+            const auto* project = project_mgr_.active();
+            auto resolved = base_path::resolve_asset(rel_path, project);
+            auto result = Preset::load(resolved, *resource_manager_, project);
+            if (!result) {
+                FJELL_CORE_ERROR("Failed to load preset: {}", result.error());
+                return;
+            }
+            auto root_id = result->instantiate(scene_);
+            if (auto* root = scene_.find(root_id)) {
+                root->preset_source = rel_path;
+            }
+            if (scene_context_) {
+                scene_context_->set_selected_id(root_id);
+            }
         }));
     if (project_mgr_.active()) {
         content_browser_.set_root(project_mgr_.active()->root());

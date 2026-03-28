@@ -41,6 +41,7 @@ private:
         animation,
         ui_layout,
         vfx,
+        preset,
         unknown
     };
 
@@ -117,6 +118,10 @@ public:
     Delegate<void(const std::string&)> on_load_scene;
     // Hook for opening asset-specific editor contexts (path, file type string)
     Delegate<void(const std::string&, const std::string&)> on_open_asset;
+    // Preset: instantiate a .fjp file into the scene
+    Delegate<void(const std::string&)> on_instantiate_preset;
+    // Preset: create from hierarchy node drop (node_id, target directory)
+    Delegate<void(uint32_t, const std::string&)> on_create_preset;
 };
 
 } // namespace fjell

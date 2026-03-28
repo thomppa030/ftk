@@ -36,6 +36,9 @@ nlohmann::json serialize_node(const Node& node) {
     j["parent_id"] = node.parent_id;
     j["name"] = node.name;
     j["source"] = node.source;
+    if (!node.preset_source.empty()) {
+        j["preset_source"] = node.preset_source;
+    }
 
     if (!node.is_spatial()) {
         j["node_type"] = "folder";
@@ -409,9 +412,15 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                                        const Project* project) {
     std::string name = j.value("name", "Object");
     std::string source = j.value("source", "");
+    std::string preset_src = j.value("preset_source", "");
     uint32_t loaded_id = j.value("id", 0u);
     int32_t loaded_parent = j.value("parent_id", -1);
     Transform transform = parse_transform(j);
+
+    // Apply preset_source to the returned node
+    auto apply_preset = [&](std::unique_ptr<Node>& node) {
+        if (node && !preset_src.empty()) node->preset_source = preset_src;
+    };
 
     std::string node_type = j.value("node_type", "");
 
@@ -424,6 +433,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         folder->id = loaded_id;
         folder->parent_id = loaded_parent;
         load_components(*folder, j, resources, project);
+        apply_preset(folder);
         return folder;
     }
 
@@ -536,6 +546,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             node->id = loaded_id;
             node->parent_id = loaded_parent;
             load_components(*node, j, resources, project);
+            if (!preset_src.empty()) node->preset_source = preset_src;
             return node;
         }
     }
@@ -624,6 +635,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         }
 
         load_components(*node, j, resources, project);
+        if (!preset_src.empty()) node->preset_source = preset_src;
         return node;
     }
 
@@ -702,6 +714,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         mc.material_name = mat_name;
 
         load_components(*node, j, resources, project);
+        if (!preset_src.empty()) node->preset_source = preset_src;
         return node;
     }
 
@@ -713,6 +726,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
     node->id = loaded_id;
     node->parent_id = loaded_parent;
     load_components(*node, j, resources, project);
+    if (!preset_src.empty()) node->preset_source = preset_src;
     return node;
 }
 

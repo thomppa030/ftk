@@ -49,6 +49,9 @@ NodeVisuals node_visuals(const Node& obj) {
     if (dynamic_cast<const GameUiNode*>(&obj)) {
         return {{0.6f, 0.45f, 0.8f, 1.0f}, "node"};
     }
+    if (!obj.preset_source.empty()) {
+        return {{0.3f, 0.7f, 0.65f, 1.0f}, "node"};
+    }
     if (!obj.is_spatial()) {
         return {{0.85f, 0.72f, 0.40f, 1.0f}, "folder"};
     }
@@ -270,7 +273,7 @@ void HierarchyPanel::draw() {
             }
         }
 
-        // Empty space = drop target for unparent to root
+        // Empty space = drop target for unparent to root + preset instantiation
         ImVec2 avail = ImGui::GetContentRegionAvail();
         if (avail.y > 0) {
             ImGui::Dummy(avail);
@@ -285,6 +288,12 @@ void HierarchyPanel::draw() {
                             -1, name));
                     } else {
                         scene_->reparent(dragged_id, -1);
+                    }
+                }
+                if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                    std::string path(static_cast<const char*>(payload->Data));
+                    if (path.ends_with(".fjp")) {
+                        on_instantiate_preset.broadcast(path, -1);
                     }
                 }
                 ImGui::EndDragDropTarget();
@@ -502,7 +511,7 @@ void HierarchyPanel::draw_node(Node& obj) {
         ImGui::EndDragDropSource();
     }
 
-    // Drop target — reparent dragged object under this one
+    // Drop target — reparent dragged object under this one, or instantiate preset
     if (ImGui::BeginDragDropTarget()) {
         if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
             uint32_t dragged_id = *static_cast<const uint32_t*>(payload->Data);
@@ -529,6 +538,12 @@ void HierarchyPanel::draw_node(Node& obj) {
                         scene_->reparent(dragged_id, static_cast<int32_t>(obj.id));
                     }
                 }
+            }
+        }
+        if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            std::string path(static_cast<const char*>(payload->Data));
+            if (path.ends_with(".fjp")) {
+                on_instantiate_preset.broadcast(path, static_cast<int32_t>(obj.id));
             }
         }
         ImGui::EndDragDropTarget();

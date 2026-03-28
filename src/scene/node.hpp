@@ -39,6 +39,7 @@ struct Node {
     int32_t parent_id{-1};
     std::string name;
     std::string source;
+    std::string preset_source;  // non-empty if instantiated from a .fjp preset
 
     ComponentStorage components;
     std::vector<ScriptEntry> scripts;
