@@ -48,6 +48,7 @@ public:
         return n ? n->as_spatial() : nullptr;
     }
     [[nodiscard]] int index_of(uint32_t id) const;
+    [[nodiscard]] std::vector<const Node*> collect_subtree(uint32_t root_id) const;
 
     Result<> save(const std::string& path);
 

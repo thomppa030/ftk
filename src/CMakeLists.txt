@@ -123,6 +123,7 @@ add_executable(fjell
     audio/audio_subsystem.cpp
     physics/physics_world.cpp
     scene/scene.cpp
+    scene/node_serializer.cpp
     scripting/script_manager.cpp
     scripting/script_globals.cpp
     scripting/log_api.cpp
