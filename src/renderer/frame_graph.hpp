@@ -20,6 +20,8 @@ enum class ImageUsage : uint8_t {
     shader_read,            // sample in a fragment shader
     compute_read,           // sample in a compute shader
     compute_write,          // write as a storage image in a compute shader
+    transfer_src,           // source of a copy/blit operation
+    transfer_dst,           // destination of a copy/blit operation
 };
 
 // Image tracked by the frame graph
