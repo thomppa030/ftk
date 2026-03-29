@@ -18,12 +18,54 @@ class BloomPass : public RenderPass {
 public:
     static constexpr uint32_t MIP_COUNT = 5;
 
+    struct MipLevel {
+        VkImage image{VK_NULL_HANDLE};
+        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VkImageView view{VK_NULL_HANDLE};
+        uint32_t width{0};
+        uint32_t height{0};
+    };
+
+    // Per-viewport resolution-dependent image state.
+    struct Images {
+        std::array<MipLevel, MIP_COUNT> mips{};
+
+        VkImage output_image{VK_NULL_HANDLE};
+        VkDeviceMemory output_memory{VK_NULL_HANDLE};
+        VkImageView output_view{VK_NULL_HANDLE};
+        VkExtent2D extent{};
+        VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
+
+        // Own pool + all descriptor sets
+        VkDescriptorPool pool{VK_NULL_HANDLE};
+        std::array<VkDescriptorSet, MIP_COUNT> mip_sets{};
+        VkDescriptorSet source_sets[MAX_FRAMES_IN_FLIGHT]{};
+        VkDescriptorSet composite_sets[MAX_FRAMES_IN_FLIGHT]{};
+
+        void create(VkDevice device, VkPhysicalDevice physical_device,
+                     VkDescriptorSetLayout single_tex_layout,
+                     VkDescriptorSetLayout composite_layout,
+                     VkSampler sampler,
+                     uint32_t width, uint32_t height);
+        void destroy(VkDevice device);
+        void resize(VkDevice device, VkPhysicalDevice physical_device,
+                     VkDescriptorSetLayout single_tex_layout,
+                     VkDescriptorSetLayout composite_layout,
+                     VkSampler sampler,
+                     uint32_t width, uint32_t height);
+
+        [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);
+        void invalidate_imgui_texture();
+    };
+
     void create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
 
-    // The final composited output (scene + bloom)
-    [[nodiscard]] VkImageView output_view() const { return output_view_; }
+    // Record into externally-provided images.
+    void record_into(const FrameContext& ctx, Images& imgs);
+
+    [[nodiscard]] VkImageView output_view() const { return default_images_.output_view; }
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
     void resize(uint32_t width, uint32_t height);
@@ -33,45 +75,20 @@ public:
     void set_enabled(bool e) { enabled_ = e; }
     [[nodiscard]] bool enabled() const { return enabled_; }
 
-private:
-    void create_mip_chain(uint32_t width, uint32_t height);
-    void destroy_mip_chain();
-    void update_descriptors();
+    // Expose layouts so external Images can be created
+    [[nodiscard]] VkDescriptorSetLayout single_tex_set_layout() const { return single_tex_layout_; }
+    [[nodiscard]] VkDescriptorSetLayout composite_set_layout() const { return composite_layout_; }
+    [[nodiscard]] VkSampler bloom_sampler() const { return sampler_; }
 
+private:
     VkDevice device_{VK_NULL_HANDLE};
     VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
 
-    // Mip chain images (index 0 = half res, index N-1 = smallest)
-    struct MipLevel {
-        VkImage image{VK_NULL_HANDLE};
-        VkDeviceMemory memory{VK_NULL_HANDLE};
-        VkImageView view{VK_NULL_HANDLE};
-        uint32_t width{0};
-        uint32_t height{0};
-    };
-    std::array<MipLevel, MIP_COUNT> mips_{};
-
-    // Final output (full resolution, scene + bloom composited)
-    VkImage output_image_{VK_NULL_HANDLE};
-    VkDeviceMemory output_memory_{VK_NULL_HANDLE};
-    VkImageView output_view_{VK_NULL_HANDLE};
-    VkExtent2D extent_{};
+    // Resolution-independent (shared across all Images)
     VkSampler sampler_{VK_NULL_HANDLE};
-    VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
-
-    // Descriptors for each sub-pass
     VkDescriptorSetLayout single_tex_layout_{VK_NULL_HANDLE};
     VkDescriptorSetLayout composite_layout_{VK_NULL_HANDLE};
-    VkDescriptorPool pool_{VK_NULL_HANDLE};
 
-    // Mip chain descriptors (shared, only updated on resize)
-    std::array<VkDescriptorSet, MIP_COUNT> mip_sets_{};
-
-    // Per-frame descriptors (double-buffered to avoid updating while in flight)
-    VkDescriptorSet source_sets_[MAX_FRAMES_IN_FLIGHT]{};     // scene color input
-    VkDescriptorSet composite_sets_[MAX_FRAMES_IN_FLIGHT]{};  // scene + bloom composite
-
-    // Pipelines
     VkPipelineLayout downsample_layout_{VK_NULL_HANDLE};
     VkPipeline downsample_pipeline_{VK_NULL_HANDLE};
     VkPipelineLayout upsample_layout_{VK_NULL_HANDLE};
@@ -82,6 +99,9 @@ private:
     float threshold_{0.35f};
     float intensity_{0.25f};
     bool enabled_{true};
+
+    // Default per-viewport images
+    Images default_images_;
 };
 
 } // namespace fjell

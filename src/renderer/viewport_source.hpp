@@ -7,6 +7,7 @@
 namespace fjell {
 
 class OffscreenPass;
+class PostProcessResources;
 
 enum class ViewportSource : uint8_t {
     final_color,
@@ -48,6 +49,8 @@ struct ViewportRenderRequest {
     glm::mat4 view{1.0f};
     glm::mat4 projection{1.0f};
     glm::vec3 camera_position{0.0f};
+    PostProcessResources* pp_resources{nullptr}; // null = use default
+    bool skip_shadows{false};
 };
 
 } // namespace fjell

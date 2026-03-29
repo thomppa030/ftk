@@ -103,6 +103,7 @@ static VkPipelineLayout create_pipeline_layout(
 // ── VolumeImage helpers ─────────────────────────────────────────────────────
 
 VolumetricFogPass::VolumeImage VolumetricFogPass::create_volume_image(
+        VkDevice device, VkPhysicalDevice physical_device,
         uint32_t w, uint32_t h, uint32_t d) {
     VolumeImage img{};
 
@@ -118,23 +119,23 @@ VolumetricFogPass::VolumeImage VolumetricFogPass::create_volume_image(
     ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (vkCreateImage(device_, &ci, nullptr, &img.image) != VK_SUCCESS) {
+    if (vkCreateImage(device, &ci, nullptr, &img.image) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create fog volume image");
     }
 
     VkMemoryRequirements reqs;
-    vkGetImageMemoryRequirements(device_, img.image, &reqs);
+    vkGetImageMemoryRequirements(device, img.image, &reqs);
 
     VkMemoryAllocateInfo alloc{};
     alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     alloc.allocationSize = reqs.size;
     alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        physical_device, reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
-    if (vkAllocateMemory(device_, &alloc, nullptr, &img.memory) != VK_SUCCESS) {
+    if (vkAllocateMemory(device, &alloc, nullptr, &img.memory) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate fog volume memory");
     }
-    vkBindImageMemory(device_, img.image, img.memory, 0);
+    vkBindImageMemory(device, img.image, img.memory, 0);
 
     VkImageViewCreateInfo vi{};
     vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -143,21 +144,286 @@ VolumetricFogPass::VolumeImage VolumetricFogPass::create_volume_image(
     vi.format = VOLUME_FORMAT;
     vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-    if (vkCreateImageView(device_, &vi, nullptr, &img.view) != VK_SUCCESS) {
+    if (vkCreateImageView(device, &vi, nullptr, &img.view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create fog volume image view");
     }
 
     return img;
 }
 
-void VolumetricFogPass::destroy_volume_image(VolumeImage& img) {
-    if (img.view) vkDestroyImageView(device_, img.view, nullptr);
-    if (img.image) vkDestroyImage(device_, img.image, nullptr);
-    if (img.memory) vkFreeMemory(device_, img.memory, nullptr);
+void VolumetricFogPass::destroy_volume_image(VkDevice device, VolumeImage& img) {
+    if (img.view) vkDestroyImageView(device, img.view, nullptr);
+    if (img.image) vkDestroyImage(device, img.image, nullptr);
+    if (img.memory) vkFreeMemory(device, img.memory, nullptr);
     img = {};
 }
 
-// ── Create / Destroy ────────────────────────────────────────────────────────
+// ── Images ──────────────────────────────────────────────────────────────────
+
+void VolumetricFogPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+                                        VkDescriptorSetLayout inject_layout,
+                                        VkDescriptorSetLayout temporal_layout,
+                                        VkDescriptorSetLayout integrate_layout,
+                                        VkDescriptorSetLayout composite_layout,
+                                        VkSampler linear_sampler,
+                                        uint32_t vol_w, uint32_t vol_h) {
+    volume_extent = {vol_w, vol_h, DEPTH_SLICES};
+    volumes_need_init = true;
+    ping_pong = 0;
+    frame_counter = 0;
+
+    // Create volume images
+    scatter_volumes[0] = create_volume_image(device, physical_device, vol_w, vol_h, DEPTH_SLICES);
+    scatter_volumes[1] = create_volume_image(device, physical_device, vol_w, vol_h, DEPTH_SLICES);
+    integrated_volume = create_volume_image(device, physical_device, vol_w, vol_h, DEPTH_SLICES);
+
+    // Consolidated descriptor pool:
+    // Sets: 2 (inject) + 2 (temporal) + 2 (integrate) + MAX_FRAMES_IN_FLIGHT (composite) = 9
+    // Storage images: 2 (inject) + 2 (temporal) + 2 (integrate) + MAX_FRAMES_IN_FLIGHT (composite) = 9
+    // Combined image samplers: 0 (inject) + 2 (temporal) + 2 (integrate) + 2*MAX_FRAMES_IN_FLIGHT (composite) = 10
+    constexpr uint32_t total_sets = 2 + 2 + 2 + MAX_FRAMES_IN_FLIGHT;
+    constexpr uint32_t total_storage = 2 + 2 + 2 + MAX_FRAMES_IN_FLIGHT;
+    constexpr uint32_t total_sampler = 2 + 2 + 2 * MAX_FRAMES_IN_FLIGHT;
+
+    std::array<VkDescriptorPoolSize, 2> pool_sizes{};
+    pool_sizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, total_storage};
+    pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, total_sampler};
+
+    VkDescriptorPoolCreateInfo pool_ci{};
+    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_ci.maxSets = total_sets;
+    pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
+    pool_ci.pPoolSizes = pool_sizes.data();
+    vkCreateDescriptorPool(device, &pool_ci, nullptr, &pool);
+
+    // Allocate inject sets
+    {
+        std::array<VkDescriptorSetLayout, 2> layouts{inject_layout, inject_layout};
+        VkDescriptorSetAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc.descriptorPool = pool;
+        alloc.descriptorSetCount = 2;
+        alloc.pSetLayouts = layouts.data();
+        vkAllocateDescriptorSets(device, &alloc, inject_sets);
+    }
+
+    // Allocate temporal sets
+    {
+        std::array<VkDescriptorSetLayout, 2> layouts{temporal_layout, temporal_layout};
+        VkDescriptorSetAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc.descriptorPool = pool;
+        alloc.descriptorSetCount = 2;
+        alloc.pSetLayouts = layouts.data();
+        vkAllocateDescriptorSets(device, &alloc, temporal_sets);
+    }
+
+    // Allocate integrate sets
+    {
+        std::array<VkDescriptorSetLayout, 2> layouts{integrate_layout, integrate_layout};
+        VkDescriptorSetAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc.descriptorPool = pool;
+        alloc.descriptorSetCount = 2;
+        alloc.pSetLayouts = layouts.data();
+        vkAllocateDescriptorSets(device, &alloc, integrate_sets);
+    }
+
+    // Allocate composite sets
+    {
+        std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts{};
+        layouts.fill(composite_layout);
+        VkDescriptorSetAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc.descriptorPool = pool;
+        alloc.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+        alloc.pSetLayouts = layouts.data();
+        vkAllocateDescriptorSets(device, &alloc, composite_sets);
+    }
+
+    // Update inject descriptors (binding 0 = storage image for scatter write)
+    for (uint32_t i = 0; i < 2; ++i) {
+        VkDescriptorImageInfo storage_info{};
+        storage_info.imageView = scatter_volumes[i].view;
+        storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = inject_sets[i];
+        write.dstBinding = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write.descriptorCount = 1;
+        write.pImageInfo = &storage_info;
+
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
+
+    // Update temporal descriptors (binding 0 = storage rw current, binding 1 = sampler prev)
+    for (uint32_t i = 0; i < 2; ++i) {
+        uint32_t other = 1 - i;
+
+        VkDescriptorImageInfo storage_info{};
+        storage_info.imageView = scatter_volumes[i].view;
+        storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorImageInfo sampled_info{};
+        sampled_info.sampler = linear_sampler;
+        sampled_info.imageView = scatter_volumes[other].view;
+        sampled_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = temporal_sets[i];
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo = &storage_info;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = temporal_sets[i];
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &sampled_info;
+
+        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    }
+
+    // Update integrate descriptors (binding 0 = sampler scatter, binding 1 = storage integrated)
+    for (uint32_t i = 0; i < 2; ++i) {
+        VkDescriptorImageInfo sampled_info{};
+        sampled_info.sampler = linear_sampler;
+        sampled_info.imageView = scatter_volumes[i].view;
+        sampled_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo storage_info{};
+        storage_info.imageView = integrated_volume.view;
+        storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = integrate_sets[i];
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo = &sampled_info;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = integrate_sets[i];
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &storage_info;
+
+        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+    }
+}
+
+void VolumetricFogPass::Images::destroy(VkDevice device) {
+    invalidate_imgui_texture();
+    if (pool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device, pool, nullptr);
+        pool = VK_NULL_HANDLE;
+        for (auto& s : inject_sets) s = VK_NULL_HANDLE;
+        for (auto& s : temporal_sets) s = VK_NULL_HANDLE;
+        for (auto& s : integrate_sets) s = VK_NULL_HANDLE;
+        for (auto& s : composite_sets) s = VK_NULL_HANDLE;
+    }
+    destroy_volume_image(device, scatter_volumes[0]);
+    destroy_volume_image(device, scatter_volumes[1]);
+    destroy_volume_image(device, integrated_volume);
+    volume_extent = {};
+}
+
+void VolumetricFogPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+                                        VkDescriptorSetLayout inject_layout,
+                                        VkDescriptorSetLayout temporal_layout,
+                                        VkDescriptorSetLayout integrate_layout,
+                                        VkDescriptorSetLayout composite_layout,
+                                        VkSampler linear_sampler,
+                                        uint32_t screen_w, uint32_t screen_h) {
+    uint32_t vol_w = std::max(1u, screen_w / SCREEN_DIVISOR);
+    uint32_t vol_h = std::max(1u, screen_h / SCREEN_DIVISOR);
+
+    if (vol_w == volume_extent.width && vol_h == volume_extent.height) return;
+
+    // Skip resize if volumes already exist and change is tiny (< 4 texels)
+    // This prevents thrashing during interactive viewport dragging
+    if (volume_extent.width > 1) {
+        int dw = static_cast<int>(vol_w) - static_cast<int>(volume_extent.width);
+        int dh = static_cast<int>(vol_h) - static_cast<int>(volume_extent.height);
+        if (std::abs(dw) < 4 && std::abs(dh) < 4) return;
+    }
+    vkDeviceWaitIdle(device);
+
+    destroy(device);
+    create(device, physical_device, inject_layout, temporal_layout, integrate_layout,
+           composite_layout, linear_sampler, vol_w, vol_h);
+}
+
+VkDescriptorSet VolumetricFogPass::Images::imgui_texture(VkSampler sampler) {
+    if (imgui_descriptor == VK_NULL_HANDLE && integrated_volume.view != VK_NULL_HANDLE) {
+        imgui_descriptor = ImGui_ImplVulkan_AddTexture(
+            sampler, integrated_volume.view,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+    return imgui_descriptor;
+}
+
+void VolumetricFogPass::Images::invalidate_imgui_texture() {
+    if (imgui_descriptor != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor);
+        imgui_descriptor = VK_NULL_HANDLE;
+    }
+}
+
+// ── Composite descriptor update (per-frame, called from record_into) ────────
+
+static void update_composite_descriptors(VkDevice device, VkSampler linear_sampler,
+                                          VkDescriptorSet set,
+                                          VkImageView integrated_view,
+                                          VkImageView depth_view,
+                                          VkImageView color_view) {
+    VkDescriptorImageInfo fog_info{};
+    fog_info.sampler = linear_sampler;
+    fog_info.imageView = integrated_view;
+    fog_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+    VkDescriptorImageInfo depth_info{};
+    depth_info.sampler = linear_sampler;
+    depth_info.imageView = depth_view;
+    depth_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+    VkDescriptorImageInfo color_info{};
+    color_info.imageView = color_view;
+    color_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    std::array<VkWriteDescriptorSet, 3> writes{};
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = set;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].descriptorCount = 1;
+    writes[0].pImageInfo = &fog_info;
+
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = set;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[1].descriptorCount = 1;
+    writes[1].pImageInfo = &depth_info;
+
+    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[2].dstSet = set;
+    writes[2].dstBinding = 2;
+    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    writes[2].descriptorCount = 1;
+    writes[2].pImageInfo = &color_info;
+
+    vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+}
+
+// ── VolumetricFogPass (singleton) ───────────────────────────────────────────
 
 void VolumetricFogPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
@@ -191,22 +457,6 @@ void VolumetricFogPass::create(Device& device, const PassResources& resources) {
         ci.pBindings = &binding;
         vkCreateDescriptorSetLayout(device_, &ci, nullptr, &inject_set_layout_);
 
-        VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2};
-        VkDescriptorPoolCreateInfo pool_ci{};
-        pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_ci.maxSets = 2;
-        pool_ci.poolSizeCount = 1;
-        pool_ci.pPoolSizes = &pool_size;
-        vkCreateDescriptorPool(device_, &pool_ci, nullptr, &inject_pool_);
-
-        std::array<VkDescriptorSetLayout, 2> layouts2{inject_set_layout_, inject_set_layout_};
-        VkDescriptorSetAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc.descriptorPool = inject_pool_;
-        alloc.descriptorSetCount = 2;
-        alloc.pSetLayouts = layouts2.data();
-        vkAllocateDescriptorSets(device_, &alloc, inject_sets_);
-
         std::array layouts{global_set_layout, inject_set_layout_};
         inject_pipeline_layout_ = create_pipeline_layout(
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
@@ -234,24 +484,6 @@ void VolumetricFogPass::create(Device& device, const PassResources& resources) {
         ci.pBindings = bindings.data();
         vkCreateDescriptorSetLayout(device_, &ci, nullptr, &temporal_set_layout_);
 
-        std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2};
-        VkDescriptorPoolCreateInfo pool_ci{};
-        pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_ci.maxSets = 2;
-        pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
-        pool_ci.pPoolSizes = pool_sizes.data();
-        vkCreateDescriptorPool(device_, &pool_ci, nullptr, &temporal_pool_);
-
-        std::array<VkDescriptorSetLayout, 2> layouts2{temporal_set_layout_, temporal_set_layout_};
-        VkDescriptorSetAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc.descriptorPool = temporal_pool_;
-        alloc.descriptorSetCount = 2;
-        alloc.pSetLayouts = layouts2.data();
-        vkAllocateDescriptorSets(device_, &alloc, temporal_sets_);
-
         std::array layouts{global_set_layout, temporal_set_layout_};
         temporal_pipeline_layout_ = create_pipeline_layout(
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
@@ -278,24 +510,6 @@ void VolumetricFogPass::create(Device& device, const PassResources& resources) {
         ci.bindingCount = static_cast<uint32_t>(bindings.size());
         ci.pBindings = bindings.data();
         vkCreateDescriptorSetLayout(device_, &ci, nullptr, &integrate_set_layout_);
-
-        std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2};
-        VkDescriptorPoolCreateInfo pool_ci{};
-        pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_ci.maxSets = 2;
-        pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
-        pool_ci.pPoolSizes = pool_sizes.data();
-        vkCreateDescriptorPool(device_, &pool_ci, nullptr, &integrate_pool_);
-
-        std::array<VkDescriptorSetLayout, 2> layouts2{integrate_set_layout_, integrate_set_layout_};
-        VkDescriptorSetAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc.descriptorPool = integrate_pool_;
-        alloc.descriptorSetCount = 2;
-        alloc.pSetLayouts = layouts2.data();
-        vkAllocateDescriptorSets(device_, &alloc, integrate_sets_);
 
         integrate_pipeline_layout_ = create_pipeline_layout(
             device_, &integrate_set_layout_, 1, sizeof(FogPushConstants));
@@ -327,25 +541,6 @@ void VolumetricFogPass::create(Device& device, const PassResources& resources) {
         ci.pBindings = bindings.data();
         vkCreateDescriptorSetLayout(device_, &ci, nullptr, &composite_set_layout_);
 
-        std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * MAX_FRAMES_IN_FLIGHT};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_FRAMES_IN_FLIGHT};
-        VkDescriptorPoolCreateInfo pool_ci{};
-        pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
-        pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
-        pool_ci.pPoolSizes = pool_sizes.data();
-        vkCreateDescriptorPool(device_, &pool_ci, nullptr, &composite_pool_);
-
-        std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts3{};
-        layouts3.fill(composite_set_layout_);
-        VkDescriptorSetAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc.descriptorPool = composite_pool_;
-        alloc.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-        alloc.pSetLayouts = layouts3.data();
-        vkAllocateDescriptorSets(device_, &alloc, composite_sets_);
-
         std::array layouts{global_set_layout, composite_set_layout_};
         composite_pipeline_layout_ = create_pipeline_layout(
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
@@ -354,9 +549,11 @@ void VolumetricFogPass::create(Device& device, const PassResources& resources) {
             device_, composite_pipeline_layout_, "shaders/fog_composite.comp.spv");
     }
 
-    // Create initial 1x1x1 volumes so descriptors are valid
-    volume_extent_ = {1, 1, 1};
-    create_volumes();
+    // Create default images with initial 1x1x1 volumes so descriptors are valid
+    default_images_.create(device_, physical_device_,
+                           inject_set_layout_, temporal_set_layout_,
+                           integrate_set_layout_, composite_set_layout_,
+                           linear_sampler_, 1, 1);
 
     FJELL_GFX_DEBUG("Volumetric fog pass created");
 }
@@ -364,194 +561,40 @@ void VolumetricFogPass::create(Device& device, const PassResources& resources) {
 void VolumetricFogPass::destroy() {
     if (!device_) return;
 
-    destroy_volumes();
+    default_images_.destroy(device_);
 
-    auto destroy_pass = [&](VkPipeline& p, VkPipelineLayout& l,
-                            VkDescriptorSetLayout& sl, VkDescriptorPool& pool) {
+    auto destroy_pass = [&](VkPipeline& p, VkPipelineLayout& l, VkDescriptorSetLayout& sl) {
         if (p) { vkDestroyPipeline(device_, p, nullptr); p = VK_NULL_HANDLE; }
         if (l) { vkDestroyPipelineLayout(device_, l, nullptr); l = VK_NULL_HANDLE; }
         if (sl) { vkDestroyDescriptorSetLayout(device_, sl, nullptr); sl = VK_NULL_HANDLE; }
-        if (pool) { vkDestroyDescriptorPool(device_, pool, nullptr); pool = VK_NULL_HANDLE; }
     };
 
-    destroy_pass(inject_pipeline_, inject_pipeline_layout_, inject_set_layout_, inject_pool_);
-    destroy_pass(temporal_pipeline_, temporal_pipeline_layout_, temporal_set_layout_, temporal_pool_);
-    destroy_pass(integrate_pipeline_, integrate_pipeline_layout_, integrate_set_layout_, integrate_pool_);
-    destroy_pass(composite_pipeline_, composite_pipeline_layout_, composite_set_layout_, composite_pool_);
+    destroy_pass(inject_pipeline_, inject_pipeline_layout_, inject_set_layout_);
+    destroy_pass(temporal_pipeline_, temporal_pipeline_layout_, temporal_set_layout_);
+    destroy_pass(integrate_pipeline_, integrate_pipeline_layout_, integrate_set_layout_);
+    destroy_pass(composite_pipeline_, composite_pipeline_layout_, composite_set_layout_);
 
     if (linear_sampler_) { vkDestroySampler(device_, linear_sampler_, nullptr); linear_sampler_ = VK_NULL_HANDLE; }
 
     device_ = VK_NULL_HANDLE;
 }
 
-void VolumetricFogPass::create_volumes() {
-    uint32_t w = volume_extent_.width;
-    uint32_t h = volume_extent_.height;
-    uint32_t d = volume_extent_.depth;
-
-    scatter_volumes_[0] = create_volume_image(w, h, d);
-    scatter_volumes_[1] = create_volume_image(w, h, d);
-    integrated_volume_ = create_volume_image(w, h, d);
-
-    volumes_need_init_ = true;
-    ping_pong_ = 0;
-
-    // Pre-fill both ping-pong descriptor sets so we never update during dispatch
-    for (uint32_t i = 0; i < 2; ++i) {
-        update_inject_descriptors(i);
-        update_temporal_descriptors(i);
-        update_integrate_descriptors(i);
-    }
-}
-
-void VolumetricFogPass::destroy_volumes() {
-    destroy_volume_image(scatter_volumes_[0]);
-    destroy_volume_image(scatter_volumes_[1]);
-    destroy_volume_image(integrated_volume_);
-    imgui_descriptor_ = VK_NULL_HANDLE;
-}
-
 void VolumetricFogPass::resize(uint32_t width, uint32_t height) {
-    uint32_t vol_w = std::max(1u, width / SCREEN_DIVISOR);
-    uint32_t vol_h = std::max(1u, height / SCREEN_DIVISOR);
-
-    if (vol_w == volume_extent_.width && vol_h == volume_extent_.height) return;
-
-    // Skip resize if volumes already exist and change is tiny (< 4 texels)
-    // This prevents thrashing during interactive viewport dragging
-    if (volume_extent_.width > 1) {
-        int dw = static_cast<int>(vol_w) - static_cast<int>(volume_extent_.width);
-        int dh = static_cast<int>(vol_h) - static_cast<int>(volume_extent_.height);
-        if (std::abs(dw) < 4 && std::abs(dh) < 4) return;
-    }
-    vkDeviceWaitIdle(device_);
-
-    invalidate_imgui_texture();
-    destroy_volumes();
-    volume_extent_ = {vol_w, vol_h, DEPTH_SLICES};
-    create_volumes();
+    default_images_.resize(device_, physical_device_,
+                           inject_set_layout_, temporal_set_layout_,
+                           integrate_set_layout_, composite_set_layout_,
+                           linear_sampler_, width, height);
 }
 
-// ── Descriptor updates ──────────────────────────────────────────────────────
-
-void VolumetricFogPass::update_inject_descriptors(uint32_t idx) {
-    VkDescriptorImageInfo storage_info{};
-    storage_info.imageView = scatter_volumes_[idx].view;
-    storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    VkWriteDescriptorSet write{};
-    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet = inject_sets_[idx];
-    write.dstBinding = 0;
-    write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    write.descriptorCount = 1;
-    write.pImageInfo = &storage_info;
-
-    vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+VkDescriptorSet VolumetricFogPass::imgui_texture() {
+    return default_images_.imgui_texture(linear_sampler_);
 }
 
-void VolumetricFogPass::update_temporal_descriptors(uint32_t idx) {
-    // When ping_pong==idx: writes to scatter[idx], reads history from scatter[1-idx]
-    uint32_t other = 1 - idx;
-
-    VkDescriptorImageInfo storage_info{};
-    storage_info.imageView = scatter_volumes_[idx].view;
-    storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    VkDescriptorImageInfo sampled_info{};
-    sampled_info.sampler = linear_sampler_;
-    sampled_info.imageView = scatter_volumes_[other].view;
-    sampled_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    std::array<VkWriteDescriptorSet, 2> writes{};
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = temporal_sets_[idx];
-    writes[0].dstBinding = 0;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    writes[0].descriptorCount = 1;
-    writes[0].pImageInfo = &storage_info;
-
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = temporal_sets_[idx];
-    writes[1].dstBinding = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[1].descriptorCount = 1;
-    writes[1].pImageInfo = &sampled_info;
-
-    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+void VolumetricFogPass::invalidate_imgui_texture() {
+    default_images_.invalidate_imgui_texture();
 }
 
-void VolumetricFogPass::update_integrate_descriptors(uint32_t idx) {
-    VkDescriptorImageInfo sampled_info{};
-    sampled_info.sampler = linear_sampler_;
-    sampled_info.imageView = scatter_volumes_[idx].view;
-    sampled_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkDescriptorImageInfo storage_info{};
-    storage_info.imageView = integrated_volume_.view;
-    storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    std::array<VkWriteDescriptorSet, 2> writes{};
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = integrate_sets_[idx];
-    writes[0].dstBinding = 0;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[0].descriptorCount = 1;
-    writes[0].pImageInfo = &sampled_info;
-
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = integrate_sets_[idx];
-    writes[1].dstBinding = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    writes[1].descriptorCount = 1;
-    writes[1].pImageInfo = &storage_info;
-
-    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-}
-
-void VolumetricFogPass::update_composite_descriptors(uint32_t frame,
-                                                       VkImageView depth_view,
-                                                       VkImageView color_view) {
-    VkDescriptorImageInfo fog_info{};
-    fog_info.sampler = linear_sampler_;
-    fog_info.imageView = integrated_volume_.view;
-    fog_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-    VkDescriptorImageInfo depth_info{};
-    depth_info.sampler = linear_sampler_;
-    depth_info.imageView = depth_view;
-    depth_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-    VkDescriptorImageInfo color_info{};
-    color_info.imageView = color_view;
-    color_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-    std::array<VkWriteDescriptorSet, 3> writes{};
-    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[0].dstSet = composite_sets_[frame];
-    writes[0].dstBinding = 0;
-    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[0].descriptorCount = 1;
-    writes[0].pImageInfo = &fog_info;
-
-    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[1].dstSet = composite_sets_[frame];
-    writes[1].dstBinding = 1;
-    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    writes[1].descriptorCount = 1;
-    writes[1].pImageInfo = &depth_info;
-
-    writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    writes[2].dstSet = composite_sets_[frame];
-    writes[2].dstBinding = 2;
-    writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    writes[2].descriptorCount = 1;
-    writes[2].pImageInfo = &color_info;
-
-    vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-}
-
-// ── Dispatch ────────────────────────────────────────────────────────────────
+// ── Record ──────────────────────────────────────────────────────────────────
 
 static void batch_barriers(VkCommandBuffer cmd,
                             const VkImageMemoryBarrier2* barriers, uint32_t count) {
@@ -579,29 +622,41 @@ static VkImageMemoryBarrier2 make_barrier(VkImage image,
     return b;
 }
 
-void VolumetricFogPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set,
-                                  VkImageView depth_view, VkImageView color_view,
-                                  uint32_t width, uint32_t height,
-                                  uint32_t frame_index) {
-    if (!enabled_) return;
-    if (scatter_volumes_[0].view == VK_NULL_HANDLE) return;
+void VolumetricFogPass::record(const FrameContext& ctx) {
+    record_into(ctx, default_images_);
+}
 
-    // Ping-pong: current frame writes to [ping_pong_], reads history from [1-ping_pong_]
-    uint32_t cur = ping_pong_;
+void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
+    if (!enabled_) return;
+    if (imgs.scatter_volumes[0].view == VK_NULL_HANDLE) return;
+
+    auto cmd = ctx.cmd;
+    auto extent = ctx.target->extent();
+    uint32_t width = extent.width;
+    uint32_t height = extent.height;
+    uint32_t frame_index = ctx.frame_index;
+    VkDescriptorSet global_set = ctx.global_descriptor_set;
+
+    // Ping-pong: current frame writes to [cur], reads history from [prev]
+    uint32_t cur = imgs.ping_pong;
     uint32_t prev = 1 - cur;
 
     // Always update this frame's composite set (each frame has its own, safe to update)
-    update_composite_descriptors(frame_index, depth_view, color_view);
+    update_composite_descriptors(device_, linear_sampler_,
+                                 imgs.composite_sets[frame_index],
+                                 imgs.integrated_volume.view,
+                                 ctx.target->depth_view(),
+                                 ctx.target->color_view());
 
-    uint32_t vol_w = volume_extent_.width;
-    uint32_t vol_h = volume_extent_.height;
-    uint32_t vol_d = volume_extent_.depth;
+    uint32_t vol_w = imgs.volume_extent.width;
+    uint32_t vol_h = imgs.volume_extent.height;
+    uint32_t vol_d = imgs.volume_extent.depth;
 
     // Precompute Halton jitter on CPU
-    int frame_idx = static_cast<int>(frame_counter_ % 16) + 1;
+    int frame_idx = static_cast<int>(imgs.frame_counter % 16) + 1;
 
     FogPushConstants push{};
-    push.volume_dims = glm::uvec4(vol_w, vol_h, vol_d, frame_counter_);
+    push.volume_dims = glm::uvec4(vol_w, vol_h, vol_d, imgs.frame_counter);
     push.near_plane = 0.1f;
     push.far_plane = max_distance_;
     push.density = density_;
@@ -623,38 +678,38 @@ void VolumetricFogPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set
     uint32_t groups_y = (vol_h + TILE_SIZE - 1) / TILE_SIZE;
 
     // ── 1. Initialize volumes on first frame / after resize ──────────
-    if (volumes_need_init_) {
+    if (imgs.volumes_need_init) {
         std::array<VkImageMemoryBarrier2, 3> init{};
-        init[0] = make_barrier(scatter_volumes_[0].image,
+        init[0] = make_barrier(imgs.scatter_volumes[0].image,
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-        init[1] = make_barrier(scatter_volumes_[1].image,
+        init[1] = make_barrier(imgs.scatter_volumes[1].image,
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        init[2] = make_barrier(integrated_volume_.image,
+        init[2] = make_barrier(imgs.integrated_volume.image,
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         batch_barriers(cmd, init.data(), static_cast<uint32_t>(init.size()));
 
-        volumes_need_init_ = false;
+        imgs.volumes_need_init = false;
     }
 
-    // ── 2. Inject: density + light scattering → scatter_volumes_[cur] ──
+    // ── 2. Inject: density + light scattering → scatter_volumes[cur] ──
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, inject_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, inject_pipeline_layout_,
                             0, 1, &global_set, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, inject_pipeline_layout_,
-                            1, 1, &inject_sets_[cur], 0, nullptr);
+                            1, 1, &imgs.inject_sets[cur], 0, nullptr);
     vkCmdPushConstants(cmd, inject_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, groups_x, groups_y, vol_d);
 
     // ── 3. Barrier: inject write → temporal read-write ───────────────
     {
-        auto b = make_barrier(scatter_volumes_[cur].image,
+        auto b = make_barrier(imgs.scatter_volumes[cur].image,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
@@ -662,19 +717,19 @@ void VolumetricFogPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set
         batch_barriers(cmd, &b, 1);
     }
 
-    // ── 4. Temporal: blend scatter_volumes_[cur] with scatter_volumes_[prev] ──
+    // ── 4. Temporal: blend scatter_volumes[cur] with scatter_volumes[prev] ──
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, temporal_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, temporal_pipeline_layout_,
                             0, 1, &global_set, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, temporal_pipeline_layout_,
-                            1, 1, &temporal_sets_[cur], 0, nullptr);
+                            1, 1, &imgs.temporal_sets[cur], 0, nullptr);
     vkCmdPushConstants(cmd, temporal_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, groups_x, groups_y, vol_d);
 
     // ── 5. Barriers: scatter[cur] → readable for integrate, scatter[prev] stays readable ──
     {
-        auto b = make_barrier(scatter_volumes_[cur].image,
+        auto b = make_barrier(imgs.scatter_volumes[cur].image,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -684,14 +739,14 @@ void VolumetricFogPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set
     // ── 6. Integrate: front-to-back ray march ────────────────────────
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, integrate_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, integrate_pipeline_layout_,
-                            0, 1, &integrate_sets_[cur], 0, nullptr);
+                            0, 1, &imgs.integrate_sets[cur], 0, nullptr);
     vkCmdPushConstants(cmd, integrate_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
 
     // ── 7. Barrier: integrated → readable for composite ──────────────
     {
-        auto b = make_barrier(integrated_volume_.image,
+        auto b = make_barrier(imgs.integrated_volume.image,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -706,7 +761,7 @@ void VolumetricFogPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_layout_,
                             0, 1, &global_set, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_layout_,
-                            1, 1, &composite_sets_[frame_index], 0, nullptr);
+                            1, 1, &imgs.composite_sets[frame_index], 0, nullptr);
     vkCmdPushConstants(cmd, composite_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, screen_groups_x, screen_groups_y, 1);
@@ -717,11 +772,11 @@ void VolumetricFogPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set
     // scatter[prev]: SHADER_READ_ONLY → GENERAL (becomes cur next frame)
     {
         std::array<VkImageMemoryBarrier2, 2> restore{};
-        restore[0] = make_barrier(integrated_volume_.image,
+        restore[0] = make_barrier(imgs.integrated_volume.image,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        restore[1] = make_barrier(scatter_volumes_[prev].image,
+        restore[1] = make_barrier(imgs.scatter_volumes[prev].image,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
@@ -729,30 +784,8 @@ void VolumetricFogPass::dispatch(VkCommandBuffer cmd, VkDescriptorSet global_set
     }
 
     // Flip ping-pong for next frame
-    ping_pong_ = prev;
-    ++frame_counter_;
-}
-
-// ── ImGui texture ───────────────────────────────────────────────────────────
-
-VkDescriptorSet VolumetricFogPass::imgui_texture() {
-    if (!imgui_descriptor_ && integrated_volume_.view) {
-        imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
-            linear_sampler_, integrated_volume_.view,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor_;
-}
-
-void VolumetricFogPass::invalidate_imgui_texture() {
-    imgui_descriptor_ = VK_NULL_HANDLE;
-}
-
-void VolumetricFogPass::record(const FrameContext& ctx) {
-    auto extent = ctx.target->extent();
-    dispatch(ctx.cmd, ctx.global_descriptor_set,
-             ctx.target->depth_view(), ctx.target->color_view(),
-             extent.width, extent.height, ctx.frame_index);
+    imgs.ping_pong = prev;
+    ++imgs.frame_counter;
 }
 
 } // namespace fjell

@@ -14,6 +14,116 @@
 
 namespace fjell {
 
+// ── Images (per-viewport state) ─────────────────────────────────────────────
+
+void TonemapPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+                                  VkDescriptorSetLayout set_layout,
+                                  uint32_t width, uint32_t height) {
+    extent = {width, height};
+
+    // Create output image (LDR sRGB)
+    VkImageCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    ci.extent = {width, height, 1};
+    ci.mipLevels = 1;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (vkCreateImage(device, &ci, nullptr, &image) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create tonemap output image");
+    }
+
+    VkMemoryRequirements mem_reqs;
+    vkGetImageMemoryRequirements(device, image, &mem_reqs);
+    VkMemoryAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc.allocationSize = mem_reqs.size;
+    alloc.memoryTypeIndex = Buffer::find_memory_type(
+        physical_device, mem_reqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (vkAllocateMemory(device, &alloc, nullptr, &memory) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate tonemap output memory");
+    }
+    vkBindImageMemory(device, image, memory, 0);
+
+    VkImageViewCreateInfo view_ci{};
+    view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_ci.image = image;
+    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_ci.format = VK_FORMAT_R8G8B8A8_SRGB;
+    view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create tonemap output view");
+    }
+
+    // Create own descriptor pool + sets
+    VkDescriptorPoolSize pool_size{};
+    pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+    VkDescriptorPoolCreateInfo pool_ci{};
+    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
+    pool_ci.poolSizeCount = 1;
+    pool_ci.pPoolSizes = &pool_size;
+    if (vkCreateDescriptorPool(device, &pool_ci, nullptr, &pool) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create tonemap images descriptor pool");
+    }
+
+    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts{};
+    layouts.fill(set_layout);
+    VkDescriptorSetAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc_info.descriptorPool = pool;
+    alloc_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    alloc_info.pSetLayouts = layouts.data();
+    if (vkAllocateDescriptorSets(device, &alloc_info, input_sets) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate tonemap images descriptor sets");
+    }
+}
+
+void TonemapPass::Images::destroy(VkDevice device) {
+    invalidate_imgui_texture();
+    if (pool != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device, pool, nullptr); pool = VK_NULL_HANDLE; }
+    if (view != VK_NULL_HANDLE) { vkDestroyImageView(device, view, nullptr); view = VK_NULL_HANDLE; }
+    if (image != VK_NULL_HANDLE) { vkDestroyImage(device, image, nullptr); image = VK_NULL_HANDLE; }
+    if (memory != VK_NULL_HANDLE) { vkFreeMemory(device, memory, nullptr); memory = VK_NULL_HANDLE; }
+    extent = {};
+    for (auto& s : input_sets) s = VK_NULL_HANDLE;
+}
+
+void TonemapPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+                                  VkDescriptorSetLayout set_layout,
+                                  uint32_t width, uint32_t height) {
+    if (extent.width == width && extent.height == height) return;
+    vkDeviceWaitIdle(device);
+
+    destroy(device);
+    if (width > 0 && height > 0) create(device, physical_device, set_layout, width, height);
+}
+
+VkDescriptorSet TonemapPass::Images::imgui_texture(VkSampler sampler) {
+    if (imgui_descriptor == VK_NULL_HANDLE && view != VK_NULL_HANDLE) {
+        imgui_descriptor = ImGui_ImplVulkan_AddTexture(
+            sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+    return imgui_descriptor;
+}
+
+void TonemapPass::Images::invalidate_imgui_texture() {
+    if (imgui_descriptor != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor);
+        imgui_descriptor = VK_NULL_HANDLE;
+    }
+}
+
+// ── TonemapPass (singleton) ─────────────────────────────────────────────────
+
 void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
@@ -21,7 +131,7 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
     input_sampler_ = vk_utils::create_linear_clamp_sampler(device_);
     sampler_ = vk_utils::create_linear_clamp_sampler(device_);
 
-    // Descriptor
+    // Descriptor set layout (shared by all Images instances)
     VkDescriptorSetLayoutBinding binding{};
     binding.binding = 0;
     binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -34,30 +144,6 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
     layout_ci.pBindings = &binding;
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &set_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create tonemap descriptor layout");
-    }
-
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
-
-    VkDescriptorPoolCreateInfo pool_ci{};
-    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
-    pool_ci.poolSizeCount = 1;
-    pool_ci.pPoolSizes = &pool_size;
-    if (vkCreateDescriptorPool(device_, &pool_ci, nullptr, &pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap descriptor pool");
-    }
-
-    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts{};
-    layouts.fill(set_layout_);
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = pool_;
-    alloc_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-    alloc_info.pSetLayouts = layouts.data();
-    if (vkAllocateDescriptorSets(device_, &alloc_info, input_sets_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate tonemap descriptor sets");
     }
 
     // Pipeline layout
@@ -88,113 +174,54 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
 }
 
 void TonemapPass::destroy() {
-    invalidate_imgui_texture();
-    destroy_image();
+    default_images_.destroy(device_);
 
     if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
-    if (pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, pool_, nullptr); pool_ = VK_NULL_HANDLE; }
     if (set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, set_layout_, nullptr); set_layout_ = VK_NULL_HANDLE; }
     if (input_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, input_sampler_, nullptr); input_sampler_ = VK_NULL_HANDLE; }
     if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
 }
 
-void TonemapPass::create_image(uint32_t width, uint32_t height) {
-    extent_ = {width, height};
-
-    VkImageCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = VK_FORMAT_R8G8B8A8_SRGB;
-    ci.extent = {width, height, 1};
-    ci.mipLevels = 1;
-    ci.arrayLayers = 1;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if (vkCreateImage(device_, &ci, nullptr, &image_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap output image");
-    }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device_, image_, &mem_reqs);
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (vkAllocateMemory(device_, &alloc, nullptr, &memory_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate tonemap output memory");
-    }
-    vkBindImageMemory(device_, image_, memory_, 0);
-
-    VkImageViewCreateInfo view_ci{};
-    view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_ci.image = image_;
-    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = VK_FORMAT_R8G8B8A8_SRGB;
-    view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(device_, &view_ci, nullptr, &view_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap output view");
-    }
-}
-
-void TonemapPass::destroy_image() {
-    if (view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, view_, nullptr); view_ = VK_NULL_HANDLE; }
-    if (image_ != VK_NULL_HANDLE) { vkDestroyImage(device_, image_, nullptr); image_ = VK_NULL_HANDLE; }
-    if (memory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, memory_, nullptr); memory_ = VK_NULL_HANDLE; }
-}
-
 void TonemapPass::resize(uint32_t width, uint32_t height) {
-    if (extent_.width == width && extent_.height == height) return;
-    vkDeviceWaitIdle(device_);
-
-    invalidate_imgui_texture();
-    destroy_image();
-    if (width > 0 && height > 0) create_image(width, height);
+    default_images_.resize(device_, physical_device_, set_layout_, width, height);
 }
 
 VkDescriptorSet TonemapPass::imgui_texture() {
-    if (imgui_descriptor_ == VK_NULL_HANDLE && view_ != VK_NULL_HANDLE) {
-        imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
-            sampler_, view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor_;
+    return default_images_.imgui_texture(sampler_);
 }
 
 void TonemapPass::invalidate_imgui_texture() {
-    if (imgui_descriptor_ != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor_);
-        imgui_descriptor_ = VK_NULL_HANDLE;
-    }
+    default_images_.invalidate_imgui_texture();
 }
 
 void TonemapPass::record(const FrameContext& ctx) {
-    if (view_ == VK_NULL_HANDLE || source_view_ == VK_NULL_HANDLE) return;
+    record_into(ctx, default_images_, source_view_);
+}
+
+void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source) {
+    if (imgs.view == VK_NULL_HANDLE || source == VK_NULL_HANDLE) return;
 
     auto cmd = ctx.cmd;
 
     // Update input descriptor
-    vk_utils::write_image_descriptor(device_, input_sets_[ctx.frame_index], 0,
-                                     source_view_, input_sampler_);
+    vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 0,
+                                     source, input_sampler_);
 
     // Transition output to writable
-    vk_utils::prepare_color_attachment(cmd, image_);
+    vk_utils::prepare_color_attachment(cmd, imgs.image);
 
     // Render
     VkRenderingAttachmentInfo color_attachment{};
     color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-    color_attachment.imageView = view_;
+    color_attachment.imageView = imgs.view;
     color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
     VkRenderingInfo ri{};
     ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-    ri.renderArea.extent = extent_;
+    ri.renderArea.extent = imgs.extent;
     ri.layerCount = 1;
     ri.colorAttachmentCount = 1;
     ri.pColorAttachments = &color_attachment;
@@ -204,24 +231,24 @@ void TonemapPass::record(const FrameContext& ctx) {
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
 
     VkViewport vp{};
-    vp.width = static_cast<float>(extent_.width);
-    vp.height = static_cast<float>(extent_.height);
+    vp.width = static_cast<float>(imgs.extent.width);
+    vp.height = static_cast<float>(imgs.extent.height);
     vp.maxDepth = 1.0f;
     vkCmdSetViewport(cmd, 0, 1, &vp);
 
     VkRect2D sc{};
-    sc.extent = extent_;
+    sc.extent = imgs.extent;
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 1, &input_sets_[ctx.frame_index], 0, nullptr);
+                            0, 1, &imgs.input_sets[ctx.frame_index], 0, nullptr);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
 
     vkCmdEndRendering(cmd);
 
     // Transition to readable
-    vk_utils::finish_color_attachment(cmd, image_);
+    vk_utils::finish_color_attachment(cmd, imgs.image);
 }
 
 } // namespace fjell

@@ -27,6 +27,7 @@ struct PassResources {
 class IndirectBatch;
 class MegaBuffer;
 class PipelineCache;
+class PostProcessResources;
 
 // Shared state that every pass can read during recording.
 struct FrameContext {
@@ -70,6 +71,12 @@ struct FrameContext {
 
     // Transient render target pool
     RenderTargetPool* target_pool{nullptr};
+
+    // Per-viewport post-process images
+    PostProcessResources* pp_resources{nullptr};
+
+    // Skip shadow pass for this viewport (e.g. camera preview uses main viewport's shadows)
+    bool skip_shadows{false};
 
     // Per-cascade shadow batches (indexed by cascade index)
     static constexpr uint32_t MAX_SHADOW_CASCADES = 3;

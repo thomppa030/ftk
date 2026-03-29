@@ -12,6 +12,167 @@
 
 namespace fjell {
 
+// ── Images (per-viewport state) ─────────────────────────────────────────────
+
+void HizPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+                               VkDescriptorSetLayout set_layout, VkSampler sampler,
+                               uint32_t width, uint32_t height) {
+    // Hi-Z mip 0 = half-res
+    hiz_width = std::max(width / 2, 1u);
+    hiz_height = std::max(height / 2, 1u);
+    hiz_mip_count = static_cast<uint32_t>(
+        std::floor(std::log2(std::max(hiz_width, hiz_height)))) + 1;
+    hiz_mip_count = std::min(hiz_mip_count, MAX_HIZ_MIPS);
+
+    VkImageCreateInfo image_ci{};
+    image_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_ci.imageType = VK_IMAGE_TYPE_2D;
+    image_ci.format = VK_FORMAT_R32_SFLOAT;
+    image_ci.extent = {hiz_width, hiz_height, 1};
+    image_ci.mipLevels = hiz_mip_count;
+    image_ci.arrayLayers = 1;
+    image_ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    vk_check(vkCreateImage(device, &image_ci, nullptr, &hiz_image),
+             "Failed to create Hi-Z image");
+
+    VkMemoryRequirements mem_reqs;
+    vkGetImageMemoryRequirements(device, hiz_image, &mem_reqs);
+
+    VkMemoryAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc.allocationSize = mem_reqs.size;
+    alloc.memoryTypeIndex = Buffer::find_memory_type(
+        physical_device, mem_reqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    vk_check(vkAllocateMemory(device, &alloc, nullptr, &hiz_memory),
+             "Failed to allocate Hi-Z memory");
+    vkBindImageMemory(device, hiz_image, hiz_memory, 0);
+
+    // Sampled view: all mips
+    VkImageViewCreateInfo view_ci{};
+    view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_ci.image = hiz_image;
+    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_ci.format = VK_FORMAT_R32_SFLOAT;
+    view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, hiz_mip_count, 0, 1};
+    vk_check(vkCreateImageView(device, &view_ci, nullptr, &hiz_sampled_view),
+             "Failed to create Hi-Z sampled view");
+
+    // Per-mip views for storage writes
+    for (uint32_t i = 0; i < hiz_mip_count; ++i) {
+        view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, i, 1, 0, 1};
+        vk_check(vkCreateImageView(device, &view_ci, nullptr, &hiz_mip_views[i]),
+                 "Failed to create Hi-Z mip view");
+    }
+
+    // Own descriptor pool + per-mip sets
+    std::array<VkDescriptorPoolSize, 2> pool_sizes{};
+    pool_sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_HIZ_MIPS};
+    pool_sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_HIZ_MIPS};
+
+    VkDescriptorPoolCreateInfo pool_ci{};
+    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_ci.maxSets = MAX_HIZ_MIPS;
+    pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
+    pool_ci.pPoolSizes = pool_sizes.data();
+    vk_check(vkCreateDescriptorPool(device, &pool_ci, nullptr, &pool),
+             "Failed to create Hi-Z images descriptor pool");
+
+    for (uint32_t i = 0; i < MAX_HIZ_MIPS; ++i) {
+        VkDescriptorSetAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc_info.descriptorPool = pool;
+        alloc_info.descriptorSetCount = 1;
+        alloc_info.pSetLayouts = &set_layout;
+        vk_check(vkAllocateDescriptorSets(device, &alloc_info, &mip_sets[i]),
+                 "Failed to allocate Hi-Z mip descriptor set");
+    }
+
+    // Pre-write the storage image descriptors (binding 1) for each mip
+    for (uint32_t i = 0; i < hiz_mip_count; ++i) {
+        VkDescriptorImageInfo dst_info{};
+        dst_info.imageView = hiz_mip_views[i];
+        dst_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = mip_sets[i];
+        write.dstBinding = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write.descriptorCount = 1;
+        write.pImageInfo = &dst_info;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
+
+    // Pre-write source descriptors (binding 0) for mips 1+
+    // (mip 0 source is the depth buffer, updated per-frame in record_into)
+    for (uint32_t i = 1; i < hiz_mip_count; ++i) {
+        VkDescriptorImageInfo src_info{};
+        src_info.sampler = sampler;
+        src_info.imageView = hiz_mip_views[i - 1];
+        src_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = mip_sets[i];
+        write.dstBinding = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = 1;
+        write.pImageInfo = &src_info;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
+
+    FJELL_GFX_DEBUG("Hi-Z pyramid created: {}x{}, {} mips", hiz_width, hiz_height, hiz_mip_count);
+}
+
+void HizPass::Images::destroy(VkDevice device) {
+    if (pool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device, pool, nullptr);
+        pool = VK_NULL_HANDLE;
+        mip_sets = {};
+    }
+    for (uint32_t i = 0; i < hiz_mip_count; ++i) {
+        if (hiz_mip_views[i] != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, hiz_mip_views[i], nullptr);
+            hiz_mip_views[i] = VK_NULL_HANDLE;
+        }
+    }
+    if (hiz_sampled_view != VK_NULL_HANDLE) {
+        vkDestroyImageView(device, hiz_sampled_view, nullptr);
+        hiz_sampled_view = VK_NULL_HANDLE;
+    }
+    if (hiz_image != VK_NULL_HANDLE) {
+        vkDestroyImage(device, hiz_image, nullptr);
+        hiz_image = VK_NULL_HANDLE;
+    }
+    if (hiz_memory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, hiz_memory, nullptr);
+        hiz_memory = VK_NULL_HANDLE;
+    }
+    hiz_mip_count = 0;
+    hiz_width = 0;
+    hiz_height = 0;
+    last_depth_view = VK_NULL_HANDLE;
+}
+
+void HizPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+                               VkDescriptorSetLayout set_layout, VkSampler sampler,
+                               uint32_t width, uint32_t height) {
+    uint32_t new_w = std::max(width / 2, 1u);
+    uint32_t new_h = std::max(height / 2, 1u);
+    if (new_w == hiz_width && new_h == hiz_height) return;
+    vkDeviceWaitIdle(device);
+
+    destroy(device);
+    create(device, physical_device, set_layout, sampler, width, height);
+}
+
+// ── HizPass (singleton) ─────────────────────────────────────────────────────
+
 void HizPass::create(Device& device, const PassResources& /*resources*/) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
@@ -39,18 +200,12 @@ void HizPass::create(Device& device, const PassResources& /*resources*/) {
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
-    set_layout_ = std::make_unique<DescriptorSetLayout>(device_, std::span{bindings});
-
-    std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-    pool_sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_HIZ_MIPS};
-    pool_sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, MAX_HIZ_MIPS};
-
-    pool_ = std::make_unique<DescriptorPool>(
-        device_, std::span{pool_sizes}, MAX_HIZ_MIPS);
-
-    for (uint32_t i = 0; i < MAX_HIZ_MIPS; ++i) {
-        mip_sets_[i] = pool_->allocate(*set_layout_);
-    }
+    VkDescriptorSetLayoutCreateInfo layout_ci{};
+    layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layout_ci.bindingCount = static_cast<uint32_t>(bindings.size());
+    layout_ci.pBindings = bindings.data();
+    vk_check(vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &set_layout_),
+             "Failed to create Hi-Z descriptor set layout");
 
     // Pipeline layout: single set + push constants
     VkPushConstantRange push_range{};
@@ -58,15 +213,14 @@ void HizPass::create(Device& device, const PassResources& /*resources*/) {
     push_range.offset = 0;
     push_range.size = 4 * sizeof(uint32_t); // src_w, src_h, dst_w, dst_h
 
-    VkDescriptorSetLayout set = set_layout_->handle();
-    VkPipelineLayoutCreateInfo layout_ci{};
-    layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_ci.setLayoutCount = 1;
-    layout_ci.pSetLayouts = &set;
-    layout_ci.pushConstantRangeCount = 1;
-    layout_ci.pPushConstantRanges = &push_range;
+    VkPipelineLayoutCreateInfo pipe_layout_ci{};
+    pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipe_layout_ci.setLayoutCount = 1;
+    pipe_layout_ci.pSetLayouts = &set_layout_;
+    pipe_layout_ci.pushConstantRangeCount = 1;
+    pipe_layout_ci.pPushConstantRanges = &push_range;
 
-    vk_check(vkCreatePipelineLayout(device_, &layout_ci, nullptr, &layout_),
+    vk_check(vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_),
              "Failed to create Hi-Z pipeline layout");
 
     // Compute pipeline
@@ -92,149 +246,39 @@ void HizPass::create(Device& device, const PassResources& /*resources*/) {
 }
 
 void HizPass::destroy() {
-    destroy_image();
-    if (pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, pipeline_, nullptr);
-    if (layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(device_, layout_, nullptr);
-    if (sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, sampler_, nullptr);
-    pool_.reset();
-    set_layout_.reset();
-}
-
-void HizPass::create_image(uint32_t width, uint32_t height) {
-    // Hi-Z mip 0 = half-res
-    hiz_width_ = std::max(width / 2, 1u);
-    hiz_height_ = std::max(height / 2, 1u);
-    hiz_mip_count_ = static_cast<uint32_t>(
-        std::floor(std::log2(std::max(hiz_width_, hiz_height_)))) + 1;
-    hiz_mip_count_ = std::min(hiz_mip_count_, MAX_HIZ_MIPS);
-
-    VkImageCreateInfo image_ci{};
-    image_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_ci.imageType = VK_IMAGE_TYPE_2D;
-    image_ci.format = VK_FORMAT_R32_SFLOAT;
-    image_ci.extent = {hiz_width_, hiz_height_, 1};
-    image_ci.mipLevels = hiz_mip_count_;
-    image_ci.arrayLayers = 1;
-    image_ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    image_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    vk_check(vkCreateImage(device_, &image_ci, nullptr, &hiz_image_),
-             "Failed to create Hi-Z image");
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device_, hiz_image_, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vk_check(vkAllocateMemory(device_, &alloc, nullptr, &hiz_memory_),
-             "Failed to allocate Hi-Z memory");
-    vkBindImageMemory(device_, hiz_image_, hiz_memory_, 0);
-
-    // Sampled view: all mips
-    VkImageViewCreateInfo view_ci{};
-    view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_ci.image = hiz_image_;
-    view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_ci.format = VK_FORMAT_R32_SFLOAT;
-    view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, hiz_mip_count_, 0, 1};
-    vk_check(vkCreateImageView(device_, &view_ci, nullptr, &hiz_sampled_view_),
-             "Failed to create Hi-Z sampled view");
-
-    // Per-mip views for storage writes
-    for (uint32_t i = 0; i < hiz_mip_count_; ++i) {
-        view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, i, 1, 0, 1};
-        vk_check(vkCreateImageView(device_, &view_ci, nullptr, &hiz_mip_views_[i]),
-                 "Failed to create Hi-Z mip view");
-    }
-
-    // Pre-write the storage image descriptors (binding 1) for each mip
-    for (uint32_t i = 0; i < hiz_mip_count_; ++i) {
-        VkDescriptorImageInfo dst_info{};
-        dst_info.imageView = hiz_mip_views_[i];
-        dst_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = mip_sets_[i];
-        write.dstBinding = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write.descriptorCount = 1;
-        write.pImageInfo = &dst_info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-    }
-
-    // Pre-write source descriptors (binding 0) for mips 1+
-    // (mip 0 source is the depth buffer, updated per-frame in dispatch())
-    for (uint32_t i = 1; i < hiz_mip_count_; ++i) {
-        VkDescriptorImageInfo src_info{};
-        src_info.sampler = sampler_;
-        src_info.imageView = hiz_mip_views_[i - 1];
-        src_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = mip_sets_[i];
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &src_info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-    }
-
-    FJELL_GFX_DEBUG("Hi-Z pyramid created: {}x{}, {} mips", hiz_width_, hiz_height_, hiz_mip_count_);
-}
-
-void HizPass::destroy_image() {
-    for (uint32_t i = 0; i < hiz_mip_count_; ++i) {
-        if (hiz_mip_views_[i] != VK_NULL_HANDLE) {
-            vkDestroyImageView(device_, hiz_mip_views_[i], nullptr);
-            hiz_mip_views_[i] = VK_NULL_HANDLE;
-        }
-    }
-    if (hiz_sampled_view_ != VK_NULL_HANDLE) {
-        vkDestroyImageView(device_, hiz_sampled_view_, nullptr);
-        hiz_sampled_view_ = VK_NULL_HANDLE;
-    }
-    if (hiz_image_ != VK_NULL_HANDLE) {
-        vkDestroyImage(device_, hiz_image_, nullptr);
-        hiz_image_ = VK_NULL_HANDLE;
-    }
-    if (hiz_memory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(device_, hiz_memory_, nullptr);
-        hiz_memory_ = VK_NULL_HANDLE;
-    }
-    hiz_mip_count_ = 0;
-    last_depth_view_ = VK_NULL_HANDLE;
+    default_images_.destroy(device_);
+    if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
+    if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
+    if (set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, set_layout_, nullptr); set_layout_ = VK_NULL_HANDLE; }
+    if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
 }
 
 void HizPass::resize(uint32_t width, uint32_t height) {
-    uint32_t new_w = std::max(width / 2, 1u);
-    uint32_t new_h = std::max(height / 2, 1u);
-    if (new_w == hiz_width_ && new_h == hiz_height_) return;
-    vkDeviceWaitIdle(device_);
-
-    destroy_image();
-    create_image(width, height);
+    default_images_.resize(device_, physical_device_, set_layout_, sampler_, width, height);
 }
 
-void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
-                        uint32_t depth_width, uint32_t depth_height) {
+void HizPass::record(const FrameContext& ctx) {
+    record_into(ctx, default_images_);
+}
+
+void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
+    auto extent = ctx.target->extent();
+    uint32_t depth_width = extent.width;
+    uint32_t depth_height = extent.height;
     if (depth_width == 0 || depth_height == 0) return;
+
+    VkImageView depth_view = ctx.target->depth_view();
 
     // Lazy create / resize
     uint32_t needed_w = std::max(depth_width / 2, 1u);
     uint32_t needed_h = std::max(depth_height / 2, 1u);
-    if (needed_w != hiz_width_ || needed_h != hiz_height_) {
-        destroy_image();
-        create_image(depth_width, depth_height);
+    if (needed_w != imgs.hiz_width || needed_h != imgs.hiz_height) {
+        imgs.destroy(device_);
+        imgs.create(device_, physical_device_, set_layout_, sampler_, depth_width, depth_height);
     }
-    if (hiz_mip_count_ == 0) return;
+    if (imgs.hiz_mip_count == 0) return;
+
+    auto cmd = ctx.cmd;
 
     // Transition all Hi-Z mips to GENERAL for storage writes
     VkImageMemoryBarrier2 init_barrier{};
@@ -247,8 +291,8 @@ void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
     init_barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     init_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     init_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    init_barrier.image = hiz_image_;
-    init_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, hiz_mip_count_, 0, 1};
+    init_barrier.image = imgs.hiz_image;
+    init_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, imgs.hiz_mip_count, 0, 1};
 
     VkDependencyInfo dep{};
     dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -257,8 +301,8 @@ void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
     vkCmdPipelineBarrier2(cmd, &dep);
 
     // Update mip 0 source descriptor: depth buffer (only when view changes)
-    if (depth_view != last_depth_view_) {
-        last_depth_view_ = depth_view;
+    if (depth_view != imgs.last_depth_view) {
+        imgs.last_depth_view = depth_view;
 
         VkDescriptorImageInfo depth_info{};
         depth_info.sampler = sampler_;
@@ -267,7 +311,7 @@ void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
 
         VkWriteDescriptorSet depth_write{};
         depth_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        depth_write.dstSet = mip_sets_[0];
+        depth_write.dstSet = imgs.mip_sets[0];
         depth_write.dstBinding = 0;
         depth_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         depth_write.descriptorCount = 1;
@@ -280,12 +324,12 @@ void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
     uint32_t src_w = depth_width;
     uint32_t src_h = depth_height;
 
-    for (uint32_t mip = 0; mip < hiz_mip_count_; ++mip) {
-        uint32_t dst_w = std::max(hiz_width_ >> mip, 1u);
-        uint32_t dst_h = std::max(hiz_height_ >> mip, 1u);
+    for (uint32_t mip = 0; mip < imgs.hiz_mip_count; ++mip) {
+        uint32_t dst_w = std::max(imgs.hiz_width >> mip, 1u);
+        uint32_t dst_h = std::max(imgs.hiz_height >> mip, 1u);
 
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, layout_,
-                                0, 1, &mip_sets_[mip], 0, nullptr);
+                                0, 1, &imgs.mip_sets[mip], 0, nullptr);
 
         uint32_t push[4] = {src_w, src_h, dst_w, dst_h};
         vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -306,7 +350,7 @@ void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
         mip_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         mip_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         mip_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        mip_barrier.image = hiz_image_;
+        mip_barrier.image = imgs.hiz_image;
         mip_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 1, 0, 1};
 
         VkDependencyInfo mip_dep{};
@@ -318,11 +362,6 @@ void HizPass::dispatch(VkCommandBuffer cmd, VkImageView depth_view,
         src_w = dst_w;
         src_h = dst_h;
     }
-}
-
-void HizPass::record(const FrameContext& ctx) {
-    auto extent = ctx.target->extent();
-    dispatch(ctx.cmd, ctx.target->depth_view(), extent.width, extent.height);
 }
 
 } // namespace fjell
