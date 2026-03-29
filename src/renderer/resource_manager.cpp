@@ -310,7 +310,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
                 const auto& tex_path = tex_it->second;
                 if (tex_path.starts_with("$viewport:")) {
                     uint32_t idx = viewport_resolver_ ? viewport_resolver_(tex_path.substr(10)) : 0;
-                    if (idx == 0) idx = bindless_index(default_black_handle_);
+                    if (idx == 0) idx = bindless_index(default_white_handle_);
                     material->set_custom_texture(u.slot, idx);
                 } else {
                     auto tex_result = load_texture(base_path::resolve_asset(tex_path, project));
@@ -370,7 +370,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
                 if (tex_path.starts_with("$viewport:")) {
                     std::string vp_name = tex_path.substr(10);
                     uint32_t idx = viewport_resolver_ ? viewport_resolver_(vp_name) : 0;
-                    if (idx == 0) idx = bindless_index(default_black_handle_);
+                    if (idx == 0) idx = bindless_index(default_white_handle_);
                     material->set_custom_texture(u.slot, idx);
                     viewport_bindings_[vp_name].push_back({mat_id, u.slot});
                 } else {

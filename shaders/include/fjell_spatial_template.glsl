@@ -22,6 +22,9 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 cascade_splits;     // xyz = split distances
     uvec4 tile_info;         // x = tiles_x, y = tiles_y, z = point_count, w = spot_count
     mat4 inv_projection;
+    mat4 inv_view_proj;
+    mat4 prev_view_proj;
+    float time;
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
@@ -102,6 +105,7 @@ void main() {
     mat3 TBN = frag_TBN;
     vec3 VIEW_DIR = normalize(ubo.camera_position.xyz - frag_world_pos);
     vec3 COLOR = frag_color;
+    float TIME = ubo.time;
 
     // PBR texture samplers as built-in inputs
     #define BASE_COLOR_TEX textures[nonuniformEXT(mat.texture_indices[0])]

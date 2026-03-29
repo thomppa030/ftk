@@ -39,7 +39,7 @@ extern "C" void fjell_viewport_destroy(const char* name) {
 
     // Reset material bindings back to default black before destroying the viewport
     auto* rm = fjell::script_resource_manager();
-    if (rm) rm->update_viewport_bindings(name, rm->bindless_index(rm->default_black_handle()));
+    if (rm) rm->update_viewport_bindings(name, rm->bindless_index(rm->default_white_handle()));
 
     vk->destroy_scene_viewport(name);
 }
