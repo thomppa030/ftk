@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -106,6 +107,14 @@ public:
 
     [[nodiscard]] uint32_t bindless_index(TextureHandle handle) const;
 
+    /// Set a callback that resolves "$viewport:name" texture references to bindless indices.
+    using ViewportResolver = std::function<uint32_t(const std::string&)>;
+    void set_viewport_resolver(ViewportResolver resolver);
+
+    /// Re-resolve all materials that reference "$viewport:name" with the given bindless index.
+    /// Call after a scene viewport is created so materials pick up the new texture.
+    void update_viewport_bindings(const std::string& viewport_name, uint32_t bindless_idx);
+
 private:
     template <typename T, typename HandleT>
     struct Pool {
@@ -159,6 +168,13 @@ private:
     TextureHandle default_normal_handle_;
     TextureHandle default_mr_handle_;
     TextureHandle default_black_handle_;
+
+    ViewportResolver viewport_resolver_;
+
+    // Tracks which materials reference which viewport, for deferred binding.
+    // Key: viewport name, Value: list of {material_id, custom_texture_slot}
+    struct ViewportBinding { uint32_t material_id; uint32_t slot; };
+    std::unordered_map<std::string, std::vector<ViewportBinding>> viewport_bindings_;
 };
 
 } // namespace fjell

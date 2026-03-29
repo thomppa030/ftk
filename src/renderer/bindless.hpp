@@ -51,6 +51,15 @@ public:
     // Idempotent: re-adding the same texture returns the existing index.
     uint32_t add(const Texture& texture);
 
+    // Reserve a bindless index without writing a descriptor.
+    // The slot is left unwritten (PARTIALLY_BOUND covers this).
+    // Use update_entry() to associate a view later.
+    [[nodiscard]] uint32_t reserve_index();
+
+    // Replace an existing entry's view and sampler (e.g. after render target resize).
+    // Marks the slot dirty for the next update_descriptors() call.
+    void update_entry(uint32_t index, VkImageView view, VkSampler sampler);
+
     // Register a material and get its index for push constants.
     uint32_t add_material(const GpuMaterial& mat);
 

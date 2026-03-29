@@ -883,7 +883,7 @@ void VulkanContext::register_passes() {
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
                                     ThreadPool& pool, PostProcessResources* pp,
-                                    bool skip_shadows) {
+                                    bool skip_shadows, bool flip_tonemap_y) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
 
     // Lazily create / resize previous-frame color buffer for SSR.
@@ -1064,6 +1064,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     ctx.prev_frame_color_view = prev_frame_color_view_;
     ctx.pp_resources = pp;
     ctx.skip_shadows = skip_shadows;
+    ctx.flip_tonemap_y = flip_tonemap_y;
     if (pp->hiz() && pp->hiz()->ready()) {
         ctx.hiz_view = pp->hiz()->hiz_sampled_view;
         ctx.hiz_sampler = hiz_pass_.sampler();
@@ -1199,7 +1200,8 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     update_uniform_buffer(current_frame_, req.view, req.projection,
                           req.camera_position, light, scene, req.target->extent());
     update_light_ssbo(current_frame_, scene);
-    render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp, req.skip_shadows);
+    render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp,
+                    req.skip_shadows, req.flip_tonemap_y);
 
     vkEndCommandBuffer(cmd);
 
@@ -1861,6 +1863,48 @@ void VulkanContext::sync_custom_depth_pipelines() {
         if (!shadow_vert.empty()) {
             shadow_pass_.register_custom_shadow(id, shadow_vert);
         }
+    }
+}
+
+// ── Scene Viewports ──────────────────────────────────────────────────────
+
+uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config) {
+    uint32_t bindless_idx = gpu_.bindless_textures().reserve_index();
+
+    PostProcessResources::PassRefs refs{
+        hiz_pass_, gtao_pass_, bloom_pass_,
+        ssr_pass_, volumetric_fog_pass_, tonemap_pass_};
+
+    auto viewport = std::make_unique<SceneViewport>(
+        gpu_.device_ref(), gpu_.device(), gpu_.physical_device(),
+        config, refs, bindless_idx);
+
+    scene_viewports_[config.name] = std::move(viewport);
+    return bindless_idx;
+}
+
+void VulkanContext::destroy_scene_viewport(const std::string& name) {
+    auto it = scene_viewports_.find(name);
+    if (it == scene_viewports_.end()) return;
+    wait_idle();
+    scene_viewports_.erase(it);
+}
+
+SceneViewport* VulkanContext::scene_viewport(const std::string& name) {
+    auto it = scene_viewports_.find(name);
+    return it != scene_viewports_.end() ? it->second.get() : nullptr;
+}
+
+uint32_t VulkanContext::scene_viewport_bindless_index(const std::string& name) const {
+    auto it = scene_viewports_.find(name);
+    return it != scene_viewports_.end() ? it->second->bindless_index() : 0;
+}
+
+void VulkanContext::render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
+                                            const DirectionalLight& light, ThreadPool& pool) {
+    for (auto& [name, viewport] : scene_viewports_) {
+        render_preview(viewport->build_request(), light, scene, dt, selected_id, pool);
+        viewport->sync_bindless(gpu_.bindless_textures());
     }
 }
 

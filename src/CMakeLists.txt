@@ -60,6 +60,7 @@ add_executable(fjell
     renderer/meshlet_descriptor.cpp
     renderer/model.cpp
     renderer/offscreen_pass.cpp
+    renderer/scene_viewport.cpp
     renderer/pipeline.cpp
     renderer/render_target_pool.cpp
     renderer/post_process_resources.cpp
@@ -133,6 +134,7 @@ add_executable(fjell
     scripting/audio_api.cpp
     scripting/camera_api.cpp
     scripting/vfx_api.cpp
+    scripting/viewport_api.cpp
     scripting/scene_api.cpp
     ui/console.cpp
     ui/menu_bar.cpp

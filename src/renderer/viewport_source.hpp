@@ -51,6 +51,7 @@ struct ViewportRenderRequest {
     glm::vec3 camera_position{0.0f};
     PostProcessResources* pp_resources{nullptr}; // null = use default
     bool skip_shadows{false};
+    bool flip_tonemap_y{false}; // flip tonemap output for render-to-texture
 };
 
 } // namespace fjell

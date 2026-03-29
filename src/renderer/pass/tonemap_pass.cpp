@@ -232,7 +232,14 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
 
     VkViewport vp{};
     vp.width = static_cast<float>(imgs.extent.width);
-    vp.height = static_cast<float>(imgs.extent.height);
+    if (ctx.flip_tonemap_y) {
+        // Negative-height viewport flips the image vertically so render-to-texture
+        // outputs have V=0 at bottom (standard texture convention).
+        vp.y = static_cast<float>(imgs.extent.height);
+        vp.height = -static_cast<float>(imgs.extent.height);
+    } else {
+        vp.height = static_cast<float>(imgs.extent.height);
+    }
     vp.maxDepth = 1.0f;
     vkCmdSetViewport(cmd, 0, 1, &vp);
 

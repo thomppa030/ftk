@@ -34,6 +34,7 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/render_target_pool.hpp"
 #include "renderer/sprite_renderer.hpp"
+#include "renderer/scene_viewport.hpp"
 #include "renderer/viewport_source.hpp"
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -41,6 +42,8 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -183,6 +186,17 @@ public:
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
 
+  // ── Scene Viewports (render-to-texture for materials) ─────────────────
+  /// Create a named scene viewport. Returns the bindless index of its output.
+  [[nodiscard]] uint32_t create_scene_viewport(const SceneViewportConfig& config);
+  void destroy_scene_viewport(const std::string& name);
+  [[nodiscard]] SceneViewport* scene_viewport(const std::string& name);
+  [[nodiscard]] uint32_t scene_viewport_bindless_index(const std::string& name) const;
+
+  /// Render all scene viewports. Call before the main frame's record_frame().
+  void render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
+                              const DirectionalLight& light, ThreadPool& pool);
+
   /// Render a single viewport in its own command buffer (submitted + waited).
   /// Used for camera preview to avoid singleton state conflicts with the main
   /// viewport's render_scene_to in the same command buffer.
@@ -200,7 +214,8 @@ private:
                         bool playing);
   void render_scene_to(VkCommandBuffer cmd, OffscreenPass &target, Scene *scene,
                        float dt, uint32_t selected_id, ThreadPool &pool,
-                       PostProcessResources *pp, bool skip_shadows = false);
+                       PostProcessResources *pp, bool skip_shadows = false,
+                       bool flip_tonemap_y = false);
   void update_uniform_buffer(uint32_t frame_index, const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3 &camera_position,
@@ -288,6 +303,9 @@ private:
   AnimationSystem* animation_system_{nullptr};
   float ibl_intensity_{1.0f};
   float elapsed_time_{0.0f};
+
+  // ── Scene viewports (render-to-texture for materials) ─────────────────
+  std::unordered_map<std::string, std::unique_ptr<SceneViewport>> scene_viewports_;
 };
 
 } // namespace fjell

@@ -78,6 +78,10 @@ struct FrameContext {
     // Skip shadow pass for this viewport (e.g. camera preview uses main viewport's shadows)
     bool skip_shadows{false};
 
+    // Flip tonemap output vertically so render-to-texture viewports produce
+    // images with V=0 at bottom (standard texture convention).
+    bool flip_tonemap_y{false};
+
     // Per-cascade shadow batches (indexed by cascade index)
     static constexpr uint32_t MAX_SHADOW_CASCADES = 3;
     std::array<IndirectBatch*, MAX_SHADOW_CASCADES> shadow_cascade_batches{};

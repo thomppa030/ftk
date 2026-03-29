@@ -250,6 +250,10 @@ void ScriptManager::set_camera_subsystem(CameraSubsystem* camera) {
     script_camera_subsystem() = camera;
 }
 
+void ScriptManager::set_vulkan_context(VulkanContext* vk) {
+    script_vulkan_context() = vk;
+}
+
 // ── Constructor / Destructor ────────────────────────────────────────────
 
 ScriptManager::ScriptManager() = default;

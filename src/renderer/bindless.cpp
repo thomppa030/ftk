@@ -189,6 +189,34 @@ uint32_t BindlessTextures::add(const Texture& texture) {
     return index;
 }
 
+uint32_t BindlessTextures::reserve_index() {
+    uint32_t index = static_cast<uint32_t>(entries_.size());
+    entries_.push_back(Entry{VK_NULL_HANDLE, VK_NULL_HANDLE});
+    // Push dirty marker past the reserved slot so update_descriptors()
+    // doesn't try to write a VK_NULL_HANDLE descriptor.
+    tex_dirty_from_ = static_cast<uint32_t>(entries_.size());
+    return index;
+}
+
+void BindlessTextures::update_entry(uint32_t index, VkImageView view, VkSampler sampler) {
+    if (index >= entries_.size()) return;
+
+    // Remove old view from dedup map
+    auto& old = entries_[index];
+    if (old.view != VK_NULL_HANDLE) {
+        view_to_index_.erase(old.view);
+    }
+
+    old.view = view;
+    old.sampler = sampler;
+
+    if (view != VK_NULL_HANDLE) {
+        view_to_index_[view] = index;
+    }
+
+    if (index < tex_dirty_from_) tex_dirty_from_ = index;
+}
+
 uint32_t BindlessTextures::add_material(const GpuMaterial& mat) {
     uint32_t index = static_cast<uint32_t>(materials_.size());
     materials_.push_back(mat);

@@ -111,6 +111,7 @@ public:
     static void set_vfx_subsystem(class VfxSubsystem* vfx);
     static void set_audio_subsystem(class AudioSubsystem* audio);
     static void set_camera_subsystem(class CameraSubsystem* camera);
+    static void set_vulkan_context(class VulkanContext* vk);
 
 #ifndef NDEBUG
     Result<> poll_reload(Scene& scene);

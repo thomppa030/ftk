@@ -307,9 +307,16 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
             if (u.type != UniformType::Sampler2D) continue;
             auto tex_it = asset.textures.find(u.name);
             if (tex_it != asset.textures.end()) {
-                auto tex_result = load_texture(base_path::resolve_asset(tex_it->second, project));
-                auto tex_handle = tex_result ? *tex_result : default_white_handle_;
-                material->set_custom_texture(u.slot, bindless_index(tex_handle));
+                const auto& tex_path = tex_it->second;
+                if (tex_path.starts_with("$viewport:")) {
+                    uint32_t idx = viewport_resolver_ ? viewport_resolver_(tex_path.substr(10)) : 0;
+                    if (idx == 0) idx = bindless_index(default_black_handle_);
+                    material->set_custom_texture(u.slot, idx);
+                } else {
+                    auto tex_result = load_texture(base_path::resolve_asset(tex_path, project));
+                    auto tex_handle = tex_result ? *tex_result : default_white_handle_;
+                    material->set_custom_texture(u.slot, bindless_index(tex_handle));
+                }
             } else {
                 TextureHandle default_tex = default_white_handle_;
                 if (u.hint == UniformHint::Black) default_tex = default_black_handle_;
@@ -359,9 +366,18 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
             if (u.type != UniformType::Sampler2D) continue;
             auto tex_it = asset.textures.find(u.name);
             if (tex_it != asset.textures.end()) {
-                auto tex_result = load_texture(base_path::resolve_asset(tex_it->second, project));
-                auto tex_handle = tex_result ? *tex_result : default_white_handle_;
-                material->set_custom_texture(u.slot, bindless_index(tex_handle));
+                const auto& tex_path = tex_it->second;
+                if (tex_path.starts_with("$viewport:")) {
+                    std::string vp_name = tex_path.substr(10);
+                    uint32_t idx = viewport_resolver_ ? viewport_resolver_(vp_name) : 0;
+                    if (idx == 0) idx = bindless_index(default_black_handle_);
+                    material->set_custom_texture(u.slot, idx);
+                    viewport_bindings_[vp_name].push_back({mat_id, u.slot});
+                } else {
+                    auto tex_result = load_texture(base_path::resolve_asset(tex_path, project));
+                    auto tex_handle = tex_result ? *tex_result : default_white_handle_;
+                    material->set_custom_texture(u.slot, bindless_index(tex_handle));
+                }
             } else {
                 TextureHandle default_tex = default_white_handle_;
                 if (u.hint == UniformHint::Black) default_tex = default_black_handle_;
@@ -402,6 +418,21 @@ void ResourceManager::fail_model(ModelHandle handle) {
 
 LoadState ResourceManager::model_state(ModelHandle handle) const {
     return models_.state(handle);
+}
+
+void ResourceManager::set_viewport_resolver(ViewportResolver resolver) {
+    viewport_resolver_ = std::move(resolver);
+}
+
+void ResourceManager::update_viewport_bindings(const std::string& viewport_name, uint32_t bindless_idx) {
+    auto it = viewport_bindings_.find(viewport_name);
+    if (it == viewport_bindings_.end()) return;
+
+    for (const auto& binding : it->second) {
+        auto gpu_mat = bindless_.material_at(binding.material_id);
+        gpu_mat.texture_indices[binding.slot] = bindless_idx;
+        bindless_.update_material(binding.material_id, gpu_mat);
+    }
 }
 
 uint32_t ResourceManager::bindless_index(TextureHandle handle) const {

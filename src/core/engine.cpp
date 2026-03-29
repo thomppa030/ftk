@@ -199,6 +199,10 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         vulkan_context_->bindless_textures(), vulkan_context_->mega_buffer(),
         vulkan_context_->meshlet_buffer(), vulkan_context_->pipeline_cache());
 
+    resource_manager_->set_viewport_resolver([this](const std::string& name) -> uint32_t {
+        return vulkan_context_->scene_viewport_bindless_index(name);
+    });
+
     asset_loader_ = std::make_unique<AssetLoader>(
         thread_pool_, *resource_manager_,
         vulkan_context_->device(), vulkan_context_->physical_device(),
@@ -212,6 +216,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     ScriptManager::set_vfx_subsystem(vfx_subsystem_);
     ScriptManager::set_audio_subsystem(audio_subsystem_);
     ScriptManager::set_camera_subsystem(camera_subsystem_);
+    ScriptManager::set_vulkan_context(vulkan_context_.get());
     ui_subsystem_->set_script_manager(&script_subsystem_->manager());
     // Determine which scene to load
     if (project_mgr_.active()) {
@@ -1036,6 +1041,11 @@ void Engine::run() {
 
         vulkan_context_->sync_sprite_textures(*render_scene, *resource_manager_);
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
+
+        // Render scene viewports (render-to-texture, must complete before main frame)
+        vulkan_context_->render_scene_viewports(render_scene, clock_.delta_time(),
+                                                 scene_context_->selected_id(),
+                                                 light_, thread_pool_);
 
         // Render auxiliary viewports (camera preview) in separate command buffers
         active_context().render_previews(*vulkan_context_, render_scene,
