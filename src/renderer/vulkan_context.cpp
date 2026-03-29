@@ -155,8 +155,10 @@ VulkanContext::VulkanContext(Window& window)
 
     register_passes();
 
-    // Default post-process resources for the main viewport
+    // Default post-process resources for the main viewport (all passes enabled)
     PostProcessConfig default_config{};
+    default_config.ssr = true;
+    default_config.volumetric_fog = true;
     PostProcessResources::PassRefs refs{hiz_pass_, gtao_pass_, bloom_pass_, ssr_pass_, volumetric_fog_pass_, tonemap_pass_};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.physical_device(), 256, 256, default_config, refs);
 
