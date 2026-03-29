@@ -1037,6 +1037,10 @@ void Engine::run() {
         vulkan_context_->sync_sprite_textures(*render_scene, *resource_manager_);
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
 
+        // Render auxiliary viewports (camera preview) in separate command buffers
+        active_context().render_previews(*vulkan_context_, render_scene,
+                                          clock_.delta_time(), light_, thread_pool_);
+
         // Phase 4: Record commands
         vulkan_context_->record_frame(requests, light_, render_scene, clock_.delta_time(),
                                        scene_context_->selected_id(), thread_pool_,

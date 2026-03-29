@@ -57,6 +57,12 @@ public:
     virtual void apply_resize(VulkanContext& vk) = 0;
     [[nodiscard]] virtual bool any_viewport_hovered() const { return false; }
 
+    // Render auxiliary viewports (e.g. camera preview) in separate command buffers.
+    // Called after apply_resize but before record_frame.
+    virtual void render_previews(VulkanContext& /*vk*/, Scene* /*scene*/, float /*dt*/,
+                                  const struct DirectionalLight& /*light*/,
+                                  class ThreadPool& /*pool*/) {}
+
     // Dockspace layout tracking
     [[nodiscard]] bool dockspace_built() const { return dockspace_built_; }
     void mark_dockspace_built() { dockspace_built_ = true; }

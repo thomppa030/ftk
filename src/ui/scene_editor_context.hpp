@@ -86,6 +86,8 @@ public:
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override;
     void apply_resize(VulkanContext& vk) override;
     [[nodiscard]] bool any_viewport_hovered() const override;
+    void render_previews(VulkanContext& vk, Scene* scene, float dt,
+                          const DirectionalLight& light, ThreadPool& pool) override;
 
     // Scene mutation (called from Engine delegate bindings)
     void add_model(const std::string& path);
@@ -133,6 +135,12 @@ private:
 
     // Delegate connections (context-level bindings)
     std::vector<Connection> connections_;
+
+    // Camera preview (PIP overlay when CameraNode selected)
+    std::unique_ptr<OffscreenPass> camera_preview_target_;
+    std::unique_ptr<PostProcessResources> camera_preview_pp_;
+    uint32_t camera_preview_node_id_{0};  // currently previewing this camera
+    int camera_preview_skip_frames_{0};   // skip N frames after creation
 };
 
 } // namespace fjell

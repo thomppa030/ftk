@@ -31,6 +31,7 @@
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
+#include "renderer/post_process_resources.hpp"
 #include "renderer/render_target_pool.hpp"
 #include "renderer/sprite_renderer.hpp"
 #include "renderer/viewport_source.hpp"
@@ -113,6 +114,7 @@ public:
   [[nodiscard]] NormalPass &normal_pass() { return normal_pass_; }
   [[nodiscard]] OverdrawPass &overdraw_pass() { return overdraw_pass_; }
   [[nodiscard]] UvVizPass &uv_viz_pass() { return uv_viz_pass_; }
+  [[nodiscard]] HizPass &hiz_pass() { return hiz_pass_; }
   [[nodiscard]] BloomPass &bloom_pass() { return bloom_pass_; }
   [[nodiscard]] GtaoPass &gtao_pass() { return gtao_pass_; }
   [[nodiscard]] SsrPass &ssr_pass() { return ssr_pass_; }
@@ -177,8 +179,16 @@ public:
   [[nodiscard]] uint32_t active_sources() const { return active_sources_; }
   [[nodiscard]] RenderTargetPool& target_pool() { return target_pool_; }
   [[nodiscard]] RenderPipeline& render_pipeline() { return render_pipeline_; }
+  [[nodiscard]] PostProcessResources& default_pp() { return *default_pp_; }
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
+
+  /// Render a single viewport in its own command buffer (submitted + waited).
+  /// Used for camera preview to avoid singleton state conflicts with the main
+  /// viewport's render_scene_to in the same command buffer.
+  void render_preview(const ViewportRenderRequest& req,
+                      const DirectionalLight& light, Scene* scene,
+                      float dt, uint32_t selected_id, ThreadPool& pool);
 
 private:
   void update_shadow_descriptors();
@@ -189,7 +199,8 @@ private:
                         float dt, uint32_t selected_id, ThreadPool &pool,
                         bool playing);
   void render_scene_to(VkCommandBuffer cmd, OffscreenPass &target, Scene *scene,
-                       float dt, uint32_t selected_id, ThreadPool &pool);
+                       float dt, uint32_t selected_id, ThreadPool &pool,
+                       PostProcessResources *pp, bool skip_shadows = false);
   void update_uniform_buffer(uint32_t frame_index, const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3 &camera_position,
@@ -246,6 +257,7 @@ private:
   SceneGatherer gatherer_;
 
   // ── Frame state ───────────────────────────────────────────────────────
+  std::unique_ptr<PostProcessResources> default_pp_;
   uint32_t current_frame_{MAX_FRAMES_IN_FLIGHT - 1};
 
   // Split-frame state: carried between begin_frame / record_frame / submit_and_present

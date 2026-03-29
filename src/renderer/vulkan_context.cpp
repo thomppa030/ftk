@@ -155,12 +155,18 @@ VulkanContext::VulkanContext(Window& window)
 
     register_passes();
 
+    // Default post-process resources for the main viewport
+    PostProcessConfig default_config{};
+    PostProcessResources::PassRefs refs{hiz_pass_, gtao_pass_, bloom_pass_, ssr_pass_, volumetric_fog_pass_, tonemap_pass_};
+    default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.physical_device(), 256, 256, default_config, refs);
+
     FJELL_GFX_INFO("Vulkan context ready");
 }
 
 VulkanContext::~VulkanContext() {
     auto vk_device = gpu_.device();
 
+    default_pp_.reset();
     debug_draw_.reset();
     sprite_renderer_.destroy();
     particle_system_.destroy();
@@ -236,6 +242,7 @@ void VulkanContext::register_passes() {
         .order = 100,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
             graph.add_pass("shadow", [this](VkCommandBuffer cb) {
+                if (current_ctx_.skip_shadows) return;
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Shadow Pass");
 #endif
@@ -320,7 +327,9 @@ void VulkanContext::register_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                hiz_pass_.record(local);
+                if (local.pp_resources && local.pp_resources->hiz()) {
+                    hiz_pass_.record_into(local, *local.pp_resources->hiz());
+                }
             }, {{imgs.depth_id, ImageUsage::compute_read}});
         }
     });
@@ -348,6 +357,9 @@ void VulkanContext::register_passes() {
                         auto& ranges_ref = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
                         auto extent = current_ctx_.target->extent();
 
+                        auto* hiz_imgs = current_ctx_.pp_resources ? current_ctx_.pp_resources->hiz() : nullptr;
+                        bool hiz_ready = hiz_imgs && hiz_imgs->ready();
+
                         meshlet_instance_pass_.dispatch_cull_first(
                             cb,
                             gpu_.global_descriptor_set(current_frame_),
@@ -359,13 +371,13 @@ void VulkanContext::register_passes() {
                             gatherer_.indirect_batch()->pipeline_bin_size(current_frame_),
                             static_cast<uint32_t>(ranges_ref.size()),
                             current_frame_,
-                            hiz_pass_.ready() ? hiz_pass_.sampled_view() : VK_NULL_HANDLE,
-                            hiz_pass_.ready() ? hiz_pass_.sampler() : VK_NULL_HANDLE,
+                            hiz_ready ? hiz_imgs->hiz_sampled_view : VK_NULL_HANDLE,
+                            hiz_ready ? hiz_pass_.sampler() : VK_NULL_HANDLE,
                             extent.width, extent.height,
-                            hiz_pass_.ready() ? hiz_pass_.mip_count() : 0);
+                            hiz_ready ? hiz_imgs->hiz_mip_count : 0);
 
                         meshlet_instance_pass_.insert_cull_barrier(cb);
-                        gpu_.render_stats().two_pass_occlusion = hiz_pass_.ready();
+                        gpu_.render_stats().two_pass_occlusion = hiz_ready;
                     }
                 }
             }, {});
@@ -383,7 +395,9 @@ void VulkanContext::register_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                gtao_pass_.record(local);
+                if (local.pp_resources && local.pp_resources->gtao()) {
+                    gtao_pass_.record_into(local, *local.pp_resources->gtao());
+                }
             }, {{imgs.depth_id, ImageUsage::compute_read}});
         }
     });
@@ -475,7 +489,8 @@ void VulkanContext::register_passes() {
                 color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                 color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
 
-                if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
+                bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
+                if (msaa) {
                     color_attachment.resolveImageView = target->color_view();
                     color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                     color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
@@ -489,7 +504,7 @@ void VulkanContext::register_passes() {
                 mr_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                 mr_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
 
-                if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
+                if (msaa) {
                     mr_attachment.resolveImageView = target->mr_view();
                     mr_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                     mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
@@ -504,7 +519,7 @@ void VulkanContext::register_passes() {
                 depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
                 depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-                if (gpu_.msaa_samples() != VK_SAMPLE_COUNT_1_BIT) {
+                if (msaa) {
                     depth_attachment.resolveImageView = target->depth_view();
                     depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
                     depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
@@ -670,12 +685,15 @@ void VulkanContext::register_passes() {
                 local.cmd = cb;
                 // Hi-Z is lazily created during pipeline execution (order 300),
                 // so we must read it here, not from the pre-built FrameContext.
-                if (hiz_pass_.ready()) {
-                    local.hiz_view = hiz_pass_.sampled_view();
+                auto* hiz_imgs = local.pp_resources ? local.pp_resources->hiz() : nullptr;
+                if (hiz_imgs && hiz_imgs->ready()) {
+                    local.hiz_view = hiz_imgs->hiz_sampled_view;
                     local.hiz_sampler = hiz_pass_.sampler();
-                    local.hiz_mip_count = hiz_pass_.mip_count();
+                    local.hiz_mip_count = hiz_imgs->hiz_mip_count;
                 }
-                ssr_pass_.record(local);
+                if (local.pp_resources && local.pp_resources->ssr()) {
+                    ssr_pass_.record_into(local, *local.pp_resources->ssr());
+                }
             }, {{imgs.depth_id, ImageUsage::compute_read},
                 {imgs.color_id, ImageUsage::compute_write},
                 {imgs.mr_id, ImageUsage::compute_read}});
@@ -693,7 +711,9 @@ void VulkanContext::register_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                volumetric_fog_pass_.record(local);
+                if (local.pp_resources && local.pp_resources->volumetric_fog()) {
+                    volumetric_fog_pass_.record_into(local, *local.pp_resources->volumetric_fog());
+                }
             }, {{imgs.depth_id, ImageUsage::compute_read},
                 {imgs.color_id, ImageUsage::compute_write}});
         }
@@ -710,7 +730,9 @@ void VulkanContext::register_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                bloom_pass_.record(local);
+                if (local.pp_resources && local.pp_resources->bloom()) {
+                    bloom_pass_.record_into(local, *local.pp_resources->bloom());
+                }
             }, {{imgs.color_id, ImageUsage::shader_read}});
         }
     });
@@ -726,8 +748,9 @@ void VulkanContext::register_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                tonemap_pass_.set_source_view(current_ctx_.target->color_view());
-                tonemap_pass_.record(local);
+                if (local.pp_resources && local.pp_resources->tonemap()) {
+                    tonemap_pass_.record_into(local, *local.pp_resources->tonemap(), current_ctx_.target->color_view());
+                }
             }, {{imgs.color_id, ImageUsage::shader_read}});
         }
     });
@@ -857,11 +880,15 @@ void VulkanContext::register_passes() {
 
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
-                                    ThreadPool& pool) {
+                                    ThreadPool& pool, PostProcessResources* pp,
+                                    bool skip_shadows) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
 
-    // Lazily create / resize previous-frame color buffer for SSR
-    {
+    // Lazily create / resize previous-frame color buffer for SSR.
+    // Skip for viewports that don't use SSR (e.g. camera preview) to avoid
+    // vkDeviceWaitIdle mid-command-buffer when the extent differs.
+    bool needs_ssr_buffer = pp && pp->ssr();
+    if (needs_ssr_buffer) {
         auto ext = target.extent();
         if (prev_frame_color_ == VK_NULL_HANDLE ||
             ext.width != prev_frame_extent_.width ||
@@ -1033,10 +1060,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }
     ctx.mr_view = target.mr_view();
     ctx.prev_frame_color_view = prev_frame_color_view_;
-    if (hiz_pass_.ready()) {
-        ctx.hiz_view = hiz_pass_.sampled_view();
+    ctx.pp_resources = pp;
+    ctx.skip_shadows = skip_shadows;
+    if (pp->hiz() && pp->hiz()->ready()) {
+        ctx.hiz_view = pp->hiz()->hiz_sampled_view;
         ctx.hiz_sampler = hiz_pass_.sampler();
-        ctx.hiz_mip_count = hiz_pass_.mip_count();
+        ctx.hiz_mip_count = pp->hiz()->hiz_mip_count;
     }
     ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
     ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
@@ -1046,11 +1075,14 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     current_ctx_ = ctx;
 
     // Execute the render pipeline (passes registered in register_passes())
-    render_pipeline_.execute(cmd, target, gpu_.msaa_samples(), active_sources_,
+    // Use the target's actual sample count (not the global default) so that
+    // viewports with different MSAA levels (e.g. 1x preview) work correctly.
+    render_pipeline_.execute(cmd, target, target.sample_count(), active_sources_,
                               pool, gpu_.secondary_pools(), current_frame_);
 
     // Copy scene color to prev_frame_color for next frame's SSR
-    if (ssr_pass_.enabled() && prev_frame_color_ != VK_NULL_HANDLE) {
+    // Only for viewports that have SSR enabled (skip for camera preview etc.)
+    if (needs_ssr_buffer && ssr_pass_.enabled() && prev_frame_color_ != VK_NULL_HANDLE) {
         auto ext = target.extent();
 
         // color is in SHADER_READ_ONLY (after bloom/tonemap read it) → TRANSFER_SRC
@@ -1080,6 +1112,103 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
+}
+
+void VulkanContext::render_preview(const ViewportRenderRequest& req,
+                                    const DirectionalLight& light, Scene* scene,
+                                    float dt, uint32_t selected_id, ThreadPool& pool) {
+    if (!req.target) return;
+
+    auto vk = gpu_.device();
+    VkCommandBuffer cmd{};
+    VkCommandBufferAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc_info.commandPool = gpu_.command_pool();
+    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc_info.commandBufferCount = 1;
+    vkAllocateCommandBuffers(vk, &alloc_info, &cmd);
+
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &begin);
+
+    auto* pp = req.pp_resources ? req.pp_resources : default_pp_.get();
+
+    // Ensure AO image is in a valid layout — after resize it may be UNDEFINED.
+    // The preview doesn't run GTAO, but the color pass reads ao_texture from
+    // the global descriptor set. Transition it here so the read is valid.
+    auto* gtao_imgs = default_pp_->gtao();
+    if (gtao_imgs && gtao_imgs->images_need_init) {
+        std::array<VkImageMemoryBarrier2, 2> ao_barriers{};
+        ao_barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        ao_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ao_barriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ao_barriers[0].image = gtao_imgs->ao_image;
+        ao_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        ao_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        ao_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+
+        ao_barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        ao_barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ao_barriers[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ao_barriers[1].image = gtao_imgs->blur_image;
+        ao_barriers[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        ao_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        ao_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 2;
+        dep.pImageMemoryBarriers = ao_barriers.data();
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }
+
+    // Update global descriptor bindings that may be stale after apply_resize
+    {
+        VkDescriptorImageInfo depth_desc{};
+        depth_desc.sampler = gpu_.depth_sampler();
+        depth_desc.imageView = req.target->depth_view();
+        depth_desc.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo ao_desc{};
+        ao_desc.sampler = gtao_pass_.ao_sampler();
+        ao_desc.imageView = gtao_imgs ? gtao_imgs->ao_view : gtao_pass_.ao_view();
+        ao_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        std::array<VkWriteDescriptorSet, 2> writes{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = gpu_.global_descriptor_set(current_frame_);
+        writes[0].dstBinding = 4;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo = &depth_desc;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = gpu_.global_descriptor_set(current_frame_);
+        writes[1].dstBinding = 5;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &ao_desc;
+
+        vkUpdateDescriptorSets(vk, 2, writes.data(), 0, nullptr);
+    }
+
+    update_uniform_buffer(current_frame_, req.view, req.projection,
+                          req.camera_position, light, scene, req.target->extent());
+    update_light_ssbo(current_frame_, scene);
+    render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp, req.skip_shadows);
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(gpu_.graphics_queue());
+
+    vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &cmd);
 }
 
 void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
@@ -1149,10 +1278,11 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     // --- Render scene once per viewport ---
     for (const auto& vp : viewports) {
         if (!vp.target) continue;
+        auto* pp = vp.pp_resources ? vp.pp_resources : default_pp_.get();
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
                               vp.camera_position, light, scene, vp.target->extent());
         update_light_ssbo(current_frame_, scene);
-        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool);
+        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, pp, vp.skip_shadows);
     }
 
     // --- UI editor preview offscreen pass ---
@@ -1579,7 +1709,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         // Update binding 5 (AO texture for ambient occlusion)
         VkDescriptorImageInfo ao_desc{};
         ao_desc.sampler = gtao_pass_.ao_sampler();
-        ao_desc.imageView = gtao_pass_.ao_view();
+        ao_desc.imageView = default_pp_->gtao() ? default_pp_->gtao()->ao_view : gtao_pass_.ao_view();
         ao_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet ao_write{};
@@ -1606,11 +1736,7 @@ void VulkanContext::wait_idle() {
 }
 
 void VulkanContext::release_imgui_textures() {
-    tonemap_pass_.invalidate_imgui_texture();
-    bloom_pass_.invalidate_imgui_texture();
-    gtao_pass_.invalidate_imgui_texture();
-    ssr_pass_.invalidate_imgui_texture();
-    volumetric_fog_pass_.invalidate_imgui_texture();
+    default_pp_->invalidate_imgui_textures();
     depth_viz_pass_.invalidate_imgui_texture();
     wireframe_pass_.invalidate_imgui_texture();
     normal_pass_.invalidate_imgui_texture();

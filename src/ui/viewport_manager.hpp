@@ -29,6 +29,7 @@ struct ViewportPanel {
     bool hovered{false};
     bool focused{false};
     bool open{true};
+    bool needs_offscreen{false}; // deferred creation — apply_resize creates it
     std::unique_ptr<OffscreenPass> offscreen;
 
     // Image rect after letterboxing (screen-space)

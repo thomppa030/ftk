@@ -25,6 +25,8 @@
 #include "renderer/sprite_desc.hpp"
 #include "renderer/texture.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "renderer/offscreen_pass.hpp"
+#include "renderer/post_process_resources.hpp"
 #include "renderer/vfx_subsystem.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/preset.hpp"
@@ -97,6 +99,11 @@ void SceneEditorContext::init() {
 }
 
 void SceneEditorContext::shutdown() {
+    // Clean up preview resources (safe — called after GPU idle)
+    camera_preview_pp_.reset();
+    camera_preview_target_.reset();
+    camera_preview_node_id_ = 0;
+
     node_editor_panel_.shutdown();
     viewport_manager_.release_textures();
     connections_.clear();
@@ -104,6 +111,56 @@ void SceneEditorContext::shutdown() {
 
 void SceneEditorContext::draw(float dt) {
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
+
+    // Camera preview PIP overlay (only after preview has rendered at least once)
+    if (camera_preview_skip_frames_ < 0 && camera_preview_pp_ && camera_preview_pp_->tonemap()) {
+        auto* vp = viewport_manager_.active_panel();
+        if (vp && vp->img_size.x > 0 && vp->img_size.y > 0) {
+            auto tex = camera_preview_pp_->tonemap()->imgui_texture(
+                deps_.vulkan_context->tonemap_pass().output_sampler());
+            if (tex) {
+                bool visible = ImGui::Begin(vp->title.c_str());
+                if (visible) {
+                    float preview_w = 320.0f;
+                    float preview_h = 180.0f;
+                    float pad = 8.0f;
+                    float border = 2.0f;
+
+                    // Scale down if viewport is small
+                    float max_w = vp->img_size.x * 0.35f;
+                    if (preview_w > max_w) {
+                        float scale = max_w / preview_w;
+                        preview_w *= scale;
+                        preview_h *= scale;
+                    }
+
+                    float x = vp->img_pos.x + vp->img_size.x - preview_w - pad;
+                    float y = vp->img_pos.y + vp->img_size.y - preview_h - pad;
+
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    dl->AddRectFilled(
+                        {x - border, y - border},
+                        {x + preview_w + border, y + preview_h + border},
+                        IM_COL32(30, 30, 30, 220), 4.0f);
+                    dl->AddRect(
+                        {x - border, y - border},
+                        {x + preview_w + border, y + preview_h + border},
+                        IM_COL32(80, 80, 80, 200), 4.0f);
+                    dl->AddImage(tex, {x, y}, {x + preview_w, y + preview_h});
+
+                    // Label
+                    auto* cam_node = dynamic_cast<CameraNode*>(
+                        deps_.scene->find(selected_id_));
+                    if (cam_node) {
+                        const char* label = cam_node->name.c_str();
+                        dl->AddText({x + 4.0f, y + 2.0f},
+                                    IM_COL32(200, 200, 200, 200), label);
+                    }
+                }
+                ImGui::End();
+            }
+        }
+    }
 
     // Picking and gizmo on the active viewport
     auto* vp = viewport_manager_.active_panel();
@@ -560,11 +617,78 @@ void SceneEditorContext::draw_play_overlay() {
 // --- Viewport ---
 
 std::vector<ViewportRenderRequest> SceneEditorContext::build_render_requests() {
+    // Preview is rendered separately via render_previews() — not included here
     return viewport_manager_.build_render_requests();
+}
+
+void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float dt,
+                                          const DirectionalLight& light, ThreadPool& pool) {
+    if (camera_preview_skip_frames_ > 0) {
+        --camera_preview_skip_frames_;
+        return;
+    }
+    if (!camera_preview_target_ || !camera_preview_pp_ || selected_id_ == 0) return;
+
+    auto* cam = dynamic_cast<CameraNode*>(scene->find(selected_id_));
+    if (!cam) return;
+
+    ViewportRenderRequest req;
+    req.target = camera_preview_target_.get();
+    req.view = cam->view_matrix();
+    req.projection = cam->projection_matrix(320.0f / 180.0f);
+    req.camera_position = cam->position();
+    req.pp_resources = camera_preview_pp_.get();
+    req.skip_shadows = true;
+
+    vk.render_preview(req, light, scene, dt, selected_id_, pool);
+
+    // Signal that at least one render completed — overlay reads < 0
+    camera_preview_skip_frames_ = -1;
 }
 
 void SceneEditorContext::apply_resize(VulkanContext& vk) {
     viewport_manager_.apply_resize(vk);
+
+    // Camera preview lifecycle — safe here because begin_frame fence already waited
+    bool need_preview = (selected_id_ != 0 && !is_playing() && deps_.scene);
+    if (need_preview) {
+        auto* node = deps_.scene->find(selected_id_);
+        need_preview = (dynamic_cast<CameraNode*>(node) != nullptr);
+    }
+
+    if (need_preview && !camera_preview_target_) {
+        // Use the same MSAA as the main viewport — pipelines are compiled
+        // with this sample count and can't be changed per-viewport.
+        camera_preview_target_ = std::make_unique<OffscreenPass>(
+            vk.device_ref(), 320, 180, vk.msaa_samples());
+
+        PostProcessConfig preview_config{};
+        preview_config.hiz = false;
+        preview_config.gtao = false;
+        preview_config.bloom = false;
+        preview_config.ssr = false;
+        preview_config.volumetric_fog = false;
+        preview_config.tonemap = true;
+
+        PostProcessResources::PassRefs refs{
+            vk.hiz_pass(), vk.gtao_pass(), vk.bloom_pass(),
+            vk.ssr_pass(), vk.volumetric_fog_pass(), vk.tonemap_pass()};
+
+        camera_preview_pp_ = std::make_unique<PostProcessResources>(
+            vk.device(), vk.physical_device(), 320, 180, preview_config, refs);
+        camera_preview_node_id_ = selected_id_;
+        // Skip rendering for MAX_FRAMES_IN_FLIGHT frames to let all in-flight
+        // command buffers drain before the preview's descriptors are first used
+        camera_preview_skip_frames_ = 3;
+    } else if (!need_preview && camera_preview_target_) {
+        // Must wait for all in-flight command buffers that reference
+        // the preview's descriptor sets / images before destroying them.
+        vk.wait_idle();
+        camera_preview_pp_.reset();
+        camera_preview_target_.reset();
+        camera_preview_node_id_ = 0;
+        camera_preview_skip_frames_ = 0;
+    }
 }
 
 bool SceneEditorContext::any_viewport_hovered() const {
@@ -794,5 +918,6 @@ void SceneEditorContext::delete_selection() {
     }
     hierarchy_panel_.clear_selection();
 }
+
 
 } // namespace fjell

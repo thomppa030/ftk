@@ -22,10 +22,9 @@ void ViewportManager::add_viewport(ViewportSource source, const std::string& tit
         : title;
     panel.source = source;
 
-    // Create per-panel offscreen pass with a default size
-    if (device_) {
-        panel.offscreen = std::make_unique<OffscreenPass>(*device_, 256, 256, msaa_samples_);
-    }
+    // Defer OffscreenPass creation to apply_resize() — creating GPU resources
+    // during ImGui draw is unsafe (command buffer may be recording).
+    panel.needs_offscreen = true;
 
     // Dock new viewports as tabs next to the first existing viewport
     if (!panels_.empty()) {
@@ -120,18 +119,21 @@ void ViewportManager::draw(VulkanContext& ctx, const Input& input, float dt) {
 void ViewportManager::apply_resize(VulkanContext& ctx) {
     FJELL_PROFILE_SCOPE_N("viewport_apply_resize");
     for (auto& panel : panels_) {
+        // Deferred creation — safe here because begin_frame fence already waited
+        if (panel.needs_offscreen && device_) {
+            auto w = std::max(static_cast<uint32_t>(panel.size.x), 256u);
+            auto h = std::max(static_cast<uint32_t>(panel.size.y), 256u);
+            panel.offscreen = std::make_unique<OffscreenPass>(*device_, w, h, msaa_samples_);
+            panel.needs_offscreen = false;
+        }
         if (!panel.offscreen) continue;
         auto vp_w = static_cast<uint32_t>(panel.size.x);
         auto vp_h = static_cast<uint32_t>(panel.size.y);
         if (vp_w > 0 && vp_h > 0) {
             panel.offscreen->resize(vp_w, vp_h);
 
-            // Core pipeline passes — always resize
-            ctx.bloom_pass().resize(vp_w, vp_h);
-            ctx.gtao_pass().resize(vp_w, vp_h);
-            ctx.ssr_pass().resize(vp_w, vp_h);
-            ctx.volumetric_fog_pass().resize(vp_w, vp_h);
-            ctx.tonemap_pass().resize(vp_w, vp_h);
+            // Post-process images — resize via PostProcessResources
+            ctx.default_pp().resize(vp_w, vp_h);
 
             // Viz passes — only resize when active
             uint32_t mask = ctx.active_sources();
@@ -191,18 +193,22 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
     auto* panel = active_panel();
     if (!panel || !panel->offscreen) return VK_NULL_HANDLE;
 
+    auto& pp = ctx.default_pp();
     switch (panel->source) {
-        case ViewportSource::final_color:  return ctx.tonemap_pass().imgui_texture();
+        case ViewportSource::final_color:
+            return pp.tonemap() ? pp.tonemap()->imgui_texture(ctx.tonemap_pass().output_sampler()) : VK_NULL_HANDLE;
+        case ViewportSource::bloom:
+            return pp.bloom() ? pp.bloom()->imgui_texture(ctx.bloom_pass().bloom_sampler()) : VK_NULL_HANDLE;
+        case ViewportSource::ao:
+            return pp.gtao() ? pp.gtao()->imgui_texture(ctx.gtao_pass().ao_sampler()) : VK_NULL_HANDLE;
         case ViewportSource::depth:        return ctx.depth_viz_pass().imgui_texture();
         case ViewportSource::wireframe:    return ctx.wireframe_pass().imgui_texture();
-        case ViewportSource::bloom:        return ctx.bloom_pass().imgui_texture();
         case ViewportSource::normals:      return ctx.normal_pass().imgui_texture();
         case ViewportSource::overdraw:     return ctx.overdraw_pass().imgui_texture();
         case ViewportSource::uv:           return ctx.uv_viz_pass().imgui_texture();
         case ViewportSource::light_heatmap:return ctx.light_heatmap_pass().imgui_texture();
         case ViewportSource::light_grid:   return ctx.light_grid_pass().imgui_texture();
         case ViewportSource::meshlet_viz:  return ctx.meshlet_viz_pass().imgui_texture();
-        case ViewportSource::ao:           return ctx.gtao_pass().imgui_texture();
         case ViewportSource::gpu_cull:     return ctx.cull_viz_pass().imgui_texture();
     }
     return panel->offscreen->imgui_texture();
@@ -281,18 +287,22 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
         // Display texture
         VkDescriptorSet tex = VK_NULL_HANDLE;
         if (panel.offscreen) {
+            auto& pp = ctx.default_pp();
             switch (panel.source) {
-                case ViewportSource::final_color:  tex = ctx.tonemap_pass().imgui_texture(); break;
+                case ViewportSource::final_color:
+                    tex = pp.tonemap() ? pp.tonemap()->imgui_texture(ctx.tonemap_pass().output_sampler()) : VK_NULL_HANDLE; break;
+                case ViewportSource::bloom:
+                    tex = pp.bloom() ? pp.bloom()->imgui_texture(ctx.bloom_pass().bloom_sampler()) : VK_NULL_HANDLE; break;
+                case ViewportSource::ao:
+                    tex = pp.gtao() ? pp.gtao()->imgui_texture(ctx.gtao_pass().ao_sampler()) : VK_NULL_HANDLE; break;
                 case ViewportSource::depth:        tex = ctx.depth_viz_pass().imgui_texture(); break;
                 case ViewportSource::wireframe:    tex = ctx.wireframe_pass().imgui_texture(); break;
-                case ViewportSource::bloom:        tex = ctx.bloom_pass().imgui_texture(); break;
                 case ViewportSource::normals:      tex = ctx.normal_pass().imgui_texture(); break;
                 case ViewportSource::overdraw:     tex = ctx.overdraw_pass().imgui_texture(); break;
                 case ViewportSource::uv:           tex = ctx.uv_viz_pass().imgui_texture(); break;
                 case ViewportSource::light_heatmap:tex = ctx.light_heatmap_pass().imgui_texture(); break;
                 case ViewportSource::light_grid:   tex = ctx.light_grid_pass().imgui_texture(); break;
                 case ViewportSource::meshlet_viz:  tex = ctx.meshlet_viz_pass().imgui_texture(); break;
-                case ViewportSource::ao:           tex = ctx.gtao_pass().imgui_texture(); break;
                 case ViewportSource::gpu_cull:     tex = ctx.cull_viz_pass().imgui_texture(); break;
             }
         }
