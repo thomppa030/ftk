@@ -15,7 +15,7 @@ struct PrimitiveMeshData {
 namespace primitives {
 
 [[nodiscard]] PrimitiveMeshData cube();
-[[nodiscard]] PrimitiveMeshData plane();
+[[nodiscard]] PrimitiveMeshData plane(uint32_t subdivisions = 1);
 [[nodiscard]] PrimitiveMeshData sphere(uint32_t rings = 16, uint32_t segments = 32);
 
 } // namespace primitives

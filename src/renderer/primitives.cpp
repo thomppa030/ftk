@@ -57,19 +57,42 @@ PrimitiveMeshData cube() {
     return {std::move(vertices), std::move(indices)};
 }
 
-PrimitiveMeshData plane() {
+PrimitiveMeshData plane(uint32_t subdivisions) {
     const glm::vec3 white{1.0f, 1.0f, 1.0f};
     const glm::vec3 up{0.0f, 1.0f, 0.0f};
     const glm::vec4 tan{1.0f, 0.0f, 0.0f, 1.0f};
 
-    std::vector<Vertex> vertices = {
-        {{-0.5f, 0.0f,  0.5f}, white, {0.0f, 0.0f}, up, tan},
-        {{ 0.5f, 0.0f,  0.5f}, white, {1.0f, 0.0f}, up, tan},
-        {{ 0.5f, 0.0f, -0.5f}, white, {1.0f, 1.0f}, up, tan},
-        {{-0.5f, 0.0f, -0.5f}, white, {0.0f, 1.0f}, up, tan},
-    };
+    uint32_t verts_per_side = subdivisions + 1;
+    std::vector<Vertex> vertices;
+    vertices.reserve(verts_per_side * verts_per_side);
 
-    std::vector<uint32_t> indices = {0, 1, 2, 0, 2, 3};
+    for (uint32_t z = 0; z < verts_per_side; ++z) {
+        for (uint32_t x = 0; x < verts_per_side; ++x) {
+            float u = static_cast<float>(x) / static_cast<float>(subdivisions);
+            float v = static_cast<float>(z) / static_cast<float>(subdivisions);
+            float px = u - 0.5f;
+            float pz = 0.5f - v; // +Z is forward, UV.y=0 at front
+            vertices.push_back({{px, 0.0f, pz}, white, {u, v}, up, tan});
+        }
+    }
+
+    std::vector<uint32_t> indices;
+    indices.reserve(subdivisions * subdivisions * 6);
+
+    for (uint32_t z = 0; z < subdivisions; ++z) {
+        for (uint32_t x = 0; x < subdivisions; ++x) {
+            uint32_t tl = z * verts_per_side + x;
+            uint32_t tr = tl + 1;
+            uint32_t bl = (z + 1) * verts_per_side + x;
+            uint32_t br = bl + 1;
+            indices.push_back(tl);
+            indices.push_back(tr);
+            indices.push_back(br);
+            indices.push_back(tl);
+            indices.push_back(br);
+            indices.push_back(bl);
+        }
+    }
 
     return {std::move(vertices), std::move(indices)};
 }
