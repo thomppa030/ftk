@@ -13,6 +13,7 @@
 #include "renderer/resource_manager.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/vertex.hpp"
+#include "renderer/vk_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -473,13 +474,14 @@ void VulkanContext::register_passes() {
     });
 
     // Color pass (composite: opaques + sky + grid + debug + outline + sprites + transparent + particles)
+    // ── Color pass: opaque geometry + sky + grid + debug + sprites ────────
     render_pipeline_.register_pass({
-        .name = "color",
+        .name = "color_opaque",
         .order = 600,
         .build = [this](FrameGraph& graph, const FrameImages& imgs) {
-            graph.add_pass("color", [this](VkCommandBuffer cb) {
+            graph.add_pass("color_opaque", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Color Pass");
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Color Opaque");
 #endif
                 auto* target = current_ctx_.target;
 
@@ -652,6 +654,117 @@ void VulkanContext::register_passes() {
                 debug_pass_.record(local);
                 draw_outline(cb, local);
                 sprite_renderer_.record_render(local);
+
+                vkCmdEndRendering(cb);
+            }, {{imgs.msaa_color_id, ImageUsage::color_attachment},
+                {imgs.color_id, ImageUsage::color_attachment},
+                {imgs.msaa_mr_id, ImageUsage::color_attachment},
+                {imgs.mr_id, ImageUsage::color_attachment},
+                {imgs.msaa_depth_id, ImageUsage::depth_attachment_read},
+                {imgs.depth_id, ImageUsage::depth_attachment}});
+        }
+    });
+
+    // ── Screen color copy: snapshot resolved color for SCREEN_TEXTURE ───
+    render_pipeline_.register_pass({
+        .name = "screen_color_copy",
+        .order = 625,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("screen_color_copy", [this](VkCommandBuffer cb) {
+                auto* target = current_ctx_.target;
+                VkExtent2D ext = target->extent();
+
+                VkImageCopy region{};
+                region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                region.extent = {ext.width, ext.height, 1};
+
+                vkCmdCopyImage(cb,
+                    target->color_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    target->screen_color_image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    1, &region);
+            }, {{imgs.color_id, ImageUsage::transfer_src},
+                {imgs.screen_color_id, ImageUsage::transfer_dst}});
+        }
+    });
+
+    // ── Color pass: transparent geometry + worldspace UI + particles ─────
+    render_pipeline_.register_pass({
+        .name = "color_transparent",
+        .order = 650,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("color_transparent", [this](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Color Transparent");
+#endif
+                auto* target = current_ctx_.target;
+
+                VkRenderingAttachmentInfo color_attachment{};
+                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                color_attachment.imageView = target->msaa_color_view();
+                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+                bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
+                if (msaa) {
+                    color_attachment.resolveImageView = target->color_view();
+                    color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                }
+
+                // MR not needed for transparent objects (they don't write MR)
+                VkRenderingAttachmentInfo mr_attachment{};
+                mr_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                mr_attachment.imageView = target->msaa_mr_view();
+                mr_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                mr_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                mr_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+                if (msaa) {
+                    mr_attachment.resolveImageView = target->mr_view();
+                    mr_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                }
+
+                std::array<VkRenderingAttachmentInfo, 2> color_attachments = {color_attachment, mr_attachment};
+
+                VkRenderingAttachmentInfo depth_attachment{};
+                depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                depth_attachment.imageView = target->msaa_depth_view();
+                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+                if (msaa) {
+                    depth_attachment.resolveImageView = target->depth_view();
+                    depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                    depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+                }
+
+                VkRenderingInfo ri{};
+                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+                ri.renderArea.extent = target->extent();
+                ri.layerCount = 1;
+                ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
+                ri.pColorAttachments = color_attachments.data();
+                ri.pDepthAttachment = &depth_attachment;
+
+                vkCmdBeginRendering(cb, &ri);
+
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+
+                VkViewport vp{};
+                vp.width = static_cast<float>(target->extent().width);
+                vp.height = static_cast<float>(target->extent().height);
+                vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cb, 0, 1, &vp);
+
+                VkRect2D sc{};
+                sc.extent = target->extent();
+                vkCmdSetScissor(cb, 0, 1, &sc);
+
                 transparent_pass_.record(local);
 
                 // Worldspace UI: renders after transparent objects, before particles
@@ -670,7 +783,8 @@ void VulkanContext::register_passes() {
                 {imgs.msaa_mr_id, ImageUsage::color_attachment},
                 {imgs.mr_id, ImageUsage::color_attachment},
                 {imgs.msaa_depth_id, ImageUsage::depth_attachment_read},
-                {imgs.depth_id, ImageUsage::depth_attachment}});
+                {imgs.depth_id, ImageUsage::depth_attachment},
+                {imgs.screen_color_id, ImageUsage::shader_read}});
         }
     });
 
@@ -1077,6 +1191,16 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Store current frame context for pass build callbacks
     current_ctx_ = ctx;
 
+    // Init screen color image on first use (or after resize) so the descriptor
+    // at binding 8 doesn't point to an UNDEFINED-layout image.
+    if (target.screen_color_needs_init()) {
+        vk_utils::transition_image(cmd, target.screen_color_image(),
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        target.mark_screen_color_initialized();
+    }
+
     // Execute the render pipeline (passes registered in register_passes())
     // Use the target's actual sample count (not the global default) so that
     // viewports with different MSAA levels (e.g. 1x preview) work correctly.
@@ -1194,7 +1318,21 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         writes[1].descriptorCount = 1;
         writes[1].pImageInfo = &ao_desc;
 
+        VkDescriptorImageInfo sc_desc{};
+        sc_desc.sampler = tonemap_pass_.output_sampler();
+        sc_desc.imageView = req.target->screen_color_view();
+        sc_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet sc_write{};
+        sc_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        sc_write.dstSet = gpu_.global_descriptor_set(current_frame_);
+        sc_write.dstBinding = 8;
+        sc_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        sc_write.descriptorCount = 1;
+        sc_write.pImageInfo = &sc_desc;
+
         vkUpdateDescriptorSets(vk, 2, writes.data(), 0, nullptr);
+        vkUpdateDescriptorSets(vk, 1, &sc_write, 0, nullptr);
     }
 
     update_uniform_buffer(current_frame_, req.view, req.projection,
@@ -1724,6 +1862,21 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         ao_write.descriptorCount = 1;
         ao_write.pImageInfo = &ao_desc;
         vkUpdateDescriptorSets(vk_device, 1, &ao_write, 0, nullptr);
+
+        // Update binding 8 (screen color for SCREEN_TEXTURE in transparent shaders)
+        VkDescriptorImageInfo sc_desc{};
+        sc_desc.sampler = tonemap_pass_.output_sampler();
+        sc_desc.imageView = viewports[0].target->screen_color_view();
+        sc_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet sc_write{};
+        sc_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        sc_write.dstSet = gpu_.global_descriptor_set(current_frame_);
+        sc_write.dstBinding = 8;
+        sc_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        sc_write.descriptorCount = 1;
+        sc_write.pImageInfo = &sc_desc;
+        vkUpdateDescriptorSets(vk_device, 1, &sc_write, 0, nullptr);
     }
 
     vkResetCommandBuffer(gpu_.command_buffer(current_frame_), 0);

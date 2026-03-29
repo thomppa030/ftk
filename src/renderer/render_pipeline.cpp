@@ -147,6 +147,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     if (images.has_msaa) {
         images.msaa_mr_id = graph.register_image(target.msaa_mr_image());
     }
+    images.screen_color_id = graph.register_image(target.screen_color_image());
     graph.begin_frame();
 
     // Each enabled entry adds itself to the graph with its image dependencies

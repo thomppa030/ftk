@@ -84,6 +84,10 @@ void OffscreenPass::cleanup_images() {
     if (resolve_mr_image_ != VK_NULL_HANDLE) vkDestroyImage(vk, resolve_mr_image_, nullptr);
     if (resolve_mr_memory_ != VK_NULL_HANDLE) vkFreeMemory(vk, resolve_mr_memory_, nullptr);
 
+    if (screen_color_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, screen_color_view_, nullptr);
+    if (screen_color_image_ != VK_NULL_HANDLE) vkDestroyImage(vk, screen_color_image_, nullptr);
+    if (screen_color_memory_ != VK_NULL_HANDLE) vkFreeMemory(vk, screen_color_memory_, nullptr);
+
     color_view_ = VK_NULL_HANDLE;
     color_image_ = VK_NULL_HANDLE;
     color_memory_ = VK_NULL_HANDLE;
@@ -102,6 +106,10 @@ void OffscreenPass::cleanup_images() {
     resolve_mr_view_ = VK_NULL_HANDLE;
     resolve_mr_image_ = VK_NULL_HANDLE;
     resolve_mr_memory_ = VK_NULL_HANDLE;
+    screen_color_view_ = VK_NULL_HANDLE;
+    screen_color_image_ = VK_NULL_HANDLE;
+    screen_color_memory_ = VK_NULL_HANDLE;
+    screen_color_needs_init_ = true;
 }
 
 void OffscreenPass::create(uint32_t width, uint32_t height) {
@@ -362,6 +370,45 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         if (vkCreateImageView(vk, &resolve_mr_view_info, nullptr, &resolve_mr_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve MR view");
         }
+    }
+
+    // -- Screen color copy (single-sample, for SCREEN_TEXTURE) --
+    VkImageCreateInfo sc_info{};
+    sc_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    sc_info.imageType = VK_IMAGE_TYPE_2D;
+    sc_info.format = COLOR_FORMAT;
+    sc_info.extent = {width, height, 1};
+    sc_info.mipLevels = 1;
+    sc_info.arrayLayers = 1;
+    sc_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    sc_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    sc_info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    sc_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (vkCreateImage(vk, &sc_info, nullptr, &screen_color_image_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create screen color image");
+    }
+
+    vkGetImageMemoryRequirements(vk, screen_color_image_, &mem_reqs);
+    alloc.allocationSize = mem_reqs.size;
+    alloc.memoryTypeIndex = Buffer::find_memory_type(
+        device_.physical_device(), mem_reqs.memoryTypeBits,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    if (vkAllocateMemory(vk, &alloc, nullptr, &screen_color_memory_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate screen color memory");
+    }
+    vkBindImageMemory(vk, screen_color_image_, screen_color_memory_, 0);
+
+    VkImageViewCreateInfo sc_view_info{};
+    sc_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    sc_view_info.image = screen_color_image_;
+    sc_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    sc_view_info.format = COLOR_FORMAT;
+    sc_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    if (vkCreateImageView(vk, &sc_view_info, nullptr, &screen_color_view_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create screen color view");
     }
 }
 

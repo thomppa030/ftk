@@ -31,6 +31,7 @@ layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 layout(set = 0, binding = 5) uniform sampler2D ao_texture;
 layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
 layout(set = 0, binding = 7) uniform sampler2D brdf_lut;
+layout(set = 0, binding = 8) uniform sampler2D screen_color_texture;
 
 struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
@@ -106,6 +107,8 @@ void main() {
     vec3 VIEW_DIR = normalize(ubo.camera_position.xyz - frag_world_pos);
     vec3 COLOR = frag_color;
     float TIME = ubo.time;
+    #define SCREEN_TEXTURE screen_color_texture
+    vec2 SCREEN_UV = gl_FragCoord.xy / vec2(textureSize(screen_color_texture, 0));
 
     // PBR texture samplers as built-in inputs
     #define BASE_COLOR_TEX textures[nonuniformEXT(mat.texture_indices[0])]
