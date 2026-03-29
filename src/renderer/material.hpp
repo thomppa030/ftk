@@ -39,6 +39,12 @@ public:
     void set_shader_path(const std::string& path) { shader_path_ = path; }
     [[nodiscard]] const std::string& shader_path() const { return shader_path_; }
 
+    void set_force_transparent(bool v) { force_transparent_ = v; }
+    [[nodiscard]] bool force_transparent() const { return force_transparent_; }
+
+    void set_aabb_padding(float p) { aabb_padding_ = p; }
+    [[nodiscard]] float aabb_padding() const { return aabb_padding_; }
+
 private:
     uint32_t material_id_;
     uint32_t pipeline_id_{0};
@@ -51,6 +57,8 @@ private:
     uint32_t custom_param_count_{0};
     PbrParams params_;
     std::string shader_path_{"shaders/standard.fjsl"};
+    bool force_transparent_{false};
+    float aabb_padding_{0.0f};
 };
 
 } // namespace fjell

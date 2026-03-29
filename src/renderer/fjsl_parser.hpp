@@ -25,6 +25,7 @@ struct RenderState {
     bool cull_front{false};        // front-face culling (e.g. outline pass)
     bool depth_write_disabled{false};
     bool depth_test_disabled{false};
+    bool force_transparent{false}; // explicit blend_alpha/blend_add/blend_multiply
     BlendMode blend{BlendMode::Alpha};
 };
 

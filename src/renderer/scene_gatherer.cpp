@@ -91,7 +91,8 @@ void SceneGatherer::gather(const GatherInput& input) {
                             dc.sort_key = RenderQueue::make_sort_key(
                                 dc.pipeline_id, skel->material->material_id(),
                                 obj->id, true);
-                            dc.transparent = (skel->material->params().base_color_factor.w < 1.0f);
+                            dc.transparent = skel->material->force_transparent()
+                                            || (skel->material->params().base_color_factor.w < 1.0f);
                         }
                         dc.world_aabb = skel->skeletal_model->local_aabb()
                                             .transform(spatial->world_matrix_);
@@ -129,12 +130,18 @@ void SceneGatherer::gather(const GatherInput& input) {
                         dc.pipeline_id = mesh->material->pipeline_id();
                         dc.sort_key = RenderQueue::make_sort_key(
                             dc.pipeline_id, mesh->material->material_id(), obj->id);
-                        dc.transparent = (mesh->material->params().base_color_factor.w < 1.0f);
+                        dc.transparent = mesh->material->force_transparent()
+                                        || (mesh->material->params().base_color_factor.w < 1.0f);
                     }
                     dc.model = mesh->model;
                     dc.node_id = obj->id;
 
                     dc.world_aabb = mesh->model->local_aabb().transform(spatial->world_matrix_);
+                    if (mesh->material && mesh->material->aabb_padding() > 0.0f) {
+                        float p = mesh->material->aabb_padding();
+                        dc.world_aabb.min -= glm::vec3(p);
+                        dc.world_aabb.max += glm::vec3(p);
+                    }
 
                     if (!dc.transparent) {
                         for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {

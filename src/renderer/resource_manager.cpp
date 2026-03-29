@@ -176,8 +176,12 @@ Result<ModelHandle> ResourceManager::create_primitive(const std::string& type) {
     PrimitiveMeshData data;
     if (type == "cube") {
         data = primitives::cube();
-    } else if (type == "plane") {
-        data = primitives::plane();
+    } else if (type == "plane" || type.starts_with("plane:")) {
+        uint32_t subs = 1;
+        if (auto colon = type.find(':'); colon != std::string::npos) {
+            subs = static_cast<uint32_t>(std::stoul(type.substr(colon + 1)));
+        }
+        data = primitives::plane(subs);
     } else if (type == "sphere") {
         data = primitives::sphere();
     } else {
@@ -358,6 +362,14 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     material = std::make_unique<Material>(mat_id, bc_idx, nm_idx, mr_idx, em_idx, params);
     material->set_pipeline_id(pipeline_id);
     material->set_shader_path(asset.shader);
+    if (shader_meta) {
+        if (shader_meta->render_state.force_transparent) {
+            material->set_force_transparent(true);
+        }
+        if (!shader_meta->vertex_body.empty()) {
+            material->set_aabb_padding(2.0f); // account for vertex displacement
+        }
+    }
     material->set_custom_params(first_gpu.param_offset, first_gpu.param_count);
 
     // Re-apply custom texture settings
