@@ -86,8 +86,12 @@ void SkyPass::create(Device& device, const PassResources& resources) {
     push_range.offset = 0;
     push_range.size = 48; // 2 * vec4 + 4 floats
 
+    std::array set_layouts = {resources.global_set_layout};
+
     VkPipelineLayoutCreateInfo layout_info{};
     layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+    layout_info.pSetLayouts = set_layouts.data();
     layout_info.pushConstantRangeCount = 1;
     layout_info.pPushConstantRanges = &push_range;
 
@@ -146,16 +150,20 @@ void SkyPass::record(const FrameContext& ctx) {
     struct {
         glm::vec4 top;
         glm::vec4 bottom;
+        float viewport_width;
         float viewport_height;
-        float pad1, pad2, pad3;
+        float pad1, pad2;
     } push{
         glm::vec4(top_color_, 1.0f),
         glm::vec4(bottom_color_, 1.0f),
+        static_cast<float>(ctx.target->extent().width),
         static_cast<float>(ctx.target->extent().height),
-        0.0f, 0.0f, 0.0f
+        0.0f, 0.0f
     };
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
+                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
     vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(push), &push);
     vkCmdDraw(ctx.cmd, 3, 1, 0, 0);
