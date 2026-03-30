@@ -1,5 +1,6 @@
 #include "ui/properties_panel.hpp"
 #include "audio/audio_component.hpp"
+#include "core/input_component.hpp"
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
 #include "core/log.hpp"
@@ -675,6 +676,48 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            // Input
+            if (obj->components.has<InputComponent>()) {
+                auto* ic = obj->components.get<InputComponent>();
+                colored_separator({0.4f, 0.9f, 0.5f, 1.0f});
+                bool input_open = ImGui::CollapsingHeader("Input", ImGuiTreeNodeFlags_DefaultOpen);
+                if (ImGui::BeginPopupContextItem("##InputCtx")) {
+                    if (ImGui::MenuItem("Remove")) {
+                        obj->components.remove<InputComponent>();
+                        scene_->mark_dirty();
+                        ic = nullptr;
+                    }
+                    ImGui::EndPopup();
+                }
+                if (input_open && ic) {
+                    if (asset_path_field("Actions Dir", "##InputActionsDir", ic->actions_dir)) {
+                        scene_->mark_dirty();
+                    }
+                    ImGui::Text("Contexts");
+                    int remove_idx = -1;
+                    for (int ci = 0; ci < static_cast<int>(ic->context_paths.size()); ++ci) {
+                        ImGui::PushID(ci);
+                        auto label = "##ctx" + std::to_string(ci);
+                        if (asset_path_field("", label.c_str(), ic->context_paths[ci])) {
+                            scene_->mark_dirty();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X")) {
+                            remove_idx = ci;
+                        }
+                        ImGui::PopID();
+                    }
+                    if (remove_idx >= 0) {
+                        ic->context_paths.erase(ic->context_paths.begin() + remove_idx);
+                        scene_->mark_dirty();
+                    }
+                    if (ImGui::SmallButton("+ Context")) {
+                        ic->context_paths.emplace_back();
+                        scene_->mark_dirty();
+                    }
+                }
+            }
+
             // Audio Source
             if (auto* au = obj->components.get<AudioSourceComponent>()) {
                 colored_separator({0.55f, 0.70f, 0.85f, 1.0f});
@@ -781,6 +824,10 @@ void PropertiesPanel::draw() {
                 }
                 if (!obj->components.has<UiWidgetComponent>() && ImGui::MenuItem("UI Widget")) {
                     obj->components.add<UiWidgetComponent>();
+                    scene_->mark_dirty();
+                }
+                if (!obj->components.has<InputComponent>() && ImGui::MenuItem("Input")) {
+                    obj->components.add<InputComponent>().actions_dir = "assets/input/actions";
                     scene_->mark_dirty();
                 }
                 ImGui::EndPopup();
