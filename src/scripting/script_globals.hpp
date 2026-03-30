@@ -4,6 +4,7 @@
 
 namespace fjell {
 
+class Input;
 class Scene;
 class ScriptManager;
 class ResourceManager;
@@ -18,6 +19,7 @@ Scene*& script_active_scene();
 ScriptManager*& script_active_manager();
 
 // Set once via ScriptManager::set_*() at startup
+Input*& script_input();
 ResourceManager*& script_resource_manager();
 const Project*& script_active_project();
 VfxSubsystem*& script_vfx_subsystem();

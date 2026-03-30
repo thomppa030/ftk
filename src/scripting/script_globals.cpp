@@ -2,6 +2,7 @@
 
 namespace fjell {
 
+static Input* s_input = nullptr;
 static Scene* s_active_scene = nullptr;
 static ScriptManager* s_active_script_mgr = nullptr;
 static ResourceManager* s_resource_manager = nullptr;
@@ -11,6 +12,7 @@ static AudioSubsystem* s_audio_subsystem = nullptr;
 static CameraSubsystem* s_camera_subsystem = nullptr;
 static VulkanContext* s_vulkan_context = nullptr;
 
+Input*& script_input() { return s_input; }
 Scene*& script_active_scene() { return s_active_scene; }
 ScriptManager*& script_active_manager() { return s_active_script_mgr; }
 ResourceManager*& script_resource_manager() { return s_resource_manager; }

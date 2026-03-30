@@ -7,6 +7,7 @@
 namespace fjell {
 
 void Input::attach(GLFWwindow* window) {
+    window_ = window;
     glfwSetKeyCallback(window, key_callback);
     glfwSetCursorPosCallback(window, cursor_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);

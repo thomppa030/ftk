@@ -154,7 +154,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             }
 
             // Editor preview UI (non-play mode, loaded from UI editor context)
-            if (game_ui_.loaded()) {
+            if (!active_context().is_playing() && game_ui_.loaded()) {
                 game_ui_.update(static_cast<float>(extent.width),
                                 static_cast<float>(extent.height),
                                 frame_index, clock_.delta_time(), &input_);
@@ -211,6 +211,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
+    ScriptManager::set_input(&input_);
     ScriptManager::set_resource_manager(resource_manager_.get());
     ScriptManager::set_active_project(project_mgr_.active());
     ScriptManager::set_vfx_subsystem(vfx_subsystem_);

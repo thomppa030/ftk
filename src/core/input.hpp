@@ -14,6 +14,8 @@ public:
     void attach(GLFWwindow* window);
     void update();
 
+    [[nodiscard]] GLFWwindow* window() const { return window_; }
+
     [[nodiscard]] bool is_key_pressed(int key) const;
     [[nodiscard]] bool is_key_held(int key) const;
     [[nodiscard]] bool is_key_released(int key) const;
@@ -41,6 +43,7 @@ private:
     glm::dvec2 mouse_last_{0.0};
     glm::dvec2 mouse_delta_{0.0};
     glm::dvec2 scroll_delta_{0.0};
+    GLFWwindow* window_{nullptr};
     bool first_mouse_{true};
     bool cursor_captured_{false};
 

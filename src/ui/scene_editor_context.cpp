@@ -515,7 +515,6 @@ void SceneEditorContext::start_play() {
 
     deps_.vulkan_context->set_playing(true);
     deps_.game_ui->mark_dirty();
-    deps_.input->set_cursor_captured(deps_.window->handle(), true);
     selected_id_ = 0;
     FJELL_CORE_INFO("Play mode started");
 }
@@ -547,7 +546,10 @@ void SceneEditorContext::stop_play() {
     deps_.physics_subsystem->on_play_stop(ctx);
 
     deps_.vulkan_context->set_playing(false);
-    deps_.input->set_cursor_captured(deps_.window->handle(), false);
+    // Release cursor if a script captured it during play
+    if (deps_.input->is_cursor_captured()) {
+        deps_.input->set_cursor_captured(deps_.window->handle(), false);
+    }
     play_session_.reset();
     focus_viewport_frames_ = 2;
     FJELL_CORE_INFO("Play mode stopped");

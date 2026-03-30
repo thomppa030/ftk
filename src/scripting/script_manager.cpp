@@ -230,6 +230,10 @@ uint32_t ScriptManager::hash_type_name(const std::string& name) {
     return hash;
 }
 
+void ScriptManager::set_input(Input* input) {
+    script_input() = input;
+}
+
 void ScriptManager::set_resource_manager(ResourceManager* rm) {
     s_resource_manager = rm;
 }

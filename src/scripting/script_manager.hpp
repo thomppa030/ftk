@@ -106,6 +106,7 @@ public:
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
     // Set engine services for asset ref inspector and script API
+    static void set_input(class Input* input);
     static void set_resource_manager(class ResourceManager* rm);
     static void set_active_project(const class Project* project);
     static void set_vfx_subsystem(class VfxSubsystem* vfx);

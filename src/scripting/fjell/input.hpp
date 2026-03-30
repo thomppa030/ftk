@@ -1,7 +1,8 @@
-// fjell_input.hpp — Read-only Input interface for Fjell game code
+// fjell_input.hpp — Input interface for Fjell game code
 // Shipped to game projects alongside fjell_api.h.
-// Same data layout as core/input.hpp but only exposes const query methods.
-// Uses shared include guard with core/input.hpp to prevent ODR issues.
+// Same data layout as core/input.hpp but only exposes query methods
+// and cursor capture. Uses shared include guard with core/input.hpp
+// to prevent ODR issues.
 
 #ifndef FJELL_INPUT_HPP
 #define FJELL_INPUT_HPP
@@ -9,6 +10,10 @@
 #include <glm/glm.hpp>
 
 #include <array>
+
+struct GLFWwindow;
+
+extern "C" void fjell_input_set_cursor_captured(bool captured);
 
 namespace fjell {
 
@@ -27,6 +32,10 @@ public:
 
     [[nodiscard]] bool is_cursor_captured() const { return cursor_captured_; }
 
+    void set_cursor_captured(bool captured) {
+        fjell_input_set_cursor_captured(captured);
+    }
+
 private:
     static constexpr int MAX_KEYS = 512;
     static constexpr int MAX_BUTTONS = 8;
@@ -40,6 +49,7 @@ private:
     glm::dvec2 mouse_last_{0.0};
     glm::dvec2 mouse_delta_{0.0};
     glm::dvec2 scroll_delta_{0.0};
+    GLFWwindow* window_{nullptr};
     bool first_mouse_{true};
     bool cursor_captured_{false};
 };
