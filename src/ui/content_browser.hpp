@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace fjell {
@@ -60,6 +61,11 @@ private:
     void draw_file_grid();
     void draw_breadcrumb();
     void draw_context_menu();
+    void draw_create_new_submenu();
+    void draw_common_context_items(int index);
+    void create_asset_file(std::string_view filename, std::string_view extension,
+                           std::string_view content);
+    void create_folder();
     void handle_double_click(const Entry& entry);
 
     [[nodiscard]] static FileType classify(const std::filesystem::path& path);
@@ -87,15 +93,10 @@ private:
     int rename_index_{-1};
     char rename_buf_[256]{};
 
-    // Delete confirmation
-    bool show_delete_confirm_{false};
+    // Delete confirmation popup
+    bool show_delete_popup_{false};
     int delete_index_{-1};
 
-    // New folder / new script
-    bool show_new_folder_popup_{false};
-    char new_folder_buf_[128]{};
-    bool show_new_script_popup_{false};
-    char new_script_buf_[128]{};
 
     // Texture preview (full-size popup)
     bool show_texture_preview_{false};

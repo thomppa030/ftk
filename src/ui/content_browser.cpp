@@ -1,8 +1,10 @@
 #include "ui/content_browser.hpp"
+#include "ui/asset_templates.hpp"
 #include "ui/icon_cache.hpp"
 #include "core/thread_pool.hpp"
 #include "ui/code_editor.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "renderer/vk_check.hpp"
 
@@ -213,115 +215,6 @@ void ContentBrowser::draw() {
     }
     ImGui::End();
 
-    // Delete confirmation popup
-    if (show_delete_confirm_) {
-        ImGui::OpenPopup("Delete?");
-        show_delete_confirm_ = false;
-    }
-    if (ImGui::BeginPopupModal("Delete?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        if (delete_index_ >= 0 && delete_index_ < static_cast<int>(entries_.size())) {
-            ImGui::Text("Delete \"%s\"?", entries_[delete_index_].name.c_str());
-            ImGui::Text("This cannot be undone.");
-            ImGui::Spacing();
-            if (ImGui::Button("Delete", {120, 0})) {
-                auto& e = entries_[delete_index_];
-                std::error_code ec;
-                if (e.is_directory) {
-                    std::filesystem::remove_all(e.path, ec);
-                } else {
-                    std::filesystem::remove(e.path, ec);
-                }
-                if (!ec) {
-                    FJELL_CORE_INFO("Deleted: {}", e.path.string());
-                    refresh_current_dir();
-                } else {
-                    FJELL_CORE_ERROR("Failed to delete: {}", ec.message());
-                }
-                delete_index_ = -1;
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel", {120, 0})) {
-                delete_index_ = -1;
-                ImGui::CloseCurrentPopup();
-            }
-        } else {
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    // New Folder popup
-    if (show_new_folder_popup_) {
-        ImGui::OpenPopup("New Folder");
-        show_new_folder_popup_ = false;
-        std::memset(new_folder_buf_, 0, sizeof(new_folder_buf_));
-    }
-    if (ImGui::BeginPopupModal("New Folder", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Folder Name:");
-        ImGui::SetNextItemWidth(250.0f);
-        bool enter = ImGui::InputText("##NewFolderName", new_folder_buf_, sizeof(new_folder_buf_),
-                                       ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
-
-        bool valid = std::strlen(new_folder_buf_) > 0;
-        if (!valid) ImGui::BeginDisabled();
-        bool create = ImGui::Button("Create", {120, 0}) || (enter && valid);
-        if (!valid) ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {120, 0})) ImGui::CloseCurrentPopup();
-
-        if (create) {
-            auto new_path = current_dir_ / new_folder_buf_;
-            std::error_code ec;
-            std::filesystem::create_directory(new_path, ec);
-            if (!ec) {
-                FJELL_CORE_INFO("Created folder: {}", new_path.string());
-                refresh_current_dir();
-            } else {
-                FJELL_CORE_ERROR("Failed to create folder: {}", ec.message());
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
-    // New Script popup
-    if (show_new_script_popup_) {
-        ImGui::OpenPopup("New Script##CB");
-        show_new_script_popup_ = false;
-        std::memset(new_script_buf_, 0, sizeof(new_script_buf_));
-    }
-    if (ImGui::BeginPopupModal("New Script##CB", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::Text("Script Name (without extension):");
-        ImGui::SetNextItemWidth(250.0f);
-        bool enter = ImGui::InputText("##NewScriptName", new_script_buf_, sizeof(new_script_buf_),
-                                       ImGuiInputTextFlags_EnterReturnsTrue);
-        if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere(-1);
-
-        bool valid = std::strlen(new_script_buf_) > 0;
-        if (!valid) ImGui::BeginDisabled();
-        bool create = ImGui::Button("Create", {120, 0}) || (enter && valid);
-        if (!valid) ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", {120, 0})) ImGui::CloseCurrentPopup();
-
-        if (create) {
-            auto new_path = current_dir_ / (std::string(new_script_buf_) + ".cpp");
-            std::ofstream file(new_path);
-            if (file.is_open()) {
-                file << "#include <iostream>\n\n"
-                     << "// " << new_script_buf_ << "\n";
-                FJELL_CORE_INFO("Created script: {}", new_path.string());
-                refresh_current_dir();
-            } else {
-                FJELL_CORE_ERROR("Failed to create script: {}", new_path.string());
-            }
-            ImGui::CloseCurrentPopup();
-        }
-        ImGui::EndPopup();
-    }
-
     // Texture preview popup
     if (show_texture_preview_ && !preview_texture_path_.empty()) {
         // Request load for next frame (avoids freeing descriptors mid-frame)
@@ -357,6 +250,49 @@ void ContentBrowser::draw() {
     }
     if (!show_texture_preview_ && preview_descriptor_) {
         preview_pending_release_ = true;
+    }
+
+    // Delete confirmation popup (non-modal, lightweight)
+    if (show_delete_popup_ && delete_index_ >= 0 &&
+        delete_index_ < static_cast<int>(entries_.size())) {
+        ImGui::OpenPopup("##DeleteConfirm");
+        show_delete_popup_ = false;
+    }
+    if (ImGui::BeginPopup("##DeleteConfirm")) {
+        if (delete_index_ < 0 || delete_index_ >= static_cast<int>(entries_.size())) {
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+        auto& e = entries_[delete_index_];
+        ImGui::Text("Delete \"%s\"?", e.name.c_str());
+        ImGui::Spacing();
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.25f, 0.25f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.15f, 0.15f, 1.0f));
+        if (ImGui::Button("Delete", {80, 0})) {
+            std::error_code ec;
+            if (e.is_directory) {
+                std::filesystem::remove_all(e.path, ec);
+            } else {
+                std::filesystem::remove(e.path, ec);
+            }
+            if (!ec) {
+                FJELL_CORE_INFO("Deleted: {}", e.path.string());
+                refresh_current_dir();
+            } else {
+                FJELL_CORE_ERROR("Failed to delete: {}", ec.message());
+            }
+            delete_index_ = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::PopStyleColor(3);
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", {80, 0})) {
+            delete_index_ = -1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 }
 
@@ -492,6 +428,7 @@ void ContentBrowser::draw_file_grid() {
     }
 
     int col = (current_dir_ != root_) ? 1 : 0;
+    bool open_context_menu = false;
 
     for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
         auto& entry = entries_[i];
@@ -606,7 +543,7 @@ void ContentBrowser::draw_file_grid() {
             if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
                 selected_index_ = i;
                 context_menu_index_ = i;
-                ImGui::OpenPopup("##CBContext");
+                open_context_menu = true;
             }
         }
 
@@ -672,6 +609,11 @@ void ContentBrowser::draw_file_grid() {
         }
     }
 
+    // Deferred popup open — must happen outside PushID(i) so the ID matches BeginPopup
+    if (open_context_menu) {
+        ImGui::OpenPopup("##CBContext");
+    }
+
     // Invisible drop zone covering remaining space — accepts hierarchy node drops
     // Also handles right-click on empty space (since InvisibleButton eats hover,
     // IsAnyItemHovered() is always true and the old empty-space check never fired).
@@ -708,7 +650,7 @@ void ContentBrowser::draw_file_grid() {
         if (ImGui::IsKeyPressed(ImGuiKey_Delete) && selected_index_ >= 0 &&
             selected_index_ < static_cast<int>(entries_.size())) {
             delete_index_ = selected_index_;
-            show_delete_confirm_ = true;
+            show_delete_popup_ = true;
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Backspace) && current_dir_ != root_) {
             navigate_to(current_dir_.parent_path());
@@ -731,25 +673,6 @@ void ContentBrowser::draw_context_menu() {
                         navigate_to(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
-                    if (ImGui::MenuItem("New Folder")) {
-                        show_new_folder_popup_ = true;
-                        ImGui::CloseCurrentPopup();
-                    }
-                    if (ImGui::MenuItem("New Script")) {
-                        show_new_script_popup_ = true;
-                        ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
-                    }
                     break;
 
                 case FileType::cpp_source:
@@ -763,17 +686,6 @@ void ContentBrowser::draw_context_menu() {
                         }
                         ImGui::CloseCurrentPopup();
                     }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
-                    }
                     break;
 
                 case FileType::model:
@@ -781,17 +693,6 @@ void ContentBrowser::draw_context_menu() {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_add_model.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
                     }
                     break;
 
@@ -801,34 +702,12 @@ void ContentBrowser::draw_context_menu() {
                         preview_texture_path_ = entry.path.string();
                         ImGui::CloseCurrentPopup();
                     }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
-                    }
                     break;
 
                 case FileType::scene:
                     if (ImGui::MenuItem("Load Scene")) {
                         on_load_scene.broadcast(entry.path.string());
                         ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
                     }
                     break;
 
@@ -845,17 +724,6 @@ void ContentBrowser::draw_context_menu() {
                         }
                         ImGui::CloseCurrentPopup();
                     }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
-                    }
                     break;
 
                 case FileType::vfx:
@@ -863,17 +731,6 @@ void ContentBrowser::draw_context_menu() {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_open_asset.broadcast(rel.string(), "vfx");
                         ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
                     }
                     break;
 
@@ -883,17 +740,6 @@ void ContentBrowser::draw_context_menu() {
                         on_open_asset.broadcast(rel.string(), "ui");
                         ImGui::CloseCurrentPopup();
                     }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
-                    }
                     break;
 
                 case FileType::preset:
@@ -902,46 +748,161 @@ void ContentBrowser::draw_context_menu() {
                         on_instantiate_preset.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
                     }
-                    ImGui::Separator();
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
-                    }
                     break;
 
                 case FileType::animation:
                 case FileType::unknown:
-                    if (ImGui::MenuItem("Rename")) {
-                        renaming_ = true;
-                        rename_index_ = context_menu_index_;
-                        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
-                        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
-                    }
-                    if (ImGui::MenuItem("Delete")) {
-                        delete_index_ = context_menu_index_;
-                        show_delete_confirm_ = true;
-                    }
                     break;
             }
+
+            // Common items for all file types
+            draw_common_context_items(context_menu_index_);
+
         } else {
             // Right-clicked on empty space
+            draw_create_new_submenu();
+            ImGui::Separator();
             if (ImGui::MenuItem("New Folder")) {
-                show_new_folder_popup_ = true;
+                create_folder();
             }
             if (ImGui::MenuItem("New Script")) {
-                show_new_script_popup_ = true;
+                create_asset_file("new_script", ".cpp", "#include <iostream>\n");
             }
+            ImGui::Separator();
             if (ImGui::MenuItem("Refresh")) {
                 refresh_current_dir();
             }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Show in File Manager")) {
+                (void)platform::spawn_detached({"xdg-open", current_dir_.string()});
+            }
+            if (ImGui::MenuItem("Copy Path")) {
+                auto rel = std::filesystem::relative(current_dir_, root_);
+                ImGui::SetClipboardText(rel.string().c_str());
+            }
         }
         ImGui::EndPopup();
+    }
+}
+
+void ContentBrowser::draw_create_new_submenu() {
+    if (ImGui::BeginMenu("Create New")) {
+        for (const auto& tmpl : kAssetTemplates) {
+            if (!tmpl.label) {
+                ImGui::Separator();
+                continue;
+            }
+            if (ImGui::MenuItem(tmpl.label)) {
+                create_asset_file(tmpl.filename, tmpl.extension, tmpl.content);
+            }
+        }
+        ImGui::EndMenu();
+    }
+}
+
+void ContentBrowser::draw_common_context_items(int index) {
+    ImGui::Separator();
+    draw_create_new_submenu();
+    ImGui::Separator();
+
+    auto& entry = entries_[index];
+    if (ImGui::MenuItem("Rename")) {
+        renaming_ = true;
+        rename_index_ = index;
+        std::strncpy(rename_buf_, entry.name.c_str(), sizeof(rename_buf_) - 1);
+        rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+    }
+    if (ImGui::MenuItem("Delete")) {
+        delete_index_ = index;
+        show_delete_popup_ = true;
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Show in File Manager")) {
+        auto dir = entry.is_directory ? entry.path : entry.path.parent_path();
+        (void)platform::spawn_detached({"xdg-open", dir.string()});
+    }
+    if (ImGui::MenuItem("Copy Path")) {
+        auto rel = std::filesystem::relative(entry.path, root_);
+        ImGui::SetClipboardText(rel.string().c_str());
+    }
+}
+
+void ContentBrowser::create_asset_file(std::string_view filename,
+                                        std::string_view extension,
+                                        std::string_view content) {
+    auto base = std::string(filename);
+    auto ext = std::string(extension);
+    auto default_name = base + ext;
+    auto new_path = current_dir_ / default_name;
+
+    // Avoid overwriting: append _1, _2, etc.
+    if (std::filesystem::exists(new_path)) {
+        int suffix = 1;
+        while (std::filesystem::exists(current_dir_ / (base + "_" + std::to_string(suffix) + ext))) {
+            ++suffix;
+        }
+        default_name = base + "_" + std::to_string(suffix) + ext;
+        new_path = current_dir_ / default_name;
+    }
+
+    std::ofstream file(new_path);
+    if (!file.is_open()) {
+        FJELL_CORE_ERROR("Failed to create asset: {}", new_path.string());
+        return;
+    }
+    file << content;
+    file.close();
+
+    FJELL_CORE_INFO("Created: {}", new_path.string());
+    refresh_current_dir();
+
+    // Find the new entry and enter rename mode
+    for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
+        if (entries_[i].name == default_name) {
+            selected_index_ = i;
+            renaming_ = true;
+            rename_index_ = i;
+            std::strncpy(rename_buf_, default_name.c_str(), sizeof(rename_buf_) - 1);
+            rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+            break;
+        }
+    }
+}
+
+void ContentBrowser::create_folder() {
+    std::string base = "new_folder";
+    std::string default_name = base;
+    auto new_path = current_dir_ / default_name;
+
+    if (std::filesystem::exists(new_path)) {
+        int suffix = 1;
+        while (std::filesystem::exists(current_dir_ / (base + "_" + std::to_string(suffix)))) {
+            ++suffix;
+        }
+        default_name = base + "_" + std::to_string(suffix);
+        new_path = current_dir_ / default_name;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directory(new_path, ec);
+    if (ec) {
+        FJELL_CORE_ERROR("Failed to create folder: {}", ec.message());
+        return;
+    }
+
+    FJELL_CORE_INFO("Created folder: {}", new_path.string());
+    refresh_current_dir();
+
+    // Find the new entry and enter rename mode
+    for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
+        if (entries_[i].name == default_name) {
+            selected_index_ = i;
+            renaming_ = true;
+            rename_index_ = i;
+            std::strncpy(rename_buf_, default_name.c_str(), sizeof(rename_buf_) - 1);
+            rename_buf_[sizeof(rename_buf_) - 1] = '\0';
+            break;
+        }
     }
 }
 
