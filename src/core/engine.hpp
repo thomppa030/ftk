@@ -3,6 +3,7 @@
 #include "core/clock.hpp"
 #include "core/frame_context.hpp"
 #include "core/input.hpp"
+#include "core/input_action_map.hpp"
 #include "core/subsystem.hpp"
 #include "core/thread_pool.hpp"
 #include "core/layer_stack.hpp"
@@ -77,6 +78,7 @@ private:
     void bind_menu_bar();
 
     void load_scene(const std::string& path);
+    void load_input_actions();
     void load_project_scripts();
     void flush_pending();
     [[nodiscard]] TickContext make_frame_context();
@@ -94,6 +96,7 @@ private:
     // Core
     Window window_;
     Input input_;
+    InputActionMap input_action_map_;
     Clock clock_;
     ThreadPool thread_pool_;
     std::unique_ptr<VulkanContext> vulkan_context_;

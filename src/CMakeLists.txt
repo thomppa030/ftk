@@ -33,6 +33,9 @@ add_executable(fjell
     core/engine.cpp
     core/layer_stack.cpp
     core/input.cpp
+    core/input_action_map.cpp
+    core/input_modifier.cpp
+    core/input_source.cpp
     core/play_session.cpp
     core/project.cpp
     core/thread_pool.cpp
@@ -136,7 +139,6 @@ add_executable(fjell
     scripting/log_api.cpp
     scripting/audio_api.cpp
     scripting/camera_api.cpp
-    scripting/input_api.cpp
     scripting/sprite_anim_api.cpp
     scripting/vfx_api.cpp
     scripting/viewport_api.cpp

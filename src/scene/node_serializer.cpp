@@ -1,5 +1,6 @@
 #include "scene/node_serializer.hpp"
 #include "scene/node.hpp"
+#include "core/input_component.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
@@ -229,6 +230,14 @@ nlohmann::json serialize_node(const Node& node) {
         j["ui_widget"] = jw;
     }
 
+    // Input component
+    if (const auto* ic = node.components.get<InputComponent>()) {
+        nlohmann::json ji;
+        ji["contexts"] = ic->context_paths;
+        if (!ic->actions_dir.empty()) ji["actions_dir"] = ic->actions_dir;
+        j["input"] = ji;
+    }
+
     // Scripts
     if (!node.scripts.empty()) {
         j["components"] = nlohmann::json::array();
@@ -236,6 +245,9 @@ nlohmann::json serialize_node(const Node& node) {
             nlohmann::json jcomp;
             jcomp["type"] = comp.type_name;
             jcomp["data"] = comp.serialized;
+            if (!comp.action_bindings.empty()) {
+                jcomp["action_bindings"] = comp.action_bindings;
+            }
             j["components"].push_back(jcomp);
         }
     }
@@ -516,12 +528,28 @@ static void load_components(Node& node, const nlohmann::json& j,
         }
     }
 
+    if (j.contains("input")) {
+        auto& ji = j["input"];
+        auto& ic = node.components.add<InputComponent>();
+        if (ji.contains("contexts") && ji["contexts"].is_array()) {
+            for (const auto& ctx : ji["contexts"]) {
+                ic.context_paths.push_back(ctx.get<std::string>());
+            }
+        }
+        ic.actions_dir = ji.value("actions_dir", "");
+    }
+
     if (j.contains("components")) {
         for (const auto& jcomp : j["components"]) {
             ScriptEntry comp;
             comp.type_name = jcomp.value("type", "");
             if (jcomp.contains("data")) {
                 comp.serialized = jcomp["data"];
+            }
+            if (jcomp.contains("action_bindings") && jcomp["action_bindings"].is_object()) {
+                for (auto& [key, val] : jcomp["action_bindings"].items()) {
+                    comp.action_bindings[key] = val.get<std::string>();
+                }
             }
             node.scripts.push_back(std::move(comp));
         }

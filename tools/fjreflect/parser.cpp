@@ -289,14 +289,45 @@ ParseResult parse_file(const std::string& filepath) {
                         ActionInfo ai;
                         ai.method_name = trim(rest.substr(0, paren));
                         ai.name = ai.method_name;  // default: action name = method name
-                        // Check for int param
+                        // Parse trigger mode from [[fj::action(...)]]
+                        // Supports: "pressed", pressed, FjellTrigger::Pressed, Pressed
+                        auto action_arg_pos = attrs_early.find("fj::action(");
+                        if (action_arg_pos != std::string::npos) {
+                            auto arg_start = action_arg_pos + 11; // after "fj::action("
+                            auto arg_end = attrs_early.find(')', arg_start);
+                            if (arg_end != std::string::npos) {
+                                auto arg = trim(attrs_early.substr(arg_start, arg_end - arg_start));
+                                // Strip quotes if present
+                                if (arg.size() >= 2 && arg.front() == '"' && arg.back() == '"') {
+                                    arg = arg.substr(1, arg.size() - 2);
+                                }
+                                // Strip enum prefix (FjellTrigger:: or any Foo::)
+                                auto colon_pos = arg.rfind("::");
+                                if (colon_pos != std::string::npos) {
+                                    arg = arg.substr(colon_pos + 2);
+                                }
+                                // Case-insensitive compare
+                                for (auto& c : arg) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                                if (arg == "pressed") ai.trigger = ActionTriggerMode::pressed;
+                                else if (arg == "released") ai.trigger = ActionTriggerMode::released;
+                                else if (arg == "completed") ai.trigger = ActionTriggerMode::completed;
+                                else if (arg == "triggered") ai.trigger = ActionTriggerMode::triggered;
+                            }
+                        }
+                        // Detect parameter type
                         auto params = rest.substr(paren + 1);
                         auto close_paren = params.find(')');
                         if (close_paren != std::string::npos) {
                             auto param_str = trim(params.substr(0, close_paren));
-                            ai.has_int_param = (param_str == "int" ||
-                                                param_str.starts_with("int ") ||
-                                                param_str.find("int ") != std::string::npos);
+                            if (param_str == "int" || param_str.starts_with("int ") ||
+                                param_str.find("int ") != std::string::npos) {
+                                ai.param = ActionParamType::int_param;
+                                ai.has_int_param = true;
+                            } else if (param_str == "float" || param_str.starts_with("float ")) {
+                                ai.param = ActionParamType::float_param;
+                            } else if (param_str.find("vec2") != std::string::npos) {
+                                ai.param = ActionParamType::vec2_param;
+                            }
                         }
                         comp.actions.push_back(std::move(ai));
                     }

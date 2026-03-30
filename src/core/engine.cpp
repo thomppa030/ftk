@@ -1,5 +1,6 @@
 #include "core/engine.hpp"
 #include "core/base_path.hpp"
+#include "core/input_component.hpp"
 #include "core/commands.hpp"
 #include "core/game_builder.hpp"
 #include "core/layer.hpp"
@@ -124,6 +125,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     window_.set_input(&input_);
     input_.attach(window_.handle());
+    InputActionMap::set_instance(&input_action_map_);
 
     imgui_layer_ = std::make_unique<ImGuiLayer>(
         window_.handle(), vulkan_context_->instance(),
@@ -245,6 +247,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     } else {
         create_default_scene();
     }
+    load_input_actions();
 
     // Load game scripts
     if (game_mode_) {
@@ -389,6 +392,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             .ui_subsystem = ui_subsystem_,
             .thread_pool = &thread_pool_,
             .window = &window_,
+            .input_action_map = &input_action_map_,
             .game_mode = game_mode_,
         };
         auto ctx = std::make_unique<SceneEditorContext>(deps);
@@ -739,6 +743,26 @@ void Engine::load_scene(const std::string& path) {
     scene_context_->set_selected_id(0);
     scene_context_->command_history().clear();
     vulkan_context_->sync_custom_depth_pipelines();
+    load_input_actions();
+}
+
+void Engine::load_input_actions() {
+    int found = 0;
+    for (const auto& obj : scene_.objects()) {
+        const auto* ic = obj->components.get<InputComponent>();
+        if (!ic) continue;
+        ++found;
+
+        auto dir = ic->actions_dir.empty() ? std::string("assets/input/actions") : ic->actions_dir;
+        if (project_mgr_.active()) {
+            auto resolved = project_mgr_.active()->resolve(dir);
+            FJELL_CORE_INFO("InputActionMap: loading actions from {}", resolved);
+            input_action_map_.load_actions_dir(resolved);
+        }
+    }
+    if (found == 0) {
+        FJELL_CORE_DEBUG("InputActionMap: no InputComponent found in scene");
+    }
 }
 
 void Engine::bind_menu_bar() {
@@ -957,6 +981,7 @@ void Engine::run() {
         // Phase 2: CPU work (overlaps with GPU executing the submitted frame)
         asset_loader_->poll();
         input_.update();
+        input_action_map_.update(input_);
         window_.poll_events();
         clock_.tick();
 

@@ -24,6 +24,7 @@ class Clock;
 class GameUi;
 class IconCache;
 class Input;
+class InputActionMap;
 class PhysicsSubsystem;
 class ProjectManager;
 class ResourceManager;
@@ -56,6 +57,7 @@ struct SceneEditorDeps {
     UiSubsystem* ui_subsystem;
     ThreadPool* thread_pool;
     Window* window;
+    InputActionMap* input_action_map;
     bool game_mode;
 };
 
@@ -82,6 +84,7 @@ public:
 
     void start_play();
     void stop_play();
+    void wire_input_actions();
     [[nodiscard]] bool play_wants_stop() const;
 
     // Viewport render requests
@@ -134,6 +137,7 @@ private:
     int gizmo_op_{0};
     int focus_viewport_frames_{0}; // countdown: focus viewport after N frames
     std::unique_ptr<PlaySession> play_session_;
+    std::vector<Connection> input_action_connections_;
 
     // Delegate connections (context-level bindings)
     std::vector<Connection> connections_;

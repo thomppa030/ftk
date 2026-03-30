@@ -637,7 +637,7 @@ TEST_CASE("Descendant selector matches ancestor by id", "[style][edge]") {
     REQUIRE(child->style.width == Catch::Approx(88.0f));
 }
 
-TEST_CASE("Calling resolve twice without reset accumulates properties", "[style][edge]") {
+TEST_CASE("Calling resolve resets and reapplies from scratch", "[style][edge]") {
     auto root = make_node("div");
 
     auto sheet1 = FjssParser::parse("div { width: 100; }");
@@ -649,8 +649,8 @@ TEST_CASE("Calling resolve twice without reset accumulates properties", "[style]
     REQUIRE(root->style.height == Catch::Approx(-1.0f));
 
     resolver.resolve(*root, sheet2);
-    // width from first resolve is still there (no reset)
-    REQUIRE(root->style.width == Catch::Approx(100.0f));
+    // width from first resolve is reset (styles start fresh each resolve)
+    REQUIRE(root->style.width == Catch::Approx(-1.0f));
     REQUIRE(root->style.height == Catch::Approx(200.0f));
 }
 

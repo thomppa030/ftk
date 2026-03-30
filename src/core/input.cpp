@@ -32,6 +32,23 @@ void Input::update() {
     }
     mouse_delta_ = {0.0, 0.0};
     scroll_delta_ = {0.0, 0.0};
+
+    // Gamepad polling
+    pad_buttons_prev_ = pad_buttons_;
+    GLFWgamepadstate gamepad;
+    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepad)) {
+        pad_connected_ = true;
+        for (int i = 0; i < MAX_PAD_BUTTONS; ++i) {
+            pad_buttons_[i] = gamepad.buttons[i];
+        }
+        for (int i = 0; i < MAX_PAD_AXES; ++i) {
+            pad_axes_[i] = gamepad.axes[i];
+        }
+    } else {
+        pad_connected_ = false;
+        pad_buttons_.fill(0);
+        pad_axes_.fill(0.0f);
+    }
 }
 
 bool Input::is_key_pressed(int key) const {
@@ -120,6 +137,21 @@ void Input::scroll_callback(GLFWwindow* window, double xoffset, double yoffset) 
     if (!input) return;
 
     input->scroll_delta_ += glm::dvec2{xoffset, yoffset};
+}
+
+bool Input::pad_button_held(int button) const {
+    if (button < 0 || button >= MAX_PAD_BUTTONS) return false;
+    return pad_buttons_[button] != 0;
+}
+
+bool Input::pad_button_pressed(int button) const {
+    if (button < 0 || button >= MAX_PAD_BUTTONS) return false;
+    return pad_buttons_[button] != 0 && pad_buttons_prev_[button] == 0;
+}
+
+float Input::pad_axis(int axis) const {
+    if (axis < 0 || axis >= MAX_PAD_AXES) return 0.0f;
+    return pad_axes_[axis];
 }
 
 } // namespace fjell

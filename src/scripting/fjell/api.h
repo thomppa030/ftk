@@ -14,7 +14,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 7
+#define FJELL_API_VERSION 8
 
 // ── Field types for inspector / serialization reflection ────────────────
 
@@ -46,6 +46,28 @@ typedef struct FjellFieldDesc {
     float              speed;        // drag speed (0 = default 0.1)
     const char*        ref_type_name; // REF/WEAK_REF/SHARED_REF: target type name (null otherwise)
 } FjellFieldDesc;
+
+// ── Action types for [[fj::action]] input binding ────────────────────
+
+typedef enum FjellActionType {
+    FJELL_ACTION_BUTTON = 0,
+    FJELL_ACTION_AXIS1D,
+    FJELL_ACTION_AXIS2D,
+} FjellActionType;
+
+typedef enum FjellActionTrigger {
+    FJELL_TRIGGER_TRIGGERED = 0,  // default: fires once when action becomes active
+    FJELL_TRIGGER_PRESSED,        // button: fires once on press
+    FJELL_TRIGGER_RELEASED,       // button: fires once on release
+    FJELL_TRIGGER_COMPLETED,      // fires once when action becomes inactive
+} FjellActionTrigger;
+
+typedef struct FjellActionDesc {
+    const char*        name;        // action method name
+    FjellActionType    type;        // button, axis1d, axis2d
+    FjellActionTrigger trigger;     // when to fire
+    void*              trampoline;  // function pointer (cast to appropriate signature)
+} FjellActionDesc;
 
 // ── Key codes (match GLFW values) ────────────────────────────────────
 
@@ -112,6 +134,12 @@ typedef struct FjellFieldDesc {
 
 #ifdef __cplusplus
 }
+
+// ── C++ input trigger enum for [[fj::action(EInputTrigger::Pressed)]] ──
+namespace fjell {
+enum class EInputTrigger { Triggered, Pressed, Released, Completed };
+}
+
 #endif
 
 #endif // FJELL_SCRIPTING_API_H

@@ -1,5 +1,6 @@
 #include "scene/scene.hpp"
 #include "scene/node_serializer.hpp"
+#include "core/input_component.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
@@ -69,6 +70,7 @@ void Node::clone_base_into(Node& target) const {
         ScriptEntry entry;
         entry.type_name = s.type_name;
         entry.serialized = s.serialized;
+        entry.action_bindings = s.action_bindings;
         target.scripts.push_back(std::move(entry));
     }
     if (const auto* rb = components.get<RigidbodyComponent>()) {
@@ -123,6 +125,9 @@ void Node::clone_base_into(Node& target) const {
     }
     if (const auto* wc = components.get<UiWidgetComponent>()) {
         target.components.add<UiWidgetComponent>(*wc);
+    }
+    if (const auto* ic = components.get<InputComponent>()) {
+        target.components.add<InputComponent>(*ic);
     }
 }
 

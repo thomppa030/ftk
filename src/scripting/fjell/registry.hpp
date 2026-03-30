@@ -16,6 +16,8 @@ struct FjellComponentTypeOOP {
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);  // GC trace (null if no ref fields)
+    const FjellActionDesc* actions;
+    uint32_t action_count;
 };
 
 // ── Generated reflection info (filled by fjreflect codegen) ─────────────
@@ -25,6 +27,8 @@ struct FjellGeneratedInfo {
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);
+    const FjellActionDesc* actions;
+    uint32_t action_count;
 };
 
 // ── Opaque registry handle (engine-side) ────────────────────────────────
@@ -46,12 +50,14 @@ void register_component(FjellTypeRegistry* reg) {
     desc.name = T::type_name;
     desc.create = []() -> ScriptComponent* { return new T(); };
 
-    // Fields and trace come from fjreflect codegen
+    // Fields, trace, and actions come from fjreflect codegen
     const auto* gen = fjell_find_generated(T::type_name);
     if (gen) {
         desc.fields = gen->fields;
         desc.field_count = gen->field_count;
         desc.trace = gen->trace;
+        desc.actions = gen->actions;
+        desc.action_count = gen->action_count;
     }
 
     fjell_reg_component(reg, &desc);

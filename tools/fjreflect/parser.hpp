@@ -27,10 +27,26 @@ struct FieldInfo {
     std::string bind_key;      // explicit key override (empty = use field name)
 };
 
+enum class ActionParamType : uint8_t {
+    none,          // void()
+    int_param,     // void(int)
+    float_param,   // void(float)
+    vec2_param,    // void(glm::vec2)
+};
+
+enum class ActionTriggerMode : uint8_t {
+    triggered,     // default: fires when action becomes active
+    pressed,       // button: fires on press
+    released,      // button: fires on release
+    completed,     // fires when action becomes inactive
+};
+
 struct ActionInfo {
     std::string name;          // action name (default = method name)
     std::string method_name;   // C++ method name
-    bool has_int_param{false}; // void(int) vs void()
+    ActionParamType param{ActionParamType::none};
+    ActionTriggerMode trigger{ActionTriggerMode::triggered};
+    bool has_int_param{false}; // backward compat (= param == int_param)
 };
 
 struct ComponentInfo {
