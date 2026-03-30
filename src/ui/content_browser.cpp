@@ -213,9 +213,6 @@ void ContentBrowser::draw() {
     }
     ImGui::End();
 
-    // Popups (drawn outside the window)
-    draw_context_menu();
-
     // Delete confirmation popup
     if (show_delete_confirm_) {
         ImGui::OpenPopup("Delete?");
@@ -676,10 +673,19 @@ void ContentBrowser::draw_file_grid() {
     }
 
     // Invisible drop zone covering remaining space — accepts hierarchy node drops
+    // Also handles right-click on empty space (since InvisibleButton eats hover,
+    // IsAnyItemHovered() is always true and the old empty-space check never fired).
     {
         ImVec2 avail = ImGui::GetContentRegionAvail();
         if (avail.y < 30.0f) avail.y = 30.0f; // minimum drop area
         ImGui::InvisibleButton("##preset_drop_zone", avail);
+
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            context_menu_index_ = -1;
+            selected_index_ = -1;
+            ImGui::OpenPopup("##CBContext");
+        }
+
         if (ImGui::BeginDragDropTarget()) {
             if (const auto* payload = ImGui::AcceptDragDropPayload("HIERARCHY_NODE")) {
                 uint32_t node_id = *static_cast<const uint32_t*>(payload->Data);
@@ -688,14 +694,6 @@ void ContentBrowser::draw_file_grid() {
             }
             ImGui::EndDragDropTarget();
         }
-    }
-
-    // Right-click on empty space
-    if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right) &&
-        !ImGui::IsAnyItemHovered()) {
-        context_menu_index_ = -1;
-        selected_index_ = -1;
-        ImGui::OpenPopup("##CBContext");
     }
 
     // Keyboard shortcuts
@@ -716,6 +714,9 @@ void ContentBrowser::draw_file_grid() {
             navigate_to(current_dir_.parent_path());
         }
     }
+
+    // Context menu must live in the same child window where OpenPopup is called
+    draw_context_menu();
 }
 
 void ContentBrowser::draw_context_menu() {
