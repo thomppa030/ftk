@@ -184,13 +184,6 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
                             reg << "extern \"C\" void " << t["trace_symbol"].get<std::string>()
                                 << "(void*, void*);\n";
                         }
-                        auto act_count = t.value("action_count", 0);
-                        if (act_count > 0) {
-                            reg << "extern \"C\" const FjellActionDesc fjreflect_"
-                                << name << "_actions[];\n";
-                            reg << "extern \"C\" const uint32_t fjreflect_"
-                                << name << "_action_count;\n";
-                        }
                     }
 
                     // Script component generated info table
@@ -206,13 +199,6 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
                                 reg << t["trace_symbol"].get<std::string>();
                             } else {
                                 reg << "nullptr";
-                            }
-                            auto act_count = t.value("action_count", 0);
-                            if (act_count > 0) {
-                                reg << ", fjreflect_" << name << "_actions, "
-                                    << act_count;
-                            } else {
-                                reg << ", nullptr, 0";
                             }
                             reg << "},\n";
                         }

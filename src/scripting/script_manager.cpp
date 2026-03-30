@@ -44,7 +44,8 @@ struct AssetTypeInfo {
 static constexpr AssetTypeInfo s_asset_types[] = {
     {"VfxAsset",   ".fjvfx",   "VFX Effect"},
     {"AudioAsset", ".fjaudio", "Audio Clip"},
-    {"Material",   ".fjmat",   "Material"},
+    {"Material",     ".fjmat",     "Material"},
+    {"InputAction",  ".fjaction",  "Input Action"},
 };
 
 static const AssetTypeInfo* find_asset_type(const std::string& ref_type_name) {
@@ -182,10 +183,6 @@ extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponent
     owned.loaded = true;
     for (uint32_t i = 0; i < desc->field_count; ++i) {
         owned.fields.push_back(fjell::copy_field(desc->fields[i]));
-    }
-    for (uint32_t i = 0; i < desc->action_count; ++i) {
-        const auto& a = desc->actions[i];
-        owned.actions.push_back({a.name, a.type, a.trigger, a.trampoline});
     }
     reg->scripts.push_back(std::move(owned));
 }
@@ -656,6 +653,8 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
                         path = s_resource_manager->asset_path_of(AudioAssetHandle{ref->handle_id});
                     } else if (f.ref_type_name == "Material") {
                         path = s_resource_manager->asset_path_of(MaterialHandle{ref->handle_id});
+                    } else if (f.ref_type_name == "InputAction") {
+                        path = s_resource_manager->asset_path_of(InputActionHandle{ref->handle_id});
                     }
                 }
                 out[f.name] = {{"asset_path", path}};
@@ -889,6 +888,8 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                             current_path = s_resource_manager->asset_path_of(AudioAssetHandle{ref->handle_id});
                         } else if (f.ref_type_name == "Material") {
                             current_path = s_resource_manager->asset_path_of(MaterialHandle{ref->handle_id});
+                        } else if (f.ref_type_name == "InputAction") {
+                            current_path = s_resource_manager->asset_path_of(InputActionHandle{ref->handle_id});
                         }
                     }
 
@@ -948,53 +949,6 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
     }
 }
 
-static void draw_action_bindings(ScriptEntry& entry, const OwnedScriptType& type) {
-    if (type.actions.empty()) return;
-
-    auto* iam = InputActionMap::instance();
-
-    ImGui::Spacing();
-    for (const auto& action : type.actions) {
-        ImGui::PushID(action.name.c_str());
-
-        // Current binding
-        auto it = entry.action_bindings.find(action.name);
-        std::string current = it != entry.action_bindings.end() ? it->second : "";
-
-        // Dropdown label
-        const char* preview = current.empty() ? "(none)" : current.c_str();
-        if (ImGui::BeginCombo(action.name.c_str(), preview)) {
-            // "(none)" option
-            if (ImGui::Selectable("(none)", current.empty())) {
-                entry.action_bindings.erase(action.name);
-            }
-
-            // List matching actions from InputActionMap
-            if (iam) {
-                for (const auto& [name, def] : iam->actions()) {
-                    // Filter by type match
-                    bool type_match = false;
-                    if (action.type == FJELL_ACTION_BUTTON && def.type == ActionType::button)
-                        type_match = true;
-                    else if (action.type == FJELL_ACTION_AXIS1D && def.type == ActionType::axis1d)
-                        type_match = true;
-                    else if (action.type == FJELL_ACTION_AXIS2D && def.type == ActionType::axis2d)
-                        type_match = true;
-
-                    if (!type_match) continue;
-
-                    bool selected = (current == name);
-                    if (ImGui::Selectable(name.c_str(), selected)) {
-                        entry.action_bindings[action.name] = name;
-                    }
-                }
-            }
-            ImGui::EndCombo();
-        }
-
-        ImGui::PopID();
-    }
-}
 
 void ScriptManager::draw_inspector(Node3D& obj) {
     std::string remove_name;
@@ -1014,7 +968,6 @@ void ScriptManager::draw_inspector(Node3D& obj) {
 
         if (open && comp.instance && ctype && ctype->loaded) {
             draw_fields_inspector(ctype->fields, comp.instance.get());
-            draw_action_bindings(comp, *ctype);
         } else if (open && (!ctype || !ctype->loaded)) {
             ImGui::TextDisabled("Script not loaded");
         }

@@ -103,65 +103,7 @@ static void write_generated_cpp(const ComponentInfo& comp,
             << "_action_count = " << comp.actions.size() << ";\n\n";
     }
 
-    // ScriptComponent input action trampolines (typed: void(), float, vec2)
-    if (!comp.is_ui_component && !comp.actions.empty()) {
-        out << "\n// ── Input action trampolines ──\n\n";
-        for (const auto& action : comp.actions) {
-            auto prefix = "fjreflect_" + comp.class_name + "_action_" + action.method_name;
-            switch (action.param) {
-                case fjreflect::ActionParamType::int_param:
-                    out << "static void " << prefix << "(void* self, int arg) {\n";
-                    out << "    static_cast<" << comp.qualified_name << "*>(self)->"
-                        << action.method_name << "(arg);\n";
-                    out << "}\n\n";
-                    break;
-                case fjreflect::ActionParamType::float_param:
-                    out << "static void " << prefix << "(void* self, float v) {\n";
-                    out << "    static_cast<" << comp.qualified_name << "*>(self)->"
-                        << action.method_name << "(v);\n";
-                    out << "}\n\n";
-                    break;
-                case fjreflect::ActionParamType::vec2_param:
-                    out << "static void " << prefix << "(void* self, float x, float y) {\n";
-                    out << "    static_cast<" << comp.qualified_name << "*>(self)->"
-                        << action.method_name << "({x, y});\n";
-                    out << "}\n\n";
-                    break;
-                default:
-                    out << "static void " << prefix << "(void* self) {\n";
-                    out << "    static_cast<" << comp.qualified_name << "*>(self)->"
-                        << action.method_name << "();\n";
-                    out << "}\n\n";
-                    break;
-            }
-        }
-
-        // FjellActionDesc table
-        out << "extern \"C\" const FjellActionDesc fjreflect_" << comp.class_name
-            << "_actions[] = {\n";
-        for (const auto& action : comp.actions) {
-            auto prefix = "fjreflect_" + comp.class_name + "_action_" + action.method_name;
-            const char* type_str = "FJELL_ACTION_BUTTON";
-            if (action.param == fjreflect::ActionParamType::float_param)
-                type_str = "FJELL_ACTION_AXIS1D";
-            else if (action.param == fjreflect::ActionParamType::vec2_param)
-                type_str = "FJELL_ACTION_AXIS2D";
-
-            const char* trigger_str = "FJELL_TRIGGER_TRIGGERED";
-            if (action.trigger == fjreflect::ActionTriggerMode::pressed)
-                trigger_str = "FJELL_TRIGGER_PRESSED";
-            else if (action.trigger == fjreflect::ActionTriggerMode::released)
-                trigger_str = "FJELL_TRIGGER_RELEASED";
-            else if (action.trigger == fjreflect::ActionTriggerMode::completed)
-                trigger_str = "FJELL_TRIGGER_COMPLETED";
-
-            out << "    {\"" << action.name << "\", " << type_str
-                << ", " << trigger_str << ", (void*)" << prefix << "},\n";
-        }
-        out << "};\n";
-        out << "extern \"C\" const uint32_t fjreflect_" << comp.class_name
-            << "_action_count = " << comp.actions.size() << ";\n\n";
-    }
+    // (ScriptComponent action trampolines removed — scripts now use InputAPI::bind() in begin_play)
 }
 
 static void write_verify_cpp(const ComponentInfo& comp,

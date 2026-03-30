@@ -6,6 +6,8 @@
 #include "core/input.hpp"
 #include "core/input_action_map.hpp"
 #include "core/input_component.hpp"
+
+extern "C" void fjell_input_clear_connections();
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
 #include "core/window.hpp"
@@ -513,11 +515,11 @@ void SceneEditorContext::start_play() {
         deps_.camera_subsystem->on_play_start(ctx);
         deps_.audio_subsystem->on_play_start(ctx);
         deps_.sprite_anim_subsystem->on_play_start(ctx);
+
+        // Load input contexts BEFORE scripts start (begin_play calls InputAPI::bind)
+        load_input_contexts();
+
         deps_.script_subsystem->on_play_start(ctx);
-
-        // Wire input actions: load contexts from InputComponent, connect [[fj::action]] delegates
-        wire_input_actions();
-
         deps_.ui_subsystem->on_play_start(ctx);
     }
 
@@ -527,12 +529,9 @@ void SceneEditorContext::start_play() {
     FJELL_CORE_INFO("Play mode started");
 }
 
-void SceneEditorContext::wire_input_actions() {
+void SceneEditorContext::load_input_contexts() {
     auto* iam = deps_.input_action_map;
     if (!iam) return;
-
-    auto& sm = deps_.script_subsystem->manager();
-    if (!sm.is_loaded()) return;
 
     for (const auto& obj : deps_.scene->objects()) {
         const auto* ic = obj->components.get<InputComponent>();
@@ -552,68 +551,12 @@ void SceneEditorContext::wire_input_actions() {
                 resolved = deps_.project_mgr->active()->resolve(ctx_path);
             }
             iam->load_context(resolved);
-            // Push by context name (extracted from JSON on load)
             auto fname = std::filesystem::path(ctx_path).stem().string();
             iam->push_context(fname);
         }
-
-        // Wire [[fj::action]] methods on scripts of this node
-        for (auto& script_entry : obj->scripts) {
-            if (!script_entry.instance) continue;
-
-            auto* script_type = sm.find_script_type(script_entry.type_name);
-            if (!script_type) continue;
-
-            auto* instance = script_entry.instance.get();
-
-            for (const auto& action_desc : script_type->actions) {
-                // Check if this method is bound to an input action
-                auto binding_it = script_entry.action_bindings.find(action_desc.name);
-                if (binding_it == script_entry.action_bindings.end()) continue;
-
-                const auto& action_name = binding_it->second;
-                auto* delegates = iam->delegates_for(action_name);
-                if (!delegates) continue;
-
-                // Connect based on action type and trigger mode
-                auto* inst = instance;
-                if (action_desc.type == FJELL_ACTION_AXIS1D) {
-                    auto fn = reinterpret_cast<void(*)(void*, float)>(action_desc.trampoline);
-                    input_action_connections_.push_back(
-                        delegates->on_axis1d.bind([fn, inst](float v) { fn(inst, v); }));
-                } else if (action_desc.type == FJELL_ACTION_AXIS2D) {
-                    auto fn = reinterpret_cast<void(*)(void*, float, float)>(action_desc.trampoline);
-                    input_action_connections_.push_back(
-                        delegates->on_axis2d.bind([fn, inst](glm::vec2 v) { fn(inst, v.x, v.y); }));
-                } else {
-                    // Button or void — connect based on trigger mode
-                    auto fn = reinterpret_cast<void(*)(void*)>(action_desc.trampoline);
-                    switch (action_desc.trigger) {
-                        case FJELL_TRIGGER_PRESSED:
-                            input_action_connections_.push_back(
-                                delegates->on_pressed.bind([fn, inst]() { fn(inst); }));
-                            break;
-                        case FJELL_TRIGGER_RELEASED:
-                            input_action_connections_.push_back(
-                                delegates->on_released.bind([fn, inst]() { fn(inst); }));
-                            break;
-                        case FJELL_TRIGGER_COMPLETED:
-                            input_action_connections_.push_back(
-                                delegates->on_completed.bind([fn, inst]() { fn(inst); }));
-                            break;
-                        default: // FJELL_TRIGGER_TRIGGERED
-                            input_action_connections_.push_back(
-                                delegates->on_triggered.bind([fn, inst]() { fn(inst); }));
-                            break;
-                    }
-                }
-
-                FJELL_CORE_INFO("Input: wired {}.{} -> action '{}'",
-                                script_entry.type_name, action_desc.name, action_name);
-            }
-        }
     }
 }
+
 
 void SceneEditorContext::stop_play() {
     if (deps_.game_mode) {
@@ -631,7 +574,7 @@ void SceneEditorContext::stop_play() {
         .vfx = nullptr,
         .project = deps_.project_mgr->active(),
     };
-    input_action_connections_.clear();
+    fjell_input_clear_connections();
     deps_.ui_subsystem->on_play_stop(ctx);
     deps_.camera_subsystem->on_play_stop(ctx);
     deps_.audio_subsystem->on_play_stop(ctx);

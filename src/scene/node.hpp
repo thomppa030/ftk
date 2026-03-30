@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -22,7 +21,6 @@ struct ScriptEntry {
     std::unique_ptr<ScriptComponent> instance;
     std::string type_name;
     nlohmann::json serialized;
-    std::unordered_map<std::string, std::string> action_bindings; // method → action name
 
     ScriptEntry();
     ~ScriptEntry();

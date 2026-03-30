@@ -43,19 +43,11 @@ struct OwnedFieldDesc {
     std::string ref_type_name;  // for WEAK_REF/REF/SHARED_REF: target type name
 };
 
-struct OwnedActionDesc {
-    std::string name;
-    FjellActionType type;
-    FjellActionTrigger trigger{FJELL_TRIGGER_TRIGGERED};
-    void* trampoline{nullptr};
-};
-
 struct OwnedScriptType {
     std::string name;
     uint32_t type_id;
     ScriptComponent* (*create)();
     std::vector<OwnedFieldDesc> fields;
-    std::vector<OwnedActionDesc> actions;
     void (*trace)(void* instance, void* visitor){nullptr};
     bool loaded{true};
 };

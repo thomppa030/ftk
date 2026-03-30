@@ -245,9 +245,6 @@ nlohmann::json serialize_node(const Node& node) {
             nlohmann::json jcomp;
             jcomp["type"] = comp.type_name;
             jcomp["data"] = comp.serialized;
-            if (!comp.action_bindings.empty()) {
-                jcomp["action_bindings"] = comp.action_bindings;
-            }
             j["components"].push_back(jcomp);
         }
     }
@@ -545,11 +542,6 @@ static void load_components(Node& node, const nlohmann::json& j,
             comp.type_name = jcomp.value("type", "");
             if (jcomp.contains("data")) {
                 comp.serialized = jcomp["data"];
-            }
-            if (jcomp.contains("action_bindings") && jcomp["action_bindings"].is_object()) {
-                for (auto& [key, val] : jcomp["action_bindings"].items()) {
-                    comp.action_bindings[key] = val.get<std::string>();
-                }
             }
             node.scripts.push_back(std::move(comp));
         }

@@ -1,5 +1,10 @@
 #include "renderer/resource_manager.hpp"
+#include "core/log.hpp"
 #include "renderer/bindless.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include <fstream>
 #include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
 #include "renderer/material_asset.hpp"
@@ -582,6 +587,38 @@ AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {
     return audio_assets_.get(handle);
 }
 
+// ── Input action assets ──────────────────────────────────────────────────
+
+Result<InputActionHandle> ResourceManager::load_input_action(const std::string& path) {
+    auto it = input_actions_.name_to_handle.find(path);
+    if (it != input_actions_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        return make_error("Cannot open " + path);
+    }
+
+    auto j = nlohmann::json::parse(f, nullptr, false);
+    if (!j.is_object()) {
+        return make_error("Invalid JSON in " + path);
+    }
+
+    auto def = std::make_unique<InputActionDef>();
+    def->name = j.value("name", "");
+    auto type_str = j.value("type", "button");
+    if (type_str == "axis1d") def->type = ActionType::axis1d;
+    else if (type_str == "axis2d") def->type = ActionType::axis2d;
+    else def->type = ActionType::button;
+
+    return input_actions_.insert(path, std::move(def));
+}
+
+InputActionDef* ResourceManager::get(InputActionHandle handle) const {
+    return input_actions_.get(handle);
+}
+
 // ── Generic asset loading ────────────────────────────────────────────────
 
 Result<uint32_t> ResourceManager::load_asset_by_type(const std::string& type_name,
@@ -601,6 +638,11 @@ Result<uint32_t> ResourceManager::load_asset_by_type(const std::string& type_nam
         if (!r) return make_error(r.error());
         return r->id;
     }
+    if (type_name == "InputAction") {
+        auto r = load_input_action(path);
+        if (!r) return make_error(r.error());
+        return r->id;
+    }
     return make_error("Unknown asset type: " + type_name);
 }
 
@@ -614,6 +656,10 @@ std::string ResourceManager::asset_path_of(AudioAssetHandle handle) const {
 
 std::string ResourceManager::asset_path_of(MaterialHandle handle) const {
     return materials_.path_of(handle);
+}
+
+std::string ResourceManager::asset_path_of(InputActionHandle handle) const {
+    return input_actions_.path_of(handle);
 }
 
 } // namespace fjell

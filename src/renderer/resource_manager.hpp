@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/input_action.hpp"
 #include "core/result.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/skeletal_model.hpp"
@@ -83,6 +84,9 @@ public:
     // Audio assets (.fjaudio)
     Result<AudioAssetHandle> load_audio_asset(const std::string& path);
 
+    // Input action assets (.fjaction)
+    Result<InputActionHandle> load_input_action(const std::string& path);
+
     // Generic asset loading by ref_type_name (for inspector picker)
     // Returns raw handle id (0 on failure). Caller must cast to the right Handle type.
     Result<uint32_t> load_asset_by_type(const std::string& type_name, const std::string& path);
@@ -91,6 +95,7 @@ public:
     [[nodiscard]] std::string asset_path_of(VfxAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(AudioAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(MaterialHandle handle) const;
+    [[nodiscard]] std::string asset_path_of(InputActionHandle handle) const;
 
     [[nodiscard]] Model* get(ModelHandle handle) const;
     [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;
@@ -98,6 +103,7 @@ public:
     [[nodiscard]] Material* get(MaterialHandle handle) const;
     [[nodiscard]] VfxAsset* get(VfxAssetHandle handle) const;
     [[nodiscard]] AudioAsset* get(AudioAssetHandle handle) const;
+    [[nodiscard]] InputActionDef* get(InputActionHandle handle) const;
 
     [[nodiscard]] MaterialHandle find_material(const std::string& name) const;
 
@@ -161,6 +167,7 @@ private:
     Pool<Material, MaterialHandle> materials_;
     Pool<VfxAsset, VfxAssetHandle> vfx_assets_;
     Pool<AudioAsset, AudioAssetHandle> audio_assets_;
+    Pool<InputActionDef, InputActionHandle> input_actions_;
 
     // Maps texture pool slot index → bindless texture index
     std::unordered_map<uint32_t, uint32_t> texture_to_bindless_;

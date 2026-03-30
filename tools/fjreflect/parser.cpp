@@ -260,9 +260,10 @@ ParseResult parse_file(const std::string& filepath) {
 
             auto trimmed = trim(ln);
 
-            // Check for [[fj::action]] on void methods before skipping
+            // Check for [[fj::action]] on void methods (UI widgets only for codegen)
             auto attrs_early = extract_fj_attrs(ln);
-            if (!attrs_early.empty() && attrs_early.find("fj::action") != std::string::npos) {
+            if (!attrs_early.empty() && attrs_early.find("fj::action") != std::string::npos
+                && comp.is_ui_component) {
                 // Parse action: [[fj::action]] void method_name(int param) { ... }
                 // or [[fj::action]] on its own line, method on next
                 auto action_line = trimmed;

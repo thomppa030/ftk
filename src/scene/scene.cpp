@@ -70,7 +70,6 @@ void Node::clone_base_into(Node& target) const {
         ScriptEntry entry;
         entry.type_name = s.type_name;
         entry.serialized = s.serialized;
-        entry.action_bindings = s.action_bindings;
         target.scripts.push_back(std::move(entry));
     }
     if (const auto* rb = components.get<RigidbodyComponent>()) {

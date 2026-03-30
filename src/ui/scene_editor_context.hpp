@@ -84,7 +84,7 @@ public:
 
     void start_play();
     void stop_play();
-    void wire_input_actions();
+    void load_input_contexts();
     [[nodiscard]] bool play_wants_stop() const;
 
     // Viewport render requests
@@ -137,7 +137,6 @@ private:
     int gizmo_op_{0};
     int focus_viewport_frames_{0}; // countdown: focus viewport after N frames
     std::unique_ptr<PlaySession> play_session_;
-    std::vector<Connection> input_action_connections_;
 
     // Delegate connections (context-level bindings)
     std::vector<Connection> connections_;
