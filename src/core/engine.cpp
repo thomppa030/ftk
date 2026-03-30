@@ -8,6 +8,7 @@
 #include "animation/animation_subsystem.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"
+#include "renderer/sprite_anim_subsystem.hpp"
 #include "renderer/vfx_subsystem.hpp"
 #include "scripting/script_subsystem.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
@@ -83,10 +84,12 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     script_subsystem_    = add_subsystem<ScriptSubsystem>();
     physics_subsystem_   = add_subsystem<PhysicsSubsystem>();
     vfx_subsystem_       = add_subsystem<VfxSubsystem>();
+    sprite_anim_subsystem_ = add_subsystem<SpriteAnimSubsystem>();
     camera_subsystem_    = add_subsystem<CameraSubsystem>();
 
     // Phase groups
     play_phase_0_.push_back(script_subsystem_);
+    play_phase_0_.push_back(sprite_anim_subsystem_);
     play_phase_0_.push_back(camera_subsystem_);
     play_phase_1_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
@@ -211,6 +214,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
+    sprite_anim_subsystem_->set_resource_manager(resource_manager_.get());
     ScriptManager::set_input(&input_);
     ScriptManager::set_resource_manager(resource_manager_.get());
     ScriptManager::set_active_project(project_mgr_.active());
@@ -377,6 +381,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             .audio_subsystem = audio_subsystem_,
             .camera_subsystem = camera_subsystem_,
             .vfx_subsystem = vfx_subsystem_,
+            .sprite_anim_subsystem = sprite_anim_subsystem_,
             .project_mgr = &project_mgr_,
             .icon_cache = icon_cache_.get(),
             .light = &light_,
@@ -1040,7 +1045,7 @@ void Engine::run() {
         Scene* render_scene = active_context().render_scene();
         if (!render_scene) render_scene = &scene_;
 
-        vulkan_context_->sync_sprite_textures(*render_scene, *resource_manager_);
+        vulkan_context_->sync_sprite_textures(*render_scene, *resource_manager_, project_mgr_.active());
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
 
         // Render scene viewports (render-to-texture, must complete before main frame)

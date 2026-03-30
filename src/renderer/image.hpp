@@ -28,6 +28,8 @@ public:
 
     [[nodiscard]] VkImage handle() const { return image_; }
     [[nodiscard]] VkImageView view() const { return view_; }
+    [[nodiscard]] uint32_t width() const { return width_; }
+    [[nodiscard]] uint32_t height() const { return height_; }
 
     void create_view(VkFormat format, VkImageAspectFlags aspect, uint32_t mip_levels = 1);
 
@@ -36,6 +38,8 @@ private:
     VkImage image_{VK_NULL_HANDLE};
     VkDeviceMemory memory_{VK_NULL_HANDLE};
     VkImageView view_{VK_NULL_HANDLE};
+    uint32_t width_{0};
+    uint32_t height_{0};
 };
 
 } // namespace fjell

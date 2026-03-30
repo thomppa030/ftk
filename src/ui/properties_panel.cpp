@@ -12,6 +12,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/scene.hpp"
+#include "renderer/sprite_anim_component.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "physics/physics_types.hpp"
@@ -373,8 +374,75 @@ void PropertiesPanel::draw() {
                     ImGui::SetNextItemWidth(-1);
                     if (ImGui::DragFloat("##SpriteOpacity", &sp->opacity, 0.01f, 0.0f, 1.0f)) scene_->mark_dirty();
 
+                    if (ImGui::Checkbox("Flat (2D)", &sp->flat)) scene_->mark_dirty();
+                    ImGui::SameLine();
+                    if (ImGui::Checkbox("Flip H", &sp->flip_h)) scene_->mark_dirty();
+                    ImGui::SameLine();
+                    if (ImGui::Checkbox("Pixel Art", &sp->pixel_art)) {
+                        sp->texture_loaded = false; // re-load with correct sampler
+                        scene_->mark_dirty();
+                    }
+
+                    ImGui::Text("Sort Layer / Order");
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
+                    if (ImGui::DragInt("##SpriteLayer", &sp->sort_layer, 1.0f)) scene_->mark_dirty();
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragInt("##SpriteOrder", &sp->sort_order, 1.0f)) scene_->mark_dirty();
+
                     if (remove_button("Remove Sprite")) {
                         obj->components.remove<SpriteComponent>();
+                        scene_->mark_dirty();
+                    }
+                }
+            }
+
+            // Sprite Animation
+            if (auto* sa = obj->components.get<SpriteAnimComponent>()) {
+                colored_separator({0.40f, 0.75f, 0.60f, 1.0f});
+                if (ImGui::CollapsingHeader("Sprite Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    // Animation entries
+                    for (auto& [name, path] : sa->animations) {
+                        std::string label = "##SpriteAnim_" + name;
+                        if (asset_path_field(name.c_str(), label.c_str(), path)) {
+                            sa->sheets_loaded = false;
+                            scene_->mark_dirty();
+                        }
+                    }
+
+                    // Add new animation entry
+                    static char new_anim_name[64] = "";
+                    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
+                    ImGui::InputText("##NewAnimName", new_anim_name, sizeof(new_anim_name));
+                    ImGui::SameLine();
+                    if (ImGui::Button("Add Animation") && new_anim_name[0] != '\0') {
+                        sa->animations[new_anim_name] = "";
+                        sa->sheets_loaded = false;
+                        scene_->mark_dirty();
+                        new_anim_name[0] = '\0';
+                    }
+
+                    // Default animation
+                    ImGui::Text("Default");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(-1);
+                    char def_buf[128];
+                    std::strncpy(def_buf, sa->default_animation.c_str(), sizeof(def_buf) - 1);
+                    def_buf[sizeof(def_buf) - 1] = '\0';
+                    if (ImGui::InputText("##SpriteAnimDefault", def_buf, sizeof(def_buf))) {
+                        if (ImGui::IsItemDeactivatedAfterEdit()) {
+                            sa->default_animation = def_buf;
+                            scene_->mark_dirty();
+                        }
+                    }
+
+                    ImGui::Text("Playback Speed");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##SpriteAnimSpeed", &sa->playback_speed, 0.01f, 0.0f, 10.0f))
+                        scene_->mark_dirty();
+
+                    if (remove_button("Remove Sprite Animation")) {
+                        obj->components.remove<SpriteAnimComponent>();
                         scene_->mark_dirty();
                     }
                 }
@@ -623,6 +691,10 @@ void PropertiesPanel::draw() {
                 }
                 if (!obj->components.has<SpriteComponent>() && ImGui::MenuItem("Sprite")) {
                     obj->components.add<SpriteComponent>();
+                    scene_->mark_dirty();
+                }
+                if (!obj->components.has<SpriteAnimComponent>() && ImGui::MenuItem("Sprite Animation")) {
+                    obj->components.add<SpriteAnimComponent>();
                     scene_->mark_dirty();
                 }
                 if (!obj->components.has<AudioSourceComponent>() && ImGui::MenuItem("Audio Source")) {

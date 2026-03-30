@@ -8,6 +8,7 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "core/project.hpp"
 #include "scene/scene.hpp"
 
 #include <algorithm>
@@ -209,7 +210,7 @@ void SpriteRenderer::destroy() {
     safe_destroy(sprite_set_layout_, vkDestroyDescriptorSetLayout);
 }
 
-void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources) {
+void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources, const Project* project) {
     FJELL_PROFILE_SCOPE_N("sprite_sync_textures");
     for (auto& obj : scene.objects()) {
         auto* sprite_ptr = obj->components.get<SpriteComponent>();
@@ -218,10 +219,12 @@ void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources) {
         auto& sprite = *sprite_ptr;
         if (sprite.texture_path.empty()) continue;
 
-        std::string resolved = base_path::resolve_asset(sprite.texture_path, nullptr);
+        std::string resolved = base_path::resolve_asset(sprite.texture_path, project);
         if (!std::filesystem::exists(resolved)) continue;
 
-        auto tex_result = resources.load_texture(resolved);
+        auto tex_result = sprite.pixel_art
+            ? resources.load_texture_nearest(resolved)
+            : resources.load_texture(resolved);
         if (tex_result) {
             sprite.texture_index = resources.bindless_index(*tex_result);
             sprite.texture_loaded = true;
@@ -262,22 +265,34 @@ void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection
 
         GpuSprite gs{};
         gs.position = pos;
+        gs.flags = 0;
+        if (sprite.flat)   gs.flags |= 1u;
+        if (sprite.flip_h) gs.flags |= 2u;
         gs.size = half_size;
         gs.texture_index = sprite.texture_index;
         gs.opacity = sprite.opacity;
         gs.tint = sprite.tint;
+        gs.uv_rect = sprite.uv_rect;
 
         uint32_t idx = static_cast<uint32_t>(sprites.size());
         sprites.push_back(gs);
 
         glm::vec3 diff = camera_position - pos;
         float dist_sq = glm::dot(diff, diff);
-        sort_entries.push_back({dist_sq, idx});
+        sort_entries.push_back({sprite.sort_layer, sprite.sort_order,
+                                pos.y, dist_sq, idx, sprite.flat});
     }
 
-    // Sort back-to-front for correct alpha blending
+    // Sort: by layer first, then sub-order, then Y position (flat) or distance (billboard)
     std::sort(sort_entries.begin(), sort_entries.end(),
-              [](const SortEntry& a, const SortEntry& b) { return a.distance > b.distance; });
+              [](const SortEntry& a, const SortEntry& b) {
+                  if (a.sort_layer != b.sort_layer) return a.sort_layer < b.sort_layer;
+                  if (a.sort_order != b.sort_order) return a.sort_order < b.sort_order;
+                  // Flat sprites: lower Y draws first (behind) for top-down
+                  if (a.flat && b.flat) return a.y_position > b.y_position;
+                  // Billboard sprites: back-to-front by distance
+                  return a.distance > b.distance;
+              });
 
     // Write sorted sprites to SSBO
     uint32_t count = std::min(static_cast<uint32_t>(sort_entries.size()), MAX_SPRITES);

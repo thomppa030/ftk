@@ -11,7 +11,7 @@ Image::Image(VkDevice device, VkPhysicalDevice physical_device,
              uint32_t width, uint32_t height, VkFormat format,
              VkImageTiling tiling, VkImageUsageFlags usage,
              VkMemoryPropertyFlags properties, uint32_t mip_levels)
-    : device_{device} {
+    : device_{device}, width_{width}, height_{height} {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;

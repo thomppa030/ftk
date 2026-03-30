@@ -24,7 +24,8 @@ public:
   void destroy();
 
   // Resolve texture paths to bindless indices
-  void sync_textures(Scene &scene, ResourceManager &resources);
+  void sync_textures(Scene &scene, ResourceManager &resources,
+                     const class Project *project = nullptr);
 
   // Gather sprites, sort back-to-front, upload SSBO
   void update(const Scene &scene, const glm::mat4 &view_projection,
@@ -37,13 +38,14 @@ public:
 private:
   struct GpuSprite {
     glm::vec3 position;     // 12
-    float pad0;             // 4
+    uint32_t flags;         // 4  (bit 0: flat, bit 1: flip_h)
     glm::vec2 size;         // 8
     uint32_t texture_index; // 4
     float opacity;          // 4
     glm::vec4 tint;         // 16
+    glm::vec4 uv_rect;     // 16 {u_min, v_min, u_max, v_max}
   };
-  static_assert(sizeof(GpuSprite) == 48);
+  static_assert(sizeof(GpuSprite) == 64);
 
   VkDevice device_{VK_NULL_HANDLE};
   VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
@@ -73,8 +75,12 @@ private:
 
   // Reusable per-frame scratch (avoid heap allocs every frame)
   struct SortEntry {
-    float distance;
+    int32_t sort_layer;
+    int32_t sort_order;
+    float y_position;   // for top-down depth (lower Y = in front)
+    float distance;     // for billboard distance sort
     uint32_t index;
+    bool flat;
   };
   std::vector<GpuSprite> sprites_scratch_;
   std::vector<SortEntry> sort_scratch_;

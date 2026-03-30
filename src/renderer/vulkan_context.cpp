@@ -218,8 +218,8 @@ VulkanContext::~VulkanContext() {
     // command pools, descriptors, sync objects, mega_buffer, pipelines, etc.
 }
 
-void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources) {
-    sprite_renderer_.sync_textures(scene, resources);
+void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources, const Project* project) {
+    sprite_renderer_.sync_textures(scene, resources, project);
 }
 
 // ── Pass registration ────────────────────────────────────────────────────
@@ -732,14 +732,13 @@ void VulkanContext::register_passes() {
                 VkRenderingAttachmentInfo depth_attachment{};
                 depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
                 depth_attachment.imageView = target->msaa_depth_view();
-                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
                 depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
 
                 if (msaa) {
-                    depth_attachment.resolveImageView = target->depth_view();
-                    depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-                    depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+                    depth_attachment.resolveImageView = VK_NULL_HANDLE;
+                    depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
                 }
 
                 VkRenderingInfo ri{};
@@ -782,8 +781,8 @@ void VulkanContext::register_passes() {
                 {imgs.color_id, ImageUsage::color_attachment},
                 {imgs.msaa_mr_id, ImageUsage::color_attachment},
                 {imgs.mr_id, ImageUsage::color_attachment},
-                {imgs.msaa_depth_id, ImageUsage::depth_attachment_read},
-                {imgs.depth_id, ImageUsage::depth_attachment},
+                {imgs.msaa_depth_id, ImageUsage::shader_read},
+                {imgs.depth_id, ImageUsage::shader_read},
                 {imgs.screen_color_id, ImageUsage::shader_read}});
         }
     });

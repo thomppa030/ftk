@@ -210,6 +210,25 @@ Result<TextureHandle> ResourceManager::load_texture(const std::string& path) {
     }
 }
 
+Result<TextureHandle> ResourceManager::load_texture_nearest(const std::string& path) {
+    // Use a distinct cache key so the same image can be loaded with different samplers
+    std::string key = path + "?nearest";
+    auto it = textures_.name_to_handle.find(key);
+    if (it != textures_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    try {
+        auto texture = std::make_unique<Texture>(device_, physical_device_, command_pool_, queue_, path, true);
+        uint32_t bindless_idx = bindless_.add(*texture);
+        auto handle = textures_.insert(key, std::move(texture));
+        texture_to_bindless_[handle.index()] = bindless_idx;
+        return handle;
+    } catch (const std::exception& e) {
+        return make_error("Failed to load texture (nearest) '" + path + "': " + e.what());
+    }
+}
+
 MaterialHandle ResourceManager::create_material(const std::string& name,
                                                  TextureHandle base_color,
                                                  TextureHandle normal_map,

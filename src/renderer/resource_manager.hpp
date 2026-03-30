@@ -43,6 +43,7 @@ public:
     Result<ModelHandle> load_model(const std::string& path);
     Result<ModelHandle> create_primitive(const std::string& type);
     Result<TextureHandle> load_texture(const std::string& path);
+    Result<TextureHandle> load_texture_nearest(const std::string& path);
 
     // Async loading support
     [[nodiscard]] ModelHandle find_model(const std::string& path) const;

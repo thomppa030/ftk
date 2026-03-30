@@ -48,6 +48,7 @@
 
 namespace fjell {
 
+class Project;
 class Scene;
 class Input;
 class ResourceManager;
@@ -63,7 +64,7 @@ public:
   VulkanContext(VulkanContext &&) = delete;
   VulkanContext &operator=(VulkanContext &&) = delete;
 
-  void sync_sprite_textures(Scene &scene, ResourceManager &resources);
+  void sync_sprite_textures(Scene &scene, ResourceManager &resources, const Project *project = nullptr);
 
   /// Submit the previously recorded frame and present it.
   /// No-op on the first call (nothing recorded yet).

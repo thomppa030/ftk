@@ -72,6 +72,8 @@ add_executable(fjell
     renderer/particle_system.cpp
     renderer/vfx_subsystem.cpp
     renderer/sprite_renderer.cpp
+    renderer/sprite_sheet.cpp
+    renderer/sprite_anim_subsystem.cpp
     renderer/pass/bloom_pass.cpp
     renderer/pass/cull_pass.cpp
     renderer/pass/cull_viz_pass.cpp

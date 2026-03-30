@@ -14,6 +14,7 @@
 #include "renderer/vfx_asset.hpp"
 #include "renderer/vfx_emitter.hpp"
 #include "renderer/skeletal_mesh_component.hpp"
+#include "renderer/sprite_anim_component.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
@@ -134,12 +135,33 @@ nlohmann::json serialize_node(const Node& node) {
 
     // Sprite
     if (const auto* sp = node.components.get<SpriteComponent>()) {
-        j["sprite"] = {
+        auto jsp = nlohmann::json{
             {"texture", sp->texture_path},
             {"tint", {sp->tint.r, sp->tint.g, sp->tint.b, sp->tint.a}},
             {"opacity", sp->opacity},
             {"editor_only", sp->editor_only}
         };
+        if (sp->uv_rect != glm::vec4(0, 0, 1, 1))
+            jsp["uv_rect"] = {sp->uv_rect.x, sp->uv_rect.y, sp->uv_rect.z, sp->uv_rect.w};
+        if (sp->flip_h)      jsp["flip_h"] = true;
+        if (sp->flat)         jsp["flat"] = true;
+        if (sp->pixel_art)    jsp["pixel_art"] = true;
+        if (sp->sort_layer != 0) jsp["sort_layer"] = sp->sort_layer;
+        if (sp->sort_order != 0) jsp["sort_order"] = sp->sort_order;
+        j["sprite"] = jsp;
+    }
+
+    // Sprite animation
+    if (const auto* sa = node.components.get<SpriteAnimComponent>()) {
+        nlohmann::json jsa;
+        nlohmann::json anims;
+        for (auto& [name, path] : sa->animations) {
+            anims[name] = path;
+        }
+        jsa["animations"] = anims;
+        if (!sa->default_animation.empty()) jsa["default"] = sa->default_animation;
+        if (sa->playback_speed != 1.0f) jsa["playback_speed"] = sa->playback_speed;
+        j["sprite_anim"] = jsa;
     }
 
     // Audio
@@ -377,8 +399,29 @@ static void load_components(Node& node, const nlohmann::json& j,
             auto& t = jsp["tint"];
             sp.tint = {t[0].get<float>(), t[1].get<float>(), t[2].get<float>(), t[3].get<float>()};
         }
+        if (jsp.contains("uv_rect")) {
+            auto& u = jsp["uv_rect"];
+            sp.uv_rect = {u[0].get<float>(), u[1].get<float>(), u[2].get<float>(), u[3].get<float>()};
+        }
         sp.opacity = jsp.value("opacity", 1.0f);
         sp.editor_only = jsp.value("editor_only", false);
+        sp.flip_h = jsp.value("flip_h", false);
+        sp.flat = jsp.value("flat", false);
+        sp.pixel_art = jsp.value("pixel_art", false);
+        sp.sort_layer = jsp.value("sort_layer", 0);
+        sp.sort_order = jsp.value("sort_order", 0);
+    }
+
+    if (j.contains("sprite_anim")) {
+        auto& jsa = j["sprite_anim"];
+        auto& sa = node.components.add<SpriteAnimComponent>();
+        if (jsa.contains("animations")) {
+            for (auto& [name, path] : jsa["animations"].items()) {
+                sa.animations[name] = path.get<std::string>();
+            }
+        }
+        sa.default_animation = jsa.value("default", "");
+        sa.playback_speed = jsa.value("playback_speed", 1.0f);
     }
 
     if (j.contains("audio")) {

@@ -27,6 +27,7 @@ class Input;
 class PhysicsSubsystem;
 class ProjectManager;
 class ResourceManager;
+class SpriteAnimSubsystem;
 class ScriptSubsystem;
 class ThreadPool;
 class UiSubsystem;
@@ -47,6 +48,7 @@ struct SceneEditorDeps {
     AudioSubsystem* audio_subsystem;
     CameraSubsystem* camera_subsystem;
     VfxSubsystem* vfx_subsystem;
+    SpriteAnimSubsystem* sprite_anim_subsystem;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
     DirectionalLight* light;

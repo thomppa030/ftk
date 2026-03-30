@@ -46,6 +46,7 @@ class SceneEditorContext;
 class CameraSubsystem;
 class ScriptSubsystem;
 class UiSubsystem;
+class SpriteAnimSubsystem;
 class VfxSubsystem;
 class VulkanContext;
 
@@ -110,6 +111,7 @@ private:
     ScriptSubsystem*    script_subsystem_{};
     PhysicsSubsystem*   physics_subsystem_{};
     VfxSubsystem*       vfx_subsystem_{};
+    SpriteAnimSubsystem* sprite_anim_subsystem_{};
     CameraSubsystem*    camera_subsystem_{};
     UiSubsystem*        ui_subsystem_{};
 

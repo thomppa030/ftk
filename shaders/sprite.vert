@@ -15,11 +15,12 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
 
 struct Sprite {
     vec3  position;
-    float pad0;
+    uint  flags;
     vec2  size;
     uint  texture_index;
     float opacity;
     vec4  tint;
+    vec4  uv_rect;
 };
 
 layout(std430, set = 2, binding = 0) readonly buffer SpriteBuffer {
@@ -37,29 +38,41 @@ void main() {
 
     Sprite s = sprites[sprite_index];
 
-    // Two triangles forming a quad (same winding as particle shader)
+    // Two triangles forming a quad
     vec2 offsets[6] = vec2[](
         vec2(-1, -1), vec2( 1, -1), vec2(-1,  1),
         vec2(-1,  1), vec2( 1, -1), vec2( 1,  1)
     );
     vec2 uvs[6] = vec2[](
-        vec2(0, 0), vec2(1, 0), vec2(0, 1),
-        vec2(0, 1), vec2(1, 0), vec2(1, 1)
+        vec2(0, 1), vec2(1, 1), vec2(0, 0),
+        vec2(0, 0), vec2(1, 1), vec2(1, 0)
     );
 
     vec2 offset = offsets[corner] * s.size;
-    frag_uv = uvs[corner];
+    vec2 base_uv = uvs[corner];
+
+    // UV sub-region mapping
+    frag_uv = mix(s.uv_rect.xy, s.uv_rect.zw, base_uv);
+
+    // Horizontal flip
+    if ((s.flags & 2u) != 0u) {
+        frag_uv.x = s.uv_rect.x + s.uv_rect.z - frag_uv.x;
+    }
+
     frag_tex_index = s.texture_index;
     frag_opacity = s.opacity;
     frag_tint = s.tint;
 
-    // Camera-facing billboard
-    vec3 camera_right = vec3(ubo.view[0][0], ubo.view[1][0], ubo.view[2][0]);
-    vec3 camera_up    = vec3(ubo.view[0][1], ubo.view[1][1], ubo.view[2][1]);
-
-    vec3 world_pos = s.position
-        + camera_right * offset.x
-        + camera_up * offset.y;
+    vec3 world_pos;
+    if ((s.flags & 1u) != 0u) {
+        // Flat mode: quad in XY plane (for 2D top-down)
+        world_pos = s.position + vec3(offset.x, offset.y, 0.0);
+    } else {
+        // Billboard mode: camera-facing quad
+        vec3 camera_right = vec3(ubo.view[0][0], ubo.view[1][0], ubo.view[2][0]);
+        vec3 camera_up    = vec3(ubo.view[0][1], ubo.view[1][1], ubo.view[2][1]);
+        world_pos = s.position + camera_right * offset.x + camera_up * offset.y;
+    }
 
     gl_Position = ubo.projection * ubo.view * vec4(world_pos, 1.0);
 }

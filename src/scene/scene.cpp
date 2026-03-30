@@ -12,6 +12,7 @@
 #include "renderer/vfx_asset.hpp"
 #include "renderer/vfx_emitter.hpp"
 #include "renderer/skeletal_mesh_component.hpp"
+#include "renderer/sprite_anim_component.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
@@ -80,6 +81,12 @@ void Node::clone_base_into(Node& target) const {
     }
     if (const auto* sp = components.get<SpriteComponent>()) {
         target.components.add<SpriteComponent>(*sp);
+    }
+    if (const auto* sa = components.get<SpriteAnimComponent>()) {
+        auto& copy = target.components.add<SpriteAnimComponent>();
+        copy.animations = sa->animations;
+        copy.default_animation = sa->default_animation;
+        copy.playback_speed = sa->playback_speed;
     }
     if (const auto* arr = components.get<ArrowComponent>()) {
         target.components.add<ArrowComponent>(*arr);

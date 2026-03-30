@@ -12,6 +12,7 @@
 #include "animation/skeleton.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"
+#include "renderer/sprite_anim_subsystem.hpp"
 #include "scene/camera_subsystem.hpp"
 #include "physics/physics_world.hpp"
 #include "renderer/arrow_component.hpp"
@@ -509,6 +510,7 @@ void SceneEditorContext::start_play() {
         };
         deps_.camera_subsystem->on_play_start(ctx);
         deps_.audio_subsystem->on_play_start(ctx);
+        deps_.sprite_anim_subsystem->on_play_start(ctx);
         deps_.script_subsystem->on_play_start(ctx);
         deps_.ui_subsystem->on_play_start(ctx);
     }

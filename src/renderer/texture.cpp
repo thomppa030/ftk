@@ -12,7 +12,7 @@ namespace fjell {
 
 Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
                  VkCommandPool command_pool, VkQueue queue,
-                 const std::string& path)
+                 const std::string& path, bool nearest)
     : device_{device} {
     int width, height, channels;
     stbi_uc* pixels = stbi_load(path.c_str(), &width, &height, &channels, STBI_rgb_alpha);
@@ -20,19 +20,23 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
         throw std::runtime_error("Failed to load texture: " + path);
     }
 
+    // Pixel art: no mipmaps, nearest filter, clamp to edge
+    uint32_t mip = nearest ? 1 : 0;
+    bool clamp = nearest;
     upload(physical_device, command_pool, queue, pixels,
-           static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+           static_cast<uint32_t>(width), static_cast<uint32_t>(height),
+           VK_FORMAT_R8G8B8A8_SRGB, mip, clamp, nearest);
     stbi_image_free(pixels);
 
-    FJELL_GFX_DEBUG("Texture loaded from file: {}x{}", width, height);
+    FJELL_GFX_DEBUG("Texture loaded from file: {}x{} nearest={}", width, height, nearest);
 }
 
 Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
                  VkCommandPool command_pool, VkQueue queue,
                  const uint8_t* pixels, uint32_t width, uint32_t height,
-                 VkFormat format, uint32_t mip_levels, bool clamp_to_edge)
+                 VkFormat format, uint32_t mip_levels, bool clamp_to_edge, bool nearest)
     : device_{device} {
-    upload(physical_device, command_pool, queue, pixels, width, height, format, mip_levels, clamp_to_edge);
+    upload(physical_device, command_pool, queue, pixels, width, height, format, mip_levels, clamp_to_edge, nearest);
 
     FJELL_GFX_DEBUG("Texture loaded from memory: {}x{}", width, height);
 }
@@ -45,7 +49,8 @@ Texture::~Texture() {
 
 void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_pool,
                      VkQueue queue, const void* pixels, uint32_t width, uint32_t height,
-                     VkFormat format, uint32_t mip_levels_override, bool clamp_to_edge) {
+                     VkFormat format, uint32_t mip_levels_override, bool clamp_to_edge,
+                     bool nearest) {
     VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * 4;
     uint32_t mip_levels = mip_levels_override > 0 ? mip_levels_override :
         static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
@@ -117,22 +122,24 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device, &props);
 
+    VkFilter filter = nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_LINEAR;
-    sampler_info.minFilter = VK_FILTER_LINEAR;
+    sampler_info.magFilter = filter;
+    sampler_info.minFilter = filter;
     VkSamplerAddressMode addr_mode = clamp_to_edge
         ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
         : VK_SAMPLER_ADDRESS_MODE_REPEAT;
     sampler_info.addressModeU = addr_mode;
     sampler_info.addressModeV = addr_mode;
     sampler_info.addressModeW = addr_mode;
-    sampler_info.anisotropyEnable = clamp_to_edge ? VK_FALSE : VK_TRUE;
-    sampler_info.maxAnisotropy = clamp_to_edge ? 1.0f : props.limits.maxSamplerAnisotropy;
+    sampler_info.anisotropyEnable = (clamp_to_edge || nearest) ? VK_FALSE : VK_TRUE;
+    sampler_info.maxAnisotropy = (clamp_to_edge || nearest) ? 1.0f : props.limits.maxSamplerAnisotropy;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
     sampler_info.compareEnable = VK_FALSE;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_info.mipmapMode = nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
     sampler_info.minLod = 0.0f;
     sampler_info.maxLod = static_cast<float>(mip_levels);
     sampler_info.mipLodBias = 0.0f;
