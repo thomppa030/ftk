@@ -1,4 +1,6 @@
 #pragma once
+#ifndef FJELL_DELEGATE_HPP
+#define FJELL_DELEGATE_HPP
 
 #include <algorithm>
 #include <concepts>
@@ -153,3 +155,5 @@ private:
 };
 
 } // namespace fjell
+
+#endif // FJELL_DELEGATE_HPP
