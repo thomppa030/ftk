@@ -14,6 +14,7 @@
 #include "scene/scene.hpp"
 #include "renderer/sprite_anim_component.hpp"
 #include "renderer/sprite_desc.hpp"
+#include "renderer/tilemap_component.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "physics/physics_types.hpp"
 #include "scene/camera_node.hpp"
@@ -448,6 +449,56 @@ void PropertiesPanel::draw() {
                 }
             }
 
+            // Tilemap
+            if (auto* tm = obj->components.get<TilemapComponent>()) {
+                colored_separator({0.30f, 0.65f, 0.85f, 1.0f});
+                if (ImGui::CollapsingHeader("Tilemap", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    if (asset_path_field("Tileset", "##TilemapTileset", tm->tileset_texture)) {
+                        tm->texture_loaded = false;
+                        tm->dirty = true;
+                        scene_->mark_dirty();
+                    }
+
+                    ImGui::Text("Tile Size (px)");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragInt2("##TileTileSize", &tm->tile_size.x, 1, 1, 512)) {
+                        tm->dirty = true;
+                        scene_->mark_dirty();
+                    }
+
+                    ImGui::Text("Map Size (tiles)");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragInt2("##TileMapSize", &tm->map_size.x, 1, 1, 256)) {
+                        tm->tiles.resize(tm->map_size.x * tm->map_size.y, -1);
+                        tm->dirty = true;
+                        scene_->mark_dirty();
+                    }
+
+                    ImGui::Text("World Tile Size");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##TileWorldSize", &tm->world_tile_size, 0.01f, 0.01f, 10.0f)) {
+                        tm->dirty = true;
+                        scene_->mark_dirty();
+                    }
+
+                    ImGui::Text("Sort Layer");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragInt("##TileSortLayer", &tm->sort_layer, 1.0f))
+                        scene_->mark_dirty();
+
+                    if (ImGui::Button("Fill All (tile 0)")) {
+                        tm->tiles.assign(tm->map_size.x * tm->map_size.y, 0);
+                        tm->dirty = true;
+                        scene_->mark_dirty();
+                    }
+
+                    if (remove_button("Remove Tilemap")) {
+                        obj->components.remove<TilemapComponent>();
+                        scene_->mark_dirty();
+                    }
+                }
+            }
+
             // Camera properties
             if (auto* cam = dynamic_cast<CameraNode*>(obj)) {
                 colored_separator({0.31f, 0.79f, 0.63f, 1.0f});
@@ -695,6 +746,11 @@ void PropertiesPanel::draw() {
                 }
                 if (!obj->components.has<SpriteAnimComponent>() && ImGui::MenuItem("Sprite Animation")) {
                     obj->components.add<SpriteAnimComponent>();
+                    scene_->mark_dirty();
+                }
+                if (!obj->components.has<TilemapComponent>() && ImGui::MenuItem("Tilemap")) {
+                    auto& tm = obj->components.add<TilemapComponent>();
+                    tm.tiles.resize(tm.map_size.x * tm.map_size.y, -1);
                     scene_->mark_dirty();
                 }
                 if (!obj->components.has<AudioSourceComponent>() && ImGui::MenuItem("Audio Source")) {

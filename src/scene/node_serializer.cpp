@@ -16,6 +16,7 @@
 #include "renderer/skeletal_mesh_component.hpp"
 #include "renderer/sprite_anim_component.hpp"
 #include "renderer/sprite_desc.hpp"
+#include "renderer/tilemap_component.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
 #include "renderer/resource_manager.hpp"
@@ -162,6 +163,19 @@ nlohmann::json serialize_node(const Node& node) {
         if (!sa->default_animation.empty()) jsa["default"] = sa->default_animation;
         if (sa->playback_speed != 1.0f) jsa["playback_speed"] = sa->playback_speed;
         j["sprite_anim"] = jsa;
+    }
+
+    // Tilemap
+    if (const auto* tm = node.components.get<TilemapComponent>()) {
+        nlohmann::json jtm;
+        jtm["tileset"] = tm->tileset_texture;
+        jtm["tile_size"] = {tm->tile_size.x, tm->tile_size.y};
+        jtm["map_size"] = {tm->map_size.x, tm->map_size.y};
+        jtm["world_tile_size"] = tm->world_tile_size;
+        jtm["sort_layer"] = tm->sort_layer;
+        if (tm->pixel_art != true) jtm["pixel_art"] = tm->pixel_art;
+        jtm["tiles"] = tm->tiles;
+        j["tilemap"] = jtm;
     }
 
     // Audio
@@ -422,6 +436,26 @@ static void load_components(Node& node, const nlohmann::json& j,
         }
         sa.default_animation = jsa.value("default", "");
         sa.playback_speed = jsa.value("playback_speed", 1.0f);
+    }
+
+    if (j.contains("tilemap")) {
+        auto& jtm = j["tilemap"];
+        auto& tm = node.components.add<TilemapComponent>();
+        tm.tileset_texture = jtm.value("tileset", "");
+        if (jtm.contains("tile_size")) {
+            auto& ts = jtm["tile_size"];
+            tm.tile_size = {ts[0].get<int>(), ts[1].get<int>()};
+        }
+        if (jtm.contains("map_size")) {
+            auto& ms = jtm["map_size"];
+            tm.map_size = {ms[0].get<int>(), ms[1].get<int>()};
+        }
+        tm.world_tile_size = jtm.value("world_tile_size", 1.0f);
+        tm.sort_layer = jtm.value("sort_layer", -100);
+        tm.pixel_art = jtm.value("pixel_art", true);
+        if (jtm.contains("tiles")) {
+            tm.tiles = jtm["tiles"].get<std::vector<int32_t>>();
+        }
     }
 
     if (j.contains("audio")) {

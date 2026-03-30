@@ -150,6 +150,7 @@ VulkanContext::VulkanContext(Window& window)
     particle_system_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Creating sprite renderer");
     sprite_renderer_.create(gpu_.device_ref(), pass_resources);
+    tilemap_renderer_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.physical_device());
@@ -171,6 +172,7 @@ VulkanContext::~VulkanContext() {
 
     default_pp_.reset();
     debug_draw_.reset();
+    tilemap_renderer_.destroy();
     sprite_renderer_.destroy();
     particle_system_.destroy();
     light_grid_pass_.destroy();
@@ -220,6 +222,10 @@ VulkanContext::~VulkanContext() {
 
 void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources, const Project* project) {
     sprite_renderer_.sync_textures(scene, resources, project);
+}
+
+void VulkanContext::sync_tilemap_textures(Scene& scene, ResourceManager& resources, const Project* project) {
+    tilemap_renderer_.sync_textures(scene, resources, project);
 }
 
 // ── Pass registration ────────────────────────────────────────────────────
@@ -653,6 +659,7 @@ void VulkanContext::register_passes() {
                 grid_pass_.record(local);
                 debug_pass_.record(local);
                 draw_outline(cb, local);
+                tilemap_renderer_.record_render(local);
                 sprite_renderer_.record_render(local);
 
                 vkCmdEndRendering(cb);
@@ -1146,10 +1153,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     meshlet_instance_pass_.visible_buffer_size(current_frame_));
     }
 
-    // Update sprite SSBO for this frame
+    // Update sprite/tilemap SSBOs for this frame
     if (scene) {
         sprite_renderer_.update(*scene, gatherer_.projection_matrix() * gatherer_.view_matrix(),
                                 gatherer_.camera_position(), current_frame_, playing_);
+        tilemap_renderer_.update(*scene, gatherer_.projection_matrix() * gatherer_.view_matrix(),
+                                  current_frame_);
     }
 
     FrameContext ctx{};

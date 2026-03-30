@@ -34,6 +34,7 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/render_target_pool.hpp"
 #include "renderer/sprite_renderer.hpp"
+#include "renderer/tilemap_renderer.hpp"
 #include "renderer/scene_viewport.hpp"
 #include "renderer/viewport_source.hpp"
 #include <glm/glm.hpp>
@@ -65,6 +66,7 @@ public:
   VulkanContext &operator=(VulkanContext &&) = delete;
 
   void sync_sprite_textures(Scene &scene, ResourceManager &resources, const Project *project = nullptr);
+  void sync_tilemap_textures(Scene &scene, ResourceManager &resources, const Project *project = nullptr);
 
   /// Submit the previously recorded frame and present it.
   /// No-op on the first call (nothing recorded yet).
@@ -268,6 +270,7 @@ private:
   // Particles / sprites
   ParticleSystem particle_system_;
   SpriteRenderer sprite_renderer_;
+  TilemapRenderer tilemap_renderer_;
 
   // ── Scene gathering ────────────────────────────────────────────────────
   SceneGatherer gatherer_;

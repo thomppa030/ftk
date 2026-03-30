@@ -1046,6 +1046,7 @@ void Engine::run() {
         if (!render_scene) render_scene = &scene_;
 
         vulkan_context_->sync_sprite_textures(*render_scene, *resource_manager_, project_mgr_.active());
+        vulkan_context_->sync_tilemap_textures(*render_scene, *resource_manager_, project_mgr_.active());
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
 
         // Render scene viewports (render-to-texture, must complete before main frame)

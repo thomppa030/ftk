@@ -14,6 +14,7 @@
 #include "renderer/skeletal_mesh_component.hpp"
 #include "renderer/sprite_anim_component.hpp"
 #include "renderer/sprite_desc.hpp"
+#include "renderer/tilemap_component.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
 #include "renderer/material.hpp"
@@ -87,6 +88,16 @@ void Node::clone_base_into(Node& target) const {
         copy.animations = sa->animations;
         copy.default_animation = sa->default_animation;
         copy.playback_speed = sa->playback_speed;
+    }
+    if (const auto* tm = components.get<TilemapComponent>()) {
+        auto& copy = target.components.add<TilemapComponent>();
+        copy.tileset_texture = tm->tileset_texture;
+        copy.tile_size = tm->tile_size;
+        copy.map_size = tm->map_size;
+        copy.world_tile_size = tm->world_tile_size;
+        copy.sort_layer = tm->sort_layer;
+        copy.pixel_art = tm->pixel_art;
+        copy.tiles = tm->tiles;
     }
     if (const auto* arr = components.get<ArrowComponent>()) {
         target.components.add<ArrowComponent>(*arr);
