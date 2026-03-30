@@ -48,32 +48,35 @@ bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
         }
     };
 
-    // Update hover state
+    // Update hover state — propagate to ancestors (CSS-like bubbling)
     if (hit != hovered_node_) {
-        if (hovered_node_) {
-            set_state(hovered_node_, 1, false); // clear hovered
+        // Clear old hover chain
+        for (auto* n = hovered_node_; n != nullptr; n = n->parent) {
+            set_state(n, 1, false);
         }
         hovered_node_ = hit;
-        if (hovered_node_) {
-            set_state(hovered_node_, 1, true); // set hovered
+        // Set new hover chain
+        for (auto* n = hovered_node_; n != nullptr; n = n->parent) {
+            set_state(n, 1, true);
         }
     }
 
-    // Update active state
+    // Update active state — propagate to ancestors
     if (mouse_down) {
         if (active_node_ != hit && !mouse_was_down_) {
-            // New press on a different node
-            if (active_node_) {
-                set_state(active_node_, 2, false);
+            for (auto* n = active_node_; n != nullptr; n = n->parent) {
+                set_state(n, 2, false);
             }
             active_node_ = hit;
-            if (active_node_) {
-                set_state(active_node_, 2, true);
+            for (auto* n = active_node_; n != nullptr; n = n->parent) {
+                set_state(n, 2, true);
             }
         }
     } else {
         if (active_node_) {
-            set_state(active_node_, 2, false);
+            for (auto* n = active_node_; n != nullptr; n = n->parent) {
+                set_state(n, 2, false);
+            }
             active_node_ = nullptr;
         }
     }
@@ -89,11 +92,14 @@ bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
         }
     }
 
-    // Dispatch on:click action
+    // Dispatch on:click action — bubble up from hit node
     if (mouse_pressed && hit) {
-        auto it = hit->attributes.find("on:click");
-        if (it != hit->attributes.end()) {
-            context.dispatch(it->second);
+        for (auto* n = hit; n != nullptr; n = n->parent) {
+            auto it = n->attributes.find("on:click");
+            if (it != n->attributes.end()) {
+                context.dispatch(it->second);
+                break;
+            }
         }
     }
 
