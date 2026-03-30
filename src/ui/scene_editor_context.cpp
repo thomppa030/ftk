@@ -540,6 +540,7 @@ void SceneEditorContext::stop_play() {
     deps_.ui_subsystem->on_play_stop(ctx);
     deps_.camera_subsystem->on_play_stop(ctx);
     deps_.audio_subsystem->on_play_stop(ctx);
+    deps_.sprite_anim_subsystem->on_play_stop(ctx);
     deps_.script_subsystem->on_play_stop(ctx);
     deps_.vfx_subsystem->on_play_stop(ctx);
 

@@ -57,7 +57,8 @@ static void load_sheets(SpriteAnimComponent& anim, ResourceManager& resources,
 }
 
 void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
-    // Set up initial animation state for all anim components
+    playing_ = true;
+
     for (auto& obj : ctx.scene.objects()) {
         auto* anim = obj->components.get<SpriteAnimComponent>();
         if (!anim) continue;
@@ -78,39 +79,23 @@ void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
         anim->playing = true;
         anim->finished = false;
 
-        FJELL_CORE_INFO("SpriteAnim: current='{}', sheets={}, anims={}",
-                        anim->current_animation, anim->sheets.size(), anim->animations.size());
-
         // Apply first frame to sprite
         auto* sprite = obj->components.get<SpriteComponent>();
-        if (!sprite) {
-            FJELL_CORE_WARN("SpriteAnim: no SpriteComponent on node '{}'", obj->name);
-            continue;
-        }
+        if (!sprite) continue;
 
         auto sheet_it = anim->sheets.find(anim->current_animation);
-        if (sheet_it == anim->sheets.end() || sheet_it->second.frame_uvs.empty()) {
-            FJELL_CORE_WARN("SpriteAnim: sheet not found for '{}' (have {} sheets)",
-                            anim->current_animation, anim->sheets.size());
-            for (auto& [k, v] : anim->sheets)
-                FJELL_CORE_WARN("  sheet key: '{}'", k);
-            continue;
-        }
+        if (sheet_it == anim->sheets.end() || sheet_it->second.frame_uvs.empty()) continue;
 
-        auto& sheet = sheet_it->second;
-        sprite->uv_rect = sheet.frame_uvs[0];
-        FJELL_CORE_INFO("SpriteAnim: play_start '{}' frame 0 uv=[{},{},{},{}] tex={}",
-                        anim->current_animation,
-                        sprite->uv_rect.x, sprite->uv_rect.y,
-                        sprite->uv_rect.z, sprite->uv_rect.w,
-                        sheet.texture_path);
-
-        // Set the texture from the sheet if sprite doesn't have one yet
-        if (sprite->texture_path != sheet.texture_path) {
-            sprite->texture_path = sheet.texture_path;
+        sprite->uv_rect = sheet_it->second.frame_uvs[0];
+        if (sprite->texture_path != sheet_it->second.texture_path) {
+            sprite->texture_path = sheet_it->second.texture_path;
             sprite->texture_loaded = false;
         }
     }
+}
+
+void SpriteAnimSubsystem::on_play_stop(const TickContext& /*ctx*/) {
+    playing_ = false;
 }
 
 void SpriteAnimSubsystem::tick(const TickContext& ctx) {
@@ -118,23 +103,50 @@ void SpriteAnimSubsystem::tick(const TickContext& ctx) {
 
     for (auto& obj : ctx.scene.objects()) {
         auto* anim = obj->components.get<SpriteAnimComponent>();
-        if (!anim || !anim->playing || anim->finished) continue;
+        if (!anim) continue;
 
         auto* sprite = obj->components.get<SpriteComponent>();
         if (!sprite) continue;
 
-        // Lazy-load sheets if not done yet
+        // Lazy-load sheets
         if (!anim->sheets_loaded) {
             load_sheets(*anim, *resources_, ctx.project);
         }
 
-        auto sheet_it = anim->sheets.find(anim->current_animation);
+        // Pick the active animation name
+        const auto& anim_name = playing_ ? anim->current_animation : anim->default_animation;
+        if (anim_name.empty()) {
+            // Fall back to first entry
+            if (anim->animations.empty()) continue;
+            auto sheet_it = anim->sheets.find(anim->animations.begin()->first);
+            if (sheet_it != anim->sheets.end() && !sheet_it->second.frame_uvs.empty()) {
+                sprite->uv_rect = sheet_it->second.frame_uvs[0];
+                if (sprite->texture_path != sheet_it->second.texture_path) {
+                    sprite->texture_path = sheet_it->second.texture_path;
+                    sprite->texture_loaded = false;
+                }
+            }
+            continue;
+        }
+
+        auto sheet_it = anim->sheets.find(anim_name);
         if (sheet_it == anim->sheets.end()) continue;
         auto& sheet = sheet_it->second;
-
         if (sheet.frame_uvs.empty()) continue;
 
-        // Advance timer
+        // Editor mode: just show first frame
+        if (!playing_) {
+            sprite->uv_rect = sheet.frame_uvs[0];
+            if (sprite->texture_path != sheet.texture_path) {
+                sprite->texture_path = sheet.texture_path;
+                sprite->texture_loaded = false;
+            }
+            continue;
+        }
+
+        // Play mode: advance animation
+        if (!anim->playing || anim->finished) continue;
+
         anim->frame_timer += ctx.dt * anim->playback_speed;
         float frame_duration = 1.0f / sheet.fps;
 

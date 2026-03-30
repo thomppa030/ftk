@@ -89,11 +89,11 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     // Phase groups
     play_phase_0_.push_back(script_subsystem_);
-    play_phase_0_.push_back(sprite_anim_subsystem_);
     play_phase_0_.push_back(camera_subsystem_);
     play_phase_1_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
     early_always_.push_back(animation_subsystem_);
+    early_always_.push_back(sprite_anim_subsystem_);
     late_always_.push_back(audio_subsystem_);
 
     vulkan_context_->set_animation_system(&animation_subsystem_->system());
