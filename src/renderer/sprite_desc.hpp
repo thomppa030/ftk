@@ -10,6 +10,7 @@
 namespace fjell {
 
 struct SpriteComponent : NodeComponent {
+    static constexpr const char* type_name = "SpriteComponent";
     std::string texture_path;
     glm::vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
     glm::vec4 uv_rect{0.0f, 0.0f, 1.0f, 1.0f}; // {u_min, v_min, u_max, v_max}

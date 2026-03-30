@@ -11,6 +11,8 @@
 namespace fjell {
 
 struct SpriteAnimComponent : NodeComponent {
+    static constexpr const char* type_name = "SpriteAnimComponent";
+
     // Serialized
     std::string animset_path;       // .fjanimset file
     float playback_speed{1.0f};

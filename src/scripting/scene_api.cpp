@@ -3,6 +3,8 @@
 #include "scene/scene.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/mesh_component.hpp"
+#include "renderer/sprite_anim_component.hpp"
+#include "renderer/sprite_desc.hpp"
 
 #include <string_view>
 
@@ -46,6 +48,23 @@ extern "C" void* fjell_scene_get_component(uint32_t node_id, const char* type_na
     if (!scene || !type_name) return nullptr;
     auto* node = scene->find(node_id);
     if (!node) return nullptr;
+
+    // Engine components
+    std::string_view tn{type_name};
+    if (tn == "RigidbodyComponent")
+        return node->components.get<fjell::RigidbodyComponent>();
+    if (tn == "ColliderComponent")
+        return node->components.get<fjell::ColliderComponent>();
+    if (tn == "CharacterComponent")
+        return node->components.get<fjell::CharacterComponent>();
+    if (tn == "MeshComponent")
+        return node->components.get<fjell::MeshComponent>();
+    if (tn == "SpriteComponent")
+        return node->components.get<fjell::SpriteComponent>();
+    if (tn == "SpriteAnimComponent")
+        return node->components.get<fjell::SpriteAnimComponent>();
+
+    // Script components
     for (auto& entry : node->scripts) {
         if (entry.instance && entry.type_name == type_name)
             return entry.instance.get();

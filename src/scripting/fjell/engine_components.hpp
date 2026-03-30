@@ -63,4 +63,27 @@ struct MeshComponent {
     std::string material_name;
 };
 
+// ── Sprites ─────────────────────────────────────────────────────────────
+
+struct SpriteComponent {
+    static constexpr const char* type_name = "SpriteComponent";
+    std::string texture_path;
+    glm::vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
+    glm::vec4 uv_rect{0.0f, 0.0f, 1.0f, 1.0f};
+    float opacity{1.0f};
+    bool editor_only{false};
+    bool flip_h{false};
+    bool flat{false};
+    bool pixel_art{false};
+    float pixels_per_unit{0.0f};
+    int32_t sort_layer{0};
+    int32_t sort_order{0};
+
+    // Runtime
+    uint32_t texture_index{0};
+    uint32_t tex_width{0};
+    uint32_t tex_height{0};
+    bool texture_loaded{false};
+};
+
 } // namespace fjell
