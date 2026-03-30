@@ -10,6 +10,30 @@
 
 namespace fjell {
 
+/// Recursively find <slot/> nodes and replace them with projected children.
+/// Returns true if a slot was found and replaced.
+static bool replace_slots(UiNode& node,
+                           std::vector<std::unique_ptr<UiNode>>& projected) {
+    for (size_t i = 0; i < node.children.size(); ++i) {
+        auto& child = *node.children[i];
+        if (child.tag == "slot" && child.type == UiNodeType::element) {
+            // Replace this slot node with the projected children
+            node.children.erase(node.children.begin() + static_cast<ptrdiff_t>(i));
+            for (size_t j = 0; j < projected.size(); ++j) {
+                projected[j]->parent = &node;
+                node.children.insert(
+                    node.children.begin() + static_cast<ptrdiff_t>(i + j),
+                    std::move(projected[j]));
+            }
+            projected.clear();
+            return true;
+        }
+        // Recurse into non-slot children
+        if (replace_slots(child, projected)) return true;
+    }
+    return false;
+}
+
 static const std::unordered_set<std::string> BUILTIN_TAGS = {
     "div", "panel", "text", "bar", "img", "input", "slot",
 };
@@ -125,9 +149,12 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             }
         }
 
-        // Replace children: the widget's parsed subtree becomes this node's children
-        // Preserve original children for <slot/> (Step 12)
+        // Save original children for <slot/> content projection
+        std::vector<std::unique_ptr<UiNode>> caller_children;
+        caller_children = std::move(child.children);
         child.children.clear();
+
+        // Replace children: the widget's parsed subtree becomes this node's children
         if (widget_root->type == UiNodeType::root) {
             // Root node is a wrapper — take its children
             for (auto& wc : widget_root->children) {
@@ -138,6 +165,11 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             // Single element — use directly
             widget_root->parent = &child;
             child.children.push_back(std::move(widget_root));
+        }
+
+        // Replace <slot/> nodes with the caller's original children
+        if (!caller_children.empty()) {
+            replace_slots(child, caller_children);
         }
 
         // Guard against circular references and recurse into widget subtree

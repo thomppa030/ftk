@@ -1,6 +1,8 @@
 // delegate.hpp — Multicast delegate + RAII Connection for Fjell game code.
 // Copy of core/delegate.hpp, shipped to game projects as part of the SDK.
 #pragma once
+#ifndef FJELL_DELEGATE_HPP
+#define FJELL_DELEGATE_HPP
 
 #include <algorithm>
 #include <concepts>
@@ -155,3 +157,5 @@ private:
 };
 
 } // namespace fjell
+
+#endif // FJELL_DELEGATE_HPP

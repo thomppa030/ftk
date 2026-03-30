@@ -28,6 +28,7 @@ public:
 
 private:
     UiNode* hit_test(UiNode& node, float x, float y);
+    static void dispatch_action(const std::string& expr, UiNode& node, UiContext& context);
     void clear_state(UiNode& node);
 
     UiNode* hovered_node_{nullptr};

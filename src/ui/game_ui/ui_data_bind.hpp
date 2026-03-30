@@ -17,11 +17,13 @@ public:
     /// Returns true if any text or visibility changed.
     bool resolve(UiNode& root, UiContext& context);
 
+    /// Resolve {key} placeholders in a template string against a context.
+    static std::string resolve_template(const std::string& tmpl, const UiContext& context);
+
 private:
     void resolve_node(UiNode& node, UiContext& context, bool& changed);
     void resolve_foreach(UiNode& parent, UiContext& context, bool& changed);
     static std::unique_ptr<UiNode> clone_node(const UiNode& source, UiNode* new_parent);
-    static std::string resolve_template(const std::string& tmpl, const UiContext& context);
 };
 
 } // namespace fjell

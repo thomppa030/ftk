@@ -1,5 +1,6 @@
 #include "ui/game_ui/ui_input.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/game_ui/ui_data_bind.hpp"
 #include "core/input.hpp"
 #include "core/profiler.hpp"
 
@@ -97,7 +98,26 @@ bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
         for (auto* n = hit; n != nullptr; n = n->parent) {
             auto it = n->attributes.find("on:click");
             if (it != n->attributes.end()) {
-                context.dispatch(it->second);
+                const auto& action = it->second;
+
+                // Check if this action should be remapped through a widget event_map.
+                // Walk up to find the nearest widget boundary that maps this event.
+                bool remapped = false;
+                for (auto* w = n->parent; w != nullptr; w = w->parent) {
+                    if (w->is_widget && !w->event_map.empty()) {
+                        auto eit = w->event_map.find(action);
+                        if (eit != w->event_map.end()) {
+                            // Dispatch remapped action on the parent context
+                            dispatch_action(eit->second, *w, context);
+                            remapped = true;
+                        }
+                        break; // stop at first widget boundary
+                    }
+                }
+
+                if (!remapped) {
+                    dispatch_action(action, *n, context);
+                }
                 break;
             }
         }
@@ -120,6 +140,52 @@ bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
 
     mouse_was_down_ = mouse_down;
     return !dirty_nodes_.empty();
+}
+
+void UiInput::dispatch_action(const std::string& expr, UiNode& node, UiContext& context) {
+    // Determine which context to use for resolving {key} templates in args.
+    UiContext& ctx = node.foreach_context ? *node.foreach_context
+                   : node.scoped_context  ? *node.scoped_context
+                   : context;
+
+    // Parse "action(arg1, arg2, ...)" or plain "action"
+    auto paren = expr.find('(');
+    if (paren == std::string::npos) {
+        // No args — plain dispatch
+        ctx.dispatch(expr);
+        return;
+    }
+
+    auto action_name = expr.substr(0, paren);
+    auto close = expr.rfind(')');
+    if (close == std::string::npos || close <= paren) {
+        ctx.dispatch(action_name);
+        return;
+    }
+
+    // Extract and split args
+    auto args_str = expr.substr(paren + 1, close - paren - 1);
+    std::vector<std::string> args;
+    size_t start = 0;
+    for (size_t i = 0; i <= args_str.size(); ++i) {
+        if (i == args_str.size() || args_str[i] == ',') {
+            auto arg = args_str.substr(start, i - start);
+            // Trim whitespace
+            auto a = arg.find_first_not_of(" \t");
+            auto b = arg.find_last_not_of(" \t");
+            if (a != std::string::npos) {
+                arg = arg.substr(a, b - a + 1);
+            } else {
+                arg.clear();
+            }
+            // Resolve {key} templates in each arg
+            arg = UiDataBind::resolve_template(arg, ctx);
+            args.push_back(std::move(arg));
+            start = i + 1;
+        }
+    }
+
+    ctx.dispatch(action_name, args);
 }
 
 UiNode* UiInput::hit_test(UiNode& node, float x, float y) {

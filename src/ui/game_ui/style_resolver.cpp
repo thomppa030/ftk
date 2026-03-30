@@ -55,7 +55,9 @@ void StyleResolver::resolve_single(UiNode& node, const Stylesheet& sheet) {
 
 void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
                                   const UiComputedStyle* parent_style) {
-    // Inherit from parent first (before applying rules)
+    // Reset to defaults, then inherit from parent (ensures removed classes
+    // don't leave stale properties like gradients or box shadows).
+    node.style = UiComputedStyle{};
     if (parent_style) {
         inherit_properties(node.style, *parent_style);
     }

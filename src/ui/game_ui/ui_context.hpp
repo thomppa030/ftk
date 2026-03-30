@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace fjell {
 
@@ -45,13 +46,25 @@ public:
     }
 
     template <typename F>
-        requires std::invocable<F>
+        requires (std::invocable<F> && !std::invocable<F, const std::vector<std::string>&>)
     [[nodiscard]] Connection bind_action(const std::string& name, F&& callback) {
         auto& delegate = actions_[name];
         if (!delegate) {
             delegate = std::make_unique<Delegate<void()>>();
         }
         return delegate->bind(std::forward<F>(callback));
+    }
+
+    /// Bind an action that receives string arguments from the markup.
+    /// e.g. on:click="select(2)" → callback receives {"2"}.
+    template <typename F>
+        requires std::invocable<F, const std::vector<std::string>&>
+    [[nodiscard]] Connection bind_action(const std::string& name, F&& callback) {
+        auto& param_delegate = param_actions_[name];
+        if (!param_delegate) {
+            param_delegate = std::make_unique<Delegate<void(const std::vector<std::string>&)>>();
+        }
+        return param_delegate->bind(std::forward<F>(callback));
     }
 
     void dispatch(const std::string& action) {
@@ -61,6 +74,22 @@ public:
             return;
         }
         if (parent_) parent_->dispatch(action);
+    }
+
+    void dispatch(const std::string& action, const std::vector<std::string>& args) {
+        // Try parameterized action first
+        auto pit = param_actions_.find(action);
+        if (pit != param_actions_.end() && pit->second) {
+            pit->second->broadcast(args);
+            return;
+        }
+        // Fall back to no-arg action (ignore args)
+        auto it = actions_.find(action);
+        if (it != actions_.end() && it->second) {
+            it->second->broadcast();
+            return;
+        }
+        if (parent_) parent_->dispatch(action, args);
     }
 
     /// Set a list of item contexts for foreach directives.
@@ -86,6 +115,7 @@ public:
     void clear() {
         values_.clear();
         actions_.clear();
+        param_actions_.clear();
         lists_.clear();
     }
 
@@ -93,6 +123,7 @@ private:
     UiContext* parent_{nullptr};
     std::unordered_map<std::string, std::string> values_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
+    std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;
     std::unordered_map<std::string, std::vector<UiContext>> lists_;
 };
 

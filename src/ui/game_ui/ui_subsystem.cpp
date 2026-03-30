@@ -101,7 +101,11 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
                     wi.type = wt;
                     wi.widget_context = &inst.game_ui->context();
                     wi.widget.reset(wt->create());
+                    wi.widget->ui_context_.ctx_ = wi.widget_context;
                     inst.widgets.push_back(std::move(wi));
+                    // Set connections pointer after push_back (vector may reallocate)
+                    inst.widgets.back().widget->ui_context_.connections_ =
+                        &inst.widgets.back().connections;
                     FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
                 }
             }
@@ -178,6 +182,7 @@ void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
             wi.type = ui_type;
             wi.widget_context = node.scoped_context.get();
             wi.widget.reset(ui_type->create());
+            wi.widget->ui_context_.ctx_ = wi.widget_context;
 
             node.has_controller = true;
 
@@ -185,6 +190,8 @@ void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
                             ui_type->name, node.widget_tag);
 
             instance.widgets.push_back(std::move(wi));
+            instance.widgets.back().widget->ui_context_.connections_ =
+                &instance.widgets.back().connections;
         }
     }
 

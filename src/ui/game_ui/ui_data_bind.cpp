@@ -54,10 +54,11 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, bool& changed) {
         bool should_have = false;
         auto eq_pos = condition.find("==");
         if (eq_pos != std::string::npos) {
-            // "key==value" — compare context value to literal
+            // "key==value" — compare context value to literal or {key} reference
             auto key = condition.substr(0, eq_pos);
             auto expected = condition.substr(eq_pos + 2);
-            should_have = (ctx.get(key) == expected);
+            auto resolved = resolve_template(expected, ctx);
+            should_have = (ctx.get(key) == resolved);
         } else {
             // Just a key — truthy check
             auto val = ctx.get(condition);

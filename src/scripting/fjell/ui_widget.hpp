@@ -1,13 +1,39 @@
 // ui_widget.hpp — UiWidget base class for game UI widgets
 #pragma once
 
+#include "fjell/delegate.hpp"
 #include "fjell/world.hpp"
 
 #include <cstdint>
+#include <functional>
+#include <string>
+#include <vector>
 
 namespace fjell {
 
+class UiContext;
 class UiSubsystem;
+
+/// Bridge for UiWidget to access its UiContext without including the full header.
+/// The UiSubsystem sets this pointer after creating the widget.
+class UiWidgetContext {
+public:
+    UiWidgetContext() = default;
+
+    void set(const std::string& key, const std::string& value);
+    [[nodiscard]] std::string get(const std::string& key) const;
+
+    void bind_action(const std::string& name,
+                     std::function<void()> callback);
+    void bind_action(const std::string& name,
+                     std::function<void(const std::vector<std::string>&)> callback);
+
+private:
+    friend class UiSubsystem;
+    UiContext* ctx_{nullptr};
+    // Connections are stored engine-side to avoid cross-library destruction
+    std::vector<Connection>* connections_{nullptr};
+};
 
 /// Base class for UI widgets. A widget defines [[fj::bind]] fields and
 /// [[fj::action]] methods that drive a .fjui/.fjss visual template.
@@ -27,9 +53,13 @@ public:
     [[nodiscard]] World* world() { return world_; }
     [[nodiscard]] const World* world() const { return world_; }
 
+    /// Access the UI context to set values, get values, and bind actions.
+    [[nodiscard]] UiWidgetContext& ui() { return ui_context_; }
+
 private:
     friend class UiSubsystem;
     World* world_{nullptr};
+    UiWidgetContext ui_context_;
     uint32_t id_{0};
 };
 
