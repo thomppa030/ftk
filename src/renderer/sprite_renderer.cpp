@@ -2,6 +2,7 @@
 #include "renderer/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resource_manager.hpp"
+#include "renderer/texture.hpp"
 #include "renderer/shader_utils.hpp"
 #include "renderer/sprite_desc.hpp"
 #include "renderer/frustum.hpp"
@@ -227,6 +228,11 @@ void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources, con
             : resources.load_texture(resolved);
         if (tex_result) {
             sprite.texture_index = resources.bindless_index(*tex_result);
+            auto* texture = resources.get(*tex_result);
+            if (texture) {
+                sprite.tex_width = texture->width();
+                sprite.tex_height = texture->height();
+            }
             sprite.texture_loaded = true;
         }
     }
@@ -254,7 +260,18 @@ void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection
         if (!spatial) continue;
         glm::vec3 pos = glm::vec3(spatial->world_matrix_[3]);
         glm::vec3 scale = spatial->transform.scale;
-        glm::vec2 half_size = {scale.x * 0.5f, scale.y * 0.5f};
+
+        glm::vec2 half_size;
+        if (sprite.pixels_per_unit > 0.0f && sprite.tex_width > 0 && sprite.tex_height > 0) {
+            // Auto-size from texture dimensions and UV rect sub-region
+            float region_w = (sprite.uv_rect.z - sprite.uv_rect.x) * static_cast<float>(sprite.tex_width);
+            float region_h = (sprite.uv_rect.w - sprite.uv_rect.y) * static_cast<float>(sprite.tex_height);
+            float w = region_w / sprite.pixels_per_unit;
+            float h = region_h / sprite.pixels_per_unit;
+            half_size = {w * scale.x * 0.5f, h * scale.y * 0.5f};
+        } else {
+            half_size = {scale.x * 0.5f, scale.y * 0.5f};
+        }
 
         // Frustum cull with a sphere approximation
         float radius = glm::length(glm::vec3(half_size, 0.0f));

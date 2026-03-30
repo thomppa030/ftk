@@ -384,6 +384,11 @@ void PropertiesPanel::draw() {
                         scene_->mark_dirty();
                     }
 
+                    ImGui::Text("Pixels Per Unit");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##SpritePPU", &sp->pixels_per_unit, 1.0f, 0.0f, 1000.0f, "%.0f"))
+                        scene_->mark_dirty();
+
                     ImGui::Text("Sort Layer / Order");
                     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.5f);
                     if (ImGui::DragInt("##SpriteLayer", &sp->sort_layer, 1.0f)) scene_->mark_dirty();
@@ -402,11 +407,20 @@ void PropertiesPanel::draw() {
             if (auto* sa = obj->components.get<SpriteAnimComponent>()) {
                 colored_separator({0.40f, 0.75f, 0.60f, 1.0f});
                 if (ImGui::CollapsingHeader("Sprite Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    // Animation entries
+                    // Animset path (state machine)
+                    if (asset_path_field("Animset", "##SpriteAnimset", sa->animset_path)) {
+                        sa->loaded = false;
+                        scene_->mark_dirty();
+                    }
+
+                    ImGui::Separator();
+                    ImGui::Text("Legacy Animations");
+
+                    // Legacy animation entries (for scenes without .fjanimset)
                     for (auto& [name, path] : sa->animations) {
                         std::string label = "##SpriteAnim_" + name;
                         if (asset_path_field(name.c_str(), label.c_str(), path)) {
-                            sa->sheets_loaded = false;
+                            sa->loaded = false;
                             scene_->mark_dirty();
                         }
                     }
@@ -418,12 +432,12 @@ void PropertiesPanel::draw() {
                     ImGui::SameLine();
                     if (ImGui::Button("Add Animation") && new_anim_name[0] != '\0') {
                         sa->animations[new_anim_name] = "";
-                        sa->sheets_loaded = false;
+                        sa->loaded = false;
                         scene_->mark_dirty();
                         new_anim_name[0] = '\0';
                     }
 
-                    // Default animation
+                    // Default animation (legacy)
                     ImGui::Text("Default");
                     ImGui::SameLine();
                     ImGui::SetNextItemWidth(-1);

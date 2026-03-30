@@ -13,47 +13,86 @@
 
 namespace fjell {
 
-static void load_sheets(SpriteAnimComponent& anim, ResourceManager& resources,
-                        const Project* project) {
-    for (auto& [name, sheet_path] : anim.animations) {
-        std::string resolved = base_path::resolve_asset(sheet_path, project);
-        if (!std::filesystem::exists(resolved)) {
-            FJELL_CORE_WARN("SpriteAnim: sheet not found: {} -> {}", sheet_path, resolved);
-            continue;
+static void load_anim_data(SpriteAnimComponent& anim, ResourceManager& resources,
+                           const Project* project) {
+    // Load via .fjanimset if available
+    if (!anim.animset_path.empty()) {
+        std::string resolved = base_path::resolve_asset(anim.animset_path, project);
+        if (std::filesystem::exists(resolved)) {
+            anim.state_machine.load(resolved);
         }
+    } else if (!anim.animations.empty()) {
+        // Legacy: build state machine from direct animation map
+        // Not using .fjanimset — just set initial state
+        if (!anim.default_animation.empty()) {
+            // Will be handled below when loading sheets
+        }
+    }
+
+    // Determine which clip paths to load:
+    // Either from state machine states, or from legacy animations map
+    std::unordered_map<std::string, std::string> clips_to_load;
+
+    if (!anim.state_machine.states().empty()) {
+        for (auto& state : anim.state_machine.states()) {
+            clips_to_load[state.name] = state.clip;
+        }
+    } else {
+        clips_to_load = anim.animations;
+    }
+
+    // Load each sheet
+    for (auto& [name, sheet_path] : clips_to_load) {
+        std::string resolved = base_path::resolve_asset(sheet_path, project);
+        if (!std::filesystem::exists(resolved)) continue;
 
         auto sheet = load_sprite_sheet(resolved);
+        if (sheet.texture_path.empty()) continue;
 
-        // Resolve the texture path relative to the .fjsheet file's directory
-        std::string tex_resolved;
-        if (sheet.texture_path.empty()) {
-            FJELL_CORE_WARN("SpriteAnim: sheet '{}' has empty texture path", name);
-            continue;
-        }
-        if (std::filesystem::path(sheet.texture_path).is_absolute()) {
-            tex_resolved = sheet.texture_path;
-        } else {
-            // Texture path in .fjsheet is relative to the project
-            tex_resolved = base_path::resolve_asset(sheet.texture_path, project);
-        }
+        std::string tex_resolved = std::filesystem::path(sheet.texture_path).is_absolute()
+            ? sheet.texture_path
+            : base_path::resolve_asset(sheet.texture_path, project);
 
-        // Load the texture to get dimensions
         auto tex_result = resources.load_texture_nearest(tex_resolved);
-        if (!tex_result) {
-            FJELL_CORE_WARN("SpriteAnim: failed to load texture: {}", tex_resolved);
-            continue;
-        }
+        if (!tex_result) continue;
 
         auto* texture = resources.get(*tex_result);
         if (!texture) continue;
 
         compute_frame_uvs(sheet, texture->width(), texture->height());
-        FJELL_CORE_INFO("SpriteAnim: loaded '{}' — {}x{}, {} frames, {} uvs",
-                        name, texture->width(), texture->height(),
-                        sheet.frame_count, sheet.frame_uvs.size());
         anim.sheets[name] = std::move(sheet);
     }
-    anim.sheets_loaded = true;
+
+    anim.loaded = true;
+}
+
+// Apply a sheet's frame to the sprite component
+static void apply_frame(SpriteComponent& sprite, const SpriteSheet& sheet, uint32_t frame) {
+    if (frame < sheet.frame_uvs.size()) {
+        sprite.uv_rect = sheet.frame_uvs[frame];
+    }
+    if (sprite.texture_path != sheet.texture_path) {
+        sprite.texture_path = sheet.texture_path;
+        sprite.texture_loaded = false;
+    }
+}
+
+// Get the active sheet for the current state
+static const SpriteSheet* active_sheet(const SpriteAnimComponent& anim) {
+    // Try state machine current state
+    if (!anim.state_machine.states().empty()) {
+        auto it = anim.sheets.find(anim.state_machine.current_state_name());
+        if (it != anim.sheets.end()) return &it->second;
+    }
+    // Legacy: try default or first
+    if (!anim.default_animation.empty()) {
+        auto it = anim.sheets.find(anim.default_animation);
+        if (it != anim.sheets.end()) return &it->second;
+    }
+    if (!anim.sheets.empty()) {
+        return &anim.sheets.begin()->second;
+    }
+    return nullptr;
 }
 
 void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
@@ -63,15 +102,8 @@ void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
         auto* anim = obj->components.get<SpriteAnimComponent>();
         if (!anim) continue;
 
-        if (!anim->sheets_loaded) {
-            load_sheets(*anim, *resources_, ctx.project);
-        }
-
-        // Start the default animation
-        if (!anim->default_animation.empty()) {
-            anim->current_animation = anim->default_animation;
-        } else if (!anim->animations.empty()) {
-            anim->current_animation = anim->animations.begin()->first;
+        if (!anim->loaded) {
+            load_anim_data(*anim, *resources_, ctx.project);
         }
 
         anim->current_frame = 0;
@@ -79,18 +111,12 @@ void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
         anim->playing = true;
         anim->finished = false;
 
-        // Apply first frame to sprite
+        // Apply first frame
         auto* sprite = obj->components.get<SpriteComponent>();
         if (!sprite) continue;
 
-        auto sheet_it = anim->sheets.find(anim->current_animation);
-        if (sheet_it == anim->sheets.end() || sheet_it->second.frame_uvs.empty()) continue;
-
-        sprite->uv_rect = sheet_it->second.frame_uvs[0];
-        if (sprite->texture_path != sheet_it->second.texture_path) {
-            sprite->texture_path = sheet_it->second.texture_path;
-            sprite->texture_loaded = false;
-        }
+        const auto* sheet = active_sheet(*anim);
+        if (sheet) apply_frame(*sprite, *sheet, 0);
     }
 }
 
@@ -108,71 +134,66 @@ void SpriteAnimSubsystem::tick(const TickContext& ctx) {
         auto* sprite = obj->components.get<SpriteComponent>();
         if (!sprite) continue;
 
-        // Lazy-load sheets
-        if (!anim->sheets_loaded) {
-            load_sheets(*anim, *resources_, ctx.project);
+        // Lazy-load
+        if (!anim->loaded) {
+            load_anim_data(*anim, *resources_, ctx.project);
         }
 
-        // Pick the active animation name
-        const auto& anim_name = playing_ ? anim->current_animation : anim->default_animation;
-        if (anim_name.empty()) {
-            // Fall back to first entry
-            if (anim->animations.empty()) continue;
-            auto sheet_it = anim->sheets.find(anim->animations.begin()->first);
-            if (sheet_it != anim->sheets.end() && !sheet_it->second.frame_uvs.empty()) {
-                sprite->uv_rect = sheet_it->second.frame_uvs[0];
-                if (sprite->texture_path != sheet_it->second.texture_path) {
-                    sprite->texture_path = sheet_it->second.texture_path;
-                    sprite->texture_loaded = false;
-                }
-            }
-            continue;
-        }
+        const auto* sheet = active_sheet(*anim);
+        if (!sheet || sheet->frame_uvs.empty()) continue;
 
-        auto sheet_it = anim->sheets.find(anim_name);
-        if (sheet_it == anim->sheets.end()) continue;
-        auto& sheet = sheet_it->second;
-        if (sheet.frame_uvs.empty()) continue;
-
-        // Editor mode: just show first frame
+        // Editor mode: show first frame
         if (!playing_) {
-            sprite->uv_rect = sheet.frame_uvs[0];
-            if (sprite->texture_path != sheet.texture_path) {
-                sprite->texture_path = sheet.texture_path;
-                sprite->texture_loaded = false;
-            }
+            apply_frame(*sprite, *sheet, 0);
             continue;
         }
 
-        // Play mode: advance animation
-        if (!anim->playing || anim->finished) continue;
+        // Play mode: evaluate state machine transitions
+        if (!anim->state_machine.states().empty()) {
+            std::string prev_state = anim->state_machine.current_state_name();
+            anim->state_machine.update(ctx.dt);
 
-        anim->frame_timer += ctx.dt * anim->playback_speed;
-        float frame_duration = 1.0f / sheet.fps;
+            // If state changed, reset frame and switch sheet
+            if (anim->state_machine.current_state_name() != prev_state) {
+                anim->current_frame = 0;
+                anim->frame_timer = 0.0f;
+                anim->finished = false;
+                sheet = active_sheet(*anim);
+                if (!sheet || sheet->frame_uvs.empty()) continue;
+            }
+        }
+
+        if (!anim->playing || anim->finished) {
+            apply_frame(*sprite, *sheet, anim->current_frame);
+            continue;
+        }
+
+        // Advance frame timer
+        float speed = anim->playback_speed;
+        if (!anim->state_machine.states().empty()) {
+            auto* state = anim->state_machine.current_state();
+            if (state) speed *= state->speed;
+        }
+
+        anim->frame_timer += ctx.dt * speed;
+        float frame_duration = 1.0f / sheet->fps;
 
         while (anim->frame_timer >= frame_duration) {
             anim->frame_timer -= frame_duration;
             anim->current_frame++;
 
-            if (anim->current_frame >= sheet.frame_count) {
-                if (sheet.loop) {
+            if (anim->current_frame >= sheet->frame_count) {
+                if (sheet->loop) {
                     anim->current_frame = 0;
                 } else {
-                    anim->current_frame = sheet.frame_count - 1;
+                    anim->current_frame = sheet->frame_count - 1;
                     anim->finished = true;
                     break;
                 }
             }
         }
 
-        // Update sprite UV rect
-        sprite->uv_rect = sheet.frame_uvs[anim->current_frame];
-
-        // Ensure the correct texture is set
-        if (sprite->texture_path != sheet.texture_path) {
-            sprite->texture_path = sheet.texture_path;
-            sprite->texture_loaded = false;
-        }
+        apply_frame(*sprite, *sheet, anim->current_frame);
     }
 }
 

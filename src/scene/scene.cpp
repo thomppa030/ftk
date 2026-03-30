@@ -85,6 +85,7 @@ void Node::clone_base_into(Node& target) const {
     }
     if (const auto* sa = components.get<SpriteAnimComponent>()) {
         auto& copy = target.components.add<SpriteAnimComponent>();
+        copy.animset_path = sa->animset_path;
         copy.animations = sa->animations;
         copy.default_animation = sa->default_animation;
         copy.playback_speed = sa->playback_speed;

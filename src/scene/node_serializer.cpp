@@ -147,6 +147,7 @@ nlohmann::json serialize_node(const Node& node) {
         if (sp->flip_h)      jsp["flip_h"] = true;
         if (sp->flat)         jsp["flat"] = true;
         if (sp->pixel_art)    jsp["pixel_art"] = true;
+        if (sp->pixels_per_unit > 0.0f) jsp["pixels_per_unit"] = sp->pixels_per_unit;
         if (sp->sort_layer != 0) jsp["sort_layer"] = sp->sort_layer;
         if (sp->sort_order != 0) jsp["sort_order"] = sp->sort_order;
         j["sprite"] = jsp;
@@ -159,7 +160,8 @@ nlohmann::json serialize_node(const Node& node) {
         for (auto& [name, path] : sa->animations) {
             anims[name] = path;
         }
-        jsa["animations"] = anims;
+        if (!anims.empty()) jsa["animations"] = anims;
+        if (!sa->animset_path.empty()) jsa["animset"] = sa->animset_path;
         if (!sa->default_animation.empty()) jsa["default"] = sa->default_animation;
         if (sa->playback_speed != 1.0f) jsa["playback_speed"] = sa->playback_speed;
         j["sprite_anim"] = jsa;
@@ -422,6 +424,7 @@ static void load_components(Node& node, const nlohmann::json& j,
         sp.flip_h = jsp.value("flip_h", false);
         sp.flat = jsp.value("flat", false);
         sp.pixel_art = jsp.value("pixel_art", false);
+        sp.pixels_per_unit = jsp.value("pixels_per_unit", 0.0f);
         sp.sort_layer = jsp.value("sort_layer", 0);
         sp.sort_order = jsp.value("sort_order", 0);
     }
@@ -429,6 +432,7 @@ static void load_components(Node& node, const nlohmann::json& j,
     if (j.contains("sprite_anim")) {
         auto& jsa = j["sprite_anim"];
         auto& sa = node.components.add<SpriteAnimComponent>();
+        sa.animset_path = jsa.value("animset", "");
         if (jsa.contains("animations")) {
             for (auto& [name, path] : jsa["animations"].items()) {
                 sa.animations[name] = path.get<std::string>();
