@@ -24,6 +24,7 @@ public:
     // ── Per-frame state (set by Engine before draw) ─────────────────────
     void set_project(Project* p) { project_ = p; }
     void set_playing(bool p) { playing_ = p; }
+    void set_building(bool b) { building_ = b; }
     void set_scene_path(const std::string& p) { scene_path_ = &p; }
     void set_vulkan_context(VulkanContext* vk) { vk_ = vk; }
     void set_viewport_manager(ViewportManager* vm) { viewports_ = vm; }
@@ -58,6 +59,7 @@ private:
     ViewportManager* viewports_{nullptr};
     const std::string* scene_path_{nullptr};
     bool playing_{false};
+    bool building_{false};
 
     // Owned state
     FileBrowser open_browser_{FileBrowser::Mode::select_directory};

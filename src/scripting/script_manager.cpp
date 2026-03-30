@@ -18,6 +18,8 @@
 #include "renderer/resource_manager.hpp"
 #include "scene/scene.hpp"
 
+extern "C" void fjell_input_clear_connections();
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -321,6 +323,11 @@ void ScriptManager::unload(Scene& scene) {
 
     serialize_all(scene);
 
+    // Clear input bindings before destroying instances — the lambdas capture
+    // function pointers into the .so and `this` pointers to script instances,
+    // both of which become dangling after unload.
+    fjell_input_clear_connections();
+
     for (auto& obj : scene.objects()) {
         for (auto& comp : obj->scripts) {
             comp.instance.reset();
@@ -342,7 +349,6 @@ Result<> ScriptManager::reload(Scene& scene, const std::filesystem::path& so_pat
     }
 
     deserialize_all(scene);
-    call_begin_play(scene);
 
 #ifndef NDEBUG
     last_reload_time_ = std::chrono::steady_clock::now();

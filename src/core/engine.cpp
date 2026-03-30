@@ -892,6 +892,7 @@ void Engine::draw_ui() {
 
     menu_bar_.set_project(project_mgr_.active());
     menu_bar_.set_playing(active_context().is_playing());
+    menu_bar_.set_building(project_mgr_.is_building());
     menu_bar_.set_scene_path(current_scene_path_);
     menu_bar_.set_vulkan_context(vulkan_context_.get());
     menu_bar_.set_viewport_manager(&scene_context_->viewport_manager());
@@ -1023,9 +1024,17 @@ void Engine::run() {
             }
         }
 
+        project_mgr_.poll_build(script_subsystem_->manager(), scene_,
+                                active_context().is_playing());
+
 #ifndef NDEBUG
-        if (auto r = script_subsystem_->manager().poll_reload(scene_); !r) {
-            FJELL_CORE_ERROR("{}", r.error());
+        // Skip .so file watcher while a background build is running —
+        // cmake writes a partial .so that would cause "invalid ELF header".
+        // poll_build() handles the reload after the build finishes.
+        if (!project_mgr_.is_building()) {
+            if (auto r = script_subsystem_->manager().poll_reload(scene_); !r) {
+                FJELL_CORE_ERROR("{}", r.error());
+            }
         }
 #endif
 

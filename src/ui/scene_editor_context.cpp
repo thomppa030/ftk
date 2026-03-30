@@ -519,6 +519,11 @@ void SceneEditorContext::start_play() {
         // Load input contexts BEFORE scripts start (begin_play calls InputAPI::bind)
         load_input_contexts();
 
+        // Clear stale input bindings from a prior reload's begin_play —
+        // those captured `this` pointers to instances that were just replaced
+        // by deserialize_all above.
+        fjell_input_clear_connections();
+
         deps_.script_subsystem->on_play_start(ctx);
         deps_.ui_subsystem->on_play_start(ctx);
     }

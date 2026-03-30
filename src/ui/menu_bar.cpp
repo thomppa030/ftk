@@ -136,7 +136,9 @@ void MenuBar::draw_scripts_menu() {
         std::memset(new_script_name_, 0, sizeof(new_script_name_));
     }
     ImGui::Separator();
-    if (ImGui::MenuItem("Build & Reload")) {
+    if (building_) {
+        ImGui::MenuItem("Building...", nullptr, false, false);
+    } else if (ImGui::MenuItem("Build & Reload")) {
         on_build_scripts.broadcast();
     }
     ImGui::EndMenu();

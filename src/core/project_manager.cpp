@@ -21,6 +21,11 @@ void ProjectManager::open(const std::filesystem::path& path) {
     project_ = std::move(proj);
     scan_models();
     scan_scenes();
+
+#ifndef NDEBUG
+    setup_script_watcher();
+#endif
+
     on_opened.broadcast(project_->config().name);
 }
 
@@ -30,11 +35,26 @@ Project ProjectManager::create(const std::filesystem::path& directory,
     project_ = proj;
     scan_models();
     scan_scenes();
+
+#ifndef NDEBUG
+    setup_script_watcher();
+#endif
+
     on_opened.broadcast(project_->config().name);
     return proj;
 }
 
 void ProjectManager::close() {
+#ifndef NDEBUG
+    script_watcher_.clear();
+    source_changed_ = false;
+#endif
+
+    // Block until any in-flight build finishes before tearing down project
+    if (build_future_.valid()) {
+        build_future_.wait();
+    }
+
     project_.reset();
     available_scenes_.clear();
     available_models_.clear();
@@ -76,190 +96,204 @@ void ProjectManager::scan_models() {
     }
 }
 
-void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
+// ── Async build ──────────────────────────────────────────────────────────
+
+void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/) {
     if (!project_) return;
+    if (build_future_.valid()) {
+        FJELL_CORE_WARN("Script build already in progress");
+        return;
+    }
 
-    Project::refresh_headers(*project_);
-
-    auto scripts_dir = project_->root() / "scripts";
-    auto build_dir = scripts_dir / "build";
-    auto generated_dir = scripts_dir / "generated";
-
+    // These two touch the Project object — must run on main thread. Fast.
     Project::refresh_headers(*project_);
     Project::write_scripts_cmake(*project_);
 
-    // Run fjreflect codegen
+    // Snapshot paths for the background thread (no Project access after this)
     namespace fs = std::filesystem;
-    fs::create_directories(generated_dir);
+    auto scripts_dir = project_->root() / "scripts";
+    auto build_dir = scripts_dir / "build";
+    auto generated_dir = scripts_dir / "generated";
+    auto so_path = project_->root() / "game.so";
 
     auto fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "fjreflect";
     if (!fs::exists(fjreflect_path)) {
-        // Try alongside the engine binary
         fjreflect_path = base_path::dir() / "fjreflect";
     }
-
-    bool has_codegen = false;
-    if (fs::exists(fjreflect_path)) {
-        // Collect script headers for codegen (class definitions live in .hpp)
-        std::string source_list;
-        for (const auto& entry : fs::directory_iterator(scripts_dir)) {
-            if (!entry.is_regular_file()) continue;
-            auto name = entry.path().filename().string();
-            if (!name.ends_with(".hpp")) continue;
-            source_list += " " + entry.path().string();
-        }
-
-        if (!source_list.empty()) {
-            auto sdk_include = base_path::dir() / ".." / "src" / "scripting";
-            // Find GLM in the build dir (fetched by the game project CMake)
-            auto glm_dir = build_dir / "_deps" / "glm-src";
-
-            auto reflect_cmd = fjreflect_path.string() +
-                " --output-dir " + generated_dir.string() +
-                " --include-dir " + sdk_include.string() +
-                " --compiler g++";
-
-            // Add GLM include if available
-            if (fs::exists(glm_dir)) {
-                reflect_cmd += " --include-dir " + glm_dir.string();
-            }
-
-            reflect_cmd += source_list + " 2>&1";
-
-            std::string reflect_output;
-            int reflect_ret = platform::run_command(reflect_cmd, reflect_output);
-            if (reflect_ret != 0) {
-                FJELL_CORE_ERROR("[fjreflect] codegen failed:");
-                std::istringstream riss(reflect_output);
-                std::string rline;
-                while (std::getline(riss, rline)) {
-                    FJELL_CORE_ERROR("[fjreflect] {}", rline);
-                }
-            } else {
-                // Log output
-                std::istringstream riss(reflect_output);
-                std::string rline;
-                while (std::getline(riss, rline)) {
-                    if (!rline.empty()) FJELL_CORE_INFO("[fjreflect] {}", rline);
-                }
-                has_codegen = true;
-            }
-        }
-    } else {
-        FJELL_CORE_WARN("fjreflect not found — skipping codegen");
-    }
-
-    // Generate register_all.cpp — wire in codegen manifest if available
-    {
-        std::ofstream reg(scripts_dir / "register_all.cpp");
-        if (reg.is_open()) {
-            reg << "// Auto-generated -- do not edit.\n";
-            reg << "#include \"fjell/registry.hpp\"\n\n";
-
-            // Read manifest and generate extern declarations
-            auto manifest_path = generated_dir / "manifest.json";
-            if (has_codegen && fs::exists(manifest_path)) {
-                std::ifstream mf(manifest_path);
-                auto manifest = nlohmann::json::parse(mf, nullptr, false);
-                if (manifest.is_object() && manifest.contains("types")) {
-                    // Split types into script components and UI components
-                    std::vector<nlohmann::json> script_types;
-                    std::vector<nlohmann::json> ui_types;
-                    for (const auto& t : manifest["types"]) {
-                        bool is_ui = t.value("is_ui_component", false);
-                        if (is_ui) {
-                            ui_types.push_back(t);
-                        } else {
-                            script_types.push_back(t);
-                        }
-                    }
-
-                    // Extern declarations for all generated symbols
-                    for (const auto& t : manifest["types"]) {
-                        auto name = t["name"].get<std::string>();
-                        auto fields_sym = t["fields_symbol"].get<std::string>();
-                        reg << "extern \"C\" const FjellFieldDesc " << fields_sym << "[];\n";
-                        reg << "extern \"C\" const uint32_t fjreflect_" << name << "_field_count;\n";
-                        if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
-                            reg << "extern \"C\" void " << t["trace_symbol"].get<std::string>()
-                                << "(void*, void*);\n";
-                        }
-                    }
-
-                    // Script component generated info table
-                    if (!script_types.empty()) {
-                        reg << "\nstatic const FjellGeneratedInfo fjreflect_generated[] = {\n";
-                        for (const auto& t : script_types) {
-                            auto name = t["name"].get<std::string>();
-                            auto fields_sym = t["fields_symbol"].get<std::string>();
-                            auto count = t["field_count"].get<uint32_t>();
-                            reg << "    {\"" << name << "\", " << fields_sym
-                                << ", " << count << ", ";
-                            if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
-                                reg << t["trace_symbol"].get<std::string>();
-                            } else {
-                                reg << "nullptr";
-                            }
-                            reg << "},\n";
-                        }
-                        reg << "};\n";
-                    }
-
-                    // UI component generated info table
-                    if (!ui_types.empty()) {
-                        reg << "\n#include \"fjell/ui_registry.hpp\"\n";
-                        reg << "static const FjellUiGeneratedInfo fjreflect_ui_generated[] = {\n";
-                        for (const auto& t : ui_types) {
-                            auto name = t["name"].get<std::string>();
-                            auto fields_sym = t["fields_symbol"].get<std::string>();
-                            auto count = t["field_count"].get<uint32_t>();
-                            reg << "    {\"" << name << "\", "
-                                << fields_sym << ", " << count << ", ";
-                            if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
-                                reg << t["trace_symbol"].get<std::string>();
-                            } else {
-                                reg << "nullptr";
-                            }
-                            reg << "},\n";
-                        }
-                        reg << "};\n";
-                    }
-
-                    reg << "\nextern \"C\" uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
-                    reg << "extern \"C\" void fjell_register(FjellTypeRegistry* registry) {\n";
-                    if (!script_types.empty()) {
-                        reg << "    fjell_set_generated_table(fjreflect_generated, "
-                            << script_types.size() << ");\n";
-                    }
-                    if (!ui_types.empty()) {
-                        reg << "    fjell_set_ui_generated_table(fjreflect_ui_generated, "
-                            << ui_types.size() << ");\n";
-                    }
-                    reg << "    for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
-                    reg << "    for (auto* r = fjell_ui_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
-                    reg << "}\n";
-                } else {
-                    // Manifest parse failed — fallback
-                    reg << "FJELL_REGISTER()\n";
-                }
-            } else {
-                // No codegen — use simple registration
-                reg << "FJELL_REGISTER()\n";
-            }
-        }
-    }
-
-    auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
-               " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
-               "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
+    auto sdk_include = base_path::dir() / ".." / "src" / "scripting";
 
     FJELL_CORE_INFO("Building scripts...");
 
-    std::string build_output;
-    int ret = platform::run_command(cmd, build_output);
-    bool success = (ret == 0);
+    build_future_ = std::async(std::launch::async,
+        [scripts_dir, build_dir, generated_dir, so_path,
+         fjreflect_path, sdk_include]() -> BuildResult {
+            fs::create_directories(generated_dir);
 
-    std::istringstream iss(build_output);
+            std::string all_output;
+
+            // ── fjreflect codegen ────────────────────────────────────
+            bool has_codegen = false;
+            if (fs::exists(fjreflect_path)) {
+                std::string source_list;
+                for (const auto& entry : fs::directory_iterator(scripts_dir)) {
+                    if (!entry.is_regular_file()) continue;
+                    auto name = entry.path().filename().string();
+                    if (!name.ends_with(".hpp")) continue;
+                    source_list += " " + entry.path().string();
+                }
+
+                if (!source_list.empty()) {
+                    auto glm_dir = build_dir / "_deps" / "glm-src";
+
+                    auto reflect_cmd = fjreflect_path.string() +
+                        " --output-dir " + generated_dir.string() +
+                        " --include-dir " + sdk_include.string() +
+                        " --compiler g++";
+
+                    if (fs::exists(glm_dir)) {
+                        reflect_cmd += " --include-dir " + glm_dir.string();
+                    }
+
+                    reflect_cmd += source_list + " 2>&1";
+
+                    std::string reflect_output;
+                    int reflect_ret = platform::run_command(reflect_cmd, reflect_output);
+                    if (reflect_ret != 0) {
+                        return {.success = false,
+                                .output = "[fjreflect] codegen failed:\n" + reflect_output,
+                                .so_path = so_path};
+                    }
+                    all_output += reflect_output;
+                    has_codegen = true;
+                }
+            }
+
+            // ── Generate register_all.cpp ────────────────────────────
+            {
+                std::ofstream reg(scripts_dir / "register_all.cpp");
+                if (reg.is_open()) {
+                    reg << "// Auto-generated -- do not edit.\n";
+                    reg << "#include \"fjell/registry.hpp\"\n\n";
+
+                    auto manifest_path = generated_dir / "manifest.json";
+                    if (has_codegen && fs::exists(manifest_path)) {
+                        std::ifstream mf(manifest_path);
+                        auto manifest = nlohmann::json::parse(mf, nullptr, false);
+                        if (manifest.is_object() && manifest.contains("types")) {
+                            std::vector<nlohmann::json> script_types;
+                            std::vector<nlohmann::json> ui_types;
+                            for (const auto& t : manifest["types"]) {
+                                bool is_ui = t.value("is_ui_component", false);
+                                if (is_ui) {
+                                    ui_types.push_back(t);
+                                } else {
+                                    script_types.push_back(t);
+                                }
+                            }
+
+                            for (const auto& t : manifest["types"]) {
+                                auto name = t["name"].get<std::string>();
+                                auto fields_sym = t["fields_symbol"].get<std::string>();
+                                reg << "extern \"C\" const FjellFieldDesc " << fields_sym << "[];\n";
+                                reg << "extern \"C\" const uint32_t fjreflect_" << name << "_field_count;\n";
+                                if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
+                                    reg << "extern \"C\" void " << t["trace_symbol"].get<std::string>()
+                                        << "(void*, void*);\n";
+                                }
+                            }
+
+                            if (!script_types.empty()) {
+                                reg << "\nstatic const FjellGeneratedInfo fjreflect_generated[] = {\n";
+                                for (const auto& t : script_types) {
+                                    auto name = t["name"].get<std::string>();
+                                    auto fields_sym = t["fields_symbol"].get<std::string>();
+                                    auto count = t["field_count"].get<uint32_t>();
+                                    reg << "    {\"" << name << "\", " << fields_sym
+                                        << ", " << count << ", ";
+                                    if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
+                                        reg << t["trace_symbol"].get<std::string>();
+                                    } else {
+                                        reg << "nullptr";
+                                    }
+                                    reg << "},\n";
+                                }
+                                reg << "};\n";
+                            }
+
+                            if (!ui_types.empty()) {
+                                reg << "\n#include \"fjell/ui_registry.hpp\"\n";
+                                reg << "static const FjellUiGeneratedInfo fjreflect_ui_generated[] = {\n";
+                                for (const auto& t : ui_types) {
+                                    auto name = t["name"].get<std::string>();
+                                    auto fields_sym = t["fields_symbol"].get<std::string>();
+                                    auto count = t["field_count"].get<uint32_t>();
+                                    reg << "    {\"" << name << "\", "
+                                        << fields_sym << ", " << count << ", ";
+                                    if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
+                                        reg << t["trace_symbol"].get<std::string>();
+                                    } else {
+                                        reg << "nullptr";
+                                    }
+                                    reg << "},\n";
+                                }
+                                reg << "};\n";
+                            }
+
+                            reg << "\nextern \"C\" uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
+                            reg << "extern \"C\" void fjell_register(FjellTypeRegistry* registry) {\n";
+                            if (!script_types.empty()) {
+                                reg << "    fjell_set_generated_table(fjreflect_generated, "
+                                    << script_types.size() << ");\n";
+                            }
+                            if (!ui_types.empty()) {
+                                reg << "    fjell_set_ui_generated_table(fjreflect_ui_generated, "
+                                    << ui_types.size() << ");\n";
+                            }
+                            reg << "    for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
+                            reg << "    for (auto* r = fjell_ui_auto_reg_head(); r; r = r->next) r->fn(registry);\n";
+                            reg << "}\n";
+                        } else {
+                            reg << "FJELL_REGISTER()\n";
+                        }
+                    } else {
+                        reg << "FJELL_REGISTER()\n";
+                    }
+                }
+            }
+
+            // ── cmake configure + build ──────────────────────────────
+            auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
+                       " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
+                       "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
+
+            std::string build_output;
+            int ret = platform::run_command(cmd, build_output);
+            all_output += build_output;
+            return {.success = (ret == 0), .output = std::move(all_output), .so_path = so_path};
+        });
+}
+
+void ProjectManager::poll_build(ScriptManager& scripts, Scene& scene, bool playing) {
+#ifndef NDEBUG
+    // Check for source file changes — auto-trigger build after a debounce
+    (void)script_watcher_.poll();
+    if (source_changed_ && !build_future_.valid()) {
+        auto elapsed = std::chrono::steady_clock::now() - last_source_change_;
+        if (elapsed >= std::chrono::milliseconds(500)) {
+            source_changed_ = false;
+            FJELL_CORE_INFO("Source files changed — auto-building scripts");
+            build_scripts(scripts, scene);
+        }
+    }
+#endif
+
+    if (!build_future_.valid()) return;
+    if (build_future_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+
+    auto result = build_future_.get(); // resets the future to invalid — is_building() returns false
+
+    // Log build output on main thread
+    std::istringstream iss(result.output);
     std::string s;
     while (std::getline(iss, s)) {
         while (!s.empty() && (s.back() == '\r')) s.pop_back();
@@ -273,18 +307,49 @@ void ProjectManager::build_scripts(ScriptManager& scripts, Scene& scene) {
         }
     }
 
-    if (success) {
+    if (result.success) {
         FJELL_CORE_INFO("Scripts built successfully");
-        auto so_path = project_->root() / "game.so";
-        if (std::filesystem::exists(so_path)) {
-            if (auto r = scripts.reload(scene, so_path); !r) {
+        if (std::filesystem::exists(result.so_path)) {
+            if (auto r = scripts.reload(scene, result.so_path); !r) {
                 FJELL_CORE_ERROR("{}", r.error());
+            } else if (playing) {
+                scripts.call_begin_play(scene);
             }
         }
     } else {
         FJELL_CORE_ERROR("Script build failed");
     }
 }
+
+// ── Source file watcher ──────────────────────────────────────────────────
+
+#ifndef NDEBUG
+void ProjectManager::setup_script_watcher() {
+    script_watcher_.clear();
+    source_changed_ = false;
+    if (!project_) return;
+
+    auto scripts_dir = project_->root() / "scripts";
+    if (!std::filesystem::exists(scripts_dir)) return;
+
+    script_watcher_.watch(scripts_dir, [this](const std::filesystem::path& path) {
+        auto ext = path.extension().string();
+        if (ext == ".cpp" || ext == ".hpp" || ext == ".h") {
+            // Ignore generated files
+            auto filename = path.filename().string();
+            if (filename == "register_all.cpp") return;
+            if (path.string().find("/generated/") != std::string::npos) return;
+
+            source_changed_ = true;
+            last_source_change_ = std::chrono::steady_clock::now();
+        }
+    });
+
+    FJELL_CORE_INFO("Watching scripts/ for changes: {}", scripts_dir.string());
+}
+#endif
+
+// ── Script creation ──────────────────────────────────────────────────────
 
 void ProjectManager::create_script(const std::string& class_name) {
     if (!project_) return;
