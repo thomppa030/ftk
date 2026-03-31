@@ -39,12 +39,16 @@ public:
     [[nodiscard]] const std::string& parameter() const { return parameter_; }
     void set_parameter(const std::string& name) { parameter_ = name; }
 
+    [[nodiscard]] const std::string& skeleton_path() const { return skeleton_path_; }
+    void set_skeleton_path(const std::string& path) { skeleton_path_ = path; }
+
     [[nodiscard]] const std::vector<BlendSpacePoint>& points() const { return points_; }
     [[nodiscard]] bool empty() const { return points_.empty(); }
     [[nodiscard]] uint32_t size() const { return static_cast<uint32_t>(points_.size()); }
 
 private:
     std::string parameter_;                // parameter name (e.g. "speed")
+    std::string skeleton_path_;            // relative path to .fjskel
     std::vector<BlendSpacePoint> points_;  // sorted by position
 };
 
@@ -82,6 +86,9 @@ public:
         parameter_y_ = y;
     }
 
+    [[nodiscard]] const std::string& skeleton_path() const { return skeleton_path_; }
+    void set_skeleton_path(const std::string& path) { skeleton_path_ = path; }
+
     [[nodiscard]] const std::vector<BlendSpacePoint2D>& points() const { return points_; }
     [[nodiscard]] bool empty() const { return points_.empty(); }
     [[nodiscard]] uint32_t size() const { return static_cast<uint32_t>(points_.size()); }
@@ -92,6 +99,7 @@ public:
 private:
     std::string parameter_x_;
     std::string parameter_y_;
+    std::string skeleton_path_;
     std::vector<BlendSpacePoint2D> points_;
     std::vector<Triangle> triangles_;
 };

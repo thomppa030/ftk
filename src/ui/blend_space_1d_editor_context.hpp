@@ -61,8 +61,11 @@ private:
     void draw_point_list();
     void draw_parameter_slider();
     void draw_properties();
+    void draw_clip_list();
     void update_preview(float dt);
     void reload_clips();
+    void scan_available_clips();
+    void load_skeleton(const std::string& skel_path);
 
     BlendSpace1DEditorDeps deps_;
     std::string name_{"Blend Space 1D"};
@@ -78,8 +81,16 @@ private:
     // Loaded clips (parallel to blend_space_.points())
     std::vector<std::shared_ptr<AnimationClip>> loaded_clips_;
 
-    // Parameter slider
+    // Available clips (from skeleton directory)
+    std::vector<std::string> available_clip_paths_;
+    std::vector<std::string> available_clip_names_;
+
+    // Canvas interaction
     float current_param_{0.0f};
+    int selected_point_{-1};
+    int hovered_point_{-1};
+    int dragging_point_{-1};
+    bool dragging_cursor_{false};
 
     // Viewport
     ViewportManager viewport_manager_;

@@ -51,6 +51,7 @@ BlendSpace1D BlendSpace1D::load(const std::string& path) {
     auto j = nlohmann::json::parse(file);
     BlendSpace1D bs;
     bs.parameter_ = j.value("parameter", "");
+    bs.skeleton_path_ = j.value("skeleton", "");
 
     if (j.contains("points") && j["points"].is_array()) {
         for (const auto& jp : j["points"]) {
@@ -68,6 +69,7 @@ BlendSpace1D BlendSpace1D::load(const std::string& path) {
 
 void BlendSpace1D::save(const std::string& path) const {
     nlohmann::json j;
+    if (!skeleton_path_.empty()) j["skeleton"] = skeleton_path_;
     j["parameter"] = parameter_;
     j["points"] = nlohmann::json::array();
 
@@ -180,6 +182,7 @@ BlendSpace2D BlendSpace2D::load(const std::string& path) {
     BlendSpace2D bs;
     bs.parameter_x_ = j.value("parameter_x", "");
     bs.parameter_y_ = j.value("parameter_y", "");
+    bs.skeleton_path_ = j.value("skeleton", "");
 
     if (j.contains("points") && j["points"].is_array()) {
         for (const auto& jp : j["points"]) {
@@ -202,6 +205,7 @@ BlendSpace2D BlendSpace2D::load(const std::string& path) {
 
 void BlendSpace2D::save(const std::string& path) const {
     nlohmann::json j;
+    if (!skeleton_path_.empty()) j["skeleton"] = skeleton_path_;
     j["parameter_x"] = parameter_x_;
     j["parameter_y"] = parameter_y_;
     j["points"] = nlohmann::json::array();

@@ -60,8 +60,11 @@ private:
     void draw_canvas();
     void draw_point_list();
     void draw_properties();
+    void draw_clip_list();
     void update_preview(float dt);
     void reload_clips();
+    void scan_available_clips();
+    void load_skeleton(const std::string& skel_path);
 
     BlendSpace2DEditorDeps deps_;
     std::string name_{"Blend Space 2D"};
@@ -75,11 +78,16 @@ private:
     std::shared_ptr<Skeleton> skeleton_;
     std::vector<std::shared_ptr<AnimationClip>> loaded_clips_;
 
-    // 2D parameter cursor
-    glm::vec2 current_param_{0.0f, 0.0f};
+    // Available clips (from skeleton directory)
+    std::vector<std::string> available_clip_paths_;
+    std::vector<std::string> available_clip_names_;
 
     // Canvas interaction
+    glm::vec2 current_param_{0.0f, 0.0f};
+    int selected_point_{-1};
+    int hovered_point_{-1};
     int dragging_point_{-1};
+    bool dragging_cursor_{false};
 
     ViewportManager viewport_manager_;
     std::vector<Connection> connections_;

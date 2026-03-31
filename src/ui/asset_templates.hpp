@@ -41,9 +41,9 @@ inline constexpr std::array kAssetTemplates = {
     AssetTemplate{"Animation Set (.fjanimset)", "new_animset", ".fjanimset",
                   R"({"skeleton":"","initial":"","params":{},"states":[]})"},
     AssetTemplate{"Blend Space 1D (.fjblend1D)", "new_blend1d", ".fjblend1D",
-                  R"({"parameter":"speed","points":[]})"},
+                  R"({"skeleton":"","parameter":"speed","points":[]})"},
     AssetTemplate{"Blend Space 2D (.fjblend2D)", "new_blend2d", ".fjblend2D",
-                  R"({"parameter_x":"forward","parameter_y":"strafe","points":[]})"},
+                  R"({"skeleton":"","parameter_x":"forward","parameter_y":"strafe","points":[]})"},
     AssetTemplate{nullptr, {}, {}, {}},
     // ── Scene ──
     AssetTemplate{"Scene (.fjell)", "new_scene", ".fjell",

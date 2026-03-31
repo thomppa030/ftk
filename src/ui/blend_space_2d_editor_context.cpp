@@ -47,6 +47,7 @@ void BlendSpace2DEditorContext::open(const std::string& path) {
 
     name_ = fs::path(path).stem().string();
     reload_clips();
+    scan_available_clips();
 
     FJELL_CORE_INFO("BlendSpace2D editor: opened {} ({} points, params='{}/{}', {} triangles)",
                     path, blend_space_.size(), blend_space_.parameter_x(),
@@ -85,6 +86,11 @@ void BlendSpace2DEditorContext::draw(float dt) {
     }
     ImGui::End();
 
+    if (ImGui::Begin("Clips")) {
+        draw_clip_list();
+    }
+    ImGui::End();
+
     if (ImGui::Begin("Properties")) {
         draw_properties();
     }
@@ -96,25 +102,22 @@ void BlendSpace2DEditorContext::draw(float dt) {
 void BlendSpace2DEditorContext::draw_canvas() {
     ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
     ImVec2 canvas_size = ImGui::GetContentRegionAvail();
+    // Reserve space for the info text below the canvas
+    canvas_size.y -= ImGui::GetTextLineHeightWithSpacing() * 2.0f;
     if (canvas_size.x < 50.0f) canvas_size.x = 50.0f;
     if (canvas_size.y < 50.0f) canvas_size.y = 50.0f;
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    constexpr float point_radius = 8.0f;
+    constexpr float hit_radius = 14.0f;
 
     // Background
     draw_list->AddRectFilled(canvas_pos,
         {canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y},
-        IM_COL32(30, 30, 30, 255));
-
-    // Grid lines
-    draw_list->AddLine(
-        {canvas_pos.x + canvas_size.x * 0.5f, canvas_pos.y},
-        {canvas_pos.x + canvas_size.x * 0.5f, canvas_pos.y + canvas_size.y},
-        IM_COL32(60, 60, 60, 255));
-    draw_list->AddLine(
-        {canvas_pos.x, canvas_pos.y + canvas_size.y * 0.5f},
-        {canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y * 0.5f},
-        IM_COL32(60, 60, 60, 255));
+        IM_COL32(25, 26, 28, 255));
+    draw_list->AddRect(canvas_pos,
+        {canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y},
+        IM_COL32(50, 50, 55, 255));
 
     // Map parameter space to canvas (-1..1 default range, auto-fit to points)
     float min_x = -1.0f, max_x = 1.0f, min_y = -1.0f, max_y = 1.0f;
@@ -137,62 +140,250 @@ void BlendSpace2DEditorContext::draw_canvas() {
         return {px, py};
     };
 
-    // Draw triangles
+    // Grid lines — minor grid
+    constexpr int grid_divs = 8;
+    for (int i = 1; i < grid_divs; ++i) {
+        float t = static_cast<float>(i) / static_cast<float>(grid_divs);
+        float gx = canvas_pos.x + t * canvas_size.x;
+        float gy = canvas_pos.y + t * canvas_size.y;
+        draw_list->AddLine({gx, canvas_pos.y}, {gx, canvas_pos.y + canvas_size.y},
+                           IM_COL32(40, 40, 44, 255));
+        draw_list->AddLine({canvas_pos.x, gy}, {canvas_pos.x + canvas_size.x, gy},
+                           IM_COL32(40, 40, 44, 255));
+    }
+
+    // Center crosshair (origin lines)
+    auto origin = to_screen({0.0f, 0.0f});
+    if (origin.x > canvas_pos.x && origin.x < canvas_pos.x + canvas_size.x) {
+        draw_list->AddLine({origin.x, canvas_pos.y}, {origin.x, canvas_pos.y + canvas_size.y},
+                           IM_COL32(70, 70, 75, 255));
+    }
+    if (origin.y > canvas_pos.y && origin.y < canvas_pos.y + canvas_size.y) {
+        draw_list->AddLine({canvas_pos.x, origin.y}, {canvas_pos.x + canvas_size.x, origin.y},
+                           IM_COL32(70, 70, 75, 255));
+    }
+
+    // Axis labels at edges
+    char x_label[64], y_label[64];
+    std::snprintf(x_label, sizeof(x_label), "%s ->", blend_space_.parameter_x().c_str());
+    std::snprintf(y_label, sizeof(y_label), "%s", blend_space_.parameter_y().c_str());
+    draw_list->AddText({canvas_pos.x + canvas_size.x - ImGui::CalcTextSize(x_label).x - 4.0f,
+                        canvas_pos.y + canvas_size.y - ImGui::GetTextLineHeight() - 2.0f},
+                       IM_COL32(100, 100, 110, 180), x_label);
+    draw_list->AddText({canvas_pos.x + 4.0f, canvas_pos.y + 2.0f},
+                       IM_COL32(100, 100, 110, 180), y_label);
+
+    // Draw triangles (filled + wireframe)
     for (const auto& tri : blend_space_.triangles()) {
         auto a = to_screen(blend_space_.points()[tri.a].position);
         auto b = to_screen(blend_space_.points()[tri.b].position);
         auto c = to_screen(blend_space_.points()[tri.c].position);
-        draw_list->AddTriangle(a, b, c, IM_COL32(80, 80, 100, 120));
+        draw_list->AddTriangleFilled(a, b, c, IM_COL32(60, 60, 80, 40));
+        draw_list->AddTriangle(a, b, c, IM_COL32(80, 80, 110, 100));
+    }
+
+    // Hit test: find hovered point
+    ImVec2 mouse = ImGui::GetMousePos();
+    hovered_point_ = -1;
+    for (uint32_t i = 0; i < blend_space_.size(); ++i) {
+        auto screen = to_screen(blend_space_.points()[i].position);
+        float dx = mouse.x - screen.x;
+        float dy = mouse.y - screen.y;
+        if (dx * dx + dy * dy <= hit_radius * hit_radius) {
+            hovered_point_ = static_cast<int>(i);
+            break;
+        }
     }
 
     // Draw points
     for (uint32_t i = 0; i < blend_space_.size(); ++i) {
         auto screen = to_screen(blend_space_.points()[i].position);
-        draw_list->AddCircleFilled(screen, 8.0f, IM_COL32(200, 160, 80, 255));
-        draw_list->AddCircle(screen, 8.0f, IM_COL32(255, 255, 255, 180));
+        int idx = static_cast<int>(i);
+
+        // Fill color
+        ImU32 fill = IM_COL32(200, 160, 80, 255);
+        if (idx == selected_point_) {
+            fill = IM_COL32(255, 200, 80, 255);
+        } else if (idx == hovered_point_) {
+            fill = IM_COL32(230, 180, 60, 255);
+        }
+
+        draw_list->AddCircleFilled(screen, point_radius, fill);
+
+        // Outline
+        ImU32 outline = IM_COL32(180, 180, 180, 160);
+        if (idx == selected_point_) {
+            outline = IM_COL32(255, 255, 255, 255);
+        } else if (idx == hovered_point_) {
+            outline = IM_COL32(255, 255, 255, 220);
+        }
+        draw_list->AddCircle(screen, point_radius, outline, 0, 2.0f);
 
         // Label
         auto label = fs::path(blend_space_.points()[i].clip).stem().string();
-        if (!label.empty()) {
-            draw_list->AddText({screen.x + 10.0f, screen.y - 6.0f},
-                               IM_COL32(200, 200, 200, 200), label.c_str());
-        }
+        if (label.empty()) label = "?";
+        draw_list->AddText({screen.x + 11.0f, screen.y - 6.0f},
+                           IM_COL32(200, 200, 200, 200), label.c_str());
     }
 
-    // Current parameter cursor
-    auto cursor = to_screen(current_param_);
-    draw_list->AddCircleFilled(cursor, 5.0f, IM_COL32(255, 200, 80, 255));
+    // Draw cursor (the preview position indicator)
+    auto cursor_screen = to_screen(current_param_);
+    // Diamond shape
+    constexpr float d = 6.0f;
+    draw_list->AddQuadFilled(
+        {cursor_screen.x, cursor_screen.y - d},
+        {cursor_screen.x + d, cursor_screen.y},
+        {cursor_screen.x, cursor_screen.y + d},
+        {cursor_screen.x - d, cursor_screen.y},
+        IM_COL32(80, 220, 120, 220));
+    draw_list->AddQuad(
+        {cursor_screen.x, cursor_screen.y - d},
+        {cursor_screen.x + d, cursor_screen.y},
+        {cursor_screen.x, cursor_screen.y + d},
+        {cursor_screen.x - d, cursor_screen.y},
+        IM_COL32(255, 255, 255, 180));
 
     // Invisible button for interaction
     ImGui::SetCursorScreenPos(canvas_pos);
     ImGui::InvisibleButton("##Canvas2D", canvas_size);
+    bool canvas_active = ImGui::IsItemActive();
+    bool canvas_hovered = ImGui::IsItemHovered();
 
-    // Drag parameter cursor
-    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-        current_param_ = from_screen(ImGui::GetMousePos());
+    // ── Mouse interaction ───────────────────────────────────────────────
+
+    // Left click/drag: pick up a point or move the cursor
+    if (canvas_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        if (hovered_point_ >= 0) {
+            // Start dragging a point
+            dragging_point_ = hovered_point_;
+            selected_point_ = hovered_point_;
+            dragging_cursor_ = false;
+        } else {
+            // Start dragging the cursor
+            dragging_cursor_ = true;
+            dragging_point_ = -1;
+            selected_point_ = -1;
+            current_param_ = from_screen(ImGui::GetMousePos());
+        }
     }
 
-    // Axis labels
-    ImGui::TextDisabled("X: %s  Y: %s",
-                        blend_space_.parameter_x().c_str(),
-                        blend_space_.parameter_y().c_str());
+    if (canvas_active && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        if (dragging_point_ >= 0 && dragging_point_ < static_cast<int>(blend_space_.size())) {
+            // Move the point
+            auto new_pos = from_screen(ImGui::GetMousePos());
+            auto points = blend_space_.points(); // copy
+            points[dragging_point_].position = new_pos;
+            blend_space_.clear();
+            for (auto& pt : points) {
+                blend_space_.add(std::move(pt));
+            }
+            blend_space_.triangulate();
+        } else if (dragging_cursor_) {
+            current_param_ = from_screen(ImGui::GetMousePos());
+        }
+    }
 
-    // Evaluation result
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        dragging_point_ = -1;
+        dragging_cursor_ = false;
+    }
+
+    // Double-click on empty space: add new point
+    if (canvas_hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hovered_point_ < 0) {
+        BlendSpacePoint2D pt;
+        pt.position = from_screen(ImGui::GetMousePos());
+        blend_space_.add(std::move(pt));
+        blend_space_.triangulate();
+        selected_point_ = static_cast<int>(blend_space_.size()) - 1;
+        reload_clips();
+    }
+
+    // Right-click on a point: delete it
+    if (canvas_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && hovered_point_ >= 0) {
+        auto points = blend_space_.points(); // copy
+        points.erase(points.begin() + hovered_point_);
+        blend_space_.clear();
+        for (auto& pt : points) {
+            blend_space_.add(std::move(pt));
+        }
+        blend_space_.triangulate();
+        if (selected_point_ == hovered_point_) selected_point_ = -1;
+        else if (selected_point_ > hovered_point_) selected_point_--;
+        hovered_point_ = -1;
+        reload_clips();
+    }
+
+    // Delete key on selected point
+    if (selected_point_ >= 0 && selected_point_ < static_cast<int>(blend_space_.size()) &&
+        ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+        auto points = blend_space_.points();
+        points.erase(points.begin() + selected_point_);
+        blend_space_.clear();
+        for (auto& pt : points) {
+            blend_space_.add(std::move(pt));
+        }
+        blend_space_.triangulate();
+        selected_point_ = -1;
+        reload_clips();
+    }
+
+    // Drag-drop .fjanim onto canvas: onto a point reassigns, onto empty space creates
+    if (ImGui::BeginDragDropTarget()) {
+        if (auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            auto clip_path = std::string(static_cast<const char*>(payload->Data),
+                                         static_cast<size_t>(payload->DataSize - 1));
+            if (hovered_point_ >= 0) {
+                // Reassign clip on existing point
+                auto points = blend_space_.points();
+                points[hovered_point_].clip = clip_path;
+                blend_space_.clear();
+                for (auto& pt : points) {
+                    blend_space_.add(std::move(pt));
+                }
+            } else {
+                // Create new point at drop position
+                BlendSpacePoint2D pt;
+                pt.clip = clip_path;
+                pt.position = from_screen(ImGui::GetMousePos());
+                blend_space_.add(std::move(pt));
+                selected_point_ = static_cast<int>(blend_space_.size()) - 1;
+            }
+            blend_space_.triangulate();
+            reload_clips();
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    // ── Info text below canvas ──────────────────────────────────────────
+
+    ImGui::SetCursorScreenPos({canvas_pos.x, canvas_pos.y + canvas_size.y + 2.0f});
+
     if (!blend_space_.empty()) {
         auto result = blend_space_.evaluate(current_param_);
         if (result.count == 3) {
-            ImGui::TextDisabled("Blend: [%u] %.0f%% + [%u] %.0f%% + [%u] %.0f%%",
-                                result.indices[0], result.weights[0] * 100.0f,
-                                result.indices[1], result.weights[1] * 100.0f,
-                                result.indices[2], result.weights[2] * 100.0f);
+            auto n0 = fs::path(blend_space_.points()[result.indices[0]].clip).stem().string();
+            auto n1 = fs::path(blend_space_.points()[result.indices[1]].clip).stem().string();
+            auto n2 = fs::path(blend_space_.points()[result.indices[2]].clip).stem().string();
+            ImGui::TextDisabled("Blend: %s %.0f%%  %s %.0f%%  %s %.0f%%",
+                                n0.c_str(), result.weights[0] * 100.0f,
+                                n1.c_str(), result.weights[1] * 100.0f,
+                                n2.c_str(), result.weights[2] * 100.0f);
         } else if (result.count == 2) {
-            ImGui::TextDisabled("Blend: [%u] %.0f%% + [%u] %.0f%%",
-                                result.indices[0], result.weights[0] * 100.0f,
-                                result.indices[1], result.weights[1] * 100.0f);
+            auto n0 = fs::path(blend_space_.points()[result.indices[0]].clip).stem().string();
+            auto n1 = fs::path(blend_space_.points()[result.indices[1]].clip).stem().string();
+            ImGui::TextDisabled("Blend: %s %.0f%%  %s %.0f%%",
+                                n0.c_str(), result.weights[0] * 100.0f,
+                                n1.c_str(), result.weights[1] * 100.0f);
         } else {
-            ImGui::TextDisabled("Nearest: [%u]", result.indices[0]);
+            auto n0 = fs::path(blend_space_.points()[result.indices[0]].clip).stem().string();
+            ImGui::TextDisabled("Nearest: %s", n0.c_str());
         }
+    } else {
+        ImGui::TextDisabled("Drop clips to place, double-click for empty, drag to move");
     }
+
+    // Cursor coordinates
+    ImGui::TextDisabled("Cursor: %.2f, %.2f", current_param_.x, current_param_.y);
 }
 
 void BlendSpace2DEditorContext::draw_point_list() {
@@ -209,13 +400,11 @@ void BlendSpace2DEditorContext::draw_point_list() {
     ImGui::SetNextItemWidth(-1);
     if (ImGui::InputText("##ParamX", px_buf, sizeof(px_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
         blend_space_.set_parameters(px_buf, blend_space_.parameter_y());
-        changed = true;
     }
     ImGui::Text("Parameter Y");
     ImGui::SetNextItemWidth(-1);
     if (ImGui::InputText("##ParamY", py_buf, sizeof(py_buf), ImGuiInputTextFlags_EnterReturnsTrue)) {
         blend_space_.set_parameters(blend_space_.parameter_x(), py_buf);
-        changed = true;
     }
 
     ImGui::Spacing();
@@ -227,16 +416,29 @@ void BlendSpace2DEditorContext::draw_point_list() {
     for (size_t i = 0; i < points.size(); ++i) {
         ImGui::PushID(static_cast<int>(i));
 
-        ImGui::Text("Position");
-        ImGui::SetNextItemWidth(-1);
+        bool is_selected = (static_cast<int>(i) == selected_point_);
+
+        // Selectable header with clip name
+        auto label = fs::path(points[i].clip).stem().string();
+        if (label.empty()) label = "(no clip)";
+        if (ImGui::Selectable(label.c_str(), is_selected)) {
+            selected_point_ = static_cast<int>(i);
+        }
+
+        // Position
+        ImGui::SetNextItemWidth(-30);
         if (ImGui::DragFloat2("##Pos", &points[i].position.x, 0.01f)) {
             changed = true;
         }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("X")) {
+            remove_idx = static_cast<int>(i);
+        }
 
+        // Clip drag-drop
         char clip_buf[256];
         std::strncpy(clip_buf, points[i].clip.c_str(), sizeof(clip_buf) - 1);
         clip_buf[sizeof(clip_buf) - 1] = '\0';
-        ImGui::Text("Clip");
         ImGui::SetNextItemWidth(-1);
         if (ImGui::InputText("##Clip", clip_buf, sizeof(clip_buf))) {
             points[i].clip = clip_buf;
@@ -244,15 +446,11 @@ void BlendSpace2DEditorContext::draw_point_list() {
         }
         if (ImGui::BeginDragDropTarget()) {
             if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                points[i].clip = std::string(static_cast<const char*>(payload->Data));
+                points[i].clip = std::string(static_cast<const char*>(payload->Data),
+                                             static_cast<size_t>(payload->DataSize - 1));
                 changed = true;
             }
             ImGui::EndDragDropTarget();
-        }
-
-        ImGui::SameLine();
-        if (ImGui::SmallButton("X")) {
-            remove_idx = static_cast<int>(i);
         }
 
         ImGui::Separator();
@@ -261,6 +459,8 @@ void BlendSpace2DEditorContext::draw_point_list() {
 
     if (remove_idx >= 0) {
         points.erase(points.begin() + remove_idx);
+        if (selected_point_ == remove_idx) selected_point_ = -1;
+        else if (selected_point_ > remove_idx) selected_point_--;
         changed = true;
     }
 
@@ -268,6 +468,7 @@ void BlendSpace2DEditorContext::draw_point_list() {
         BlendSpacePoint2D pt;
         pt.position = {0.0f, 0.0f};
         points.push_back(std::move(pt));
+        selected_point_ = static_cast<int>(points.size()) - 1;
         changed = true;
     }
 
@@ -282,12 +483,93 @@ void BlendSpace2DEditorContext::draw_point_list() {
 }
 
 void BlendSpace2DEditorContext::draw_properties() {
+    // Skeleton assignment
+    ImGui::SeparatorText("Skeleton");
+    auto skel = blend_space_.skeleton_path();
+    if (skel.empty()) {
+        ImGui::TextDisabled("None — drag .fjskel here");
+    } else {
+        ImGui::Text("%s", fs::path(skel).filename().string().c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear##skel")) {
+            blend_space_.set_skeleton_path("");
+            available_clip_paths_.clear();
+            available_clip_names_.clear();
+        }
+    }
+    if (ImGui::BeginDragDropTarget()) {
+        if (auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            std::string path(static_cast<const char*>(payload->Data),
+                             static_cast<size_t>(payload->DataSize - 1));
+            if (path.ends_with(".fjskel")) {
+                load_skeleton(path);
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    ImGui::Separator();
     ImGui::TextDisabled("File: %s", asset_path_.c_str());
     ImGui::TextDisabled("Points: %u", blend_space_.size());
     ImGui::TextDisabled("Triangles: %u", static_cast<uint32_t>(blend_space_.triangles().size()));
     ImGui::TextDisabled("Parameters: %s / %s",
                         blend_space_.parameter_x().c_str(),
                         blend_space_.parameter_y().c_str());
+}
+
+void BlendSpace2DEditorContext::draw_clip_list() {
+    if (available_clip_names_.empty()) {
+        ImGui::TextDisabled("Assign a skeleton to see clips");
+        return;
+    }
+
+    for (int i = 0; i < static_cast<int>(available_clip_names_.size()); ++i) {
+        ImGui::PushID(i);
+
+        ImGui::Selectable(available_clip_names_[i].c_str(), false);
+
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+            const auto& path = available_clip_paths_[i];
+            ImGui::SetDragDropPayload("ASSET_PATH", path.c_str(), path.size() + 1);
+            ImGui::Text("%s", available_clip_names_[i].c_str());
+            ImGui::EndDragDropSource();
+        }
+
+        ImGui::PopID();
+    }
+}
+
+void BlendSpace2DEditorContext::load_skeleton(const std::string& skel_path) {
+    blend_space_.set_skeleton_path(skel_path);
+    scan_available_clips();
+}
+
+void BlendSpace2DEditorContext::scan_available_clips() {
+    available_clip_paths_.clear();
+    available_clip_names_.clear();
+
+    auto skel = blend_space_.skeleton_path();
+    if (skel.empty()) return;
+
+    auto resolved = base_path::resolve_asset(skel, deps_.project_mgr->active());
+    auto dir = fs::path(resolved).parent_path();
+    auto base = base_path::resolve_asset("", deps_.project_mgr->active());
+
+    if (!fs::is_directory(dir)) return;
+
+    std::vector<std::pair<std::string, std::string>> pairs;
+    for (const auto& entry : fs::directory_iterator(dir)) {
+        if (entry.path().extension() == ".fjanim") {
+            auto rel = fs::relative(entry.path(), base).string();
+            auto name = entry.path().stem().string();
+            pairs.emplace_back(name, rel);
+        }
+    }
+    std::sort(pairs.begin(), pairs.end());
+    for (auto& [name, path] : pairs) {
+        available_clip_names_.push_back(std::move(name));
+        available_clip_paths_.push_back(std::move(path));
+    }
 }
 
 bool BlendSpace2DEditorContext::save() {
@@ -310,15 +592,17 @@ void BlendSpace2DEditorContext::update_preview(float /*dt*/) {
 // ── Viewport boilerplate ────────────────────────────────────────────────
 
 void BlendSpace2DEditorContext::setup_dockspace(ImGuiID main_area) {
-    ImGuiID left, right;
-    ImGui::DockBuilderSplitNode(main_area, ImGuiDir_Left, 0.25f, &left, &right);
-    ImGuiID center, bottom;
-    ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.4f, &bottom, &center);
+    ImGuiID left, center;
+    ImGui::DockBuilderSplitNode(main_area, ImGuiDir_Left, 0.22f, &left, &center);
+    ImGuiID left_mid, left_bottom;
+    ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.60f, &left_mid, &left);
+    ImGui::DockBuilderSplitNode(left_mid, ImGuiDir_Down, 0.40f, &left_bottom, &left_mid);
 
+    ImGui::DockBuilderDockWindow("Canvas", center);
     ImGui::DockBuilderDockWindow("BS2D Preview", center);
     ImGui::DockBuilderDockWindow("Points", left);
-    ImGui::DockBuilderDockWindow("Canvas", bottom);
-    ImGui::DockBuilderDockWindow("Properties", left);
+    ImGui::DockBuilderDockWindow("Clips", left_mid);
+    ImGui::DockBuilderDockWindow("Properties", left_bottom);
 }
 
 bool BlendSpace2DEditorContext::handle_shortcuts() {
