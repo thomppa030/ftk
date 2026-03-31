@@ -5,6 +5,7 @@
 #include "renderer/mega_buffer.hpp"
 #include "renderer/model.hpp"
 #include "renderer/render_queue.hpp"
+#include "renderer/skeletal_model.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -248,9 +249,17 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         data.meshlet_count = 0;
         data.vertex_offset = 0;
 
-        const auto& entries = dc.model->mega_entries();
-        for (const auto& entry : entries) {
-            triangles += entry.index_count / 3;
+        if (dc.skinned && animation_system) {
+            data.bone_offset = animation_system->bone_offset_for(dc.node_id);
+            data.bone_count = animation_system->bone_count_for(dc.node_id);
+            if (dc.skeletal_model) {
+                triangles += dc.skeletal_model->index_count() / 3;
+            }
+        } else if (dc.model) {
+            const auto& entries = dc.model->mega_entries();
+            for (const auto& entry : entries) {
+                triangles += entry.index_count / 3;
+            }
         }
         draw_index++;
     }

@@ -7,6 +7,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/shader_utils.hpp"
+#include "renderer/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
@@ -187,6 +188,7 @@ void TransparentPass::record(const FrameContext& ctx) {
     uint32_t base_index = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
 
     bool current_skinned = false;
+    bool mega_bound = true;
     for (const auto& dc : ctx.queue->transparent_commands()) {
         // Switch pipeline if draw uses a different shader or skinned state changed
         if (ctx.pipeline_cache && (dc.pipeline_id != current_pipeline_id || dc.skinned != current_skinned)) {
@@ -202,9 +204,19 @@ void TransparentPass::record(const FrameContext& ctx) {
                                     descriptor_sets.data(), 0, nullptr);
         }
 
-        if (dc.skinned) { // TODO(skinned-transparent): draw with per-model VBO
+        if (dc.skinned) {
+            if (dc.skeletal_model) {
+                dc.skeletal_model->bind(ctx.cmd);
+                vkCmdDrawIndexed(ctx.cmd, dc.skeletal_model->index_count(),
+                                 1, 0, 0, base_index);
+                mega_bound = false;
+            }
             base_index++;
             continue;
+        }
+        if (!mega_bound) {
+            ctx.mega_buffer->bind(ctx.cmd);
+            mega_bound = true;
         }
         const auto& entries = dc.model->mega_entries();
         for (const auto& entry : entries) {
