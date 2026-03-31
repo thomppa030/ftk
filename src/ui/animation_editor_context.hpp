@@ -44,6 +44,8 @@ public:
     explicit AnimationEditorContext(AnimationEditorDeps deps);
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
+    [[nodiscard]] const char* context_type() const override { return "animation"; }
+    [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override {
         return animset_path_.empty() ? skeleton_path_ : animset_path_;
     }

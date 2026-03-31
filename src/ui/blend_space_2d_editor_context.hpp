@@ -38,6 +38,8 @@ public:
     explicit BlendSpace2DEditorContext(BlendSpace2DEditorDeps deps);
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
+    [[nodiscard]] const char* context_type() const override { return "blend2d"; }
+    [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return asset_path_; }
 
     void init() override;

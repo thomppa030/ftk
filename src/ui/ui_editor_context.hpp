@@ -38,6 +38,8 @@ public:
     explicit UiEditorContext(UiEditorDeps deps);
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
+    [[nodiscard]] const char* context_type() const override { return "ui"; }
+    [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return fjui_path_; }
 
     void init() override;

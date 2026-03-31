@@ -43,6 +43,8 @@ public:
     Delegate<void()> on_stop_play;
     Delegate<void(const std::string&)> on_new_script;
     Delegate<void()> on_build_game;
+    Delegate<void(const std::string&)> on_save_layout;
+    Delegate<void(const std::string&)> on_load_layout;
 
 private:
     void draw_file_menu();

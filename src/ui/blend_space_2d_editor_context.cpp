@@ -697,6 +697,10 @@ void BlendSpace2DEditorContext::update_preview(float dt) {
 
 // ── Viewport boilerplate ────────────────────────────────────────────────
 
+std::vector<std::string> BlendSpace2DEditorContext::docked_window_names() const {
+    return {"Canvas", "BS2D Preview", "Points", "Clips", "Properties"};
+}
+
 void BlendSpace2DEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID left, center;
     ImGui::DockBuilderSplitNode(main_area, ImGuiDir_Left, 0.22f, &left, &center);

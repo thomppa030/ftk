@@ -89,15 +89,7 @@ void MenuBar::draw_layout_menu() {
     bool has_active = !active_layout_name_.empty();
     if (!has_active) ImGui::BeginDisabled();
     if (ImGui::MenuItem("Save Layout")) {
-        auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
-        std::filesystem::create_directories(layout_dir);
-        auto path = layout_dir / (active_layout_name_ + ".ini");
-        ImGui::SaveIniSettingsToDisk(path.string().c_str());
-        if (project_) {
-            project_->config().layout = active_layout_name_;
-            project_->save();
-        }
-        FJELL_CORE_INFO("Layout saved: {}", path.string());
+        on_save_layout.broadcast(active_layout_name_);
     }
     if (!has_active) ImGui::EndDisabled();
 
@@ -116,12 +108,7 @@ void MenuBar::draw_layout_menu() {
             auto name = entry.path().stem().string();
             bool is_active = (name == active_layout_name_);
             if (ImGui::MenuItem(name.c_str(), nullptr, is_active)) {
-                ImGui::LoadIniSettingsFromDisk(entry.path().string().c_str());
-                active_layout_name_ = name;
-                if (project_) {
-                    project_->config().layout = name;
-                    project_->save();
-                }
+                on_load_layout.broadcast(name);
             }
         }
     }
@@ -169,16 +156,7 @@ void MenuBar::draw_popups() {
         if (ImGui::Button("Cancel", {120, 0})) ImGui::CloseCurrentPopup();
 
         if (save) {
-            auto layout_dir = project_ ? project_->root() / "layouts" : base_path::dir() / "layouts";
-            std::filesystem::create_directories(layout_dir);
-            auto path = layout_dir / (std::string(layout_name_buf_) + ".ini");
-            ImGui::SaveIniSettingsToDisk(path.string().c_str());
-            active_layout_name_ = layout_name_buf_;
-            if (project_) {
-                project_->config().layout = active_layout_name_;
-                project_->save();
-            }
-            FJELL_CORE_INFO("Layout saved: {}", path.string());
+            on_save_layout.broadcast(std::string(layout_name_buf_));
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();

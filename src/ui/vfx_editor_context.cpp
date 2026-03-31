@@ -121,6 +121,16 @@ void VfxEditorContext::draw(float dt) {
     timeline_.draw(dt * time_scale_);
 }
 
+std::vector<std::string> VfxEditorContext::docked_window_names() const {
+    int ci = context_index();
+    char stats[32], console[32], history[32];
+    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
+    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
+    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
+    return {"VFX Preview", "Module Stack", "Add Module", "VFX Graph",
+            "VFX Timeline", stats, console, history};
+}
+
 void VfxEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID center = main_area;
 

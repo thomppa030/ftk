@@ -608,6 +608,10 @@ void BlendSpace1DEditorContext::update_preview(float dt) {
 
 // ── Viewport boilerplate ────────────────────────────────────────────────
 
+std::vector<std::string> BlendSpace1DEditorContext::docked_window_names() const {
+    return {"Parameter", "BS1D Preview", "Points", "Clips", "Properties"};
+}
+
 void BlendSpace1DEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID left, center;
     ImGui::DockBuilderSplitNode(main_area, ImGuiDir_Left, 0.22f, &left, &center);

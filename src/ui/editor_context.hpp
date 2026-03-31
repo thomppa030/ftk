@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 
+#include <string>
 #include <vector>
 
 namespace fjell {
@@ -22,6 +23,8 @@ public:
     EditorContext& operator=(EditorContext&&) = delete;
 
     [[nodiscard]] virtual const char* name() const = 0;
+    [[nodiscard]] virtual const char* context_type() const = 0;
+    [[nodiscard]] virtual std::vector<std::string> docked_window_names() const = 0;
 
     // Per-context undo/redo
     [[nodiscard]] CommandHistory& command_history() { return command_history_; }

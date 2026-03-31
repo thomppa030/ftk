@@ -63,6 +63,17 @@ void UiEditorContext::draw(float dt) {
     draw_action_log();
 }
 
+std::vector<std::string> UiEditorContext::docked_window_names() const {
+    int ci = context_index();
+    char stats[32], console[32], history[32], code[32];
+    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
+    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
+    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
+    std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
+    return {"Element Tree", code, "UI Preview", "UI Inspector",
+            "Mock Data", "Action Log", history, stats, console};
+}
+
 void UiEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID center = main_area;
 

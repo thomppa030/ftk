@@ -66,6 +66,8 @@ public:
     explicit SceneEditorContext(SceneEditorDeps deps);
 
     [[nodiscard]] const char* name() const override { return "Scene"; }
+    [[nodiscard]] const char* context_type() const override { return "scene"; }
+    [[nodiscard]] std::vector<std::string> docked_window_names() const override;
 
     void init() override;
     void shutdown() override;

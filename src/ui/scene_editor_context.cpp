@@ -424,6 +424,11 @@ void SceneEditorContext::draw_play_toolbar() {
     ImGui::End();
 }
 
+std::vector<std::string> SceneEditorContext::docked_window_names() const {
+    return {"Hierarchy", "History##ctx0", "Code Editor##ctx0", "Viewport",
+            "Properties", "Stats##ctx0", "Console##ctx0"};
+}
+
 void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID center = main_area;
 

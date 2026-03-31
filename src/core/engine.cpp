@@ -44,6 +44,7 @@
 #include <GLFW/glfw3.h>
 #include <nlohmann/json.hpp>
 
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -361,12 +362,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     if (project_mgr_.active()) {
         auto& layout = project_mgr_.active()->config().layout;
         if (!layout.empty()) {
-            auto lp = project_mgr_.active()->root() / "layouts" / (layout + ".ini");
-            if (std::filesystem::exists(lp)) {
-                pending_layout_load_ = lp.string();
-                menu_bar_.set_active_layout(layout);
-                has_saved_layout_ = true;
-            }
+            load_layout(layout);
         }
     }
 
@@ -724,6 +720,23 @@ void Engine::setup_dockspace() {
         }
     }
 
+    // Keep per-type template dockspaces alive so ImGui doesn't prune them.
+    // These are invisible snapshots used to clone layout for new contexts.
+    for (auto& [type, tmpl_id] : context_layout_templates_) {
+        if (tmpl_id == 0) continue;
+        // Only keep alive templates that don't belong to a live context
+        // (live context dockspaces are already kept alive above)
+        bool is_live = false;
+        for (auto& c : contexts_) {
+            if (c->dockspace_id() == tmpl_id) { is_live = true; break; }
+        }
+        if (!is_live && ImGui::DockBuilderGetNode(tmpl_id) != nullptr) {
+            ImGui::DockSpace(tmpl_id, {0.0f, 0.0f},
+                             ImGuiDockNodeFlags_PassthruCentralNode |
+                             ImGuiDockNodeFlags_KeepAliveOnly);
+        }
+    }
+
     // Build layout for contexts that haven't been set up yet
     for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
         auto& ctx = *contexts_[static_cast<size_t>(i)];
@@ -733,25 +746,135 @@ void Engine::setup_dockspace() {
         // Scene context: skip layout if restoring saved layout
         if (i == 0 && has_saved_layout_) {
             scene_context_->request_focus_viewport();
+            context_layout_templates_["scene"] = ctx.dockspace_id();
             continue;
         }
-
-        ImGuiID ctx_dock_id = ctx.dockspace_id();
-        ImGui::DockBuilderRemoveNode(ctx_dock_id);
-        ImGui::DockBuilderAddNode(ctx_dock_id, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(ctx_dock_id, viewport->WorkSize);
-
-        ImGuiID main_area = ctx_dock_id;
 
         if (i == 0) {
             scene_context_->request_focus_viewport();
         }
 
-        ctx.setup_dockspace(main_area);
-        ImGui::DockBuilderFinish(ctx_dock_id);
+        // Try to clone layout from an existing context of the same type
+        const char* type = ctx.context_type();
+        auto tmpl_it = context_layout_templates_.find(type);
+        bool cloned = false;
+        if (tmpl_it != context_layout_templates_.end() && tmpl_it->second != 0
+            && tmpl_it->second != ctx.dockspace_id()) {
+            if (ImGui::DockBuilderGetNode(tmpl_it->second) != nullptr) {
+                clone_dockspace_from_template(ctx, tmpl_it->second);
+                cloned = true;
+            }
+        }
+        if (!cloned) {
+            build_default_dockspace(ctx, viewport);
+        }
+
+        context_layout_templates_[type] = ctx.dockspace_id();
     }
 
     ImGui::End();
+}
+
+void Engine::build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport) {
+    ImGuiID ctx_dock_id = ctx.dockspace_id();
+    ImGui::DockBuilderRemoveNode(ctx_dock_id);
+    ImGui::DockBuilderAddNode(ctx_dock_id, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(ctx_dock_id, viewport->WorkSize);
+    ctx.setup_dockspace(ctx_dock_id);
+    ImGui::DockBuilderFinish(ctx_dock_id);
+}
+
+void Engine::clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_dock_id) {
+    auto dst_names = dst_ctx.docked_window_names();
+
+    // Build source window names — either from a live context or from template
+    // placeholder names ("CtxTmpl_material/Code Editor##ctx1", etc.)
+    std::vector<std::string> src_names;
+    EditorContext* src_ctx = nullptr;
+    for (auto& c : contexts_) {
+        if (c->dockspace_id() == src_dock_id) {
+            src_ctx = c.get();
+            break;
+        }
+    }
+
+    if (src_ctx) {
+        src_names = src_ctx->docked_window_names();
+    } else {
+        // Source is a saved template node. Templates store windows as
+        // "CtxTmpl_{type}/{base_name}" where base_name has ##ctx suffix stripped.
+        char tmpl_prefix[64];
+        std::snprintf(tmpl_prefix, sizeof(tmpl_prefix), "CtxTmpl_%s/", dst_ctx.context_type());
+        for (const auto& dname : dst_names) {
+            std::string base = dname;
+            auto pos = base.find("##ctx");
+            if (pos != std::string::npos) base.erase(pos);
+            src_names.push_back(std::string(tmpl_prefix) + base);
+        }
+    }
+
+    // Walk the source dock tree and record the split structure + window→node mapping.
+    ImGuiID dst_dock_id = dst_ctx.dockspace_id();
+    ImGui::DockBuilderRemoveNode(dst_dock_id);
+    ImGui::DockBuilderAddNode(dst_dock_id, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dst_dock_id, ImGui::GetMainViewport()->WorkSize);
+
+    // Build src window name → dock node ID map (from ImGui window state or settings)
+    std::unordered_map<std::string, ImGuiID> src_window_dock;
+    for (const auto& name : src_names) {
+        if (auto* win = ImGui::FindWindowByName(name.c_str())) {
+            src_window_dock[name] = win->DockId;
+        } else if (auto* settings = ImGui::FindWindowSettingsByID(ImHashStr(name.c_str()))) {
+            src_window_dock[name] = settings->DockId;
+        }
+    }
+
+    // Recursively clone the split structure from src to dst
+    struct SplitInfo { ImGuiID src_id, dst_id; };
+    std::vector<SplitInfo> node_map;
+
+    std::function<void(ImGuiDockNode*, ImGuiID)> clone_splits;
+    clone_splits = [&](ImGuiDockNode* src_node, ImGuiID dst_id) {
+        node_map.push_back({src_node->ID, dst_id});
+        if (src_node->IsSplitNode()) {
+            float total = src_node->ChildNodes[0]->SizeRef[src_node->SplitAxis]
+                        + src_node->ChildNodes[1]->SizeRef[src_node->SplitAxis];
+            float ratio = (total > 0.0f)
+                ? src_node->ChildNodes[0]->SizeRef[src_node->SplitAxis] / total
+                : 0.5f;
+
+            ImGuiID child0 = 0, child1 = 0;
+            ImGuiDir dir = (src_node->SplitAxis == ImGuiAxis_X) ? ImGuiDir_Left : ImGuiDir_Up;
+            ImGui::DockBuilderSplitNode(dst_id, dir, ratio, &child0, &child1);
+
+            clone_splits(src_node->ChildNodes[0], child0);
+            clone_splits(src_node->ChildNodes[1], child1);
+        }
+    };
+
+    auto* src_root = ImGui::DockBuilderGetNode(src_dock_id);
+    if (src_root) {
+        clone_splits(src_root, dst_dock_id);
+    }
+
+    // Dock destination windows into the cloned nodes by matching src layout
+    for (size_t j = 0; j < src_names.size() && j < dst_names.size(); ++j) {
+        auto it = src_window_dock.find(src_names[j]);
+        if (it == src_window_dock.end()) continue;
+
+        ImGuiID dst_node_id = 0;
+        for (auto& [sid, did] : node_map) {
+            if (sid == it->second) {
+                dst_node_id = did;
+                break;
+            }
+        }
+        if (dst_node_id != 0) {
+            ImGui::DockBuilderDockWindow(dst_names[j].c_str(), dst_node_id);
+        }
+    }
+
+    ImGui::DockBuilderFinish(dst_dock_id);
 }
 
 // Hierarchy and Properties panels extracted to ui/hierarchy_panel.cpp and ui/properties_panel.cpp
@@ -872,6 +995,11 @@ void Engine::bind_menu_bar() {
                 create_default_scene();
             }
         }));
+    connections_.push_back(menu_bar_.on_save_layout.bind(
+        [this](const std::string& name) { save_layout(name); }));
+    connections_.push_back(menu_bar_.on_load_layout.bind(
+        [this](const std::string& name) { load_layout(name); }));
+
     // React to project open/close from any source
     connections_.push_back(project_mgr_.on_opened.bind(
         [this](const std::string& name) {
@@ -880,12 +1008,7 @@ void Engine::bind_menu_bar() {
             // Defer layout restore
             auto& layout = project_mgr_.active()->config().layout;
             if (!layout.empty()) {
-                auto lp = project_mgr_.active()->root() / "layouts" / (layout + ".ini");
-                if (std::filesystem::exists(lp)) {
-                    pending_layout_load_ = lp.string();
-                    menu_bar_.set_active_layout(layout);
-                    has_saved_layout_ = true;
-                }
+                load_layout(layout);
             }
         }));
     connections_.push_back(project_mgr_.on_closed.bind(
@@ -894,6 +1017,111 @@ void Engine::bind_menu_bar() {
             window_.set_title("Fjell Engine");
             content_browser_.set_root({});
         }));
+}
+
+void Engine::save_layout(const std::string& name) {
+    namespace fs = std::filesystem;
+    auto layout_dir = project_mgr_.active()
+        ? project_mgr_.active()->root() / "layouts"
+        : fs::path(base_path::dir()) / "layouts";
+    fs::create_directories(layout_dir);
+
+    // Snapshot each context type's dockspace into a stable template node.
+    // These use type-based names ("CtxTmpl_material") so they survive across
+    // sessions — unlike "CtxDock{i}" which depends on context order.
+    // Must be done inside ##DockHost window context for consistent ID hashing.
+    ImGui::Begin("##DockHost");
+    for (auto& ctx : contexts_) {
+        const char* type = ctx->context_type();
+        if (std::strcmp(type, "scene") == 0) continue; // scene has its own persistence
+
+        auto* src_node = ImGui::DockBuilderGetNode(ctx->dockspace_id());
+        if (!src_node) continue;
+
+        char tmpl_buf[64];
+        std::snprintf(tmpl_buf, sizeof(tmpl_buf), "CtxTmpl_%s", type);
+        ImGuiID tmpl_id = ImGui::GetID(tmpl_buf);
+
+        // Rebuild the template dockspace with the current context's split structure
+        ImGui::DockBuilderRemoveNode(tmpl_id);
+        ImGui::DockBuilderAddNode(tmpl_id, ImGuiDockNodeFlags_DockSpace);
+        ImGui::DockBuilderSetNodeSize(tmpl_id, ImGui::GetMainViewport()->WorkSize);
+
+        // Clone split structure (same logic as clone_dockspace_from_template)
+        struct NodePair { ImGuiID src, dst; };
+        std::vector<NodePair> node_map;
+
+        std::function<void(ImGuiDockNode*, ImGuiID)> clone_tree;
+        clone_tree = [&](ImGuiDockNode* sn, ImGuiID did) {
+            node_map.push_back({sn->ID, did});
+            if (sn->IsSplitNode()) {
+                float total = sn->ChildNodes[0]->SizeRef[sn->SplitAxis]
+                            + sn->ChildNodes[1]->SizeRef[sn->SplitAxis];
+                float ratio = (total > 0.0f)
+                    ? sn->ChildNodes[0]->SizeRef[sn->SplitAxis] / total : 0.5f;
+                ImGuiID c0 = 0, c1 = 0;
+                ImGuiDir dir = (sn->SplitAxis == ImGuiAxis_X) ? ImGuiDir_Left : ImGuiDir_Up;
+                ImGui::DockBuilderSplitNode(did, dir, ratio, &c0, &c1);
+                clone_tree(sn->ChildNodes[0], c0);
+                clone_tree(sn->ChildNodes[1], c1);
+            }
+        };
+        clone_tree(src_node, tmpl_id);
+
+        // Dock placeholder window names so ImGui saves the node→window associations.
+        // Strip "##ctx{N}" suffix to get stable base names, then prefix with template name.
+        auto win_names = ctx->docked_window_names();
+        for (const auto& wname : win_names) {
+            ImGuiID src_dock = 0;
+            if (auto* win = ImGui::FindWindowByName(wname.c_str())) {
+                src_dock = win->DockId;
+            }
+            if (src_dock == 0) continue;
+
+            // Strip "##ctx{N}" suffix for stable naming
+            std::string base = wname;
+            auto pos = base.find("##ctx");
+            if (pos != std::string::npos) base.erase(pos);
+
+            for (auto& [sid, did] : node_map) {
+                if (sid == src_dock) {
+                    std::string tmpl_wname = std::string(tmpl_buf) + "/" + base;
+                    ImGui::DockBuilderDockWindow(tmpl_wname.c_str(), did);
+                    break;
+                }
+            }
+        }
+
+        ImGui::DockBuilderFinish(tmpl_id);
+        context_layout_templates_[type] = tmpl_id;
+    }
+    ImGui::End();
+
+    // Save ImGui dock state (now includes template dockspaces)
+    auto ini_path = layout_dir / (name + ".ini");
+    ImGui::SaveIniSettingsToDisk(ini_path.string().c_str());
+
+    menu_bar_.set_active_layout(name);
+    if (project_mgr_.active()) {
+        project_mgr_.active()->config().layout = name;
+        project_mgr_.active()->save();
+    }
+    FJELL_CORE_INFO("Layout saved: {}", ini_path.string());
+}
+
+void Engine::load_layout(const std::string& name) {
+    namespace fs = std::filesystem;
+    auto layout_dir = project_mgr_.active()
+        ? project_mgr_.active()->root() / "layouts"
+        : fs::path(base_path::dir()) / "layouts";
+
+    auto ini_path = layout_dir / (name + ".ini");
+    if (!fs::exists(ini_path)) return;
+
+    pending_layout_load_ = ini_path.string();
+    pending_template_resolve_ = true;
+    menu_bar_.set_active_layout(name);
+    has_saved_layout_ = true;
 }
 
 void Engine::draw_ui() {
@@ -940,6 +1168,24 @@ void Engine::draw_ui() {
         pending_layout_load_.clear();
         // Focus viewport next frame (layout overrides focus in the same frame)
         scene_context_->request_focus_viewport();
+    }
+
+    // After a layout load, resolve per-type template dockspaces from the .ini.
+    // These were saved as "CtxTmpl_{type}" nodes inside ##DockHost.
+    if (pending_template_resolve_) {
+        pending_template_resolve_ = false;
+        ImGui::Begin("##DockHost");
+        static const char* types[] = {"material", "vfx", "ui", "animation",
+                                       "blend1d", "blend2d"};
+        for (const char* type : types) {
+            char tmpl_buf[64];
+            std::snprintf(tmpl_buf, sizeof(tmpl_buf), "CtxTmpl_%s", type);
+            ImGuiID tmpl_id = ImGui::GetID(tmpl_buf);
+            if (ImGui::DockBuilderGetNode(tmpl_id) != nullptr) {
+                context_layout_templates_[type] = tmpl_id;
+            }
+        }
+        ImGui::End();
     }
 
     menu_bar_.set_project(project_mgr_.active());
@@ -1253,6 +1499,25 @@ void Engine::draw_context_tabs() {
                 active_context_idx_ = new_idx;
                 contexts_[active_context_idx_]->on_enter();
                 history_panel_.init(&active_context().command_history());
+            }
+
+            // Update layout template: if this context was the template for its
+            // type, pick another context of the same type (or leave stale).
+            const char* closing_type = contexts_[close_idx]->context_type();
+            ImGuiID closing_dock = contexts_[close_idx]->dockspace_id();
+            auto tmpl_it = context_layout_templates_.find(closing_type);
+            if (tmpl_it != context_layout_templates_.end() && tmpl_it->second == closing_dock) {
+                ImGuiID replacement = 0;
+                for (int j = 0; j < static_cast<int>(contexts_.size()); ++j) {
+                    if (j == close_idx) continue;
+                    if (std::strcmp(contexts_[j]->context_type(), closing_type) == 0) {
+                        replacement = contexts_[j]->dockspace_id();
+                        break;
+                    }
+                }
+                if (replacement != 0) {
+                    tmpl_it->second = replacement;
+                }
             }
 
             contexts_[close_idx]->shutdown();

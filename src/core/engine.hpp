@@ -32,6 +32,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -87,6 +88,12 @@ private:
     [[nodiscard]] EditorContext& active_context();
     [[nodiscard]] const EditorContext& active_context() const;
     void switch_context(int index);
+    void build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport);
+    void clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_dock_id);
+
+    // Layout save/load
+    void save_layout(const std::string& name);
+    void load_layout(const std::string& name);
 
     template <typename T, typename... Args>
     T* add_subsystem(Args&&... args);
@@ -163,6 +170,7 @@ private:
     bool layout_built_{false};
     std::string pending_layout_load_;
     bool has_saved_layout_{false};
+    bool pending_template_resolve_{false};
     float fps_accum_{0.0f};
     int fps_count_{0};
 
@@ -172,6 +180,9 @@ private:
     int active_context_idx_{0};
     int pending_context_switch_{-1}; // requested switch, applied by tab bar next frame
     SceneEditorContext* scene_context_{nullptr}; // non-owning, into contexts_[0]
+
+    // Per-type dockspace layout templates (context_type -> dockspace ID of last instance)
+    std::unordered_map<std::string, ImGuiID> context_layout_templates_;
 
     // Menu bar (owns file browsers, popup state, emits delegates)
     MenuBar menu_bar_;
