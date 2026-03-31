@@ -33,6 +33,9 @@ void BlendSpace2DEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "BS2D Preview");
+
+    init_shared_panels(deps_.vulkan_context);
+    history_panel().init(&command_history());
 }
 
 void BlendSpace2DEditorContext::shutdown() {
@@ -116,6 +119,8 @@ void BlendSpace2DEditorContext::draw(float dt) {
     ImGui::End();
 
     update_preview(dt);
+
+    draw_shared_panels(dt);
 }
 
 void BlendSpace2DEditorContext::draw_canvas() {
@@ -703,7 +708,8 @@ void BlendSpace2DEditorContext::update_preview(float dt) {
 
 std::vector<std::string> BlendSpace2DEditorContext::docked_window_names() const {
     return {ctx_title("Canvas"), ctx_title("BS2D Preview"),
-            ctx_title("Points"), ctx_title("Clips"), ctx_title("Properties")};
+            ctx_title("Points"), ctx_title("Clips"), ctx_title("Properties"),
+            ctx_title("Stats"), ctx_title("Console"), ctx_title("History")};
 }
 
 void BlendSpace2DEditorContext::setup_dockspace(ImGuiID main_area) {
@@ -712,6 +718,7 @@ void BlendSpace2DEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID left_mid, left_bottom;
     ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.60f, &left_mid, &left);
     ImGui::DockBuilderSplitNode(left_mid, ImGuiDir_Down, 0.40f, &left_bottom, &left_mid);
+    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
 
     auto names = docked_window_names();
     ImGui::DockBuilderDockWindow(names[0].c_str(), center);      // Canvas
@@ -719,6 +726,9 @@ void BlendSpace2DEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGui::DockBuilderDockWindow(names[2].c_str(), left);        // Points
     ImGui::DockBuilderDockWindow(names[3].c_str(), left_mid);    // Clips
     ImGui::DockBuilderDockWindow(names[4].c_str(), left_bottom); // Properties
+    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);      // Stats
+    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom);      // Console
+    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom);      // History
 }
 
 bool BlendSpace2DEditorContext::handle_shortcuts() {

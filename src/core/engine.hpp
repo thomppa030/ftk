@@ -15,17 +15,17 @@
 #include "scene/scene.hpp"
 #include "ui/content_browser.hpp"
 #include "ui/context_registry.hpp"
-#include "ui/history_panel.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/imgui_layer.hpp"
 #include "ui/menu_bar.hpp"
-#include "ui/stats_panel.hpp"
 
 #ifndef NDEBUG
 #include "renderer/shader_watcher.hpp"
 #endif
 
 #include <cstdint>
+#include <nlohmann/json_fwd.hpp>
+
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -88,10 +88,14 @@ private:
     void switch_context(int index);
     void build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport);
     void clone_dockspace_from_template(EditorContext& dst_ctx, ImGuiID src_dock_id);
+    void rebuild_dockspace_from_json(EditorContext& ctx, const nlohmann::json& layout_json);
 
     // Layout save/load
     void save_layout(const std::string& name);
     void load_layout(const std::string& name);
+
+    // Serialize a context's dockspace tree into JSON
+    [[nodiscard]] nlohmann::json serialize_dockspace(EditorContext& ctx);
 
     template <typename T, typename... Args>
     T* add_subsystem(Args&&... args);
@@ -132,8 +136,6 @@ private:
 
     std::unique_ptr<IconCache> icon_cache_;
     ContentBrowser content_browser_;
-    StatsPanel stats_panel_;
-    HistoryPanel history_panel_;
 
 #ifndef NDEBUG
     std::optional<ShaderWatcher> shader_watcher_;
@@ -167,7 +169,6 @@ private:
     bool layout_built_{false};
     std::string pending_layout_load_;
     bool has_saved_layout_{false};
-    bool pending_template_resolve_{false};
     float fps_accum_{0.0f};
     int fps_count_{0};
 
@@ -180,6 +181,9 @@ private:
 
     // Per-type dockspace layout templates (context_type -> dockspace ID of last instance)
     std::unordered_map<std::string, ImGuiID> context_layout_templates_;
+
+    // Per-type serialized dockspace layouts (loaded from .ctx.json, used for cross-session)
+    nlohmann::json saved_context_layouts_;
 
     // Menu bar (owns file browsers, popup state, emits delegates)
     MenuBar menu_bar_;

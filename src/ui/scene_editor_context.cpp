@@ -102,6 +102,9 @@ void SceneEditorContext::init() {
             }
             selected_id_ = root_id;
         }));
+
+    init_shared_panels(deps_.vulkan_context);
+    history_panel().init(&command_history());
 }
 
 void SceneEditorContext::shutdown() {
@@ -191,6 +194,8 @@ void SceneEditorContext::draw(float dt) {
             ImGui::SetWindowFocus("Viewport");
         }
     }
+
+    draw_shared_panels(dt);
 }
 
 void SceneEditorContext::draw_picking(ViewportPanel& vp) {

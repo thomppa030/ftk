@@ -340,7 +340,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         content_browser_.set_root(project_mgr_.active()->root());
     }
 
-    stats_panel_.init(vulkan_context_.get());
 
     bind_menu_bar();
 
@@ -386,7 +385,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         active_context_idx_ = 0;
     }
 
-    history_panel_.init(&scene_context_->command_history());
 
     // Register context factories for asset types
     context_registry_.register_type("material", {
@@ -704,23 +702,6 @@ void Engine::setup_dockspace() {
         }
     }
 
-    // Keep per-type template dockspaces alive so ImGui doesn't prune them.
-    // These are invisible snapshots used to clone layout for new contexts.
-    for (auto& [type, tmpl_id] : context_layout_templates_) {
-        if (tmpl_id == 0) continue;
-        // Only keep alive templates that don't belong to a live context
-        // (live context dockspaces are already kept alive above)
-        bool is_live = false;
-        for (auto& c : contexts_) {
-            if (c->dockspace_id() == tmpl_id) { is_live = true; break; }
-        }
-        if (!is_live && ImGui::DockBuilderGetNode(tmpl_id) != nullptr) {
-            ImGui::DockSpace(tmpl_id, {0.0f, 0.0f},
-                             ImGuiDockNodeFlags_PassthruCentralNode |
-                             ImGuiDockNodeFlags_KeepAliveOnly);
-        }
-    }
-
     // Build layout for contexts that haven't been set up yet
     for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
         auto& ctx = *contexts_[static_cast<size_t>(i)];
@@ -738,18 +719,29 @@ void Engine::setup_dockspace() {
             scene_context_->request_focus_viewport();
         }
 
-        // Try to clone layout from an existing context of the same type
+        // Try to clone layout from an existing context of the same type,
+        // then from saved JSON, then fall back to hardcoded default.
         const char* type = ctx.context_type();
         auto tmpl_it = context_layout_templates_.find(type);
-        bool cloned = false;
+        bool built = false;
+
+        // 1. Clone from live context of the same type
         if (tmpl_it != context_layout_templates_.end() && tmpl_it->second != 0
             && tmpl_it->second != ctx.dockspace_id()) {
             if (ImGui::DockBuilderGetNode(tmpl_it->second) != nullptr) {
                 clone_dockspace_from_template(ctx, tmpl_it->second);
-                cloned = true;
+                built = true;
             }
         }
-        if (!cloned) {
+
+        // 2. Rebuild from saved JSON layout
+        if (!built && saved_context_layouts_.contains(type)) {
+            rebuild_dockspace_from_json(ctx, saved_context_layouts_[type]);
+            built = true;
+        }
+
+        // 3. Hardcoded default
+        if (!built) {
             build_default_dockspace(ctx, viewport);
         }
 
@@ -757,6 +749,53 @@ void Engine::setup_dockspace() {
     }
 
     ImGui::End();
+}
+
+void Engine::rebuild_dockspace_from_json(EditorContext& ctx, const nlohmann::json& layout_json) {
+    ImGuiID dst_dock_id = ctx.dockspace_id();
+    ImGui::DockBuilderRemoveNode(dst_dock_id);
+    ImGui::DockBuilderAddNode(dst_dock_id, ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderSetNodeSize(dst_dock_id, ImGui::GetMainViewport()->WorkSize);
+
+    int ci = ctx.context_index();
+
+    // Recursively rebuild the split tree, then dock windows into leaf nodes.
+    // Splits must happen before docking — splitting a node with docked windows orphans them.
+    struct DockCmd { std::string title; ImGuiID dock_id; };
+    std::vector<DockCmd> dock_cmds;
+
+    std::function<void(const nlohmann::json&, ImGuiID)> build_node;
+    build_node = [&](const nlohmann::json& node, ImGuiID dock_id) {
+        // Split first if this is a branch node
+        if (node.contains("split")) {
+            float ratio = node.value("ratio", 0.5f);
+            ImGuiDir dir = (node["split"] == "x") ? ImGuiDir_Left : ImGuiDir_Up;
+            ImGuiID child0 = 0, child1 = 0;
+            ImGui::DockBuilderSplitNode(dock_id, dir, ratio, &child0, &child1);
+
+            const auto& children = node["children"];
+            if (children.size() >= 2) {
+                build_node(children[0], child0);
+                build_node(children[1], child1);
+            }
+        }
+
+        // Collect window dock commands (applied after all splits)
+        if (node.contains("windows")) {
+            for (const auto& base_name : node["windows"]) {
+                char title[128];
+                std::snprintf(title, sizeof(title), "%s##ctx%d",
+                              base_name.get<std::string>().c_str(), ci);
+                dock_cmds.push_back({title, dock_id});
+            }
+        }
+    };
+
+    build_node(layout_json, dst_dock_id);
+    for (const auto& cmd : dock_cmds) {
+        ImGui::DockBuilderDockWindow(cmd.title.c_str(), cmd.dock_id);
+    }
+    ImGui::DockBuilderFinish(dst_dock_id);
 }
 
 void Engine::build_default_dockspace(EditorContext& ctx, ImGuiViewport* viewport) {
@@ -999,6 +1038,62 @@ void Engine::bind_menu_bar() {
         }));
 }
 
+nlohmann::json Engine::serialize_dockspace(EditorContext& ctx) {
+    auto* root = ImGui::DockBuilderGetNode(ctx.dockspace_id());
+    if (!root) return {};
+
+    // Map source dock node ID → list of base window names docked there
+    auto win_names = ctx.docked_window_names();
+    std::unordered_map<ImGuiID, std::vector<std::string>> node_windows;
+    for (const auto& wname : win_names) {
+        ImGuiID dock_id = 0;
+        if (auto* win = ImGui::FindWindowByName(wname.c_str())) {
+            dock_id = win->DockId;
+        }
+        if (dock_id == 0) {
+            if (auto* settings = ImGui::FindWindowSettingsByID(ImHashStr(wname.c_str()))) {
+                dock_id = settings->DockId;
+            }
+        }
+        if (dock_id == 0) continue;
+        // Strip ##ctx suffix for stable naming
+        std::string base = wname;
+        auto pos = base.find("##ctx");
+        if (pos != std::string::npos) base.erase(pos);
+        node_windows[dock_id].push_back(base);
+    }
+
+    // Recursively serialize the dock tree
+    int next_id = 0;
+    std::function<nlohmann::json(ImGuiDockNode*)> serialize_node;
+    serialize_node = [&](ImGuiDockNode* node) -> nlohmann::json {
+        nlohmann::json j;
+        int id = next_id++;
+        j["id"] = id;
+
+        if (node->IsSplitNode()) {
+            float total = node->ChildNodes[0]->SizeRef[node->SplitAxis]
+                        + node->ChildNodes[1]->SizeRef[node->SplitAxis];
+            j["split"] = (node->SplitAxis == ImGuiAxis_X) ? "x" : "y";
+            j["ratio"] = (total > 0.0f)
+                ? node->ChildNodes[0]->SizeRef[node->SplitAxis] / total : 0.5f;
+            j["children"] = nlohmann::json::array({
+                serialize_node(node->ChildNodes[0]),
+                serialize_node(node->ChildNodes[1])
+            });
+        }
+
+        auto it = node_windows.find(node->ID);
+        if (it != node_windows.end()) {
+            j["windows"] = it->second;
+        }
+
+        return j;
+    };
+
+    return serialize_node(root);
+}
+
 void Engine::save_layout(const std::string& name) {
     namespace fs = std::filesystem;
     auto layout_dir = project_mgr_.active()
@@ -1006,80 +1101,26 @@ void Engine::save_layout(const std::string& name) {
         : fs::path(base_path::dir()) / "layouts";
     fs::create_directories(layout_dir);
 
-    // Snapshot each context type's dockspace into a stable template node.
-    // These use type-based names ("CtxTmpl_material") so they survive across
-    // sessions — unlike "CtxDock{i}" which depends on context order.
-    // Must be done inside ##DockHost window context for consistent ID hashing.
-    ImGui::Begin("##DockHost");
-    for (auto& ctx : contexts_) {
-        const char* type = ctx->context_type();
-        if (std::strcmp(type, "scene") == 0) continue; // scene has its own persistence
-
-        auto* src_node = ImGui::DockBuilderGetNode(ctx->dockspace_id());
-        if (!src_node) continue;
-
-        char tmpl_buf[64];
-        std::snprintf(tmpl_buf, sizeof(tmpl_buf), "CtxTmpl_%s", type);
-        ImGuiID tmpl_id = ImGui::GetID(tmpl_buf);
-
-        // Rebuild the template dockspace with the current context's split structure
-        ImGui::DockBuilderRemoveNode(tmpl_id);
-        ImGui::DockBuilderAddNode(tmpl_id, ImGuiDockNodeFlags_DockSpace);
-        ImGui::DockBuilderSetNodeSize(tmpl_id, ImGui::GetMainViewport()->WorkSize);
-
-        // Clone split structure (same logic as clone_dockspace_from_template)
-        struct NodePair { ImGuiID src, dst; };
-        std::vector<NodePair> node_map;
-
-        std::function<void(ImGuiDockNode*, ImGuiID)> clone_tree;
-        clone_tree = [&](ImGuiDockNode* sn, ImGuiID did) {
-            node_map.push_back({sn->ID, did});
-            if (sn->IsSplitNode()) {
-                float total = sn->ChildNodes[0]->SizeRef[sn->SplitAxis]
-                            + sn->ChildNodes[1]->SizeRef[sn->SplitAxis];
-                float ratio = (total > 0.0f)
-                    ? sn->ChildNodes[0]->SizeRef[sn->SplitAxis] / total : 0.5f;
-                ImGuiID c0 = 0, c1 = 0;
-                ImGuiDir dir = (sn->SplitAxis == ImGuiAxis_X) ? ImGuiDir_Left : ImGuiDir_Up;
-                ImGui::DockBuilderSplitNode(did, dir, ratio, &c0, &c1);
-                clone_tree(sn->ChildNodes[0], c0);
-                clone_tree(sn->ChildNodes[1], c1);
-            }
-        };
-        clone_tree(src_node, tmpl_id);
-
-        // Dock placeholder window names so ImGui saves the node→window associations.
-        // Strip "##ctx{N}" suffix to get stable base names, then prefix with template name.
-        auto win_names = ctx->docked_window_names();
-        for (const auto& wname : win_names) {
-            ImGuiID src_dock = 0;
-            if (auto* win = ImGui::FindWindowByName(wname.c_str())) {
-                src_dock = win->DockId;
-            }
-            if (src_dock == 0) continue;
-
-            // Strip "##ctx{N}" suffix for stable naming
-            std::string base = wname;
-            auto pos = base.find("##ctx");
-            if (pos != std::string::npos) base.erase(pos);
-
-            for (auto& [sid, did] : node_map) {
-                if (sid == src_dock) {
-                    std::string tmpl_wname = std::string(tmpl_buf) + "/" + base;
-                    ImGui::DockBuilderDockWindow(tmpl_wname.c_str(), did);
-                    break;
-                }
-            }
-        }
-
-        ImGui::DockBuilderFinish(tmpl_id);
-        context_layout_templates_[type] = tmpl_id;
-    }
-    ImGui::End();
-
-    // Save ImGui dock state (now includes template dockspaces)
+    // Save ImGui dock state for the scene context
     auto ini_path = layout_dir / (name + ".ini");
     ImGui::SaveIniSettingsToDisk(ini_path.string().c_str());
+
+    // Serialize each open context type's dockspace tree as JSON
+    for (auto& ctx : contexts_) {
+        const char* type = ctx->context_type();
+        if (std::strcmp(type, "scene") == 0) continue;
+        auto tree = serialize_dockspace(*ctx);
+        if (!tree.is_null()) {
+            saved_context_layouts_[type] = tree;
+        }
+    }
+
+    // Write the context layouts sidecar
+    auto ctx_path = layout_dir / (name + ".ctx.json");
+    std::ofstream ctx_file(ctx_path);
+    if (ctx_file.is_open()) {
+        ctx_file << saved_context_layouts_.dump(2);
+    }
 
     menu_bar_.set_active_layout(name);
     if (project_mgr_.active()) {
@@ -1098,8 +1139,21 @@ void Engine::load_layout(const std::string& name) {
     auto ini_path = layout_dir / (name + ".ini");
     if (!fs::exists(ini_path)) return;
 
+    // Load context layouts from sidecar JSON
+    auto ctx_path = layout_dir / (name + ".ctx.json");
+    if (fs::exists(ctx_path)) {
+        std::ifstream ctx_file(ctx_path);
+        if (ctx_file.is_open()) {
+            try {
+                saved_context_layouts_ = nlohmann::json::parse(ctx_file);
+            } catch (const std::exception& e) {
+                FJELL_CORE_WARN("Failed to parse {}: {}", ctx_path.string(), e.what());
+                saved_context_layouts_ = {};
+            }
+        }
+    }
+
     pending_layout_load_ = ini_path.string();
-    pending_template_resolve_ = true;
     menu_bar_.set_active_layout(name);
     has_saved_layout_ = true;
 }
@@ -1149,23 +1203,6 @@ void Engine::draw_ui() {
         scene_context_->request_focus_viewport();
     }
 
-    // After a layout load, resolve per-type template dockspaces from the .ini.
-    // These were saved as "CtxTmpl_{type}" nodes inside ##DockHost.
-    if (pending_template_resolve_) {
-        pending_template_resolve_ = false;
-        ImGui::Begin("##DockHost");
-        static const char* types[] = {"material", "vfx", "ui", "animation",
-                                       "blend1d", "blend2d"};
-        for (const char* type : types) {
-            char tmpl_buf[64];
-            std::snprintf(tmpl_buf, sizeof(tmpl_buf), "CtxTmpl_%s", type);
-            ImGuiID tmpl_id = ImGui::GetID(tmpl_buf);
-            if (ImGui::DockBuilderGetNode(tmpl_id) != nullptr) {
-                context_layout_templates_[type] = tmpl_id;
-            }
-        }
-        ImGui::End();
-    }
 
     menu_bar_.set_project(project_mgr_.active());
     menu_bar_.set_playing(active_context().is_playing());
@@ -1178,23 +1215,11 @@ void Engine::draw_ui() {
     draw_context_tabs();
     setup_dockspace();
 
-    // Active context draws its own panels
+    // Active context draws its own panels (including Stats, Console, History)
     active_context().draw(clock_.delta_time());
     viewport_hovered_ = active_context().any_viewport_hovered();
 
-    // Shared panels — each drawn with a per-context window name so they
-    // dock independently in each context's dockspace
-    char stats_title[32], history_title[32], console_title[32];
-    std::snprintf(stats_title, sizeof(stats_title), "Stats##ctx%d", active_context_idx_);
-    std::snprintf(history_title, sizeof(history_title), "History##ctx%d", active_context_idx_);
-    std::snprintf(console_title, sizeof(console_title), "Console##ctx%d", active_context_idx_);
-
     content_browser_.draw();
-    stats_panel_.draw(clock_.delta_time(), stats_title);
-    history_panel_.draw(history_title);
-    if (auto& sink = log::console_sink(); sink) {
-        sink->draw(console_title);
-    }
 }
 
 TickContext Engine::make_frame_context() {
@@ -1434,7 +1459,6 @@ void Engine::draw_context_tabs() {
         contexts_[static_cast<size_t>(active_context_idx_)]->on_exit();
         active_context_idx_ = pending_context_switch_;
         contexts_[static_cast<size_t>(active_context_idx_)]->on_enter();
-        history_panel_.init(&active_context().command_history());
     }
     pending_context_switch_ = -1;
 
@@ -1454,8 +1478,7 @@ void Engine::draw_context_tabs() {
                     contexts_[static_cast<size_t>(active_context_idx_)]->on_exit();
                     active_context_idx_ = i;
                     contexts_[static_cast<size_t>(i)]->on_enter();
-                    history_panel_.init(&active_context().command_history());
-                }
+                    }
                 ImGui::EndTabItem();
             }
             if (closeable && !open) close_idx = i;
@@ -1473,7 +1496,6 @@ void Engine::draw_context_tabs() {
                 contexts_[close_idx]->on_exit();
                 active_context_idx_ = new_idx;
                 contexts_[active_context_idx_]->on_enter();
-                history_panel_.init(&active_context().command_history());
             }
 
             // Update layout template: if this context was the template for its

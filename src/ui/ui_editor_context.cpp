@@ -30,6 +30,9 @@ UiEditorContext::UiEditorContext(UiEditorDeps deps)
 
 void UiEditorContext::init() {
     // Preview GameUi is initialized lazily when a .fjui file is opened
+
+    init_shared_panels(deps_.vulkan_context);
+    history_panel().init(&command_history());
 }
 
 void UiEditorContext::shutdown() {
@@ -60,6 +63,8 @@ void UiEditorContext::draw(float dt) {
     draw_inspector();
     draw_mock_data();
     draw_action_log();
+
+    draw_shared_panels(dt);
 }
 
 std::vector<std::string> UiEditorContext::docked_window_names() const {

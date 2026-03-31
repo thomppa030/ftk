@@ -74,6 +74,9 @@ void VfxEditorContext::init() {
                 }
             }
         }));
+
+    init_shared_panels(deps_.vulkan_context);
+    history_panel().init(&command_history());
 }
 
 void VfxEditorContext::shutdown() {
@@ -125,6 +128,8 @@ void VfxEditorContext::draw(float dt) {
     }
 
     timeline_.draw(dt * time_scale_);
+
+    draw_shared_panels(dt);
 }
 
 std::vector<std::string> VfxEditorContext::docked_window_names() const {

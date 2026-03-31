@@ -82,6 +82,9 @@ void AnimationEditorContext::init() {
         if (!anim) return;
         anim->set_time(0.0f);
     }));
+
+    init_shared_panels(deps_.vulkan_context);
+    history_panel().init(&command_history());
 }
 
 void AnimationEditorContext::shutdown() {
@@ -118,6 +121,8 @@ void AnimationEditorContext::draw(float dt) {
     draw_properties();
     draw_state_graph();
     draw_parameters();
+
+    draw_shared_panels(dt);
 }
 
 std::vector<std::string> AnimationEditorContext::docked_window_names() const {

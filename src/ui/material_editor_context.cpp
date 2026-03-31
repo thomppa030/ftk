@@ -27,6 +27,8 @@ void MaterialEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Material Preview");
+    init_shared_panels(deps_.vulkan_context);
+    history_panel().init(&command_history());
 }
 
 void MaterialEditorContext::shutdown() {
@@ -43,6 +45,7 @@ void MaterialEditorContext::draw(float dt) {
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_params_panel();
     draw_texture_panel();
+    draw_shared_panels(dt);
 }
 
 std::vector<std::string> MaterialEditorContext::docked_window_names() const {
