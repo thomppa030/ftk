@@ -1,16 +1,20 @@
 #pragma once
 
+#include "animation/animation_state_machine.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/timeline_widget.hpp"
 #include "ui/viewport_manager.hpp"
 #include "core/delegate.hpp"
 #include "scene/scene.hpp"
 
+#include <imgui.h>
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -40,7 +44,9 @@ public:
     explicit AnimationEditorContext(AnimationEditorDeps deps);
 
     [[nodiscard]] const char* name() const override { return name_.c_str(); }
-    [[nodiscard]] std::string asset_path() const override { return skeleton_path_; }
+    [[nodiscard]] std::string asset_path() const override {
+        return animset_path_.empty() ? skeleton_path_ : animset_path_;
+    }
 
     void init() override;
     void shutdown() override;
@@ -49,6 +55,7 @@ public:
     void draw(float dt) override;
     void setup_dockspace(ImGuiID main_area) override;
     bool handle_shortcuts() override;
+    bool save() override;
 
     // Viewport
     [[nodiscard]] Scene* render_scene() override { return &preview_scene_; }
@@ -59,16 +66,41 @@ public:
     // Open from asset path
     void open_skeleton(const std::string& skel_path);
     void open_clip(const std::string& anim_path);
+    void open_animset(const std::string& animset_path);
 
     [[nodiscard]] const std::string& skeleton_path() const { return skeleton_path_; }
 
 private:
+    // Graph data for imnodes state machine editor
+    struct AnimStateNode {
+        int node_id;
+        int input_pin_id;
+        int output_pin_id;
+        int state_index;
+    };
+
+    struct AnimTransitionLink {
+        int link_id;
+        int start_pin;
+        int end_pin;
+        int source_state;
+        int target_state;
+        int transition_index;
+    };
+
     void draw_bone_tree();
     void draw_clip_list();
     void draw_properties();
+    void draw_state_graph();
+    void draw_parameters();
     void scan_clips();
     void load_clip(int index);
     void update_preview(float dt);
+
+    int next_node_id() { return ++node_id_counter_; }
+    void build_graph_from_state_machine();
+    void sync_preview_state_machine();
+    void load_animset_clips(const std::string& animset_resolved_path);
 
     AnimationEditorDeps deps_;
     std::string name_{"Animation"};
@@ -76,6 +108,7 @@ private:
     // Asset being edited
     std::string skeleton_path_;
     std::string current_clip_path_;
+    std::string animset_path_;
 
     // Preview scene (isolated from main scene)
     Scene preview_scene_;
@@ -87,9 +120,24 @@ private:
     std::vector<std::string> available_clip_names_;
     std::shared_ptr<AnimationClip> current_clip_;
 
+    // State machine (editor-owned copy)
+    AnimationStateMachine state_machine_;
+
     // Playback
     int selected_bone_{-1};
     int selected_clip_{-1};
+
+    // imnodes graph state
+    void* imnodes_ctx_{nullptr};
+    int node_id_counter_{0};
+    std::vector<AnimStateNode> state_nodes_;
+    std::vector<AnimTransitionLink> transition_links_;
+    std::unordered_map<int, ImVec2> pending_positions_;
+    int selected_state_node_{-1};
+    int selected_link_{-1};
+
+    // Parameter editing
+    char new_param_name_[64]{};
 
     // Viewport
     ViewportManager viewport_manager_;

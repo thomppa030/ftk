@@ -47,8 +47,9 @@ struct AnimationState {
 // Evaluates transitions each frame based on float parameters.
 class AnimationStateMachine {
 public:
-    // Load state machine definition from a .fjanimset JSON file.
+    // Load/save state machine definition from/to a .fjanimset JSON file.
     void load(const std::string& path);
+    void save(const std::string& path) const;
 
     // Evaluate transitions and advance crossfade. Call once per frame.
     // Returns true if a transition occurred this frame.
@@ -68,6 +69,21 @@ public:
     [[nodiscard]] const std::vector<AnimationState>& states() const { return states_; }
     [[nodiscard]] const AnimationState* find_state(const std::string& name) const;
 
+    // Skeleton path stored in .fjanimset (relative asset path).
+    [[nodiscard]] const std::string& skeleton_path() const { return skeleton_path_; }
+    void set_skeleton_path(const std::string& path) { skeleton_path_ = path; }
+
+    // Mutable access for editor.
+    [[nodiscard]] std::vector<AnimationState>& states_mutable() { return states_; }
+    [[nodiscard]] std::unordered_map<std::string, float>& params_mutable() { return params_; }
+    void set_initial(const std::string& name) { current_ = name; }
+    [[nodiscard]] const std::string& initial_state_name() const { return current_; }
+
+    // Add/remove states (rebuilds state_index_).
+    void add_state(AnimationState state);
+    void remove_state(const std::string& name);
+    void rebuild_index();
+
     // Fired when a transition begins (from_state, to_state).
     Delegate<void(const std::string&, const std::string&)> on_transition;
 
@@ -77,6 +93,7 @@ private:
     std::vector<AnimationState> states_;
     std::unordered_map<std::string, uint32_t> state_index_;
     std::unordered_map<std::string, float> params_;
+    std::string skeleton_path_; // relative asset path to .fjskel
 
     std::string current_;       // current state name
     std::string next_;          // target state during crossfade (empty = no transition)

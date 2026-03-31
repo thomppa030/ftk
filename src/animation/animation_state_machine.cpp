@@ -33,9 +33,13 @@ void AnimationStateMachine::load(const std::string& path) {
     states_.clear();
     state_index_.clear();
     params_.clear();
+    skeleton_path_.clear();
     current_.clear();
     next_.clear();
     crossfade_alpha_ = 0.0f;
+
+    // Skeleton reference
+    skeleton_path_ = j.value("skeleton", "");
 
     // Parse states
     if (!j.contains("states") || !j["states"].is_array()) {
@@ -83,6 +87,115 @@ void AnimationStateMachine::load(const std::string& path) {
 
     // Initial state
     current_ = j.value("initial", states_.empty() ? "" : states_[0].name);
+}
+
+// ── JSON saving ────────────────────────────────────────────────────
+
+static std::string format_op(CompareOp op) {
+    switch (op) {
+        case CompareOp::equal:         return "==";
+        case CompareOp::not_equal:     return "!=";
+        case CompareOp::less:          return "<";
+        case CompareOp::less_equal:    return "<=";
+        case CompareOp::greater:       return ">";
+        case CompareOp::greater_equal: return ">=";
+    }
+    return "==";
+}
+
+void AnimationStateMachine::save(const std::string& path) const {
+    nlohmann::json j;
+
+    if (!skeleton_path_.empty()) {
+        j["skeleton"] = skeleton_path_;
+    }
+    j["initial"] = current_;
+
+    if (!params_.empty()) {
+        j["params"] = nlohmann::json::object();
+        for (const auto& [name, val] : params_) {
+            j["params"][name] = val;
+        }
+    }
+
+    j["states"] = nlohmann::json::array();
+    for (const auto& state : states_) {
+        nlohmann::json js;
+        js["name"] = state.name;
+        if (!state.clip.empty()) js["clip"] = state.clip;
+        if (!state.blend_space.empty()) js["blend_space"] = state.blend_space;
+        if (state.speed != 1.0f) js["speed"] = state.speed;
+        if (!state.looping) js["loop"] = state.looping;
+
+        if (!state.transitions.empty()) {
+            js["transitions"] = nlohmann::json::array();
+            for (const auto& t : state.transitions) {
+                nlohmann::json jt;
+                jt["target"] = t.target;
+                if (t.blend_time != 0.2f) jt["blend_time"] = t.blend_time;
+
+                if (!t.conditions.empty()) {
+                    jt["conditions"] = nlohmann::json::array();
+                    for (const auto& c : t.conditions) {
+                        jt["conditions"].push_back({
+                            {"param", c.param},
+                            {"op", format_op(c.op)},
+                            {"value", c.value}
+                        });
+                    }
+                }
+
+                js["transitions"].push_back(std::move(jt));
+            }
+        }
+
+        j["states"].push_back(std::move(js));
+    }
+
+    std::ofstream file(path);
+    if (!file) {
+        throw std::runtime_error("Failed to save .fjanimset: " + path);
+    }
+    file << j.dump(2);
+}
+
+// ── Mutation ───────────────────────────────────────────────────────
+
+void AnimationStateMachine::add_state(AnimationState state) {
+    state_index_[state.name] = static_cast<uint32_t>(states_.size());
+    states_.push_back(std::move(state));
+}
+
+void AnimationStateMachine::remove_state(const std::string& name) {
+    auto it = state_index_.find(name);
+    if (it == state_index_.end()) return;
+
+    states_.erase(states_.begin() + it->second);
+
+    // Clean up transitions referencing the removed state
+    for (auto& state : states_) {
+        std::erase_if(state.transitions, [&name](const StateTransition& t) {
+            return t.target == name;
+        });
+    }
+
+    // Fix initial state if it was removed
+    if (current_ == name) {
+        current_ = states_.empty() ? "" : states_[0].name;
+    }
+    if (next_ == name) {
+        next_.clear();
+        crossfade_alpha_ = 0.0f;
+    }
+
+    rebuild_index();
+}
+
+void AnimationStateMachine::rebuild_index() {
+    state_index_.clear();
+    for (uint32_t i = 0; i < static_cast<uint32_t>(states_.size()); ++i) {
+        state_index_[states_[i].name] = i;
+    }
 }
 
 // ── Runtime ─────────────────────────────────────────────────────────────

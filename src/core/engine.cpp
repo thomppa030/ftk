@@ -520,11 +520,11 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     context_registry_.register_type("animset", {
         .create = [anim_factory](const std::string& path) {
             auto ctx = anim_factory(path);
-            static_cast<AnimationEditorContext&>(*ctx).open_skeleton(path);
+            static_cast<AnimationEditorContext&>(*ctx).open_animset(path);
             return ctx;
         },
         .open = [](EditorContext& ctx, const std::string& path) {
-            static_cast<AnimationEditorContext&>(ctx).open_skeleton(path);
+            static_cast<AnimationEditorContext&>(ctx).open_animset(path);
         },
         .matches = anim_matches
     });
