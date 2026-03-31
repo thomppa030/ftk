@@ -8,6 +8,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/shader_utils.hpp"
+#include "renderer/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/vertex.hpp"
 #include "core/base_path.hpp"
@@ -587,6 +588,27 @@ void ShadowPass::record(const FrameContext& ctx) {
                 vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
                                    0, sizeof(glm::mat4), &light_matrices_[c]);
             });
+        }
+
+        // Skinned shadow draws (per-model VBO, same pattern as depth prepass)
+        const auto& skinned_indices = cascade_batch->skinned_draw_indices(ctx.frame_index);
+        if (!skinned_indices.empty() && ctx.shadow_cascade_commands[c]) {
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, skinned_pipeline_);
+            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
+                                    0, static_cast<uint32_t>(shadow_sets.size()),
+                                    shadow_sets.data(), 0, nullptr);
+            vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_VERTEX_BIT,
+                               0, sizeof(glm::mat4), &light_matrices_[c]);
+
+            uint32_t idx = 0;
+            for (const auto& dc : *ctx.shadow_cascade_commands[c]) {
+                if (!dc.skinned || !dc.skeletal_model) continue;
+                if (idx >= skinned_indices.size()) break;
+                dc.skeletal_model->bind(ctx.cmd);
+                vkCmdDrawIndexed(ctx.cmd, dc.skeletal_model->index_count(),
+                                 1, 0, 0, skinned_indices[idx]);
+                idx++;
+            }
         }
 
         vkCmdEndRendering(ctx.cmd);

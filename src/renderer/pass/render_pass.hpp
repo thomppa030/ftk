@@ -1,11 +1,13 @@
 #pragma once
 
 #include <array>
+#include <vector>
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
 namespace fjell {
 
+struct DrawCommand;
 class Device;
 class DebugDraw;
 class OffscreenPass;
@@ -86,6 +88,7 @@ struct FrameContext {
     static constexpr uint32_t MAX_SHADOW_CASCADES = 3;
     std::array<IndirectBatch*, MAX_SHADOW_CASCADES> shadow_cascade_batches{};
     std::array<VkDescriptorSet, MAX_SHADOW_CASCADES> shadow_cascade_draw_data{};
+    std::array<const std::vector<DrawCommand>*, MAX_SHADOW_CASCADES> shadow_cascade_commands{};
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

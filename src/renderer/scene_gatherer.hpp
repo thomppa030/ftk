@@ -46,6 +46,9 @@ public:
     [[nodiscard]] RenderQueue& render_queue() { return render_queue_; }
     [[nodiscard]] IndirectBatch* indirect_batch() { return indirect_batch_.get(); }
     [[nodiscard]] IndirectBatch* shadow_batch(uint32_t cascade) { return shadow_batches_[cascade].get(); }
+    [[nodiscard]] const std::vector<DrawCommand>& shadow_cmds(uint32_t cascade) const {
+        return shadow_commands_[cascade];
+    }
     [[nodiscard]] DrawDataDescriptor& draw_data_descriptor() { return draw_data_descriptor_; }
     [[nodiscard]] DrawDataDescriptor& shadow_draw_data(uint32_t cascade) { return shadow_draw_data_[cascade]; }
 

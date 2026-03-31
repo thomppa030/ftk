@@ -196,7 +196,9 @@ void SceneGatherer::gather(const GatherInput& input) {
     // Build per-cascade shadow indirect batches (each cascade only draws its own geometry)
     empty_transparent_.clear();
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
-        shadow_batches_[c]->build(shadow_commands_[c], empty_transparent_, input.frame_index);
+        shadow_batches_[c]->build(shadow_commands_[c], empty_transparent_, input.frame_index,
+                                  glm::mat4(1.0f), glm::vec3(0.0f),
+                                  input.animation_system);
     }
 
     // Update draw data descriptor for this frame
@@ -207,7 +209,7 @@ void SceneGatherer::gather(const GatherInput& input) {
             input.frame_index);
     }
 
-    // Update bone SSBO descriptor
+    // Update bone SSBO descriptor (shared by main pass and shadow cascades)
     if (input.animation_system && input.animation_system->has_bones_this_frame()) {
         auto& bb = input.animation_system->bone_buffer();
         if (bb.total_bones(input.frame_index) > 0) {
@@ -215,6 +217,14 @@ void SceneGatherer::gather(const GatherInput& input) {
                 bb.buffer(input.frame_index),
                 bb.byte_size(input.frame_index),
                 input.frame_index);
+
+            // Shadow cascade descriptors also need bone SSBO
+            for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+                shadow_draw_data_[c].update_bones(
+                    bb.buffer(input.frame_index),
+                    bb.byte_size(input.frame_index),
+                    input.frame_index);
+            }
         }
     }
 
