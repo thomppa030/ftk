@@ -25,6 +25,7 @@
 #include "renderer/texture.hpp"
 #include "scripting/fjell/component.hpp"
 #include "core/base_path.hpp"
+#include "core/project.hpp"
 #include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
@@ -570,6 +571,14 @@ static void load_components(Node& node, const nlohmann::json& j,
         }
         if (ja.contains("animset")) {
             anim.animset_path = ja["animset"].get<std::string>();
+            auto resolved = base_path::resolve_asset(anim.animset_path, project);
+            anim.load_state_machine(resolved);
+            for (size_t i = 0; i < anim.clips.size(); ++i) {
+                if (i < anim.clip_paths.size())
+                    anim.set_clip(anim.clip_paths[i], anim.clips[i].get());
+            }
+            std::string base_dir = project ? project->root().string() : "";
+            anim.resolve_blend_spaces(base_dir);
         }
     }
 
@@ -798,6 +807,14 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             }
             if (ja.contains("animset")) {
                 anim.animset_path = ja["animset"].get<std::string>();
+                auto resolved = base_path::resolve_asset(anim.animset_path, project);
+                anim.load_state_machine(resolved);
+                for (size_t i = 0; i < anim.clips.size(); ++i) {
+                    if (i < anim.clip_paths.size())
+                        anim.set_clip(anim.clip_paths[i], anim.clips[i].get());
+                }
+                std::string base_dir = project ? project->root().string() : "";
+                anim.resolve_blend_spaces(base_dir);
             }
         }
 

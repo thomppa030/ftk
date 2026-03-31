@@ -83,6 +83,28 @@ void AnimationEditorContext::init() {
         anim->set_time(0.0f);
     }));
 
+    // Event marker selection
+    connections_.push_back(timeline_.on_marker_selected.bind([this](int idx) {
+        selected_event_index_ = idx;
+    }));
+
+    // Right-click on timeline: add new event
+    connections_.push_back(timeline_.on_right_click.bind([this](float time) {
+        if (!current_clip_) return;
+        AnimationEvent event;
+        event.time = time;
+        event.name = "event";
+        current_clip_->events().push_back(std::move(event));
+        sync_markers_from_clip();
+        selected_event_index_ = static_cast<int>(current_clip_->events().size()) - 1;
+    }));
+
+    // Marker drag: update event time
+    connections_.push_back(timeline_.on_marker_moved.bind([this](int idx, float new_time) {
+        if (!current_clip_ || idx < 0 || idx >= static_cast<int>(current_clip_->events().size())) return;
+        current_clip_->events()[idx].time = new_time;
+    }));
+
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
 }
@@ -168,6 +190,17 @@ bool AnimationEditorContext::handle_shortcuts() {
         return true;
     }
 
+    // Delete: remove selected event
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && current_clip_ &&
+        selected_event_index_ >= 0 &&
+        selected_event_index_ < static_cast<int>(current_clip_->events().size())) {
+        current_clip_->events().erase(
+            current_clip_->events().begin() + selected_event_index_);
+        selected_event_index_ = -1;
+        sync_markers_from_clip();
+        return true;
+    }
+
     return false;
 }
 
@@ -186,16 +219,33 @@ bool AnimationEditorContext::any_viewport_hovered() const {
 // ── Save ─────────────────────────────────────────────────────────────────
 
 bool AnimationEditorContext::save() {
-    if (animset_path_.empty()) return false;
-    try {
-        auto resolved = base_path::resolve_asset(animset_path_, deps_.project_mgr->active());
-        state_machine_.save(resolved);
-        FJELL_CORE_INFO("AnimEditor: saved animset {}", animset_path_);
-        return true;
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("AnimEditor: failed to save animset: {}", e.what());
-        return false;
+    bool saved_any = false;
+
+    // Save current clip (events may have been edited)
+    if (current_clip_ && !current_clip_path_.empty()) {
+        try {
+            auto resolved = base_path::resolve_asset(current_clip_path_, deps_.project_mgr->active());
+            current_clip_->save(resolved);
+            FJELL_CORE_INFO("AnimEditor: saved clip {}", current_clip_path_);
+            saved_any = true;
+        } catch (const std::exception& e) {
+            FJELL_CORE_ERROR("AnimEditor: failed to save clip: {}", e.what());
+        }
     }
+
+    // Save animset
+    if (!animset_path_.empty()) {
+        try {
+            auto resolved = base_path::resolve_asset(animset_path_, deps_.project_mgr->active());
+            state_machine_.save(resolved);
+            FJELL_CORE_INFO("AnimEditor: saved animset {}", animset_path_);
+            saved_any = true;
+        } catch (const std::exception& e) {
+            FJELL_CORE_ERROR("AnimEditor: failed to save animset: {}", e.what());
+        }
+    }
+
+    return saved_any;
 }
 
 // ── Open from asset ──────────────────────────────────────────────────────
@@ -589,6 +639,87 @@ void AnimationEditorContext::draw_properties() {
         } else {
             ImGui::TextDisabled("No selection");
         }
+
+        // Event editing (when a clip is loaded and an event marker is selected)
+        if (current_clip_ && selected_event_index_ >= 0 &&
+            selected_event_index_ < static_cast<int>(current_clip_->events().size())) {
+            auto& event = current_clip_->events()[selected_event_index_];
+
+            ImGui::Separator();
+            ImGui::SeparatorText("Event");
+
+            // Name
+            char name_buf[128];
+            std::strncpy(name_buf, event.name.c_str(), sizeof(name_buf) - 1);
+            name_buf[sizeof(name_buf) - 1] = '\0';
+            if (ImGui::InputText("Event Name", name_buf, sizeof(name_buf),
+                                 ImGuiInputTextFlags_EnterReturnsTrue)) {
+                event.name = name_buf;
+                sync_markers_from_clip();
+            }
+
+            // Time
+            float t = event.time;
+            if (ImGui::DragFloat("Time", &t, 0.001f, 0.0f, current_clip_->duration(), "%.3fs")) {
+                event.time = t;
+                sync_markers_from_clip();
+            }
+
+            // Params (key-value pairs)
+            ImGui::SeparatorText("Params");
+            std::string remove_key;
+            for (auto& [key, value] : event.params) {
+                ImGui::PushID(key.c_str());
+
+                // Key (read-only display)
+                ImGui::Text("%s", key.c_str());
+                ImGui::SameLine();
+
+                // Value
+                char val_buf[256];
+                std::strncpy(val_buf, value.c_str(), sizeof(val_buf) - 1);
+                val_buf[sizeof(val_buf) - 1] = '\0';
+                ImGui::SetNextItemWidth(-30);
+                if (ImGui::InputText("##val", val_buf, sizeof(val_buf),
+                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    value = val_buf;
+                }
+
+                ImGui::SameLine();
+                if (ImGui::SmallButton("X")) {
+                    remove_key = key;
+                }
+
+                ImGui::PopID();
+            }
+            if (!remove_key.empty()) {
+                event.params.erase(remove_key);
+            }
+
+            // Add new param
+            static char new_key[64] = "";
+            static char new_val[256] = "";
+            ImGui::SetNextItemWidth(100.0f);
+            ImGui::InputText("##newkey", new_key, sizeof(new_key));
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-60);
+            ImGui::InputText("##newval", new_val, sizeof(new_val));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+") && new_key[0] != '\0') {
+                event.params[new_key] = new_val;
+                new_key[0] = '\0';
+                new_val[0] = '\0';
+            }
+
+            // Delete event button
+            ImGui::Spacing();
+            if (ImGui::Button("Delete Event")) {
+                current_clip_->events().erase(
+                    current_clip_->events().begin() + selected_event_index_);
+                selected_event_index_ = -1;
+                sync_markers_from_clip();
+            }
+        }
     }
     ImGui::End();
 }
@@ -646,13 +777,27 @@ void AnimationEditorContext::load_clip(int index) {
     timeline_.set_time(0.0f);
     timeline_.set_playing(true);
 
+    // Sync event markers to timeline
+    sync_markers_from_clip();
+    selected_event_index_ = -1;
+
     // Play on the preview animator
     auto* node = preview_scene_.find(preview_node_id_);
     if (!node) return;
     auto* anim = node->components.get<AnimatorComponent>();
     if (!anim) return;
 
-    anim->play(current_clip_.get());
+    anim->play(current_clip_path_, current_clip_.get());
+}
+
+void AnimationEditorContext::sync_markers_from_clip() {
+    std::vector<TimelineMarker> markers;
+    if (current_clip_) {
+        for (const auto& e : current_clip_->events()) {
+            markers.push_back({e.time, e.name});
+        }
+    }
+    timeline_.set_markers(markers);
 }
 
 void AnimationEditorContext::load_animset_clips(const std::string& animset_resolved_path) {
@@ -678,6 +823,10 @@ void AnimationEditorContext::load_animset_clips(const std::string& animset_resol
 
     // Set up state machine on the preview animator
     anim->load_state_machine(animset_resolved_path);
+
+    // Resolve blend spaces referenced by states
+    std::string base_dir = deps_.project_mgr->active() ? deps_.project_mgr->active()->root().string() : "";
+    anim->resolve_blend_spaces(base_dir);
 }
 
 void AnimationEditorContext::update_preview(float dt) {
@@ -1064,6 +1213,9 @@ void AnimationEditorContext::sync_preview_state_machine() {
                 anim->clips.push_back(std::move(clip));
             } catch (...) {}
         }
+
+        std::string base_dir = deps_.project_mgr->active() ? deps_.project_mgr->active()->root().string() : "";
+        anim->resolve_blend_spaces(base_dir);
     } catch (const std::exception& e) {
         FJELL_CORE_ERROR("AnimEditor: failed to sync preview: {}", e.what());
     }

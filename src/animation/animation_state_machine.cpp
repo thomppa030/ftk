@@ -159,6 +159,17 @@ void AnimationStateMachine::save(const std::string& path) const {
     file << j.dump(2);
 }
 
+void AnimationStateMachine::copy_definition_from(const AnimationStateMachine& other) {
+    states_ = other.states_;
+    params_ = other.params_;
+    skeleton_path_ = other.skeleton_path_;
+    current_ = other.current_;
+    next_.clear();
+    crossfade_alpha_ = 0.0f;
+    crossfade_duration_ = 0.0f;
+    rebuild_index();
+}
+
 // ── Mutation ───────────────────────────────────────────────────────
 
 void AnimationStateMachine::add_state(AnimationState state) {

@@ -144,8 +144,16 @@ void Node::clone_base_into(Node& target) const {
                 copy.play(copy.clips[i].get());
             }
         }
-        if (!copy.animset_path.empty()) {
-            copy.load_state_machine(copy.animset_path);
+        // Copy state machine and blend spaces from source (already loaded at deserialization)
+        if (!anim->animset_path.empty()) {
+            copy.state_machine().copy_definition_from(anim->state_machine());
+            for (const auto& [path, bs] : anim->blend_spaces_1d()) {
+                copy.load_blend_space_1d(path, bs);
+            }
+            for (const auto& [path, bs] : anim->blend_spaces_2d()) {
+                copy.load_blend_space_2d(path, bs);
+            }
+            copy.enable_state_machine();
         }
     }
 }

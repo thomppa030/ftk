@@ -38,6 +38,7 @@ void AnimatorComponent::play(const AnimationClip* clip, bool looping, float spee
     use_state_machine_ = false;
 
     layers_[0].clip = clip;
+    layers_[0].clip_path.clear();
     layers_[0].time = 0.0f;
     layers_[0].speed = speed;
     layers_[0].weight = 1.0f;
@@ -45,11 +46,23 @@ void AnimatorComponent::play(const AnimationClip* clip, bool looping, float spee
     layers_[0].context->Invalidate();
 
     layers_[1].clip = nullptr;
+    layers_[1].clip_path.clear();
     layers_[1].weight = 0.0f;
+}
+
+void AnimatorComponent::play(const std::string& clip_path, const AnimationClip* clip,
+                             bool looping, float speed) {
+    play(clip, looping, speed);
+    layers_[0].clip_path = clip_path;
+    ensure_event_track(clip_path, clip);
 }
 
 void AnimatorComponent::load_state_machine(const std::string& path) {
     state_machine_.load(path);
+    enable_state_machine();
+}
+
+void AnimatorComponent::enable_state_machine() {
     use_state_machine_ = true;
 
     // Set initial clip (or mark as blend space state)
@@ -58,6 +71,7 @@ void AnimatorComponent::load_state_machine(const std::string& path) {
         if (state->uses_blend_space()) {
             // Blend space states don't set layers_[0].clip — evaluate_blend_space handles it
             layers_[0].clip = nullptr;
+            layers_[0].clip_path.clear();
             layers_[0].speed = state->speed;
             layers_[0].weight = 1.0f;
             layers_[0].looping = state->looping;
@@ -65,6 +79,7 @@ void AnimatorComponent::load_state_machine(const std::string& path) {
             auto it = clip_map_.find(state->clip);
             if (it != clip_map_.end()) {
                 layers_[0].clip = it->second;
+                layers_[0].clip_path = state->clip;
                 layers_[0].time = 0.0f;
                 layers_[0].speed = state->speed;
                 layers_[0].weight = 1.0f;
@@ -77,11 +92,13 @@ void AnimatorComponent::load_state_machine(const std::string& path) {
     }
 
     layers_[1].clip = nullptr;
+    layers_[1].clip_path.clear();
     layers_[1].weight = 0.0f;
 }
 
 void AnimatorComponent::set_clip(const std::string& name, const AnimationClip* clip) {
     clip_map_[name] = clip;
+    ensure_event_track(name, clip);
 }
 
 void AnimatorComponent::load_blend_space_1d(const std::string& path, const BlendSpace1D& bs) {
@@ -90,6 +107,57 @@ void AnimatorComponent::load_blend_space_1d(const std::string& path, const Blend
 
 void AnimatorComponent::load_blend_space_2d(const std::string& path, const BlendSpace2D& bs) {
     blend_spaces_2d_[path] = bs;
+}
+
+void AnimatorComponent::resolve_blend_spaces(const std::string& base_dir) {
+    for (const auto& state : state_machine_.states()) {
+        if (!state.uses_blend_space()) continue;
+
+        const auto& bs_path = state.blend_space;
+        std::string resolved_bs = base_dir.empty() ? bs_path : base_dir + "/" + bs_path;
+
+        if (bs_path.ends_with(".fjblend2D")) {
+            if (blend_spaces_2d_.contains(bs_path)) continue;
+            try {
+                auto bs = BlendSpace2D::load(resolved_bs);
+                for (const auto& pt : bs.points()) {
+                    if (pt.clip.empty() || clip_map_.contains(pt.clip)) continue;
+                    std::string resolved_clip = base_dir.empty() ? pt.clip : base_dir + "/" + pt.clip;
+                    try {
+                        auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_clip));
+                        set_clip(pt.clip, clip.get());
+                        clips.push_back(std::move(clip));
+                        clip_paths.push_back(pt.clip);
+                    } catch (const std::exception& e) {
+                        FJELL_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, e.what());
+                    }
+                }
+                load_blend_space_2d(bs_path, std::move(bs));
+            } catch (const std::exception& e) {
+                FJELL_CORE_WARN("Animator: failed to load blend space 2D {}: {}", bs_path, e.what());
+            }
+        } else if (bs_path.ends_with(".fjblend1D")) {
+            if (blend_spaces_1d_.contains(bs_path)) continue;
+            try {
+                auto bs = BlendSpace1D::load(resolved_bs);
+                for (const auto& pt : bs.points()) {
+                    if (pt.clip.empty() || clip_map_.contains(pt.clip)) continue;
+                    std::string resolved_clip = base_dir.empty() ? pt.clip : base_dir + "/" + pt.clip;
+                    try {
+                        auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_clip));
+                        set_clip(pt.clip, clip.get());
+                        clips.push_back(std::move(clip));
+                        clip_paths.push_back(pt.clip);
+                    } catch (const std::exception& e) {
+                        FJELL_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, e.what());
+                    }
+                }
+                load_blend_space_1d(bs_path, std::move(bs));
+            } catch (const std::exception& e) {
+                FJELL_CORE_WARN("Animator: failed to load blend space 1D {}: {}", bs_path, e.what());
+            }
+        }
+    }
 }
 
 void AnimatorComponent::set_param(const std::string& name, float value) {
@@ -113,6 +181,17 @@ void AnimatorComponent::set_event_track(const std::string& clip_path, AnimationE
 AnimationEventTrack* AnimatorComponent::event_track(const std::string& clip_path) {
     auto it = event_tracks_.find(clip_path);
     return it != event_tracks_.end() ? &it->second : nullptr;
+}
+
+void AnimatorComponent::ensure_event_track(const std::string& path, const AnimationClip* clip) {
+    if (path.empty() || !clip || clip->events().empty()) return;
+    if (event_tracks_.contains(path)) return;
+
+    AnimationEventTrack track;
+    for (const auto& e : clip->events()) {
+        track.add(e);
+    }
+    set_event_track(path, std::move(track));
 }
 
 // ── Blend space evaluation ──────────────────────────────────────────────
@@ -153,6 +232,7 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
         if (clip_a) {
             if (blend_layers_[0].clip != clip_a) {
                 blend_layers_[0].clip = clip_a;
+                blend_layers_[0].clip_path = bs.points()[result.index_a].clip;
                 blend_layers_[0].context->Invalidate();
             }
             blend_layers_[0].speed = state.speed;
@@ -164,6 +244,7 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
         if (clip_b && clip_b != clip_a && result.weight_b > 0.0f) {
             if (blend_layers_[1].clip != clip_b) {
                 blend_layers_[1].clip = clip_b;
+                blend_layers_[1].clip_path = bs.points()[result.index_b].clip;
                 blend_layers_[1].context->Invalidate();
             }
             blend_layers_[1].speed = state.speed;
@@ -219,6 +300,7 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
 
             if (blend_layers_[count].clip != it->second) {
                 blend_layers_[count].clip = it->second;
+                blend_layers_[count].clip_path = bs.points()[idx].clip;
                 blend_layers_[count].context->Invalidate();
             }
             blend_layers_[count].speed = state.speed;
@@ -282,13 +364,11 @@ void AnimatorComponent::sample_layer(AnimationLayer& layer, float dt) {
     }
 
     // Fire events for this layer
-    // Find the clip path to look up the event track
-    // (we check all registered tracks since we don't store the path on the layer)
-    for (auto& [path, track] : event_tracks_) {
-        auto it = clip_map_.find(path);
-        if (it != clip_map_.end() && it->second == layer.clip) {
-            track.fire_in_range(prev_time, layer.time, duration);
-            break;
+    if (!layer.clip_path.empty()) {
+        auto it = event_tracks_.find(layer.clip_path);
+        if (it != event_tracks_.end()) {
+            it->second.fire_in_range(prev_time, layer.time, duration,
+                [this](const AnimationEvent& e) { on_event.broadcast(e); });
         }
     }
 }
@@ -315,6 +395,7 @@ void AnimatorComponent::update(float dt) {
                 if (next->uses_blend_space()) {
                     // Blend space target: no single clip, evaluate_blend_space handles it
                     layers_[1].clip = nullptr;
+                    layers_[1].clip_path.clear();
                     layers_[1].time = 0.0f;
                     layers_[1].speed = next->speed;
                     layers_[1].weight = 0.0f;
@@ -323,6 +404,7 @@ void AnimatorComponent::update(float dt) {
                     auto it = clip_map_.find(next->clip);
                     if (it != clip_map_.end()) {
                         layers_[1].clip = it->second;
+                        layers_[1].clip_path = next->clip;
                         layers_[1].time = 0.0f;
                         layers_[1].speed = next->speed;
                         layers_[1].weight = 0.0f;
@@ -346,6 +428,7 @@ void AnimatorComponent::update(float dt) {
                 // Transition complete: layer[1] becomes layer[0]
                 if (layers_[1].clip) {
                     layers_[0].clip = layers_[1].clip;
+                    layers_[0].clip_path = layers_[1].clip_path;
                 }
                 layers_[0].time = layers_[1].time;
                 layers_[0].speed = layers_[1].speed;
@@ -353,6 +436,7 @@ void AnimatorComponent::update(float dt) {
                 std::swap(layers_[0].context, layers_[1].context);
 
                 layers_[1].clip = nullptr;
+                layers_[1].clip_path.clear();
                 layers_[1].weight = 0.0f;
             }
             layers_[0].weight = 1.0f;
@@ -363,6 +447,7 @@ void AnimatorComponent::update(float dt) {
                 if (current->uses_blend_space()) {
                     // Blend space state: clear layer clip, evaluate handles it
                     layers_[0].clip = nullptr;
+                    layers_[0].clip_path.clear();
                     layers_[0].speed = current->speed;
                     layers_[0].looping = current->looping;
                 } else {
@@ -370,6 +455,7 @@ void AnimatorComponent::update(float dt) {
                     if (it != clip_map_.end()) {
                         if (it->second != layers_[0].clip) {
                             layers_[0].clip = it->second;
+                            layers_[0].clip_path = current->clip;
                             layers_[0].time = 0.0f;
                             layers_[0].speed = current->speed;
                             layers_[0].looping = current->looping;

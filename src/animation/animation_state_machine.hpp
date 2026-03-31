@@ -79,6 +79,10 @@ public:
     void set_initial(const std::string& name) { current_ = name; }
     [[nodiscard]] const std::string& initial_state_name() const { return current_; }
 
+    // Copy states, params, skeleton path, and current state from another state machine.
+    // Does not copy the on_transition delegate or crossfade state.
+    void copy_definition_from(const AnimationStateMachine& other);
+
     // Add/remove states (rebuilds state_index_).
     void add_state(AnimationState state);
     void remove_state(const std::string& name);

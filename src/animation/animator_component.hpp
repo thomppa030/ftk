@@ -25,6 +25,7 @@ namespace fjell {
 // Per-layer animation sampling state.
 struct AnimationLayer {
     const AnimationClip* clip{nullptr};
+    std::string clip_path;  // asset path for event track lookup
     std::unique_ptr<ozz::animation::SamplingJob::Context> context;
     std::vector<ozz::math::SoaTransform> locals;
     float time{0.0f};
@@ -55,14 +56,21 @@ public:
 
     // Set the active animation clip for single-clip playback (no state machine).
     void play(const AnimationClip* clip, bool looping = true, float speed = 1.0f);
+    void play(const std::string& clip_path, const AnimationClip* clip, bool looping = true, float speed = 1.0f);
 
     // Load a state machine from a .fjanimset file. Clips must be resolved via set_clip().
     void load_state_machine(const std::string& path);
+    // Activate state machine mode using the already-loaded state machine data.
+    void enable_state_machine();
     void set_clip(const std::string& name, const AnimationClip* clip);
 
     // Register blend spaces for states that use them.
     void load_blend_space_1d(const std::string& path, const BlendSpace1D& bs);
     void load_blend_space_2d(const std::string& path, const BlendSpace2D& bs);
+
+    // Load all blend spaces referenced by the state machine, and their clips.
+    // base_dir is the directory containing the .fjanimset (used to resolve relative paths).
+    void resolve_blend_spaces(const std::string& base_dir);
 
     // Set state machine parameter (forwarded to state machine).
     void set_param(const std::string& name, float value);
@@ -88,14 +96,22 @@ public:
     void set_event_track(const std::string& clip_path, AnimationEventTrack track);
     [[nodiscard]] AnimationEventTrack* event_track(const std::string& clip_path);
 
+    // Single subscribe point for all animation events across all clips.
+    Delegate<void(const AnimationEvent&)> on_event;
+
     // Access the state machine (for setting params, reading state, binding on_transition).
     [[nodiscard]] AnimationStateMachine& state_machine() { return state_machine_; }
     [[nodiscard]] const AnimationStateMachine& state_machine() const { return state_machine_; }
+
+    // Access loaded blend spaces (for cloning).
+    [[nodiscard]] const std::unordered_map<std::string, BlendSpace1D>& blend_spaces_1d() const { return blend_spaces_1d_; }
+    [[nodiscard]] const std::unordered_map<std::string, BlendSpace2D>& blend_spaces_2d() const { return blend_spaces_2d_; }
 
 private:
     void sample_layer(AnimationLayer& layer, float dt);
     void evaluate_blend_space(const AnimationState& state, float dt);
     void compute_skin_matrices();
+    void ensure_event_track(const std::string& path, const AnimationClip* clip);
 
     const Skeleton* skeleton_{nullptr};
 

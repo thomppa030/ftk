@@ -332,6 +332,8 @@ void PropertiesPanel::draw() {
                                     anim->set_clip(anim->clip_paths[i], anim->clips[i].get());
                                 }
                             }
+                            std::string base_dir = project_mgr_->active() ? project_mgr_->active()->root().string() : "";
+                            anim->resolve_blend_spaces(base_dir);
                             scene_->mark_dirty();
                         }
                     }

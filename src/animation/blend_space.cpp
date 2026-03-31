@@ -88,35 +88,105 @@ void BlendSpace2D::add(BlendSpacePoint2D point) {
     points_.push_back(std::move(point));
 }
 
+// Bowyer-Watson incremental Delaunay triangulation.
+// Works correctly with interior points (e.g. idle at center of a blend space).
 void BlendSpace2D::triangulate() {
     triangles_.clear();
     uint32_t n = static_cast<uint32_t>(points_.size());
     if (n < 3) return;
 
-    // Simple ear-clipping / fan triangulation for small point sets.
-    // For production, Bowyer-Watson Delaunay would be better, but blend spaces
-    // typically have 5-15 points so a simpler approach works.
+    // Work with indexed 2D positions
+    struct Tri { int a, b, c; };
+    std::vector<Tri> tris;
 
-    // Collect 2D positions
-    struct IdxPt { uint32_t idx; glm::vec2 pos; };
-    std::vector<IdxPt> pts(n);
-    for (uint32_t i = 0; i < n; ++i) {
-        pts[i] = {i, points_[i].position};
+    // Super-triangle that contains all points
+    float min_x = points_[0].position.x, max_x = min_x;
+    float min_y = points_[0].position.y, max_y = min_y;
+    for (const auto& p : points_) {
+        min_x = std::min(min_x, p.position.x);
+        max_x = std::max(max_x, p.position.x);
+        min_y = std::min(min_y, p.position.y);
+        max_y = std::max(max_y, p.position.y);
+    }
+    float dx = max_x - min_x, dy = max_y - min_y;
+    float dmax = std::max(dx, dy) * 2.0f;
+    float cx = (min_x + max_x) * 0.5f, cy = (min_y + max_y) * 0.5f;
+
+    // Super-triangle vertices stored at indices n, n+1, n+2
+    glm::vec2 super[3] = {
+        {cx - dmax, cy - dmax},
+        {cx + dmax, cy - dmax},
+        {cx,        cy + dmax * 2.0f},
+    };
+    int sn = static_cast<int>(n);
+    tris.push_back({sn, sn + 1, sn + 2});
+
+    auto get_pos = [&](int idx) -> glm::vec2 {
+        if (idx >= sn) return super[idx - sn];
+        return points_[idx].position;
+    };
+
+    // Circumcircle test
+    auto in_circumcircle = [&](const Tri& t, glm::vec2 p) -> bool {
+        glm::vec2 a = get_pos(t.a), b = get_pos(t.b), c = get_pos(t.c);
+        float ax_ = a.x - p.x, ay_ = a.y - p.y;
+        float bx_ = b.x - p.x, by_ = b.y - p.y;
+        float cx_ = c.x - p.x, cy_ = c.y - p.y;
+        float det = ax_ * (by_ * (cx_ * cx_ + cy_ * cy_) - cy_ * (bx_ * bx_ + by_ * by_))
+                   - bx_ * (ay_ * (cx_ * cx_ + cy_ * cy_) - cy_ * (ax_ * ax_ + ay_ * ay_))
+                   + cx_ * (ay_ * (bx_ * bx_ + by_ * by_) - by_ * (ax_ * ax_ + ay_ * ay_));
+        // CCW winding → det > 0 means inside
+        // Ensure CCW: check cross product
+        float cross = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+        return cross > 0 ? det > 0 : det < 0;
+    };
+
+    // Insert each point
+    for (int i = 0; i < sn; ++i) {
+        glm::vec2 p = points_[i].position;
+
+        // Find bad triangles (point inside circumcircle)
+        std::vector<Tri> bad;
+        std::vector<Tri> good;
+        for (const auto& t : tris) {
+            if (in_circumcircle(t, p))
+                bad.push_back(t);
+            else
+                good.push_back(t);
+        }
+
+        // Find boundary polygon (edges not shared by two bad triangles)
+        struct Edge { int a, b; };
+        std::vector<Edge> boundary;
+        for (const auto& t : bad) {
+            Edge edges[3] = {{t.a, t.b}, {t.b, t.c}, {t.c, t.a}};
+            for (const auto& e : edges) {
+                bool shared = false;
+                for (const auto& t2 : bad) {
+                    if (&t2 == &t) continue;
+                    int v[3] = {t2.a, t2.b, t2.c};
+                    for (int j = 0; j < 3; ++j) {
+                        if (v[j] == e.b && v[(j + 1) % 3] == e.a) { shared = true; break; }
+                    }
+                    if (shared) break;
+                }
+                if (!shared) boundary.push_back(e);
+            }
+        }
+
+        // Re-triangulate with new point
+        tris = std::move(good);
+        for (const auto& e : boundary) {
+            tris.push_back({e.a, e.b, i});
+        }
     }
 
-    // Sort by angle from centroid for a convex-hull-like fan
-    glm::vec2 centroid{0.0f};
-    for (const auto& p : pts) centroid += p.pos;
-    centroid /= static_cast<float>(n);
-
-    std::sort(pts.begin(), pts.end(), [&](const IdxPt& a, const IdxPt& b) {
-        return std::atan2(a.pos.y - centroid.y, a.pos.x - centroid.x)
-             < std::atan2(b.pos.y - centroid.y, b.pos.x - centroid.x);
-    });
-
-    // Fan triangulation from centroid ordering
-    for (uint32_t i = 0; i < n - 2; ++i) {
-        triangles_.push_back({pts[0].idx, pts[i + 1].idx, pts[i + 2].idx});
+    // Remove triangles that reference super-triangle vertices
+    for (const auto& t : tris) {
+        if (t.a >= sn || t.b >= sn || t.c >= sn) continue;
+        triangles_.push_back({static_cast<uint32_t>(t.a),
+                              static_cast<uint32_t>(t.b),
+                              static_cast<uint32_t>(t.c)});
     }
 }
 

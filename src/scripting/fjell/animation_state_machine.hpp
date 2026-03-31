@@ -34,10 +34,13 @@ struct StateTransition {
 
 struct AnimationState {
     std::string name;
-    std::string clip;
+    std::string clip;           // path to .fjanim (single clip mode)
+    std::string blend_space;    // path to .fjblend1D or .fjblend2D (blend space mode)
     float speed{1.0f};
     bool looping{true};
     std::vector<StateTransition> transitions;
+
+    [[nodiscard]] bool uses_blend_space() const { return !blend_space.empty(); }
 };
 
 class AnimationStateMachine {

@@ -140,6 +140,7 @@ add_executable(fjell
     scripting/audio_api.cpp
     scripting/camera_api.cpp
     scripting/input_api.cpp
+    scripting/animator_api.cpp
     scripting/sprite_anim_api.cpp
     scripting/vfx_api.cpp
     scripting/viewport_api.cpp
