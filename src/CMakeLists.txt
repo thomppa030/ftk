@@ -160,6 +160,8 @@ add_executable(fjell
     ui/stats_panel.cpp
     ui/node_editor_panel.cpp
     ui/animation_editor_context.cpp
+    ui/blend_space_1d_editor_context.cpp
+    ui/blend_space_2d_editor_context.cpp
     ui/context_registry.cpp
     ui/material_editor_context.cpp
     ui/ui_editor_context.cpp

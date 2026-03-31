@@ -18,6 +18,8 @@
 #include "ui/console.hpp"
 #include "ui/theme.hpp"
 #include "ui/animation_editor_context.hpp"
+#include "ui/blend_space_1d_editor_context.hpp"
+#include "ui/blend_space_2d_editor_context.hpp"
 #include "ui/material_editor_context.hpp"
 #include "ui/ui_editor_context.hpp"
 #include "ui/vfx_editor_context.hpp"
@@ -525,6 +527,56 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             static_cast<AnimationEditorContext&>(ctx).open_skeleton(path);
         },
         .matches = anim_matches
+    });
+
+    // ── Blend space 1D editor ───────────────────────────────────────────
+    context_registry_.register_type("blend1d", {
+        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+            BlendSpace1DEditorDeps deps{
+                .vulkan_context = vulkan_context_.get(),
+                .resource_manager = resource_manager_.get(),
+                .input = &input_,
+                .clock = &clock_,
+                .animation_subsystem = animation_subsystem_,
+                .project_mgr = &project_mgr_,
+                .icon_cache = icon_cache_.get()
+            };
+            auto ctx = std::make_unique<BlendSpace1DEditorContext>(deps);
+            ctx->init();
+            ctx->open(path);
+            return ctx;
+        },
+        .open = [](EditorContext& ctx, const std::string& path) {
+            static_cast<BlendSpace1DEditorContext&>(ctx).open(path);
+        },
+        .matches = [](const EditorContext& ctx, const std::string&) {
+            return dynamic_cast<const BlendSpace1DEditorContext*>(&ctx) != nullptr;
+        }
+    });
+
+    // ── Blend space 2D editor ───────────────────────────────────────────
+    context_registry_.register_type("blend2d", {
+        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+            BlendSpace2DEditorDeps deps{
+                .vulkan_context = vulkan_context_.get(),
+                .resource_manager = resource_manager_.get(),
+                .input = &input_,
+                .clock = &clock_,
+                .animation_subsystem = animation_subsystem_,
+                .project_mgr = &project_mgr_,
+                .icon_cache = icon_cache_.get()
+            };
+            auto ctx = std::make_unique<BlendSpace2DEditorContext>(deps);
+            ctx->init();
+            ctx->open(path);
+            return ctx;
+        },
+        .open = [](EditorContext& ctx, const std::string& path) {
+            static_cast<BlendSpace2DEditorContext&>(ctx).open(path);
+        },
+        .matches = [](const EditorContext& ctx, const std::string&) {
+            return dynamic_cast<const BlendSpace2DEditorContext*>(&ctx) != nullptr;
+        }
     });
 
     FJELL_CORE_INFO("Engine initialized");

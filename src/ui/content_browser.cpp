@@ -931,7 +931,12 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
 
         case FileType::model: {
             auto rel = std::filesystem::relative(entry.path, root_);
-            on_add_model.broadcast(rel.string());
+            auto ext = entry.path.extension().string();
+            if (ext == ".fjskel") {
+                on_open_asset.broadcast(rel.string(), "skeleton");
+            } else {
+                on_add_model.broadcast(rel.string());
+            }
             break;
         }
 
@@ -947,12 +952,14 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::animation: {
             auto rel = std::filesystem::relative(entry.path, root_);
             auto ext = entry.path.extension().string();
-            if (ext == ".fjskel") {
-                on_open_asset.broadcast(rel.string(), "skeleton");
-            } else if (ext == ".fjanim") {
+            if (ext == ".fjanim") {
                 on_open_asset.broadcast(rel.string(), "animation");
             } else if (ext == ".fjanimset") {
                 on_open_asset.broadcast(rel.string(), "animset");
+            } else if (ext == ".fjblend1D") {
+                on_open_asset.broadcast(rel.string(), "blend1d");
+            } else if (ext == ".fjblend2D") {
+                on_open_asset.broadcast(rel.string(), "blend2d");
             }
             break;
         }
