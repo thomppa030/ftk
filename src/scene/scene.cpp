@@ -1,10 +1,8 @@
 #include "scene/scene.hpp"
 #include "scene/node_serializer.hpp"
+#include "animation/animator_component.hpp"
 #include "core/input_component.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
-#include "animation/animation_clip.hpp"
-#include "animation/animator_component.hpp"
-#include "animation/skeleton.hpp"
 #include "audio/audio_component.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/arrow_component.hpp"
@@ -44,11 +42,6 @@ ScriptEntry::ScriptEntry() = default;
 ScriptEntry::~ScriptEntry() = default;
 ScriptEntry::ScriptEntry(ScriptEntry&&) noexcept = default;
 ScriptEntry& ScriptEntry::operator=(ScriptEntry&&) noexcept = default;
-
-SkeletalMeshComponent::SkeletalMeshComponent() = default;
-SkeletalMeshComponent::~SkeletalMeshComponent() = default;
-SkeletalMeshComponent::SkeletalMeshComponent(SkeletalMeshComponent&&) noexcept = default;
-SkeletalMeshComponent& SkeletalMeshComponent::operator=(SkeletalMeshComponent&&) noexcept = default;
 
 // ── Node ────────────────────────────────────────────────────────────────
 
@@ -127,6 +120,33 @@ void Node::clone_base_into(Node& target) const {
     }
     if (const auto* ic = components.get<InputComponent>()) {
         target.components.add<InputComponent>(*ic);
+    }
+    if (const auto* smc = components.get<SkeletalMeshComponent>()) {
+        target.components.add<SkeletalMeshComponent>(*smc);
+    }
+    if (const auto* anim = components.get<AnimatorComponent>()) {
+        auto& copy = target.components.add<AnimatorComponent>();
+        copy.clip_paths = anim->clip_paths;
+        copy.animset_path = anim->animset_path;
+        copy.clips = anim->clips;
+        // Init from SkeletalModel's embedded skeleton
+        if (const auto* smc = components.get<SkeletalMeshComponent>()) {
+            if (smc->skeletal_model && smc->skeletal_model->skeleton()) {
+                copy.init(smc->skeletal_model->skeleton());
+            }
+        }
+        // Re-register clips in the clip map
+        for (size_t i = 0; i < copy.clips.size(); ++i) {
+            if (i < copy.clip_paths.size()) {
+                copy.set_clip(copy.clip_paths[i], copy.clips[i].get());
+            }
+            if (i == 0) {
+                copy.play(copy.clips[i].get());
+            }
+        }
+        if (!copy.animset_path.empty()) {
+            copy.load_state_machine(copy.animset_path);
+        }
     }
 }
 

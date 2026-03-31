@@ -492,7 +492,7 @@ Result<SkeletalModelHandle> ResourceManager::load_skeletal_model(const std::stri
     }
 
     try {
-        auto data = SkeletalModel::load_fjmesh(path);
+        auto data = SkeletalModel::load_fjskel(path);
         auto model = std::make_unique<SkeletalModel>(device_, physical_device_, command_pool_,
                                                       queue_, std::move(data));
         return skeletal_models_.insert(path, std::move(model));

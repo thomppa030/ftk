@@ -186,6 +186,14 @@ Skeleton Skeleton::load(const std::string& path) {
     return skel;
 }
 
+Skeleton Skeleton::from_joints(const std::vector<FjSkelJoint>& joints) {
+    Skeleton skel;
+    skel.joints_ = joints;
+    skel.skeleton_ = build_ozz_skeleton(skel.joints_);
+    skel.inverse_bind_matrices_ = compute_inverse_bind_matrices(skel.joints_);
+    return skel;
+}
+
 void Skeleton::save(const std::string& path) const {
     nlohmann::json j;
     j["joints"] = nlohmann::json::array();

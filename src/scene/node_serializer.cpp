@@ -64,18 +64,23 @@ nlohmann::json serialize_node(const Node& node) {
         j["mesh"] = jmesh;
     }
 
-    // Skeletal mesh
+    // Skeletal mesh (rendering only)
     if (const auto* smc = node.components.get<SkeletalMeshComponent>()) {
         nlohmann::json jskel;
-        jskel["skeleton"] = smc->skeleton_path;
         jskel["material"] = smc->material_name;
-        if (!smc->clip_paths.empty()) {
-            jskel["clips"] = smc->clip_paths;
-        }
-        if (!smc->animset_path.empty()) {
-            jskel["animset"] = smc->animset_path;
-        }
         j["skeletal_mesh"] = jskel;
+    }
+
+    // Animator (animation data)
+    if (const auto* anim = node.components.get<AnimatorComponent>()) {
+        nlohmann::json janim;
+        if (!anim->clip_paths.empty()) {
+            janim["clips"] = anim->clip_paths;
+        }
+        if (!anim->animset_path.empty()) {
+            janim["animset"] = anim->animset_path;
+        }
+        j["animator"] = janim;
     }
 
     // Transform (spatial nodes only)
@@ -536,6 +541,38 @@ static void load_components(Node& node, const nlohmann::json& j,
         ic.actions_dir = ji.value("actions_dir", "");
     }
 
+    // Animator (standalone — not already loaded by the skeletal_mesh path)
+    if (j.contains("animator") && !node.components.has<AnimatorComponent>()) {
+        const auto& ja = j["animator"];
+        auto& anim = node.components.add<AnimatorComponent>();
+
+        // Init from SkeletalModel's embedded skeleton
+        if (const auto* smc = node.components.get<SkeletalMeshComponent>()) {
+            if (smc->skeletal_model && smc->skeletal_model->skeleton()) {
+                anim.init(smc->skeletal_model->skeleton());
+            }
+        }
+        if (ja.contains("clips") && ja["clips"].is_array()) {
+            for (const auto& jc : ja["clips"]) {
+                std::string clip_rel = jc.get<std::string>();
+                anim.clip_paths.push_back(clip_rel);
+                try {
+                    auto clip = std::make_shared<AnimationClip>(
+                        AnimationClip::load(base_path::resolve_asset(clip_rel, project)));
+                    anim.clips.push_back(clip);
+                    if (anim.clips.size() == 1) {
+                        anim.play(clip.get());
+                    }
+                } catch (const std::exception& e) {
+                    FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, e.what());
+                }
+            }
+        }
+        if (ja.contains("animset")) {
+            anim.animset_path = ja["animset"].get<std::string>();
+        }
+    }
+
     if (j.contains("components")) {
         for (const auto& jcomp : j["components"]) {
             ScriptEntry comp;
@@ -695,7 +732,6 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
 
     if (j.contains("skeletal_mesh") && !source.empty()) {
         const auto& jsm = j["skeletal_mesh"];
-        std::string skel_rel = jsm.value("skeleton", "");
 
         auto skel_model_result = resources.load_skeletal_model(
             base_path::resolve_asset(source, project));
@@ -712,11 +748,11 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         node->id = loaded_id;
         node->parent_id = loaded_parent;
 
+        // SkeletalMeshComponent — rendering only (model + material)
         auto& smc = node->components.add<SkeletalMeshComponent>();
         smc.skeletal_model_handle = skel_model_handle;
         smc.skeletal_model = skel_model;
         smc.material_name = jsm.value("material", "default");
-        smc.skeleton_path = skel_rel;
 
         // Material
         auto mat_n = smc.material_name;
@@ -735,43 +771,34 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             smc.material = resources.get(smc.material_handle);
         }
 
-        // Skeleton
-        if (!skel_rel.empty()) {
-            try {
-                smc.skeleton = std::make_shared<Skeleton>(
-                    Skeleton::load(base_path::resolve_asset(skel_rel, project)));
-            } catch (const std::exception& e) {
-                FJELL_CORE_ERROR("Failed to load skeleton {}: {}", skel_rel, e.what());
-                return nullptr;
-            }
+        // AnimatorComponent — skeleton comes from the SkeletalModel
+        auto& anim = node->components.add<AnimatorComponent>();
+        if (skel_model->skeleton()) {
+            anim.init(skel_model->skeleton());
         }
 
-        // Animator
-        smc.animator = std::make_unique<AnimatorComponent>();
-        if (smc.skeleton) {
-            smc.animator->init(smc.skeleton.get());
-        }
-
-        // Animation clips
-        if (jsm.contains("clips") && jsm["clips"].is_array()) {
-            for (const auto& jc : jsm["clips"]) {
-                std::string clip_rel = jc.get<std::string>();
-                smc.clip_paths.push_back(clip_rel);
-                try {
-                    auto clip = std::make_shared<AnimationClip>(
-                        AnimationClip::load(base_path::resolve_asset(clip_rel, project)));
-                    smc.clips.push_back(clip);
-                    if (smc.clips.size() == 1) {
-                        smc.animator->play(clip.get());
+        // Animation clips + animset from "animator" block
+        if (j.contains("animator")) {
+            const auto& ja = j["animator"];
+            if (ja.contains("clips") && ja["clips"].is_array()) {
+                for (const auto& jc : ja["clips"]) {
+                    std::string clip_rel = jc.get<std::string>();
+                    anim.clip_paths.push_back(clip_rel);
+                    try {
+                        auto clip = std::make_shared<AnimationClip>(
+                            AnimationClip::load(base_path::resolve_asset(clip_rel, project)));
+                        anim.clips.push_back(clip);
+                        if (anim.clips.size() == 1) {
+                            anim.play(clip.get());
+                        }
+                    } catch (const std::exception& e) {
+                        FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, e.what());
                     }
-                } catch (const std::exception& e) {
-                    FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, e.what());
                 }
             }
-        }
-
-        if (jsm.contains("animset")) {
-            smc.animset_path = jsm["animset"].get<std::string>();
+            if (ja.contains("animset")) {
+                anim.animset_path = ja["animset"].get<std::string>();
+            }
         }
 
         load_components(*node, j, resources, project);

@@ -8,6 +8,11 @@
 
 namespace fjell {
 
+AnimatorComponent::AnimatorComponent() = default;
+AnimatorComponent::~AnimatorComponent() = default;
+AnimatorComponent::AnimatorComponent(AnimatorComponent&&) noexcept = default;
+AnimatorComponent& AnimatorComponent::operator=(AnimatorComponent&&) noexcept = default;
+
 void AnimatorComponent::init(const Skeleton* skeleton) {
     skeleton_ = skeleton;
     if (!skeleton_) return;

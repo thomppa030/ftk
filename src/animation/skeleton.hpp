@@ -14,6 +14,7 @@ namespace fjell {
 class Skeleton {
 public:
     [[nodiscard]] static Skeleton load(const std::string& path);
+    [[nodiscard]] static Skeleton from_joints(const std::vector<FjSkelJoint>& joints);
     void save(const std::string& path) const;
 
     [[nodiscard]] const ozz::animation::Skeleton& raw() const { return skeleton_; }

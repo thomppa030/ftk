@@ -1,16 +1,23 @@
 #include "ui/properties_panel.hpp"
+#include "animation/animator_component.hpp"
 #include "audio/audio_component.hpp"
+#include "core/base_path.hpp"
 #include "core/input_component.hpp"
 #include "core/command_history.hpp"
 #include "core/commands.hpp"
 #include "core/log.hpp"
+#include "core/project_manager.hpp"
 #include "renderer/arrow_component.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/fjsl_parser.hpp"
 #include "renderer/material.hpp"
 #include "renderer/mesh_component.hpp"
+#include "renderer/model.hpp"
 #include "renderer/particle_emitter.hpp"
 #include "renderer/pipeline_cache.hpp"
+#include "renderer/resource_manager.hpp"
+#include "renderer/skeletal_mesh_component.hpp"
+#include "renderer/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/scene.hpp"
 #include "renderer/sprite_anim_component.hpp"
@@ -95,7 +102,9 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
                            DirectionalLight* light, ScriptManager* scripts,
                            CommandHistory* history, GridSettings* grid_settings,
                            PipelineCache* pipeline_cache,
-                           BindlessTextures* bindless) {
+                           BindlessTextures* bindless,
+                           ResourceManager* resource_manager,
+                           ProjectManager* project_mgr) {
     scene_ = scene;
     selected_id_ = selected_id;
     gizmo_op_ = gizmo_op;
@@ -105,6 +114,8 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
     grid_settings_ = grid_settings;
     pipeline_cache_ = pipeline_cache;
     bindless_ = bindless;
+    resource_manager_ = resource_manager;
+    project_mgr_ = project_mgr;
 }
 
 void PropertiesPanel::draw() {
@@ -213,11 +224,171 @@ void PropertiesPanel::draw() {
             if (auto* mesh = obj->components.get<MeshComponent>()) {
                 colored_separator({0.36f, 0.55f, 0.94f, 1.0f});
                 if (ImGui::CollapsingHeader("Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    ImGui::TextDisabled("Model: %s", obj->source.empty() ? "(none)" : obj->source.c_str());
-                    ImGui::TextDisabled("Material: %s", mesh->material_name.c_str());
+                    // Model (drag .fjmesh / .glb)
+                    std::string model_path = obj->source;
+                    if (asset_path_field("Model", "##MeshModel", model_path)) {
+                        if (resource_manager_ && project_mgr_) {
+                            auto resolved = base_path::resolve_asset(model_path, project_mgr_->active());
+                            auto result = resource_manager_->load_model(resolved);
+                            if (result) {
+                                mesh->model_handle = *result;
+                                mesh->model = resource_manager_->get(mesh->model_handle);
+                                obj->source = model_path;
+                                scene_->mark_dirty();
+                            }
+                        }
+                    }
+
+                    // Material (drag .fjmat)
+                    if (asset_path_field("Material", "##MeshMaterial", mesh->material_name)) {
+                        if (resource_manager_ && project_mgr_) {
+                            auto resolved = base_path::resolve_asset(mesh->material_name, project_mgr_->active());
+                            auto result = resource_manager_->load_material_asset(resolved, project_mgr_->active());
+                            if (result) {
+                                mesh->material_handle = *result;
+                                mesh->material = resource_manager_->get(mesh->material_handle);
+                            }
+                            scene_->mark_dirty();
+                        }
+                    }
+
                     draw_material_inspector(*obj);
                     if (remove_button("Remove Mesh")) {
                         obj->components.remove<MeshComponent>();
+                        scene_->mark_dirty();
+                    }
+                }
+            }
+
+            // Skeletal Mesh
+            if (auto* skel = obj->components.get<SkeletalMeshComponent>()) {
+                colored_separator({0.5f, 0.3f, 0.8f, 1.0f});
+                if (ImGui::CollapsingHeader("Skeletal Mesh", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    // Model (drag .fjmesh)
+                    std::string skel_model_path = obj->source;
+                    if (asset_path_field("Model", "##SkelModel", skel_model_path)) {
+                        if (resource_manager_ && project_mgr_) {
+                            auto resolved = base_path::resolve_asset(skel_model_path, project_mgr_->active());
+                            auto result = resource_manager_->load_skeletal_model(resolved);
+                            if (result) {
+                                skel->skeletal_model_handle = *result;
+                                skel->skeletal_model = resource_manager_->get(skel->skeletal_model_handle);
+                                obj->source = skel_model_path;
+                                scene_->mark_dirty();
+                            } else {
+                                FJELL_CORE_ERROR("Failed to load skeletal model: {}", result.error());
+                            }
+                        }
+                    }
+
+                    // Material (drag .fjmat)
+                    if (asset_path_field("Material", "##SkelMaterial", skel->material_name)) {
+                        if (resource_manager_ && project_mgr_) {
+                            auto resolved = base_path::resolve_asset(skel->material_name, project_mgr_->active());
+                            auto result = resource_manager_->load_material_asset(resolved, project_mgr_->active());
+                            if (result) {
+                                skel->material_handle = *result;
+                                skel->material = resource_manager_->get(skel->material_handle);
+                            }
+                            scene_->mark_dirty();
+                        }
+                    }
+
+                    draw_material_inspector_for(skel->material);
+                    if (remove_button("Remove Skeletal Mesh")) {
+                        obj->components.remove<SkeletalMeshComponent>();
+                        scene_->mark_dirty();
+                    }
+                }
+            }
+
+            // Animator
+            if (auto* anim = obj->components.get<AnimatorComponent>()) {
+                colored_separator({0.8f, 0.5f, 0.2f, 1.0f});
+                if (ImGui::CollapsingHeader("Animator", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    // Skeleton comes from SkeletalMeshComponent
+                    if (auto* skel = obj->components.get<SkeletalMeshComponent>()) {
+                        if (skel->skeletal_model && skel->skeletal_model->skeleton()) {
+                            ImGui::TextDisabled("Skeleton: %d joints (from Skeletal Mesh)",
+                                                skel->skeletal_model->skeleton()->num_joints());
+                            if (!anim->initialized()) {
+                                anim->init(skel->skeletal_model->skeleton());
+                            }
+                        } else {
+                            ImGui::TextDisabled("Skeleton: (none — assign a Skeletal Mesh first)");
+                        }
+                    } else {
+                        ImGui::TextDisabled("Skeleton: (no Skeletal Mesh component)");
+                    }
+
+                    // Animset (drag .fjanimset)
+                    if (asset_path_field("Animation Set", "##AnimAnimset", anim->animset_path)) {
+                        if (!anim->animset_path.empty() && project_mgr_) {
+                            auto resolved = base_path::resolve_asset(anim->animset_path, project_mgr_->active());
+                            anim->load_state_machine(resolved);
+                            // Resolve clips for state machine
+                            for (size_t i = 0; i < anim->clips.size(); ++i) {
+                                if (i < anim->clip_paths.size()) {
+                                    anim->set_clip(anim->clip_paths[i], anim->clips[i].get());
+                                }
+                            }
+                            scene_->mark_dirty();
+                        }
+                    }
+
+                    // Clip list
+                    ImGui::Text("Clips");
+                    int remove_idx = -1;
+                    for (size_t i = 0; i < anim->clip_paths.size(); ++i) {
+                        ImGui::PushID(static_cast<int>(i));
+                        char label[32];
+                        std::snprintf(label, sizeof(label), "Clip %zu", i);
+                        if (asset_path_field(label, "##ClipPath", anim->clip_paths[i])) {
+                            if (project_mgr_ && !anim->clip_paths[i].empty()) {
+                                try {
+                                    auto resolved = base_path::resolve_asset(anim->clip_paths[i], project_mgr_->active());
+                                    auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved));
+                                    if (i < anim->clips.size()) {
+                                        anim->clips[i] = clip;
+                                    } else {
+                                        anim->clips.push_back(clip);
+                                    }
+                                    anim->set_clip(anim->clip_paths[i], clip.get());
+                                    if (!anim->has_active_clip()) {
+                                        anim->play(clip.get());
+                                    }
+                                    scene_->mark_dirty();
+                                } catch (const std::exception& e) {
+                                    FJELL_CORE_ERROR("Failed to load clip: {}", e.what());
+                                }
+                            }
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::SmallButton("X")) {
+                            remove_idx = static_cast<int>(i);
+                        }
+                        ImGui::PopID();
+                    }
+                    if (remove_idx >= 0) {
+                        anim->clip_paths.erase(anim->clip_paths.begin() + remove_idx);
+                        if (static_cast<size_t>(remove_idx) < anim->clips.size()) {
+                            anim->clips.erase(anim->clips.begin() + remove_idx);
+                        }
+                        scene_->mark_dirty();
+                    }
+
+                    // Add clip slot
+                    if (ImGui::Button("+ Add Clip", {-1, 0})) {
+                        anim->clip_paths.emplace_back();
+                    }
+
+                    // Status
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Initialized: %s", anim->initialized() ? "yes" : "no");
+                    ImGui::TextDisabled("Bones: %u", anim->bone_count());
+
+                    if (remove_button("Remove Animator")) {
+                        obj->components.remove<AnimatorComponent>();
                         scene_->mark_dirty();
                     }
                 }
@@ -777,6 +948,21 @@ void PropertiesPanel::draw() {
                 ImGui::OpenPopup("##AddBuiltinComponent");
             }
             if (ImGui::BeginPopup("##AddBuiltinComponent")) {
+                if (!obj->components.has<SkeletalMeshComponent>() && ImGui::MenuItem("Skeletal Mesh")) {
+                    auto& smc = obj->components.add<SkeletalMeshComponent>();
+                    if (resource_manager_) {
+                        auto tex = resource_manager_->load_texture(
+                            base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
+                        smc.material_handle = resource_manager_->create_material("skel_default", tex);
+                        smc.material = resource_manager_->get(smc.material_handle);
+                        smc.material_name = "default";
+                    }
+                    scene_->mark_dirty();
+                }
+                if (!obj->components.has<AnimatorComponent>() && ImGui::MenuItem("Animator")) {
+                    obj->components.add<AnimatorComponent>();
+                    scene_->mark_dirty();
+                }
                 if (!obj->components.has<RigidbodyComponent>() && ImGui::MenuItem("Rigidbody")) {
                     obj->components.add<RigidbodyComponent>();
                     scene_->mark_dirty();
@@ -864,11 +1050,9 @@ void PropertiesPanel::draw() {
     ImGui::End();
 }
 
-void PropertiesPanel::draw_material_inspector(Node3D& obj) {
-    auto* mesh = obj.components.get<MeshComponent>();
-    if (!mesh || !mesh->material || !pipeline_cache_ || !bindless_) return;
+void PropertiesPanel::draw_material_inspector_for(Material* mat) {
+    if (!mat || !pipeline_cache_ || !bindless_) return;
 
-    auto* mat = mesh->material;
     uint32_t pid = mat->pipeline_id();
     if (pid >= pipeline_cache_->shader_count()) return;
 
@@ -905,6 +1089,12 @@ void PropertiesPanel::draw_material_inspector(Node3D& obj) {
     if (draw_material_params(meta, *bindless_, *mat)) {
         scene_->mark_dirty();
     }
+}
+
+void PropertiesPanel::draw_material_inspector(Node3D& obj) {
+    auto* mesh = obj.components.get<MeshComponent>();
+    if (!mesh) return;
+    draw_material_inspector_for(mesh->material);
 }
 
 } // namespace fjell

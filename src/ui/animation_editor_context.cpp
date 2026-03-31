@@ -41,17 +41,17 @@ void AnimationEditorContext::init() {
         // Scrub the animator to this time
         auto* node = preview_scene_.find(preview_node_id_);
         if (!node) return;
-        auto* smc = node->components.get<SkeletalMeshComponent>();
-        if (!smc || !smc->animator) return;
-        smc->animator->set_time(time);
+        auto* anim = node->components.get<AnimatorComponent>();
+        if (!anim) return;
+        anim->set_time(time);
     }));
 
     connections_.push_back(timeline_.on_stop.bind([this]() {
         auto* node = preview_scene_.find(preview_node_id_);
         if (!node) return;
-        auto* smc = node->components.get<SkeletalMeshComponent>();
-        if (!smc || !smc->animator) return;
-        smc->animator->set_time(0.0f);
+        auto* anim = node->components.get<AnimatorComponent>();
+        if (!anim) return;
+        anim->set_time(0.0f);
     }));
 }
 
@@ -176,8 +176,6 @@ void AnimationEditorContext::open_skeleton(const std::string& skel_path) {
                 auto& smc = node->components.add<SkeletalMeshComponent>();
                 smc.skeletal_model_handle = *mesh_result;
                 smc.skeletal_model = skel_model;
-                smc.skeleton = skeleton_;
-                smc.skeleton_path = skel_path;
 
                 // Default material
                 auto tex = deps_.resource_manager->load_texture(
@@ -185,8 +183,8 @@ void AnimationEditorContext::open_skeleton(const std::string& skel_path) {
                 smc.material_handle = deps_.resource_manager->create_material("anim_preview", tex);
                 smc.material = deps_.resource_manager->get(smc.material_handle);
 
-                smc.animator = std::make_unique<AnimatorComponent>();
-                smc.animator->init(skeleton_.get());
+                auto& anim = node->components.add<AnimatorComponent>();
+                anim.init(skeleton_.get());
 
                 preview_node_id_ = preview_scene_.add_node(std::move(node));
             }
@@ -390,10 +388,10 @@ void AnimationEditorContext::load_clip(int index) {
     // Play on the preview animator
     auto* node = preview_scene_.find(preview_node_id_);
     if (!node) return;
-    auto* smc = node->components.get<SkeletalMeshComponent>();
-    if (!smc || !smc->animator) return;
+    auto* anim = node->components.get<AnimatorComponent>();
+    if (!anim) return;
 
-    smc->animator->play(current_clip_.get());
+    anim->play(current_clip_.get());
 }
 
 void AnimationEditorContext::update_preview(float dt) {
@@ -401,12 +399,12 @@ void AnimationEditorContext::update_preview(float dt) {
 
     auto* node = preview_scene_.find(preview_node_id_);
     if (!node) return;
-    auto* smc = node->components.get<SkeletalMeshComponent>();
-    if (!smc || !smc->animator) return;
+    auto* anim = node->components.get<AnimatorComponent>();
+    if (!anim) return;
 
     // Sync animator time with timeline
     if (timeline_.playing()) {
-        smc->animator->set_time(timeline_.time());
+        anim->set_time(timeline_.time());
     }
 
     // Tick animation + world matrices on the preview scene

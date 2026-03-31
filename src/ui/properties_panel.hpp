@@ -9,7 +9,10 @@ namespace fjell {
 
 class BindlessTextures;
 class CommandHistory;
+class Material;
 class PipelineCache;
+class ProjectManager;
+class ResourceManager;
 class Scene;
 class ScriptManager;
 struct DirectionalLight;
@@ -21,12 +24,15 @@ public:
               DirectionalLight* light, ScriptManager* scripts,
               CommandHistory* history, GridSettings* grid_settings = nullptr,
               PipelineCache* pipeline_cache = nullptr,
-              BindlessTextures* bindless = nullptr);
+              BindlessTextures* bindless = nullptr,
+              ResourceManager* resource_manager = nullptr,
+              ProjectManager* project_mgr = nullptr);
 
     void draw();
 
 private:
     void draw_material_inspector(struct Node3D& obj);
+    void draw_material_inspector_for(Material* mat);
 
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
@@ -37,6 +43,8 @@ private:
     GridSettings* grid_settings_{nullptr};
     PipelineCache* pipeline_cache_{nullptr};
     BindlessTextures* bindless_{nullptr};
+    ResourceManager* resource_manager_{nullptr};
+    ProjectManager* project_mgr_{nullptr};
 
     // Drag coalescing
     Transform drag_start_transform_;

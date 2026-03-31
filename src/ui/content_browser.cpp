@@ -104,11 +104,11 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     auto ext = path.extension().string();
     if (ext == ".cpp") return FileType::cpp_source;
     if (ext == ".hpp" || ext == ".h") return FileType::header;
-    if (ext == ".glb" || ext == ".gltf") return FileType::model;
+    if (ext == ".glb" || ext == ".gltf" || ext == ".fjskel") return FileType::model;
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") return FileType::texture;
     if (ext == ".fjell") return FileType::scene;
     if (ext == ".fjmat") return FileType::material;
-    if (ext == ".fjskel" || ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
+    if (ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
     if (ext == ".fjui" || ext == ".fjss") return FileType::ui_layout;
     if (ext == ".fjvfx") return FileType::vfx;
     if (ext == ".fjwidget") return FileType::widget;

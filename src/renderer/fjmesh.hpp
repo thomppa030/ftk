@@ -79,6 +79,51 @@ struct FjMeshHeader {
     uint32_t pad_v3;           // alignment
 };
 
+// ── .fjskel format ──────────────────────────────────────────────────────
+// Skeletal mesh = skinned geometry + embedded skeleton.
+// File layout: FjSkelHeader, then mesh data sections (same as skinned .fjmesh),
+// then skeleton joints section, then joint name table.
+
+static constexpr uint32_t FJSKEL_MAGIC   = 0x4C4B5346; // "FSKL" little-endian
+static constexpr uint32_t FJSKEL_VERSION = 1;
+
+// Binary joint for the embedded skeleton section.
+struct FjSkelJointBin {
+    int32_t parent;            // -1 for root
+    float translation[3];
+    float rotation[4];         // x, y, z, w
+    float scale[3];
+    uint32_t name_offset;      // byte offset into the name table (from name_table_offset)
+    uint32_t name_length;      // byte length of the name (no null terminator)
+};
+
+struct FjSkelHeader {
+    // Identity
+    uint32_t magic;            // FJSKEL_MAGIC
+    uint32_t version;          // FJSKEL_VERSION
+
+    // Mesh geometry (same data as skinned .fjmesh)
+    uint32_t vertex_count;
+    uint32_t index_count;
+    uint32_t joint_count;
+    uint32_t collision_vertex_count;
+    uint32_t collision_index_count;
+    uint32_t pad0;
+
+    // Bounding box
+    glm::vec3 aabb_min;
+    glm::vec3 aabb_max;
+
+    // Section byte offsets from start of file
+    uint64_t vertices_offset;           // SkinnedVertex[vertex_count]
+    uint64_t indices_offset;            // uint32_t[index_count]
+    uint64_t collision_vertices_offset; // vec3[collision_vertex_count]
+    uint64_t collision_indices_offset;  // uint32_t[collision_index_count]
+    uint64_t joints_offset;             // FjSkelJointBin[joint_count]
+    uint64_t name_table_offset;         // packed joint name strings
+    uint64_t name_table_size;           // total bytes in name table
+};
+
 // Layout validation — if any of these fire, the binary format is incompatible
 static_assert(sizeof(FjMeshSubmesh) == 24, "FjMeshSubmesh layout changed");
 static_assert(sizeof(FjMeshLodLevel) == 16, "FjMeshLodLevel layout changed");

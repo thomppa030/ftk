@@ -2,6 +2,7 @@
 #include "animation/animator_component.hpp"
 #include "core/profiler.hpp"
 #include "renderer/skeletal_mesh_component.hpp"
+#include "renderer/skeletal_model.hpp"
 #include "scene/scene.hpp"
 
 namespace fjell {
@@ -13,11 +14,19 @@ AnimationSystem::AnimationSystem(VkDevice device, VkPhysicalDevice physical_devi
 void AnimationSystem::update(Scene& scene, float dt) {
     FJELL_PROFILE_SCOPE_N("anim_system_update");
     for (auto& obj : scene.objects()) {
-        auto* skel = obj->components.get<SkeletalMeshComponent>();
-        if (!skel || !skel->animator) continue;
-        auto& anim = *skel->animator;
-        if (anim.initialized()) {
-            anim.update(dt);
+        auto* anim = obj->components.get<AnimatorComponent>();
+        if (!anim) continue;
+
+        // Auto-init from SkeletalModel's embedded skeleton
+        if (!anim->initialized()) {
+            auto* smc = obj->components.get<SkeletalMeshComponent>();
+            if (smc && smc->skeletal_model && smc->skeletal_model->skeleton()) {
+                anim->init(smc->skeletal_model->skeleton());
+            }
+        }
+
+        if (anim->initialized()) {
+            anim->update(dt);
         }
     }
 }
@@ -35,21 +44,37 @@ void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
     bone_entry_count_ = 0;
 
     for (auto& obj : scene.objects()) {
-        auto* skel = obj->components.get<SkeletalMeshComponent>();
-        if (!skel || !skel->animator) continue;
-        auto& anim = *skel->animator;
-        if (!anim.initialized() || anim.bone_count() == 0) continue;
+        auto* smc = obj->components.get<SkeletalMeshComponent>();
+        if (!smc || !smc->skeletal_model) continue;
+
+        const auto* skel = smc->skeletal_model->skeleton();
+        if (!skel) continue;
+
+        uint32_t num_joints = static_cast<uint32_t>(skel->num_joints());
+        if (num_joints == 0) continue;
 
         uint32_t id = obj->id;
-        // Grow flat arrays on demand
         if (id >= bone_offsets_.size()) {
             bone_offsets_.resize(id + 1, 0xFFFFFFFF);
             bone_counts_.resize(id + 1, 0);
         }
 
-        uint32_t offset = bone_buffer_.upload(anim.skin_matrices(), frame_index);
-        bone_offsets_[id] = offset;
-        bone_counts_[id] = anim.bone_count();
+        // Use animated pose if AnimatorComponent exists and has a valid pose
+        auto* anim = obj->components.get<AnimatorComponent>();
+        if (anim && anim->initialized() && anim->has_active_clip() && anim->bone_count() > 0) {
+            uint32_t offset = bone_buffer_.upload(anim->skin_matrices(), frame_index);
+            bone_offsets_[id] = offset;
+            bone_counts_[id] = anim->bone_count();
+        } else {
+            // Bind pose: identity matrices (mesh renders in rest position)
+            if (bind_pose_cache_.size() < num_joints) {
+                bind_pose_cache_.resize(num_joints, glm::mat4(1.0f));
+            }
+            uint32_t offset = bone_buffer_.upload(bind_pose_cache_, frame_index);
+            bone_offsets_[id] = offset;
+            bone_counts_[id] = num_joints;
+        }
+
         active_ids_.push_back(id);
         bone_entry_count_++;
     }

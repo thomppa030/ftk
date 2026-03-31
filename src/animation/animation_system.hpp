@@ -2,6 +2,8 @@
 
 #include "animation/bone_buffer.hpp"
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <vector>
 
@@ -38,6 +40,9 @@ private:
     std::vector<uint32_t> bone_counts_;   // node_id → joint count (0 = none)
     std::vector<uint32_t> active_ids_;    // IDs written this frame (for fast clearing)
     uint32_t bone_entry_count_{0};
+
+    // Reusable identity matrices for bind-pose fallback
+    std::vector<glm::mat4> bind_pose_cache_;
 };
 
 } // namespace fjell

@@ -4,6 +4,7 @@
 #include "animation/animation_events.hpp"
 #include "animation/animation_state_machine.hpp"
 #include "animation/skeleton.hpp"
+#include "scene/node_component.hpp"
 
 #include <ozz/animation/runtime/blending_job.h>
 #include <ozz/animation/runtime/local_to_model_job.h>
@@ -33,8 +34,21 @@ struct AnimationLayer {
 
 // Per-instance animation runtime. Drives clip sampling, blending,
 // and skin matrix computation for a single skinned mesh.
-class AnimatorComponent {
+// Also owns the skeleton and clip data for the node it's attached to.
+class AnimatorComponent : public NodeComponent {
 public:
+    AnimatorComponent();
+    ~AnimatorComponent();
+    AnimatorComponent(AnimatorComponent&&) noexcept;
+    AnimatorComponent& operator=(AnimatorComponent&&) noexcept;
+
+    // Asset paths (for serialization)
+    std::vector<std::string> clip_paths;
+    std::string animset_path;
+
+    // Owned clip data (kept alive as long as the component)
+    std::vector<std::shared_ptr<AnimationClip>> clips;
+
     // Initialize with a skeleton. Must be called before update().
     void init(const Skeleton* skeleton);
 
@@ -62,6 +76,7 @@ public:
 
     [[nodiscard]] const Skeleton* skeleton() const { return skeleton_; }
     [[nodiscard]] bool initialized() const { return skeleton_ != nullptr; }
+    [[nodiscard]] bool has_active_clip() const { return layers_[0].clip != nullptr; }
 
     // Per-clip event tracks. Keyed by clip path.
     void set_event_track(const std::string& clip_path, AnimationEventTrack track);

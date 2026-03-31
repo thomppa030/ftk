@@ -68,7 +68,8 @@ void SceneEditorContext::init() {
                            &deps_.script_subsystem->manager(), &command_history(),
                            &deps_.vulkan_context->grid_pass().settings(),
                            deps_.vulkan_context->pipeline_cache(),
-                           &deps_.vulkan_context->bindless_textures());
+                           &deps_.vulkan_context->bindless_textures(),
+                           deps_.resource_manager, deps_.project_mgr);
     node_editor_panel_.init(deps_.scene, &selected_id_);
 
     // Bind context-level delegates
@@ -801,7 +802,7 @@ void SceneEditorContext::add_skeletal_model(const std::string& mesh_path,
     node->name = filename;
     node->source = mesh_path;
 
-    // Set up skeletal mesh component
+    // SkeletalMeshComponent — rendering only (model + material)
     auto& smc = node->components.add<SkeletalMeshComponent>();
     smc.skeletal_model_handle = skel_model_handle;
     smc.skeletal_model = skel_model;
@@ -812,21 +813,19 @@ void SceneEditorContext::add_skeletal_model(const std::string& mesh_path,
     smc.material_handle = deps_.resource_manager->create_material("skel_default", tex);
     smc.material = deps_.resource_manager->get(smc.material_handle);
 
-    // Load skeleton (owned by the component)
-    smc.skeleton_path = skel_path;
-    smc.skeleton = std::make_shared<Skeleton>(Skeleton::load(resolved_skel));
-
-    // Set up animator
-    smc.animator = std::make_unique<AnimatorComponent>();
-    smc.animator->init(smc.skeleton.get());
+    // AnimatorComponent — animation data (skeleton comes from SkeletalModel)
+    auto& anim = node->components.add<AnimatorComponent>();
+    if (smc.skeletal_model && smc.skeletal_model->skeleton()) {
+        anim.init(smc.skeletal_model->skeleton());
+    }
 
     // Play animation clip if provided
     if (!anim_path.empty()) {
         auto resolved_anim = base_path::resolve_asset(anim_path, deps_.project_mgr->active());
         auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_anim));
-        smc.animator->play(clip.get());
-        smc.clips.push_back(clip);
-        smc.clip_paths.push_back(anim_path);
+        anim.play(clip.get());
+        anim.clips.push_back(clip);
+        anim.clip_paths.push_back(anim_path);
         FJELL_CORE_INFO("Playing animation: {}", anim_path);
     }
 

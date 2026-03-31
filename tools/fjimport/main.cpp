@@ -675,7 +675,7 @@ static bool import_skinned_mesh(const aiScene* scene, SkinnedImportResult& resul
     return true;
 }
 
-static bool write_skinned_fjmesh(const std::string& output_path,
+[[maybe_unused]] static bool write_skinned_fjmesh(const std::string& output_path,
                                   const SkinnedImportResult& result) {
     FILE* f = std::fopen(output_path.c_str(), "wb");
     if (!f) {
@@ -760,7 +760,132 @@ static bool write_skinned_fjmesh(const std::string& output_path,
     return true;
 }
 
-static bool export_skeleton(const std::string& output_path,
+static bool write_fjskel(const std::string& output_path,
+                          const SkinnedImportResult& mesh_result,
+                          const ozz::animation::Skeleton& skeleton) {
+    FILE* f = std::fopen(output_path.c_str(), "wb");
+    if (!f) {
+        std::fprintf(stderr, "error: cannot open '%s' for writing\n", output_path.c_str());
+        return false;
+    }
+
+    // Extract joint data from ozz skeleton
+    int num_joints = skeleton.num_joints();
+    auto names = skeleton.joint_names();
+    auto parents = skeleton.joint_parents();
+    auto rest_poses = skeleton.joint_rest_poses();
+
+    auto lane_f = [](const ozz::math::SimdFloat4& v, int lane) -> float {
+        alignas(16) float tmp[4];
+        ozz::math::StorePtrU(v, tmp);
+        return tmp[lane];
+    };
+
+    // Build binary joints + name table
+    std::vector<fjell::FjSkelJointBin> bin_joints(num_joints);
+    std::vector<char> name_table;
+    for (int i = 0; i < num_joints; ++i) {
+        int soa_idx = i / 4;
+        int lane = i % 4;
+        const auto& soa = rest_poses[soa_idx];
+
+        auto& bj = bin_joints[i];
+        bj.parent = static_cast<int32_t>(parents[i]);
+        bj.translation[0] = lane_f(soa.translation.x, lane);
+        bj.translation[1] = lane_f(soa.translation.y, lane);
+        bj.translation[2] = lane_f(soa.translation.z, lane);
+        bj.rotation[0] = lane_f(soa.rotation.x, lane);
+        bj.rotation[1] = lane_f(soa.rotation.y, lane);
+        bj.rotation[2] = lane_f(soa.rotation.z, lane);
+        bj.rotation[3] = lane_f(soa.rotation.w, lane);
+        bj.scale[0] = lane_f(soa.scale.x, lane);
+        bj.scale[1] = lane_f(soa.scale.y, lane);
+        bj.scale[2] = lane_f(soa.scale.z, lane);
+
+        std::string name(names[i]);
+        bj.name_offset = static_cast<uint32_t>(name_table.size());
+        bj.name_length = static_cast<uint32_t>(name.size());
+        name_table.insert(name_table.end(), name.begin(), name.end());
+    }
+
+    auto align_to = [](uint64_t val, uint64_t alignment) -> uint64_t {
+        return (val + alignment - 1) & ~(alignment - 1);
+    };
+
+    // Compute layout
+    uint64_t offset = sizeof(fjell::FjSkelHeader);
+
+    fjell::FjSkelHeader header{};
+    header.magic = fjell::FJSKEL_MAGIC;
+    header.version = fjell::FJSKEL_VERSION;
+    header.vertex_count = static_cast<uint32_t>(mesh_result.vertices.size());
+    header.index_count = static_cast<uint32_t>(mesh_result.indices.size());
+    header.joint_count = static_cast<uint32_t>(num_joints);
+    header.collision_vertex_count = static_cast<uint32_t>(mesh_result.collision_vertices.size());
+    header.collision_index_count = static_cast<uint32_t>(mesh_result.collision_indices.size());
+    header.aabb_min = mesh_result.aabb.min;
+    header.aabb_max = mesh_result.aabb.max;
+
+    header.vertices_offset = align_to(offset, 8);
+    offset = header.vertices_offset + header.vertex_count * sizeof(fjell::SkinnedVertex);
+
+    header.indices_offset = align_to(offset, 4);
+    offset = header.indices_offset + header.index_count * sizeof(uint32_t);
+
+    header.collision_vertices_offset = align_to(offset, 4);
+    offset = header.collision_vertices_offset + header.collision_vertex_count * sizeof(glm::vec3);
+
+    header.collision_indices_offset = align_to(offset, 4);
+    offset = header.collision_indices_offset + header.collision_index_count * sizeof(uint32_t);
+
+    header.joints_offset = align_to(offset, 8);
+    offset = header.joints_offset + num_joints * sizeof(fjell::FjSkelJointBin);
+
+    header.name_table_offset = align_to(offset, 4);
+    header.name_table_size = name_table.size();
+    offset = header.name_table_offset + header.name_table_size;
+
+    uint64_t file_size = offset;
+
+    // Write
+    auto pad_to = [&](uint64_t target) {
+        long current = std::ftell(f);
+        if (current < 0) return;
+        while (static_cast<uint64_t>(current) < target) {
+            uint8_t zero = 0;
+            std::fwrite(&zero, 1, 1, f);
+            ++current;
+        }
+    };
+
+    std::fwrite(&header, sizeof(header), 1, f);
+
+    pad_to(header.vertices_offset);
+    std::fwrite(mesh_result.vertices.data(), sizeof(fjell::SkinnedVertex), mesh_result.vertices.size(), f);
+
+    pad_to(header.indices_offset);
+    std::fwrite(mesh_result.indices.data(), sizeof(uint32_t), mesh_result.indices.size(), f);
+
+    pad_to(header.collision_vertices_offset);
+    std::fwrite(mesh_result.collision_vertices.data(), sizeof(glm::vec3), mesh_result.collision_vertices.size(), f);
+
+    pad_to(header.collision_indices_offset);
+    std::fwrite(mesh_result.collision_indices.data(), sizeof(uint32_t), mesh_result.collision_indices.size(), f);
+
+    pad_to(header.joints_offset);
+    std::fwrite(bin_joints.data(), sizeof(fjell::FjSkelJointBin), bin_joints.size(), f);
+
+    pad_to(header.name_table_offset);
+    std::fwrite(name_table.data(), 1, name_table.size(), f);
+
+    std::fclose(f);
+    std::printf("wrote %s (%.1f KB, %u verts, %u indices, %d joints)\n",
+                output_path.c_str(), static_cast<double>(file_size) / 1024.0,
+                header.vertex_count, header.index_count, num_joints);
+    return true;
+}
+
+[[maybe_unused]] static bool export_skeleton(const std::string& output_path,
                              const ozz::animation::Skeleton& skeleton) {
     // Flatten ozz skeleton into JSON joint array (depth-first order)
     int num_joints = skeleton.num_joints();
@@ -961,11 +1086,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        if (!write_skinned_fjmesh(output_path, skinned_result)) {
-            return 1;
-        }
-
-        // Build runtime skeleton for export
+        // Build runtime skeleton
         std::unordered_map<std::string, bool> bone_names;
         for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
             const aiMesh* mesh = scene->mMeshes[m];
@@ -981,9 +1102,11 @@ int main(int argc, char* argv[]) {
         ozz::animation::offline::SkeletonBuilder skel_builder;
         auto runtime_skel = skel_builder(raw_skel);
 
-        // Write .fjskel
+        // Write .fjskel (mesh + skeleton combined)
         fs::path skel_path = fs::path(output_path).replace_extension(".fjskel");
-        export_skeleton(skel_path.string(), *runtime_skel);
+        if (!write_fjskel(skel_path.string(), skinned_result, *runtime_skel)) {
+            return 1;
+        }
 
         // Export animations
         fs::path stem = fs::path(output_path).stem();
