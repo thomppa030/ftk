@@ -74,7 +74,6 @@ void Swapchain::recreate() {
     create_depth_resources();
     create_render_finished_semaphores();
 
-    FJELL_GFX_INFO("Swapchain recreated: {}x{}", extent_.width, extent_.height);
 }
 
 void Swapchain::create_swapchain() {
