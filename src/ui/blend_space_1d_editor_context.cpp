@@ -85,24 +85,28 @@ void BlendSpace1DEditorContext::reload_clips() {
 // ── Drawing ─────────────────────────────────────────────────────────────
 
 void BlendSpace1DEditorContext::draw(float dt) {
+    if (auto* vp = viewport_manager_.active_panel()) {
+        auto t = ctx_title("BS1D Preview");
+        if (vp->title != t) vp->title = std::move(t);
+    }
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
 
-    if (ImGui::Begin("Parameter")) {
+    if (ImGui::Begin(ctx_title("Parameter").c_str())) {
         draw_parameter_slider();
     }
     ImGui::End();
 
-    if (ImGui::Begin("Points")) {
+    if (ImGui::Begin(ctx_title("Points").c_str())) {
         draw_point_list();
     }
     ImGui::End();
 
-    if (ImGui::Begin("Clips")) {
+    if (ImGui::Begin(ctx_title("Clips").c_str())) {
         draw_clip_list();
     }
     ImGui::End();
 
-    if (ImGui::Begin("Properties")) {
+    if (ImGui::Begin(ctx_title("Properties").c_str())) {
         draw_properties();
     }
     ImGui::End();
@@ -609,7 +613,8 @@ void BlendSpace1DEditorContext::update_preview(float dt) {
 // ── Viewport boilerplate ────────────────────────────────────────────────
 
 std::vector<std::string> BlendSpace1DEditorContext::docked_window_names() const {
-    return {"Parameter", "BS1D Preview", "Points", "Clips", "Properties"};
+    return {ctx_title("Parameter"), ctx_title("BS1D Preview"),
+            ctx_title("Points"), ctx_title("Clips"), ctx_title("Properties")};
 }
 
 void BlendSpace1DEditorContext::setup_dockspace(ImGuiID main_area) {
@@ -619,11 +624,12 @@ void BlendSpace1DEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.60f, &left_mid, &left);
     ImGui::DockBuilderSplitNode(left_mid, ImGuiDir_Down, 0.40f, &left_bottom, &left_mid);
 
-    ImGui::DockBuilderDockWindow("Parameter", center);
-    ImGui::DockBuilderDockWindow("BS1D Preview", center);
-    ImGui::DockBuilderDockWindow("Points", left);
-    ImGui::DockBuilderDockWindow("Clips", left_mid);
-    ImGui::DockBuilderDockWindow("Properties", left_bottom);
+    auto names = docked_window_names();
+    ImGui::DockBuilderDockWindow(names[0].c_str(), center);      // Parameter
+    ImGui::DockBuilderDockWindow(names[1].c_str(), center);      // BS1D Preview
+    ImGui::DockBuilderDockWindow(names[2].c_str(), left);        // Points
+    ImGui::DockBuilderDockWindow(names[3].c_str(), left_mid);    // Clips
+    ImGui::DockBuilderDockWindow(names[4].c_str(), left_bottom); // Properties
 }
 
 bool BlendSpace1DEditorContext::handle_shortcuts() {

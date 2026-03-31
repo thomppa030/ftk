@@ -53,7 +53,7 @@ public:
     [[nodiscard]] int selected_lane() const { return selected_lane_; }
 
     // Window title (for docking)
-    void set_title(const char* title) { title_ = title; }
+    void set_title(std::string title) { title_ = std::move(title); }
 
     // Callbacks
     Delegate<void(float)> on_scrub;
@@ -75,7 +75,7 @@ private:
     void draw_transport();
     void draw_timeline_bar();
 
-    const char* title_{"Timeline"};
+    std::string title_{"Timeline"};
     float time_{0.0f};
     float duration_{1.0f};
     float speed_{1.0f};

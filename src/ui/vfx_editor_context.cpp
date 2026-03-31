@@ -87,6 +87,12 @@ void VfxEditorContext::shutdown() {
 }
 
 void VfxEditorContext::draw(float dt) {
+    // Update window titles with context suffix
+    if (auto* vp = viewport_manager_.active_panel()) {
+        auto t = ctx_title("VFX Preview");
+        if (vp->title != t) vp->title = std::move(t);
+    }
+    timeline_.set_title(ctx_title("VFX Timeline"));
     preview_scene_.compute_world_matrices(nullptr);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_node_editor();
@@ -122,13 +128,9 @@ void VfxEditorContext::draw(float dt) {
 }
 
 std::vector<std::string> VfxEditorContext::docked_window_names() const {
-    int ci = context_index();
-    char stats[32], console[32], history[32];
-    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
-    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
-    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
-    return {"VFX Preview", "Module Stack", "Add Module", "VFX Graph",
-            "VFX Timeline", stats, console, history};
+    return {ctx_title("VFX Preview"), ctx_title("Module Stack"), ctx_title("Add Module"),
+            ctx_title("VFX Graph"), ctx_title("VFX Timeline"),
+            ctx_title("Stats"), ctx_title("Console"), ctx_title("History")};
 }
 
 void VfxEditorContext::setup_dockspace(ImGuiID main_area) {
@@ -142,20 +144,15 @@ void VfxEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.40f, nullptr, &center);
     ImGuiID bottom_bottom = ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Down, 0.30f, nullptr, &bottom);
 
-    int ci = context_index();
-    char stats[32], console[32], history[32];
-    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
-    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
-    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
-
-    ImGui::DockBuilderDockWindow("VFX Preview", center);
-    ImGui::DockBuilderDockWindow("Module Stack", right);
-    ImGui::DockBuilderDockWindow("Add Module", right_bottom);
-    ImGui::DockBuilderDockWindow("VFX Graph", bottom);
-    ImGui::DockBuilderDockWindow("VFX Timeline", bottom_bottom);
-    ImGui::DockBuilderDockWindow(stats, bottom_bottom);
-    ImGui::DockBuilderDockWindow(console, bottom_bottom);
-    ImGui::DockBuilderDockWindow(history, bottom_bottom);
+    auto names = docked_window_names();
+    ImGui::DockBuilderDockWindow(names[0].c_str(), center);       // VFX Preview
+    ImGui::DockBuilderDockWindow(names[1].c_str(), right);        // Module Stack
+    ImGui::DockBuilderDockWindow(names[2].c_str(), right_bottom); // Add Module
+    ImGui::DockBuilderDockWindow(names[3].c_str(), bottom);       // VFX Graph
+    ImGui::DockBuilderDockWindow(names[4].c_str(), bottom_bottom);// VFX Timeline
+    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom_bottom);// Stats
+    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom_bottom);// Console
+    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom_bottom);// History
 }
 
 bool VfxEditorContext::handle_shortcuts() {
@@ -295,7 +292,7 @@ void VfxEditorContext::setup_preview() {
 // ── Node Editor ──────────────────────────────────────────────────────────
 
 void VfxEditorContext::draw_node_editor() {
-    if (ImGui::Begin("VFX Graph")) {
+    if (ImGui::Begin(ctx_title("VFX Graph").c_str())) {
         if (!effect_ || !nodes_initialized_ || !imnodes_ctx_) {
             ImGui::TextDisabled("No effect loaded");
             ImGui::End();
@@ -452,7 +449,7 @@ void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
 }
 
 void VfxEditorContext::draw_module_stack() {
-    if (ImGui::Begin("Module Stack")) {
+    if (ImGui::Begin(ctx_title("Module Stack").c_str())) {
         if (!effect_ || selected_emitter_ < 0 ||
             selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
             ImGui::TextDisabled("Select an emitter node");
@@ -506,7 +503,7 @@ void VfxEditorContext::draw_module_stack() {
 // ── Module Palette ───────────────────────────────────────────────────────
 
 void VfxEditorContext::draw_module_palette() {
-    if (ImGui::Begin("Add Module")) {
+    if (ImGui::Begin(ctx_title("Add Module").c_str())) {
         if (!effect_ || selected_emitter_ < 0 ||
             selected_emitter_ >= static_cast<int>(effect_->emitters.size())) {
             ImGui::TextDisabled("Select an emitter node");

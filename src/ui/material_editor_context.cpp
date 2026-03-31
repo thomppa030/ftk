@@ -35,6 +35,11 @@ void MaterialEditorContext::shutdown() {
 }
 
 void MaterialEditorContext::draw(float dt) {
+    // Update viewport title with context suffix
+    if (auto* vp = viewport_manager_.active_panel()) {
+        auto t = ctx_title("Material Preview");
+        if (vp->title != t) vp->title = std::move(t);
+    }
     preview_scene_.compute_world_matrices(nullptr);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_params_panel();
@@ -42,40 +47,25 @@ void MaterialEditorContext::draw(float dt) {
 }
 
 std::vector<std::string> MaterialEditorContext::docked_window_names() const {
-    int ci = context_index();
-    char stats[32], console[32], history[32], code[32];
-    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
-    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
-    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
-    std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
-    return {code, "Material Preview", "Material Params", "Texture Slots",
-            history, stats, console};
+    return {ctx_title("Code Editor"), ctx_title("Material Preview"),
+            ctx_title("Material Params"), ctx_title("Texture Slots"),
+            ctx_title("History"), ctx_title("Stats"), ctx_title("Console")};
 }
 
 void MaterialEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID center = main_area;
-
-    // Right panel: Params (top) + Textures (bottom) — 28%
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.28f, nullptr, &center);
     ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.50f, nullptr, &right);
-
-    // Bottom: stats/console — 25%
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
 
-    int ci = context_index();
-    char stats[32], console[32], history[32], code[32];
-    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
-    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
-    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
-    std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
-
-    ImGui::DockBuilderDockWindow(code, center);
-    ImGui::DockBuilderDockWindow("Material Preview", center);
-    ImGui::DockBuilderDockWindow("Material Params", right);
-    ImGui::DockBuilderDockWindow("Texture Slots", right_bottom);
-    ImGui::DockBuilderDockWindow(history, right_bottom);
-    ImGui::DockBuilderDockWindow(stats, bottom);
-    ImGui::DockBuilderDockWindow(console, bottom);
+    auto names = docked_window_names();
+    ImGui::DockBuilderDockWindow(names[0].c_str(), center);      // Code Editor
+    ImGui::DockBuilderDockWindow(names[1].c_str(), center);      // Material Preview
+    ImGui::DockBuilderDockWindow(names[2].c_str(), right);       // Material Params
+    ImGui::DockBuilderDockWindow(names[3].c_str(), right_bottom); // Texture Slots
+    ImGui::DockBuilderDockWindow(names[4].c_str(), right_bottom); // History
+    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);      // Stats
+    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom);      // Console
 }
 
 bool MaterialEditorContext::handle_shortcuts() {
@@ -181,7 +171,7 @@ void MaterialEditorContext::setup_preview_scene() {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void MaterialEditorContext::draw_params_panel() {
-    if (ImGui::Begin("Material Params")) {
+    if (ImGui::Begin(ctx_title("Material Params").c_str())) {
         if (!material_) {
             ImGui::TextDisabled("No material loaded");
             ImGui::End();
@@ -205,7 +195,7 @@ void MaterialEditorContext::draw_params_panel() {
 }
 
 void MaterialEditorContext::draw_texture_panel() {
-    if (ImGui::Begin("Texture Slots")) {
+    if (ImGui::Begin(ctx_title("Texture Slots").c_str())) {
         if (!material_) {
             ImGui::TextDisabled("No material loaded");
             ImGui::End();

@@ -5,6 +5,7 @@
 
 #include <imgui.h>
 
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -75,6 +76,13 @@ public:
     [[nodiscard]] ImGuiID dockspace_id() const { return dockspace_id_; }
     void set_context_index(int idx) { context_index_ = idx; }
     [[nodiscard]] int context_index() const { return context_index_; }
+
+    // Format a window title with context suffix: "Name" → "Name##ctx3"
+    [[nodiscard]] std::string ctx_title(const char* base) const {
+        char buf[128];
+        std::snprintf(buf, sizeof(buf), "%s##ctx%d", base, context_index_);
+        return buf;
+    }
 
 private:
     CommandHistory command_history_;

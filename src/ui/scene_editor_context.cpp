@@ -425,8 +425,8 @@ void SceneEditorContext::draw_play_toolbar() {
 }
 
 std::vector<std::string> SceneEditorContext::docked_window_names() const {
-    return {"Hierarchy", "History##ctx0", "Code Editor##ctx0", "Viewport",
-            "Properties", "Stats##ctx0", "Console##ctx0"};
+    return {"Hierarchy", ctx_title("History"), ctx_title("Code Editor"), "Viewport",
+            "Properties", ctx_title("Stats"), ctx_title("Console")};
 }
 
 void SceneEditorContext::setup_dockspace(ImGuiID main_area) {

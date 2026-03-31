@@ -64,45 +64,28 @@ void UiEditorContext::draw(float dt) {
 }
 
 std::vector<std::string> UiEditorContext::docked_window_names() const {
-    int ci = context_index();
-    char stats[32], console[32], history[32], code[32];
-    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
-    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
-    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
-    std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
-    return {"Element Tree", code, "UI Preview", "UI Inspector",
-            "Mock Data", "Action Log", history, stats, console};
+    return {ctx_title("Element Tree"), ctx_title("Code Editor"), ctx_title("UI Preview"),
+            ctx_title("UI Inspector"), ctx_title("Mock Data"), ctx_title("Action Log"),
+            ctx_title("History"), ctx_title("Stats"), ctx_title("Console")};
 }
 
 void UiEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID center = main_area;
-
-    // Left panel: Element Tree — 16%
     ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.16f, nullptr, &center);
-
-    // Right panel: Inspector (top) + Mock Data (bottom) — 24%
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
     ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
-
-    // Bottom: Action Log + Stats/Console — 25%
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
 
-    int ci = context_index();
-    char stats[32], console[32], history[32], code[32];
-    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
-    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
-    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
-    std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
-
-    ImGui::DockBuilderDockWindow("Element Tree", left);
-    ImGui::DockBuilderDockWindow(code, center);
-    ImGui::DockBuilderDockWindow("UI Preview", center);
-    ImGui::DockBuilderDockWindow("UI Inspector", right);
-    ImGui::DockBuilderDockWindow("Mock Data", right_bottom);
-    ImGui::DockBuilderDockWindow("Action Log", bottom);
-    ImGui::DockBuilderDockWindow(history, bottom);
-    ImGui::DockBuilderDockWindow(stats, bottom);
-    ImGui::DockBuilderDockWindow(console, bottom);
+    auto names = docked_window_names();
+    ImGui::DockBuilderDockWindow(names[0].c_str(), left);          // Element Tree
+    ImGui::DockBuilderDockWindow(names[1].c_str(), center);        // Code Editor
+    ImGui::DockBuilderDockWindow(names[2].c_str(), center);        // UI Preview
+    ImGui::DockBuilderDockWindow(names[3].c_str(), right);         // UI Inspector
+    ImGui::DockBuilderDockWindow(names[4].c_str(), right_bottom);  // Mock Data
+    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);        // Action Log
+    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom);        // History
+    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom);        // Stats
+    ImGui::DockBuilderDockWindow(names[8].c_str(), bottom);        // Console
 }
 
 bool UiEditorContext::handle_shortcuts() {
@@ -326,7 +309,7 @@ void UiEditorContext::open_ui(const std::string& path) {
 // ── Preview Panel ────────────────────────────────────────────────────────
 
 void UiEditorContext::draw_preview(float dt) {
-    if (ImGui::Begin("UI Preview")) {
+    if (ImGui::Begin(ctx_title("UI Preview").c_str())) {
         if (!preview_ui_ || !preview_ui_->loaded()) {
             ImGui::TextDisabled("No .fjui loaded");
             ImGui::End();
@@ -571,7 +554,7 @@ void UiEditorContext::draw_node_preview(UiNode* node, ImDrawList* draw_list,
 // ── Element Tree Panel ───────────────────────────────────────────────────
 
 void UiEditorContext::draw_element_tree() {
-    if (ImGui::Begin("Element Tree")) {
+    if (ImGui::Begin(ctx_title("Element Tree").c_str())) {
         if (!preview_ui_ || !preview_ui_->loaded()) {
             ImGui::TextDisabled("No .fjui loaded");
             ImGui::End();
@@ -666,7 +649,7 @@ void UiEditorContext::draw_node_tree(UiNode* node) {
 // ── Inspector Panel ──────────────────────────────────────────────────────
 
 void UiEditorContext::draw_inspector() {
-    if (ImGui::Begin("UI Inspector")) {
+    if (ImGui::Begin(ctx_title("UI Inspector").c_str())) {
         if (!selected_node_) {
             ImGui::TextDisabled("Select an element in the tree or preview");
             ImGui::End();
@@ -872,7 +855,7 @@ void UiEditorContext::draw_inspector() {
 // ── Mock Data Panel ──────────────────────────────────────────────────────
 
 void UiEditorContext::draw_mock_data() {
-    if (ImGui::Begin("Mock Data")) {
+    if (ImGui::Begin(ctx_title("Mock Data").c_str())) {
         if (!preview_ui_ || !preview_ui_->loaded()) {
             ImGui::TextDisabled("No .fjui loaded");
             ImGui::End();
@@ -1124,7 +1107,7 @@ void UiEditorContext::sync_mock_lists() {
 // ── Action Log Panel ─────────────────────────────────────────────────────
 
 void UiEditorContext::draw_action_log() {
-    if (ImGui::Begin("Action Log")) {
+    if (ImGui::Begin(ctx_title("Action Log").c_str())) {
         if (ImGui::SmallButton("Clear")) {
             action_log_.clear();
         }

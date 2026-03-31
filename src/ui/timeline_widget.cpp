@@ -11,7 +11,7 @@
 namespace fjell {
 
 void TimelineWidget::draw(float dt) {
-    if (ImGui::Begin(title_)) {
+    if (ImGui::Begin(title_.c_str())) {
         draw_transport();
         ImGui::Separator();
         draw_timeline_bar();

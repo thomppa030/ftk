@@ -105,6 +105,12 @@ void AnimationEditorContext::on_enter() {
 void AnimationEditorContext::draw(float dt) {
     update_preview(dt);
 
+    if (auto* vp = viewport_manager_.active_panel()) {
+        auto t = ctx_title("Anim Preview");
+        if (vp->title != t) vp->title = std::move(t);
+    }
+    timeline_.set_title(ctx_title("Anim Timeline"));
+
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     timeline_.draw(dt);
     draw_bone_tree();
@@ -115,50 +121,33 @@ void AnimationEditorContext::draw(float dt) {
 }
 
 std::vector<std::string> AnimationEditorContext::docked_window_names() const {
-    int ci = context_index();
-    char stats[32], console[32], history[32], code[32];
-    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
-    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
-    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
-    std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
-    return {"Bone Tree", "Clip List", history, "Anim Parameters",
-            "Anim Preview", "State Graph", code, "Anim Properties",
-            "Anim Timeline", stats, console};
+    return {ctx_title("Bone Tree"), ctx_title("Clip List"), ctx_title("History"),
+            ctx_title("Anim Parameters"), ctx_title("Anim Preview"),
+            ctx_title("State Graph"), ctx_title("Code Editor"),
+            ctx_title("Anim Properties"), ctx_title("Anim Timeline"),
+            ctx_title("Stats"), ctx_title("Console")};
 }
 
 void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID center = main_area;
-
-    // Left panel: Bone Tree (top) + Clip List + Params (bottom) — 14%
     ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.14f, nullptr, &center);
     ImGuiID left_mid = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.65f, nullptr, &left);
     ImGuiID left_bottom = ImGui::DockBuilderSplitNode(left_mid, ImGuiDir_Down, 0.50f, nullptr, &left_mid);
-
-    // Right panel: properties — 22%
     ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
-
-    // Bottom: timeline + stats/console — 32%
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.32f, nullptr, &center);
 
-    // Per-context shared panel names
-    int ci = context_index();
-    char stats[32], console[32], history[32], code[32];
-    std::snprintf(stats, sizeof(stats), "Stats##ctx%d", ci);
-    std::snprintf(console, sizeof(console), "Console##ctx%d", ci);
-    std::snprintf(history, sizeof(history), "History##ctx%d", ci);
-    std::snprintf(code, sizeof(code), "Code Editor##ctx%d", ci);
-
-    ImGui::DockBuilderDockWindow("Bone Tree", left);
-    ImGui::DockBuilderDockWindow("Clip List", left_mid);
-    ImGui::DockBuilderDockWindow(history, left_mid);
-    ImGui::DockBuilderDockWindow("Anim Parameters", left_bottom);
-    ImGui::DockBuilderDockWindow("Anim Preview", center);
-    ImGui::DockBuilderDockWindow("State Graph", center);
-    ImGui::DockBuilderDockWindow(code, center);
-    ImGui::DockBuilderDockWindow("Anim Properties", right);
-    ImGui::DockBuilderDockWindow("Anim Timeline", bottom);
-    ImGui::DockBuilderDockWindow(stats, bottom);
-    ImGui::DockBuilderDockWindow(console, bottom);
+    auto names = docked_window_names();
+    ImGui::DockBuilderDockWindow(names[0].c_str(), left);        // Bone Tree
+    ImGui::DockBuilderDockWindow(names[1].c_str(), left_mid);    // Clip List
+    ImGui::DockBuilderDockWindow(names[2].c_str(), left_mid);    // History
+    ImGui::DockBuilderDockWindow(names[3].c_str(), left_bottom); // Anim Parameters
+    ImGui::DockBuilderDockWindow(names[4].c_str(), center);      // Anim Preview
+    ImGui::DockBuilderDockWindow(names[5].c_str(), center);      // State Graph
+    ImGui::DockBuilderDockWindow(names[6].c_str(), center);      // Code Editor
+    ImGui::DockBuilderDockWindow(names[7].c_str(), right);       // Anim Properties
+    ImGui::DockBuilderDockWindow(names[8].c_str(), bottom);      // Anim Timeline
+    ImGui::DockBuilderDockWindow(names[9].c_str(), bottom);      // Stats
+    ImGui::DockBuilderDockWindow(names[10].c_str(), bottom);     // Console
 }
 
 bool AnimationEditorContext::handle_shortcuts() {
@@ -335,7 +324,7 @@ void AnimationEditorContext::open_animset(const std::string& animset_path) {
 // ── Panels ───────────────────────────────────────────────────────────────
 
 void AnimationEditorContext::draw_bone_tree() {
-    if (ImGui::Begin("Bone Tree")) {
+    if (ImGui::Begin(ctx_title("Bone Tree").c_str())) {
         if (!skeleton_) {
             ImGui::TextDisabled("No skeleton loaded");
         } else {
@@ -384,7 +373,7 @@ void AnimationEditorContext::draw_bone_tree() {
 }
 
 void AnimationEditorContext::draw_clip_list() {
-    if (ImGui::Begin("Clip List")) {
+    if (ImGui::Begin(ctx_title("Clip List").c_str())) {
         if (available_clip_names_.empty()) {
             ImGui::TextDisabled("No clips found");
         } else {
@@ -402,7 +391,7 @@ void AnimationEditorContext::draw_clip_list() {
 }
 
 void AnimationEditorContext::draw_properties() {
-    if (ImGui::Begin("Anim Properties")) {
+    if (ImGui::Begin(ctx_title("Anim Properties").c_str())) {
         auto& states = state_machine_.states_mutable();
 
         // Skeleton assignment (always visible in animset mode)
@@ -768,7 +757,7 @@ void AnimationEditorContext::build_graph_from_state_machine() {
 }
 
 void AnimationEditorContext::draw_state_graph() {
-    if (ImGui::Begin("State Graph")) {
+    if (ImGui::Begin(ctx_title("State Graph").c_str())) {
         if (state_machine_.states().empty() && animset_path_.empty()) {
             ImGui::TextDisabled("No state machine loaded");
             ImGui::End();
@@ -984,7 +973,7 @@ void AnimationEditorContext::draw_state_graph() {
 // ── Parameters ──────────────────────────────────────────────────────────
 
 void AnimationEditorContext::draw_parameters() {
-    if (ImGui::Begin("Anim Parameters")) {
+    if (ImGui::Begin(ctx_title("Anim Parameters").c_str())) {
         if (animset_path_.empty()) {
             ImGui::TextDisabled("No state machine loaded");
             ImGui::End();
