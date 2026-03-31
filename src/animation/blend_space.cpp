@@ -164,14 +164,57 @@ BlendResult2D BlendSpace2D::evaluate(glm::vec2 param) const {
         }
     }
 
-    // Fallback: find nearest point
-    float best_dist = std::numeric_limits<float>::max();
-    uint32_t best = 0;
-    for (uint32_t i = 0; i < static_cast<uint32_t>(points_.size()); ++i) {
-        float d = glm::distance(param, points_[i].position);
-        if (d < best_dist) { best_dist = d; best = i; }
+    // Outside all triangles — project onto the nearest triangle edge to get a
+    // smooth blend instead of snapping to the nearest vertex.
+    // For each triangle edge, find the closest point on the segment and track
+    // the best (closest) one.
+    float best_dist2 = std::numeric_limits<float>::max();
+    BlendResult2D best_result = {{0, 0, 0}, {1.0f, 0.0f, 0.0f}, 1};
+
+    for (const auto& tri : triangles_) {
+        uint32_t edge_indices[3][2] = {{tri.a, tri.b}, {tri.b, tri.c}, {tri.c, tri.a}};
+        // Third vertex (opposite the edge) for barycentric weight assignment
+        uint32_t opposite[3] = {tri.c, tri.a, tri.b};
+
+        for (int e = 0; e < 3; ++e) {
+            uint32_t i0 = edge_indices[e][0];
+            uint32_t i1 = edge_indices[e][1];
+            const glm::vec2& p0 = points_[i0].position;
+            const glm::vec2& p1 = points_[i1].position;
+
+            glm::vec2 edge = p1 - p0;
+            float len2 = glm::dot(edge, edge);
+            float t = (len2 > 0.0f) ? glm::clamp(glm::dot(param - p0, edge) / len2, 0.0f, 1.0f) : 0.0f;
+
+            glm::vec2 proj = p0 + t * edge;
+            float dist2 = glm::dot(param - proj, param - proj);
+
+            if (dist2 < best_dist2) {
+                best_dist2 = dist2;
+                // On this edge, weight splits between i0 and i1; opposite vertex gets 0
+                float w0 = 1.0f - t;
+                float w1 = t;
+                best_result = {{i0, i1, opposite[e]}, {w0, w1, 0.0f}, (w0 > 0.0f && w1 > 0.0f) ? 2u : 1u};
+                // If t is exactly 0 or 1, only one clip is active
+                if (w1 <= 0.0f) {
+                    best_result = {{i0, 0, 0}, {1.0f, 0.0f, 0.0f}, 1};
+                } else if (w0 <= 0.0f) {
+                    best_result = {{i1, 0, 0}, {1.0f, 0.0f, 0.0f}, 1};
+                }
+            }
+        }
     }
-    return {{best, 0, 0}, {1.0f, 0.0f, 0.0f}, 1};
+
+    // Also check bare vertices (for degenerate cases or no triangles)
+    for (uint32_t i = 0; i < static_cast<uint32_t>(points_.size()); ++i) {
+        float dist2 = glm::dot(param - points_[i].position, param - points_[i].position);
+        if (dist2 < best_dist2) {
+            best_dist2 = dist2;
+            best_result = {{i, 0, 0}, {1.0f, 0.0f, 0.0f}, 1};
+        }
+    }
+
+    return best_result;
 }
 
 BlendSpace2D BlendSpace2D::load(const std::string& path) {
