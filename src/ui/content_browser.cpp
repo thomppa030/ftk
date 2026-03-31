@@ -2,7 +2,6 @@
 #include "ui/asset_templates.hpp"
 #include "ui/icon_cache.hpp"
 #include "core/thread_pool.hpp"
-#include "ui/code_editor.hpp"
 #include "core/log.hpp"
 #include "platform/platform.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -21,11 +20,10 @@
 
 namespace fjell {
 
-void ContentBrowser::init(IconCache* icons, CodeEditor* code_editor,
+void ContentBrowser::init(IconCache* icons,
                           VulkanContext* vk_ctx, ResourceManager* resources,
                           ThreadPool* pool) {
     icons_ = icons;
-    code_editor_ = code_editor;
     vk_ctx_ = vk_ctx;
     resources_ = resources;
     pool_ = pool;
@@ -685,10 +683,7 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::shader:
                 case FileType::material:
                     if (ImGui::MenuItem("Open")) {
-                        if (code_editor_) {
-                            code_editor_->open(entry.path.string());
-                            ImGui::SetWindowFocus("Code Editor");
-                        }
+                        (void)platform::spawn_detached({"xdg-open", entry.path.string()});
                         ImGui::CloseCurrentPopup();
                     }
                     break;
@@ -723,10 +718,7 @@ void ContentBrowser::draw_context_menu() {
                         ImGui::CloseCurrentPopup();
                     }
                     if (ImGui::MenuItem("Open in Code Editor")) {
-                        if (code_editor_) {
-                            code_editor_->open(entry.path.string());
-                            ImGui::SetWindowFocus("Code Editor");
-                        }
+                        (void)platform::spawn_detached({"xdg-open", entry.path.string()});
                         ImGui::CloseCurrentPopup();
                     }
                     break;
@@ -920,17 +912,11 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::cpp_source:
         case FileType::header:
         case FileType::shader:
-            if (code_editor_) {
-                code_editor_->open(entry.path.string());
-                ImGui::SetWindowFocus("Code Editor");
-            }
+            (void)platform::spawn_detached({"xdg-open", entry.path.string()});
             break;
 
         case FileType::material:
-            if (code_editor_) {
-                code_editor_->open(entry.path.string());
-                ImGui::SetWindowFocus("Code Editor");
-            }
+            (void)platform::spawn_detached({"xdg-open", entry.path.string()});
             on_open_asset.broadcast(entry.path.string(), "material");
             break;
 
@@ -970,10 +956,7 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         }
 
         case FileType::ui_layout: {
-            if (code_editor_) {
-                code_editor_->open(entry.path.string());
-                ImGui::SetWindowFocus("Code Editor");
-            }
+            (void)platform::spawn_detached({"xdg-open", entry.path.string()});
             // Only open .fjui files in editor (not .fjss — those are opened via their .fjui)
             auto ext = entry.path.extension().string();
             if (ext == ".fjui") {

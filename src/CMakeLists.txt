@@ -148,8 +148,6 @@ add_executable(fjell
     ui/menu_bar.cpp
     ui/file_browser.cpp
     ui/imgui_layer.cpp
-    ui/code_editor.cpp
-    ui/code_editor_syntax.cpp
     core/project_manager.cpp
     core/command_history.cpp
     ui/content_browser.cpp

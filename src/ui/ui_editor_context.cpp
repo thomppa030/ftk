@@ -12,7 +12,6 @@
 #include "core/project_manager.hpp"
 #include "renderer/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
-#include "ui/code_editor.hpp"
 #include "ui/icon_cache.hpp"
 
 #include <imgui.h>
@@ -64,7 +63,7 @@ void UiEditorContext::draw(float dt) {
 }
 
 std::vector<std::string> UiEditorContext::docked_window_names() const {
-    return {ctx_title("Element Tree"), ctx_title("Code Editor"), ctx_title("UI Preview"),
+    return {ctx_title("Element Tree"), ctx_title("UI Preview"),
             ctx_title("UI Inspector"), ctx_title("Mock Data"), ctx_title("Action Log"),
             ctx_title("History"), ctx_title("Stats"), ctx_title("Console")};
 }
@@ -78,14 +77,13 @@ void UiEditorContext::setup_dockspace(ImGuiID main_area) {
 
     auto names = docked_window_names();
     ImGui::DockBuilderDockWindow(names[0].c_str(), left);          // Element Tree
-    ImGui::DockBuilderDockWindow(names[1].c_str(), center);        // Code Editor
-    ImGui::DockBuilderDockWindow(names[2].c_str(), center);        // UI Preview
-    ImGui::DockBuilderDockWindow(names[3].c_str(), right);         // UI Inspector
-    ImGui::DockBuilderDockWindow(names[4].c_str(), right_bottom);  // Mock Data
-    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);        // Action Log
-    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom);        // History
-    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom);        // Stats
-    ImGui::DockBuilderDockWindow(names[8].c_str(), bottom);        // Console
+    ImGui::DockBuilderDockWindow(names[1].c_str(), center);        // UI Preview
+    ImGui::DockBuilderDockWindow(names[2].c_str(), right);         // UI Inspector
+    ImGui::DockBuilderDockWindow(names[3].c_str(), right_bottom);  // Mock Data
+    ImGui::DockBuilderDockWindow(names[4].c_str(), bottom);        // Action Log
+    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);        // History
+    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom);        // Stats
+    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom);        // Console
 }
 
 bool UiEditorContext::handle_shortcuts() {
@@ -295,11 +293,6 @@ void UiEditorContext::open_ui(const std::string& path) {
                 mock_entries_.emplace_back(prop, "");
             }
         }
-    }
-
-    // Open the .fjui source in the code editor
-    if (deps_.code_editor) {
-        deps_.code_editor->open(abs_path);
     }
 
     selected_node_ = nullptr;

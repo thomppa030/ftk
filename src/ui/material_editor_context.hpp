@@ -16,7 +16,6 @@ class Clock;
 class IconCache;
 class Input;
 class Material;
-class CodeEditor;
 class PipelineCache;
 class ProjectManager;
 class ResourceManager;
@@ -29,7 +28,6 @@ struct MaterialEditorDeps {
     Clock* clock;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
-    CodeEditor* code_editor;
 };
 
 class MaterialEditorContext final : public EditorContext {

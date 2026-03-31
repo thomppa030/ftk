@@ -272,22 +272,8 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         base_path::resolve("engine_assets/icons"));
     IconCache::set_instance(icon_cache_.get());
 
-    content_browser_.init(icon_cache_.get(), &code_editor_,
+    content_browser_.init(icon_cache_.get(),
                           vulkan_context_.get(), resource_manager_.get());
-    code_editor_.on_save = [this](const std::string& path, Language lang) {
-        if (lang == Language::Fjsl || lang == Language::Glsl) {
-            // Copy to build shader dir so compile_entry reads the updated source
-            namespace fs = std::filesystem;
-            auto build_shader_dir = fs::path(base_path::dir()) / "shaders";
-            auto filename = fs::path(path).filename();
-            auto dest = build_shader_dir / filename;
-            if (fs::exists(build_shader_dir)) {
-                std::error_code ec;
-                fs::copy_file(path, dest, fs::copy_options::overwrite_existing, ec);
-            }
-            vulkan_context_->reload_pipeline();
-        }
-    };
     connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
             scene_context_->add_model(path);
@@ -411,8 +397,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                 .input = &input_,
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
-                .icon_cache = icon_cache_.get(),
-                .code_editor = &code_editor_
+                .icon_cache = icon_cache_.get()
             };
             auto ctx = std::make_unique<MaterialEditorContext>(deps);
             ctx->init();
@@ -434,7 +419,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
                 .icon_cache = icon_cache_.get(),
-                .code_editor = &code_editor_,
                 .engine_game_ui = &game_ui_,
                 .script_manager = &script_subsystem_->manager()
             };
@@ -886,10 +870,6 @@ void Engine::draw_console() {
     }
 }
 
-void Engine::draw_code_editor() {
-    code_editor_.draw("Code Editor");
-}
-
 void Engine::load_project_scripts() {
     if (!project_mgr_.active()) return;
     auto so_path = project_mgr_.active()->root() / "game.so";
@@ -1136,7 +1116,6 @@ void Engine::draw_ui() {
 
     // Global shortcuts (Ctrl+S, Ctrl+Z/Y, Ctrl+Space)
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
-        code_editor_.save_active();
         active_context().save();
         if (&active_context() == scene_context_) {
             save_material_assets();
@@ -1205,11 +1184,10 @@ void Engine::draw_ui() {
 
     // Shared panels — each drawn with a per-context window name so they
     // dock independently in each context's dockspace
-    char stats_title[32], history_title[32], console_title[32], code_title[32];
+    char stats_title[32], history_title[32], console_title[32];
     std::snprintf(stats_title, sizeof(stats_title), "Stats##ctx%d", active_context_idx_);
     std::snprintf(history_title, sizeof(history_title), "History##ctx%d", active_context_idx_);
     std::snprintf(console_title, sizeof(console_title), "Console##ctx%d", active_context_idx_);
-    std::snprintf(code_title, sizeof(code_title), "Code Editor##ctx%d", active_context_idx_);
 
     content_browser_.draw();
     stats_panel_.draw(clock_.delta_time(), stats_title);
@@ -1217,9 +1195,6 @@ void Engine::draw_ui() {
     if (auto& sink = log::console_sink(); sink) {
         sink->draw(console_title);
     }
-    ImGui::PushID(active_context_idx_);
-    code_editor_.draw(code_title);
-    ImGui::PopID();
 }
 
 TickContext Engine::make_frame_context() {

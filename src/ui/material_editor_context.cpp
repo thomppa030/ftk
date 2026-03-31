@@ -11,7 +11,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/material_params_widget.hpp"
-#include "ui/code_editor.hpp"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -47,9 +46,9 @@ void MaterialEditorContext::draw(float dt) {
 }
 
 std::vector<std::string> MaterialEditorContext::docked_window_names() const {
-    return {ctx_title("Code Editor"), ctx_title("Material Preview"),
-            ctx_title("Material Params"), ctx_title("Texture Slots"),
-            ctx_title("History"), ctx_title("Stats"), ctx_title("Console")};
+    return {ctx_title("Material Preview"), ctx_title("Material Params"),
+            ctx_title("Texture Slots"), ctx_title("History"),
+            ctx_title("Stats"), ctx_title("Console")};
 }
 
 void MaterialEditorContext::setup_dockspace(ImGuiID main_area) {
@@ -59,13 +58,12 @@ void MaterialEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
 
     auto names = docked_window_names();
-    ImGui::DockBuilderDockWindow(names[0].c_str(), center);      // Code Editor
-    ImGui::DockBuilderDockWindow(names[1].c_str(), center);      // Material Preview
-    ImGui::DockBuilderDockWindow(names[2].c_str(), right);       // Material Params
-    ImGui::DockBuilderDockWindow(names[3].c_str(), right_bottom); // Texture Slots
-    ImGui::DockBuilderDockWindow(names[4].c_str(), right_bottom); // History
-    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);      // Stats
-    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom);      // Console
+    ImGui::DockBuilderDockWindow(names[0].c_str(), center);      // Material Preview
+    ImGui::DockBuilderDockWindow(names[1].c_str(), right);       // Material Params
+    ImGui::DockBuilderDockWindow(names[2].c_str(), right_bottom); // Texture Slots
+    ImGui::DockBuilderDockWindow(names[3].c_str(), right_bottom); // History
+    ImGui::DockBuilderDockWindow(names[4].c_str(), bottom);      // Stats
+    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);      // Console
 }
 
 bool MaterialEditorContext::handle_shortcuts() {
@@ -110,12 +108,6 @@ void MaterialEditorContext::open_material(const std::string& fjmat_path) {
 
     if (auto* cam = viewport_manager_.active_camera()) {
         cam->focus({0.0f, 0.0f, 0.0f}, 1.5f);
-    }
-
-    // Open the .fjsl source in the code editor
-    if (deps_.code_editor && !material_->shader_path().empty()) {
-        auto shader_abs = base_path::resolve(material_->shader_path());
-        deps_.code_editor->open(shader_abs);
     }
 
     FJELL_CORE_INFO("Material editor opened: {}", fjmat_path);

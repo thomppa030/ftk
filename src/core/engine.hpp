@@ -20,7 +20,6 @@
 #include "ui/imgui_layer.hpp"
 #include "ui/menu_bar.hpp"
 #include "ui/stats_panel.hpp"
-#include "ui/code_editor.hpp"
 
 #ifndef NDEBUG
 #include "renderer/shader_watcher.hpp"
@@ -74,7 +73,6 @@ private:
     void draw_ui();
     void setup_dockspace();
     void draw_console();
-    void draw_code_editor();
     void draw_context_tabs();
     void bind_menu_bar();
 
@@ -132,7 +130,6 @@ private:
     std::vector<Subsystem*> early_always_;   // before compute_world_matrices
     std::vector<Subsystem*> late_always_;    // after compute_world_matrices
 
-    CodeEditor code_editor_;
     std::unique_ptr<IconCache> icon_cache_;
     ContentBrowser content_browser_;
     StatsPanel stats_panel_;

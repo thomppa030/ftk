@@ -425,7 +425,7 @@ void SceneEditorContext::draw_play_toolbar() {
 }
 
 std::vector<std::string> SceneEditorContext::docked_window_names() const {
-    return {"Hierarchy", ctx_title("History"), ctx_title("Code Editor"), "Viewport",
+    return {"Hierarchy", ctx_title("History"), "Viewport",
             "Properties", ctx_title("Stats"), ctx_title("Console")};
 }
 
@@ -444,8 +444,7 @@ void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
 
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("History##ctx0", left_bottom);
-    ImGui::DockBuilderDockWindow("Code Editor##ctx0", center);
-    ImGui::DockBuilderDockWindow("Viewport", center); // last = active tab
+    ImGui::DockBuilderDockWindow("Viewport", center);
     ImGui::DockBuilderDockWindow("Properties", right);
     ImGui::DockBuilderDockWindow("Stats##ctx0", bottom);
     ImGui::DockBuilderDockWindow("Console##ctx0", bottom);

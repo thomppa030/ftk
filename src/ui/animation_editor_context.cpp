@@ -123,9 +123,8 @@ void AnimationEditorContext::draw(float dt) {
 std::vector<std::string> AnimationEditorContext::docked_window_names() const {
     return {ctx_title("Bone Tree"), ctx_title("Clip List"), ctx_title("History"),
             ctx_title("Anim Parameters"), ctx_title("Anim Preview"),
-            ctx_title("State Graph"), ctx_title("Code Editor"),
-            ctx_title("Anim Properties"), ctx_title("Anim Timeline"),
-            ctx_title("Stats"), ctx_title("Console")};
+            ctx_title("State Graph"), ctx_title("Anim Properties"),
+            ctx_title("Anim Timeline"), ctx_title("Stats"), ctx_title("Console")};
 }
 
 void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
@@ -143,11 +142,10 @@ void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
     ImGui::DockBuilderDockWindow(names[3].c_str(), left_bottom); // Anim Parameters
     ImGui::DockBuilderDockWindow(names[4].c_str(), center);      // Anim Preview
     ImGui::DockBuilderDockWindow(names[5].c_str(), center);      // State Graph
-    ImGui::DockBuilderDockWindow(names[6].c_str(), center);      // Code Editor
-    ImGui::DockBuilderDockWindow(names[7].c_str(), right);       // Anim Properties
-    ImGui::DockBuilderDockWindow(names[8].c_str(), bottom);      // Anim Timeline
-    ImGui::DockBuilderDockWindow(names[9].c_str(), bottom);      // Stats
-    ImGui::DockBuilderDockWindow(names[10].c_str(), bottom);     // Console
+    ImGui::DockBuilderDockWindow(names[6].c_str(), right);       // Anim Properties
+    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom);      // Anim Timeline
+    ImGui::DockBuilderDockWindow(names[8].c_str(), bottom);      // Stats
+    ImGui::DockBuilderDockWindow(names[9].c_str(), bottom);      // Console
 }
 
 bool AnimationEditorContext::handle_shortcuts() {
