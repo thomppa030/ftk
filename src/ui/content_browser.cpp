@@ -483,8 +483,13 @@ void ContentBrowser::draw_file_grid() {
             ImGui::SetNextItemWidth(cell_size);
             if (ImGui::InputText("##rename", rename_buf_, sizeof(rename_buf_),
                                  ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
-                // Commit rename
-                auto new_path = entry.path.parent_path() / rename_buf_;
+                // Commit rename — preserve extension if user omitted it
+                std::string new_name(rename_buf_);
+                auto orig_ext = entry.path.extension().string();
+                if (!orig_ext.empty() && std::filesystem::path(new_name).extension().empty()) {
+                    new_name += orig_ext;
+                }
+                auto new_path = entry.path.parent_path() / new_name;
                 std::error_code ec;
                 std::filesystem::rename(entry.path, new_path, ec);
                 if (!ec) {
