@@ -50,6 +50,7 @@ public:
 
     // Embedded skeleton (non-null when loaded from .fjskel).
     [[nodiscard]] const Skeleton* skeleton() const { return skeleton_.get(); }
+    [[nodiscard]] const std::shared_ptr<Skeleton>& skeleton_shared() const { return skeleton_; }
 
     [[nodiscard]] const std::vector<glm::vec3>& collision_vertices() const {
         return collision_vertices_;

@@ -142,54 +142,50 @@ void AnimationEditorContext::open_skeleton(const std::string& skel_path) {
     skeleton_path_ = skel_path;
     auto resolved = base_path::resolve_asset(skel_path, deps_.project_mgr->active());
 
-    try {
-        skeleton_ = std::make_shared<Skeleton>(Skeleton::load(resolved));
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("AnimEditor: failed to load skeleton: {}", e.what());
-        return;
-    }
-
     name_ = fs::path(skel_path).stem().string();
     selected_bone_ = -1;
     selected_clip_ = -1;
     current_clip_.reset();
 
+    // Load the .fjskel as a skeletal model (contains mesh + embedded skeleton)
+    auto model_result = deps_.resource_manager->load_skeletal_model(resolved);
+    if (!model_result) {
+        FJELL_CORE_ERROR("AnimEditor: failed to load skeletal model: {}", model_result.error());
+        return;
+    }
+
+    auto* skel_model = deps_.resource_manager->get(*model_result);
+    if (!skel_model || !skel_model->skeleton()) {
+        FJELL_CORE_ERROR("AnimEditor: skeletal model has no embedded skeleton: {}", skel_path);
+        return;
+    }
+
+    // Get skeleton from the model
+    skeleton_ = skel_model->skeleton_shared();
+
     // Scan for .fjanim files in the same directory
     scan_clips();
 
-    // Set up preview scene with a skeletal mesh
+    // Set up preview scene with the skeletal mesh
     preview_scene_.clear();
 
-    // Look for a .fjmesh in the same directory
-    auto skel_dir = fs::path(resolved).parent_path();
-    auto stem = fs::path(resolved).stem().string();
-    auto mesh_path = skel_dir / (stem + ".fjmesh");
+    auto node = std::make_unique<SceneNode>();
+    node->name = name_;
 
-    if (fs::exists(mesh_path)) {
-        auto mesh_result = deps_.resource_manager->load_skeletal_model(mesh_path.string());
-        if (mesh_result) {
-            auto* skel_model = deps_.resource_manager->get(*mesh_result);
-            if (skel_model) {
-                auto node = std::make_unique<SceneNode>();
-                node->name = stem;
+    auto& smc = node->components.add<SkeletalMeshComponent>();
+    smc.skeletal_model_handle = *model_result;
+    smc.skeletal_model = skel_model;
 
-                auto& smc = node->components.add<SkeletalMeshComponent>();
-                smc.skeletal_model_handle = *mesh_result;
-                smc.skeletal_model = skel_model;
+    // Default material
+    auto tex = deps_.resource_manager->load_texture(
+        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
+    smc.material_handle = deps_.resource_manager->create_material("anim_preview", tex);
+    smc.material = deps_.resource_manager->get(smc.material_handle);
 
-                // Default material
-                auto tex = deps_.resource_manager->load_texture(
-                    base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
-                smc.material_handle = deps_.resource_manager->create_material("anim_preview", tex);
-                smc.material = deps_.resource_manager->get(smc.material_handle);
+    auto& anim = node->components.add<AnimatorComponent>();
+    anim.init(skel_model->skeleton());
 
-                auto& anim = node->components.add<AnimatorComponent>();
-                anim.init(skeleton_.get());
-
-                preview_node_id_ = preview_scene_.add_node(std::move(node));
-            }
-        }
-    }
+    preview_node_id_ = preview_scene_.add_node(std::move(node));
 
     // Auto-focus camera
     if (auto* cam = viewport_manager_.active_camera()) {
