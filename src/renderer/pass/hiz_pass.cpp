@@ -126,7 +126,6 @@ void HizPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
         vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
     }
 
-    FJELL_GFX_DEBUG("Hi-Z pyramid created: {}x{}, {} mips", hiz_width, hiz_height, hiz_mip_count);
 }
 
 void HizPass::Images::destroy(VkDevice device) {
