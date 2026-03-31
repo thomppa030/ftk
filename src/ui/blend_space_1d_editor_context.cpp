@@ -14,9 +14,13 @@
 #include "renderer/vulkan_context.hpp"
 #include "scene/node.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include <imgui.h>
 #include <imgui_internal.h>
+
 #include <filesystem>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -47,7 +51,12 @@ void BlendSpace1DEditorContext::open(const std::string& path) {
 
     name_ = fs::path(path).stem().string();
     reload_clips();
-    scan_available_clips();
+
+    if (!blend_space_.skeleton_path().empty()) {
+        load_skeleton(blend_space_.skeleton_path());
+    } else {
+        scan_available_clips();
+    }
 
     FJELL_CORE_INFO("BlendSpace1D editor: opened {} ({} points, param='{}')",
                     path, blend_space_.size(), blend_space_.parameter());
@@ -66,6 +75,10 @@ void BlendSpace1DEditorContext::reload_clips() {
         } catch (const std::exception& e) {
             FJELL_CORE_ERROR("BlendSpace1D: failed to load clip '{}': {}", pt.clip, e.what());
         }
+    }
+
+    if (preview_node_id_ != 0 && skeleton_) {
+        setup_preview_state_machine();
     }
 }
 
@@ -464,6 +477,77 @@ void BlendSpace1DEditorContext::draw_clip_list() {
 void BlendSpace1DEditorContext::load_skeleton(const std::string& skel_path) {
     blend_space_.set_skeleton_path(skel_path);
     scan_available_clips();
+
+    auto resolved = base_path::resolve_asset(skel_path, deps_.project_mgr->active());
+    auto model_result = deps_.resource_manager->load_skeletal_model(resolved);
+    if (!model_result) {
+        FJELL_CORE_ERROR("BS1D: failed to load skeletal model: {}", model_result.error());
+        return;
+    }
+
+    auto* skel_model = deps_.resource_manager->get(*model_result);
+    if (!skel_model || !skel_model->skeleton()) return;
+
+    skeleton_ = skel_model->skeleton_shared();
+
+    preview_scene_.clear();
+    auto node = std::make_unique<SceneNode>();
+    node->name = "bs1d_preview";
+
+    auto& smc = node->components.add<SkeletalMeshComponent>();
+    smc.skeletal_model_handle = *model_result;
+    smc.skeletal_model = skel_model;
+
+    auto tex = deps_.resource_manager->load_texture(
+        base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
+    smc.material_handle = deps_.resource_manager->create_material("bs1d_preview", tex);
+    smc.material = deps_.resource_manager->get(smc.material_handle);
+
+    auto& anim = node->components.add<AnimatorComponent>();
+    anim.init(skel_model->skeleton());
+
+    preview_node_id_ = preview_scene_.add_node(std::move(node));
+
+    if (auto* cam = viewport_manager_.active_camera()) {
+        cam->focus({0.0f, 1.0f, 0.0f}, 2.5f);
+    }
+
+    setup_preview_state_machine();
+}
+
+void BlendSpace1DEditorContext::setup_preview_state_machine() {
+    if (preview_node_id_ == 0 || blend_space_.empty() || !skeleton_) return;
+
+    auto* node = preview_scene_.find(preview_node_id_);
+    if (!node) return;
+    auto* anim = node->components.get<AnimatorComponent>();
+    if (!anim) return;
+
+    for (uint32_t i = 0; i < blend_space_.size(); ++i) {
+        if (i < loaded_clips_.size() && loaded_clips_[i]) {
+            anim->set_clip(blend_space_.points()[i].clip, loaded_clips_[i].get());
+        }
+    }
+
+    anim->load_blend_space_1d(asset_path_, blend_space_);
+
+    nlohmann::json j;
+    j["initial"] = "Preview";
+    j["params"] = {{blend_space_.parameter(), 0.0f}};
+    j["states"] = nlohmann::json::array();
+    j["states"].push_back({
+        {"name", "Preview"},
+        {"blend_space", asset_path_},
+        {"loop", true}
+    });
+
+    auto tmp = std::filesystem::temp_directory_path() / "fjell_bs1d_preview.fjanimset";
+    {
+        std::ofstream f(tmp);
+        f << j.dump(2);
+    }
+    anim->load_state_machine(tmp.string());
+    std::filesystem::remove(tmp);
 }
 
 void BlendSpace1DEditorContext::scan_available_clips() {
@@ -507,8 +591,19 @@ bool BlendSpace1DEditorContext::save() {
     }
 }
 
-void BlendSpace1DEditorContext::update_preview(float /*dt*/) {
-    // TODO: set up preview skeletal mesh with blend result playing
+void BlendSpace1DEditorContext::update_preview(float dt) {
+    if (preview_node_id_ == 0 || blend_space_.empty()) return;
+
+    auto* node = preview_scene_.find(preview_node_id_);
+    if (!node) return;
+    auto* anim = node->components.get<AnimatorComponent>();
+    if (!anim || !anim->initialized()) return;
+
+    anim->set_param(blend_space_.parameter(), current_param_);
+
+    preview_scene_.compute_world_matrices(nullptr);
+    auto& system = deps_.animation_subsystem->system();
+    system.update(preview_scene_, dt);
 }
 
 // ── Viewport boilerplate ────────────────────────────────────────────────

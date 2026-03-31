@@ -66,6 +66,7 @@ private:
     void reload_clips();
     void scan_available_clips();
     void load_skeleton(const std::string& skel_path);
+    void setup_preview_state_machine();
 
     BlendSpace1DEditorDeps deps_;
     std::string name_{"Blend Space 1D"};

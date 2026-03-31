@@ -3,6 +3,7 @@
 #include "animation/animation_clip.hpp"
 #include "animation/animation_events.hpp"
 #include "animation/animation_state_machine.hpp"
+#include "animation/blend_space.hpp"
 #include "animation/skeleton.hpp"
 #include "scene/node_component.hpp"
 
@@ -59,6 +60,10 @@ public:
     void load_state_machine(const std::string& path);
     void set_clip(const std::string& name, const AnimationClip* clip);
 
+    // Register blend spaces for states that use them.
+    void load_blend_space_1d(const std::string& path, const BlendSpace1D& bs);
+    void load_blend_space_2d(const std::string& path, const BlendSpace2D& bs);
+
     // Set state machine parameter (forwarded to state machine).
     void set_param(const std::string& name, float value);
     [[nodiscard]] float get_param(const std::string& name) const;
@@ -76,7 +81,8 @@ public:
 
     [[nodiscard]] const Skeleton* skeleton() const { return skeleton_; }
     [[nodiscard]] bool initialized() const { return skeleton_ != nullptr; }
-    [[nodiscard]] bool has_active_clip() const { return layers_[0].clip != nullptr; }
+    [[nodiscard]] bool has_active_clip() const { return layers_[0].clip != nullptr || has_active_blend_space(); }
+    [[nodiscard]] bool has_active_blend_space() const;
 
     // Per-clip event tracks. Keyed by clip path.
     void set_event_track(const std::string& clip_path, AnimationEventTrack track);
@@ -88,6 +94,7 @@ public:
 
 private:
     void sample_layer(AnimationLayer& layer, float dt);
+    void evaluate_blend_space(const AnimationState& state, float dt);
     void compute_skin_matrices();
 
     const Skeleton* skeleton_{nullptr};
@@ -95,10 +102,17 @@ private:
     // Layers: [0] = current state, [1] = next state (during crossfade)
     AnimationLayer layers_[2];
 
+    // Blend space evaluation pool (up to 3 clips for 2D, 2 for 1D)
+    std::vector<AnimationLayer> blend_layers_;
+
     // State machine
     AnimationStateMachine state_machine_;
     std::unordered_map<std::string, const AnimationClip*> clip_map_;
     bool use_state_machine_{false};
+
+    // Loaded blend spaces (keyed by asset path)
+    std::unordered_map<std::string, BlendSpace1D> blend_spaces_1d_;
+    std::unordered_map<std::string, BlendSpace2D> blend_spaces_2d_;
 
     // ozz output buffers
     std::vector<ozz::math::SoaTransform> blended_locals_;
