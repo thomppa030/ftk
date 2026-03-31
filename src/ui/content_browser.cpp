@@ -108,7 +108,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg") return FileType::texture;
     if (ext == ".fjell") return FileType::scene;
     if (ext == ".fjmat") return FileType::material;
-    if (ext == ".fjanim" || ext == ".fjanimset") return FileType::animation;
+    if (ext == ".fjanim" || ext == ".fjanimset" || ext == ".fjblend1D" || ext == ".fjblend2D") return FileType::animation;
     if (ext == ".fjui" || ext == ".fjss") return FileType::ui_layout;
     if (ext == ".fjvfx") return FileType::vfx;
     if (ext == ".fjwidget") return FileType::widget;

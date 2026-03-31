@@ -1,10 +1,14 @@
 #pragma once
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <string>
 #include <vector>
 
 namespace fjell {
+
+// ── BlendSpace1D ────────────────────────────────────────────────────────
 
 // A point in a 1D blend space: an animation clip at a parameter position.
 struct BlendSpacePoint {
@@ -27,16 +31,69 @@ public:
     void add(BlendSpacePoint point);
     void clear() { points_.clear(); }
 
-    // Evaluate the blend space at the given parameter value.
-    // Returns indices into points() and interpolation weights.
     [[nodiscard]] BlendResult evaluate(float param) const;
+
+    [[nodiscard]] static BlendSpace1D load(const std::string& path);
+    void save(const std::string& path) const;
+
+    [[nodiscard]] const std::string& parameter() const { return parameter_; }
+    void set_parameter(const std::string& name) { parameter_ = name; }
 
     [[nodiscard]] const std::vector<BlendSpacePoint>& points() const { return points_; }
     [[nodiscard]] bool empty() const { return points_.empty(); }
     [[nodiscard]] uint32_t size() const { return static_cast<uint32_t>(points_.size()); }
 
 private:
-    std::vector<BlendSpacePoint> points_; // sorted by position
+    std::string parameter_;                // parameter name (e.g. "speed")
+    std::vector<BlendSpacePoint> points_;  // sorted by position
+};
+
+// ── BlendSpace2D ────────────────────────────────────────────────────────
+
+struct BlendSpacePoint2D {
+    std::string clip;    // path to .fjanim
+    glm::vec2 position;  // 2D parameter position
+};
+
+// Result of evaluating a BlendSpace2D: up to 3 contributing clips via barycentric weights.
+struct BlendResult2D {
+    uint32_t indices[3]{0, 0, 0};
+    float weights[3]{1.0f, 0.0f, 0.0f};
+    uint32_t count{1};  // number of active clips (1, 2, or 3)
+};
+
+// 2D blend space. Points placed in 2D parameter space, triangulated via Delaunay.
+// Evaluates via barycentric interpolation within the containing triangle.
+class BlendSpace2D {
+public:
+    void add(BlendSpacePoint2D point);
+    void clear() { points_.clear(); triangles_.clear(); }
+    void triangulate();
+
+    [[nodiscard]] BlendResult2D evaluate(glm::vec2 param) const;
+
+    [[nodiscard]] static BlendSpace2D load(const std::string& path);
+    void save(const std::string& path) const;
+
+    [[nodiscard]] const std::string& parameter_x() const { return parameter_x_; }
+    [[nodiscard]] const std::string& parameter_y() const { return parameter_y_; }
+    void set_parameters(const std::string& x, const std::string& y) {
+        parameter_x_ = x;
+        parameter_y_ = y;
+    }
+
+    [[nodiscard]] const std::vector<BlendSpacePoint2D>& points() const { return points_; }
+    [[nodiscard]] bool empty() const { return points_.empty(); }
+    [[nodiscard]] uint32_t size() const { return static_cast<uint32_t>(points_.size()); }
+
+    struct Triangle { uint32_t a, b, c; };
+    [[nodiscard]] const std::vector<Triangle>& triangles() const { return triangles_; }
+
+private:
+    std::string parameter_x_;
+    std::string parameter_y_;
+    std::vector<BlendSpacePoint2D> points_;
+    std::vector<Triangle> triangles_;
 };
 
 } // namespace fjell

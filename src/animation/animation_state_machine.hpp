@@ -31,13 +31,16 @@ struct StateTransition {
 };
 
 // A single state in the animation state machine.
-// Currently references a single clip path. BlendSpace1D support added in Step 12.
+// Can reference a single clip OR a blend space (1D or 2D).
 struct AnimationState {
     std::string name;
-    std::string clip;           // path to .fjanim
+    std::string clip;           // path to .fjanim (single clip mode)
+    std::string blend_space;    // path to .fjblend1D or .fjblend2D (blend space mode)
     float speed{1.0f};
     bool looping{true};
     std::vector<StateTransition> transitions;
+
+    [[nodiscard]] bool uses_blend_space() const { return !blend_space.empty(); }
 };
 
 // Data-driven animation state machine loaded from .fjanimset JSON.

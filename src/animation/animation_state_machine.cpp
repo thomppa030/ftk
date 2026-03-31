@@ -45,7 +45,8 @@ void AnimationStateMachine::load(const std::string& path) {
     for (const auto& js : j["states"]) {
         AnimationState state;
         state.name = js.at("name").get<std::string>();
-        state.clip = js.at("clip").get<std::string>();
+        state.clip = js.value("clip", "");
+        state.blend_space = js.value("blend_space", "");
         state.speed = js.value("speed", 1.0f);
         state.looping = js.value("loop", true);
 
