@@ -39,7 +39,7 @@ public:
         auto desc = icon(icon_name);
         if (!desc) return;
         float size = ImGui::GetTextLineHeight();
-        ImGui::Image((ImTextureID)desc, {size, size});
+        ImGui::Image(reinterpret_cast<ImTextureID>(desc), {size, size});
         ImGui::SameLine();
     }
 
