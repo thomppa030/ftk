@@ -1,4 +1,4 @@
-#include "renderer/device.hpp"
+#include "renderer/gpu/device.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 
