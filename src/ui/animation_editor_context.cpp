@@ -91,15 +91,11 @@ void AnimationEditorContext::init() {
         selected_event_index_ = idx;
     }));
 
-    // Right-click on timeline: add new notify (default untyped)
+    // Right-click on timeline: open Add Notify type picker
     connections_.push_back(timeline_.on_right_click.bind([this](float time) {
         if (!current_clip_) return;
-        AnimNotifyInstance ni;
-        ni.time = time;
-        ni.type_name = "event";
-        current_clip_->notifies().push_back(std::move(ni));
-        sync_markers_from_clip();
-        selected_event_index_ = static_cast<int>(current_clip_->notifies().size()) - 1;
+        pending_notify_time_ = time;
+        open_add_notify_popup_ = true;
     }));
 
     // Marker drag: update notify time
@@ -141,6 +137,34 @@ void AnimationEditorContext::draw(float dt) {
 
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     timeline_.draw(dt);
+
+    // Add Notify popup (opened by right-click on timeline)
+    if (open_add_notify_popup_) {
+        ImGui::OpenPopup("##AddNotify");
+        open_add_notify_popup_ = false;
+    }
+    if (ImGui::BeginPopup("##AddNotify")) {
+        ImGui::SeparatorText("Add Notify");
+        AnimNotifyRegistry::instance().for_each([&](const std::string& name, const NotifyTypeInfo& info) {
+            const char* suffix = info.is_state ? " (state)" : "";
+            if (ImGui::MenuItem((name + suffix).c_str())) {
+                if (current_clip_) {
+                    AnimNotifyInstance ni;
+                    ni.time = pending_notify_time_;
+                    ni.type_name = name;
+                    ni.instance = info.create();
+                    if (info.is_state) {
+                        ni.end_time = std::min(pending_notify_time_ + 0.5f, current_clip_->duration());
+                    }
+                    current_clip_->notifies().push_back(std::move(ni));
+                    sync_markers_from_clip();
+                    selected_event_index_ = static_cast<int>(current_clip_->notifies().size()) - 1;
+                }
+            }
+        });
+        ImGui::EndPopup();
+    }
+
     draw_bone_tree();
     draw_clip_list();
     draw_properties();

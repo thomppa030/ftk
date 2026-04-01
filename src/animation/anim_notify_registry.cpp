@@ -10,7 +10,6 @@ AnimNotifyRegistry& AnimNotifyRegistry::instance() {
 
 void AnimNotifyRegistry::register_notify(NotifyTypeInfo info) {
     std::string name = info.name;
-    FJELL_CORE_INFO("Registered AnimNotify: {} ({})", name, info.is_state ? "state" : "instant");
     entries_.insert_or_assign(std::move(name), std::move(info));
 }
 

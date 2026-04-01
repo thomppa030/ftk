@@ -143,6 +143,10 @@ private:
     // Parameter editing
     char new_param_name_[64]{};
 
+    // Add Notify popup
+    float pending_notify_time_{0.0f};
+    bool open_add_notify_popup_{false};
+
     // Viewport
     ViewportManager viewport_manager_;
     TimelineWidget timeline_;
