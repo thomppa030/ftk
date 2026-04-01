@@ -1389,7 +1389,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
     if (vkBeginCommandBuffer(cmd, &begin_info) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to begin recording command buffer");
+        FJELL_GFX_CRITICAL("Failed to begin recording command buffer");
+        return;
     }
 
     // Update shadow cascades from the first viewport's camera
@@ -1510,7 +1511,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 #endif
 
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to record command buffer");
+        FJELL_GFX_CRITICAL("Failed to end recording command buffer");
     }
 }
 
@@ -1767,8 +1768,12 @@ void VulkanContext::submit_and_present() {
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &render_finished[recorded_image_index_];
 
-    vk_check(vkQueueSubmit(gpu_.graphics_queue(), 1, &submit_info, gpu_.in_flight_fence(recorded_frame_)),
-             "Failed to submit draw command buffer");
+    VkResult submit_result = vkQueueSubmit(gpu_.graphics_queue(), 1, &submit_info, gpu_.in_flight_fence(recorded_frame_));
+    if (submit_result != VK_SUCCESS) {
+        FJELL_GFX_CRITICAL("vkQueueSubmit failed: {}", static_cast<int>(submit_result));
+        has_recorded_frame_ = false;
+        return;
+    }
 
     VkPresentInfoKHR present_info{};
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1786,7 +1791,7 @@ void VulkanContext::submit_and_present() {
         gpu_.window().reset_resized();
         gpu_.swapchain().recreate();
     } else if (result != VK_SUCCESS) {
-        throw std::runtime_error("Failed to present swapchain image");
+        FJELL_GFX_CRITICAL("vkQueuePresentKHR failed: {}", static_cast<int>(result));
     }
 
     target_pool_.end_frame();
@@ -1824,7 +1829,9 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
         return false;  // fence stays signaled — next wait will pass through
     }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        throw std::runtime_error("Failed to acquire swapchain image");
+        FJELL_GFX_CRITICAL("vkAcquireNextImageKHR failed: {}", static_cast<int>(result));
+        has_recorded_frame_ = false;
+        return false;
     }
 
     // Reset fence only after successful acquire — ensures the fence stays

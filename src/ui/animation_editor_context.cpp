@@ -1209,7 +1209,9 @@ void AnimationEditorContext::sync_preview_state_machine() {
                 auto clip = std::make_shared<AnimationClip>(AnimationClip::load(clip_resolved));
                 anim->set_clip(state.clip, clip.get());
                 anim->clips.push_back(std::move(clip));
-            } catch (...) {}
+            } catch (const std::exception& e) {
+                FJELL_CORE_WARN("Failed to load clip {}: {}", state.clip, e.what());
+            }
         }
 
         std::string base_dir = deps_.project_mgr->active() ? deps_.project_mgr->active()->root().string() : "";

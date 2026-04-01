@@ -1,4 +1,5 @@
 #include "hub/hub_ui.hpp"
+#include "core/log.hpp"
 #include "ui/theme.hpp"
 
 #include <imgui.h>
@@ -179,7 +180,7 @@ void HubUI::draw_hub(float window_w, float window_h) {
             std::ifstream f(manifest);
             nlohmann::json j;
             try { j = nlohmann::json::parse(f); name = j.value("name", ""); }
-            catch (...) {}
+            catch (const std::exception& e) { FJELL_CORE_WARN("Failed to parse project manifest: {}", e.what()); }
         }
         if (name.empty()) {
             name = std::filesystem::path(path).filename().string();
