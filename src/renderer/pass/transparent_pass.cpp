@@ -14,11 +14,9 @@
 #include "core/log.hpp"
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
-void TransparentPass::create(Device& device, const PassResources& resources) {
+Result<> TransparentPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     draw_data_layout_ = resources.draw_data_layout;
 
@@ -117,7 +115,7 @@ void TransparentPass::create(Device& device, const PassResources& resources) {
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create transparent pipeline layout");
+        return make_error("Failed to create transparent pipeline layout");
     }
 
     VkFormat depth_format = resources.depth_format;
@@ -149,13 +147,14 @@ void TransparentPass::create(Device& device, const PassResources& resources) {
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create transparent pipeline");
+        return make_error("Failed to create transparent pipeline");
     }
 
     vkDestroyShaderModule(device_, frag_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Transparent pass created");
+    return {};
 }
 
 void TransparentPass::destroy() {

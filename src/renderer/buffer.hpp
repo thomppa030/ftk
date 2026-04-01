@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -8,9 +10,17 @@ namespace fjell {
 
 class Buffer {
 public:
+    /// Throwing constructor — used by existing init-time code.
     Buffer(VkDevice device, VkPhysicalDevice physical_device,
            VkDeviceSize size, VkBufferUsageFlags usage,
            VkMemoryPropertyFlags properties);
+
+    /// Non-throwing factory — returns Result<Buffer> for error-propagating callers.
+    [[nodiscard]] static Result<Buffer> create(
+        VkDevice device, VkPhysicalDevice physical_device,
+        VkDeviceSize size, VkBufferUsageFlags usage,
+        VkMemoryPropertyFlags properties);
+
     ~Buffer();
 
     Buffer(const Buffer&) = delete;
@@ -35,6 +45,7 @@ public:
         VkMemoryPropertyFlags properties);
 
 private:
+    Buffer() = default;
     VkDevice device_{VK_NULL_HANDLE};
     VkBuffer buffer_{VK_NULL_HANDLE};
     VkDeviceMemory memory_{VK_NULL_HANDLE};

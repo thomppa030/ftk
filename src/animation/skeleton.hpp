@@ -1,6 +1,7 @@
 #pragma once
 
 #include "animation/fjskel.hpp"
+#include "core/result.hpp"
 
 #include <ozz/animation/runtime/skeleton.h>
 
@@ -13,9 +14,9 @@ namespace fjell {
 
 class Skeleton {
 public:
-    [[nodiscard]] static Skeleton load(const std::string& path);
-    [[nodiscard]] static Skeleton from_joints(const std::vector<FjSkelJoint>& joints);
-    void save(const std::string& path) const;
+    [[nodiscard]] static Result<Skeleton> load(const std::string& path);
+    [[nodiscard]] static Result<Skeleton> from_joints(const std::vector<FjSkelJoint>& joints);
+    [[nodiscard]] Result<> save(const std::string& path) const;
 
     [[nodiscard]] const ozz::animation::Skeleton& raw() const { return skeleton_; }
     [[nodiscard]] int num_joints() const { return skeleton_.num_joints(); }

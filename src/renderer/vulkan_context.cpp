@@ -49,30 +49,35 @@ VulkanContext::VulkanContext(Window& window)
     PassResources pass_resources = gpu_.pass_resources();
     pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
 
-    depth_prepass_.create(gpu_.device_ref(), pass_resources);
-    hiz_pass_.create(gpu_.device_ref(), pass_resources);
+    // Helper: pass creation is init-time — propagate Result failures as throws
+    auto check_pass = [](Result<>&& r) {
+        if (!r) throw std::runtime_error(r.error());
+    };
+
+    check_pass(depth_prepass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(hiz_pass_.create(gpu_.device_ref(), pass_resources));
     if (gpu_.use_mesh_shaders()) {
         meshlet_instance_pass_.create(gpu_.device(), gpu_.physical_device(),
                                        gpu_.global_set_layout());
-        mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources);
-        meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources);
-        cull_pass_.create(gpu_.device(), gpu_.physical_device(),
-                          gpu_.global_set_layout());
-        cull_viz_pass_.create(gpu_.device_ref(), pass_resources);
+        check_pass(mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources));
+        check_pass(meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources));
+        check_pass(cull_pass_.create(gpu_.device(), gpu_.physical_device(),
+                                     gpu_.global_set_layout()));
+        check_pass(cull_viz_pass_.create(gpu_.device_ref(), pass_resources));
     }
-    shadow_pass_.create(gpu_.device_ref(), pass_resources);
-    depth_viz_pass_.create(gpu_.device_ref(), pass_resources);
+    check_pass(shadow_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(depth_viz_pass_.create(gpu_.device_ref(), pass_resources));
 
     update_shadow_descriptors();
 
-    debug_pass_.create(gpu_.device_ref(), pass_resources);
-    grid_pass_.create(gpu_.device_ref(), pass_resources);
-    wireframe_pass_.create(gpu_.device_ref(), pass_resources);
-    normal_pass_.create(gpu_.device_ref(), pass_resources);
-    overdraw_pass_.create(gpu_.device_ref(), pass_resources);
-    uv_viz_pass_.create(gpu_.device_ref(), pass_resources);
-    bloom_pass_.create(gpu_.device_ref(), pass_resources);
-    sky_pass_.create(gpu_.device_ref(), pass_resources);
+    check_pass(debug_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(grid_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(wireframe_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(normal_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(overdraw_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(uv_viz_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(bloom_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(sky_pass_.create(gpu_.device_ref(), pass_resources));
 
     // Sky cubemap for IBL (creates cubemap + BRDF LUT)
     sky_cubemap_pass_.create(gpu_.device(), gpu_.physical_device(),
@@ -138,16 +143,16 @@ VulkanContext::VulkanContext(Window& window)
                                writes.data(), 0, nullptr);
     }
 
-    transparent_pass_.create(gpu_.device_ref(), pass_resources);
-    tonemap_pass_.create(gpu_.device_ref(), pass_resources);
-    gtao_pass_.create(gpu_.device_ref(), pass_resources);
-    ssr_pass_.create(gpu_.device_ref(), pass_resources);
-    volumetric_fog_pass_.create(gpu_.device_ref(), pass_resources);
-    light_cull_pass_.create(gpu_.device_ref(), pass_resources);
+    check_pass(transparent_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(tonemap_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(gtao_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(ssr_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(volumetric_fog_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(light_cull_pass_.create(gpu_.device_ref(), pass_resources));
     light_heatmap_pass_.set_mode(0);
-    light_heatmap_pass_.create(gpu_.device_ref(), pass_resources);
+    check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
     light_grid_pass_.set_mode(1);
-    light_grid_pass_.create(gpu_.device_ref(), pass_resources);
+    check_pass(light_grid_pass_.create(gpu_.device_ref(), pass_resources));
     particle_system_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Creating sprite renderer");
     sprite_renderer_.create(gpu_.device_ref(), pass_resources);

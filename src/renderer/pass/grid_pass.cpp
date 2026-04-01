@@ -6,11 +6,9 @@
 #include "core/log.hpp"
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
-void GridPass::create(Device& device, const PassResources& resources) {
+Result<> GridPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
     auto vert_code = read_spirv(base_path::resolve("shaders/grid.vert.spv"));
@@ -109,7 +107,7 @@ void GridPass::create(Device& device, const PassResources& resources) {
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create grid pipeline layout");
+        return make_error("Failed to create grid pipeline layout");
     }
 
     VkFormat depth_format = resources.depth_format;
@@ -141,13 +139,14 @@ void GridPass::create(Device& device, const PassResources& resources) {
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create grid pipeline");
+        return make_error("Failed to create grid pipeline");
     }
 
     vkDestroyShaderModule(device_, frag_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Grid pass pipeline created");
+    return {};
 }
 
 void GridPass::destroy() {

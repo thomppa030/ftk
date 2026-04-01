@@ -15,7 +15,7 @@ namespace fjell {
 
 static constexpr VkFormat VIZ_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
-void CullVizPass::create(Device& device, const PassResources& resources) {
+Result<> CullVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
@@ -157,6 +157,7 @@ void CullVizPass::create(Device& device, const PassResources& resources) {
     vkDestroyShaderModule(device_, frag_module, nullptr);
 
     FJELL_GFX_DEBUG("Cull viz pass created");
+    return {};
 }
 
 void CullVizPass::destroy() {

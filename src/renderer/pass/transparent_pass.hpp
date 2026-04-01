@@ -11,7 +11,7 @@ namespace fjell {
 // Renders into the same offscreen target as the opaque pass.
 class TransparentPass : public RenderPass {
 public:
-    void create(Device& device, const PassResources& resources) override;
+    Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
 

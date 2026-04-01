@@ -221,25 +221,23 @@ bool AnimationEditorContext::save() {
 
     // Save current clip (events may have been edited)
     if (current_clip_ && !current_clip_path_.empty()) {
-        try {
-            auto resolved = base_path::resolve_asset(current_clip_path_, deps_.project_mgr->active());
-            current_clip_->save(resolved);
+        auto resolved = base_path::resolve_asset(current_clip_path_, deps_.project_mgr->active());
+        if (auto r = current_clip_->save(resolved); r) {
             FJELL_CORE_INFO("AnimEditor: saved clip {}", current_clip_path_);
             saved_any = true;
-        } catch (const std::exception& e) {
-            FJELL_CORE_ERROR("AnimEditor: failed to save clip: {}", e.what());
+        } else {
+            FJELL_CORE_ERROR("AnimEditor: failed to save clip: {}", r.error());
         }
     }
 
     // Save animset
     if (!animset_path_.empty()) {
-        try {
-            auto resolved = base_path::resolve_asset(animset_path_, deps_.project_mgr->active());
-            state_machine_.save(resolved);
+        auto resolved = base_path::resolve_asset(animset_path_, deps_.project_mgr->active());
+        if (auto r = state_machine_.save(resolved); r) {
             FJELL_CORE_INFO("AnimEditor: saved animset {}", animset_path_);
             saved_any = true;
-        } catch (const std::exception& e) {
-            FJELL_CORE_ERROR("AnimEditor: failed to save animset: {}", e.what());
+        } else {
+            FJELL_CORE_ERROR("AnimEditor: failed to save animset: {}", r.error());
         }
     }
 
@@ -347,10 +345,8 @@ void AnimationEditorContext::open_animset(const std::string& animset_path) {
     auto resolved = base_path::resolve_asset(animset_path, deps_.project_mgr->active());
 
     // Load the state machine
-    try {
-        state_machine_.load(resolved);
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("AnimEditor: failed to load animset {}: {}", animset_path, e.what());
+    if (auto r = state_machine_.load(resolved); !r) {
+        FJELL_CORE_ERROR("AnimEditor: failed to load animset {}: {}", animset_path, r.error());
         animset_path_.clear();
         return;
     }
@@ -763,12 +759,12 @@ void AnimationEditorContext::load_clip(int index) {
     current_clip_path_ = available_clip_paths_[index];
     auto resolved = base_path::resolve_asset(current_clip_path_, deps_.project_mgr->active());
 
-    try {
-        current_clip_ = std::make_shared<AnimationClip>(AnimationClip::load(resolved));
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("AnimEditor: failed to load clip: {}", e.what());
+    auto clip_result = AnimationClip::load(resolved);
+    if (!clip_result) {
+        FJELL_CORE_ERROR("AnimEditor: failed to load clip: {}", clip_result.error());
         return;
     }
+    current_clip_ = std::make_shared<AnimationClip>(std::move(*clip_result));
 
     // Update timeline
     timeline_.set_duration(current_clip_->duration());
@@ -809,18 +805,21 @@ void AnimationEditorContext::load_animset_clips(const std::string& animset_resol
     for (const auto& state : state_machine_.states()) {
         if (state.clip.empty()) continue;
         auto clip_resolved = base_path::resolve_asset(state.clip, deps_.project_mgr->active());
-        try {
-            auto clip = std::make_shared<AnimationClip>(AnimationClip::load(clip_resolved));
+        auto clip_result = AnimationClip::load(clip_resolved);
+        if (clip_result) {
+            auto clip = std::make_shared<AnimationClip>(std::move(*clip_result));
             anim->set_clip(state.clip, clip.get());
             anim->clips.push_back(std::move(clip));
             anim->clip_paths.push_back(state.clip);
-        } catch (const std::exception& e) {
-            FJELL_CORE_WARN("AnimEditor: failed to load clip {}: {}", state.clip, e.what());
+        } else {
+            FJELL_CORE_WARN("AnimEditor: failed to load clip {}: {}", state.clip, clip_result.error());
         }
     }
 
     // Set up state machine on the preview animator
-    anim->load_state_machine(animset_resolved_path);
+    if (auto r = anim->load_state_machine(animset_resolved_path); !r) {
+        FJELL_CORE_WARN("AnimEditor: failed to load state machine: {}", r.error());
+    }
 
     // Resolve blend spaces referenced by states
     std::string base_dir = deps_.project_mgr->active() ? deps_.project_mgr->active()->root().string() : "";
@@ -1197,28 +1196,31 @@ void AnimationEditorContext::sync_preview_state_machine() {
 
     // Save to temp, reload into preview animator
     auto resolved = base_path::resolve_asset(animset_path_, deps_.project_mgr->active());
-    try {
-        state_machine_.save(resolved);
-        anim->load_state_machine(resolved);
-
-        // Re-wire clips
-        for (const auto& state : state_machine_.states()) {
-            if (state.clip.empty()) continue;
-            auto clip_resolved = base_path::resolve_asset(state.clip, deps_.project_mgr->active());
-            try {
-                auto clip = std::make_shared<AnimationClip>(AnimationClip::load(clip_resolved));
-                anim->set_clip(state.clip, clip.get());
-                anim->clips.push_back(std::move(clip));
-            } catch (const std::exception& e) {
-                FJELL_CORE_WARN("Failed to load clip {}: {}", state.clip, e.what());
-            }
-        }
-
-        std::string base_dir = deps_.project_mgr->active() ? deps_.project_mgr->active()->root().string() : "";
-        anim->resolve_blend_spaces(base_dir);
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("AnimEditor: failed to sync preview: {}", e.what());
+    if (auto r = state_machine_.save(resolved); !r) {
+        FJELL_CORE_ERROR("AnimEditor: failed to save animset for preview: {}", r.error());
+        return;
     }
+    if (auto r = anim->load_state_machine(resolved); !r) {
+        FJELL_CORE_ERROR("AnimEditor: failed to load state machine for preview: {}", r.error());
+        return;
+    }
+
+    // Re-wire clips
+    for (const auto& state : state_machine_.states()) {
+        if (state.clip.empty()) continue;
+        auto clip_resolved = base_path::resolve_asset(state.clip, deps_.project_mgr->active());
+        auto clip_result = AnimationClip::load(clip_resolved);
+        if (clip_result) {
+            auto clip = std::make_shared<AnimationClip>(std::move(*clip_result));
+            anim->set_clip(state.clip, clip.get());
+            anim->clips.push_back(std::move(clip));
+        } else {
+            FJELL_CORE_WARN("Failed to load clip {}: {}", state.clip, clip_result.error());
+        }
+    }
+
+    std::string base_dir = deps_.project_mgr->active() ? deps_.project_mgr->active()->root().string() : "";
+    anim->resolve_blend_spaces(base_dir);
 }
 
 } // namespace fjell

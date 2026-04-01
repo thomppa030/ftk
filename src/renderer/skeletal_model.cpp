@@ -31,7 +31,12 @@ SkeletalModel::SkeletalModel(VkDevice device, VkPhysicalDevice physical_device,
 
     // Build embedded skeleton from joint data if present
     if (!data.joints.empty()) {
-        skeleton_ = std::make_shared<Skeleton>(Skeleton::from_joints(data.joints));
+        auto skel_result = Skeleton::from_joints(data.joints);
+        if (skel_result) {
+            skeleton_ = std::make_shared<Skeleton>(std::move(*skel_result));
+        } else {
+            FJELL_CORE_ERROR("Failed to build skeleton: {}", skel_result.error());
+        }
     }
 
     // Stage and upload vertex data

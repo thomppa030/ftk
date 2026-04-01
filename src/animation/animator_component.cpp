@@ -57,9 +57,11 @@ void AnimatorComponent::play(const std::string& clip_path, const AnimationClip* 
     ensure_event_track(clip_path, clip);
 }
 
-void AnimatorComponent::load_state_machine(const std::string& path) {
-    state_machine_.load(path);
+Result<> AnimatorComponent::load_state_machine(const std::string& path) {
+    auto result = state_machine_.load(path);
+    if (!result) return result;
     enable_state_machine();
+    return {};
 }
 
 void AnimatorComponent::enable_state_machine() {
@@ -118,44 +120,46 @@ void AnimatorComponent::resolve_blend_spaces(const std::string& base_dir) {
 
         if (bs_path.ends_with(".fjblend2D")) {
             if (blend_spaces_2d_.contains(bs_path)) continue;
-            try {
-                auto bs = BlendSpace2D::load(resolved_bs);
-                for (const auto& pt : bs.points()) {
-                    if (pt.clip.empty() || clip_map_.contains(pt.clip)) continue;
-                    std::string resolved_clip = base_dir.empty() ? pt.clip : base_dir + "/" + pt.clip;
-                    try {
-                        auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_clip));
-                        set_clip(pt.clip, clip.get());
-                        clips.push_back(std::move(clip));
-                        clip_paths.push_back(pt.clip);
-                    } catch (const std::exception& e) {
-                        FJELL_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, e.what());
-                    }
-                }
-                load_blend_space_2d(bs_path, std::move(bs));
-            } catch (const std::exception& e) {
-                FJELL_CORE_WARN("Animator: failed to load blend space 2D {}: {}", bs_path, e.what());
+            auto bs_result = BlendSpace2D::load(resolved_bs);
+            if (!bs_result) {
+                FJELL_CORE_WARN("Animator: failed to load blend space 2D {}: {}", bs_path, bs_result.error());
+                continue;
             }
+            for (const auto& pt : bs_result->points()) {
+                if (pt.clip.empty() || clip_map_.contains(pt.clip)) continue;
+                std::string resolved_clip = base_dir.empty() ? pt.clip : base_dir + "/" + pt.clip;
+                auto clip_result = AnimationClip::load(resolved_clip);
+                if (clip_result) {
+                    auto clip = std::make_shared<AnimationClip>(std::move(*clip_result));
+                    set_clip(pt.clip, clip.get());
+                    clips.push_back(std::move(clip));
+                    clip_paths.push_back(pt.clip);
+                } else {
+                    FJELL_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, clip_result.error());
+                }
+            }
+            load_blend_space_2d(bs_path, std::move(*bs_result));
         } else if (bs_path.ends_with(".fjblend1D")) {
             if (blend_spaces_1d_.contains(bs_path)) continue;
-            try {
-                auto bs = BlendSpace1D::load(resolved_bs);
-                for (const auto& pt : bs.points()) {
-                    if (pt.clip.empty() || clip_map_.contains(pt.clip)) continue;
-                    std::string resolved_clip = base_dir.empty() ? pt.clip : base_dir + "/" + pt.clip;
-                    try {
-                        auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_clip));
-                        set_clip(pt.clip, clip.get());
-                        clips.push_back(std::move(clip));
-                        clip_paths.push_back(pt.clip);
-                    } catch (const std::exception& e) {
-                        FJELL_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, e.what());
-                    }
-                }
-                load_blend_space_1d(bs_path, std::move(bs));
-            } catch (const std::exception& e) {
-                FJELL_CORE_WARN("Animator: failed to load blend space 1D {}: {}", bs_path, e.what());
+            auto bs_result = BlendSpace1D::load(resolved_bs);
+            if (!bs_result) {
+                FJELL_CORE_WARN("Animator: failed to load blend space 1D {}: {}", bs_path, bs_result.error());
+                continue;
             }
+            for (const auto& pt : bs_result->points()) {
+                if (pt.clip.empty() || clip_map_.contains(pt.clip)) continue;
+                std::string resolved_clip = base_dir.empty() ? pt.clip : base_dir + "/" + pt.clip;
+                auto clip_result = AnimationClip::load(resolved_clip);
+                if (clip_result) {
+                    auto clip = std::make_shared<AnimationClip>(std::move(*clip_result));
+                    set_clip(pt.clip, clip.get());
+                    clips.push_back(std::move(clip));
+                    clip_paths.push_back(pt.clip);
+                } else {
+                    FJELL_CORE_WARN("Animator: failed to load blend space clip {}: {}", pt.clip, clip_result.error());
+                }
+            }
+            load_blend_space_1d(bs_path, std::move(*bs_result));
         }
     }
 }

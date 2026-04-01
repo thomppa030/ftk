@@ -17,7 +17,7 @@ namespace fjell {
 
 static constexpr VkFormat VIZ_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
-void MeshletVizPass::create(Device& device, const PassResources& resources) {
+Result<> MeshletVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
@@ -140,6 +140,7 @@ void MeshletVizPass::create(Device& device, const PassResources& resources) {
     vkDestroyShaderModule(device_, frag_module, nullptr);
 
     FJELL_GFX_DEBUG("Meshlet viz pass created");
+    return {};
 }
 
 void MeshletVizPass::destroy() {

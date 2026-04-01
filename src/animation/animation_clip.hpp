@@ -2,6 +2,7 @@
 
 #include "animation/animation_events.hpp"
 #include "animation/fjanim.hpp"
+#include "core/result.hpp"
 
 #include <ozz/animation/runtime/animation.h>
 
@@ -12,8 +13,8 @@ namespace fjell {
 
 class AnimationClip {
 public:
-    [[nodiscard]] static AnimationClip load(const std::string& path);
-    void save(const std::string& path) const;
+    [[nodiscard]] static Result<AnimationClip> load(const std::string& path);
+    [[nodiscard]] Result<> save(const std::string& path) const;
 
     [[nodiscard]] const ozz::animation::Animation& raw() const { return animation_; }
     [[nodiscard]] float duration() const { return animation_.duration(); }

@@ -425,7 +425,7 @@ static void update_composite_descriptors(VkDevice device, VkSampler linear_sampl
 
 // ── VolumetricFogPass (singleton) ───────────────────────────────────────────
 
-void VolumetricFogPass::create(Device& device, const PassResources& resources) {
+Result<> VolumetricFogPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     auto global_set_layout = resources.global_set_layout;
@@ -440,7 +440,7 @@ void VolumetricFogPass::create(Device& device, const PassResources& resources) {
     sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     if (vkCreateSampler(device_, &sampler_ci, nullptr, &linear_sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create fog sampler");
+        return make_error("Failed to create fog sampler");
     }
 
     // ── Inject set layout: binding 0 = storage image (scatter write) ──
@@ -556,6 +556,7 @@ void VolumetricFogPass::create(Device& device, const PassResources& resources) {
                            linear_sampler_, 1, 1);
 
     FJELL_GFX_DEBUG("Volumetric fog pass created");
+    return {};
 }
 
 void VolumetricFogPass::destroy() {

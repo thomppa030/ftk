@@ -39,7 +39,9 @@ static const bool registered = [] {
             if (asset_path_field("Animation Set", "##AnimAnimset", anim->animset_path)) {
                 if (!anim->animset_path.empty() && ctx.project_mgr) {
                     auto resolved = base_path::resolve_asset(anim->animset_path, ctx.project_mgr->active());
-                    anim->load_state_machine(resolved);
+                    if (auto r = anim->load_state_machine(resolved); !r) {
+                        FJELL_CORE_ERROR("Failed to load animset: {}", r.error());
+                    }
                     for (size_t i = 0; i < anim->clips.size(); ++i) {
                         if (i < anim->clip_paths.size()) anim->set_clip(anim->clip_paths[i], anim->clips[i].get());
                     }
@@ -56,16 +58,17 @@ static const bool registered = [] {
                 std::snprintf(label, sizeof(label), "Clip %zu", i);
                 if (asset_path_field(label, "##ClipPath", anim->clip_paths[i])) {
                     if (ctx.project_mgr && !anim->clip_paths[i].empty()) {
-                        try {
-                            auto resolved = base_path::resolve_asset(anim->clip_paths[i], ctx.project_mgr->active());
-                            auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved));
+                        auto resolved = base_path::resolve_asset(anim->clip_paths[i], ctx.project_mgr->active());
+                        auto result = AnimationClip::load(resolved);
+                        if (result) {
+                            auto clip = std::make_shared<AnimationClip>(std::move(*result));
                             if (i < anim->clips.size()) anim->clips[i] = clip;
                             else anim->clips.push_back(clip);
                             anim->set_clip(anim->clip_paths[i], clip.get());
                             if (!anim->has_active_clip()) anim->play(clip.get());
                             changed = true;
-                        } catch (const std::exception& e) {
-                            FJELL_CORE_ERROR("Failed to load clip: {}", e.what());
+                        } else {
+                            FJELL_CORE_ERROR("Failed to load clip: {}", result.error());
                         }
                     }
                 }
@@ -105,19 +108,22 @@ static const bool registered = [] {
                 for (const auto& jc : j["clips"]) {
                     std::string clip_rel = jc.get<std::string>();
                     anim.clip_paths.push_back(clip_rel);
-                    try {
-                        auto clip = std::make_shared<AnimationClip>(AnimationClip::load(base_path::resolve_asset(clip_rel, proj)));
+                    auto result = AnimationClip::load(base_path::resolve_asset(clip_rel, proj));
+                    if (result) {
+                        auto clip = std::make_shared<AnimationClip>(std::move(*result));
                         anim.clips.push_back(clip);
                         if (anim.clips.size() == 1) anim.play(clip.get());
-                    } catch (const std::exception& e) {
-                        FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, e.what());
+                    } else {
+                        FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, result.error());
                     }
                 }
             }
             if (j.contains("animset")) {
                 anim.animset_path = j["animset"].get<std::string>();
                 auto resolved = base_path::resolve_asset(anim.animset_path, proj);
-                anim.load_state_machine(resolved);
+                if (auto r = anim.load_state_machine(resolved); !r) {
+                    FJELL_CORE_ERROR("Failed to load animset {}: {}", anim.animset_path, r.error());
+                }
                 for (size_t i = 0; i < anim.clips.size(); ++i) {
                     if (i < anim.clip_paths.size()) anim.set_clip(anim.clip_paths[i], anim.clips[i].get());
                 }

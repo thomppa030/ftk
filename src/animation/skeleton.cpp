@@ -10,14 +10,13 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <fstream>
-#include <stdexcept>
 
 namespace fjell {
 
 namespace {
 
 // Build an ozz RawSkeleton from flat joint array, then compile to runtime
-ozz::animation::Skeleton build_ozz_skeleton(const std::vector<FjSkelJoint>& joints) {
+Result<ozz::animation::Skeleton> build_ozz_skeleton(const std::vector<FjSkelJoint>& joints) {
     ozz::animation::offline::RawSkeleton raw;
 
     // Find root joints (parent == -1)
@@ -57,18 +56,16 @@ ozz::animation::Skeleton build_ozz_skeleton(const std::vector<FjSkelJoint>& join
     }
 
     if (!raw.Validate()) {
-        throw std::runtime_error("Invalid skeleton hierarchy");
+        return make_error("Invalid skeleton hierarchy");
     }
 
     ozz::animation::offline::SkeletonBuilder builder;
     auto result = builder(raw);
     if (!result) {
-        throw std::runtime_error("Failed to build ozz skeleton");
+        return make_error("Failed to build ozz skeleton");
     }
 
-    // Move out of unique_ptr
-    ozz::animation::Skeleton skel = std::move(*result);
-    return skel;
+    return std::move(*result);
 }
 
 // Compute inverse bind matrices from rest pose hierarchy
@@ -98,24 +95,24 @@ std::vector<glm::mat4> compute_inverse_bind_matrices(
 
 } // anonymous namespace
 
-Skeleton Skeleton::load(const std::string& path) {
+Result<Skeleton> Skeleton::load(const std::string& path) {
     std::ifstream file(path);
     if (!file) {
-        throw std::runtime_error("Failed to open skeleton: " + path);
+        return make_error("Failed to open skeleton: " + path);
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        throw std::runtime_error("Failed to parse skeleton JSON: " + path + " — " + e.what());
+        return make_error("Failed to parse skeleton JSON: " + path + " — " + e.what());
     }
 
     Skeleton skel;
 
     // Parse joints
     if (!j.contains("joints") || !j["joints"].is_array()) {
-        throw std::runtime_error("Skeleton missing 'joints' array: " + path);
+        return make_error("Skeleton missing 'joints' array: " + path);
     }
 
     const auto& jjoints = j["joints"];
@@ -177,7 +174,11 @@ Skeleton Skeleton::load(const std::string& path) {
     }
 
     // Build ozz runtime skeleton from joint data
-    skel.skeleton_ = build_ozz_skeleton(skel.joints_);
+    auto skel_result = build_ozz_skeleton(skel.joints_);
+    if (!skel_result) {
+        return make_error(skel_result.error());
+    }
+    skel.skeleton_ = std::move(*skel_result);
 
     // Compute inverse bind matrices from rest pose hierarchy
     skel.inverse_bind_matrices_ = compute_inverse_bind_matrices(skel.joints_);
@@ -186,15 +187,19 @@ Skeleton Skeleton::load(const std::string& path) {
     return skel;
 }
 
-Skeleton Skeleton::from_joints(const std::vector<FjSkelJoint>& joints) {
+Result<Skeleton> Skeleton::from_joints(const std::vector<FjSkelJoint>& joints) {
     Skeleton skel;
     skel.joints_ = joints;
-    skel.skeleton_ = build_ozz_skeleton(skel.joints_);
+    auto skel_result = build_ozz_skeleton(skel.joints_);
+    if (!skel_result) {
+        return make_error(skel_result.error());
+    }
+    skel.skeleton_ = std::move(*skel_result);
     skel.inverse_bind_matrices_ = compute_inverse_bind_matrices(skel.joints_);
     return skel;
 }
 
-void Skeleton::save(const std::string& path) const {
+Result<> Skeleton::save(const std::string& path) const {
     nlohmann::json j;
     j["joints"] = nlohmann::json::array();
 
@@ -222,10 +227,11 @@ void Skeleton::save(const std::string& path) const {
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to save skeleton: " + path);
+        return make_error("Failed to save skeleton: " + path);
     }
     file << j.dump(2);
     FJELL_CORE_INFO("Saved skeleton: {}", path);
+    return {};
 }
 
 int Skeleton::find_joint(const std::string& name) const {

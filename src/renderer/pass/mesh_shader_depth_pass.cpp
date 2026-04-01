@@ -12,11 +12,9 @@
 #include "core/log.hpp"
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
-void MeshShaderDepthPass::create(Device& device, const PassResources& resources) {
+Result<> MeshShaderDepthPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
     draw_mesh_tasks_indirect_count_ = device.draw_mesh_tasks_indirect_count_fn();
@@ -102,7 +100,7 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
         vkDestroyShaderModule(device_, task_module, nullptr);
         vkDestroyShaderModule(device_, mesh_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create mesh shader depth pipeline layout");
+        return make_error("Failed to create mesh shader depth pipeline layout");
     }
 
     VkPipelineRenderingCreateInfo rendering_info{};
@@ -130,7 +128,7 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
         vkDestroyShaderModule(device_, task_module, nullptr);
         vkDestroyShaderModule(device_, mesh_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create mesh shader depth pipeline");
+        return make_error("Failed to create mesh shader depth pipeline");
     }
 
     vkDestroyShaderModule(device_, task_module, nullptr);
@@ -174,7 +172,7 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
     if (vkCreatePipelineLayout(device_, &skinned_layout_info, nullptr, &skinned_layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create skinned depth pipeline layout");
+        return make_error("Failed to create skinned depth pipeline layout");
     }
 
     pipeline_info.stageCount = static_cast<uint32_t>(skinned_stages.size());
@@ -187,12 +185,13 @@ void MeshShaderDepthPass::create(Device& device, const PassResources& resources)
                                    nullptr, &skinned_pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create skinned depth pipeline");
+        return make_error("Failed to create skinned depth pipeline");
     }
 
     vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
     vkDestroyShaderModule(device_, frag_module, nullptr);
     FJELL_GFX_DEBUG("Mesh shader depth pass created");
+    return {};
 }
 
 void MeshShaderDepthPass::register_custom_depth(uint32_t pipeline_id,

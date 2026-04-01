@@ -391,7 +391,7 @@ void BloomPass::Images::invalidate_imgui_texture() {
 
 // ── BloomPass (singleton) ───────────────────────────────────────────────────
 
-void BloomPass::create(Device& device, const PassResources& /*resources*/) {
+Result<> BloomPass::create(Device& device, const PassResources& /*resources*/) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
 
@@ -404,7 +404,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
     sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     if (vkCreateSampler(device_, &sampler_ci, nullptr, &sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom sampler");
+        return make_error("Failed to create bloom sampler");
     }
 
     // Descriptor set layouts
@@ -419,7 +419,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
     layout_ci.bindingCount = 1;
     layout_ci.pBindings = &binding;
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &single_tex_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom descriptor layout");
+        return make_error("Failed to create bloom descriptor layout");
     }
 
     std::array<VkDescriptorSetLayoutBinding, 2> comp_bindings{};
@@ -435,7 +435,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
     layout_ci.bindingCount = 2;
     layout_ci.pBindings = comp_bindings.data();
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &composite_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom composite descriptor layout");
+        return make_error("Failed to create bloom composite descriptor layout");
     }
 
     // Pipeline layouts
@@ -450,7 +450,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
     pipe_layout_ci.pushConstantRangeCount = 1;
     pipe_layout_ci.pPushConstantRanges = &down_push;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &downsample_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom downsample layout");
+        return make_error("Failed to create bloom downsample layout");
     }
 
     VkPushConstantRange up_push{};
@@ -459,7 +459,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
 
     pipe_layout_ci.pPushConstantRanges = &up_push;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &upsample_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom upsample layout");
+        return make_error("Failed to create bloom upsample layout");
     }
 
     VkPushConstantRange comp_push{};
@@ -469,7 +469,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
     pipe_layout_ci.pSetLayouts = &composite_layout_;
     pipe_layout_ci.pPushConstantRanges = &comp_push;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &composite_layout_pipeline_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom composite layout");
+        return make_error("Failed to create bloom composite layout");
     }
 
     // Shaders
@@ -494,6 +494,7 @@ void BloomPass::create(Device& device, const PassResources& /*resources*/) {
     vkDestroyShaderModule(device_, vert_mod, nullptr);
 
     FJELL_GFX_DEBUG("Bloom pass created");
+    return {};
 }
 
 void BloomPass::destroy() {

@@ -4,14 +4,13 @@
 #include <nlohmann/json.hpp>
 
 #include <fstream>
-#include <stdexcept>
 
 namespace fjell {
 
-AudioAsset load_audio_asset_file(const std::string& path) {
+Result<AudioAsset> load_audio_asset_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        throw std::runtime_error("Failed to open .fjaudio file: " + path);
+        return make_error("Failed to open .fjaudio file: " + path);
     }
 
     nlohmann::json j;
@@ -28,7 +27,7 @@ AudioAsset load_audio_asset_file(const std::string& path) {
     return asset;
 }
 
-void save_audio_asset_file(const std::string& path, const AudioAsset& asset) {
+Result<> save_audio_asset_file(const std::string& path, const AudioAsset& asset) {
     nlohmann::json j;
     j["clip"] = asset.clip_path;
     j["volume"] = asset.volume;
@@ -40,9 +39,10 @@ void save_audio_asset_file(const std::string& path, const AudioAsset& asset) {
 
     std::ofstream f(path);
     if (!f.is_open()) {
-        throw std::runtime_error("Failed to write .fjaudio file: " + path);
+        return make_error("Failed to write .fjaudio file: " + path);
     }
     f << j.dump(4) << "\n";
+    return {};
 }
 
 void apply_audio_to_source(const AudioAsset& asset, AudioSourceComponent& source) {

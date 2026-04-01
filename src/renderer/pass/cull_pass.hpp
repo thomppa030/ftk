@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/result.hpp"
 #include "renderer/buffer.hpp"
 #include "renderer/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -21,8 +22,8 @@ static_assert(sizeof(GpuDrawAABB) == 32, "GpuDrawAABB must be 32 bytes for std43
 
 class CullPass {
 public:
-    void create(VkDevice device, VkPhysicalDevice physical_device,
-                VkDescriptorSetLayout global_set_layout);
+    [[nodiscard]] Result<> create(VkDevice device, VkPhysicalDevice physical_device,
+                                  VkDescriptorSetLayout global_set_layout);
     void destroy();
 
     // Upload AABBs for this frame (called from IndirectBatch::build or vulkan_context)

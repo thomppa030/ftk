@@ -826,11 +826,16 @@ void SceneEditorContext::add_skeletal_model(const std::string& mesh_path,
     // Play animation clip if provided
     if (!anim_path.empty()) {
         auto resolved_anim = base_path::resolve_asset(anim_path, deps_.project_mgr->active());
-        auto clip = std::make_shared<AnimationClip>(AnimationClip::load(resolved_anim));
-        anim.play(clip.get());
-        anim.clips.push_back(clip);
-        anim.clip_paths.push_back(anim_path);
-        FJELL_CORE_INFO("Playing animation: {}", anim_path);
+        auto clip_result = AnimationClip::load(resolved_anim);
+        if (clip_result) {
+            auto clip = std::make_shared<AnimationClip>(std::move(*clip_result));
+            anim.play(clip.get());
+            anim.clips.push_back(clip);
+            anim.clip_paths.push_back(anim_path);
+            FJELL_CORE_INFO("Playing animation: {}", anim_path);
+        } else {
+            FJELL_CORE_WARN("Failed to load animation {}: {}", anim_path, clip_result.error());
+        }
     }
 
     selected_id_ = deps_.scene->add_node(std::move(node));

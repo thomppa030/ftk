@@ -19,7 +19,9 @@ static void load_anim_data(SpriteAnimComponent& anim, ResourceManager& resources
     if (!anim.animset_path.empty()) {
         std::string resolved = base_path::resolve_asset(anim.animset_path, project);
         if (std::filesystem::exists(resolved)) {
-            anim.state_machine.load(resolved);
+            if (auto r = anim.state_machine.load(resolved); !r) {
+                FJELL_CORE_WARN("SpriteAnim: failed to load animset {}: {}", anim.animset_path, r.error());
+            }
         }
     } else if (!anim.animations.empty()) {
         // Legacy: build state machine from direct animation map

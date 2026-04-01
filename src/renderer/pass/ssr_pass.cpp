@@ -263,7 +263,7 @@ void SsrPass::Images::invalidate_imgui_texture() {
 
 // ── SsrPass (singleton) ─────────────────────────────────────────────────────
 
-void SsrPass::create(Device& device, const PassResources& resources) {
+Result<> SsrPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     auto global_set_layout = resources.global_set_layout;
@@ -279,7 +279,7 @@ void SsrPass::create(Device& device, const PassResources& resources) {
         ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         if (vkCreateSampler(device_, &ci, nullptr, &nearest_sampler_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create SSR nearest sampler");
+            return make_error("Failed to create SSR nearest sampler");
         }
     }
     {
@@ -292,7 +292,7 @@ void SsrPass::create(Device& device, const PassResources& resources) {
         ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         if (vkCreateSampler(device_, &ci, nullptr, &linear_sampler_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create SSR linear sampler");
+            return make_error("Failed to create SSR linear sampler");
         }
     }
 
@@ -308,7 +308,7 @@ void SsrPass::create(Device& device, const PassResources& resources) {
         ci.bindingCount = static_cast<uint32_t>(bindings.size());
         ci.pBindings = bindings.data();
         if (vkCreateDescriptorSetLayout(device_, &ci, nullptr, &trace_set_layout_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create SSR trace descriptor set layout");
+            return make_error("Failed to create SSR trace descriptor set layout");
         }
     }
 
@@ -324,7 +324,7 @@ void SsrPass::create(Device& device, const PassResources& resources) {
         ci.bindingCount = static_cast<uint32_t>(bindings.size());
         ci.pBindings = bindings.data();
         if (vkCreateDescriptorSetLayout(device_, &ci, nullptr, &composite_set_layout_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create SSR composite descriptor set layout");
+            return make_error("Failed to create SSR composite descriptor set layout");
         }
     }
 
@@ -360,6 +360,7 @@ void SsrPass::create(Device& device, const PassResources& resources) {
     default_images_.create(device_, physical_device_, trace_set_layout_, composite_set_layout_, nearest_sampler_, 1, 1);
 
     FJELL_GFX_DEBUG("SSR pass created");
+    return {};
 }
 
 void SsrPass::destroy() {

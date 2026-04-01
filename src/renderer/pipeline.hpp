@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <string>
@@ -26,11 +28,13 @@ public:
     Pipeline& operator=(Pipeline&&) = delete;
 
     void recreate();
+    [[nodiscard]] Result<> recreate_checked();
 
     [[nodiscard]] VkPipeline handle() const { return pipeline_; }
     [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
 
 private:
+    Result<> create_impl();
     void create();
     void destroy();
 

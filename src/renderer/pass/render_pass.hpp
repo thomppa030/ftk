@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <array>
 #include <vector>
 #include <glm/glm.hpp>
@@ -104,7 +106,7 @@ public:
     RenderPass& operator=(RenderPass&&) = delete;
 
     // Create GPU resources (pipelines, layouts).
-    virtual void create(Device& device, const PassResources& resources) = 0;
+    [[nodiscard]] virtual Result<> create(Device& device, const PassResources& resources) = 0;
 
     // Destroy GPU resources.
     virtual void destroy() = 0;
@@ -112,9 +114,9 @@ public:
     // Record draw commands into the command buffer.
     virtual void record(const FrameContext& ctx) = 0;
 
-    void recreate(Device& device, const PassResources& resources) {
+    [[nodiscard]] Result<> recreate(Device& device, const PassResources& resources) {
         destroy();
-        create(device, resources);
+        return create(device, resources);
     }
 };
 

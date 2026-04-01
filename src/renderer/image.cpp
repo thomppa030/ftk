@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 
 namespace fjell {
 
@@ -56,6 +57,90 @@ Image::~Image() {
         vkFreeMemory(device_, memory_, nullptr);
 }
 
+Image::Image(Image&& other) noexcept
+    : device_{other.device_}
+    , image_{std::exchange(other.image_, VK_NULL_HANDLE)}
+    , memory_{std::exchange(other.memory_, VK_NULL_HANDLE)}
+    , view_{std::exchange(other.view_, VK_NULL_HANDLE)}
+    , width_{other.width_}
+    , height_{other.height_} {
+}
+
+Image& Image::operator=(Image&& other) noexcept {
+    if (this != &other) {
+        if (view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, view_, nullptr);
+        if (image_ != VK_NULL_HANDLE) vkDestroyImage(device_, image_, nullptr);
+        if (memory_ != VK_NULL_HANDLE) vkFreeMemory(device_, memory_, nullptr);
+
+        device_ = other.device_;
+        image_ = std::exchange(other.image_, VK_NULL_HANDLE);
+        memory_ = std::exchange(other.memory_, VK_NULL_HANDLE);
+        view_ = std::exchange(other.view_, VK_NULL_HANDLE);
+        width_ = other.width_;
+        height_ = other.height_;
+    }
+    return *this;
+}
+
+Result<Image> Image::create(VkDevice device, VkPhysicalDevice physical_device,
+                            uint32_t width, uint32_t height, VkFormat format,
+                            VkImageTiling tiling, VkImageUsageFlags usage,
+                            VkMemoryPropertyFlags properties, uint32_t mip_levels) {
+    Image img{};
+    img.device_ = device;
+    img.width_ = width;
+    img.height_ = height;
+
+    VkImageCreateInfo image_info{};
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.extent.width = width;
+    image_info.extent.height = height;
+    image_info.extent.depth = 1;
+    image_info.mipLevels = mip_levels;
+    image_info.arrayLayers = 1;
+    image_info.format = format;
+    image_info.tiling = tiling;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_info.usage = usage;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateImage(device, &image_info, nullptr, &img.image_) != VK_SUCCESS) {
+        return make_error("Failed to create image");
+    }
+
+    VkMemoryRequirements mem_reqs;
+    vkGetImageMemoryRequirements(device, img.image_, &mem_reqs);
+
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
+
+    uint32_t mem_type_index = UINT32_MAX;
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
+        if ((mem_reqs.memoryTypeBits & (1 << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
+            mem_type_index = i;
+            break;
+        }
+    }
+    if (mem_type_index == UINT32_MAX) {
+        return make_error("Failed to find suitable memory type for image");
+    }
+
+    VkMemoryAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = mem_reqs.size;
+    alloc_info.memoryTypeIndex = mem_type_index;
+
+    if (vkAllocateMemory(device, &alloc_info, nullptr, &img.memory_) != VK_SUCCESS) {
+        return make_error("Failed to allocate image memory");
+    }
+
+    vkBindImageMemory(device, img.image_, img.memory_, 0);
+    return img;
+}
+
 void Image::create_view(VkFormat format, VkImageAspectFlags aspect, uint32_t mip_levels) {
     VkImageViewCreateInfo view_info{};
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -71,6 +156,24 @@ void Image::create_view(VkFormat format, VkImageAspectFlags aspect, uint32_t mip
     if (vkCreateImageView(device_, &view_info, nullptr, &view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create image view");
     }
+}
+
+Result<> Image::create_view_checked(VkFormat format, VkImageAspectFlags aspect, uint32_t mip_levels) {
+    VkImageViewCreateInfo view_info{};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = image_;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = format;
+    view_info.subresourceRange.aspectMask = aspect;
+    view_info.subresourceRange.baseMipLevel = 0;
+    view_info.subresourceRange.levelCount = mip_levels;
+    view_info.subresourceRange.baseArrayLayer = 0;
+    view_info.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device_, &view_info, nullptr, &view_) != VK_SUCCESS) {
+        return make_error("Failed to create image view");
+    }
+    return {};
 }
 
 void Image::transition_layout(VkCommandBuffer cmd,

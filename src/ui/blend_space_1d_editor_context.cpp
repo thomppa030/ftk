@@ -46,12 +46,12 @@ void BlendSpace1DEditorContext::open(const std::string& path) {
     asset_path_ = path;
     auto resolved = base_path::resolve_asset(path, deps_.project_mgr->active());
 
-    try {
-        blend_space_ = BlendSpace1D::load(resolved);
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("BlendSpace1D: failed to load: {}", e.what());
+    auto bs_result = BlendSpace1D::load(resolved);
+    if (!bs_result) {
+        FJELL_CORE_ERROR("BlendSpace1D: failed to load: {}", bs_result.error());
         return;
     }
+    blend_space_ = std::move(*bs_result);
 
     name_ = fs::path(path).stem().string();
     reload_clips();
@@ -73,11 +73,12 @@ void BlendSpace1DEditorContext::reload_clips() {
     for (uint32_t i = 0; i < blend_space_.size(); ++i) {
         const auto& pt = blend_space_.points()[i];
         if (pt.clip.empty()) continue;
-        try {
-            auto resolved = base_path::resolve_asset(pt.clip, deps_.project_mgr->active());
-            loaded_clips_[i] = std::make_shared<AnimationClip>(AnimationClip::load(resolved));
-        } catch (const std::exception& e) {
-            FJELL_CORE_ERROR("BlendSpace1D: failed to load clip '{}': {}", pt.clip, e.what());
+        auto resolved = base_path::resolve_asset(pt.clip, deps_.project_mgr->active());
+        auto clip_result = AnimationClip::load(resolved);
+        if (clip_result) {
+            loaded_clips_[i] = std::make_shared<AnimationClip>(std::move(*clip_result));
+        } else {
+            FJELL_CORE_ERROR("BlendSpace1D: failed to load clip '{}': {}", pt.clip, clip_result.error());
         }
     }
 
@@ -556,7 +557,9 @@ void BlendSpace1DEditorContext::setup_preview_state_machine() {
         std::ofstream f(tmp);
         f << j.dump(2);
     }
-    anim->load_state_machine(tmp.string());
+    if (auto r = anim->load_state_machine(tmp.string()); !r) {
+        FJELL_CORE_WARN("BlendSpace1D: failed to load preview state machine: {}", r.error());
+    }
     std::filesystem::remove(tmp);
 }
 
@@ -590,13 +593,12 @@ void BlendSpace1DEditorContext::scan_available_clips() {
 
 bool BlendSpace1DEditorContext::save() {
     if (asset_path_.empty()) return false;
-    try {
-        auto resolved = base_path::resolve_asset(asset_path_, deps_.project_mgr->active());
-        blend_space_.save(resolved);
+    auto resolved = base_path::resolve_asset(asset_path_, deps_.project_mgr->active());
+    if (auto r = blend_space_.save(resolved); r) {
         FJELL_CORE_INFO("Saved blend space 1D: {}", asset_path_);
         return true;
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("Failed to save blend space 1D: {}", e.what());
+    } else {
+        FJELL_CORE_ERROR("Failed to save blend space 1D: {}", r.error());
         return false;
     }
 }

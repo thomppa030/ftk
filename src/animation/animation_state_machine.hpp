@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/delegate.hpp"
+#include "core/result.hpp"
 
 #include <cstdint>
 #include <string>
@@ -48,8 +49,8 @@ struct AnimationState {
 class AnimationStateMachine {
 public:
     // Load/save state machine definition from/to a .fjanimset JSON file.
-    void load(const std::string& path);
-    void save(const std::string& path) const;
+    [[nodiscard]] Result<> load(const std::string& path);
+    [[nodiscard]] Result<> save(const std::string& path) const;
 
     // Evaluate transitions and advance crossfade. Call once per frame.
     // Returns true if a transition occurred this frame.

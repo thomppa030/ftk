@@ -8,14 +8,13 @@
 
 #include <algorithm>
 #include <fstream>
-#include <stdexcept>
 
 namespace fjell {
 
 namespace {
 
 // Build an ozz compressed Animation from raw track data
-ozz::animation::Animation build_ozz_animation(
+Result<ozz::animation::Animation> build_ozz_animation(
         const std::string& name,
         const std::vector<AnimJointTrack>& tracks) {
     ozz::animation::offline::RawAnimation raw;
@@ -56,13 +55,13 @@ ozz::animation::Animation build_ozz_animation(
     }
 
     if (!raw.Validate()) {
-        throw std::runtime_error("Invalid animation data for clip: " + name);
+        return make_error("Invalid animation data for clip: " + name);
     }
 
     ozz::animation::offline::AnimationBuilder builder;
     auto result = builder(raw);
     if (!result) {
-        throw std::runtime_error("Failed to build ozz animation for clip: " + name);
+        return make_error("Failed to build ozz animation for clip: " + name);
     }
 
     return std::move(*result);
@@ -70,17 +69,17 @@ ozz::animation::Animation build_ozz_animation(
 
 } // anonymous namespace
 
-AnimationClip AnimationClip::load(const std::string& path) {
+Result<AnimationClip> AnimationClip::load(const std::string& path) {
     std::ifstream file(path);
     if (!file) {
-        throw std::runtime_error("Failed to open animation: " + path);
+        return make_error("Failed to open animation: " + path);
     }
 
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(file);
     } catch (const nlohmann::json::parse_error& e) {
-        throw std::runtime_error("Failed to parse animation JSON: " + path + " — " + e.what());
+        return make_error("Failed to parse animation JSON: " + path + " — " + e.what());
     }
 
     AnimationClip clip;
@@ -88,7 +87,7 @@ AnimationClip AnimationClip::load(const std::string& path) {
 
     // Parse tracks
     if (!j.contains("tracks") || !j["tracks"].is_array()) {
-        throw std::runtime_error("Animation missing 'tracks' array: " + path);
+        return make_error("Animation missing 'tracks' array: " + path);
     }
 
     const auto& jtracks = j["tracks"];
@@ -153,14 +152,18 @@ AnimationClip AnimationClip::load(const std::string& path) {
     }
 
     // Build ozz compressed animation
-    clip.animation_ = build_ozz_animation(clip.name_, clip.tracks_);
+    auto anim_result = build_ozz_animation(clip.name_, clip.tracks_);
+    if (!anim_result) {
+        return make_error(anim_result.error());
+    }
+    clip.animation_ = std::move(*anim_result);
 
     FJELL_CORE_INFO("Loaded animation clip: {} ({:.2f}s, {} tracks)",
                     clip.name_, clip.animation_.duration(), clip.animation_.num_tracks());
     return clip;
 }
 
-void AnimationClip::save(const std::string& path) const {
+Result<> AnimationClip::save(const std::string& path) const {
     nlohmann::json j;
     j["name"] = name_;
     j["tracks"] = nlohmann::json::array();
@@ -200,10 +203,11 @@ void AnimationClip::save(const std::string& path) const {
 
     std::ofstream file(path);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to save animation: " + path);
+        return make_error("Failed to save animation: " + path);
     }
     file << j.dump(2);
     FJELL_CORE_INFO("Saved animation clip: {}", path);
+    return {};
 }
 
 } // namespace fjell

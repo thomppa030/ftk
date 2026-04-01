@@ -400,22 +400,24 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 for (const auto& jc : ja["clips"]) {
                     std::string clip_rel = jc.get<std::string>();
                     anim.clip_paths.push_back(clip_rel);
-                    try {
-                        auto clip = std::make_shared<AnimationClip>(
-                            AnimationClip::load(base_path::resolve_asset(clip_rel, project)));
+                    auto clip_result = AnimationClip::load(base_path::resolve_asset(clip_rel, project));
+                    if (clip_result) {
+                        auto clip = std::make_shared<AnimationClip>(std::move(*clip_result));
                         anim.clips.push_back(clip);
                         if (anim.clips.size() == 1) {
                             anim.play(clip.get());
                         }
-                    } catch (const std::exception& e) {
-                        FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, e.what());
+                    } else {
+                        FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, clip_result.error());
                     }
                 }
             }
             if (ja.contains("animset")) {
                 anim.animset_path = ja["animset"].get<std::string>();
                 auto resolved = base_path::resolve_asset(anim.animset_path, project);
-                anim.load_state_machine(resolved);
+                if (auto r = anim.load_state_machine(resolved); !r) {
+                    FJELL_CORE_ERROR("Failed to load animset {}: {}", anim.animset_path, r.error());
+                }
                 for (size_t i = 0; i < anim.clips.size(); ++i) {
                     if (i < anim.clip_paths.size())
                         anim.set_clip(anim.clip_paths[i], anim.clips[i].get());

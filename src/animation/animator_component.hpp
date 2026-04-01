@@ -59,7 +59,7 @@ public:
     void play(const std::string& clip_path, const AnimationClip* clip, bool looping = true, float speed = 1.0f);
 
     // Load a state machine from a .fjanimset file. Clips must be resolved via set_clip().
-    void load_state_machine(const std::string& path);
+    [[nodiscard]] Result<> load_state_machine(const std::string& path);
     // Activate state machine mode using the already-loaded state machine data.
     void enable_state_machine();
     void set_clip(const std::string& name, const AnimationClip* clip);

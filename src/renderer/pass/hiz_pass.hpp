@@ -42,7 +42,7 @@ public:
         [[nodiscard]] bool ready() const { return hiz_image != VK_NULL_HANDLE; }
     };
 
-    void create(Device& device, const PassResources& resources) override;
+    Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
 

@@ -259,7 +259,7 @@ void ShadowPass::destroy_images() {
 
 // ── Pipeline ────────────────────────────────────────────────────────────
 
-void ShadowPass::create(Device& device, const PassResources& resources) {
+Result<> ShadowPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     draw_data_layout_ = resources.draw_data_layout;
@@ -358,7 +358,7 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create shadow pipeline layout");
+        return make_error("Failed to create shadow pipeline layout");
     }
 
     shadow_config_.layout = layout_;
@@ -396,7 +396,7 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create shadow pipeline");
+        return make_error("Failed to create shadow pipeline");
     }
 
     // Skinned shadow pipeline
@@ -423,13 +423,14 @@ void ShadowPass::create(Device& device, const PassResources& resources) {
         vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create skinned shadow pipeline");
+        return make_error("Failed to create skinned shadow pipeline");
     }
 
     vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
     vkDestroyShaderModule(device_, frag_module, nullptr);
     FJELL_GFX_DEBUG("Shadow pass pipelines created (standard + skinned)");
+    return {};
 }
 
 void ShadowPass::register_custom_shadow(uint32_t pipeline_id,

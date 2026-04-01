@@ -13,11 +13,9 @@
 #include <glm/glm.hpp>
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
-void DepthPrePass::create(Device& device, const PassResources& resources) {
+Result<> DepthPrePass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     draw_data_layout_ = resources.draw_data_layout;
 
@@ -107,7 +105,7 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create depth prepass pipeline layout");
+        return make_error("Failed to create depth prepass pipeline layout");
     }
 
     depth_config_.layout = layout_;
@@ -137,7 +135,7 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create depth prepass pipeline");
+        return make_error("Failed to create depth prepass pipeline");
     }
 
     // Skinned depth prepass pipeline
@@ -164,13 +162,14 @@ void DepthPrePass::create(Device& device, const PassResources& resources) {
         vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create skinned depth prepass pipeline");
+        return make_error("Failed to create skinned depth prepass pipeline");
     }
 
     vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
     vkDestroyShaderModule(device_, frag_module, nullptr);
     FJELL_GFX_DEBUG("Depth prepass pipelines created (standard + skinned)");
+    return {};
 }
 
 void DepthPrePass::register_custom_depth(uint32_t pipeline_id,

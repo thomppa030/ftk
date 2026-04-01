@@ -124,7 +124,7 @@ void TonemapPass::Images::invalidate_imgui_texture() {
 
 // ── TonemapPass (singleton) ─────────────────────────────────────────────────
 
-void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
+Result<> TonemapPass::create(Device& device, const PassResources& /*resources*/) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
 
@@ -143,7 +143,7 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
     layout_ci.bindingCount = 1;
     layout_ci.pBindings = &binding;
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &set_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap descriptor layout");
+        return make_error("Failed to create tonemap descriptor layout");
     }
 
     // Pipeline layout
@@ -152,7 +152,7 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
     pipe_layout_ci.setLayoutCount = 1;
     pipe_layout_ci.pSetLayouts = &set_layout_;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap pipeline layout");
+        return make_error("Failed to create tonemap pipeline layout");
     }
 
     // Pipeline
@@ -171,6 +171,7 @@ void TonemapPass::create(Device& device, const PassResources& /*resources*/) {
     vkDestroyShaderModule(device_, vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Tonemap pass created");
+    return {};
 }
 
 void TonemapPass::destroy() {

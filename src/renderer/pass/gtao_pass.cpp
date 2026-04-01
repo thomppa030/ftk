@@ -254,7 +254,7 @@ void GtaoPass::Images::invalidate_imgui_texture() {
 
 // ── GtaoPass (singleton) ────────────────────────────────────────────────────
 
-void GtaoPass::create(Device& device, const PassResources& resources) {
+Result<> GtaoPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     auto global_set_layout = resources.global_set_layout;
@@ -268,7 +268,7 @@ void GtaoPass::create(Device& device, const PassResources& resources) {
     sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     if (vkCreateSampler(device_, &sampler_ci, nullptr, &ao_sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create GTAO sampler");
+        return make_error("Failed to create GTAO sampler");
     }
 
     // Pass descriptor set layout: binding 0 = storage image (write), binding 1 = combined image sampler (read)
@@ -289,7 +289,7 @@ void GtaoPass::create(Device& device, const PassResources& resources) {
     pass_layout_ci.pBindings = pass_bindings.data();
 
     if (vkCreateDescriptorSetLayout(device_, &pass_layout_ci, nullptr, &pass_set_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create GTAO pass descriptor set layout");
+        return make_error("Failed to create GTAO pass descriptor set layout");
     }
 
     // GTAO pipeline layout: set 0 = global, set 1 = pass
@@ -309,7 +309,7 @@ void GtaoPass::create(Device& device, const PassResources& resources) {
         layout_ci.pPushConstantRanges = &push_range;
 
         if (vkCreatePipelineLayout(device_, &layout_ci, nullptr, &gtao_layout_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create GTAO pipeline layout");
+            return make_error("Failed to create GTAO pipeline layout");
         }
 
         auto comp_code = read_spirv(base_path::resolve("shaders/gtao.comp.spv"));
@@ -329,7 +329,7 @@ void GtaoPass::create(Device& device, const PassResources& resources) {
         if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
                                       nullptr, &gtao_pipeline_) != VK_SUCCESS) {
             vkDestroyShaderModule(device_, comp_module, nullptr);
-            throw std::runtime_error("Failed to create GTAO compute pipeline");
+            return make_error("Failed to create GTAO compute pipeline");
         }
         vkDestroyShaderModule(device_, comp_module, nullptr);
     }
@@ -351,7 +351,7 @@ void GtaoPass::create(Device& device, const PassResources& resources) {
         layout_ci.pPushConstantRanges = &push_range;
 
         if (vkCreatePipelineLayout(device_, &layout_ci, nullptr, &blur_layout_) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create GTAO blur pipeline layout");
+            return make_error("Failed to create GTAO blur pipeline layout");
         }
 
         auto comp_code = read_spirv(base_path::resolve("shaders/gtao_blur.comp.spv"));
@@ -371,7 +371,7 @@ void GtaoPass::create(Device& device, const PassResources& resources) {
         if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
                                       nullptr, &blur_pipeline_) != VK_SUCCESS) {
             vkDestroyShaderModule(device_, comp_module, nullptr);
-            throw std::runtime_error("Failed to create GTAO blur compute pipeline");
+            return make_error("Failed to create GTAO blur compute pipeline");
         }
         vkDestroyShaderModule(device_, comp_module, nullptr);
     }
@@ -380,6 +380,7 @@ void GtaoPass::create(Device& device, const PassResources& resources) {
     default_images_.create(device_, physical_device_, pass_set_layout_, ao_sampler_, 1, 1);
 
     FJELL_GFX_DEBUG("GTAO pass created");
+    return {};
 }
 
 void GtaoPass::destroy() {

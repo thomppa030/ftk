@@ -6,11 +6,9 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
-#include <stdexcept>
-
 namespace fjell {
 
-void LightCullPass::create(Device& device, const PassResources& resources) {
+Result<> LightCullPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
     auto comp_code = read_spirv(base_path::resolve("shaders/light_cull.comp.spv"));
@@ -38,7 +36,7 @@ void LightCullPass::create(Device& device, const PassResources& resources) {
 
     if (vkCreatePipelineLayout(device_, &layout_ci, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, comp_module, nullptr);
-        throw std::runtime_error("Failed to create light cull pipeline layout");
+        return make_error("Failed to create light cull pipeline layout");
     }
 
     VkComputePipelineCreateInfo pipeline_ci{};
@@ -49,11 +47,12 @@ void LightCullPass::create(Device& device, const PassResources& resources) {
     if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
                                   nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, comp_module, nullptr);
-        throw std::runtime_error("Failed to create light cull compute pipeline");
+        return make_error("Failed to create light cull compute pipeline");
     }
 
     vkDestroyShaderModule(device_, comp_module, nullptr);
     FJELL_GFX_DEBUG("Light cull compute pipeline created");
+    return {};
 }
 
 void LightCullPass::destroy() {

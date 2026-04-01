@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -33,8 +35,8 @@ public:
 
     [[nodiscard]] BlendResult evaluate(float param) const;
 
-    [[nodiscard]] static BlendSpace1D load(const std::string& path);
-    void save(const std::string& path) const;
+    [[nodiscard]] static Result<BlendSpace1D> load(const std::string& path);
+    [[nodiscard]] Result<> save(const std::string& path) const;
 
     [[nodiscard]] const std::string& parameter() const { return parameter_; }
     void set_parameter(const std::string& name) { parameter_ = name; }
@@ -76,8 +78,8 @@ public:
 
     [[nodiscard]] BlendResult2D evaluate(glm::vec2 param) const;
 
-    [[nodiscard]] static BlendSpace2D load(const std::string& path);
-    void save(const std::string& path) const;
+    [[nodiscard]] static Result<BlendSpace2D> load(const std::string& path);
+    [[nodiscard]] Result<> save(const std::string& path) const;
 
     [[nodiscard]] const std::string& parameter_x() const { return parameter_x_; }
     [[nodiscard]] const std::string& parameter_y() const { return parameter_y_; }

@@ -24,7 +24,7 @@ struct GridPushConstants {
 
 class GridPass : public RenderPass {
 public:
-    void create(Device& device, const PassResources& resources) override;
+    Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
 

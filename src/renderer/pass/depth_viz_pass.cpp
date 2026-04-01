@@ -14,7 +14,7 @@
 
 namespace fjell {
 
-void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
+Result<> DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
 
@@ -28,7 +28,7 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
     depth_sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
     if (vkCreateSampler(device_, &depth_sampler_info, nullptr, &depth_sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create depth viz sampler");
+        return make_error("Failed to create depth viz sampler");
     }
 
     // Output sampler
@@ -47,7 +47,7 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
     layout_ci.pBindings = &binding;
 
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &set_layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create depth viz descriptor set layout");
+        return make_error("Failed to create depth viz descriptor set layout");
     }
 
     // Descriptor pool (per-frame to avoid updating while previous frame is in flight)
@@ -62,7 +62,7 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
     pool_ci.pPoolSizes = &pool_size;
 
     if (vkCreateDescriptorPool(device_, &pool_ci, nullptr, &pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create depth viz descriptor pool");
+        return make_error("Failed to create depth viz descriptor pool");
     }
 
     // Allocate per-frame descriptor sets
@@ -75,7 +75,7 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
     alloc_info.pSetLayouts = layouts.data();
 
     if (vkAllocateDescriptorSets(device_, &alloc_info, depth_sets_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate depth viz descriptor sets");
+        return make_error("Failed to allocate depth viz descriptor sets");
     }
 
     // Pipeline layout: one set + push constants (near, far)
@@ -92,7 +92,7 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
     pipe_layout_ci.pPushConstantRanges = &push_range;
 
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create depth viz pipeline layout");
+        return make_error("Failed to create depth viz pipeline layout");
     }
 
     // Shaders
@@ -181,13 +181,14 @@ void DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create depth viz pipeline");
+        return make_error("Failed to create depth viz pipeline");
     }
 
     vkDestroyShaderModule(device_, frag_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Depth visualization pass created");
+    return {};
 }
 
 void DepthVizPass::destroy() {

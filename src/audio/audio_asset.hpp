@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <string>
 
 namespace fjell {
@@ -16,8 +18,8 @@ struct AudioAsset {
     bool spatial{true};
 };
 
-[[nodiscard]] AudioAsset load_audio_asset_file(const std::string& path);
-void save_audio_asset_file(const std::string& path, const AudioAsset& asset);
+[[nodiscard]] Result<AudioAsset> load_audio_asset_file(const std::string& path);
+[[nodiscard]] Result<> save_audio_asset_file(const std::string& path, const AudioAsset& asset);
 void apply_audio_to_source(const AudioAsset& asset, AudioSourceComponent& source);
 
 } // namespace fjell

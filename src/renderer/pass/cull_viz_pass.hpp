@@ -18,7 +18,7 @@ struct FrameContext;
 
 class CullVizPass {
 public:
-    void create(Device& device, const PassResources& resources);
+    Result<> create(Device& device, const PassResources& resources);
     void destroy();
 
     // Record the viz: renders all draws, colored green/red by visibility

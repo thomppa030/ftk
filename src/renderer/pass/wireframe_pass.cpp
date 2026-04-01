@@ -14,11 +14,9 @@
 #include <glm/glm.hpp>
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
-void WireframePass::create(Device& device, const PassResources& resources) {
+Result<> WireframePass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
     viz_image_.init(device.handle(), device.physical_device(), VK_FORMAT_R8G8B8A8_SRGB);
@@ -111,7 +109,7 @@ void WireframePass::create(Device& device, const PassResources& resources) {
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create wireframe pipeline layout");
+        return make_error("Failed to create wireframe pipeline layout");
     }
 
     VkFormat color_format = VK_FORMAT_R8G8B8A8_SRGB;
@@ -143,13 +141,14 @@ void WireframePass::create(Device& device, const PassResources& resources) {
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create wireframe pipeline");
+        return make_error("Failed to create wireframe pipeline");
     }
 
     vkDestroyShaderModule(device_, frag_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Wireframe pass created");
+    return {};
 }
 
 void WireframePass::destroy() {

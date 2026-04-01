@@ -6,7 +6,6 @@
 #include <algorithm>
 #include <cmath>
 #include <fstream>
-#include <stdexcept>
 
 namespace fjell {
 
@@ -44,9 +43,9 @@ BlendResult BlendSpace1D::evaluate(float param) const {
     return {0, 0, 1.0f, 0.0f};
 }
 
-BlendSpace1D BlendSpace1D::load(const std::string& path) {
+Result<BlendSpace1D> BlendSpace1D::load(const std::string& path) {
     std::ifstream file(path);
-    if (!file) throw std::runtime_error("Failed to open .fjblend1D: " + path);
+    if (!file) return make_error("Failed to open .fjblend1D: " + path);
 
     auto j = nlohmann::json::parse(file);
     BlendSpace1D bs;
@@ -67,7 +66,7 @@ BlendSpace1D BlendSpace1D::load(const std::string& path) {
     return bs;
 }
 
-void BlendSpace1D::save(const std::string& path) const {
+Result<> BlendSpace1D::save(const std::string& path) const {
     nlohmann::json j;
     if (!skeleton_path_.empty()) j["skeleton"] = skeleton_path_;
     j["parameter"] = parameter_;
@@ -78,8 +77,9 @@ void BlendSpace1D::save(const std::string& path) const {
     }
 
     std::ofstream file(path);
-    if (!file) throw std::runtime_error("Failed to save .fjblend1D: " + path);
+    if (!file) return make_error("Failed to save .fjblend1D: " + path);
     file << j.dump(2);
+    return {};
 }
 
 // ── BlendSpace2D ────────────────────────────────────────────────────────
@@ -287,9 +287,9 @@ BlendResult2D BlendSpace2D::evaluate(glm::vec2 param) const {
     return best_result;
 }
 
-BlendSpace2D BlendSpace2D::load(const std::string& path) {
+Result<BlendSpace2D> BlendSpace2D::load(const std::string& path) {
     std::ifstream file(path);
-    if (!file) throw std::runtime_error("Failed to open .fjblend2D: " + path);
+    if (!file) return make_error("Failed to open .fjblend2D: " + path);
 
     auto j = nlohmann::json::parse(file);
     BlendSpace2D bs;
@@ -316,7 +316,7 @@ BlendSpace2D BlendSpace2D::load(const std::string& path) {
     return bs;
 }
 
-void BlendSpace2D::save(const std::string& path) const {
+Result<> BlendSpace2D::save(const std::string& path) const {
     nlohmann::json j;
     if (!skeleton_path_.empty()) j["skeleton"] = skeleton_path_;
     j["parameter_x"] = parameter_x_;
@@ -331,8 +331,9 @@ void BlendSpace2D::save(const std::string& path) const {
     }
 
     std::ofstream file(path);
-    if (!file) throw std::runtime_error("Failed to save .fjblend2D: " + path);
+    if (!file) return make_error("Failed to save .fjblend2D: " + path);
     file << j.dump(2);
+    return {};
 }
 
 } // namespace fjell

@@ -14,11 +14,9 @@
 #include <glm/glm.hpp>
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
-void OverdrawPass::create(Device& device, const PassResources& resources) {
+Result<> OverdrawPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
     viz_image_.init(device.handle(), device.physical_device(), VK_FORMAT_R8G8B8A8_SRGB);
@@ -142,6 +140,7 @@ void OverdrawPass::create(Device& device, const PassResources& resources) {
     vkDestroyShaderModule(device_, vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Overdraw pass created");
+    return {};
 }
 
 void OverdrawPass::destroy() {

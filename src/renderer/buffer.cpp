@@ -150,4 +150,56 @@ uint32_t Buffer::find_memory_type(VkPhysicalDevice physical_device,
     throw std::runtime_error("Failed to find suitable memory type");
 }
 
+Result<Buffer> Buffer::create(VkDevice device, VkPhysicalDevice physical_device,
+                              VkDeviceSize size, VkBufferUsageFlags usage,
+                              VkMemoryPropertyFlags properties) {
+    Buffer buf{};
+    buf.device_ = device;
+    buf.size_ = size;
+
+    VkBufferCreateInfo buffer_info{};
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size = size;
+    buffer_info.usage = usage;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateBuffer(device, &buffer_info, nullptr, &buf.buffer_) != VK_SUCCESS) {
+        return make_error("Failed to create buffer");
+    }
+
+    VkMemoryRequirements mem_reqs;
+    vkGetBufferMemoryRequirements(device, buf.buffer_, &mem_reqs);
+
+    VkPhysicalDeviceMemoryProperties mem_props;
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
+
+    uint32_t mem_type_index = UINT32_MAX;
+    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
+        if ((mem_reqs.memoryTypeBits & (1 << i)) &&
+            (mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
+            mem_type_index = i;
+            break;
+        }
+    }
+    if (mem_type_index == UINT32_MAX) {
+        vkDestroyBuffer(device, buf.buffer_, nullptr);
+        buf.buffer_ = VK_NULL_HANDLE;
+        return make_error("Failed to find suitable memory type for buffer");
+    }
+
+    VkMemoryAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.allocationSize = mem_reqs.size;
+    alloc_info.memoryTypeIndex = mem_type_index;
+
+    if (vkAllocateMemory(device, &alloc_info, nullptr, &buf.memory_) != VK_SUCCESS) {
+        vkDestroyBuffer(device, buf.buffer_, nullptr);
+        buf.buffer_ = VK_NULL_HANDLE;
+        return make_error("Failed to allocate buffer memory");
+    }
+
+    vkBindBufferMemory(device, buf.buffer_, buf.memory_, 0);
+    return buf;
+}
+
 } // namespace fjell

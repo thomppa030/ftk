@@ -14,14 +14,12 @@
 #include <glm/glm.hpp>
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
 // R16G16B16A16_SFLOAT for full-range normals usable as shader input
 static constexpr VkFormat NORMAL_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
 
-void NormalPass::create(Device& device, const PassResources& resources) {
+Result<> NormalPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
     viz_image_.init(device.handle(), device.physical_device(), NORMAL_FORMAT);
@@ -137,6 +135,7 @@ void NormalPass::create(Device& device, const PassResources& resources) {
     vkDestroyShaderModule(device_, vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Normal pass created");
+    return {};
 }
 
 void NormalPass::destroy() {

@@ -4,7 +4,6 @@
 #include <nlohmann/json.hpp>
 
 #include <fstream>
-#include <stdexcept>
 
 namespace fjell {
 
@@ -21,10 +20,10 @@ static CompareOp parse_op(const std::string& s) {
     return CompareOp::equal;
 }
 
-void AnimationStateMachine::load(const std::string& path) {
+Result<> AnimationStateMachine::load(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) {
-        throw std::runtime_error("Failed to open .fjanimset: " + path);
+        return make_error("Failed to open .fjanimset: " + path);
     }
 
     nlohmann::json j;
@@ -43,7 +42,7 @@ void AnimationStateMachine::load(const std::string& path) {
 
     // Parse states
     if (!j.contains("states") || !j["states"].is_array()) {
-        throw std::runtime_error(".fjanimset missing 'states' array: " + path);
+        return make_error(".fjanimset missing 'states' array: " + path);
     }
 
     for (const auto& js : j["states"]) {
@@ -87,6 +86,7 @@ void AnimationStateMachine::load(const std::string& path) {
 
     // Initial state
     current_ = j.value("initial", states_.empty() ? "" : states_[0].name);
+    return {};
 }
 
 // ── JSON saving ────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ static std::string format_op(CompareOp op) {
     return "==";
 }
 
-void AnimationStateMachine::save(const std::string& path) const {
+Result<> AnimationStateMachine::save(const std::string& path) const {
     nlohmann::json j;
 
     if (!skeleton_path_.empty()) {
@@ -154,9 +154,10 @@ void AnimationStateMachine::save(const std::string& path) const {
 
     std::ofstream file(path);
     if (!file) {
-        throw std::runtime_error("Failed to save .fjanimset: " + path);
+        return make_error("Failed to save .fjanimset: " + path);
     }
     file << j.dump(2);
+    return {};
 }
 
 void AnimationStateMachine::copy_definition_from(const AnimationStateMachine& other) {

@@ -10,11 +10,9 @@
 #include <glm/glm.hpp>
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
-void DebugPass::create(Device& device, const PassResources& resources) {
+Result<> DebugPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
     auto vert_code = read_spirv(base_path::resolve("shaders/debug.vert.spv"));
@@ -118,7 +116,7 @@ void DebugPass::create(Device& device, const PassResources& resources) {
     if (vkCreatePipelineLayout(device_, &layout_info, nullptr, &layout_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create debug pipeline layout");
+        return make_error("Failed to create debug pipeline layout");
     }
 
     VkFormat depth_format = resources.depth_format;
@@ -150,13 +148,14 @@ void DebugPass::create(Device& device, const PassResources& resources) {
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
-        throw std::runtime_error("Failed to create debug pipeline");
+        return make_error("Failed to create debug pipeline");
     }
 
     vkDestroyShaderModule(device_, frag_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Debug pass pipeline created");
+    return {};
 }
 
 void DebugPass::destroy() {

@@ -5,11 +5,10 @@
 
 #include <array>
 #include <cstring>
-#include <stdexcept>
 
 namespace fjell {
 
-void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device) {
+Result<> BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device) {
     device_ = device;
     physical_device_ = physical_device;
 
@@ -24,7 +23,7 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
     sampler_ci.anisotropyEnable = VK_TRUE;
     sampler_ci.maxAnisotropy = 16.0f;
     if (vkCreateSampler(device_, &sampler_ci, nullptr, &default_sampler_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bindless default sampler");
+        return make_error("Failed to create bindless default sampler");
     }
 
     // Descriptor set layout: binding 0 = texture array, binding 1 = material SSBO,
@@ -68,7 +67,7 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
     layout_ci.pBindings = bindings.data();
 
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bindless descriptor set layout");
+        return make_error("Failed to create bindless descriptor set layout");
     }
 
     // Descriptor pool: sampler array + 2 storage buffers
@@ -86,7 +85,7 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
     pool_ci.pPoolSizes = pool_sizes.data();
 
     if (vkCreateDescriptorPool(device_, &pool_ci, nullptr, &pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bindless descriptor pool");
+        return make_error("Failed to create bindless descriptor pool");
     }
 
     // Allocate descriptor set
@@ -97,7 +96,7 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
     alloc_ci.pSetLayouts = &layout_;
 
     if (vkAllocateDescriptorSets(device_, &alloc_ci, &set_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate bindless descriptor set");
+        return make_error("Failed to allocate bindless descriptor set");
     }
 
     // Pre-allocate material SSBO (96 bytes per material * 1024 = 96 KB)
@@ -152,6 +151,7 @@ void BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device)
 
     FJELL_GFX_DEBUG("Bindless registry created (max {} textures, {} materials)",
                     MAX_TEXTURES, MAX_MATERIALS);
+    return {};
 }
 
 void BindlessTextures::destroy() {

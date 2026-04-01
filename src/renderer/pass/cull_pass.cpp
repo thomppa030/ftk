@@ -4,12 +4,10 @@
 #include "core/log.hpp"
 
 #include <array>
-#include <stdexcept>
-
 namespace fjell {
 
-void CullPass::create(VkDevice device, VkPhysicalDevice physical_device,
-                      VkDescriptorSetLayout global_set_layout) {
+Result<> CullPass::create(VkDevice device, VkPhysicalDevice physical_device,
+                          VkDescriptorSetLayout global_set_layout) {
     device_ = device;
     physical_device_ = physical_device;
 
@@ -63,7 +61,7 @@ void CullPass::create(VkDevice device, VkPhysicalDevice physical_device,
     layout_ci.pPushConstantRanges = &push_range;
 
     if (vkCreatePipelineLayout(device_, &layout_ci, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create cull pass pipeline layout");
+        return make_error("Failed to create cull pass pipeline layout");
     }
 
     auto comp_code = read_spirv(base_path::resolve("shaders/cull.comp.spv"));
@@ -83,11 +81,12 @@ void CullPass::create(VkDevice device, VkPhysicalDevice physical_device,
     if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
                                   nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, comp_module, nullptr);
-        throw std::runtime_error("Failed to create cull compute pipeline");
+        return make_error("Failed to create cull compute pipeline");
     }
 
     vkDestroyShaderModule(device_, comp_module, nullptr);
     FJELL_GFX_DEBUG("GPU cull compute pipeline created");
+    return {};
 }
 
 void CullPass::destroy() {

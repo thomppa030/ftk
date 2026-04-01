@@ -172,7 +172,7 @@ void HizPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
 
 // ── HizPass (singleton) ─────────────────────────────────────────────────────
 
-void HizPass::create(Device& device, const PassResources& /*resources*/) {
+Result<> HizPass::create(Device& device, const PassResources& /*resources*/) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
 
@@ -242,6 +242,7 @@ void HizPass::create(Device& device, const PassResources& /*resources*/) {
     vkDestroyShaderModule(device_, module, nullptr);
 
     FJELL_GFX_DEBUG("HizPass created");
+    return {};
 }
 
 void HizPass::destroy() {

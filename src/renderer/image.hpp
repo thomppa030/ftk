@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/result.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -8,16 +10,25 @@ namespace fjell {
 
 class Image {
 public:
+    /// Throwing constructor — used by existing init-time code.
     Image(VkDevice device, VkPhysicalDevice physical_device,
           uint32_t width, uint32_t height, VkFormat format,
           VkImageTiling tiling, VkImageUsageFlags usage,
           VkMemoryPropertyFlags properties, uint32_t mip_levels = 1);
+
+    /// Non-throwing factory — returns Result<Image> for error-propagating callers.
+    [[nodiscard]] static Result<Image> create(
+        VkDevice device, VkPhysicalDevice physical_device,
+        uint32_t width, uint32_t height, VkFormat format,
+        VkImageTiling tiling, VkImageUsageFlags usage,
+        VkMemoryPropertyFlags properties, uint32_t mip_levels = 1);
+
     ~Image();
 
     Image(const Image&) = delete;
     Image& operator=(const Image&) = delete;
-    Image(Image&&) = delete;
-    Image& operator=(Image&&) = delete;
+    Image(Image&&) noexcept;
+    Image& operator=(Image&&) noexcept;
 
     void transition_layout(VkCommandBuffer cmd,
                            VkImageLayout old_layout, VkImageLayout new_layout,
@@ -33,8 +44,14 @@ public:
 
     void create_view(VkFormat format, VkImageAspectFlags aspect, uint32_t mip_levels = 1);
 
+    /// Non-throwing create_view variant.
+    [[nodiscard]] Result<> create_view_checked(VkFormat format, VkImageAspectFlags aspect,
+                                               uint32_t mip_levels = 1);
+
 private:
-    VkDevice device_;
+    Image() = default;
+
+    VkDevice device_{VK_NULL_HANDLE};
     VkImage image_{VK_NULL_HANDLE};
     VkDeviceMemory memory_{VK_NULL_HANDLE};
     VkImageView view_{VK_NULL_HANDLE};

@@ -44,7 +44,20 @@ void Pipeline::recreate() {
     FJELL_GFX_INFO("Pipeline recreated");
 }
 
+Result<> Pipeline::recreate_checked() {
+    vkDeviceWaitIdle(device_.handle());
+    destroy();
+    auto result = create_impl();
+    if (result) FJELL_GFX_INFO("Pipeline recreated");
+    return result;
+}
+
 void Pipeline::create() {
+    auto result = create_impl();
+    if (!result) throw std::runtime_error(result.error());
+}
+
+Result<> Pipeline::create_impl() {
     auto vert_code = read_spirv(base_path::resolve(vert_shader_));
     auto frag_code = read_spirv(base_path::resolve(frag_shader_));
 
@@ -145,7 +158,7 @@ void Pipeline::create() {
     layout_info.pPushConstantRanges = &push_range;
 
     if (vkCreatePipelineLayout(device_.handle(), &layout_info, nullptr, &layout_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create pipeline layout");
+        return make_error("Failed to create pipeline layout");
     }
 
     // Dynamic rendering: specify attachment formats instead of render pass
@@ -172,13 +185,16 @@ void Pipeline::create() {
     pipeline_info.renderPass = VK_NULL_HANDLE;
 
     if (vkCreateGraphicsPipelines(device_.handle(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create graphics pipeline");
+        vkDestroyShaderModule(device_.handle(), frag_module, nullptr);
+        vkDestroyShaderModule(device_.handle(), vert_module, nullptr);
+        return make_error("Failed to create graphics pipeline");
     }
 
     vkDestroyShaderModule(device_.handle(), frag_module, nullptr);
     vkDestroyShaderModule(device_.handle(), vert_module, nullptr);
 
     FJELL_GFX_DEBUG("Graphics pipeline created");
+    return {};
 }
 
 void Pipeline::destroy() {

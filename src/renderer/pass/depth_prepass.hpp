@@ -15,7 +15,7 @@ namespace fjell {
 // use depth-equal to skip all overdraw.
 class DepthPrePass : public RenderPass {
 public:
-    void create(Device& device, const PassResources& resources) override;
+    Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
 

@@ -55,7 +55,9 @@ GpuContext::GpuContext(Window& window)
     FJELL_GFX_INFO("Initializing GPU context");
     create_command_pool();
     create_descriptor_resources();
-    bindless_textures_.create(device_.handle(), device_.physical_device());
+    if (auto r = bindless_textures_.create(device_.handle(), device_.physical_device()); !r) {
+        throw std::runtime_error(r.error());
+    }
 
     // Multi-draw indirect setup
     mega_buffer_ = std::make_unique<MegaBuffer>(

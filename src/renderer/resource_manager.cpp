@@ -575,12 +575,10 @@ Result<AudioAssetHandle> ResourceManager::load_audio_asset(const std::string& pa
         return it->second;
     }
 
-    try {
-        auto asset = std::make_unique<AudioAsset>(load_audio_asset_file(path));
-        return audio_assets_.insert(path, std::move(asset));
-    } catch (const std::exception& e) {
-        return make_error(e.what());
-    }
+    auto result = load_audio_asset_file(path);
+    if (!result) return make_error(result.error());
+    auto asset = std::make_unique<AudioAsset>(std::move(*result));
+    return audio_assets_.insert(path, std::move(asset));
 }
 
 AudioAsset* ResourceManager::get(AudioAssetHandle handle) const {

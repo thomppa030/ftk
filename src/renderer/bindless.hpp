@@ -1,5 +1,6 @@
 #pragma once
 
+#include "core/result.hpp"
 #include "renderer/buffer.hpp"
 
 #include <vulkan/vulkan.h>
@@ -44,7 +45,7 @@ public:
     static constexpr uint32_t MAX_TEXTURES = 1024;
     static constexpr uint32_t MAX_MATERIALS = 1024;
 
-    void create(VkDevice device, VkPhysicalDevice physical_device);
+    [[nodiscard]] Result<> create(VkDevice device, VkPhysicalDevice physical_device);
     void destroy();
 
     // Register a texture and get its bindless index.
