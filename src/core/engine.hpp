@@ -67,6 +67,14 @@ public:
     void set_scene_override(const std::string& scene_name);
 
 private:
+    void init_subsystems();
+    void init_project(const std::filesystem::path& project_path);
+    void init_ui();
+    void init_resources();
+    void init_scene();
+    void init_content_browser();
+    void init_editor();
+
     void create_default_scene();
     void save_material_assets();
 

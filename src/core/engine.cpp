@@ -81,7 +81,17 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     : window_{title, width, height}
     , vulkan_context_{std::make_unique<VulkanContext>(window_)}
 {
-    // Register subsystems
+    init_subsystems();
+    init_project(project_path);
+    init_ui();
+    init_resources();
+    init_scene();
+    init_content_browser();
+    init_editor();
+    FJELL_CORE_INFO("Engine initialized");
+}
+
+void Engine::init_subsystems() {
     animation_subsystem_ = add_subsystem<AnimationSubsystem>(
         vulkan_context_->device(), vulkan_context_->physical_device());
     audio_subsystem_     = add_subsystem<AudioSubsystem>();
@@ -91,7 +101,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     sprite_anim_subsystem_ = add_subsystem<SpriteAnimSubsystem>();
     camera_subsystem_    = add_subsystem<CameraSubsystem>();
 
-    // Phase groups
     play_phase_0_.push_back(script_subsystem_);
     play_phase_0_.push_back(camera_subsystem_);
     play_phase_1_.push_back(physics_subsystem_);
@@ -104,8 +113,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 #ifndef NDEBUG
     shader_watcher_.emplace(base_path::resolve("../shaders"), base_path::resolve("shaders"));
 #endif
+}
 
-    // Check for game mode (game.fjell next to binary)
+void Engine::init_project(const std::filesystem::path& project_path) {
     auto game_config_path = base_path::resolve("game.fjell");
     if (std::filesystem::exists(game_config_path)) {
         game_mode_ = true;
@@ -118,7 +128,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         }
     }
 
-    // Open project if path given
     if (!project_path.empty()) {
         project_mgr_.open(project_path);
         if (project_mgr_.active()) {
@@ -129,7 +138,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     window_.set_input(&input_);
     input_.attach(window_.handle());
     InputActionMap::set_instance(&input_action_map_);
+}
 
+void Engine::init_ui() {
     imgui_layer_ = std::make_unique<ImGuiLayer>(
         window_.handle(), vulkan_context_->instance(),
         vulkan_context_->physical_device(), vulkan_context_->device(),
@@ -141,7 +152,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         imgui_layer_->render(cmd);
     });
 
-    // Initialize game UI (owned by Engine, rendered via callback)
     vulkan_context_->init_game_ui(game_ui_,
         base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"),
         vulkan_context_->swapchain_format());
@@ -151,7 +161,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                VkCommandBuffer cmd, VkDescriptorSet global_set,
                VkDescriptorSet bindless_set, VkExtent2D extent,
                uint32_t frame_index) {
-            // FPS counter (shared across all UI instances)
             fps_accum_ += clock_.delta_time();
             ++fps_count_;
             if (fps_accum_ >= 0.5f) {
@@ -161,7 +170,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                 fps_count_ = 0;
             }
 
-            // Editor preview UI (non-play mode, loaded from UI editor context)
             if (!active_context().is_playing() && game_ui_.loaded()) {
                 game_ui_.update(static_cast<float>(extent.width),
                                 static_cast<float>(extent.height),
@@ -170,7 +178,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                                 frame_index);
             }
 
-            // Runtime screen-space UI instances from UiWidgetComponent nodes (play mode)
             for (auto& inst : ui_subsystem_->instances()) {
                 if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) continue;
                 if (!inst.game_ui || !inst.game_ui->loaded()) continue;
@@ -183,11 +190,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             }
         });
 
-    // Create UI subsystem (after game_ui_ font atlas is ready)
     ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_, game_ui_);
     play_phase_0_.push_back(ui_subsystem_);
 
-    // Worldspace UI callback (renders in color pass after transparent objects)
     vulkan_context_->set_world_ui_callback(
         [this](VkCommandBuffer cmd, VkDescriptorSet global_set,
                VkDescriptorSet bindless_set, VkExtent2D extent,
@@ -200,7 +205,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                                            extent, frame_index, rec.push);
             }
         });
+}
 
+void Engine::init_resources() {
     resource_manager_ = std::make_unique<ResourceManager>(
         vulkan_context_->device(), vulkan_context_->physical_device(),
         vulkan_context_->command_pool(), vulkan_context_->graphics_queue(),
@@ -228,11 +235,12 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     ScriptManager::set_camera_subsystem(camera_subsystem_);
     ScriptManager::set_vulkan_context(vulkan_context_.get());
     ui_subsystem_->set_script_manager(&script_subsystem_->manager());
-    // Determine which scene to load
+}
+
+void Engine::init_scene() {
     if (project_mgr_.active()) {
         current_scene_path_ = project_mgr_.active()->resolve(project_mgr_.active()->config().default_scene);
     } else if (game_mode_) {
-        // In game mode, scenes are alongside the binary
         current_scene_path_ = base_path::resolve("scenes/main.fjell");
     } else {
         current_scene_path_ = base_path::resolve(SCENE_FILE);
@@ -252,7 +260,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     }
     load_input_actions();
 
-    // Load game scripts
     if (game_mode_) {
         auto game_so = base_path::resolve("game.so");
         if (std::filesystem::exists(game_so)) {
@@ -265,7 +272,9 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     } else {
         load_project_scripts();
     }
+}
 
+void Engine::init_content_browser() {
     icon_cache_ = std::make_unique<IconCache>(
         vulkan_context_->device(), vulkan_context_->physical_device(),
         vulkan_context_->command_pool(), vulkan_context_->graphics_queue(),
@@ -287,7 +296,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             auto* entry = context_registry_.find(type);
             if (!entry) return;
 
-            // Reuse existing context if one matches
             for (int i = 0; i < static_cast<int>(contexts_.size()); ++i) {
                 if (entry->matches(*contexts_[i], path)) {
                     entry->open(*contexts_[i], path);
@@ -296,7 +304,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
                 }
             }
 
-            // Create new context
             auto ctx = entry->create(path);
             contexts_.push_back(std::move(ctx));
             switch_context(static_cast<int>(contexts_.size()) - 1);
@@ -307,7 +314,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             auto* node = scene_.find(node_id);
             std::string name = node ? node->name : "preset";
             auto path = std::filesystem::path(directory) / (name + ".fjp");
-            // Avoid overwriting — append number if file exists
             if (std::filesystem::exists(path)) {
                 for (int i = 1; i < 100; ++i) {
                     auto alt = std::filesystem::path(directory) / (name + "_" + std::to_string(i) + ".fjp");
@@ -339,11 +345,11 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     if (project_mgr_.active()) {
         content_browser_.set_root(project_mgr_.active()->root());
     }
+}
 
-
+void Engine::init_editor() {
     bind_menu_bar();
 
-    // Apply saved layout for projects opened before signals were connected
     if (project_mgr_.active()) {
         auto& layout = project_mgr_.active()->config().layout;
         if (!layout.empty()) {
@@ -353,7 +359,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
 
     layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
 
-    // Create scene editor context
     {
         SceneEditorDeps deps{
             .scene = &scene_,
@@ -385,8 +390,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         active_context_idx_ = 0;
     }
 
-
-    // Register context factories for asset types
     context_registry_.register_type("material", {
         .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
             MaterialEditorDeps deps{
@@ -452,7 +455,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         }
     });
 
-    // Animation is special: reuses any existing animation context (matches by type, not path)
     auto anim_factory = [this](const std::string&) -> std::unique_ptr<EditorContext> {
         AnimationEditorDeps deps{
             .vulkan_context = vulkan_context_.get(),
@@ -507,7 +509,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         .matches = anim_matches
     });
 
-    // ── Blend space 1D editor ───────────────────────────────────────────
     context_registry_.register_type("blend1d", {
         .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
             BlendSpace1DEditorDeps deps{
@@ -532,7 +533,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         }
     });
 
-    // ── Blend space 2D editor ───────────────────────────────────────────
     context_registry_.register_type("blend2d", {
         .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
             BlendSpace2DEditorDeps deps{
@@ -556,8 +556,6 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
             return dynamic_cast<const BlendSpace2DEditorContext*>(&ctx) != nullptr;
         }
     });
-
-    FJELL_CORE_INFO("Engine initialized");
 }
 
 Engine::~Engine() {
