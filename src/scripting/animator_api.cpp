@@ -3,7 +3,7 @@
 #include "scene/scene.hpp"
 
 static fjell::AnimatorComponent* find_animator(uint32_t node_id) {
-    auto* scene = fjell::script_active_scene();
+    auto* scene = fjell::script_services().scene;
     if (!scene) return nullptr;
     auto* node = scene->find(node_id);
     if (!node) return nullptr;

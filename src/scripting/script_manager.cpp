@@ -57,17 +57,14 @@ static const AssetTypeInfo* find_asset_type(const std::string& ref_type_name) {
     return nullptr;
 }
 
-// ── Convenience aliases for shared script globals ────────────────────────
+// ── Convenience aliases for shared script services ─────────────────────
 
-static auto& s_active_scene = fjell::script_active_scene();
-static auto& s_active_script_mgr = fjell::script_active_manager();
-static auto& s_resource_manager = fjell::script_resource_manager();
-static auto& s_active_project = fjell::script_active_project();
+static auto& s_services = fjell::script_services();
 
 extern "C" void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation) {
-    if (!s_active_scene || id == 0) return nullptr;
-    if (s_active_scene->generation_of(id) != generation) return nullptr;
-    return s_active_scene->find_spatial(id);
+    if (!s_services.scene || id == 0) return nullptr;
+    if (s_services.scene->generation_of(id) != generation) return nullptr;
+    return s_services.scene->find_spatial(id);
 }
 
 // ── Ref<T> resolution and ref counting (called from game .so) ───────────
@@ -232,34 +229,6 @@ uint32_t ScriptManager::hash_type_name(const std::string& name) {
         hash *= 16777619u;
     }
     return hash;
-}
-
-void ScriptManager::set_input(Input* input) {
-    script_input() = input;
-}
-
-void ScriptManager::set_resource_manager(ResourceManager* rm) {
-    s_resource_manager = rm;
-}
-
-void ScriptManager::set_active_project(const Project* project) {
-    s_active_project = project;
-}
-
-void ScriptManager::set_vfx_subsystem(VfxSubsystem* vfx) {
-    script_vfx_subsystem() = vfx;
-}
-
-void ScriptManager::set_audio_subsystem(AudioSubsystem* audio) {
-    script_audio_subsystem() = audio;
-}
-
-void ScriptManager::set_camera_subsystem(CameraSubsystem* camera) {
-    script_camera_subsystem() = camera;
-}
-
-void ScriptManager::set_vulkan_context(VulkanContext* vk) {
-    script_vulkan_context() = vk;
 }
 
 // ── Constructor / Destructor ────────────────────────────────────────────
@@ -461,8 +430,8 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
 
 void ScriptManager::prepare(Scene& scene, const Input& input, const Clock& clock,
                             PhysicsWorld* physics) {
-    s_active_scene = &scene;
-    s_active_script_mgr = this;
+    s_services.scene = &scene;
+    s_services.manager = this;
     populate_world(input, clock, physics);
 }
 
@@ -471,8 +440,8 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     FJELL_PROFILE_SCOPE_N("script_update");
     if (!is_loaded()) return;
 
-    s_active_scene = &scene;
-    s_active_script_mgr = this;
+    s_services.scene = &scene;
+    s_services.manager = this;
     populate_world(input, clock, physics);
 
     float dt = clock.delta_time();
@@ -652,15 +621,15 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
             case FJELL_FIELD_REF: {
                 const auto* ref = static_cast<const RefData*>(ptr);
                 std::string path;
-                if (ref->handle_id != 0 && s_resource_manager) {
+                if (ref->handle_id != 0 && s_services.resources) {
                     if (f.ref_type_name == "VfxAsset") {
-                        path = s_resource_manager->asset_path_of(VfxAssetHandle{ref->handle_id});
+                        path = s_services.resources->asset_path_of(VfxAssetHandle{ref->handle_id});
                     } else if (f.ref_type_name == "AudioAsset") {
-                        path = s_resource_manager->asset_path_of(AudioAssetHandle{ref->handle_id});
+                        path = s_services.resources->asset_path_of(AudioAssetHandle{ref->handle_id});
                     } else if (f.ref_type_name == "Material") {
-                        path = s_resource_manager->asset_path_of(MaterialHandle{ref->handle_id});
+                        path = s_services.resources->asset_path_of(MaterialHandle{ref->handle_id});
                     } else if (f.ref_type_name == "InputAction") {
-                        path = s_resource_manager->asset_path_of(InputActionHandle{ref->handle_id});
+                        path = s_services.resources->asset_path_of(InputActionHandle{ref->handle_id});
                     }
                 }
                 out[f.name] = {{"asset_path", path}};
@@ -740,10 +709,10 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
             case FJELL_FIELD_REF: {
                 auto* ref = static_cast<RefData*>(ptr);
                 auto& j = in[f.name];
-                if (j.is_object() && j.contains("asset_path") && s_resource_manager) {
+                if (j.is_object() && j.contains("asset_path") && s_services.resources) {
                     auto path = j["asset_path"].get<std::string>();
                     if (!path.empty()) {
-                        auto result = s_resource_manager->load_asset_by_type(
+                        auto result = s_services.resources->load_asset_by_type(
                             f.ref_type_name, path);
                         if (result) {
                             ref->handle_id = *result;
@@ -865,9 +834,9 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
             case FJELL_FIELD_WEAK_REF: {
                 auto* ref = static_cast<WeakRefData*>(ptr);
                 const char* target_name = "(null)";
-                if (ref->id != 0 && s_active_scene) {
-                    auto* node = s_active_scene->find(ref->id);
-                    if (node && s_active_scene->generation_of(ref->id) == ref->generation) {
+                if (ref->id != 0 && s_services.scene) {
+                    auto* node = s_services.scene->find(ref->id);
+                    if (node && s_services.scene->generation_of(ref->id) == ref->generation) {
                         target_name = node->name.c_str();
                     } else {
                         target_name = "(stale)";
@@ -884,18 +853,18 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                 auto* ref = static_cast<RefData*>(ptr);
                 const auto* asset_type = find_asset_type(f.ref_type_name);
 
-                if (asset_type && s_resource_manager) {
+                if (asset_type && s_services.resources) {
                     // Reverse lookup current path
                     std::string current_path;
                     if (ref->handle_id != 0) {
                         if (f.ref_type_name == "VfxAsset") {
-                            current_path = s_resource_manager->asset_path_of(VfxAssetHandle{ref->handle_id});
+                            current_path = s_services.resources->asset_path_of(VfxAssetHandle{ref->handle_id});
                         } else if (f.ref_type_name == "AudioAsset") {
-                            current_path = s_resource_manager->asset_path_of(AudioAssetHandle{ref->handle_id});
+                            current_path = s_services.resources->asset_path_of(AudioAssetHandle{ref->handle_id});
                         } else if (f.ref_type_name == "Material") {
-                            current_path = s_resource_manager->asset_path_of(MaterialHandle{ref->handle_id});
+                            current_path = s_services.resources->asset_path_of(MaterialHandle{ref->handle_id});
                         } else if (f.ref_type_name == "InputAction") {
-                            current_path = s_resource_manager->asset_path_of(InputActionHandle{ref->handle_id});
+                            current_path = s_services.resources->asset_path_of(InputActionHandle{ref->handle_id});
                         }
                     }
 
@@ -915,8 +884,8 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                             // Only accept files matching the asset type extension
                             if (dropped.ends_with(asset_type->extension)) {
                                 auto resolved = base_path::resolve_asset(
-                                    dropped, s_active_project);
-                                auto result = s_resource_manager->load_asset_by_type(
+                                    dropped, s_services.project);
+                                auto result = s_services.resources->load_asset_by_type(
                                     f.ref_type_name, resolved);
                                 if (result) {
                                     ref->handle_id = *result;

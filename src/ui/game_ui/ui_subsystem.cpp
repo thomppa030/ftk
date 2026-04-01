@@ -18,8 +18,10 @@
 
 namespace fjell {
 
-UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui)
-    : vulkan_context_{vulkan_context}, editor_game_ui_{editor_game_ui} {}
+UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui,
+                         ScriptManager& script_manager)
+    : vulkan_context_{vulkan_context}, editor_game_ui_{editor_game_ui}
+    , script_manager_{&script_manager} {}
 
 void UiSubsystem::on_play_start(const TickContext& ctx) {
     instances_.clear();

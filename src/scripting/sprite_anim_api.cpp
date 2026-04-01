@@ -4,7 +4,7 @@
 #include "scene/scene.hpp"
 
 static fjell::SpriteAnimComponent* find_anim(uint32_t node_id) {
-    auto* scene = fjell::script_active_scene();
+    auto* scene = fjell::script_services().scene;
     if (!scene) return nullptr;
     auto* node = scene->find(node_id);
     if (!node) return nullptr;
@@ -12,7 +12,7 @@ static fjell::SpriteAnimComponent* find_anim(uint32_t node_id) {
 }
 
 static fjell::SpriteComponent* find_sprite(uint32_t node_id) {
-    auto* scene = fjell::script_active_scene();
+    auto* scene = fjell::script_services().scene;
     if (!scene) return nullptr;
     auto* node = scene->find(node_id);
     if (!node) return nullptr;

@@ -4,27 +4,32 @@
 
 namespace fjell {
 
-class Input;
-class Scene;
-class ScriptManager;
-class ResourceManager;
-class VfxSubsystem;
 class AudioSubsystem;
 class CameraSubsystem;
+class Input;
+class InputActionMap;
 class Project;
+class ResourceManager;
+class Scene;
+class ScriptManager;
+class VfxSubsystem;
 class VulkanContext;
 
-// Set by ScriptManager::prepare/update each frame
-Scene*& script_active_scene();
-ScriptManager*& script_active_manager();
+struct ScriptServices {
+    Input* input{};
+    ResourceManager* resources{};
+    const Project* project{};
+    VfxSubsystem* vfx{};
+    AudioSubsystem* audio{};
+    CameraSubsystem* camera{};
+    VulkanContext* vulkan{};
+    InputActionMap* input_actions{};
 
-// Set once via ScriptManager::set_*() at startup
-Input*& script_input();
-ResourceManager*& script_resource_manager();
-const Project*& script_active_project();
-VfxSubsystem*& script_vfx_subsystem();
-AudioSubsystem*& script_audio_subsystem();
-CameraSubsystem*& script_camera_subsystem();
-VulkanContext*& script_vulkan_context();
+    // Per-frame (set by ScriptManager::prepare/update)
+    Scene* scene{};
+    ScriptManager* manager{};
+};
+
+ScriptServices& script_services();
 
 } // namespace fjell

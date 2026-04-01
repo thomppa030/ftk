@@ -52,10 +52,6 @@ public:
     [[nodiscard]] const auto& states() const { return states_; }
     [[nodiscard]] const auto& context_stack() const { return context_stack_; }
 
-    // Global instance for inspector access
-    static void set_instance(InputActionMap* instance) { s_instance_ = instance; }
-    [[nodiscard]] static InputActionMap* instance() { return s_instance_; }
-
 private:
     void evaluate_binding(const InputBinding& binding, const Input& raw_input,
                           std::unordered_map<std::string, bool>& consumed);
@@ -71,8 +67,6 @@ private:
 
     bool listening_{false};
     InputSource captured_{InputSource::none};
-
-    static inline InputActionMap* s_instance_{nullptr};
 };
 
 } // namespace fjell

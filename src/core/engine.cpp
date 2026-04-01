@@ -13,6 +13,7 @@ extern "C" void fjell_input_clear_connections();
 #include "physics/physics_subsystem.hpp"
 #include "renderer/systems/sprite_anim_subsystem.hpp"
 #include "renderer/systems/vfx_subsystem.hpp"
+#include "scripting/script_globals.hpp"
 #include "scripting/script_subsystem.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
 #include "platform/platform.hpp"
@@ -139,7 +140,6 @@ void Engine::init_project(const std::filesystem::path& project_path) {
 
     window_.set_input(&input_);
     input_.attach(window_.handle());
-    InputActionMap::set_instance(&input_action_map_);
 }
 
 void Engine::init_ui() {
@@ -192,7 +192,8 @@ void Engine::init_ui() {
             }
         });
 
-    ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_, game_ui_);
+    ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_, game_ui_,
+                                               script_subsystem_->manager());
     play_phase_0_.push_back(ui_subsystem_);
 
     vulkan_context_->set_world_ui_callback(
@@ -229,14 +230,16 @@ void Engine::init_resources() {
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     sprite_anim_subsystem_->set_resource_manager(resource_manager_.get());
-    ScriptManager::set_input(&input_);
-    ScriptManager::set_resource_manager(resource_manager_.get());
-    ScriptManager::set_active_project(project_mgr_.active());
-    ScriptManager::set_vfx_subsystem(vfx_subsystem_);
-    ScriptManager::set_audio_subsystem(audio_subsystem_);
-    ScriptManager::set_camera_subsystem(camera_subsystem_);
-    ScriptManager::set_vulkan_context(vulkan_context_.get());
-    ui_subsystem_->set_script_manager(&script_subsystem_->manager());
+
+    auto& ss = script_services();
+    ss.input = &input_;
+    ss.resources = resource_manager_.get();
+    ss.project = project_mgr_.active();
+    ss.vfx = vfx_subsystem_;
+    ss.audio = audio_subsystem_;
+    ss.camera = camera_subsystem_;
+    ss.vulkan = vulkan_context_.get();
+    ss.input_actions = &input_action_map_;
 }
 
 void Engine::init_scene() {

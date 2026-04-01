@@ -8,8 +8,8 @@
 
 extern "C" uint32_t fjell_viewport_create(const char* name, uint32_t width, uint32_t height,
                                            uint32_t flags) {
-    auto* vk = fjell::script_vulkan_context();
-    if (!vk || !name) return 0;
+    auto& s = fjell::script_services();
+    if (!s.vulkan || !name) return 0;
 
     fjell::SceneViewportConfig cfg;
     cfg.name = name;
@@ -21,38 +21,34 @@ extern "C" uint32_t fjell_viewport_create(const char* name, uint32_t width, uint
     cfg.pp_config.ssr            = (flags & VP_SSR) != 0;
     cfg.pp_config.volumetric_fog = (flags & VP_VOLUMETRIC_FOG) != 0;
     cfg.pp_config.hiz            = (flags & VP_HIZ) != 0;
-    cfg.samples = vk->msaa_samples();
+    cfg.samples = s.vulkan->msaa_samples();
     cfg.skip_shadows = (flags & VP_SHADOWS) == 0;
 
-    uint32_t bindless_idx = vk->create_scene_viewport(cfg);
+    uint32_t bindless_idx = s.vulkan->create_scene_viewport(cfg);
 
-    // Update any materials that were loaded with $viewport:name before this viewport existed
-    auto* rm = fjell::script_resource_manager();
-    if (rm) rm->update_viewport_bindings(name, bindless_idx);
+    if (s.resources) s.resources->update_viewport_bindings(name, bindless_idx);
 
     return bindless_idx;
 }
 
 extern "C" void fjell_viewport_destroy(const char* name) {
-    auto* vk = fjell::script_vulkan_context();
-    if (!vk || !name) return;
+    auto& s = fjell::script_services();
+    if (!s.vulkan || !name) return;
 
-    // Reset material bindings back to default black before destroying the viewport
-    auto* rm = fjell::script_resource_manager();
-    if (rm) rm->update_viewport_bindings(name, rm->bindless_index(rm->default_white_handle()));
+    if (s.resources) s.resources->update_viewport_bindings(name,
+        s.resources->bindless_index(s.resources->default_white_handle()));
 
-    vk->destroy_scene_viewport(name);
+    s.vulkan->destroy_scene_viewport(name);
 }
 
 extern "C" void fjell_viewport_set_camera(const char* name, uint32_t camera_node_id) {
-    auto* vk = fjell::script_vulkan_context();
-    auto* scene = fjell::script_active_scene();
-    if (!vk || !scene || !name) return;
+    auto& s = fjell::script_services();
+    if (!s.vulkan || !s.scene || !name) return;
 
-    auto* viewport = vk->scene_viewport(name);
+    auto* viewport = s.vulkan->scene_viewport(name);
     if (!viewport) return;
 
-    auto* node = scene->find(camera_node_id);
+    auto* node = s.scene->find(camera_node_id);
     auto* cam = dynamic_cast<fjell::CameraNode*>(node);
     if (!cam) return;
 
@@ -67,14 +63,14 @@ extern "C" void fjell_viewport_set_camera(const char* name, uint32_t camera_node
 }
 
 extern "C" uint32_t fjell_viewport_bindless_index(const char* name) {
-    auto* vk = fjell::script_vulkan_context();
-    if (!vk || !name) return 0;
-    return vk->scene_viewport_bindless_index(name);
+    auto& s = fjell::script_services();
+    if (!s.vulkan || !name) return 0;
+    return s.vulkan->scene_viewport_bindless_index(name);
 }
 
 extern "C" void fjell_viewport_resize(const char* name, uint32_t width, uint32_t height) {
-    auto* vk = fjell::script_vulkan_context();
-    if (!vk || !name) return;
-    auto* viewport = vk->scene_viewport(name);
+    auto& s = fjell::script_services();
+    if (!s.vulkan || !name) return;
+    auto* viewport = s.vulkan->scene_viewport(name);
     if (viewport) viewport->resize(width, height);
 }

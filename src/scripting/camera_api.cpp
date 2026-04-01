@@ -6,20 +6,19 @@
 #include <glm/glm.hpp>
 
 static fjell::CameraNode* active_cam() {
-    auto* sub = fjell::script_camera_subsystem();
-    auto* scene = fjell::script_active_scene();
-    if (!sub || !scene) return nullptr;
-    return sub->active_camera(*scene);
+    auto& s = fjell::script_services();
+    if (!s.camera || !s.scene) return nullptr;
+    return s.camera->active_camera(*s.scene);
 }
 
 extern "C" void fjell_camera_set_active(uint32_t node_id) {
-    auto* sub = fjell::script_camera_subsystem();
-    if (sub) sub->set_active(node_id);
+    auto& s = fjell::script_services();
+    if (s.camera) s.camera->set_active(node_id);
 }
 
 extern "C" uint32_t fjell_camera_get_active() {
-    auto* sub = fjell::script_camera_subsystem();
-    return sub ? sub->active_id() : 0;
+    auto& s = fjell::script_services();
+    return s.camera ? s.camera->active_id() : 0;
 }
 
 extern "C" float fjell_camera_get_fov() {

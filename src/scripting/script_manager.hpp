@@ -105,15 +105,6 @@ public:
     [[nodiscard]] bool is_loaded() const { return library_.is_loaded(); }
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
-    // Set engine services for asset ref inspector and script API
-    static void set_input(class Input* input);
-    static void set_resource_manager(class ResourceManager* rm);
-    static void set_active_project(const class Project* project);
-    static void set_vfx_subsystem(class VfxSubsystem* vfx);
-    static void set_audio_subsystem(class AudioSubsystem* audio);
-    static void set_camera_subsystem(class CameraSubsystem* camera);
-    static void set_vulkan_context(class VulkanContext* vk);
-
 #ifndef NDEBUG
     Result<> poll_reload(Scene& scene);
     void watch(const std::filesystem::path& so_path);

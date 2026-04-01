@@ -26,7 +26,8 @@ struct UiNode;
 /// on stop. Creates UiWidget instances and auto-syncs bind fields.
 class UiSubsystem : public Subsystem {
 public:
-    UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui);
+    UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui,
+                 ScriptManager& script_manager);
 
     [[nodiscard]] std::string_view name() const override { return "GameUI"; }
     [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
@@ -34,8 +35,6 @@ public:
     void tick(const TickContext& ctx) override;
     void on_play_start(const TickContext& ctx) override;
     void on_play_stop(const TickContext& ctx) override;
-
-    void set_script_manager(ScriptManager* sm) { script_manager_ = sm; }
 
     struct WidgetInstance {
         std::unique_ptr<UiWidget> widget;

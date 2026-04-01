@@ -11,11 +11,11 @@ namespace {
 std::vector<fjell::Connection> s_input_connections;
 
 fjell::InputActionMap* get_iam() {
-    return fjell::InputActionMap::instance();
+    return fjell::script_services().input_actions;
 }
 
 const char* resolve_action_name(uint32_t handle_id) {
-    auto* rm = fjell::script_resource_manager();
+    auto* rm = fjell::script_services().resources;
     if (!rm) return nullptr;
     auto* def = rm->get(fjell::InputActionHandle{handle_id});
     return def ? def->name.c_str() : nullptr;
