@@ -2,7 +2,7 @@
 #include "scripting/fjell/viewport_api.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "renderer/scene_viewport.hpp"
-#include "renderer/resource_manager.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/scene.hpp"
 

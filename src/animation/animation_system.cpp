@@ -1,8 +1,8 @@
 #include "animation/animation_system.hpp"
 #include "animation/animator_component.hpp"
 #include "core/profiler.hpp"
-#include "renderer/skeletal_mesh_component.hpp"
-#include "renderer/skeletal_model.hpp"
+#include "renderer/components/skeletal_mesh_component.hpp"
+#include "renderer/resources/skeletal_model.hpp"
 #include "scene/scene.hpp"
 
 namespace fjell {

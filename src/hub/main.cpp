@@ -1,8 +1,8 @@
 #include "hub/hub_ui.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
-#include "renderer/device.hpp"
-#include "renderer/swapchain.hpp"
+#include "renderer/gpu/device.hpp"
+#include "renderer/gpu/swapchain.hpp"
 #include "ui/imgui_layer.hpp"
 
 #include <vulkan/vulkan.h>

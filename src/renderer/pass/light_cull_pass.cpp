@@ -1,8 +1,8 @@
 #include "renderer/pass/light_cull_pass.hpp"
-#include "renderer/device.hpp"
+#include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/renderer_constants.hpp"
-#include "renderer/shader_utils.hpp"
+#include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 

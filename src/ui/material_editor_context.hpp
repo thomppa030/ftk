@@ -2,8 +2,8 @@
 
 #include "ui/editor_context.hpp"
 #include "ui/viewport_manager.hpp"
-#include "renderer/material_asset.hpp"
-#include "renderer/resource_handle.hpp"
+#include "renderer/resources/material_asset.hpp"
+#include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
 
 #include <string>

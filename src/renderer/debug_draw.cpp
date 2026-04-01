@@ -1,6 +1,6 @@
 #include "renderer/debug_draw.hpp"
-#include "renderer/arrow_component.hpp"
-#include "renderer/buffer.hpp"
+#include "renderer/components/arrow_component.hpp"
+#include "renderer/gpu/buffer.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/uniform_types.hpp"
 #include "core/profiler.hpp"

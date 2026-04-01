@@ -1,5 +1,5 @@
 #include "renderer/viz_image.hpp"
-#include "renderer/buffer.hpp"
+#include "renderer/gpu/buffer.hpp"
 #include <imgui_impl_vulkan.h>
 
 #include <stdexcept>

@@ -1,6 +1,6 @@
 #include "scripting/script_globals.hpp"
-#include "renderer/sprite_anim_component.hpp"
-#include "renderer/sprite_desc.hpp"
+#include "renderer/components/sprite_anim_component.hpp"
+#include "renderer/components/sprite_desc.hpp"
 #include "scene/scene.hpp"
 
 static fjell::SpriteAnimComponent* find_anim(uint32_t node_id) {

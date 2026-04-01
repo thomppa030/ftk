@@ -1,4 +1,4 @@
-#include "renderer/fjsl_parser.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
 #include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>

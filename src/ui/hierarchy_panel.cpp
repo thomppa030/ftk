@@ -7,8 +7,8 @@
 #include "ui/icon_cache.hpp"
 #include "ui/viewport_manager.hpp"
 #include "renderer/camera.hpp"
-#include "renderer/mesh_component.hpp"
-#include "renderer/model.hpp"
+#include "renderer/components/mesh_component.hpp"
+#include "renderer/resources/model.hpp"
 
 #include <imgui.h>
 #include <glm/glm.hpp>

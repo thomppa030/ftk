@@ -2,9 +2,9 @@
 #include "scripting/script_manager.hpp"
 #include "scene/scene.hpp"
 #include "physics/physics_types.hpp"
-#include "renderer/mesh_component.hpp"
-#include "renderer/sprite_anim_component.hpp"
-#include "renderer/sprite_desc.hpp"
+#include "renderer/components/mesh_component.hpp"
+#include "renderer/components/sprite_anim_component.hpp"
+#include "renderer/components/sprite_desc.hpp"
 
 #include <string_view>
 

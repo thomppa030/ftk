@@ -1,7 +1,7 @@
 #include "ui/material_params_widget.hpp"
 #include "renderer/bindless.hpp"
-#include "renderer/fjsl_parser.hpp"
-#include "renderer/material.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
+#include "renderer/resources/material.hpp"
 #include "renderer/uniform_types.hpp"
 
 #include <imgui.h>

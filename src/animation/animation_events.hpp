@@ -3,6 +3,7 @@
 #include "core/delegate.hpp"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -24,6 +25,10 @@ public:
     // Fire all events in the time range (prev_time, current_time].
     // Handles forward playback and loop wraparound (when current < prev).
     void fire_in_range(float prev_time, float current_time, float duration);
+
+    // Same as above, but also calls an external callback for each fired event.
+    void fire_in_range(float prev_time, float current_time, float duration,
+                       const std::function<void(const AnimationEvent&)>& callback);
 
     void clear() { events_.clear(); }
     [[nodiscard]] bool empty() const { return events_.empty(); }

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
-#include "renderer/buffer.hpp"
+#include "renderer/gpu/buffer.hpp"
 
 #include <vulkan/vulkan.h>
 

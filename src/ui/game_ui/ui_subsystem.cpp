@@ -3,7 +3,7 @@
 #include "core/frame_context.hpp"
 #include "core/log.hpp"
 #include "core/project.hpp"
-#include "renderer/texture.hpp"
+#include "renderer/resources/texture.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/node.hpp"
 #include "scene/scene.hpp"

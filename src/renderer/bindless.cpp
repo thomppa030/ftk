@@ -1,5 +1,5 @@
 #include "renderer/bindless.hpp"
-#include "renderer/texture.hpp"
+#include "renderer/resources/texture.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 

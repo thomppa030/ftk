@@ -9,9 +9,9 @@
 #include "core/input.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
-#include "renderer/resource_manager.hpp"
-#include "renderer/skeletal_mesh_component.hpp"
-#include "renderer/skeletal_model.hpp"
+#include "renderer/resources/resource_manager.hpp"
+#include "renderer/components/skeletal_mesh_component.hpp"
+#include "renderer/resources/skeletal_model.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/node.hpp"
 

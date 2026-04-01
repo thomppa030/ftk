@@ -1,6 +1,6 @@
 #include "renderer/pass/meshlet_instance_pass.hpp"
-#include "renderer/shader_utils.hpp"
-#include "renderer/vk_check.hpp"
+#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 

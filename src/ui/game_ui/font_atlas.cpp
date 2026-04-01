@@ -1,6 +1,6 @@
 #include "ui/game_ui/font_atlas.hpp"
 #include "renderer/bindless.hpp"
-#include "renderer/texture.hpp"
+#include "renderer/resources/texture.hpp"
 #include "core/log.hpp"
 
 #include <msdfgen.h>

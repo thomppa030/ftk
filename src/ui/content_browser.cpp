@@ -5,7 +5,7 @@
 #include "core/log.hpp"
 #include "platform/platform.hpp"
 #include "renderer/vulkan_context.hpp"
-#include "renderer/vk_check.hpp"
+#include "renderer/gpu/vk_check.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>

@@ -41,43 +41,43 @@ add_executable(fjell
     core/thread_pool.cpp
     core/log.cpp
     core/window.cpp
-    renderer/buffer.cpp
+    renderer/gpu/buffer.cpp
     renderer/camera.cpp
     renderer/debug_draw.cpp
-    renderer/descriptor.cpp
-    renderer/draw_data_descriptor.cpp
+    renderer/gpu/descriptor.cpp
+    renderer/gpu/draw_data_descriptor.cpp
     renderer/fly_camera.cpp
-    renderer/device.cpp
-    renderer/image.cpp
+    renderer/gpu/device.cpp
+    renderer/gpu/image.cpp
     renderer/indirect_batch.cpp
-    renderer/fjsl_parser.cpp
-    renderer/material.cpp
-    renderer/material_asset.cpp
-    renderer/vfx_asset.cpp
-    renderer/vfx_module.cpp
-    renderer/vfx_emitter.cpp
-    renderer/mega_buffer.cpp
-    renderer/mesh.cpp
-    renderer/meshlet.cpp
-    renderer/meshlet_buffer.cpp
-    renderer/meshlet_descriptor.cpp
-    renderer/model.cpp
+    renderer/resources/fjsl_parser.cpp
+    renderer/resources/material.cpp
+    renderer/resources/material_asset.cpp
+    renderer/systems/vfx_asset.cpp
+    renderer/systems/vfx_module.cpp
+    renderer/systems/vfx_emitter.cpp
+    renderer/resources/mega_buffer.cpp
+    renderer/resources/mesh.cpp
+    renderer/resources/meshlet.cpp
+    renderer/resources/meshlet_buffer.cpp
+    renderer/resources/meshlet_descriptor.cpp
+    renderer/resources/model.cpp
     renderer/offscreen_pass.cpp
     renderer/scene_viewport.cpp
-    renderer/pipeline.cpp
+    renderer/gpu/pipeline.cpp
     renderer/render_target_pool.cpp
     renderer/post_process_resources.cpp
     renderer/pipeline_cache.cpp
-    renderer/primitives.cpp
+    renderer/resources/primitives.cpp
     renderer/bindless.cpp
     renderer/frame_graph.cpp
-    renderer/thread_command_pools.cpp
-    renderer/particle_system.cpp
-    renderer/vfx_subsystem.cpp
-    renderer/sprite_renderer.cpp
-    renderer/sprite_sheet.cpp
-    renderer/sprite_anim_subsystem.cpp
-    renderer/tilemap_renderer.cpp
+    renderer/gpu/thread_command_pools.cpp
+    renderer/systems/particle_system.cpp
+    renderer/systems/vfx_subsystem.cpp
+    renderer/systems/sprite_renderer.cpp
+    renderer/systems/sprite_sheet.cpp
+    renderer/systems/sprite_anim_subsystem.cpp
+    renderer/systems/tilemap_renderer.cpp
     renderer/pass/bloom_pass.cpp
     renderer/pass/cull_pass.cpp
     renderer/pass/cull_viz_pass.cpp
@@ -103,23 +103,23 @@ add_executable(fjell
     renderer/pass/overdraw_pass.cpp
     renderer/pass/uv_viz_pass.cpp
     renderer/pass/wireframe_pass.cpp
-    renderer/arrow_component_meta.cpp
-    renderer/mesh_component_meta.cpp
-    renderer/skeletal_mesh_component_meta.cpp
-    renderer/particle_emitter_meta.cpp
-    renderer/sprite_component_meta.cpp
-    renderer/sprite_anim_component_meta.cpp
-    renderer/tilemap_component_meta.cpp
+    renderer/components/arrow_component_meta.cpp
+    renderer/components/mesh_component_meta.cpp
+    renderer/components/skeletal_mesh_component_meta.cpp
+    renderer/components/particle_emitter_meta.cpp
+    renderer/components/sprite_component_meta.cpp
+    renderer/components/sprite_anim_component_meta.cpp
+    renderer/components/tilemap_component_meta.cpp
     renderer/render_queue.cpp
-    renderer/asset_loader.cpp
-    renderer/resource_manager.cpp
+    renderer/resources/asset_loader.cpp
+    renderer/resources/resource_manager.cpp
     renderer/shader_watcher.cpp
-    renderer/skeletal_model.cpp
-    renderer/stb_image.cpp
-    renderer/stb_image_resize.cpp
-    renderer/stb_image_write.cpp
-    renderer/swapchain.cpp
-    renderer/texture.cpp
+    renderer/resources/skeletal_model.cpp
+    renderer/resources/stb_image.cpp
+    renderer/resources/stb_image_resize.cpp
+    renderer/resources/stb_image_write.cpp
+    renderer/gpu/swapchain.cpp
+    renderer/resources/texture.cpp
     renderer/viz_image.cpp
     renderer/gpu_context.cpp
     renderer/render_pipeline.cpp
@@ -339,10 +339,10 @@ add_executable(fjell-hub
     core/log.cpp
     core/window.cpp
     ui/console.cpp
-    renderer/device.cpp
-    renderer/swapchain.cpp
-    renderer/image.cpp
-    renderer/buffer.cpp
+    renderer/gpu/device.cpp
+    renderer/gpu/swapchain.cpp
+    renderer/gpu/image.cpp
+    renderer/gpu/buffer.cpp
     ui/imgui_layer.cpp
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "core/result.hpp"
-#include "renderer/resource_handle.hpp"
+#include "renderer/resources/resource_handle.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scene/node.hpp"
 

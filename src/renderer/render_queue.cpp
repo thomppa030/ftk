@@ -1,6 +1,6 @@
 #include "renderer/render_queue.hpp"
 #include "core/profiler.hpp"
-#include "renderer/model.hpp"
+#include "renderer/resources/model.hpp"
 #include "renderer/render_stats.hpp"
 
 #include <algorithm>

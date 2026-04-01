@@ -61,6 +61,8 @@ public:
     Delegate<void()> on_pause;
     Delegate<void()> on_stop;
     Delegate<void(int)> on_marker_selected;
+    Delegate<void(float)> on_right_click;          // right-click at time position
+    Delegate<void(int, float)> on_marker_moved;    // marker index + new time
 
 protected:
     /// Override to add custom lane interaction (dragging, clicking, etc.)
@@ -86,6 +88,7 @@ private:
     int selected_marker_{-1};
 
     bool scrubbing_{false};
+    int dragging_marker_{-1};
 };
 
 } // namespace fjell

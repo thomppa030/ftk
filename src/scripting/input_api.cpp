@@ -1,6 +1,6 @@
 #include "core/input_action_map.hpp"
 #include "core/delegate.hpp"
-#include "renderer/resource_manager.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "scripting/fjell/api.h"
 #include "scripting/script_globals.hpp"
 

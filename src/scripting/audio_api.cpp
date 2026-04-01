@@ -1,7 +1,7 @@
 #include "scripting/script_globals.hpp"
 #include "audio/audio_subsystem.hpp"
-#include "renderer/resource_manager.hpp"
-#include "renderer/resource_handle.hpp"
+#include "renderer/resources/resource_manager.hpp"
+#include "renderer/resources/resource_handle.hpp"
 
 extern "C" void fjell_audio_play(uint32_t handle_id, float x, float y, float z,
                                  float volume, float pitch) {

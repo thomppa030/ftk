@@ -1,8 +1,8 @@
 #pragma once
 
 #include "renderer/indirect_batch.hpp"
-#include "renderer/shader_utils.hpp"
-#include "renderer/vertex.hpp"
+#include "renderer/resources/shader_utils.hpp"
+#include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"
 
 #include <vulkan/vulkan.h>

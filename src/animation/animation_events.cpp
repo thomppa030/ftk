@@ -11,6 +11,11 @@ void AnimationEventTrack::add(AnimationEvent event) {
 }
 
 void AnimationEventTrack::fire_in_range(float prev_time, float current_time, float duration) {
+    fire_in_range(prev_time, current_time, duration, nullptr);
+}
+
+void AnimationEventTrack::fire_in_range(float prev_time, float current_time, float duration,
+                                         const std::function<void(const AnimationEvent&)>& callback) {
     if (events_.empty() || duration <= 0.0f) return;
 
     if (current_time > prev_time) {
@@ -18,6 +23,7 @@ void AnimationEventTrack::fire_in_range(float prev_time, float current_time, flo
         for (const auto& e : events_) {
             if (e.time > prev_time && e.time <= current_time) {
                 on_event.broadcast(e);
+                if (callback) callback(e);
             }
         }
     } else {
@@ -25,11 +31,13 @@ void AnimationEventTrack::fire_in_range(float prev_time, float current_time, flo
         for (const auto& e : events_) {
             if (e.time > prev_time && e.time <= duration) {
                 on_event.broadcast(e);
+                if (callback) callback(e);
             }
         }
         for (const auto& e : events_) {
             if (e.time > 0.0f && e.time <= current_time) {
                 on_event.broadcast(e);
+                if (callback) callback(e);
             }
         }
     }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/fjsl_parser.hpp"
+#include "renderer/resources/fjsl_parser.hpp"
 
 #include <vulkan/vulkan.h>
 

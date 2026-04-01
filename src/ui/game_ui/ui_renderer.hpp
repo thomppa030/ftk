@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/buffer.hpp"
+#include "renderer/gpu/buffer.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "ui/game_ui/text_shaper.hpp"

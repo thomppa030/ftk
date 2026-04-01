@@ -1,8 +1,8 @@
 #include "physics/physics_world.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
-#include "renderer/mesh_component.hpp"
-#include "renderer/model.hpp"
+#include "renderer/components/mesh_component.hpp"
+#include "renderer/resources/model.hpp"
 #include "scene/scene.hpp"
 
 #include <Jolt/Jolt.h>

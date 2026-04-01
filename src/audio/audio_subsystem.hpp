@@ -3,7 +3,7 @@
 #include "audio/audio_engine.hpp"
 #include "core/frame_context.hpp"
 #include "core/subsystem.hpp"
-#include "renderer/resource_handle.hpp"
+#include "renderer/resources/resource_handle.hpp"
 
 #include <glm/glm.hpp>
 

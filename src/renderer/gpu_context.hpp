@@ -1,19 +1,19 @@
 #pragma once
 
 #include "renderer/bindless.hpp"
-#include "renderer/buffer.hpp"
-#include "renderer/descriptor.hpp"
-#include "renderer/device.hpp"
-#include "renderer/mega_buffer.hpp"
-#include "renderer/meshlet_buffer.hpp"
-#include "renderer/meshlet_descriptor.hpp"
+#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/descriptor.hpp"
+#include "renderer/gpu/device.hpp"
+#include "renderer/resources/mega_buffer.hpp"
+#include "renderer/resources/meshlet_buffer.hpp"
+#include "renderer/resources/meshlet_descriptor.hpp"
 #include "renderer/pass/render_pass.hpp"
-#include "renderer/pipeline.hpp"
+#include "renderer/gpu/pipeline.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/renderer_constants.hpp"
-#include "renderer/swapchain.hpp"
-#include "renderer/thread_command_pools.hpp"
+#include "renderer/gpu/swapchain.hpp"
+#include "renderer/gpu/thread_command_pools.hpp"
 #include <vulkan/vulkan.h>
 
 #ifdef FJELL_ENABLE_TRACY

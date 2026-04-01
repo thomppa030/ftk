@@ -1,6 +1,6 @@
 #include "renderer/render_pipeline.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/thread_command_pools.hpp"
+#include "renderer/gpu/thread_command_pools.hpp"
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 

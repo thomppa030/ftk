@@ -1,7 +1,7 @@
 #include "ui/icon_cache.hpp"
 #include "core/log.hpp"
 #include "core/thread_pool.hpp"
-#include "renderer/vk_check.hpp"
+#include "renderer/gpu/vk_check.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>

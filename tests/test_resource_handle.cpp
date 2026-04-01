@@ -1,4 +1,4 @@
-#include "renderer/resource_handle.hpp"
+#include "renderer/resources/resource_handle.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 

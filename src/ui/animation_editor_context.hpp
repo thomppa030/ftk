@@ -98,6 +98,7 @@ private:
     void scan_clips();
     void load_clip(int index);
     void update_preview(float dt);
+    void sync_markers_from_clip();
 
     int next_node_id() { return ++node_id_counter_; }
     void build_graph_from_state_machine();
@@ -128,6 +129,7 @@ private:
     // Playback
     int selected_bone_{-1};
     int selected_clip_{-1};
+    int selected_event_index_{-1};
 
     // imnodes graph state
     void* imnodes_ctx_{nullptr};

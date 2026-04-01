@@ -1,5 +1,5 @@
 #include "renderer/pass/cull_pass.hpp"
-#include "renderer/shader_utils.hpp"
+#include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 

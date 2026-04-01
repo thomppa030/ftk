@@ -1,6 +1,6 @@
 #pragma once
 
-#include "renderer/particle_emitter.hpp"
+#include "renderer/components/particle_emitter.hpp"
 
 #include <imgui.h>
 #include <glm/glm.hpp>

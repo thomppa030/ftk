@@ -3,8 +3,8 @@ add_library(fjell-testable STATIC
     test_log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/fjsl_parser.cpp
-    ${CMAKE_SOURCE_DIR}/src/renderer/material_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_data_bind.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_animation.cpp

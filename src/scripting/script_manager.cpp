@@ -15,7 +15,7 @@
 #include "core/profiler.hpp"
 #include "physics/physics_world.hpp"
 #include "core/base_path.hpp"
-#include "renderer/resource_manager.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "scene/scene.hpp"
 
 extern "C" void fjell_input_clear_connections();

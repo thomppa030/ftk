@@ -1,7 +1,7 @@
 #include "scripting/script_globals.hpp"
-#include "renderer/vfx_subsystem.hpp"
-#include "renderer/resource_manager.hpp"
-#include "renderer/resource_handle.hpp"
+#include "renderer/systems/vfx_subsystem.hpp"
+#include "renderer/resources/resource_manager.hpp"
+#include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
 
 extern "C" void fjell_vfx_spawn(uint32_t handle_id, float x, float y, float z) {

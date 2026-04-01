@@ -1,7 +1,7 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
-#include "renderer/buffer.hpp"
-#include "renderer/shader_utils.hpp"
-#include "renderer/vk_check.hpp"
+#include "renderer/gpu/buffer.hpp"
+#include "renderer/resources/shader_utils.hpp"
+#include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 

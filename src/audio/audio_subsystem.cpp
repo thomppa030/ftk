@@ -2,7 +2,7 @@
 
 #include "audio/audio_asset.hpp"
 #include "core/log.hpp"
-#include "renderer/resource_manager.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "scene/camera_node.hpp"
 
 namespace fjell {

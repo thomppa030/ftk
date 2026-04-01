@@ -1,10 +1,10 @@
 #include "renderer/pass/meshlet_viz_pass.hpp"
-#include "renderer/buffer.hpp"
-#include "renderer/device.hpp"
+#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
-#include "renderer/shader_utils.hpp"
+#include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 

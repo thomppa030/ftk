@@ -1,6 +1,6 @@
 #include "renderer/render_target_pool.hpp"
-#include "renderer/buffer.hpp"
-#include "renderer/vk_check.hpp"
+#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
 
