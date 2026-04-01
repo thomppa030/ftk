@@ -4,6 +4,7 @@
 
 #include <ozz/base/maths/simd_math.h>
 
+#include <cmath>
 #include <cstring>
 
 namespace fjell {
@@ -200,6 +201,23 @@ void AnimatorComponent::ensure_event_track(const std::string& path, const Animat
 
 // ── Blend space evaluation ──────────────────────────────────────────────
 
+// Damp a single parameter toward its target. Returns the smoothed value.
+static float damp_param(std::unordered_map<std::string, float>& damped,
+                        const std::string& name, float target, float speed, float dt) {
+    auto [it, inserted] = damped.try_emplace(name, target);
+    if (inserted) return target; // first frame: snap to target
+
+    if (speed <= 0.0f) {
+        it->second = target; // instant
+    } else {
+        // Exponential decay: approaches target smoothly, frame-rate independent.
+        // factor = 1 - e^(-speed * dt). At speed=10, ~63% of the gap closes per 0.1s.
+        float factor = 1.0f - std::exp(-speed * dt);
+        it->second += (target - it->second) * factor;
+    }
+    return it->second;
+}
+
 void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float dt) {
     int num_soa = skeleton_->num_soa_joints();
     int num_joints = skeleton_->num_joints();
@@ -208,7 +226,8 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
     auto it1d = blend_spaces_1d_.find(state.blend_space);
     if (it1d != blend_spaces_1d_.end()) {
         const auto& bs = it1d->second;
-        float param = state_machine_.get_param(bs.parameter());
+        float raw = state_machine_.get_param(bs.parameter());
+        float param = damp_param(damped_params_, bs.parameter(), raw, bs.damp_speed(), dt);
         auto result = bs.evaluate(param);
 
         // Ensure we have enough blend layers
@@ -219,59 +238,76 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             blend_layers_.push_back(std::move(bl));
         }
 
-        // Resolve clips
+        // Resolve clips — match by clip identity to preserve context across point changes
         const AnimationClip* clip_a = nullptr;
         const AnimationClip* clip_b = nullptr;
+        std::string path_a, path_b;
         if (result.index_a < bs.size()) {
             auto ca = clip_map_.find(bs.points()[result.index_a].clip);
-            if (ca != clip_map_.end()) clip_a = ca->second;
+            if (ca != clip_map_.end()) { clip_a = ca->second; path_a = bs.points()[result.index_a].clip; }
         }
-        if (result.index_b < bs.size()) {
+        if (result.index_b < bs.size() && result.weight_b > 0.0f) {
             auto cb = clip_map_.find(bs.points()[result.index_b].clip);
-            if (cb != clip_map_.end()) clip_b = cb->second;
+            if (cb != clip_map_.end() && cb->second != clip_a) { clip_b = cb->second; path_b = bs.points()[result.index_b].clip; }
         }
 
-        // Sample and blend
-        int count = 0;
+        // Find layers by clip identity (not position) to avoid context invalidation
+        int layer_a = -1, layer_b = -1;
         if (clip_a) {
-            if (blend_layers_[0].clip != clip_a) {
-                blend_layers_[0].clip = clip_a;
-                blend_layers_[0].clip_path = bs.points()[result.index_a].clip;
-                blend_layers_[0].context->Invalidate();
+            for (int l = 0; l < static_cast<int>(blend_layers_.size()); ++l) {
+                if (blend_layers_[l].clip == clip_a) { layer_a = l; break; }
             }
-            blend_layers_[0].speed = state.speed;
-            blend_layers_[0].looping = state.looping;
-            blend_layers_[0].weight = result.weight_a;
-            sample_layer(blend_layers_[0], dt);
+            if (layer_a < 0) layer_a = 0; // assign first available
+        }
+        if (clip_b) {
+            for (int l = 0; l < static_cast<int>(blend_layers_.size()); ++l) {
+                if (blend_layers_[l].clip == clip_b) { layer_b = l; break; }
+            }
+            if (layer_b < 0) layer_b = (layer_a == 0) ? 1 : 0;
+        }
+
+        int count = 0;
+        if (clip_a && layer_a >= 0) {
+            auto& bl = blend_layers_[layer_a];
+            if (bl.clip != clip_a) {
+                bl.clip = clip_a;
+                bl.clip_path = path_a;
+                bl.context->Invalidate();
+            }
+            bl.speed = state.speed;
+            bl.looping = state.looping;
+            bl.weight = result.weight_a;
+            sample_layer(bl, dt);
             count = 1;
         }
-        if (clip_b && clip_b != clip_a && result.weight_b > 0.0f) {
-            if (blend_layers_[1].clip != clip_b) {
-                blend_layers_[1].clip = clip_b;
-                blend_layers_[1].clip_path = bs.points()[result.index_b].clip;
-                blend_layers_[1].context->Invalidate();
+        if (clip_b && layer_b >= 0) {
+            auto& bl = blend_layers_[layer_b];
+            if (bl.clip != clip_b) {
+                bl.clip = clip_b;
+                bl.clip_path = path_b;
+                bl.context->Invalidate();
             }
-            blend_layers_[1].speed = state.speed;
-            blend_layers_[1].looping = state.looping;
-            blend_layers_[1].weight = result.weight_b;
-            sample_layer(blend_layers_[1], dt);
+            bl.speed = state.speed;
+            bl.looping = state.looping;
+            bl.weight = result.weight_b;
+            sample_layer(bl, dt);
             count = 2;
         }
 
         if (count == 2) {
             ozz::animation::BlendingJob::Layer ozz_layers[2];
-            ozz_layers[0].transform = ozz::make_span(blend_layers_[0].locals);
-            ozz_layers[0].weight = blend_layers_[0].weight;
-            ozz_layers[1].transform = ozz::make_span(blend_layers_[1].locals);
-            ozz_layers[1].weight = blend_layers_[1].weight;
+            ozz_layers[0].transform = ozz::make_span(blend_layers_[layer_a].locals);
+            ozz_layers[0].weight = result.weight_a;
+            ozz_layers[1].transform = ozz::make_span(blend_layers_[layer_b].locals);
+            ozz_layers[1].weight = result.weight_b;
 
             ozz::animation::BlendingJob job;
             job.layers = ozz::make_span(ozz_layers);
             job.rest_pose = skeleton_->raw().joint_rest_poses();
             job.output = ozz::make_span(layers_[0].locals);
             job.Run();
-        } else if (count == 1) {
-            std::memcpy(layers_[0].locals.data(), blend_layers_[0].locals.data(),
+        } else if (count == 1 && layer_a >= 0) {
+            std::memcpy(layers_[0].locals.data(), blend_layers_[layer_a].locals.data(),
                         layers_[0].locals.size() * sizeof(ozz::math::SoaTransform));
         }
         return;
@@ -280,8 +316,10 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
     auto it2d = blend_spaces_2d_.find(state.blend_space);
     if (it2d != blend_spaces_2d_.end()) {
         const auto& bs = it2d->second;
-        float px = state_machine_.get_param(bs.parameter_x());
-        float py = state_machine_.get_param(bs.parameter_y());
+        float raw_x = state_machine_.get_param(bs.parameter_x());
+        float raw_y = state_machine_.get_param(bs.parameter_y());
+        float px = damp_param(damped_params_, bs.parameter_x(), raw_x, bs.damp_speed(), dt);
+        float py = damp_param(damped_params_, bs.parameter_y(), raw_y, bs.damp_speed(), dt);
         auto result = bs.evaluate({px, py});
 
         // Ensure we have enough blend layers
@@ -292,8 +330,12 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             blend_layers_.push_back(std::move(bl));
         }
 
-        // Resolve clips, sample, collect valid layers
-        int count = 0;
+        // Resolve clips — match by clip identity so layers keep their context
+        // across triangle transitions (avoids sampling jumps).
+        struct ActiveClip { const AnimationClip* clip; std::string path; float weight; };
+        ActiveClip active[3]{};
+        int active_count = 0;
+
         for (uint32_t i = 0; i < result.count; ++i) {
             uint32_t idx = result.indices[i];
             float w = result.weights[i];
@@ -302,23 +344,72 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             auto it = clip_map_.find(bs.points()[idx].clip);
             if (it == clip_map_.end()) continue;
 
-            if (blend_layers_[count].clip != it->second) {
-                blend_layers_[count].clip = it->second;
-                blend_layers_[count].clip_path = bs.points()[idx].clip;
-                blend_layers_[count].context->Invalidate();
-            }
-            blend_layers_[count].speed = state.speed;
-            blend_layers_[count].looping = state.looping;
-            blend_layers_[count].weight = w;
-            sample_layer(blend_layers_[count], dt);
-            count++;
+            active[active_count++] = {it->second, bs.points()[idx].clip, w};
         }
 
-        if (count >= 2) {
-            std::vector<ozz::animation::BlendingJob::Layer> ozz_layers(count);
-            for (int i = 0; i < count; ++i) {
-                ozz_layers[i].transform = ozz::make_span(blend_layers_[i].locals);
-                ozz_layers[i].weight = blend_layers_[i].weight;
+        // Find or assign a blend layer for each active clip, preserving context
+        int sampled = 0;
+        int used_layers[3]{-1, -1, -1};
+
+        for (int a = 0; a < active_count; ++a) {
+            // First: find a layer already running this clip
+            int found = -1;
+            for (int l = 0; l < static_cast<int>(blend_layers_.size()); ++l) {
+                if (blend_layers_[l].clip == active[a].clip) {
+                    found = l;
+                    break;
+                }
+            }
+            // Second: assign an unused layer
+            if (found < 0) {
+                for (int l = 0; l < static_cast<int>(blend_layers_.size()); ++l) {
+                    bool taken = false;
+                    for (int u = 0; u < a; ++u) {
+                        if (used_layers[u] == l) { taken = true; break; }
+                    }
+                    if (!taken) {
+                        found = l;
+                        break;
+                    }
+                }
+            }
+            if (found < 0) continue; // shouldn't happen with 3 layers
+
+            used_layers[a] = found;
+            auto& bl = blend_layers_[found];
+            if (bl.clip != active[a].clip) {
+                bl.clip = active[a].clip;
+                bl.clip_path = active[a].path;
+                bl.context->Invalidate();
+            }
+            bl.speed = state.speed;
+            bl.looping = state.looping;
+            bl.weight = active[a].weight;
+            sample_layer(bl, dt);
+            sampled++;
+        }
+
+        // Clear layers no longer active so they don't hold stale clips
+        for (int l = 0; l < static_cast<int>(blend_layers_.size()); ++l) {
+            bool in_use = false;
+            for (int a = 0; a < active_count; ++a) {
+                if (used_layers[a] == l) { in_use = true; break; }
+            }
+            if (!in_use) {
+                blend_layers_[l].clip = nullptr;
+                blend_layers_[l].clip_path.clear();
+                blend_layers_[l].weight = 0.0f;
+            }
+        }
+
+        if (sampled >= 2) {
+            std::vector<ozz::animation::BlendingJob::Layer> ozz_layers(sampled);
+            int j = 0;
+            for (int a = 0; a < active_count; ++a) {
+                if (used_layers[a] < 0) continue;
+                ozz_layers[j].transform = ozz::make_span(blend_layers_[used_layers[a]].locals);
+                ozz_layers[j].weight = active[a].weight;
+                j++;
             }
 
             ozz::animation::BlendingJob job;
@@ -326,8 +417,9 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             job.rest_pose = skeleton_->raw().joint_rest_poses();
             job.output = ozz::make_span(layers_[0].locals);
             job.Run();
-        } else if (count == 1) {
-            std::memcpy(layers_[0].locals.data(), blend_layers_[0].locals.data(),
+        } else if (sampled == 1) {
+            int l = used_layers[0];
+            std::memcpy(layers_[0].locals.data(), blend_layers_[l].locals.data(),
                         layers_[0].locals.size() * sizeof(ozz::math::SoaTransform));
         }
     }

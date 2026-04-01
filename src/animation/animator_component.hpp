@@ -130,6 +130,9 @@ private:
     std::unordered_map<std::string, BlendSpace1D> blend_spaces_1d_;
     std::unordered_map<std::string, BlendSpace2D> blend_spaces_2d_;
 
+    // Damped blend space parameters (smoothed toward raw state machine values)
+    std::unordered_map<std::string, float> damped_params_;
+
     // ozz output buffers
     std::vector<ozz::math::SoaTransform> blended_locals_;
     std::vector<ozz::math::Float4x4> model_matrices_;

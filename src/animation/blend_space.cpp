@@ -51,6 +51,7 @@ Result<BlendSpace1D> BlendSpace1D::load(const std::string& path) {
     BlendSpace1D bs;
     bs.parameter_ = j.value("parameter", "");
     bs.skeleton_path_ = j.value("skeleton", "");
+    bs.damp_speed_ = j.value("damp_speed", 10.0f);
 
     if (j.contains("points") && j["points"].is_array()) {
         for (const auto& jp : j["points"]) {
@@ -70,6 +71,7 @@ Result<> BlendSpace1D::save(const std::string& path) const {
     nlohmann::json j;
     if (!skeleton_path_.empty()) j["skeleton"] = skeleton_path_;
     j["parameter"] = parameter_;
+    if (damp_speed_ != 10.0f) j["damp_speed"] = damp_speed_;
     j["points"] = nlohmann::json::array();
 
     for (const auto& pt : points_) {
@@ -296,6 +298,7 @@ Result<BlendSpace2D> BlendSpace2D::load(const std::string& path) {
     bs.parameter_x_ = j.value("parameter_x", "");
     bs.parameter_y_ = j.value("parameter_y", "");
     bs.skeleton_path_ = j.value("skeleton", "");
+    bs.damp_speed_ = j.value("damp_speed", 10.0f);
 
     if (j.contains("points") && j["points"].is_array()) {
         for (const auto& jp : j["points"]) {
@@ -321,6 +324,7 @@ Result<> BlendSpace2D::save(const std::string& path) const {
     if (!skeleton_path_.empty()) j["skeleton"] = skeleton_path_;
     j["parameter_x"] = parameter_x_;
     j["parameter_y"] = parameter_y_;
+    if (damp_speed_ != 10.0f) j["damp_speed"] = damp_speed_;
     j["points"] = nlohmann::json::array();
 
     for (const auto& pt : points_) {
