@@ -381,8 +381,9 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     emitter_data_buffer_->map();
 
-    // Module buffer: conservative 512 bytes per emitter
-    VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * 512;
+    // Module buffer: 1024 bytes per emitter (largest module is 72 bytes,
+    // emitters can have 10+ modules, so 512 is too small)
+    VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * 1024;
     module_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, module_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -658,10 +659,18 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         std::memset(&data, 0, sizeof(data));
 
         auto* ec = obj ? obj->components.get<EmitterComponent>() : nullptr;
-        if (!ec || !ec->effect) continue;
+        if (!ec || !ec->effect || !obj->as_spatial()
+            || gpu.emitter_index >= ec->effect->emitters.size()) {
+            // Emitter not valid — assign a terminator-only module block
+            // so the shader exits the module walk immediately.
+            data.module_offset = module_word_offset;
+            auto* term = reinterpret_cast<uint32_t*>(module_ptr + module_word_offset * 4);
+            term[0] = 0xFFFFFFFF; // MOD_TERMINATOR
+            term[1] = 0;
+            module_word_offset += 2;
+            continue;
+        }
         auto* spatial = obj->as_spatial();
-        if (!spatial) continue;
-        if (gpu.emitter_index >= ec->effect->emitters.size()) continue;
 
         auto& sub = ec->effect->emitters[gpu.emitter_index];
 
@@ -691,7 +700,14 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
 
         // Write module data
         data.module_offset = module_word_offset;
-        uint32_t bytes = sub.write_gpu_modules(module_ptr + module_word_offset * 4);
+        uint32_t module_buf_capacity = static_cast<uint32_t>(module_buffer_->size());
+        uint32_t byte_offset = module_word_offset * 4;
+        if (byte_offset + 1024 > module_buf_capacity) {
+            FJELL_GFX_ERROR("Module buffer overflow: offset {} + 1024 > capacity {}",
+                            byte_offset, module_buf_capacity);
+            continue;
+        }
+        uint32_t bytes = sub.write_gpu_modules(module_ptr + byte_offset);
         module_word_offset += bytes / 4;
     }
 

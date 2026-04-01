@@ -100,10 +100,10 @@ float VfxEmitter::lifetime_max() const {
 }
 
 uint32_t VfxEmitter::gpu_data_size() const {
-    // Estimate: each module writes header (8 bytes) + up to 48 bytes of params
-    // Conservative upper bound per module: 64 bytes
+    // Upper bound: largest module is InitialVelocity at 72 bytes.
+    // Use 80 bytes per module for safe alignment headroom.
     uint32_t count = static_cast<uint32_t>(spawn_modules.size() + update_modules.size());
-    return count * 64 + 8; // +8 for sentinel/terminator
+    return count * 80 + 8; // +8 for terminator
 }
 
 uint32_t VfxEmitter::write_gpu_modules(uint8_t* buffer) const {
@@ -123,13 +123,11 @@ uint32_t VfxEmitter::write_gpu_modules(uint8_t* buffer) const {
         offset += written;
     }
 
-    // Terminator (type = 0xFFFFFFFF, size = 0)
-    if (offset + 8 <= gpu_data_size()) {
-        auto* term = reinterpret_cast<GpuModuleHeader*>(buffer + offset);
-        term->type = 0xFFFFFFFF;
-        term->size = 0;
-        offset += 8;
-    }
+    // Terminator (type = 0xFFFFFFFF, size = 0) — always written
+    auto* term = reinterpret_cast<GpuModuleHeader*>(buffer + offset);
+    term->type = 0xFFFFFFFF;
+    term->size = 0;
+    offset += 8;
 
     return offset;
 }

@@ -86,11 +86,12 @@ void main() {
     p.emitter_index = emitter_idx;
     p.stretch = 0.0;
 
-    // Walk spawn modules
+    // Walk spawn modules (max 32 iterations to prevent GPU hang on corrupt data)
     uint mo = em.module_offset;
-    while (true) {
+    for (int guard = 0; guard < 32; ++guard) {
         uint mtype = module_data[mo];
         uint msize = module_data[mo + 1];
+        if (msize == 0 && mtype != MOD_TERMINATOR) break;
         if (mtype == MOD_TERMINATOR) break;
 
         if (mtype == MOD_INITIAL_LIFETIME) {
