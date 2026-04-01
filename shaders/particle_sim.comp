@@ -48,7 +48,9 @@ void main() {
         particles[idx].lifetime = 0.0;
         uint local_idx = idx - em.base_offset;
         uint slot = atomicAdd(counters[em.counter_offset + 1], 1);
-        dead_indices[em.dead_list_offset + slot] = local_idx;
+        if (slot < em.max_particles) {
+            dead_indices[em.dead_list_offset + slot] = local_idx;
+        }
         atomicAdd(counters[em.counter_offset], -1);
         return;
     }

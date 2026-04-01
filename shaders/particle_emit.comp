@@ -59,12 +59,15 @@ void main() {
     EmitterData em = emitters[emitter_idx];
     if (local_emit_idx >= em.emit_count) return;
 
-    // Atomically pop from dead list
+    // Atomically pop from dead list (CAS loop to avoid unsigned underflow)
     uint dead_idx = em.counter_offset + 1;
-    uint slot = atomicAdd(counters[dead_idx], -1u);
-    if (slot == 0 || slot > em.max_particles) {
-        atomicAdd(counters[dead_idx], 1u);
-        return;
+    uint slot;
+    for (;;) {
+        slot = counters[dead_idx];
+        if (slot == 0) return; // nothing available
+        uint prev = atomicCompSwap(counters[dead_idx], slot, slot - 1);
+        if (prev == slot) break; // won the race
+        if (prev == 0) return;   // someone else took the last one
     }
     uint local_pi = dead_indices[em.dead_list_offset + slot - 1];
     uint global_pi = em.base_offset + local_pi;
@@ -81,6 +84,7 @@ void main() {
     p.size = 0.1;
     p.size_end = 0.02;
     p.emitter_index = emitter_idx;
+    p.stretch = 0.0;
 
     // Walk spawn modules
     uint mo = em.module_offset;
@@ -157,6 +161,9 @@ void main() {
             float t = rand01(seed);
             p.size = mix(smin, smax, t);
             p.size_end = p.size; // default: no change (SizeOverLife overrides)
+        }
+        else if (mtype == MOD_INITIAL_STRETCH) {
+            p.stretch = MOD_FLOAT(mo, 2);
         }
 
         mo += msize;
