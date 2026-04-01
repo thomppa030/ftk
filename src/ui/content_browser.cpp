@@ -239,7 +239,7 @@ void ContentBrowser::draw() {
                     h = avail.y;
                     w = h * aspect;
                 }
-                ImGui::Image((ImTextureID)preview_descriptor_, {w, h});
+                ImGui::Image(reinterpret_cast<ImTextureID>(preview_descriptor_), {w, h});
             } else {
                 ImGui::TextDisabled("Failed to load texture");
             }

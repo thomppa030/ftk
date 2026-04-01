@@ -47,7 +47,7 @@ void TimelineWidget::draw_transport() {
         if (icons) {
             auto desc = icons->icon(icon_name);
             if (desc) {
-                clicked = ImGui::ImageButton(id, (ImTextureID)desc,
+                clicked = ImGui::ImageButton(id, reinterpret_cast<ImTextureID>(desc),
                     {icon_size, icon_size}, {0, 0}, {1, 1}, {0, 0, 0, 0}, tint);
             } else {
                 clicked = ImGui::SmallButton(id);
@@ -203,21 +203,43 @@ void TimelineWidget::draw_timeline_bar() {
     bool bar_hovered = ImGui::IsItemHovered();
     bool bar_active = ImGui::IsItemActive();
 
-    // Marker click detection
+    // Marker click/drag detection
     if (bar_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         auto mouse = ImGui::GetMousePos();
+        dragging_marker_ = -1;
         for (int i = 0; i < static_cast<int>(markers_.size()); ++i) {
             float mx = bar_pos.x + (markers_[i].time / std::max(duration_, 0.001f)) * bar_width;
             if (std::abs(mouse.x - mx) < 6.0f) {
                 selected_marker_ = i;
+                dragging_marker_ = i;
                 on_marker_selected.broadcast(i);
                 break;
             }
         }
     }
 
-    // Scrub: drag on the bar
-    if (bar_active && duration_ > 0.0f) {
+    // Marker dragging
+    if (dragging_marker_ >= 0 && ImGui::IsMouseDragging(ImGuiMouseButton_Left) && duration_ > 0.0f) {
+        auto mouse = ImGui::GetMousePos();
+        float ratio = std::clamp((mouse.x - bar_pos.x) / bar_width, 0.0f, 1.0f);
+        float new_time = ratio * duration_;
+        markers_[dragging_marker_].time = new_time;
+        on_marker_moved.broadcast(dragging_marker_, new_time);
+    }
+
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        dragging_marker_ = -1;
+    }
+
+    // Right-click on bar: fire at clicked time position
+    if (bar_hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && duration_ > 0.0f) {
+        auto mouse = ImGui::GetMousePos();
+        float ratio = std::clamp((mouse.x - bar_pos.x) / bar_width, 0.0f, 1.0f);
+        on_right_click.broadcast(ratio * duration_);
+    }
+
+    // Scrub: drag on the bar (only if not dragging a marker)
+    if (bar_active && duration_ > 0.0f && dragging_marker_ < 0) {
         auto mouse = ImGui::GetMousePos();
         float ratio = std::clamp((mouse.x - bar_pos.x) / bar_width, 0.0f, 1.0f);
         time_ = ratio * duration_;

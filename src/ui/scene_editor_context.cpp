@@ -394,7 +394,7 @@ void SceneEditorContext::draw_play_toolbar() {
 
     auto desc = icons->icon(icon_name);
     if (desc) {
-        draw_list->AddImage((ImTextureID)desc,
+        draw_list->AddImage(reinterpret_cast<ImTextureID>(desc),
             {box_x + pad, box_y + pad},
             {box_x + pad + icon_size, box_y + pad + icon_size},
             {0, 0}, {1, 1}, ImGui::ColorConvertFloat4ToU32(tint));

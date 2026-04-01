@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "renderer/vk_check.hpp"
 #include "animation/animation_system.hpp"
 #include "renderer/mesh_component.hpp"
 #include "renderer/skeletal_mesh_component.hpp"
@@ -1766,11 +1767,8 @@ void VulkanContext::submit_and_present() {
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &render_finished[recorded_image_index_];
 
-    VkResult submit_result = vkQueueSubmit(gpu_.graphics_queue(), 1, &submit_info, gpu_.in_flight_fence(recorded_frame_));
-    if (submit_result != VK_SUCCESS) {
-        FJELL_CORE_CRITICAL("vkQueueSubmit failed: {}", static_cast<int>(submit_result));
-        throw std::runtime_error("Failed to submit draw command buffer");
-    }
+    vk_check(vkQueueSubmit(gpu_.graphics_queue(), 1, &submit_info, gpu_.in_flight_fence(recorded_frame_)),
+             "Failed to submit draw command buffer");
 
     VkPresentInfoKHR present_info{};
     present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
