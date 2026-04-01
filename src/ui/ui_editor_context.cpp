@@ -1,4 +1,5 @@
 #include "ui/ui_editor_context.hpp"
+#include "ui/dockspace_layout.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/ui_context.hpp"
@@ -74,21 +75,18 @@ std::vector<std::string> UiEditorContext::docked_window_names() const {
 }
 
 void UiEditorContext::setup_dockspace(ImGuiID main_area) {
-    ImGuiID center = main_area;
-    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.16f, nullptr, &center);
-    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
-    ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.45f, nullptr, &right);
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
-
-    auto names = docked_window_names();
-    ImGui::DockBuilderDockWindow(names[0].c_str(), left);          // Element Tree
-    ImGui::DockBuilderDockWindow(names[1].c_str(), center);        // UI Preview
-    ImGui::DockBuilderDockWindow(names[2].c_str(), right);         // UI Inspector
-    ImGui::DockBuilderDockWindow(names[3].c_str(), right_bottom);  // Mock Data
-    ImGui::DockBuilderDockWindow(names[4].c_str(), bottom);        // Action Log
-    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);        // History
-    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom);        // Stats
-    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom);        // Console
+    enum class EPanel { ElementTree, UiPreview, Inspector, MockData, ActionLog, History, Stats, Console };
+    using N = DockNode;
+    static const auto layout = N::horizontal_split(0.16f,
+        N::leaf({EPanel::ElementTree}),
+        N::horizontal_split(0.76f,
+            N::vertical_split(0.75f,
+                N::leaf({EPanel::UiPreview}),
+                N::leaf({EPanel::ActionLog, EPanel::History, EPanel::Stats, EPanel::Console})),
+            N::vertical_split(0.55f,
+                N::leaf({EPanel::Inspector}),
+                N::leaf({EPanel::MockData}))));
+    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool UiEditorContext::handle_shortcuts() {

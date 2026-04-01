@@ -1,4 +1,5 @@
 #include "ui/blend_space_1d_editor_context.hpp"
+#include "ui/dockspace_layout.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
 #include "animation/animation_subsystem.hpp"
@@ -624,22 +625,18 @@ std::vector<std::string> BlendSpace1DEditorContext::docked_window_names() const 
 }
 
 void BlendSpace1DEditorContext::setup_dockspace(ImGuiID main_area) {
-    ImGuiID left, center;
-    ImGui::DockBuilderSplitNode(main_area, ImGuiDir_Left, 0.22f, &left, &center);
-    ImGuiID left_mid, left_bottom;
-    ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.60f, &left_mid, &left);
-    ImGui::DockBuilderSplitNode(left_mid, ImGuiDir_Down, 0.40f, &left_bottom, &left_mid);
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
-
-    auto names = docked_window_names();
-    ImGui::DockBuilderDockWindow(names[0].c_str(), center);      // Parameter
-    ImGui::DockBuilderDockWindow(names[1].c_str(), center);      // BS1D Preview
-    ImGui::DockBuilderDockWindow(names[2].c_str(), left);        // Points
-    ImGui::DockBuilderDockWindow(names[3].c_str(), left_mid);    // Clips
-    ImGui::DockBuilderDockWindow(names[4].c_str(), left_bottom); // Properties
-    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);      // Stats
-    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom);      // Console
-    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom);      // History
+    enum class EPanel { Parameter, Preview, Points, Clips, Properties, Stats, Console, History };
+    using N = DockNode;
+    static const auto layout = N::horizontal_split(0.22f,
+        N::vertical_split(0.40f,
+            N::leaf({EPanel::Points}),
+            N::vertical_split(0.60f,
+                N::leaf({EPanel::Clips}),
+                N::leaf({EPanel::Properties}))),
+        N::vertical_split(0.75f,
+            N::leaf({EPanel::Parameter, EPanel::Preview}),
+            N::leaf({EPanel::Stats, EPanel::Console, EPanel::History})));
+    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool BlendSpace1DEditorContext::handle_shortcuts() {

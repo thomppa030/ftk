@@ -1,4 +1,5 @@
 #include "ui/material_editor_context.hpp"
+#include "ui/dockspace_layout.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
@@ -55,18 +56,16 @@ std::vector<std::string> MaterialEditorContext::docked_window_names() const {
 }
 
 void MaterialEditorContext::setup_dockspace(ImGuiID main_area) {
-    ImGuiID center = main_area;
-    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.28f, nullptr, &center);
-    ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.50f, nullptr, &right);
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.25f, nullptr, &center);
-
-    auto names = docked_window_names();
-    ImGui::DockBuilderDockWindow(names[0].c_str(), center);      // Material Preview
-    ImGui::DockBuilderDockWindow(names[1].c_str(), right);       // Material Params
-    ImGui::DockBuilderDockWindow(names[2].c_str(), right_bottom); // Texture Slots
-    ImGui::DockBuilderDockWindow(names[3].c_str(), right_bottom); // History
-    ImGui::DockBuilderDockWindow(names[4].c_str(), bottom);      // Stats
-    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom);      // Console
+    enum class EPanel { Preview, Params, TextureSlots, History, Stats, Console };
+    using N = DockNode;
+    static const auto layout = N::horizontal_split(0.72f,
+        N::vertical_split(0.75f,
+            N::leaf({EPanel::Preview}),
+            N::leaf({EPanel::Stats, EPanel::Console})),
+        N::vertical_split(0.50f,
+            N::leaf({EPanel::Params}),
+            N::leaf({EPanel::TextureSlots, EPanel::History})));
+    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool MaterialEditorContext::handle_shortcuts() {

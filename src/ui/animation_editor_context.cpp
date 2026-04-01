@@ -1,4 +1,5 @@
 #include "ui/animation_editor_context.hpp"
+#include "ui/dockspace_layout.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animation_subsystem.hpp"
 #include "animation/animator_component.hpp"
@@ -155,24 +156,21 @@ std::vector<std::string> AnimationEditorContext::docked_window_names() const {
 }
 
 void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
-    ImGuiID center = main_area;
-    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.14f, nullptr, &center);
-    ImGuiID left_mid = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.65f, nullptr, &left);
-    ImGuiID left_bottom = ImGui::DockBuilderSplitNode(left_mid, ImGuiDir_Down, 0.50f, nullptr, &left_mid);
-    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.32f, nullptr, &center);
-
-    auto names = docked_window_names();
-    ImGui::DockBuilderDockWindow(names[0].c_str(), left);        // Bone Tree
-    ImGui::DockBuilderDockWindow(names[1].c_str(), left_mid);    // Clip List
-    ImGui::DockBuilderDockWindow(names[2].c_str(), left_mid);    // History
-    ImGui::DockBuilderDockWindow(names[3].c_str(), left_bottom); // Anim Parameters
-    ImGui::DockBuilderDockWindow(names[4].c_str(), center);      // Anim Preview
-    ImGui::DockBuilderDockWindow(names[5].c_str(), center);      // State Graph
-    ImGui::DockBuilderDockWindow(names[6].c_str(), right);       // Anim Properties
-    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom);      // Anim Timeline
-    ImGui::DockBuilderDockWindow(names[8].c_str(), bottom);      // Stats
-    ImGui::DockBuilderDockWindow(names[9].c_str(), bottom);      // Console
+    enum class EPanel { BoneTree, ClipList, History, Parameters, Preview, StateGraph, Properties,
+                        Timeline, Stats, Console };
+    using N = DockNode;
+    static const auto layout = N::horizontal_split(0.14f,
+        N::vertical_split(0.35f,
+            N::leaf({EPanel::BoneTree}),
+            N::vertical_split(0.50f,
+                N::leaf({EPanel::ClipList, EPanel::History}),
+                N::leaf({EPanel::Parameters}))),
+        N::horizontal_split(0.78f,
+            N::vertical_split(0.68f,
+                N::leaf({EPanel::Preview, EPanel::StateGraph}),
+                N::leaf({EPanel::Timeline, EPanel::Stats, EPanel::Console})),
+            N::leaf({EPanel::Properties})));
+    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool AnimationEditorContext::handle_shortcuts() {

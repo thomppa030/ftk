@@ -168,6 +168,7 @@ add_executable(fjell
     ui/vfx_editor_context.cpp
     ui/material_params_widget.cpp
     ui/scene_editor_context.cpp
+    ui/dockspace_layout.cpp
     ui/timeline_widget.cpp
     ui/viewport_manager.cpp
     ui/game_ui/fjui_parser.cpp

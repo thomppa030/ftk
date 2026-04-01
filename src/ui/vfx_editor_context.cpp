@@ -1,4 +1,5 @@
 #include "ui/vfx_editor_context.hpp"
+#include "ui/dockspace_layout.hpp"
 #include "renderer/particle_emitter.hpp"
 #include "renderer/resource_handle.hpp"
 #include "renderer/vfx_asset.hpp"
@@ -139,25 +140,18 @@ std::vector<std::string> VfxEditorContext::docked_window_names() const {
 }
 
 void VfxEditorContext::setup_dockspace(ImGuiID main_area) {
-    ImGuiID center = main_area;
-
-    // Right: Module stack + palette — 24%
-    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.24f, nullptr, &center);
-    ImGuiID right_bottom = ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.35f, nullptr, &right);
-
-    // Bottom: Node editor + Timeline — 40%
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.40f, nullptr, &center);
-    ImGuiID bottom_bottom = ImGui::DockBuilderSplitNode(bottom, ImGuiDir_Down, 0.30f, nullptr, &bottom);
-
-    auto names = docked_window_names();
-    ImGui::DockBuilderDockWindow(names[0].c_str(), center);       // VFX Preview
-    ImGui::DockBuilderDockWindow(names[1].c_str(), right);        // Module Stack
-    ImGui::DockBuilderDockWindow(names[2].c_str(), right_bottom); // Add Module
-    ImGui::DockBuilderDockWindow(names[3].c_str(), bottom);       // VFX Graph
-    ImGui::DockBuilderDockWindow(names[4].c_str(), bottom_bottom);// VFX Timeline
-    ImGui::DockBuilderDockWindow(names[5].c_str(), bottom_bottom);// Stats
-    ImGui::DockBuilderDockWindow(names[6].c_str(), bottom_bottom);// Console
-    ImGui::DockBuilderDockWindow(names[7].c_str(), bottom_bottom);// History
+    enum class EPanel { Preview, ModuleStack, AddModule, Graph, Timeline, Stats, Console, History };
+    using N = DockNode;
+    static const auto layout = N::horizontal_split(0.76f,
+        N::vertical_split(0.60f,
+            N::leaf({EPanel::Preview}),
+            N::vertical_split(0.70f,
+                N::leaf({EPanel::Graph}),
+                N::leaf({EPanel::Timeline, EPanel::Stats, EPanel::Console, EPanel::History}))),
+        N::vertical_split(0.65f,
+            N::leaf({EPanel::ModuleStack}),
+            N::leaf({EPanel::AddModule})));
+    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool VfxEditorContext::handle_shortcuts() {

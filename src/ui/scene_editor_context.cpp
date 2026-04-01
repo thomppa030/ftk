@@ -1,4 +1,5 @@
 #include "ui/scene_editor_context.hpp"
+#include "ui/dockspace_layout.hpp"
 #include "core/base_path.hpp"
 #include "core/clock.hpp"
 #include "core/commands.hpp"
@@ -435,24 +436,18 @@ std::vector<std::string> SceneEditorContext::docked_window_names() const {
 }
 
 void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
-    ImGuiID center = main_area;
-
-    // Left panel: Hierarchy (top) + History (bottom) — 14%
-    ImGuiID left = ImGui::DockBuilderSplitNode(center, ImGuiDir_Left, 0.14f, nullptr, &center);
-    ImGuiID left_bottom = ImGui::DockBuilderSplitNode(left, ImGuiDir_Down, 0.50f, nullptr, &left);
-
-    // Right panel: Properties — 19%
-    ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.22f, nullptr, &center);
-
-    // Bottom strip: Stats / Console (tabs) — 32%
-    ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.32f, nullptr, &center);
-
-    ImGui::DockBuilderDockWindow("Hierarchy", left);
-    ImGui::DockBuilderDockWindow("History##ctx0", left_bottom);
-    ImGui::DockBuilderDockWindow("Viewport", center);
-    ImGui::DockBuilderDockWindow("Properties", right);
-    ImGui::DockBuilderDockWindow("Stats##ctx0", bottom);
-    ImGui::DockBuilderDockWindow("Console##ctx0", bottom);
+    enum class EPanel { Hierarchy, History, Viewport, Properties, Stats, Console };
+    using N = DockNode;
+    static const auto layout = N::horizontal_split(0.14f,
+        N::vertical_split(0.50f,
+            N::leaf({EPanel::Hierarchy}),
+            N::leaf({EPanel::History})),
+        N::horizontal_split(0.78f,
+            N::vertical_split(0.68f,
+                N::leaf({EPanel::Viewport}),
+                N::leaf({EPanel::Stats, EPanel::Console})),
+            N::leaf({EPanel::Properties})));
+    build_dockspace(main_area, layout, docked_window_names());
 }
 
 bool SceneEditorContext::handle_shortcuts() {
