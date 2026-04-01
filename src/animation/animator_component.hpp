@@ -1,7 +1,6 @@
 #pragma once
 
 #include "animation/animation_clip.hpp"
-#include "animation/animation_events.hpp"
 #include "animation/animation_state_machine.hpp"
 #include "animation/blend_space.hpp"
 #include "animation/skeleton.hpp"
@@ -21,6 +20,8 @@
 #include <vector>
 
 namespace fjell {
+
+struct Node3D;
 
 // Per-layer animation sampling state.
 struct AnimationLayer {
@@ -89,15 +90,11 @@ public:
 
     [[nodiscard]] const Skeleton* skeleton() const { return skeleton_; }
     [[nodiscard]] bool initialized() const { return skeleton_ != nullptr; }
+
+    // Set by AnimationSystem::update() each frame for notify dispatch.
+    void set_owner(Node3D* owner) { owner_ = owner; }
     [[nodiscard]] bool has_active_clip() const { return layers_[0].clip != nullptr || has_active_blend_space(); }
     [[nodiscard]] bool has_active_blend_space() const;
-
-    // Per-clip event tracks. Keyed by clip path.
-    void set_event_track(const std::string& clip_path, AnimationEventTrack track);
-    [[nodiscard]] AnimationEventTrack* event_track(const std::string& clip_path);
-
-    // Single subscribe point for all animation events across all clips.
-    Delegate<void(const AnimationEvent&)> on_event;
 
     // Access the state machine (for setting params, reading state, binding on_transition).
     [[nodiscard]] AnimationStateMachine& state_machine() { return state_machine_; }
@@ -110,11 +107,12 @@ public:
 private:
     void sample_layer(AnimationLayer& layer, float dt);
     void sample_layer_at_ratio(AnimationLayer& layer, float ratio);
+    void fire_notifies(const AnimationClip* clip, float prev_time, float current_time, float duration);
     void evaluate_blend_space(const AnimationState& state, float dt);
     void compute_skin_matrices();
-    void ensure_event_track(const std::string& path, const AnimationClip* clip);
 
     const Skeleton* skeleton_{nullptr};
+    Node3D* owner_{nullptr};
 
     // Layers: [0] = current state, [1] = next state (during crossfade)
     AnimationLayer layers_[2];
@@ -144,8 +142,6 @@ private:
     // Final output for GPU
     std::vector<glm::mat4> skin_matrices_;
 
-    // Event tracks per clip path
-    std::unordered_map<std::string, AnimationEventTrack> event_tracks_;
 };
 
 } // namespace fjell

@@ -1,10 +1,10 @@
 #include "animation/animation_clip.hpp"
+#include "animation/anim_notify_registry.hpp"
+#include "scripting/field_serialization.hpp"
 #include "core/log.hpp"
 
 #include <ozz/animation/offline/animation_builder.h>
 #include <ozz/animation/offline/raw_animation.h>
-
-#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <fstream>
@@ -129,24 +129,47 @@ Result<AnimationClip> AnimationClip::load(const std::string& path) {
         clip.tracks_.push_back(std::move(track));
     }
 
-    // Parse events
-    if (j.contains("events") && j["events"].is_array()) {
-        for (const auto& je : j["events"]) {
-            AnimationEvent event;
-            event.time = je.value("time", 0.0f);
-            event.name = je.value("name", "");
-            if (je.contains("params") && je["params"].is_object()) {
-                for (auto pit = je["params"].begin(); pit != je["params"].end(); ++pit) {
-                    event.params[pit.key()] = pit.value().get<std::string>();
+    // Parse notifies (typed AnimNotify instances)
+    if (j.contains("notifies") && j["notifies"].is_array()) {
+        auto& registry = AnimNotifyRegistry::instance();
+        for (const auto& jn : j["notifies"]) {
+            AnimNotifyInstance ni;
+            ni.time = jn.value("time", 0.0f);
+            ni.end_time = jn.value("end_time", 0.0f);
+            ni.type_name = jn.value("type", "");
+            ni.properties = jn; // keep full JSON for re-serialization
+
+            if (!ni.type_name.empty()) {
+                ni.instance = registry.create(ni.type_name);
+                if (ni.instance) {
+                    const auto* info = registry.find(ni.type_name);
+                    if (info && !info->fields.empty()) {
+                        deserialize_reflected_fields(info->fields, ni.instance.get(), jn);
+                    }
+                } else {
+                    FJELL_CORE_WARN("Animation {}: unknown notify type '{}' at t={:.2f}",
+                                    path, ni.type_name, ni.time);
                 }
             }
-            clip.events_.push_back(std::move(event));
+            clip.notifies_.push_back(std::move(ni));
+        }
+    }
+
+    // Backward compat: load old "events" as untyped notifies (properties only)
+    if (j.contains("events") && j["events"].is_array()) {
+        for (const auto& je : j["events"]) {
+            AnimNotifyInstance ni;
+            ni.time = je.value("time", 0.0f);
+            ni.type_name = je.value("name", "event");
+            ni.properties = je;
+            clip.notifies_.push_back(std::move(ni));
         }
     }
 
     // Warn on unknown top-level fields
     for (auto it = j.begin(); it != j.end(); ++it) {
-        if (it.key() != "name" && it.key() != "tracks" && it.key() != "events") {
+        if (it.key() != "name" && it.key() != "tracks" &&
+            it.key() != "notifies" && it.key() != "events") {
             FJELL_CORE_WARN("Animation {}: unknown field '{}'", path, it.key());
         }
     }
@@ -190,15 +213,28 @@ Result<> AnimationClip::save(const std::string& path) const {
         j["tracks"].push_back(jt);
     }
 
-    j["events"] = nlohmann::json::array();
-    for (const auto& event : events_) {
-        nlohmann::json je;
-        je["time"] = event.time;
-        je["name"] = event.name;
-        if (!event.params.empty()) {
-            je["params"] = event.params;
+    j["notifies"] = nlohmann::json::array();
+    for (const auto& ni : notifies_) {
+        nlohmann::json jn;
+        jn["time"] = ni.time;
+        if (ni.end_time > 0.0f) jn["end_time"] = ni.end_time;
+        jn["type"] = ni.type_name;
+
+        // Serialize reflected fields from live instance, or fall back to stored properties
+        if (ni.instance) {
+            const auto* info = AnimNotifyRegistry::instance().find(ni.type_name);
+            if (info && !info->fields.empty()) {
+                serialize_reflected_fields(info->fields, ni.instance.get(), jn);
+            }
+        } else if (!ni.properties.empty()) {
+            // Type not loaded — preserve original properties
+            for (auto it = ni.properties.begin(); it != ni.properties.end(); ++it) {
+                if (it.key() != "time" && it.key() != "end_time" && it.key() != "type") {
+                    jn[it.key()] = it.value();
+                }
+            }
         }
-        j["events"].push_back(je);
+        j["notifies"].push_back(jn);
     }
 
     std::ofstream file(path);

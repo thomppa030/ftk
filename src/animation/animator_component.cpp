@@ -56,7 +56,6 @@ void AnimatorComponent::play(const std::string& clip_path, const AnimationClip* 
                              bool looping, float speed) {
     play(clip, looping, speed);
     layers_[0].clip_path = clip_path;
-    ensure_event_track(clip_path, clip);
 }
 
 Result<> AnimatorComponent::load_state_machine(const std::string& path) {
@@ -102,7 +101,6 @@ void AnimatorComponent::enable_state_machine() {
 
 void AnimatorComponent::set_clip(const std::string& name, const AnimationClip* clip) {
     clip_map_[name] = clip;
-    ensure_event_track(name, clip);
 }
 
 void AnimatorComponent::load_blend_space_1d(const std::string& path, const BlendSpace1D& bs) {
@@ -178,26 +176,6 @@ bool AnimatorComponent::has_active_blend_space() const {
     if (!use_state_machine_) return false;
     const auto* cur = state_machine_.current_state();
     return cur && cur->uses_blend_space();
-}
-
-void AnimatorComponent::set_event_track(const std::string& clip_path, AnimationEventTrack track) {
-    event_tracks_.insert_or_assign(clip_path, std::move(track));
-}
-
-AnimationEventTrack* AnimatorComponent::event_track(const std::string& clip_path) {
-    auto it = event_tracks_.find(clip_path);
-    return it != event_tracks_.end() ? &it->second : nullptr;
-}
-
-void AnimatorComponent::ensure_event_track(const std::string& path, const AnimationClip* clip) {
-    if (path.empty() || !clip || clip->events().empty()) return;
-    if (event_tracks_.contains(path)) return;
-
-    AnimationEventTrack track;
-    for (const auto& e : clip->events()) {
-        track.add(e);
-    }
-    set_event_track(path, std::move(track));
 }
 
 // ── Blend space evaluation ──────────────────────────────────────────────
@@ -516,21 +494,17 @@ void AnimatorComponent::sample_layer(AnimationLayer& layer, float dt) {
         FJELL_CORE_WARN("SamplingJob failed");
     }
 
-    // Fire events for this layer
-    if (!layer.clip_path.empty()) {
-        auto it = event_tracks_.find(layer.clip_path);
-        if (it != event_tracks_.end()) {
-            it->second.fire_in_range(prev_time, layer.time, duration,
-                [this](const AnimationEvent& e) { on_event.broadcast(e); });
-        }
-    }
+    // Fire notifies in the time range
+    fire_notifies(layer.clip, prev_time, layer.time, duration);
 }
 
 void AnimatorComponent::sample_layer_at_ratio(AnimationLayer& layer, float ratio) {
     if (!layer.clip) return;
 
+    float prev_time = layer.time;
     ratio = std::clamp(ratio, 0.0f, 1.0f);
-    layer.time = ratio * layer.clip->duration();
+    float duration = layer.clip->duration();
+    layer.time = ratio * duration;
 
     ozz::animation::SamplingJob job;
     job.animation = &layer.clip->raw();
@@ -540,6 +514,52 @@ void AnimatorComponent::sample_layer_at_ratio(AnimationLayer& layer, float ratio
 
     if (!job.Run()) {
         FJELL_CORE_WARN("SamplingJob failed");
+    }
+
+    // Fire notifies in the time range (fixes phase-sync gap)
+    fire_notifies(layer.clip, prev_time, layer.time, duration);
+}
+
+void AnimatorComponent::fire_notifies(const AnimationClip* clip, float prev_time,
+                                       float current_time, float duration) {
+    if (!clip || !owner_ || duration <= 0.0f) return;
+
+    for (const auto& ni : clip->notifies()) {
+        if (!ni.instance) continue;
+
+        if (ni.instance->is_state()) {
+            // State notify: begin/tick/end based on time range
+            auto* state_notify = static_cast<AnimNotifyState*>(ni.instance.get());
+            float end = ni.end_time > 0.0f ? ni.end_time : ni.time;
+            bool was_in = (prev_time >= ni.time && prev_time < end);
+            bool now_in = (current_time >= ni.time && current_time < end);
+
+            if (!was_in && now_in) {
+                state_notify->notify_begin(*owner_);
+            } else if (was_in && now_in) {
+                float dt = current_time - prev_time;
+                if (dt < 0.0f) dt += duration; // loop wraparound
+                state_notify->notify_tick(*owner_, dt);
+            } else if (was_in && !now_in) {
+                state_notify->notify_end(*owner_);
+            }
+        } else {
+            // Instant notify: fire when time crosses the notify point
+            if (current_time > prev_time) {
+                // Normal forward
+                if (ni.time > prev_time && ni.time <= current_time) {
+                    ni.instance->notify(*owner_);
+                }
+            } else if (current_time < prev_time) {
+                // Loop wraparound
+                if (ni.time > prev_time && ni.time <= duration) {
+                    ni.instance->notify(*owner_);
+                }
+                if (ni.time >= 0.0f && ni.time <= current_time) {
+                    ni.instance->notify(*owner_);
+                }
+            }
+        }
     }
 }
 

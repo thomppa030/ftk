@@ -127,11 +127,11 @@ add_executable(fjell
     renderer/vulkan_context.cpp
     animation/skeleton.cpp
     animation/animation_clip.cpp
-    animation/animation_events.cpp
     animation/animation_state_machine.cpp
     animation/animation_system.cpp
     animation/animator_component.cpp
     animation/anim_notify_registry.cpp
+    animation/builtin_notifies.cpp
     animation/blend_space.cpp
     animation/animator_component_meta.cpp
     animation/bone_buffer.cpp

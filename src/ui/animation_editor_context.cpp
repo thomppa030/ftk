@@ -1,8 +1,10 @@
 #include "ui/animation_editor_context.hpp"
 #include "ui/dockspace_layout.hpp"
+#include "animation/anim_notify_registry.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animation_subsystem.hpp"
 #include "animation/animator_component.hpp"
+#include "scripting/field_inspector.hpp"
 #include "animation/skeleton.hpp"
 #include "core/base_path.hpp"
 #include "core/clock.hpp"
@@ -89,21 +91,21 @@ void AnimationEditorContext::init() {
         selected_event_index_ = idx;
     }));
 
-    // Right-click on timeline: add new event
+    // Right-click on timeline: add new notify (default untyped)
     connections_.push_back(timeline_.on_right_click.bind([this](float time) {
         if (!current_clip_) return;
-        AnimationEvent event;
-        event.time = time;
-        event.name = "event";
-        current_clip_->events().push_back(std::move(event));
+        AnimNotifyInstance ni;
+        ni.time = time;
+        ni.type_name = "event";
+        current_clip_->notifies().push_back(std::move(ni));
         sync_markers_from_clip();
-        selected_event_index_ = static_cast<int>(current_clip_->events().size()) - 1;
+        selected_event_index_ = static_cast<int>(current_clip_->notifies().size()) - 1;
     }));
 
-    // Marker drag: update event time
+    // Marker drag: update notify time
     connections_.push_back(timeline_.on_marker_moved.bind([this](int idx, float new_time) {
-        if (!current_clip_ || idx < 0 || idx >= static_cast<int>(current_clip_->events().size())) return;
-        current_clip_->events()[idx].time = new_time;
+        if (!current_clip_ || idx < 0 || idx >= static_cast<int>(current_clip_->notifies().size())) return;
+        current_clip_->notifies()[idx].time = new_time;
     }));
 
     init_shared_panels(deps_.vulkan_context);
@@ -188,12 +190,12 @@ bool AnimationEditorContext::handle_shortcuts() {
         return true;
     }
 
-    // Delete: remove selected event
+    // Delete: remove selected notify
     if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) && current_clip_ &&
         selected_event_index_ >= 0 &&
-        selected_event_index_ < static_cast<int>(current_clip_->events().size())) {
-        current_clip_->events().erase(
-            current_clip_->events().begin() + selected_event_index_);
+        selected_event_index_ < static_cast<int>(current_clip_->notifies().size())) {
+        current_clip_->notifies().erase(
+            current_clip_->notifies().begin() + selected_event_index_);
         selected_event_index_ = -1;
         sync_markers_from_clip();
         return true;
@@ -634,82 +636,47 @@ void AnimationEditorContext::draw_properties() {
             ImGui::TextDisabled("No selection");
         }
 
-        // Event editing (when a clip is loaded and an event marker is selected)
+        // Notify editing (when a clip is loaded and a notify marker is selected)
         if (current_clip_ && selected_event_index_ >= 0 &&
-            selected_event_index_ < static_cast<int>(current_clip_->events().size())) {
-            auto& event = current_clip_->events()[selected_event_index_];
+            selected_event_index_ < static_cast<int>(current_clip_->notifies().size())) {
+            auto& ni = current_clip_->notifies()[selected_event_index_];
 
             ImGui::Separator();
-            ImGui::SeparatorText("Event");
+            ImGui::SeparatorText("Notify");
 
-            // Name
-            char name_buf[128];
-            std::strncpy(name_buf, event.name.c_str(), sizeof(name_buf) - 1);
-            name_buf[sizeof(name_buf) - 1] = '\0';
-            if (ImGui::InputText("Event Name", name_buf, sizeof(name_buf),
-                                 ImGuiInputTextFlags_EnterReturnsTrue)) {
-                event.name = name_buf;
-                sync_markers_from_clip();
-            }
+            // Type
+            ImGui::TextDisabled("Type: %s", ni.type_name.c_str());
 
             // Time
-            float t = event.time;
+            float t = ni.time;
             if (ImGui::DragFloat("Time", &t, 0.001f, 0.0f, current_clip_->duration(), "%.3fs")) {
-                event.time = t;
+                ni.time = t;
                 sync_markers_from_clip();
             }
 
-            // Params (key-value pairs)
-            ImGui::SeparatorText("Params");
-            std::string remove_key;
-            for (auto& [key, value] : event.params) {
-                ImGui::PushID(key.c_str());
-
-                // Key (read-only display)
-                ImGui::Text("%s", key.c_str());
-                ImGui::SameLine();
-
-                // Value
-                char val_buf[256];
-                std::strncpy(val_buf, value.c_str(), sizeof(val_buf) - 1);
-                val_buf[sizeof(val_buf) - 1] = '\0';
-                ImGui::SetNextItemWidth(-30);
-                if (ImGui::InputText("##val", val_buf, sizeof(val_buf),
-                                     ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    value = val_buf;
+            // End time (for state notifies)
+            if (ni.end_time > 0.0f || (ni.instance && ni.instance->is_state())) {
+                float et = ni.end_time;
+                if (ImGui::DragFloat("End Time", &et, 0.001f, ni.time, current_clip_->duration(), "%.3fs")) {
+                    ni.end_time = et;
+                    sync_markers_from_clip();
                 }
+            }
 
-                ImGui::SameLine();
-                if (ImGui::SmallButton("X")) {
-                    remove_key = key;
+            // Reflected fields (if instance exists and type is registered)
+            if (ni.instance) {
+                const auto* info = AnimNotifyRegistry::instance().find(ni.type_name);
+                if (info && !info->fields.empty()) {
+                    ImGui::SeparatorText("Properties");
+                    draw_reflected_fields(info->fields, ni.instance.get());
                 }
-
-                ImGui::PopID();
-            }
-            if (!remove_key.empty()) {
-                event.params.erase(remove_key);
             }
 
-            // Add new param
-            static char new_key[64] = "";
-            static char new_val[256] = "";
-            ImGui::SetNextItemWidth(100.0f);
-            ImGui::InputText("##newkey", new_key, sizeof(new_key));
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(-60);
-            ImGui::InputText("##newval", new_val, sizeof(new_val));
-            ImGui::SameLine();
-            if (ImGui::SmallButton("+") && new_key[0] != '\0') {
-                event.params[new_key] = new_val;
-                new_key[0] = '\0';
-                new_val[0] = '\0';
-            }
-
-            // Delete event button
+            // Delete notify button
             ImGui::Spacing();
-            if (ImGui::Button("Delete Event")) {
-                current_clip_->events().erase(
-                    current_clip_->events().begin() + selected_event_index_);
+            if (ImGui::Button("Delete Notify")) {
+                current_clip_->notifies().erase(
+                    current_clip_->notifies().begin() + selected_event_index_);
                 selected_event_index_ = -1;
                 sync_markers_from_clip();
             }
@@ -787,8 +754,8 @@ void AnimationEditorContext::load_clip(int index) {
 void AnimationEditorContext::sync_markers_from_clip() {
     std::vector<TimelineMarker> markers;
     if (current_clip_) {
-        for (const auto& e : current_clip_->events()) {
-            markers.push_back({e.time, e.name});
+        for (const auto& ni : current_clip_->notifies()) {
+            markers.push_back({ni.time, ni.type_name});
         }
     }
     timeline_.set_markers(markers);

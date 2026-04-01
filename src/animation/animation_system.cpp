@@ -26,6 +26,7 @@ void AnimationSystem::update(Scene& scene, float dt) {
         }
 
         if (anim->initialized()) {
+            anim->set_owner(obj->as_spatial());
             anim->update(dt);
         }
     }
