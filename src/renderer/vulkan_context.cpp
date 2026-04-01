@@ -231,7 +231,16 @@ void VulkanContext::sync_tilemap_textures(Scene& scene, ResourceManager& resourc
 // ── Pass registration ────────────────────────────────────────────────────
 
 void VulkanContext::register_passes() {
-    // Sky cubemap IBL — regenerate when sky colors change
+    register_environment_passes();
+    register_depth_passes();
+    register_gpu_driven_passes();
+    register_color_passes();
+    register_post_process_passes();
+    register_debug_passes();
+    register_pass_resources();
+}
+
+void VulkanContext::register_environment_passes() {
     render_pipeline_.register_pass({
         .name = "sky_cubemap",
         .order = 50,
@@ -267,8 +276,9 @@ void VulkanContext::register_passes() {
             }, {}, 1);
         }
     });
+}
 
-    // Depth prepass (+ resolve if MSAA)
+void VulkanContext::register_depth_passes() {
     render_pipeline_.register_pass({
         .name = "depth_prepass",
         .order = 200,
@@ -343,8 +353,9 @@ void VulkanContext::register_passes() {
             }, {{imgs.depth_id, ImageUsage::compute_read}});
         }
     });
+}
 
-    // GPU-driven meshlet expand + two-pass cull
+void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "meshlet_cull",
         .order = 400,
@@ -479,9 +490,9 @@ void VulkanContext::register_passes() {
             }, {});
         }
     });
+}
 
-    // Color pass (composite: opaques + sky + grid + debug + outline + sprites + transparent + particles)
-    // ── Color pass: opaque geometry + sky + grid + debug + sprites ────────
+void VulkanContext::register_color_passes() {
     render_pipeline_.register_pass({
         .name = "color_opaque",
         .order = 600,
@@ -794,8 +805,9 @@ void VulkanContext::register_passes() {
                 {imgs.screen_color_id, ImageUsage::shader_read}});
         }
     });
+}
 
-    // SSR
+void VulkanContext::register_post_process_passes() {
     render_pipeline_.register_pass({
         .name = "ssr",
         .order = 700,
@@ -877,8 +889,9 @@ void VulkanContext::register_passes() {
             }, {{imgs.color_id, ImageUsage::shader_read}});
         }
     });
+}
 
-    // Visualization passes
+void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "depth_viz",
         .order = 1100,
@@ -986,9 +999,9 @@ void VulkanContext::register_passes() {
             }, {});
         }
     });
+}
 
-    // ── Resource declarations ──
-    // Declare what each pass reads/writes so the pipeline can track dependencies.
+void VulkanContext::register_pass_resources() {
     render_pipeline_.set_pass_resources("depth_prepass", {}, {"depth"});
     render_pipeline_.set_pass_resources("hiz_build", {"depth"}, {"hiz"});
     render_pipeline_.set_pass_resources("gtao", {"depth"}, {"ao"});

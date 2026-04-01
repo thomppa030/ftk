@@ -226,6 +226,13 @@ private:
                              VkExtent2D extent);
 
   void register_passes();
+  void register_environment_passes();
+  void register_depth_passes();
+  void register_gpu_driven_passes();
+  void register_color_passes();
+  void register_post_process_passes();
+  void register_debug_passes();
+  void register_pass_resources();
 
   // ── GPU infrastructure ────────────────────────────────────────────────
   GpuContext gpu_;
