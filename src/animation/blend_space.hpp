@@ -47,6 +47,9 @@ public:
     [[nodiscard]] float damp_speed() const { return damp_speed_; }
     void set_damp_speed(float speed) { damp_speed_ = speed; }
 
+    [[nodiscard]] bool phase_sync() const { return phase_sync_; }
+    void set_phase_sync(bool sync) { phase_sync_ = sync; }
+
     [[nodiscard]] const std::vector<BlendSpacePoint>& points() const { return points_; }
     [[nodiscard]] bool empty() const { return points_.empty(); }
     [[nodiscard]] uint32_t size() const { return static_cast<uint32_t>(points_.size()); }
@@ -55,6 +58,7 @@ private:
     std::string parameter_;                // parameter name (e.g. "speed")
     std::string skeleton_path_;            // relative path to .fjskel
     float damp_speed_{10.0f};              // parameter smoothing speed (higher = faster, 0 = instant)
+    bool phase_sync_{true};                // sync all clips to a shared phase (for locomotion)
     std::vector<BlendSpacePoint> points_;  // sorted by position
 };
 
@@ -98,6 +102,9 @@ public:
     [[nodiscard]] float damp_speed() const { return damp_speed_; }
     void set_damp_speed(float speed) { damp_speed_ = speed; }
 
+    [[nodiscard]] bool phase_sync() const { return phase_sync_; }
+    void set_phase_sync(bool sync) { phase_sync_ = sync; }
+
     [[nodiscard]] const std::vector<BlendSpacePoint2D>& points() const { return points_; }
     [[nodiscard]] bool empty() const { return points_.empty(); }
     [[nodiscard]] uint32_t size() const { return static_cast<uint32_t>(points_.size()); }
@@ -110,6 +117,7 @@ private:
     std::string parameter_y_;
     std::string skeleton_path_;
     float damp_speed_{10.0f};              // parameter smoothing speed (higher = faster, 0 = instant)
+    bool phase_sync_{true};                // sync all clips to a shared phase (for locomotion)
     std::vector<BlendSpacePoint2D> points_;
     std::vector<Triangle> triangles_;
 };

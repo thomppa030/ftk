@@ -109,6 +109,7 @@ public:
 
 private:
     void sample_layer(AnimationLayer& layer, float dt);
+    void sample_layer_at_ratio(AnimationLayer& layer, float ratio);
     void evaluate_blend_space(const AnimationState& state, float dt);
     void compute_skin_matrices();
     void ensure_event_track(const std::string& path, const AnimationClip* clip);
@@ -132,6 +133,9 @@ private:
 
     // Damped blend space parameters (smoothed toward raw state machine values)
     std::unordered_map<std::string, float> damped_params_;
+
+    // Shared phase for phase-synced blend spaces (0.0–1.0 normalized)
+    float blend_phase_{0.0f};
 
     // ozz output buffers
     std::vector<ozz::math::SoaTransform> blended_locals_;

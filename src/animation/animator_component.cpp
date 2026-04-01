@@ -4,6 +4,7 @@
 
 #include <ozz/base/maths/simd_math.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -251,6 +252,29 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             if (cb != clip_map_.end() && cb->second != clip_a) { clip_b = cb->second; path_b = bs.points()[result.index_b].clip; }
         }
 
+        // Phase sync: advance shared phase by weighted-average rate
+        if (bs.phase_sync() && (clip_a || clip_b)) {
+            float weighted_rate = 0.0f;
+            float total_weight = 0.0f;
+            if (clip_a) {
+                float dur = clip_a->duration();
+                if (dur > 0.0f) { weighted_rate += result.weight_a * (state.speed / dur); total_weight += result.weight_a; }
+            }
+            if (clip_b) {
+                float dur = clip_b->duration();
+                if (dur > 0.0f) { weighted_rate += result.weight_b * (state.speed / dur); total_weight += result.weight_b; }
+            }
+            if (total_weight > 0.0f) {
+                blend_phase_ += dt * (weighted_rate / total_weight);
+            }
+            if (state.looping) {
+                blend_phase_ = std::fmod(blend_phase_, 1.0f);
+                if (blend_phase_ < 0.0f) blend_phase_ += 1.0f;
+            } else {
+                blend_phase_ = std::clamp(blend_phase_, 0.0f, 1.0f);
+            }
+        }
+
         // Find layers by clip identity (not position) to avoid context invalidation
         int layer_a = -1, layer_b = -1;
         if (clip_a) {
@@ -277,7 +301,8 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             bl.speed = state.speed;
             bl.looping = state.looping;
             bl.weight = result.weight_a;
-            sample_layer(bl, dt);
+            if (bs.phase_sync()) sample_layer_at_ratio(bl, blend_phase_);
+            else sample_layer(bl, dt);
             count = 1;
         }
         if (clip_b && layer_b >= 0) {
@@ -290,7 +315,8 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             bl.speed = state.speed;
             bl.looping = state.looping;
             bl.weight = result.weight_b;
-            sample_layer(bl, dt);
+            if (bs.phase_sync()) sample_layer_at_ratio(bl, blend_phase_);
+            else sample_layer(bl, dt);
             count = 2;
         }
 
@@ -347,6 +373,32 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             active[active_count++] = {it->second, bs.points()[idx].clip, w};
         }
 
+        // Phase sync: advance a shared normalized phase by weighted-average playback rate,
+        // then sample all clips at the same phase. This keeps foot contacts aligned
+        // across clips so blending between e.g. strafe-left and strafe-right is smooth.
+        if (bs.phase_sync() && active_count > 0) {
+            // Compute weight-averaged phase advance rate
+            float weighted_rate = 0.0f;
+            float total_weight = 0.0f;
+            for (int a = 0; a < active_count; ++a) {
+                float dur = active[a].clip->duration();
+                if (dur > 0.0f) {
+                    weighted_rate += active[a].weight * (state.speed / dur);
+                    total_weight += active[a].weight;
+                }
+            }
+            if (total_weight > 0.0f) {
+                blend_phase_ += dt * (weighted_rate / total_weight);
+            }
+            // Wrap phase for looping
+            if (state.looping) {
+                blend_phase_ = std::fmod(blend_phase_, 1.0f);
+                if (blend_phase_ < 0.0f) blend_phase_ += 1.0f;
+            } else {
+                blend_phase_ = std::clamp(blend_phase_, 0.0f, 1.0f);
+            }
+        }
+
         // Find or assign a blend layer for each active clip, preserving context
         int sampled = 0;
         int used_layers[3]{-1, -1, -1};
@@ -385,7 +437,12 @@ void AnimatorComponent::evaluate_blend_space(const AnimationState& state, float 
             bl.speed = state.speed;
             bl.looping = state.looping;
             bl.weight = active[a].weight;
-            sample_layer(bl, dt);
+
+            if (bs.phase_sync()) {
+                sample_layer_at_ratio(bl, blend_phase_);
+            } else {
+                sample_layer(bl, dt);
+            }
             sampled++;
         }
 
@@ -466,6 +523,23 @@ void AnimatorComponent::sample_layer(AnimationLayer& layer, float dt) {
             it->second.fire_in_range(prev_time, layer.time, duration,
                 [this](const AnimationEvent& e) { on_event.broadcast(e); });
         }
+    }
+}
+
+void AnimatorComponent::sample_layer_at_ratio(AnimationLayer& layer, float ratio) {
+    if (!layer.clip) return;
+
+    ratio = std::clamp(ratio, 0.0f, 1.0f);
+    layer.time = ratio * layer.clip->duration();
+
+    ozz::animation::SamplingJob job;
+    job.animation = &layer.clip->raw();
+    job.context = layer.context.get();
+    job.ratio = ratio;
+    job.output = ozz::make_span(layer.locals);
+
+    if (!job.Run()) {
+        FJELL_CORE_WARN("SamplingJob failed");
     }
 }
 
