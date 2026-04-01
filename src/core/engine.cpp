@@ -1,3 +1,5 @@
+extern "C" void fjell_input_clear_connections();
+
 #include "core/engine.hpp"
 #include "core/base_path.hpp"
 #include "core/input_component.hpp"
@@ -368,20 +370,15 @@ void Engine::init_editor() {
             .input = &input_,
             .clock = &clock_,
             .script_subsystem = script_subsystem_,
-            .physics_subsystem = physics_subsystem_,
-            .audio_subsystem = audio_subsystem_,
-            .camera_subsystem = camera_subsystem_,
-            .vfx_subsystem = vfx_subsystem_,
-            .sprite_anim_subsystem = sprite_anim_subsystem_,
             .project_mgr = &project_mgr_,
             .icon_cache = icon_cache_.get(),
             .light = &light_,
             .game_ui = &game_ui_,
-            .ui_subsystem = ui_subsystem_,
             .thread_pool = &thread_pool_,
             .window = &window_,
-            .input_action_map = &input_action_map_,
             .game_mode = game_mode_,
+            .start_play = [this]() { start_play(); },
+            .stop_play = [this]() { stop_play(); },
         };
         auto ctx = std::make_unique<SceneEditorContext>(deps);
         ctx->init();
@@ -984,9 +981,9 @@ void Engine::bind_menu_bar() {
     connections_.push_back(menu_bar_.on_new_script.bind(
         [this](const std::string& name) { project_mgr_.create_script(name); }));
     connections_.push_back(menu_bar_.on_start_play.bind(
-        [this]() { scene_context_->start_play(); }));
+        [this]() { start_play(); }));
     connections_.push_back(menu_bar_.on_stop_play.bind(
-        [this]() { scene_context_->stop_play(); }));
+        [this]() { stop_play(); }));
     connections_.push_back(menu_bar_.on_open_project.bind(
         [this](const std::filesystem::path& path) {
             project_mgr_.open(path);
@@ -1242,6 +1239,117 @@ void Engine::flush_pending() {
     scene_.flush_destroyed();
 }
 
+void Engine::load_input_contexts() {
+    for (const auto& obj : scene_.objects()) {
+        const auto* ic = obj->components.get<InputComponent>();
+        if (!ic) continue;
+
+        auto actions_dir = ic->actions_dir;
+        if (actions_dir.empty()) actions_dir = "assets/input/actions";
+        if (project_mgr_.active()) {
+            input_action_map_.load_actions_dir(project_mgr_.active()->resolve(actions_dir));
+        }
+
+        for (const auto& ctx_path : ic->context_paths) {
+            std::string resolved = ctx_path;
+            if (project_mgr_.active()) {
+                resolved = project_mgr_.active()->resolve(ctx_path);
+            }
+            input_action_map_.load_context(resolved);
+            auto fname = std::filesystem::path(ctx_path).stem().string();
+            input_action_map_.push_context(fname);
+        }
+    }
+}
+
+void Engine::start_play() {
+    // Editor pre-play work (snapshot, clear undo)
+    scene_context_->on_play_enter();
+
+    // Serialize script state before play modifies it
+    script_subsystem_->manager().serialize_all(scene_);
+
+    // Phase 1: Physics + VFX (no physics dependency between them)
+    {
+        TickContext ctx{
+            .scene = scene_,
+            .input = input_,
+            .clock = clock_,
+            .dt = clock_.delta_time(),
+            .physics = nullptr,
+            .project = project_mgr_.active(),
+        };
+        physics_subsystem_->notify_play_start(ctx);
+        vfx_subsystem_->notify_play_start(ctx);
+    }
+
+    // Phase 2: Everything else (physics world now exists)
+    {
+        TickContext ctx{
+            .scene = scene_,
+            .input = input_,
+            .clock = clock_,
+            .dt = clock_.delta_time(),
+            .physics = physics_subsystem_->world(),
+            .project = project_mgr_.active(),
+        };
+        camera_subsystem_->notify_play_start(ctx);
+        audio_subsystem_->notify_play_start(ctx);
+        sprite_anim_subsystem_->notify_play_start(ctx);
+
+        // Load input contexts BEFORE scripts start (begin_play calls InputAPI::bind)
+        load_input_contexts();
+
+        // Clear stale input bindings from a prior reload's begin_play —
+        // those captured `this` pointers to instances that were just replaced
+        // by deserialize_all above.
+        fjell_input_clear_connections();
+
+        script_subsystem_->notify_play_start(ctx);
+        ui_subsystem_->notify_play_start(ctx);
+    }
+
+    vulkan_context_->set_playing(true);
+    game_ui_.mark_dirty();
+    FJELL_CORE_INFO("Play mode started");
+}
+
+void Engine::stop_play() {
+    if (game_mode_) {
+        glfwSetWindowShouldClose(window_.handle(), GLFW_TRUE);
+        return;
+    }
+
+    TickContext ctx{
+        .scene = scene_,
+        .input = input_,
+        .clock = clock_,
+        .dt = clock_.delta_time(),
+        .physics = physics_subsystem_->world(),
+        .project = project_mgr_.active(),
+    };
+
+    fjell_input_clear_connections();
+    ui_subsystem_->notify_play_stop(ctx);
+    camera_subsystem_->notify_play_stop(ctx);
+    audio_subsystem_->notify_play_stop(ctx);
+    sprite_anim_subsystem_->notify_play_stop(ctx);
+    script_subsystem_->notify_play_stop(ctx);
+    vfx_subsystem_->notify_play_stop(ctx);
+
+    // Editor post-play work (restore scene snapshot)
+    scene_context_->on_play_exit();
+
+    script_subsystem_->manager().deserialize_all(scene_);
+    physics_subsystem_->notify_play_stop(ctx);
+
+    vulkan_context_->set_playing(false);
+    if (input_.is_cursor_captured()) {
+        input_.set_cursor_captured(window_.handle(), false);
+    }
+    FJELL_CORE_INFO("Play mode stopped");
+}
+
 void Engine::set_scene_override(const std::string& scene_name) {
     std::string filename = scene_name;
     if (!filename.ends_with(".fjell")) filename += ".fjell";
@@ -1263,7 +1371,7 @@ void Engine::run() {
 
     // Game mode or --play: start playing immediately
     if (game_mode_ || play_immediate_) {
-        scene_context_->start_play();
+        start_play();
     }
 
     while (!window_.should_close()) {
@@ -1313,7 +1421,7 @@ void Engine::run() {
             for (auto* s : play_phase_2_) s->tick(ctx);
 
             if (scene_context_->play_wants_stop()) {
-                scene_context_->stop_play();
+                stop_play();
             }
         }
 

@@ -12,27 +12,21 @@
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 
 namespace fjell {
 
 class AssetLoader;
-class AudioSubsystem;
-class CameraSubsystem;
 class Clock;
 class GameUi;
 class IconCache;
 class Input;
-class InputActionMap;
-class PhysicsSubsystem;
 class ProjectManager;
 class ResourceManager;
-class SpriteAnimSubsystem;
 class ScriptSubsystem;
 class ThreadPool;
-class UiSubsystem;
-class VfxSubsystem;
 class VulkanContext;
 class Window;
 struct DirectionalLight;
@@ -45,20 +39,17 @@ struct SceneEditorDeps {
     Input* input;
     Clock* clock;
     ScriptSubsystem* script_subsystem;
-    PhysicsSubsystem* physics_subsystem;
-    AudioSubsystem* audio_subsystem;
-    CameraSubsystem* camera_subsystem;
-    VfxSubsystem* vfx_subsystem;
-    SpriteAnimSubsystem* sprite_anim_subsystem;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
     DirectionalLight* light;
     GameUi* game_ui;
-    UiSubsystem* ui_subsystem;
     ThreadPool* thread_pool;
     Window* window;
-    InputActionMap* input_action_map;
     bool game_mode;
+
+    // Play lifecycle callbacks (Engine provides these)
+    std::function<void()> start_play;
+    std::function<void()> stop_play;
 };
 
 class SceneEditorContext final : public EditorContext {
@@ -84,9 +75,13 @@ public:
     [[nodiscard]] bool is_playing() const override { return play_session_ != nullptr; }
     void draw_play_overlay() override;
 
-    void start_play();
-    void stop_play();
-    void load_input_contexts();
+    // Called by Engine before/after subsystem lifecycle
+    void on_play_enter();
+    void on_play_exit();
+
+    // Called by UI buttons — delegates to Engine via callbacks
+    void request_play();
+    void request_stop();
     [[nodiscard]] bool play_wants_stop() const;
 
     // Viewport render requests

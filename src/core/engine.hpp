@@ -86,9 +86,14 @@ private:
 
     void load_scene(const std::string& path);
     void load_input_actions();
+    void load_input_contexts();
     void load_project_scripts();
     void flush_pending();
     [[nodiscard]] TickContext make_frame_context();
+
+    // Play lifecycle (subsystem start/stop ordering lives here)
+    void start_play();
+    void stop_play();
 
     // Context management
     [[nodiscard]] EditorContext& active_context();

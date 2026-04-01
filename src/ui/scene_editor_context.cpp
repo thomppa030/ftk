@@ -3,23 +3,13 @@
 #include "core/base_path.hpp"
 #include "core/clock.hpp"
 #include "core/commands.hpp"
-#include "core/frame_context.hpp"
 #include "core/input.hpp"
-#include "core/input_action_map.hpp"
-#include "core/input_component.hpp"
-
-extern "C" void fjell_input_clear_connections();
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
 #include "core/window.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
 #include "animation/skeleton.hpp"
-#include "audio/audio_subsystem.hpp"
-#include "physics/physics_subsystem.hpp"
-#include "renderer/systems/sprite_anim_subsystem.hpp"
-#include "scene/camera_subsystem.hpp"
-#include "physics/physics_world.hpp"
 #include "renderer/components/arrow_component.hpp"
 #include "renderer/resources/asset_loader.hpp"
 #include "renderer/bindless.hpp"
@@ -33,11 +23,9 @@ extern "C" void fjell_input_clear_connections();
 #include "renderer/vulkan_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
-#include "renderer/systems/vfx_subsystem.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/preset.hpp"
 #include "scene/light_node.hpp"
-#include "ui/game_ui/ui_subsystem.hpp"
 #include "scripting/script_subsystem.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/icon_cache.hpp"
@@ -402,9 +390,9 @@ void SceneEditorContext::draw_play_toolbar() {
 
     if (clicked) {
         if (is_playing()) {
-            stop_play();
+            request_stop();
         } else {
-            start_play();
+            request_play();
         }
     }
 
@@ -482,119 +470,24 @@ bool SceneEditorContext::handle_shortcuts() {
 
 // --- Play mode ---
 
-void SceneEditorContext::start_play() {
+void SceneEditorContext::on_play_enter() {
     command_history().clear();
-    deps_.script_subsystem->manager().serialize_all(*deps_.scene);
     play_session_ = std::make_unique<PlaySession>(*deps_.scene);
-
-    // Create play-mode resources (physics first, scripts need it)
-    {
-        TickContext ctx{
-            .scene = *deps_.scene,
-            .input = *deps_.input,
-            .clock = *deps_.clock,
-            .dt = deps_.clock->delta_time(),
-            .physics = deps_.physics_subsystem->world(),
-            .project = deps_.project_mgr->active(),
-        };
-        deps_.physics_subsystem->notify_play_start(ctx);
-        deps_.vfx_subsystem->notify_play_start(ctx);
-    }
-
-    // Rebuild context now that physics exists
-    {
-        TickContext ctx{
-            .scene = *deps_.scene,
-            .input = *deps_.input,
-            .clock = *deps_.clock,
-            .dt = deps_.clock->delta_time(),
-            .physics = deps_.physics_subsystem->world(),
-            .project = deps_.project_mgr->active(),
-        };
-        deps_.camera_subsystem->notify_play_start(ctx);
-        deps_.audio_subsystem->notify_play_start(ctx);
-        deps_.sprite_anim_subsystem->notify_play_start(ctx);
-
-        // Load input contexts BEFORE scripts start (begin_play calls InputAPI::bind)
-        load_input_contexts();
-
-        // Clear stale input bindings from a prior reload's begin_play —
-        // those captured `this` pointers to instances that were just replaced
-        // by deserialize_all above.
-        fjell_input_clear_connections();
-
-        deps_.script_subsystem->notify_play_start(ctx);
-        deps_.ui_subsystem->notify_play_start(ctx);
-    }
-
-    deps_.vulkan_context->set_playing(true);
-    deps_.game_ui->mark_dirty();
     selected_id_ = 0;
-    FJELL_CORE_INFO("Play mode started");
 }
 
-void SceneEditorContext::load_input_contexts() {
-    auto* iam = deps_.input_action_map;
-    if (!iam) return;
-
-    for (const auto& obj : deps_.scene->objects()) {
-        const auto* ic = obj->components.get<InputComponent>();
-        if (!ic) continue;
-
-        // Load .fjaction files
-        auto actions_dir = ic->actions_dir;
-        if (actions_dir.empty()) actions_dir = "assets/input/actions";
-        if (deps_.project_mgr->active()) {
-            iam->load_actions_dir(deps_.project_mgr->active()->resolve(actions_dir));
-        }
-
-        // Load and push .fjinput contexts
-        for (const auto& ctx_path : ic->context_paths) {
-            std::string resolved = ctx_path;
-            if (deps_.project_mgr->active()) {
-                resolved = deps_.project_mgr->active()->resolve(ctx_path);
-            }
-            iam->load_context(resolved);
-            auto fname = std::filesystem::path(ctx_path).stem().string();
-            iam->push_context(fname);
-        }
-    }
-}
-
-
-void SceneEditorContext::stop_play() {
-    if (deps_.game_mode) {
-        glfwSetWindowShouldClose(deps_.window->handle(), GLFW_TRUE);
-        return;
-    }
-    TickContext ctx{
-        .scene = *deps_.scene,
-        .input = *deps_.input,
-        .clock = *deps_.clock,
-        .dt = deps_.clock->delta_time(),
-        .physics = deps_.physics_subsystem->world(),
-        .project = deps_.project_mgr->active(),
-    };
-    fjell_input_clear_connections();
-    deps_.ui_subsystem->notify_play_stop(ctx);
-    deps_.camera_subsystem->notify_play_stop(ctx);
-    deps_.audio_subsystem->notify_play_stop(ctx);
-    deps_.sprite_anim_subsystem->notify_play_stop(ctx);
-    deps_.script_subsystem->notify_play_stop(ctx);
-    deps_.vfx_subsystem->notify_play_stop(ctx);
-
+void SceneEditorContext::on_play_exit() {
     play_session_->restore(*deps_.scene);
-    deps_.script_subsystem->manager().deserialize_all(*deps_.scene);
-    deps_.physics_subsystem->notify_play_stop(ctx);
-
-    deps_.vulkan_context->set_playing(false);
-    // Release cursor if a script captured it during play
-    if (deps_.input->is_cursor_captured()) {
-        deps_.input->set_cursor_captured(deps_.window->handle(), false);
-    }
     play_session_.reset();
     focus_viewport_frames_ = 2;
-    FJELL_CORE_INFO("Play mode stopped");
+}
+
+void SceneEditorContext::request_play() {
+    deps_.start_play();
+}
+
+void SceneEditorContext::request_stop() {
+    deps_.stop_play();
 }
 
 bool SceneEditorContext::play_wants_stop() const {
@@ -651,7 +544,7 @@ void SceneEditorContext::draw_play_overlay() {
     ImGui::Text("Press ESC to stop");
     ImGui::SameLine();
     if (ImGui::SmallButton("Stop")) {
-        stop_play();
+        request_stop();
     }
     ImGui::End();
 
