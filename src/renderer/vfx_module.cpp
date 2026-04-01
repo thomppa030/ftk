@@ -48,6 +48,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "Noise")            return std::make_unique<NoiseModule>();
     if (type_name == "Attract")          return std::make_unique<AttractModule>();
     if (type_name == "VelocityLimit")    return std::make_unique<VelocityLimitModule>();
+    if (type_name == "InitialStretch")   return std::make_unique<InitialStretchModule>();
     if (type_name == "Billboard")        return std::make_unique<BillboardModule>();
     return nullptr;
 }
@@ -477,6 +478,29 @@ void VelocityLimitModule::to_json(nlohmann::json& j) const {
 
 void VelocityLimitModule::from_json(const nlohmann::json& j) {
     max_speed = j.value("max_speed", 10.0f);
+}
+
+// ─── InitialStretch ──────────────────────────────────────────────────────
+
+uint32_t InitialStretchModule::write_gpu_data(uint8_t* buffer) const {
+    uint32_t total = write_header(buffer, type(), 2);
+    write_float(buffer, 8, stretch);
+    write_float(buffer, 12, 0.0f); // pad
+    return total;
+}
+
+bool InitialStretchModule::draw_inspector() {
+    return ImGui::DragFloat("Stretch", &stretch, 0.1f, 0.0f, 100.0f,
+                            "%.1f", ImGuiSliderFlags_None);
+}
+
+void InitialStretchModule::to_json(nlohmann::json& j) const {
+    j["type"] = "InitialStretch";
+    j["stretch"] = stretch;
+}
+
+void InitialStretchModule::from_json(const nlohmann::json& j) {
+    stretch = j.value("stretch", 0.0f);
 }
 
 // ─── Billboard ───────────────────────────────────────────────────────────

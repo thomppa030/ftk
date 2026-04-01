@@ -142,7 +142,7 @@ void GpuContext::create_descriptor_resources() {
 
     // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler,
     // binding 2 = light SSBO, binding 3 = tile light index SSBO,
-    // binding 4 = depth texture (for light culling compute),
+    // binding 4 = depth texture (light culling compute + fragment screen-space effects),
     // binding 5 = AO texture, binding 6 = sky cubemap, binding 7 = BRDF LUT
     std::array<VkDescriptorSetLayoutBinding, 9> global_bindings{};
     global_bindings[0].binding = 0;
@@ -170,7 +170,7 @@ void GpuContext::create_descriptor_resources() {
     global_bindings[4].binding = 4;
     global_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     global_bindings[4].descriptorCount = 1;
-    global_bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    global_bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 
     global_bindings[5].binding = 5;
     global_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;

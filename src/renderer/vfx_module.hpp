@@ -19,6 +19,7 @@ enum class ModuleType : uint32_t {
     initial_velocity   = 3,
     initial_color      = 4,
     initial_size       = 5,
+    initial_stretch    = 6,
 
     // Update modules
     gravity            = 100,
@@ -235,6 +236,17 @@ struct VelocityLimitModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::velocity_limit; }
     [[nodiscard]] const char* name() const override { return "Velocity Limit"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct InitialStretchModule final : VfxModule {
+    float stretch{0.0f}; // 0 = billboard, >0 = velocity-aligned streak
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::initial_stretch; }
+    [[nodiscard]] const char* name() const override { return "Initial Stretch"; }
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
