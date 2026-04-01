@@ -59,6 +59,9 @@ struct ComponentInfo {
     bool is_ui_component{false};
     std::string widget_tag;       // from FJELL_UI_COMPONENT(T, "tag")
     std::vector<ActionInfo> actions;
+
+    // Notify type (FJELL_NOTIFY)
+    bool is_notify{false};
 };
 
 struct ParseResult {

@@ -131,6 +131,7 @@ add_executable(fjell
     animation/animation_state_machine.cpp
     animation/animation_system.cpp
     animation/animator_component.cpp
+    animation/anim_notify_registry.cpp
     animation/blend_space.cpp
     animation/animator_component_meta.cpp
     animation/bone_buffer.cpp

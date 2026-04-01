@@ -1,6 +1,7 @@
 #include "scripting/script_manager.hpp"
 #include "scripting/script_globals.hpp"
 #include "scripting/fjell/component.hpp"
+#include "animation/anim_notify_registry.hpp"
 #include "scripting/fjell/ui_component.hpp"
 #include "scripting/fjell/ui_registry.hpp"
 #include "scripting/fjell/weak_ref.hpp"
@@ -33,6 +34,7 @@ extern "C" void fjell_input_clear_connections();
 struct FjellTypeRegistry {
     std::vector<fjell::OwnedScriptType> scripts;
     std::vector<fjell::OwnedUiComponentType> ui_components;
+    std::vector<fjell::NotifyTypeInfo> notifies;
 };
 
 // ── Asset type registry (maps ref_type_name → file extension) ───────────
@@ -184,6 +186,21 @@ extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponent
         owned.fields.push_back(fjell::copy_field(desc->fields[i]));
     }
     reg->scripts.push_back(std::move(owned));
+}
+
+extern "C" void fjell_reg_notify(FjellTypeRegistry* reg, const FjellNotifyTypeOOP* desc) {
+    if (!reg || !desc) return;
+    fjell::NotifyTypeInfo info;
+    info.name = desc->name;
+    info.create = [create = desc->create]() -> std::unique_ptr<fjell::AnimNotify> {
+        return std::unique_ptr<fjell::AnimNotify>(create());
+    };
+    info.trace = desc->trace;
+    info.is_state = desc->is_state;
+    for (uint32_t i = 0; i < desc->field_count; ++i) {
+        info.fields.push_back(fjell::copy_field(desc->fields[i]));
+    }
+    reg->notifies.push_back(std::move(info));
 }
 
 // UI generated reflection table (parallel to script table)
@@ -365,6 +382,10 @@ void ScriptManager::build_registry() {
     ui_type_list_.clear();
     for (auto& ut : registry.ui_components) {
         ui_type_list_.push_back(std::move(ut));
+    }
+
+    for (auto& nt : registry.notifies) {
+        AnimNotifyRegistry::instance().register_notify(std::move(nt));
     }
 }
 

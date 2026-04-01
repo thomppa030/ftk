@@ -178,18 +178,22 @@ ParseResult parse_file(const std::string& filepath) {
         lines.push_back(line);
     }
 
-    // Find FJELL_COMPONENT, FJELL_UI_WIDGET, or FJELL_UI_COMPONENT
+    // Find FJELL_COMPONENT, FJELL_UI_WIDGET, FJELL_UI_COMPONENT, or FJELL_NOTIFY
     std::regex comp_re(R"(FJELL_COMPONENT\(\s*(\w+)\s*\))");
     std::regex ui_widget_re(R"(FJELL_UI_WIDGET\(\s*(\w+)\s*\))");
     std::regex ui_comp_re(R"RE(FJELL_UI_COMPONENT\(\s*(\w+)\s*,\s*"([^"]+)"\s*\))RE");
+    std::regex notify_re(R"(FJELL_NOTIFY\(\s*(\w+)\s*\))");
 
     for (size_t i = 0; i < lines.size(); ++i) {
         std::smatch m;
         bool is_ui = false;
+        bool is_notify = false;
         if (std::regex_search(lines[i], m, ui_widget_re)) {
             is_ui = true;
         } else if (std::regex_search(lines[i], m, ui_comp_re)) {
             is_ui = true;
+        } else if (std::regex_search(lines[i], m, notify_re)) {
+            is_notify = true;
         } else if (!std::regex_search(lines[i], m, comp_re)) {
             continue;
         }
@@ -198,6 +202,7 @@ ParseResult parse_file(const std::string& filepath) {
         comp.class_name = m[1];
         comp.source_file = filepath;
         comp.is_ui_component = is_ui;
+        comp.is_notify = is_notify;
 
         // Detect enclosing namespace by scanning backwards
         std::string ns;
@@ -533,8 +538,10 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         out << "using FjellUiComponentTypeOOP = FjellUiWidgetTypeOOP;\n";
         out << "struct FjellGeneratedInfo;\n";
         out << "struct FjellUiGeneratedInfo;\n";
+        out << "struct FjellNotifyTypeOOP;\n";
         out << "extern \"C\" void fjell_reg_component(FjellTypeRegistry*, const FjellComponentTypeOOP*) {}\n";
         out << "extern \"C\" void fjell_reg_ui_component(FjellTypeRegistry*, const FjellUiWidgetTypeOOP*) {}\n";
+        out << "extern \"C\" void fjell_reg_notify(FjellTypeRegistry*, const FjellNotifyTypeOOP*) {}\n";
         out << "extern \"C\" void fjell_set_generated_table(const FjellGeneratedInfo*, unsigned) {}\n";
         out << "extern \"C\" void fjell_set_ui_generated_table(const FjellUiGeneratedInfo*, unsigned) {}\n";
         out << "extern \"C\" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char*) { return nullptr; }\n";
