@@ -104,6 +104,12 @@ add_executable(fjell
     renderer/pass/uv_viz_pass.cpp
     renderer/pass/wireframe_pass.cpp
     renderer/arrow_component_meta.cpp
+    renderer/mesh_component_meta.cpp
+    renderer/skeletal_mesh_component_meta.cpp
+    renderer/particle_emitter_meta.cpp
+    renderer/sprite_component_meta.cpp
+    renderer/sprite_anim_component_meta.cpp
+    renderer/tilemap_component_meta.cpp
     renderer/render_queue.cpp
     renderer/asset_loader.cpp
     renderer/resource_manager.cpp
@@ -126,16 +132,22 @@ add_executable(fjell
     animation/animation_system.cpp
     animation/animator_component.cpp
     animation/blend_space.cpp
+    animation/animator_component_meta.cpp
     animation/bone_buffer.cpp
+    audio/audio_component_meta.cpp
     audio/audio_asset.cpp
     audio/audio_engine.cpp
     audio/audio_subsystem.cpp
+    physics/rigidbody_component_meta.cpp
+    physics/collider_component_meta.cpp
+    physics/character_component_meta.cpp
     physics/physics_world.cpp
     scene/scene.cpp
     scene/node_serializer.cpp
     scene/preset.cpp
     scene/camera_subsystem.cpp
     scene/component_registry.cpp
+    core/input_component_meta.cpp
     scripting/script_manager.cpp
     scripting/script_globals.cpp
     scripting/log_api.cpp
@@ -185,6 +197,7 @@ add_executable(fjell
     ui/game_ui/widget_resolver.cpp
     ui/game_ui/ui_subsystem.cpp
     ui/game_ui/ui_widget_context.cpp
+    ui/game_ui/ui_widget_component_meta.cpp
     ui/game_ui/widget_asset.cpp
     ui/game_ui/game_ui.cpp
     ui/game_ui/font_atlas.cpp
