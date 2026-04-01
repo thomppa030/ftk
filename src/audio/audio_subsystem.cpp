@@ -8,8 +8,6 @@
 namespace fjell {
 
 void AudioSubsystem::tick(const TickContext& ctx) {
-    if (!ctx.physics) return;
-
     for (const auto& obj : ctx.scene.objects()) {
         if (const auto* cam = dynamic_cast<const CameraNode*>(obj.get())) {
             glm::vec3 pos = cam->position();

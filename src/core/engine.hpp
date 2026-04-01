@@ -141,6 +141,7 @@ private:
     std::vector<Subsystem*> play_phase_2_;   // vfx
     std::vector<Subsystem*> early_always_;   // before compute_world_matrices
     std::vector<Subsystem*> late_always_;    // after compute_world_matrices
+    std::vector<Subsystem*> late_play_;      // after compute_world_matrices, play only
 
     std::unique_ptr<IconCache> icon_cache_;
     ContentBrowser content_browser_;

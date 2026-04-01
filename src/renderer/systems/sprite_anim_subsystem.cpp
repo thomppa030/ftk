@@ -98,8 +98,6 @@ static const SpriteSheet* active_sheet(const SpriteAnimComponent& anim) {
 }
 
 void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
-    playing_ = true;
-
     for (auto& obj : ctx.scene.objects()) {
         auto* anim = obj->components.get<SpriteAnimComponent>();
         if (!anim) continue;
@@ -122,10 +120,6 @@ void SpriteAnimSubsystem::on_play_start(const TickContext& ctx) {
     }
 }
 
-void SpriteAnimSubsystem::on_play_stop(const TickContext& /*ctx*/) {
-    playing_ = false;
-}
-
 void SpriteAnimSubsystem::tick(const TickContext& ctx) {
     FJELL_PROFILE_SCOPE_N("sprite_anim_tick");
 
@@ -145,7 +139,7 @@ void SpriteAnimSubsystem::tick(const TickContext& ctx) {
         if (!sheet || sheet->frame_uvs.empty()) continue;
 
         // Editor mode: show first frame
-        if (!playing_) {
+        if (!playing()) {
             apply_frame(*sprite, *sheet, 0);
             continue;
         }

@@ -14,15 +14,12 @@ public:
     [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::ALWAYS; }
 
     void set_resource_manager(ResourceManager* rm) { resources_ = rm; }
-    void set_playing(bool playing) { playing_ = playing; }
 
     void tick(const TickContext& ctx) override;
     void on_play_start(const TickContext& ctx) override;
-    void on_play_stop(const TickContext& ctx) override;
 
 private:
     ResourceManager* resources_{nullptr};
-    bool playing_{false};
 };
 
 } // namespace fjell

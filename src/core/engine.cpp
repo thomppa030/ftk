@@ -107,7 +107,7 @@ void Engine::init_subsystems() {
     play_phase_2_.push_back(vfx_subsystem_);
     early_always_.push_back(animation_subsystem_);
     early_always_.push_back(sprite_anim_subsystem_);
-    late_always_.push_back(audio_subsystem_);
+    late_play_.push_back(audio_subsystem_);
 
     vulkan_context_->set_animation_system(&animation_subsystem_->system());
 #ifndef NDEBUG
@@ -1226,10 +1226,7 @@ TickContext Engine::make_frame_context() {
         .input = input_,
         .clock = clock_,
         .dt = clock_.delta_time(),
-        .thread_pool = thread_pool_,
         .physics = physics_subsystem_->world(),
-        .audio = &audio_subsystem_->engine(),
-        .vfx = nullptr,
         .project = project_mgr_.active(),
     };
 }
@@ -1340,6 +1337,11 @@ void Engine::run() {
 
         // Always-tick subsystems (after world matrices)
         for (auto* s : late_always_) s->tick(ctx);
+
+        // Play-only subsystems that need world matrices (e.g. audio listener)
+        if (active_context().is_playing()) {
+            for (auto* s : late_play_) s->tick(ctx);
+        }
 
         // Phase 3: Wait for frame slot — GPU is done with this slot after this
         if (!vulkan_context_->begin_frame(thread_pool_)) continue;

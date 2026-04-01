@@ -494,14 +494,11 @@ void SceneEditorContext::start_play() {
             .input = *deps_.input,
             .clock = *deps_.clock,
             .dt = deps_.clock->delta_time(),
-            .thread_pool = *deps_.thread_pool,
             .physics = deps_.physics_subsystem->world(),
-            .audio = &deps_.audio_subsystem->engine(),
-            .vfx = nullptr,
             .project = deps_.project_mgr->active(),
         };
-        deps_.physics_subsystem->on_play_start(ctx);
-        deps_.vfx_subsystem->on_play_start(ctx);
+        deps_.physics_subsystem->notify_play_start(ctx);
+        deps_.vfx_subsystem->notify_play_start(ctx);
     }
 
     // Rebuild context now that physics exists
@@ -511,15 +508,12 @@ void SceneEditorContext::start_play() {
             .input = *deps_.input,
             .clock = *deps_.clock,
             .dt = deps_.clock->delta_time(),
-            .thread_pool = *deps_.thread_pool,
             .physics = deps_.physics_subsystem->world(),
-            .audio = &deps_.audio_subsystem->engine(),
-            .vfx = nullptr,
             .project = deps_.project_mgr->active(),
         };
-        deps_.camera_subsystem->on_play_start(ctx);
-        deps_.audio_subsystem->on_play_start(ctx);
-        deps_.sprite_anim_subsystem->on_play_start(ctx);
+        deps_.camera_subsystem->notify_play_start(ctx);
+        deps_.audio_subsystem->notify_play_start(ctx);
+        deps_.sprite_anim_subsystem->notify_play_start(ctx);
 
         // Load input contexts BEFORE scripts start (begin_play calls InputAPI::bind)
         load_input_contexts();
@@ -529,8 +523,8 @@ void SceneEditorContext::start_play() {
         // by deserialize_all above.
         fjell_input_clear_connections();
 
-        deps_.script_subsystem->on_play_start(ctx);
-        deps_.ui_subsystem->on_play_start(ctx);
+        deps_.script_subsystem->notify_play_start(ctx);
+        deps_.ui_subsystem->notify_play_start(ctx);
     }
 
     deps_.vulkan_context->set_playing(true);
@@ -578,23 +572,20 @@ void SceneEditorContext::stop_play() {
         .input = *deps_.input,
         .clock = *deps_.clock,
         .dt = deps_.clock->delta_time(),
-        .thread_pool = *deps_.thread_pool,
         .physics = deps_.physics_subsystem->world(),
-        .audio = &deps_.audio_subsystem->engine(),
-        .vfx = nullptr,
         .project = deps_.project_mgr->active(),
     };
     fjell_input_clear_connections();
-    deps_.ui_subsystem->on_play_stop(ctx);
-    deps_.camera_subsystem->on_play_stop(ctx);
-    deps_.audio_subsystem->on_play_stop(ctx);
-    deps_.sprite_anim_subsystem->on_play_stop(ctx);
-    deps_.script_subsystem->on_play_stop(ctx);
-    deps_.vfx_subsystem->on_play_stop(ctx);
+    deps_.ui_subsystem->notify_play_stop(ctx);
+    deps_.camera_subsystem->notify_play_stop(ctx);
+    deps_.audio_subsystem->notify_play_stop(ctx);
+    deps_.sprite_anim_subsystem->notify_play_stop(ctx);
+    deps_.script_subsystem->notify_play_stop(ctx);
+    deps_.vfx_subsystem->notify_play_stop(ctx);
 
     play_session_->restore(*deps_.scene);
     deps_.script_subsystem->manager().deserialize_all(*deps_.scene);
-    deps_.physics_subsystem->on_play_stop(ctx);
+    deps_.physics_subsystem->notify_play_stop(ctx);
 
     deps_.vulkan_context->set_playing(false);
     // Release cursor if a script captured it during play
