@@ -103,6 +103,7 @@ add_executable(fjell
     renderer/pass/overdraw_pass.cpp
     renderer/pass/uv_viz_pass.cpp
     renderer/pass/wireframe_pass.cpp
+    renderer/arrow_component_meta.cpp
     renderer/render_queue.cpp
     renderer/asset_loader.cpp
     renderer/resource_manager.cpp
@@ -134,6 +135,7 @@ add_executable(fjell
     scene/node_serializer.cpp
     scene/preset.cpp
     scene/camera_subsystem.cpp
+    scene/component_registry.cpp
     scripting/script_manager.cpp
     scripting/script_globals.cpp
     scripting/log_api.cpp
