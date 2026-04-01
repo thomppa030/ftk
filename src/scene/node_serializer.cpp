@@ -1,23 +1,14 @@
 #include "scene/node_serializer.hpp"
 #include "scene/node.hpp"
-#include "core/input_component.hpp"
+#include "scene/component_registry.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
-#include "ui/game_ui/ui_widget_component.hpp"
 #include "animation/animation_clip.hpp"
 #include "animation/animator_component.hpp"
-#include "animation/skeleton.hpp"
-#include "audio/audio_component.hpp"
-#include "physics/physics_types.hpp"
-#include "renderer/arrow_component.hpp"
 #include "renderer/mesh_component.hpp"
-#include "renderer/particle_emitter.hpp"
 #include "renderer/vfx_asset.hpp"
 #include "renderer/vfx_emitter.hpp"
 #include "renderer/skeletal_mesh_component.hpp"
-#include "renderer/sprite_anim_component.hpp"
-#include "renderer/sprite_desc.hpp"
-#include "renderer/tilemap_component.hpp"
 #include "renderer/material.hpp"
 #include "renderer/model.hpp"
 #include "renderer/resource_manager.hpp"
@@ -48,40 +39,22 @@ nlohmann::json serialize_node(const Node& node) {
         j["node_type"] = "folder";
     }
 
-    // Mesh component
-    if (const auto* mesh = node.components.get<MeshComponent>()) {
-        nlohmann::json jmesh;
-        jmesh["material"] = mesh->material_name;
-        if (mesh->material) {
-            const auto& bcf = mesh->material->params().base_color_factor;
-            if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f || bcf.a != 1.0f) {
-                if (bcf.a < 1.0f) {
-                    jmesh["color"] = {bcf.r, bcf.g, bcf.b, bcf.a};
-                } else {
-                    jmesh["color"] = {bcf.r, bcf.g, bcf.b};
-                }
-            }
+    // Components (via registry)
+    auto& registry = ComponentRegistry::instance();
+    node.components.for_each([&](ComponentTypeId id, const void* ptr) {
+        auto* meta = registry.find(id);
+        if (!meta) return;
+        nlohmann::json comp_json;
+        meta->serialize(ptr, node, comp_json);
+        if (!comp_json.empty()) {
+            j[meta->json_key] = std::move(comp_json);
         }
-        j["mesh"] = jmesh;
-    }
+    });
 
-    // Skeletal mesh (rendering only)
-    if (const auto* smc = node.components.get<SkeletalMeshComponent>()) {
-        nlohmann::json jskel;
-        jskel["material"] = smc->material_name;
-        j["skeletal_mesh"] = jskel;
-    }
-
-    // Animator (animation data)
-    if (const auto* anim = node.components.get<AnimatorComponent>()) {
-        nlohmann::json janim;
-        if (!anim->clip_paths.empty()) {
-            janim["clips"] = anim->clip_paths;
-        }
-        if (!anim->animset_path.empty()) {
-            janim["animset"] = anim->animset_path;
-        }
-        j["animator"] = janim;
+    // EmitterComponent serializes VFX asset path via _vfx_path sentinel
+    if (j.contains("emitter") && j["emitter"].contains("_vfx_path")) {
+        j["vfx"] = j["emitter"]["_vfx_path"];
+        j.erase("emitter");
     }
 
     // Transform (spatial nodes only)
@@ -92,156 +65,6 @@ nlohmann::json serialize_node(const Node& node) {
             j["rotation"] = {euler.x, euler.y, euler.z};
         }
         j["scale"] = {spatial->transform.scale.x, spatial->transform.scale.y, spatial->transform.scale.z};
-    }
-
-    // Rigidbody
-    if (const auto* rb = node.components.get<RigidbodyComponent>()) {
-        j["rigidbody"] = {
-            {"body_type", static_cast<int>(rb->body_type)},
-            {"mass", rb->mass},
-            {"friction", rb->friction},
-            {"restitution", rb->restitution},
-            {"linear_damping", rb->linear_damping},
-            {"angular_damping", rb->angular_damping},
-            {"gravity_enabled", rb->gravity_enabled}
-        };
-    }
-
-    // Collider
-    if (const auto* col = node.components.get<ColliderComponent>()) {
-        j["collider"] = {
-            {"shape", static_cast<int>(col->shape)},
-            {"half_extents", {col->half_extents.x, col->half_extents.y, col->half_extents.z}},
-            {"radius", col->radius},
-            {"height", col->height},
-            {"offset", {col->offset.x, col->offset.y, col->offset.z}},
-            {"is_trigger", col->is_trigger}
-        };
-    }
-
-    // Emitter / VFX
-    if (const auto* em = node.components.get<EmitterComponent>()) {
-        if (!em->vfx_path.empty()) {
-            j["vfx"] = em->vfx_path;
-        } else {
-            j["emitter"] = {
-                {"emission_rate", em->emission_rate},
-                {"lifetime_min", em->lifetime_min},
-                {"lifetime_max", em->lifetime_max},
-                {"max_particles", em->max_particles},
-                {"velocity_min", {em->velocity_min.x, em->velocity_min.y, em->velocity_min.z}},
-                {"velocity_max", {em->velocity_max.x, em->velocity_max.y, em->velocity_max.z}},
-                {"gravity", {em->gravity.x, em->gravity.y, em->gravity.z}},
-                {"color_start", {em->color_start.r, em->color_start.g, em->color_start.b, em->color_start.a}},
-                {"color_end", {em->color_end.r, em->color_end.g, em->color_end.b, em->color_end.a}},
-                {"size_start", em->size_start},
-                {"size_end", em->size_end},
-                {"blend_mode", static_cast<int>(em->blend_mode)}
-            };
-        }
-    }
-
-    // Sprite
-    if (const auto* sp = node.components.get<SpriteComponent>()) {
-        auto jsp = nlohmann::json{
-            {"texture", sp->texture_path},
-            {"tint", {sp->tint.r, sp->tint.g, sp->tint.b, sp->tint.a}},
-            {"opacity", sp->opacity},
-            {"editor_only", sp->editor_only}
-        };
-        if (sp->uv_rect != glm::vec4(0, 0, 1, 1))
-            jsp["uv_rect"] = {sp->uv_rect.x, sp->uv_rect.y, sp->uv_rect.z, sp->uv_rect.w};
-        if (sp->flip_h)      jsp["flip_h"] = true;
-        if (sp->flat)         jsp["flat"] = true;
-        if (sp->pixel_art)    jsp["pixel_art"] = true;
-        if (sp->pixels_per_unit > 0.0f) jsp["pixels_per_unit"] = sp->pixels_per_unit;
-        if (sp->sort_layer != 0) jsp["sort_layer"] = sp->sort_layer;
-        if (sp->sort_order != 0) jsp["sort_order"] = sp->sort_order;
-        j["sprite"] = jsp;
-    }
-
-    // Sprite animation
-    if (const auto* sa = node.components.get<SpriteAnimComponent>()) {
-        nlohmann::json jsa;
-        nlohmann::json anims;
-        for (auto& [name, path] : sa->animations) {
-            anims[name] = path;
-        }
-        if (!anims.empty()) jsa["animations"] = anims;
-        if (!sa->animset_path.empty()) jsa["animset"] = sa->animset_path;
-        if (!sa->default_animation.empty()) jsa["default"] = sa->default_animation;
-        if (sa->playback_speed != 1.0f) jsa["playback_speed"] = sa->playback_speed;
-        j["sprite_anim"] = jsa;
-    }
-
-    // Tilemap
-    if (const auto* tm = node.components.get<TilemapComponent>()) {
-        nlohmann::json jtm;
-        jtm["tileset"] = tm->tileset_texture;
-        jtm["tile_size"] = {tm->tile_size.x, tm->tile_size.y};
-        jtm["map_size"] = {tm->map_size.x, tm->map_size.y};
-        jtm["world_tile_size"] = tm->world_tile_size;
-        jtm["sort_layer"] = tm->sort_layer;
-        if (tm->pixel_art != true) jtm["pixel_art"] = tm->pixel_art;
-        jtm["tiles"] = tm->tiles;
-        j["tilemap"] = jtm;
-    }
-
-    // Audio
-    if (const auto* au = node.components.get<AudioSourceComponent>()) {
-        j["audio"] = {
-            {"clip", au->clip_path},
-            {"volume", au->volume},
-            {"pitch", au->pitch},
-            {"min_distance", au->min_distance},
-            {"max_distance", au->max_distance},
-            {"loop", au->loop},
-            {"spatial", au->spatial},
-            {"play_on_start", au->play_on_start}
-        };
-    }
-
-    // Arrow
-    if (const auto* arr = node.components.get<ArrowComponent>()) {
-        j["arrow"] = {
-            {"length", arr->length},
-            {"color", {arr->color.x, arr->color.y, arr->color.z}}
-        };
-    }
-
-    // Character
-    if (const auto* cc = node.components.get<CharacterComponent>()) {
-        j["character"] = {
-            {"capsule_radius", cc->capsule_radius},
-            {"capsule_height", cc->capsule_height},
-            {"max_slope_angle", cc->max_slope_angle},
-            {"mass", cc->mass}
-        };
-    }
-
-    // UI Widget
-    if (const auto* wc = node.components.get<UiWidgetComponent>()) {
-        nlohmann::json jw;
-        jw["widget"] = wc->widget_path;
-        if (wc->render_mode != UiWidgetComponent::RenderMode::screen_space) {
-            jw["render_mode"] = static_cast<int>(wc->render_mode);
-        }
-        if (!wc->style_classes.empty()) jw["style_classes"] = wc->style_classes;
-        if (wc->render_mode == UiWidgetComponent::RenderMode::world_space) {
-            jw["pixels_per_unit"] = wc->pixels_per_unit;
-            jw["billboard"] = wc->billboard;
-            jw["virtual_viewport"] = {wc->virtual_viewport.x, wc->virtual_viewport.y};
-            jw["offset"] = {wc->offset.x, wc->offset.y, wc->offset.z};
-        }
-        j["ui_widget"] = jw;
-    }
-
-    // Input component
-    if (const auto* ic = node.components.get<InputComponent>()) {
-        nlohmann::json ji;
-        ji["contexts"] = ic->context_paths;
-        if (!ic->actions_dir.empty()) ji["actions_dir"] = ic->actions_dir;
-        j["input"] = ji;
     }
 
     // Scripts
@@ -340,69 +163,17 @@ static Transform parse_transform(const nlohmann::json& j) {
 
 // Helper: load common components onto a node
 static void load_components(Node& node, const nlohmann::json& j,
-                            [[maybe_unused]] ResourceManager& resources,
+                            ResourceManager& resources,
                             const Project* project) {
-    if (j.contains("rigidbody")) {
-        auto& jrb = j["rigidbody"];
-        auto& rb = node.components.add<RigidbodyComponent>();
-        rb.body_type = static_cast<BodyType>(jrb.value("body_type", 2));
-        rb.mass = jrb.value("mass", 1.0f);
-        rb.friction = jrb.value("friction", 0.5f);
-        rb.restitution = jrb.value("restitution", 0.3f);
-        rb.linear_damping = jrb.value("linear_damping", 0.05f);
-        rb.angular_damping = jrb.value("angular_damping", 0.05f);
-        rb.gravity_enabled = jrb.value("gravity_enabled", true);
-    }
+    // Components (via registry)
+    auto& registry = ComponentRegistry::instance();
+    registry.for_each([&](ComponentTypeId /*id*/, const ComponentMeta& meta) {
+        if (j.contains(meta.json_key)) {
+            meta.deserialize(node, j[meta.json_key], resources, project);
+        }
+    });
 
-    if (j.contains("collider")) {
-        auto& jcol = j["collider"];
-        auto& col = node.components.add<ColliderComponent>();
-        col.shape = static_cast<ColliderShape>(jcol.value("shape", 0));
-        if (jcol.contains("half_extents")) {
-            auto& he = jcol["half_extents"];
-            col.half_extents = {he[0].get<float>(), he[1].get<float>(), he[2].get<float>()};
-        }
-        col.radius = jcol.value("radius", 0.5f);
-        col.height = jcol.value("height", 1.0f);
-        if (jcol.contains("offset")) {
-            auto& o = jcol["offset"];
-            col.offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()};
-        }
-        col.is_trigger = jcol.value("is_trigger", false);
-    }
-
-    if (j.contains("emitter")) {
-        auto& jem = j["emitter"];
-        auto& em = node.components.add<EmitterComponent>();
-        em.emission_rate = jem.value("emission_rate", 50.0f);
-        em.lifetime_min = jem.value("lifetime_min", 1.0f);
-        em.lifetime_max = jem.value("lifetime_max", 3.0f);
-        em.max_particles = jem.value("max_particles", 10000u);
-        if (jem.contains("velocity_min")) {
-            auto& v = jem["velocity_min"];
-            em.velocity_min = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
-        }
-        if (jem.contains("velocity_max")) {
-            auto& v = jem["velocity_max"];
-            em.velocity_max = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
-        }
-        if (jem.contains("gravity")) {
-            auto& g = jem["gravity"];
-            em.gravity = {g[0].get<float>(), g[1].get<float>(), g[2].get<float>()};
-        }
-        if (jem.contains("color_start")) {
-            auto& c = jem["color_start"];
-            em.color_start = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()};
-        }
-        if (jem.contains("color_end")) {
-            auto& c = jem["color_end"];
-            em.color_end = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()};
-        }
-        em.size_start = jem.value("size_start", 0.1f);
-        em.size_end = jem.value("size_end", 0.02f);
-        em.blend_mode = static_cast<ParticleBlendMode>(jem.value("blend_mode", 0));
-    }
-
+    // VFX asset loading (uses "vfx" key, not handled by emitter meta's "emitter" key)
     if (j.contains("vfx")) {
         std::string vfx_path = j["vfx"].get<std::string>();
         auto resolved = base_path::resolve_asset(vfx_path, project);
@@ -415,170 +186,6 @@ static void load_components(Node& node, const nlohmann::json& j,
             ec.vfx_path = vfx_path;
         } catch (const std::exception& e) {
             FJELL_CORE_ERROR("Failed to load VFX: {}", e.what());
-        }
-    }
-
-    if (j.contains("sprite")) {
-        auto& jsp = j["sprite"];
-        auto& sp = node.components.add<SpriteComponent>();
-        sp.texture_path = jsp.value("texture", "");
-        if (sp.texture_path.starts_with("assets/icons/")) {
-            sp.texture_path = "engine_assets/icons/" +
-                sp.texture_path.substr(13);
-        }
-        if (jsp.contains("tint")) {
-            auto& t = jsp["tint"];
-            sp.tint = {t[0].get<float>(), t[1].get<float>(), t[2].get<float>(), t[3].get<float>()};
-        }
-        if (jsp.contains("uv_rect")) {
-            auto& u = jsp["uv_rect"];
-            sp.uv_rect = {u[0].get<float>(), u[1].get<float>(), u[2].get<float>(), u[3].get<float>()};
-        }
-        sp.opacity = jsp.value("opacity", 1.0f);
-        sp.editor_only = jsp.value("editor_only", false);
-        sp.flip_h = jsp.value("flip_h", false);
-        sp.flat = jsp.value("flat", false);
-        sp.pixel_art = jsp.value("pixel_art", false);
-        sp.pixels_per_unit = jsp.value("pixels_per_unit", 0.0f);
-        sp.sort_layer = jsp.value("sort_layer", 0);
-        sp.sort_order = jsp.value("sort_order", 0);
-    }
-
-    if (j.contains("sprite_anim")) {
-        auto& jsa = j["sprite_anim"];
-        auto& sa = node.components.add<SpriteAnimComponent>();
-        sa.animset_path = jsa.value("animset", "");
-        if (jsa.contains("animations")) {
-            for (auto& [name, path] : jsa["animations"].items()) {
-                sa.animations[name] = path.get<std::string>();
-            }
-        }
-        sa.default_animation = jsa.value("default", "");
-        sa.playback_speed = jsa.value("playback_speed", 1.0f);
-    }
-
-    if (j.contains("tilemap")) {
-        auto& jtm = j["tilemap"];
-        auto& tm = node.components.add<TilemapComponent>();
-        tm.tileset_texture = jtm.value("tileset", "");
-        if (jtm.contains("tile_size")) {
-            auto& ts = jtm["tile_size"];
-            tm.tile_size = {ts[0].get<int>(), ts[1].get<int>()};
-        }
-        if (jtm.contains("map_size")) {
-            auto& ms = jtm["map_size"];
-            tm.map_size = {ms[0].get<int>(), ms[1].get<int>()};
-        }
-        tm.world_tile_size = jtm.value("world_tile_size", 1.0f);
-        tm.sort_layer = jtm.value("sort_layer", -100);
-        tm.pixel_art = jtm.value("pixel_art", true);
-        if (jtm.contains("tiles")) {
-            tm.tiles = jtm["tiles"].get<std::vector<int32_t>>();
-        }
-    }
-
-    if (j.contains("audio")) {
-        auto& jau = j["audio"];
-        auto& au = node.components.add<AudioSourceComponent>();
-        au.clip_path = jau.value("clip", "");
-        au.volume = jau.value("volume", 1.0f);
-        au.pitch = jau.value("pitch", 1.0f);
-        au.min_distance = jau.value("min_distance", 1.0f);
-        au.max_distance = jau.value("max_distance", 50.0f);
-        au.loop = jau.value("loop", false);
-        au.spatial = jau.value("spatial", true);
-        au.play_on_start = jau.value("play_on_start", false);
-    }
-
-    if (j.contains("arrow")) {
-        auto& jar = j["arrow"];
-        auto& arr = node.components.add<ArrowComponent>();
-        arr.length = jar.value("length", 2.0f);
-        if (jar.contains("color")) {
-            auto& c = jar["color"];
-            arr.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
-        }
-    }
-
-    if (j.contains("character")) {
-        auto& jcc = j["character"];
-        auto& cc = node.components.add<CharacterComponent>();
-        cc.capsule_radius = jcc.value("capsule_radius", 0.3f);
-        cc.capsule_height = jcc.value("capsule_height", 1.4f);
-        cc.max_slope_angle = jcc.value("max_slope_angle", 50.0f);
-        cc.mass = jcc.value("mass", 80.0f);
-    }
-
-    if (j.contains("ui_widget")) {
-        auto& jw = j["ui_widget"];
-        auto& wc = node.components.add<UiWidgetComponent>();
-        wc.widget_path = jw.value("widget", "");
-        wc.render_mode = static_cast<UiWidgetComponent::RenderMode>(jw.value("render_mode", 0));
-        if (jw.contains("style_classes") && jw["style_classes"].is_array()) {
-            for (const auto& cls : jw["style_classes"]) {
-                wc.style_classes.push_back(cls.get<std::string>());
-            }
-        }
-        wc.pixels_per_unit = jw.value("pixels_per_unit", 100.0f);
-        wc.billboard = jw.value("billboard", true);
-        if (jw.contains("virtual_viewport")) {
-            auto& vv = jw["virtual_viewport"];
-            wc.virtual_viewport = {vv[0].get<float>(), vv[1].get<float>()};
-        }
-        if (jw.contains("offset")) {
-            auto& off = jw["offset"];
-            wc.offset = {off[0].get<float>(), off[1].get<float>(), off[2].get<float>()};
-        }
-    }
-
-    if (j.contains("input")) {
-        auto& ji = j["input"];
-        auto& ic = node.components.add<InputComponent>();
-        if (ji.contains("contexts") && ji["contexts"].is_array()) {
-            for (const auto& ctx : ji["contexts"]) {
-                ic.context_paths.push_back(ctx.get<std::string>());
-            }
-        }
-        ic.actions_dir = ji.value("actions_dir", "");
-    }
-
-    // Animator (standalone — not already loaded by the skeletal_mesh path)
-    if (j.contains("animator") && !node.components.has<AnimatorComponent>()) {
-        const auto& ja = j["animator"];
-        auto& anim = node.components.add<AnimatorComponent>();
-
-        // Init from SkeletalModel's embedded skeleton
-        if (const auto* smc = node.components.get<SkeletalMeshComponent>()) {
-            if (smc->skeletal_model && smc->skeletal_model->skeleton()) {
-                anim.init(smc->skeletal_model->skeleton());
-            }
-        }
-        if (ja.contains("clips") && ja["clips"].is_array()) {
-            for (const auto& jc : ja["clips"]) {
-                std::string clip_rel = jc.get<std::string>();
-                anim.clip_paths.push_back(clip_rel);
-                try {
-                    auto clip = std::make_shared<AnimationClip>(
-                        AnimationClip::load(base_path::resolve_asset(clip_rel, project)));
-                    anim.clips.push_back(clip);
-                    if (anim.clips.size() == 1) {
-                        anim.play(clip.get());
-                    }
-                } catch (const std::exception& e) {
-                    FJELL_CORE_ERROR("Failed to load clip {}: {}", clip_rel, e.what());
-                }
-            }
-        }
-        if (ja.contains("animset")) {
-            anim.animset_path = ja["animset"].get<std::string>();
-            auto resolved = base_path::resolve_asset(anim.animset_path, project);
-            anim.load_state_machine(resolved);
-            for (size_t i = 0; i < anim.clips.size(); ++i) {
-                if (i < anim.clip_paths.size())
-                    anim.set_clip(anim.clip_paths[i], anim.clips[i].get());
-            }
-            std::string base_dir = project ? project->root().string() : "";
-            anim.resolve_blend_spaces(base_dir);
         }
     }
 
