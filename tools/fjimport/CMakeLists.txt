@@ -5,6 +5,7 @@ add_executable(fjimport
     main.cpp
     log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/meshlet.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
 )
 
 target_include_directories(fjimport PRIVATE

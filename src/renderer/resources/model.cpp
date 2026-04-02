@@ -1,6 +1,7 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/meshlet.hpp"
+#include "renderer/resources/sdf_generator.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/primitives.hpp"
 #include "renderer/resources/vertex.hpp"
@@ -264,6 +265,20 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
     lod0.mega_entry_count = static_cast<uint32_t>(mega_entries_.size());
     lod0.max_screen_size = 1.0f;
     lod_levels_.push_back(lod0);
+
+    // Generate SDF at runtime for primitives (no .fjmesh file)
+    if (!collision_vertices_.empty() && !collision_indices_.empty()) {
+        auto sdf = generate_sdf(
+            collision_vertices_.data(),
+            static_cast<uint32_t>(collision_vertices_.size()),
+            collision_indices_.data(),
+            static_cast<uint32_t>(collision_indices_.size()),
+            local_aabb_.min, local_aabb_.max, 32);
+        sdf_data_ = std::move(sdf.data);
+        sdf_resolution_ = sdf.resolution;
+        sdf_min_ = sdf.sdf_min;
+        sdf_max_ = sdf.sdf_max;
+    }
 }
 
 void Model::draw(VkCommandBuffer cmd) const {

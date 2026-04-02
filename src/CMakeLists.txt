@@ -59,6 +59,7 @@ add_executable(fjell
     renderer/resources/mega_buffer.cpp
     renderer/resources/mesh.cpp
     renderer/resources/meshlet.cpp
+    renderer/resources/sdf_generator.cpp
     renderer/resources/meshlet_buffer.cpp
     renderer/resources/meshlet_descriptor.cpp
     renderer/resources/model.cpp
