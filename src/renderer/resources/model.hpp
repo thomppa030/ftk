@@ -33,6 +33,12 @@ struct FjMeshData {
     std::vector<uint32_t> collision_indices;
     std::vector<FjMeshLodLevel> lod_levels;
     AABB aabb;
+
+    // SDF (v4+)
+    std::vector<int16_t> sdf_data;
+    uint32_t sdf_resolution{0};
+    glm::vec3 sdf_min{0.0f};
+    glm::vec3 sdf_max{0.0f};
 };
 
 // Runtime LOD level: maps to a range of MegaMeshEntries
@@ -112,6 +118,13 @@ public:
     // Bounding sphere radius (computed from AABB)
     [[nodiscard]] float bounding_radius() const { return bounding_radius_; }
 
+    // SDF access
+    [[nodiscard]] bool has_sdf() const { return sdf_resolution_ > 0; }
+    [[nodiscard]] uint32_t sdf_grid_resolution() const { return sdf_resolution_; }
+    [[nodiscard]] const std::vector<int16_t>& sdf_grid_data() const { return sdf_data_; }
+    [[nodiscard]] const glm::vec3& sdf_volume_min() const { return sdf_min_; }
+    [[nodiscard]] const glm::vec3& sdf_volume_max() const { return sdf_max_; }
+
 private:
     std::vector<std::unique_ptr<Mesh>> meshes_;
     std::vector<std::unique_ptr<Texture>> textures_;
@@ -122,6 +135,12 @@ private:
     std::vector<MeshletBuildResult> meshlet_results_;
     std::vector<LodLevel> lod_levels_;
     float bounding_radius_{0.0f};
+
+    // SDF
+    std::vector<int16_t> sdf_data_;
+    uint32_t sdf_resolution_{0};
+    glm::vec3 sdf_min_{0.0f};
+    glm::vec3 sdf_max_{0.0f};
 };
 
 } // namespace fjell

@@ -360,13 +360,24 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
             std::to_string(header.version) + " in: " + path);
     }
 
-    // Read v3 extension fields if present
+    // Read v3+ extension fields if present
     if (header.version >= 3) {
-        size_t ext_size = sizeof(FjMeshHeader) - V2_HEADER_SIZE;
+        constexpr size_t V3_END = offsetof(FjMeshHeader, sdf_resolution);
+        size_t ext_size = V3_END - V2_HEADER_SIZE;
         auto* ext_ptr = reinterpret_cast<char*>(&header) + V2_HEADER_SIZE;
         if (std::fread(ext_ptr, ext_size, 1, f) != 1) {
             std::fclose(f);
             throw std::runtime_error("Failed to read .fjmesh v3 header fields: " + path);
+        }
+    }
+    // Read v4+ SDF fields if present
+    if (header.version >= 4) {
+        constexpr size_t V4_START = offsetof(FjMeshHeader, sdf_resolution);
+        size_t v4_size = sizeof(FjMeshHeader) - V4_START;
+        auto* v4_ptr = reinterpret_cast<char*>(&header) + V4_START;
+        if (std::fread(v4_ptr, v4_size, 1, f) != 1) {
+            std::fclose(f);
+            throw std::runtime_error("Failed to read .fjmesh v4 header fields: " + path);
         }
     }
     if (header.flags & FJMESH_FLAG_SKINNED) {
@@ -417,6 +428,16 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
         data.lod_levels.push_back(lod0);
     }
 
+    // SDF data (v4+)
+    if (header.version >= 4 && header.sdf_resolution > 0 && header.sdf_data_offset > 0) {
+        uint32_t res = header.sdf_resolution;
+        uint32_t voxel_count = res * res * res;
+        data.sdf_resolution = res;
+        data.sdf_min = header.sdf_min;
+        data.sdf_max = header.sdf_max;
+        read_section(data.sdf_data, header.sdf_data_offset, voxel_count);
+    }
+
     std::fclose(f);
 
     FJELL_GFX_DEBUG("Loaded .fjmesh: {} ({} verts, {} indices, {} submeshes, {} meshlets, {} LODs)",
@@ -433,6 +454,10 @@ Model::Model(VkDevice device, VkPhysicalDevice physical_device,
     collision_vertices_ = std::move(data.collision_vertices);
     collision_indices_ = std::move(data.collision_indices);
     local_aabb_ = data.aabb;
+    sdf_data_ = std::move(data.sdf_data);
+    sdf_resolution_ = data.sdf_resolution;
+    sdf_min_ = data.sdf_min;
+    sdf_max_ = data.sdf_max;
     bounding_radius_ = glm::length(local_aabb_.max - local_aabb_.min) * 0.5f;
 
     for (const auto& submesh : data.submeshes) {
