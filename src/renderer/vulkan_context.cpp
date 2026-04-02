@@ -1419,6 +1419,12 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         return;
     }
 
+    // Dispatch pending SDF compositing (recorded into the main command buffer, no stall)
+    if (!pending_sdf_instances_.empty()) {
+        scene_sdf_pass_.composite(cmd, pending_sdf_instances_);
+        pending_sdf_instances_.clear();
+    }
+
     // Update shadow cascades from the first viewport's camera
     // Use scene-node light if available, matching update_uniform_buffer behavior
     DirectionalLight shadow_light = light;
@@ -1922,32 +1928,9 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             }
         }
 
-        // Always recomposite when instances exist — the volume is cheap to rebuild
-        if (!sdf_instances.empty()) {
-            // Need a command buffer for the compositing dispatch
-            VkCommandBuffer sdf_cmd{};
-            VkCommandBufferAllocateInfo sdf_alloc{};
-            sdf_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            sdf_alloc.commandPool = gpu_.command_pool();
-            sdf_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            sdf_alloc.commandBufferCount = 1;
-            vkAllocateCommandBuffers(gpu_.device(), &sdf_alloc, &sdf_cmd);
-
-            VkCommandBufferBeginInfo sdf_begin{};
-            sdf_begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            sdf_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            vkBeginCommandBuffer(sdf_cmd, &sdf_begin);
-
-            scene_sdf_pass_.composite(sdf_cmd, sdf_instances);
-
-            vkEndCommandBuffer(sdf_cmd);
-            VkSubmitInfo sdf_submit{};
-            sdf_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            sdf_submit.commandBufferCount = 1;
-            sdf_submit.pCommandBuffers = &sdf_cmd;
-            vkQueueSubmit(gpu_.graphics_queue(), 1, &sdf_submit, VK_NULL_HANDLE);
-            vkQueueWaitIdle(gpu_.graphics_queue());
-            vkFreeCommandBuffers(gpu_.device(), gpu_.command_pool(), 1, &sdf_cmd);
+        if (scene_sdf_pass_.dirty() && !sdf_instances.empty()) {
+            // Store instances for compositing in the main command buffer
+            pending_sdf_instances_ = std::move(sdf_instances);
         }
     }
 

@@ -318,6 +318,7 @@ private:
   UiPreviewCallback ui_preview_callback_;
   glm::vec2 viewport_offset_{0.0f, 0.0f};
   bool show_colliders_{false};
+  std::vector<GpuSdfInstance> pending_sdf_instances_;
   bool show_sdf_debug_{false};
   int sdf_debug_axis_{1};       // default Y axis
   float sdf_debug_slice_{0.5f};
