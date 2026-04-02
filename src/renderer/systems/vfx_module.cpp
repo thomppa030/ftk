@@ -489,13 +489,13 @@ void VelocityLimitModule::from_json(const nlohmann::json& j) {
 // ─── Collision ──────────────────────────────────────────────────────────
 
 uint32_t CollisionModule::write_gpu_data(uint8_t* buffer) const {
-    // payload: response(1) + restitution(1) + friction(1) + pad(1)
+    // payload: response(1) + source(1) + restitution(1) + friction(1)
     //        + sdf_min(3) + pad(1) + sdf_max(3) + pad(1) = 12 words
     uint32_t total = write_header(buffer, type(), 12);
     write_uint(buffer, 8, static_cast<uint32_t>(response));
-    write_float(buffer, 12, restitution);
-    write_float(buffer, 16, friction);
-    write_float(buffer, 20, 0.0f);
+    write_uint(buffer, 12, static_cast<uint32_t>(source));
+    write_float(buffer, 16, restitution);
+    write_float(buffer, 20, friction);
     // SDF volume bounds (hardcoded to match SceneSdfPass defaults for now)
     write_vec3(buffer, 24, glm::vec3(-10.0f));
     write_float(buffer, 36, 0.0f);
@@ -506,16 +506,20 @@ uint32_t CollisionModule::write_gpu_data(uint8_t* buffer) const {
 
 bool CollisionModule::draw_inspector() {
     bool changed = false;
+    const char* sources[] = {"SDF (static geometry)", "Depth Buffer (displaced)", "Both"};
+    int s = static_cast<int>(source);
+    if (ImGui::Combo("Source", &s, sources, 3)) {
+        source = static_cast<Source>(s);
+        changed = true;
+    }
     const char* modes[] = {"Bounce", "Slide", "Kill"};
     int r = static_cast<int>(response);
     if (ImGui::Combo("Response", &r, modes, 3)) {
         response = static_cast<Response>(r);
         changed = true;
     }
-    if (response == Response::bounce) {
+    if (response != Response::kill) {
         if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) changed = true;
-        if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) changed = true;
-    } else if (response == Response::slide) {
         if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) changed = true;
     }
     return changed;
@@ -524,7 +528,9 @@ bool CollisionModule::draw_inspector() {
 void CollisionModule::to_json(nlohmann::json& j) const {
     j["type"] = "Collision";
     const char* mode_names[] = {"bounce", "slide", "kill"};
+    const char* src_names[] = {"sdf", "depth", "both"};
     j["response"] = mode_names[static_cast<int>(response)];
+    j["source"] = src_names[static_cast<int>(source)];
     j["restitution"] = restitution;
     j["friction"] = friction;
 }
@@ -534,6 +540,10 @@ void CollisionModule::from_json(const nlohmann::json& j) {
     if (r == "slide") response = Response::slide;
     else if (r == "kill") response = Response::kill;
     else response = Response::bounce;
+    std::string s = j.value("source", "sdf");
+    if (s == "depth") source = Source::depth;
+    else if (s == "both") source = Source::both;
+    else source = Source::sdf;
     restitution = j.value("restitution", 0.5f);
     friction = j.value("friction", 0.2f);
 }

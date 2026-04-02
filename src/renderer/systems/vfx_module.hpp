@@ -254,7 +254,14 @@ struct CollisionModule final : VfxModule {
         kill   = 2,
     };
 
+    enum class Source : uint32_t {
+        sdf   = 0,  // 3D SDF volume (rest-pose geometry, works everywhere)
+        depth = 1,  // depth buffer (handles displacement, screen-space only)
+        both  = 2,  // SDF + depth fallback
+    };
+
     Response response{Response::bounce};
+    Source source{Source::sdf};
     float restitution{0.5f};     // bounciness (0-1)
     float friction{0.2f};        // tangential damping (0-1)
 
