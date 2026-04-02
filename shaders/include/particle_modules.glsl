@@ -12,6 +12,7 @@
 #define MOD_BURST              7
 #define MOD_INITIAL_ROTATION   8
 #define MOD_INITIAL_TEXTURE    9
+#define MOD_FLIPBOOK           10
 
 #define MOD_GRAVITY            100
 #define MOD_COLOR_OVER_LIFE    101

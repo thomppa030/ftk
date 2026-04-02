@@ -53,6 +53,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "Burst")            return std::make_unique<BurstModule>();
     if (type_name == "InitialRotation") return std::make_unique<InitialRotationModule>();
     if (type_name == "InitialTexture") return std::make_unique<InitialTextureModule>();
+    if (type_name == "Flipbook")        return std::make_unique<FlipbookModule>();
     if (type_name == "Billboard")        return std::make_unique<BillboardModule>();
     return nullptr;
 }
@@ -611,6 +612,86 @@ void BurstModule::to_json(nlohmann::json& j) const {
 
 void BurstModule::from_json(const nlohmann::json& j) {
     count = j.value("count", 100u);
+}
+
+// ─── Flipbook ───────────────────────────────────────────────────────────
+
+uint32_t FlipbookModule::pack_params() const {
+    uint32_t fc = frame_count > 0 ? frame_count : (columns * rows);
+    fc = std::min(fc, 255u);
+    uint32_t cols = std::min(columns, 255u);
+    uint32_t fps_enc = std::min(static_cast<uint32_t>(fps * 4.0f), 255u);
+    uint32_t m = static_cast<uint32_t>(mode);
+    return cols | (fc << 8) | (fps_enc << 16) | (m << 24);
+}
+
+uint32_t FlipbookModule::write_gpu_data(uint8_t* buffer) const {
+    uint32_t total = write_header(buffer, type(), 2);
+    write_uint(buffer, 8, pack_params());
+    write_uint(buffer, 12, 0); // pad
+    return total;
+}
+
+bool FlipbookModule::draw_inspector() {
+    bool changed = false;
+    int c = static_cast<int>(columns);
+    int r = static_cast<int>(rows);
+    int fc = static_cast<int>(frame_count);
+    float f = fps;
+
+    if (ImGui::DragInt("Columns", &c, 0.1f, 1, 64)) {
+        columns = static_cast<uint32_t>(std::max(c, 1));
+        changed = true;
+    }
+    if (ImGui::DragInt("Rows", &r, 0.1f, 1, 64)) {
+        rows = static_cast<uint32_t>(std::max(r, 1));
+        changed = true;
+    }
+    if (ImGui::DragInt("Frame Count", &fc, 0.1f, 0, 255)) {
+        frame_count = static_cast<uint32_t>(std::max(fc, 0));
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(0 = cols*rows)");
+
+    if (ImGui::DragFloat("FPS", &f, 0.5f, 0.25f, 63.75f)) {
+        fps = f;
+        changed = true;
+    }
+
+    const char* modes[] = {"Over Lifetime", "FPS (Loop)", "FPS (Clamp)"};
+    int mi = static_cast<int>(mode);
+    if (ImGui::Combo("Mode", &mi, modes, 3)) {
+        mode = static_cast<Mode>(mi);
+        changed = true;
+    }
+
+    // Preview info
+    uint32_t total = frame_count > 0 ? frame_count : columns * rows;
+    ImGui::TextDisabled("%u frames (%ux%u grid)", total, columns, rows);
+
+    return changed;
+}
+
+void FlipbookModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Flipbook";
+    j["columns"] = columns;
+    j["rows"] = rows;
+    j["frame_count"] = frame_count;
+    j["fps"] = fps;
+    const char* mode_names[] = {"over_lifetime", "fps_loop", "fps_clamp"};
+    j["mode"] = mode_names[static_cast<int>(mode)];
+}
+
+void FlipbookModule::from_json(const nlohmann::json& j) {
+    columns = j.value("columns", 4u);
+    rows = j.value("rows", 4u);
+    frame_count = j.value("frame_count", 0u);
+    fps = j.value("fps", 24.0f);
+    std::string m = j.value("mode", "over_lifetime");
+    if (m == "fps_loop") mode = Mode::fps_loop;
+    else if (m == "fps_clamp") mode = Mode::fps_clamp;
+    else mode = Mode::over_lifetime;
 }
 
 // ─── Billboard ───────────────────────────────────────────────────────────

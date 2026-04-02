@@ -14,7 +14,7 @@ struct Particle {
     float rotation;        // radians
     float rotation_speed;  // radians/sec
     uint  texture_index;   // bindless texture index (0 = procedural)
-    float _pad1;
+    uint  flipbook_params; // packed: columns(8) | total_frames(8) | fps_fixed8(8) | mode(2)
 };
 
 struct EmitterData {

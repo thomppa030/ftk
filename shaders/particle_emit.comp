@@ -88,7 +88,7 @@ void main() {
     p.rotation = 0.0;
     p.rotation_speed = 0.0;
     p.texture_index = 0u;
-    p._pad1 = 0.0;
+    p.flipbook_params = 0u;
 
     // Walk spawn modules (max 32 iterations to prevent GPU hang on corrupt data)
     uint mo = em.module_offset;
@@ -180,6 +180,9 @@ void main() {
         }
         else if (mtype == MOD_INITIAL_TEXTURE) {
             p.texture_index = module_data[mo + 2];
+        }
+        else if (mtype == MOD_FLIPBOOK) {
+            p.flipbook_params = module_data[mo + 2];
         }
 
         mo += msize;

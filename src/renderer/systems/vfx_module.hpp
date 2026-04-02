@@ -23,6 +23,7 @@ enum class ModuleType : uint32_t {
     burst              = 7,
     initial_rotation   = 8,
     initial_texture    = 9,
+    flipbook           = 10,
 
     // Update modules
     gravity            = 100,
@@ -287,6 +288,29 @@ struct BurstModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::burst; }
     [[nodiscard]] const char* name() const override { return "Burst"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct FlipbookModule final : VfxModule {
+    uint32_t columns{4};
+    uint32_t rows{4};
+    uint32_t frame_count{0};   // 0 = columns * rows
+    float fps{24.0f};
+
+    enum class Mode : uint32_t {
+        over_lifetime = 0,  // frame = age * total_frames
+        fps_loop      = 1,  // fixed rate, wraps
+        fps_clamp     = 2,  // fixed rate, stops on last frame
+    };
+    Mode mode{Mode::over_lifetime};
+
+    [[nodiscard]] uint32_t pack_params() const;
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::flipbook; }
+    [[nodiscard]] const char* name() const override { return "Flipbook"; }
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;

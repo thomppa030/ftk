@@ -29,7 +29,7 @@ struct Particle {
     float rotation;
     float rotation_speed;
     uint  texture_index;
-    float _pad1;
+    uint  flipbook_params;
 };
 
 layout(std430, set = 1, binding = 0) readonly buffer ParticleBuffer {
@@ -73,6 +73,43 @@ void main() {
     frag_uv = uvs[corner];
     frag_color = p.color;
     frag_texture_index = p.texture_index;
+
+    // Flipbook UV remapping
+    uint fb = p.flipbook_params;
+    uint fb_total = (fb >> 8) & 0xFFu;
+    if (fb_total > 0u) {
+        uint fb_cols = fb & 0xFFu;
+        uint fb_fps  = (fb >> 16) & 0xFFu;
+        uint fb_mode = (fb >> 24) & 0x3u;
+        uint fb_rows = (fb_total + fb_cols - 1u) / fb_cols;
+
+        float age = 1.0 - p.lifetime / p.max_lifetime;
+        uint frame;
+
+        if (fb_mode == 0u) {
+            // Over lifetime
+            frame = uint(clamp(age, 0.0, 0.999) * float(fb_total));
+        } else {
+            // FPS-based
+            float fps_val = float(fb_fps) * 0.25;
+            float elapsed = age * p.max_lifetime;
+            uint raw = uint(elapsed * fps_val);
+            if (fb_mode == 1u)
+                frame = raw % fb_total;  // loop
+            else
+                frame = min(raw, fb_total - 1u);  // clamp
+        }
+
+        uint col = frame % fb_cols;
+        uint row = frame / fb_cols;
+        float u_size = 1.0 / float(fb_cols);
+        float v_size = 1.0 / float(fb_rows);
+        float u0 = float(col) * u_size;
+        float v0 = float(row) * v_size;
+
+        frag_uv = vec2(mix(u0, u0 + u_size, frag_uv.x),
+                        mix(v0, v0 + v_size, frag_uv.y));
+    }
 
     vec3 world_pos;
 
