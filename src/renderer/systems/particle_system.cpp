@@ -740,7 +740,6 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     for (const auto& obj : scene.objects()) {
         auto* ec = obj->components.get<EmitterComponent>();
         if (!ec) continue;
-        ec->ensure_effect();
         if (!ec->effect) continue;
         for (uint32_t i = 0; i < static_cast<uint32_t>(ec->effect->emitters.size()); ++i) {
             auto& sub = ec->effect->emitters[i];

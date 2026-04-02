@@ -246,9 +246,7 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
     if (!nodes_initialized_) {
         auto* prev_ctx = ImNodes::GetCurrentContext();
         imnodes_ctx_ = static_cast<void*>(ImNodes::CreateContext());
-        // Restore scene editor's context as the global default
-        ImNodes::SetCurrentContext(prev_ctx);
-
+        // Style the VFX editor's own context (CreateContext sets it as current)
         ImNodesStyle& style = ImNodes::GetStyle();
         style.Flags |= ImNodesStyleFlags_GridSnapping;
         style.Colors[ImNodesCol_NodeBackground]         = IM_COL32(43, 45, 49, 255);
@@ -269,6 +267,9 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
         style.NodePadding        = ImVec2(10.0f, 6.0f);
         style.LinkThickness      = 2.5f;
         style.PinCircleRadius    = 4.5f;
+
+        // Restore previous imnodes context
+        if (prev_ctx) ImNodes::SetCurrentContext(prev_ctx);
 
         nodes_initialized_ = true;
     }

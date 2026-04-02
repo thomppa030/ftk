@@ -6,7 +6,7 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "audio/audio_asset.hpp"
-#include "renderer/systems/vfx_asset.hpp"
+#include "renderer/systems/vfx_emitter.hpp"
 
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
@@ -101,7 +101,7 @@ public:
     [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;
     [[nodiscard]] Texture* get(TextureHandle handle) const;
     [[nodiscard]] Material* get(MaterialHandle handle) const;
-    [[nodiscard]] VfxAsset* get(VfxAssetHandle handle) const;
+    [[nodiscard]] VfxEffect* get(VfxAssetHandle handle) const;
     [[nodiscard]] AudioAsset* get(AudioAssetHandle handle) const;
     [[nodiscard]] InputActionDef* get(InputActionHandle handle) const;
 
@@ -165,7 +165,7 @@ private:
     Pool<SkeletalModel, SkeletalModelHandle> skeletal_models_;
     Pool<Texture, TextureHandle> textures_;
     Pool<Material, MaterialHandle> materials_;
-    Pool<VfxAsset, VfxAssetHandle> vfx_assets_;
+    Pool<VfxEffect, VfxAssetHandle> vfx_assets_;
     Pool<AudioAsset, AudioAssetHandle> audio_assets_;
     Pool<InputActionDef, InputActionHandle> input_actions_;
 

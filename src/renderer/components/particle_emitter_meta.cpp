@@ -1,11 +1,93 @@
 #include "scene/component_registry.hpp"
 #include "renderer/components/particle_emitter.hpp"
+#include "renderer/systems/vfx_asset.hpp"
+#include "renderer/systems/vfx_emitter.hpp"
+#include "renderer/systems/vfx_module.hpp"
+#include "renderer/resources/resource_manager.hpp"
+#include "core/base_path.hpp"
+#include "core/project_manager.hpp"
 #include "scene/node.hpp"
+
+#include "ui/inspector_widgets.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 
 namespace fjell {
+
+// Build a VfxEffect from legacy flat JSON fields (v1 scene compat)
+static std::shared_ptr<VfxEffect> effect_from_legacy_json(const nlohmann::json& j) {
+    auto effect = std::make_shared<VfxEffect>();
+    effect->name = "effect";
+
+    VfxEmitter em;
+    em.max_particles = j.value("max_particles", 10000u);
+    em.blend_mode = static_cast<ParticleBlendMode>(j.value("blend_mode", 0));
+
+    auto rate = std::make_unique<SpawnRateModule>();
+    rate->rate = j.value("emission_rate", 50.0f);
+    em.spawn_modules.push_back(std::move(rate));
+
+    auto lt = std::make_unique<InitialLifetimeModule>();
+    lt->lifetime_min = j.value("lifetime_min", 1.0f);
+    lt->lifetime_max = j.value("lifetime_max", 3.0f);
+    em.spawn_modules.push_back(std::move(lt));
+
+    auto pos = std::make_unique<InitialPositionModule>();
+    em.spawn_modules.push_back(std::move(pos));
+
+    auto vel = std::make_unique<InitialVelocityModule>();
+    vel->mode = VelocityMode::random;
+    if (j.contains("velocity_min")) {
+        auto& v = j["velocity_min"];
+        vel->velocity_min = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
+    }
+    if (j.contains("velocity_max")) {
+        auto& v = j["velocity_max"];
+        vel->velocity_max = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()};
+    }
+    em.spawn_modules.push_back(std::move(vel));
+
+    auto col = std::make_unique<InitialColorModule>();
+    if (j.contains("color_start")) {
+        auto& c = j["color_start"];
+        col->color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()};
+    }
+    em.spawn_modules.push_back(std::move(col));
+
+    auto sz = std::make_unique<InitialSizeModule>();
+    sz->size_min = j.value("size_start", 0.1f);
+    sz->size_max = j.value("size_start", 0.1f);
+    em.spawn_modules.push_back(std::move(sz));
+
+    auto grav = std::make_unique<GravityModule>();
+    if (j.contains("gravity")) {
+        auto& g = j["gravity"];
+        grav->force = {g[0].get<float>(), g[1].get<float>(), g[2].get<float>()};
+    }
+    em.update_modules.push_back(std::move(grav));
+
+    auto col_life = std::make_unique<ColorOverLifeModule>();
+    if (j.contains("color_start")) {
+        auto& c = j["color_start"];
+        col_life->color_start = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()};
+    }
+    if (j.contains("color_end")) {
+        auto& c = j["color_end"];
+        col_life->color_end = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()};
+    }
+    em.update_modules.push_back(std::move(col_life));
+
+    auto sz_life = std::make_unique<SizeOverLifeModule>();
+    sz_life->size_start = j.value("size_start", 0.1f);
+    sz_life->size_end = j.value("size_end", 0.02f);
+    em.update_modules.push_back(std::move(sz_life));
+
+    em.render_modules.push_back(std::make_unique<BillboardModule>());
+
+    effect->emitters.push_back(std::move(em));
+    return effect;
+}
 
 static const bool registered = [] {
     ComponentRegistry::instance().register_component<EmitterComponent>({
@@ -13,24 +95,39 @@ static const bool registered = [] {
         .json_key = "emitter",
         .color = {0.78f, 0.55f, 0.85f, 1.0f},
 
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& /*ctx*/) -> bool {
+        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
             auto* em = static_cast<EmitterComponent*>(ptr);
             bool changed = false;
-            if (ImGui::DragFloat("Emit Rate", &em->emission_rate, 1.0f, 0.0f, 10000.0f)) changed = true;
-            if (ImGui::DragFloat("Lifetime Min", &em->lifetime_min, 0.1f, 0.01f, 30.0f)) changed = true;
-            if (ImGui::DragFloat("Lifetime Max", &em->lifetime_max, 0.1f, 0.01f, 30.0f)) changed = true;
-            int max_p = static_cast<int>(em->max_particles);
-            if (ImGui::DragInt("Max Particles", &max_p, 100, 100, 100000)) { em->max_particles = static_cast<uint32_t>(max_p); changed = true; }
-            if (ImGui::DragFloat3("Velocity Min", &em->velocity_min.x, 0.1f)) changed = true;
-            if (ImGui::DragFloat3("Velocity Max", &em->velocity_max.x, 0.1f)) changed = true;
-            if (ImGui::DragFloat3("Gravity", &em->gravity.x, 0.1f)) changed = true;
-            if (ImGui::ColorEdit4("Color Start", &em->color_start.r)) changed = true;
-            if (ImGui::ColorEdit4("Color End", &em->color_end.r)) changed = true;
-            if (ImGui::DragFloat("Size Start", &em->size_start, 0.01f, 0.001f, 10.0f)) changed = true;
-            if (ImGui::DragFloat("Size End", &em->size_end, 0.01f, 0.001f, 10.0f)) changed = true;
-            static const char* blend_labels[] = {"Additive", "Alpha"};
-            int bm = static_cast<int>(em->blend_mode);
-            if (ImGui::Combo("Blend Mode", &bm, blend_labels, 2)) { em->blend_mode = static_cast<ParticleBlendMode>(bm); changed = true; }
+            if (asset_path_field("VFX Effect", "##vfx_path", em->vfx_path)) {
+                if (!em->vfx_path.empty() && ctx.resource_manager && ctx.project_mgr) {
+                    auto resolved = base_path::resolve_asset(
+                        em->vfx_path, ctx.project_mgr->active());
+                    try {
+                        auto effect = load_vfx_effect(resolved);
+                        // Resolve texture modules
+                        for (auto& emitter : effect.emitters) {
+                            for (auto& mod : emitter.spawn_modules) {
+                                if (mod->type() == ModuleType::initial_texture) {
+                                    auto* tex = static_cast<InitialTextureModule*>(mod.get());
+                                    if (!tex->texture_path.empty()) {
+                                        auto r = ctx.resource_manager->load_texture(
+                                            base_path::resolve_asset(
+                                                tex->texture_path, ctx.project_mgr->active()));
+                                        if (r) tex->bindless_index =
+                                            ctx.resource_manager->bindless_index(*r);
+                                    }
+                                }
+                            }
+                        }
+                        em->effect = std::make_shared<VfxEffect>(std::move(effect));
+                    } catch (const std::exception&) {
+                        em->effect.reset();
+                    }
+                } else {
+                    em->effect.reset();
+                }
+                changed = true;
+            }
             return changed;
         },
 
@@ -41,39 +138,16 @@ static const bool registered = [] {
         .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
             auto* em = static_cast<const EmitterComponent*>(ptr);
             if (!em->vfx_path.empty()) {
-                // VFX path is handled separately — store in node-level JSON, not component JSON
-                // The serializer will check for this
                 out["_vfx_path"] = em->vfx_path;
-            } else {
-                out["emission_rate"] = em->emission_rate;
-                out["lifetime_min"] = em->lifetime_min;
-                out["lifetime_max"] = em->lifetime_max;
-                out["max_particles"] = em->max_particles;
-                out["velocity_min"] = {em->velocity_min.x, em->velocity_min.y, em->velocity_min.z};
-                out["velocity_max"] = {em->velocity_max.x, em->velocity_max.y, em->velocity_max.z};
-                out["gravity"] = {em->gravity.x, em->gravity.y, em->gravity.z};
-                out["color_start"] = {em->color_start.r, em->color_start.g, em->color_start.b, em->color_start.a};
-                out["color_end"] = {em->color_end.r, em->color_end.g, em->color_end.b, em->color_end.a};
-                out["size_start"] = em->size_start;
-                out["size_end"] = em->size_end;
-                out["blend_mode"] = static_cast<int>(em->blend_mode);
             }
         },
 
         .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/, const Project* /*proj*/) {
             auto& em = node.components.add<EmitterComponent>();
-            em.emission_rate = j.value("emission_rate", 50.0f);
-            em.lifetime_min = j.value("lifetime_min", 1.0f);
-            em.lifetime_max = j.value("lifetime_max", 3.0f);
-            em.max_particles = j.value("max_particles", 10000u);
-            if (j.contains("velocity_min")) { auto& v = j["velocity_min"]; em.velocity_min = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()}; }
-            if (j.contains("velocity_max")) { auto& v = j["velocity_max"]; em.velocity_max = {v[0].get<float>(), v[1].get<float>(), v[2].get<float>()}; }
-            if (j.contains("gravity")) { auto& g = j["gravity"]; em.gravity = {g[0].get<float>(), g[1].get<float>(), g[2].get<float>()}; }
-            if (j.contains("color_start")) { auto& c = j["color_start"]; em.color_start = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()}; }
-            if (j.contains("color_end")) { auto& c = j["color_end"]; em.color_end = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>(), c[3].get<float>()}; }
-            em.size_start = j.value("size_start", 0.1f);
-            em.size_end = j.value("size_end", 0.02f);
-            em.blend_mode = static_cast<ParticleBlendMode>(j.value("blend_mode", 0));
+            // Legacy v1 flat fields — convert to module-based effect
+            if (j.contains("emission_rate")) {
+                em.effect = effect_from_legacy_json(j);
+            }
         },
     });
     return true;

@@ -22,9 +22,6 @@ struct VfxEmitter {
     /// Build a default emitter with the standard module stack
     static VfxEmitter make_default();
 
-    /// Build from a legacy flat EmitterComponent (v1 compat)
-    static VfxEmitter from_legacy(const EmitterComponent& emitter);
-
     /// Extract emission config from spawn modules
     [[nodiscard]] float emission_rate() const;
     [[nodiscard]] uint32_t burst_count() const;
@@ -48,9 +45,6 @@ struct VfxEmitter {
 struct VfxEffect {
     std::string name{"effect"};
     std::vector<VfxEmitter> emitters;
-
-    /// Build from a legacy single EmitterComponent
-    static VfxEffect from_legacy(const EmitterComponent& ec);
 
     /// Total max particles across all emitters
     [[nodiscard]] uint32_t total_max_particles() const;

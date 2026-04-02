@@ -556,14 +556,14 @@ Result<VfxAssetHandle> ResourceManager::load_vfx_asset(const std::string& path) 
     }
 
     try {
-        auto asset = std::make_unique<VfxAsset>(load_vfx_asset_file(path));
-        return vfx_assets_.insert(path, std::move(asset));
+        auto effect = std::make_unique<VfxEffect>(load_vfx_effect(path));
+        return vfx_assets_.insert(path, std::move(effect));
     } catch (const std::exception& e) {
         return make_error(e.what());
     }
 }
 
-VfxAsset* ResourceManager::get(VfxAssetHandle handle) const {
+VfxEffect* ResourceManager::get(VfxAssetHandle handle) const {
     return vfx_assets_.get(handle);
 }
 

@@ -1,13 +1,6 @@
 #include "renderer/systems/vfx_emitter.hpp"
-#include "renderer/components/particle_emitter.hpp"
 
 namespace fjell {
-
-void EmitterComponent::ensure_effect() {
-    if (!effect) {
-        effect = std::make_shared<VfxEffect>(VfxEffect::from_legacy(*this));
-    }
-}
 
 VfxEmitter VfxEmitter::make_default() {
     VfxEmitter e;
@@ -20,54 +13,6 @@ VfxEmitter VfxEmitter::make_default() {
     e.update_modules.push_back(std::make_unique<GravityModule>());
     e.update_modules.push_back(std::make_unique<ColorOverLifeModule>());
     e.update_modules.push_back(std::make_unique<SizeOverLifeModule>());
-    e.render_modules.push_back(std::make_unique<BillboardModule>());
-    return e;
-}
-
-VfxEmitter VfxEmitter::from_legacy(const EmitterComponent& ec) {
-    VfxEmitter e;
-    e.max_particles = ec.max_particles;
-    e.blend_mode = ec.blend_mode;
-
-    auto spawn_rate = std::make_unique<SpawnRateModule>();
-    spawn_rate->rate = ec.emission_rate;
-    e.spawn_modules.push_back(std::move(spawn_rate));
-
-    auto lifetime = std::make_unique<InitialLifetimeModule>();
-    lifetime->lifetime_min = ec.lifetime_min;
-    lifetime->lifetime_max = ec.lifetime_max;
-    e.spawn_modules.push_back(std::move(lifetime));
-
-    e.spawn_modules.push_back(std::make_unique<InitialPositionModule>()); // point
-
-    auto velocity = std::make_unique<InitialVelocityModule>();
-    velocity->velocity_min = ec.velocity_min;
-    velocity->velocity_max = ec.velocity_max;
-    e.spawn_modules.push_back(std::move(velocity));
-
-    auto color = std::make_unique<InitialColorModule>();
-    color->color = ec.color_start;
-    e.spawn_modules.push_back(std::move(color));
-
-    auto size = std::make_unique<InitialSizeModule>();
-    size->size_min = ec.size_start;
-    size->size_max = ec.size_start; // legacy had single start value
-    e.spawn_modules.push_back(std::move(size));
-
-    auto gravity = std::make_unique<GravityModule>();
-    gravity->force = ec.gravity;
-    e.update_modules.push_back(std::move(gravity));
-
-    auto col_life = std::make_unique<ColorOverLifeModule>();
-    col_life->color_start = ec.color_start;
-    col_life->color_end = ec.color_end;
-    e.update_modules.push_back(std::move(col_life));
-
-    auto size_life = std::make_unique<SizeOverLifeModule>();
-    size_life->size_start = ec.size_start;
-    size_life->size_end = ec.size_end;
-    e.update_modules.push_back(std::move(size_life));
-
     e.render_modules.push_back(std::make_unique<BillboardModule>());
     return e;
 }
@@ -142,13 +87,6 @@ uint32_t VfxEmitter::write_gpu_modules(uint8_t* buffer) const {
 }
 
 // ── VfxEffect ────────────────────────────────────────────────────────────
-
-VfxEffect VfxEffect::from_legacy(const EmitterComponent& ec) {
-    VfxEffect effect;
-    effect.name = "effect";
-    effect.emitters.push_back(VfxEmitter::from_legacy(ec));
-    return effect;
-}
 
 uint32_t VfxEffect::total_max_particles() const {
     uint32_t total = 0;
