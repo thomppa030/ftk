@@ -29,6 +29,28 @@ void SceneSdfPass::destroy() {
         if (h != VK_NULL_HANDLE) { fn(device_, h, nullptr); h = VK_NULL_HANDLE; }
     };
 
+    // Slice visualization cleanup
+    if (slice_initialized_) {
+        // Don't call ImGui_ImplVulkan_RemoveTexture here — ImGui backend
+        // may already be shut down during engine destruction.
+        slice_imgui_set_ = VK_NULL_HANDLE;
+        safe(slice_pipeline_, vkDestroyPipeline);
+        safe(slice_layout_, vkDestroyPipelineLayout);
+        safe(slice_set_layout_, vkDestroyDescriptorSetLayout);
+        safe(slice_pool_, vkDestroyDescriptorPool);
+        safe(slice_sampler_, vkDestroySampler);
+        safe(slice_view_, vkDestroyImageView);
+        if (slice_image_ != VK_NULL_HANDLE) {
+            vkDestroyImage(device_, slice_image_, nullptr);
+            slice_image_ = VK_NULL_HANDLE;
+        }
+        if (slice_memory_ != VK_NULL_HANDLE) {
+            vkFreeMemory(device_, slice_memory_, nullptr);
+            slice_memory_ = VK_NULL_HANDLE;
+        }
+        slice_initialized_ = false;
+    }
+
     mesh_sdf_buffer_.reset();
     instance_buffer_.reset();
 
@@ -201,12 +223,14 @@ void SceneSdfPass::create_compute_pipeline() {
         device_, physical_device_, 4 * 1024 * 1024,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    mesh_sdf_buffer_->map();
 
     // Allocate instance buffer (enough for 256 instances)
     instance_buffer_ = std::make_unique<Buffer>(
         device_, physical_device_, 256 * sizeof(GpuSdfInstance),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    instance_buffer_->map();
 
     // Write bindings 1 and 2
     VkDescriptorBufferInfo mesh_buf_info{};
@@ -235,7 +259,7 @@ void SceneSdfPass::create_compute_pipeline() {
     vkUpdateDescriptorSets(device_, 2, buf_writes, 0, nullptr);
 }
 
-bool SceneSdfPass::register_model_sdf(const Model& model, uint32_t model_id) {
+bool SceneSdfPass::register_model_sdf(const Model& model, uintptr_t model_id) {
     if (!model.has_sdf()) return false;
     if (model_sdf_entries_.count(model_id)) return true; // already registered
 
@@ -276,7 +300,7 @@ bool SceneSdfPass::register_model_sdf(const Model& model, uint32_t model_id) {
     return true;
 }
 
-const SceneSdfPass::MeshSdfEntry* SceneSdfPass::model_entry(uint32_t model_id) const {
+const SceneSdfPass::MeshSdfEntry* SceneSdfPass::model_entry(uintptr_t model_id) const {
     auto it = model_sdf_entries_.find(model_id);
     return it != model_sdf_entries_.end() ? &it->second : nullptr;
 }

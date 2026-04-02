@@ -144,7 +144,19 @@ VulkanContext::VulkanContext(Window& window)
                                writes.data(), 0, nullptr);
     }
 
-    // Write scene SDF (binding 9) into global descriptors
+    check_pass(transparent_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(tonemap_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(gtao_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(ssr_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(volumetric_fog_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(light_cull_pass_.create(gpu_.device_ref(), pass_resources));
+    light_heatmap_pass_.set_mode(0);
+    check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
+    light_grid_pass_.set_mode(1);
+    check_pass(light_grid_pass_.create(gpu_.device_ref(), pass_resources));
+    scene_sdf_pass_.create(gpu_.device_ref(), pass_resources.global_set_layout);
+
+    // Write scene SDF (binding 9) into global descriptors — must be after pass creation
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkDescriptorImageInfo sdf_info{};
         sdf_info.sampler = scene_sdf_pass_.sampler();
@@ -161,17 +173,6 @@ VulkanContext::VulkanContext(Window& window)
         vkUpdateDescriptorSets(gpu_.device(), 1, &sdf_write, 0, nullptr);
     }
 
-    check_pass(transparent_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(tonemap_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(gtao_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(ssr_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(volumetric_fog_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(light_cull_pass_.create(gpu_.device_ref(), pass_resources));
-    light_heatmap_pass_.set_mode(0);
-    check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
-    light_grid_pass_.set_mode(1);
-    check_pass(light_grid_pass_.create(gpu_.device_ref(), pass_resources));
-    scene_sdf_pass_.create(gpu_.device_ref(), pass_resources.global_set_layout);
     particle_system_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Creating sprite renderer");
     sprite_renderer_.create(gpu_.device_ref(), pass_resources);
@@ -1921,7 +1922,8 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             }
         }
 
-        if (scene_sdf_pass_.dirty() && !sdf_instances.empty()) {
+        // Always recomposite when instances exist — the volume is cheap to rebuild
+        if (!sdf_instances.empty()) {
             // Need a command buffer for the compositing dispatch
             VkCommandBuffer sdf_cmd{};
             VkCommandBufferAllocateInfo sdf_alloc{};
@@ -2113,11 +2115,13 @@ void VulkanContext::draw_sdf_debug_window() {
         ImGui::Combo("Axis", &sdf_debug_axis_, axes, 3);
         ImGui::SliderFloat("Slice", &sdf_debug_slice_, 0.0f, 1.0f);
 
-        ImGui::Text("Volume: (%.1f, %.1f, %.1f) - (%.1f, %.1f, %.1f)",
-                     scene_sdf_pass_.volume_min().x, scene_sdf_pass_.volume_min().y,
-                     scene_sdf_pass_.volume_min().z,
-                     scene_sdf_pass_.volume_max().x, scene_sdf_pass_.volume_max().y,
-                     scene_sdf_pass_.volume_max().z);
+        glm::vec3 vol_min = scene_sdf_pass_.volume_min();
+        glm::vec3 vol_max = scene_sdf_pass_.volume_max();
+        bool bounds_changed = false;
+        if (ImGui::DragFloat3("Vol Min", &vol_min.x, 0.5f)) bounds_changed = true;
+        if (ImGui::DragFloat3("Vol Max", &vol_max.x, 0.5f)) bounds_changed = true;
+        if (bounds_changed) scene_sdf_pass_.set_bounds(vol_min, vol_max);
+
         ImGui::Text("Resolution: %u", scene_sdf_pass_.resolution());
 
         // Dispatch slice render

@@ -37,7 +37,7 @@ public:
     void destroy();
 
     // Register a model's per-mesh SDF data. Returns true if data was uploaded.
-    bool register_model_sdf(const Model& model, uint32_t model_id);
+    bool register_model_sdf(const Model& model, uintptr_t model_id);
 
     // Build the instance list from scene objects and dispatch compositing.
     // instances: world transforms + model IDs of all mesh objects with SDF data.
@@ -70,7 +70,7 @@ public:
     };
 
     // Lookup a registered model's SDF entry (returns nullptr if not found)
-    [[nodiscard]] const MeshSdfEntry* model_entry(uint32_t model_id) const;
+    [[nodiscard]] const MeshSdfEntry* model_entry(uintptr_t model_id) const;
 
 private:
     void create_volume_image();
@@ -100,12 +100,12 @@ private:
     std::unique_ptr<Buffer> instance_buffer_;
 
     // Volume config
-    glm::vec3 volume_min_{-50.0f};
-    glm::vec3 volume_max_{50.0f};
+    glm::vec3 volume_min_{-10.0f};
+    glm::vec3 volume_max_{10.0f};
     uint32_t resolution_{DEFAULT_RESOLUTION};
     bool dirty_{true};
 
-    std::unordered_map<uint32_t, MeshSdfEntry> model_sdf_entries_;
+    std::unordered_map<uintptr_t, MeshSdfEntry> model_sdf_entries_;
 
     // Slice visualization
     static constexpr uint32_t SLICE_SIZE = 256;

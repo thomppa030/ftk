@@ -71,9 +71,15 @@ SdfResult generate_sdf(const glm::vec3* vertices, uint32_t vertex_count,
     if (vertex_count == 0 || index_count == 0) return result;
 
     glm::vec3 extent = aabb_max - aabb_min;
+    // Ensure no zero-thickness axes (flat geometry like planes)
+    // Must be large enough to span multiple voxels in the global SDF volume
+    float min_extent = std::max({extent.x, extent.y, extent.z}) * 0.25f;
+    if (min_extent < 0.5f) min_extent = 0.5f;
+    extent = glm::max(extent, glm::vec3(min_extent));
     glm::vec3 margin = extent * margin_fraction;
-    result.sdf_min = aabb_min - margin;
-    result.sdf_max = aabb_max + margin;
+    glm::vec3 center = (aabb_min + aabb_max) * 0.5f;
+    result.sdf_min = center - extent * 0.5f - margin;
+    result.sdf_max = center + extent * 0.5f + margin;
     result.resolution = resolution;
     glm::vec3 sdf_extent = result.sdf_max - result.sdf_min;
     float max_dist = glm::length(sdf_extent);
