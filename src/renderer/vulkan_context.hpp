@@ -142,6 +142,11 @@ public:
 
   void set_show_colliders(bool show) { show_colliders_ = show; }
   [[nodiscard]] bool show_colliders() const { return show_colliders_; }
+
+  // SDF debug
+  void set_show_sdf_debug(bool show) { show_sdf_debug_ = show; }
+  [[nodiscard]] bool show_sdf_debug() const { return show_sdf_debug_; }
+  void draw_sdf_debug_window();
   void set_playing(bool playing) { playing_ = playing; }
   [[nodiscard]] bool is_playing() const { return playing_; }
 
@@ -313,6 +318,9 @@ private:
   UiPreviewCallback ui_preview_callback_;
   glm::vec2 viewport_offset_{0.0f, 0.0f};
   bool show_colliders_{false};
+  bool show_sdf_debug_{false};
+  int sdf_debug_axis_{1};       // default Y axis
+  float sdf_debug_slice_{0.5f};
   bool playing_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};

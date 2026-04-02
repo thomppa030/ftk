@@ -23,6 +23,7 @@
 #include "scene/scene.hpp"
 #include "scene/light_node.hpp"
 
+#include <imgui.h>
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -2102,6 +2103,57 @@ void VulkanContext::update_shadow_descriptors() {
 
         vkUpdateDescriptorSets(gpu_.device(), 1, &write, 0, nullptr);
     }
+}
+
+void VulkanContext::draw_sdf_debug_window() {
+    if (!show_sdf_debug_) return;
+
+    if (ImGui::Begin("SDF Debug", &show_sdf_debug_)) {
+        const char* axes[] = {"X", "Y", "Z"};
+        ImGui::Combo("Axis", &sdf_debug_axis_, axes, 3);
+        ImGui::SliderFloat("Slice", &sdf_debug_slice_, 0.0f, 1.0f);
+
+        ImGui::Text("Volume: (%.1f, %.1f, %.1f) - (%.1f, %.1f, %.1f)",
+                     scene_sdf_pass_.volume_min().x, scene_sdf_pass_.volume_min().y,
+                     scene_sdf_pass_.volume_min().z,
+                     scene_sdf_pass_.volume_max().x, scene_sdf_pass_.volume_max().y,
+                     scene_sdf_pass_.volume_max().z);
+        ImGui::Text("Resolution: %u", scene_sdf_pass_.resolution());
+
+        // Dispatch slice render
+        VkCommandBuffer cmd{};
+        VkCommandBufferAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc.commandPool = gpu_.command_pool();
+        alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc.commandBufferCount = 1;
+        vkAllocateCommandBuffers(gpu_.device(), &alloc, &cmd);
+
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &begin);
+
+        scene_sdf_pass_.render_slice(cmd, static_cast<uint32_t>(sdf_debug_axis_), sdf_debug_slice_);
+
+        vkEndCommandBuffer(cmd);
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &cmd;
+        vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
+        vkQueueWaitIdle(gpu_.graphics_queue());
+        vkFreeCommandBuffers(gpu_.device(), gpu_.command_pool(), 1, &cmd);
+
+        // Display slice image
+        auto imgui_set = scene_sdf_pass_.slice_imgui_set();
+        if (imgui_set) {
+            float avail = ImGui::GetContentRegionAvail().x;
+            float size = std::min(avail, 256.0f);
+            ImGui::Image(imgui_set, {size, size});
+        }
+    }
+    ImGui::End();
 }
 
 void VulkanContext::reload_pipeline() {

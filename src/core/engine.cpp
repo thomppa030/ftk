@@ -1218,6 +1218,8 @@ void Engine::draw_ui() {
     viewport_hovered_ = active_context().any_viewport_hovered();
 
     content_browser_.draw();
+
+    vulkan_context_->draw_sdf_debug_window();
 }
 
 TickContext Engine::make_frame_context() {

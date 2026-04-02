@@ -1,0 +1,45 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler3D scene_sdf;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D slice_output;
+
+layout(push_constant) uniform PushConstants {
+    uint axis;        // 0=X, 1=Y, 2=Z
+    float slice_pos;  // normalized [0,1] along the axis
+    uint resolution;  // output image size
+};
+
+void main() {
+    ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
+    if (any(greaterThanEqual(gid, ivec2(resolution)))) return;
+
+    vec2 uv = (vec2(gid) + 0.5) / float(resolution);
+
+    vec3 uvw;
+    if (axis == 0u)      uvw = vec3(slice_pos, uv.x, uv.y);
+    else if (axis == 1u) uvw = vec3(uv.x, slice_pos, uv.y);
+    else                 uvw = vec3(uv.x, uv.y, slice_pos);
+
+    float dist = textureLod(scene_sdf, uvw, 0).r;
+
+    // Colorize: blue = inside, orange = outside close, green = far outside
+    vec3 color;
+    if (dist < 0.0) {
+        // Inside: dark blue to bright blue by depth
+        float t = clamp(-dist * 10.0, 0.0, 1.0);
+        color = mix(vec3(0.05, 0.05, 0.2), vec3(0.2, 0.4, 1.0), t);
+    } else {
+        // Outside: orange (close) to dark green (far)
+        float t = clamp(dist * 5.0, 0.0, 1.0);
+        color = mix(vec3(1.0, 0.5, 0.1), vec3(0.05, 0.15, 0.05), t);
+    }
+
+    // White highlight at surface (zero crossing)
+    if (abs(dist) < 0.05) {
+        color = vec3(1.0);
+    }
+
+    imageStore(slice_output, gid, vec4(color, 1.0));
+}

@@ -6,6 +6,9 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
+#include <imgui.h>
+#include <backends/imgui_impl_vulkan.h>
+
 #include <cstring>
 
 namespace fjell {
@@ -355,6 +358,196 @@ void SceneSdfPass::composite(VkCommandBuffer cmd, const std::vector<GpuSdfInstan
     vkCmdPipelineBarrier2(cmd, &post_dep);
 
     dirty_ = false;
+}
+
+void SceneSdfPass::render_slice(VkCommandBuffer cmd, uint32_t axis, float slice_pos) {
+    if (!slice_initialized_) {
+        // Create slice output image (2D RGBA8, SLICE_SIZE x SLICE_SIZE)
+        VkImageCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.format = VK_FORMAT_R8G8B8A8_UNORM;
+        ci.extent = {SLICE_SIZE, SLICE_SIZE, 1};
+        ci.mipLevels = 1;
+        ci.arrayLayers = 1;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        vk_check(vkCreateImage(device_, &ci, nullptr, &slice_image_), "SDF slice image");
+
+        VkMemoryRequirements reqs;
+        vkGetImageMemoryRequirements(device_, slice_image_, &reqs);
+        VkPhysicalDeviceMemoryProperties mem_props;
+        vkGetPhysicalDeviceMemoryProperties(physical_device_, &mem_props);
+        uint32_t mem_type = UINT32_MAX;
+        for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
+            if ((reqs.memoryTypeBits & (1u << i)) &&
+                (mem_props.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
+                mem_type = i; break;
+            }
+        }
+        VkMemoryAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+        alloc.allocationSize = reqs.size;
+        alloc.memoryTypeIndex = mem_type;
+        vk_check(vkAllocateMemory(device_, &alloc, nullptr, &slice_memory_), "SDF slice mem");
+        vk_check(vkBindImageMemory(device_, slice_image_, slice_memory_, 0), "SDF slice bind");
+
+        VkImageViewCreateInfo vci{};
+        vci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        vci.image = slice_image_;
+        vci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vci.format = VK_FORMAT_R8G8B8A8_UNORM;
+        vci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vk_check(vkCreateImageView(device_, &vci, nullptr, &slice_view_), "SDF slice view");
+
+        VkSamplerCreateInfo sci{};
+        sci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        sci.magFilter = VK_FILTER_NEAREST;
+        sci.minFilter = VK_FILTER_NEAREST;
+        sci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        sci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vk_check(vkCreateSampler(device_, &sci, nullptr, &slice_sampler_), "SDF slice sampler");
+
+        // Slice compute pipeline: binding 0 = scene_sdf sampler3D, binding 1 = slice_output image2D
+        VkDescriptorSetLayoutBinding slice_bindings[2]{};
+        slice_bindings[0].binding = 0;
+        slice_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        slice_bindings[0].descriptorCount = 1;
+        slice_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        slice_bindings[1].binding = 1;
+        slice_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        slice_bindings[1].descriptorCount = 1;
+        slice_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+        VkDescriptorSetLayoutCreateInfo slice_layout_ci{};
+        slice_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        slice_layout_ci.bindingCount = 2;
+        slice_layout_ci.pBindings = slice_bindings;
+        vk_check(vkCreateDescriptorSetLayout(device_, &slice_layout_ci, nullptr, &slice_set_layout_), "SDF slice layout");
+
+        VkPushConstantRange push{};
+        push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+        push.size = 12; // uint axis + float slice_pos + uint resolution
+
+        VkPipelineLayoutCreateInfo plci{};
+        plci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        plci.setLayoutCount = 1;
+        plci.pSetLayouts = &slice_set_layout_;
+        plci.pushConstantRangeCount = 1;
+        plci.pPushConstantRanges = &push;
+        vk_check(vkCreatePipelineLayout(device_, &plci, nullptr, &slice_layout_), "SDF slice pipe layout");
+
+        auto spv = read_spirv(base_path::resolve("shaders/sdf_slice.comp.spv"));
+        auto mod = create_shader_module(device_, spv);
+        VkPipelineShaderStageCreateInfo stage{};
+        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = mod;
+        stage.pName = "main";
+        VkComputePipelineCreateInfo comp_ci{};
+        comp_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        comp_ci.stage = stage;
+        comp_ci.layout = slice_layout_;
+        vk_check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &comp_ci, nullptr, &slice_pipeline_), "SDF slice pipeline");
+        vkDestroyShaderModule(device_, mod, nullptr);
+
+        // Descriptor pool + set
+        VkDescriptorPoolSize slice_pool_sizes[2]{};
+        slice_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        slice_pool_sizes[0].descriptorCount = 1;
+        slice_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        slice_pool_sizes[1].descriptorCount = 1;
+        VkDescriptorPoolCreateInfo dpci{};
+        dpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        dpci.maxSets = 1;
+        dpci.poolSizeCount = 2;
+        dpci.pPoolSizes = slice_pool_sizes;
+        vk_check(vkCreateDescriptorPool(device_, &dpci, nullptr, &slice_pool_), "SDF slice pool");
+
+        VkDescriptorSetAllocateInfo dsai{};
+        dsai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        dsai.descriptorPool = slice_pool_;
+        dsai.descriptorSetCount = 1;
+        dsai.pSetLayouts = &slice_set_layout_;
+        vk_check(vkAllocateDescriptorSets(device_, &dsai, &slice_set_), "SDF slice set");
+
+        // Write descriptors
+        VkDescriptorImageInfo sdf_info{};
+        sdf_info.sampler = sdf_sampler_;
+        sdf_info.imageView = sdf_view_;
+        sdf_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo slice_info{};
+        slice_info.imageView = slice_view_;
+        slice_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkWriteDescriptorSet writes[2]{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = slice_set_;
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo = &sdf_info;
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = slice_set_;
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &slice_info;
+        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+
+        // Register with ImGui
+        slice_imgui_set_ = ImGui_ImplVulkan_AddTexture(
+            slice_sampler_, slice_view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        slice_initialized_ = true;
+    }
+
+    // Transition slice image to GENERAL for compute write
+    VkImageMemoryBarrier2 pre{};
+    pre.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    pre.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    pre.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    pre.image = slice_image_;
+    pre.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    pre.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    pre.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    VkDependencyInfo pre_dep{};
+    pre_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    pre_dep.imageMemoryBarrierCount = 1;
+    pre_dep.pImageMemoryBarriers = &pre;
+    vkCmdPipelineBarrier2(cmd, &pre_dep);
+
+    // Dispatch slice compute
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, slice_pipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, slice_layout_,
+                            0, 1, &slice_set_, 0, nullptr);
+
+    struct { uint32_t axis; float slice_pos; uint32_t resolution; } push_data{axis, slice_pos, SLICE_SIZE};
+    vkCmdPushConstants(cmd, slice_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push_data), &push_data);
+
+    uint32_t groups = (SLICE_SIZE + 7) / 8;
+    vkCmdDispatch(cmd, groups, groups, 1);
+
+    // Transition to SHADER_READ_ONLY for ImGui sampling
+    VkImageMemoryBarrier2 post{};
+    post.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    post.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    post.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    post.image = slice_image_;
+    post.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    post.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    post.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    post.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    post.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    VkDependencyInfo post_dep{};
+    post_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    post_dep.imageMemoryBarrierCount = 1;
+    post_dep.pImageMemoryBarriers = &post;
+    vkCmdPipelineBarrier2(cmd, &post_dep);
 }
 
 } // namespace fjell

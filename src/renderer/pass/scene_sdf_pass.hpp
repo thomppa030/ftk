@@ -56,6 +56,10 @@ public:
     [[nodiscard]] const glm::vec3& volume_max() const { return volume_max_; }
     [[nodiscard]] uint32_t resolution() const { return resolution_; }
 
+    // Debug slice visualization
+    void render_slice(VkCommandBuffer cmd, uint32_t axis, float slice_pos);
+    [[nodiscard]] VkDescriptorSet slice_imgui_set() const { return slice_imgui_set_; }
+
     // Per-model SDF metadata
     struct MeshSdfEntry {
         uint32_t offset;      // in int16 units
@@ -102,6 +106,20 @@ private:
     bool dirty_{true};
 
     std::unordered_map<uint32_t, MeshSdfEntry> model_sdf_entries_;
+
+    // Slice visualization
+    static constexpr uint32_t SLICE_SIZE = 256;
+    VkImage slice_image_{VK_NULL_HANDLE};
+    VkDeviceMemory slice_memory_{VK_NULL_HANDLE};
+    VkImageView slice_view_{VK_NULL_HANDLE};
+    VkSampler slice_sampler_{VK_NULL_HANDLE};
+    VkPipelineLayout slice_layout_{VK_NULL_HANDLE};
+    VkPipeline slice_pipeline_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout slice_set_layout_{VK_NULL_HANDLE};
+    VkDescriptorPool slice_pool_{VK_NULL_HANDLE};
+    VkDescriptorSet slice_set_{VK_NULL_HANDLE};
+    VkDescriptorSet slice_imgui_set_{VK_NULL_HANDLE};
+    bool slice_initialized_{false};
 };
 
 } // namespace fjell

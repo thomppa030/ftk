@@ -79,6 +79,13 @@ void MenuBar::draw_view_menu() {
         ImGui::DragFloat("Grid Opacity", &grid.opacity, 0.01f, 0.0f, 1.0f);
         ImGui::DragFloat("Grid Fade", &grid.fade_distance, 1.0f, 10.0f, 500.0f);
     }
+    ImGui::Separator();
+    if (vk_) {
+        bool sdf = vk_->show_sdf_debug();
+        if (ImGui::Checkbox("SDF Debug", &sdf)) {
+            vk_->set_show_sdf_debug(sdf);
+        }
+    }
     ImGui::EndMenu();
 }
 
