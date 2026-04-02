@@ -143,6 +143,23 @@ VulkanContext::VulkanContext(Window& window)
                                writes.data(), 0, nullptr);
     }
 
+    // Write scene SDF (binding 9) into global descriptors
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkDescriptorImageInfo sdf_info{};
+        sdf_info.sampler = scene_sdf_pass_.sampler();
+        sdf_info.imageView = scene_sdf_pass_.view();
+        sdf_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet sdf_write{};
+        sdf_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        sdf_write.dstSet = gpu_.global_descriptor_set(i);
+        sdf_write.dstBinding = 9;
+        sdf_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        sdf_write.descriptorCount = 1;
+        sdf_write.pImageInfo = &sdf_info;
+        vkUpdateDescriptorSets(gpu_.device(), 1, &sdf_write, 0, nullptr);
+    }
+
     check_pass(transparent_pass_.create(gpu_.device_ref(), pass_resources));
     check_pass(tonemap_pass_.create(gpu_.device_ref(), pass_resources));
     check_pass(gtao_pass_.create(gpu_.device_ref(), pass_resources));
@@ -153,6 +170,7 @@ VulkanContext::VulkanContext(Window& window)
     check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
     light_grid_pass_.set_mode(1);
     check_pass(light_grid_pass_.create(gpu_.device_ref(), pass_resources));
+    scene_sdf_pass_.create(gpu_.device_ref(), pass_resources.global_set_layout);
     particle_system_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Creating sprite renderer");
     sprite_renderer_.create(gpu_.device_ref(), pass_resources);
@@ -180,6 +198,7 @@ VulkanContext::~VulkanContext() {
     debug_draw_.reset();
     tilemap_renderer_.destroy();
     sprite_renderer_.destroy();
+    scene_sdf_pass_.destroy();
     particle_system_.destroy();
     light_grid_pass_.destroy();
     light_heatmap_pass_.destroy();

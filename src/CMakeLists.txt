@@ -103,6 +103,7 @@ add_executable(fjell
     renderer/pass/overdraw_pass.cpp
     renderer/pass/uv_viz_pass.cpp
     renderer/pass/wireframe_pass.cpp
+    renderer/pass/scene_sdf_pass.cpp
     renderer/components/arrow_component_meta.cpp
     renderer/components/mesh_component_meta.cpp
     renderer/components/skeletal_mesh_component_meta.cpp

@@ -5,6 +5,7 @@
 #include "renderer/scene_gatherer.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/scene_sdf_pass.hpp"
 #include "renderer/systems/particle_system.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/cull_pass.hpp"
@@ -273,6 +274,9 @@ private:
   LightCullPass light_cull_pass_;
   LightVizPass light_heatmap_pass_;
   LightVizPass light_grid_pass_;
+
+  // Scene SDF
+  SceneSdfPass scene_sdf_pass_;
 
   // Particles / sprites
   ParticleSystem particle_system_;

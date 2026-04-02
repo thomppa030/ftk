@@ -146,7 +146,7 @@ void GpuContext::create_descriptor_resources() {
     // binding 2 = light SSBO, binding 3 = tile light index SSBO,
     // binding 4 = depth texture (light culling compute + fragment screen-space effects),
     // binding 5 = AO texture, binding 6 = sky cubemap, binding 7 = BRDF LUT
-    std::array<VkDescriptorSetLayoutBinding, 9> global_bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 10> global_bindings{};
     global_bindings[0].binding = 0;
     global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_bindings[0].descriptorCount = 1;
@@ -194,6 +194,11 @@ void GpuContext::create_descriptor_resources() {
     global_bindings[8].descriptorCount = 1;
     global_bindings[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+    global_bindings[9].binding = 9;
+    global_bindings[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    global_bindings[9].descriptorCount = 1;
+    global_bindings[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+
     global_set_layout_ = std::make_unique<DescriptorSetLayout>(
         vk_device, std::span{global_bindings});
 
@@ -201,7 +206,7 @@ void GpuContext::create_descriptor_resources() {
     global_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
     global_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 6; // shadow map + depth + AO + sky cubemap + BRDF LUT + screen color
+    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 7; // shadow + depth + AO + sky + BRDF + screen color + SDF
     global_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     global_pool_sizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // light SSBO + tile SSBO
 
