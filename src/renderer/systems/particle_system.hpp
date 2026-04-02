@@ -49,6 +49,7 @@ class ParticleSystem {
 public:
     void create(Device& device, const PassResources& resources);
     void destroy();
+    void recreate_pipelines();
 
     void sync_emitters(Scene& scene);
     void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene);

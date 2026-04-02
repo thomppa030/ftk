@@ -282,6 +282,157 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     FJELL_GFX_DEBUG("Particle system created");
 }
 
+void ParticleSystem::recreate_pipelines() {
+    // Destroy old pipelines (layouts stay the same)
+    auto safe_destroy = [&](auto& handle, auto destroy_fn) {
+        if (handle != VK_NULL_HANDLE) { destroy_fn(device_, handle, nullptr); handle = VK_NULL_HANDLE; }
+    };
+    safe_destroy(emit_pipeline_, vkDestroyPipeline);
+    safe_destroy(sim_pipeline_, vkDestroyPipeline);
+    safe_destroy(indirect_pipeline_, vkDestroyPipeline);
+    safe_destroy(render_additive_, vkDestroyPipeline);
+    safe_destroy(render_alpha_, vkDestroyPipeline);
+
+    // Recreate compute pipelines from recompiled SPIR-V
+    auto make_compute = [&](const std::string& path) {
+        auto mod = create_shader_module(device_, read_spirv(base_path::resolve(path)));
+        VkPipelineShaderStageCreateInfo stage{};
+        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        stage.module = mod;
+        stage.pName = "main";
+
+        VkComputePipelineCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        ci.stage = stage;
+        ci.layout = compute_layout_;
+
+        VkPipeline pipeline;
+        if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
+            FJELL_GFX_ERROR("Failed to recreate particle compute pipeline: {}", path);
+            vkDestroyShaderModule(device_, mod, nullptr);
+            return VkPipeline{VK_NULL_HANDLE};
+        }
+        vkDestroyShaderModule(device_, mod, nullptr);
+        return pipeline;
+    };
+
+    emit_pipeline_ = make_compute("shaders/particle_emit.comp.spv");
+    sim_pipeline_ = make_compute("shaders/particle_sim.comp.spv");
+    indirect_pipeline_ = make_compute("shaders/particle_indirect.comp.spv");
+
+    // Recreate render pipelines
+    auto vert_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle.vert.spv")));
+    auto frag_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle.frag.spv")));
+
+    VkPipelineShaderStageCreateInfo stages[2]{};
+    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+    stages[0].module = vert_mod;
+    stages[0].pName = "main";
+    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+    stages[1].module = frag_mod;
+    stages[1].pName = "main";
+
+    VkPipelineVertexInputStateCreateInfo vertex_input{};
+    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo input_assembly{};
+    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    VkPipelineViewportStateCreateInfo viewport_state{};
+    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport_state.viewportCount = 1;
+    viewport_state.scissorCount = 1;
+
+    VkDynamicState dynamic_states[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamic_state{};
+    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_state.dynamicStateCount = 2;
+    dynamic_state.pDynamicStates = dynamic_states;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer{};
+    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer.lineWidth = 1.0f;
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+
+    VkPipelineMultisampleStateCreateInfo multisampling{};
+    multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisampling.rasterizationSamples = sample_count_;
+
+    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
+    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil.depthTestEnable = VK_TRUE;
+    depth_stencil.depthWriteEnable = VK_FALSE;
+    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+
+    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM};
+
+    VkPipelineRenderingCreateInfo rendering_info{};
+    rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+    rendering_info.colorAttachmentCount = 2;
+    rendering_info.pColorAttachmentFormats = color_formats;
+    rendering_info.depthAttachmentFormat = depth_format_;
+
+    auto create_render_pipeline = [&](VkBlendFactor dst_color) {
+        VkPipelineColorBlendAttachmentState blend{};
+        blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        blend.blendEnable = VK_TRUE;
+        blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        blend.dstColorBlendFactor = dst_color;
+        blend.colorBlendOp = VK_BLEND_OP_ADD;
+        blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendAttachmentState mr_blend{};
+        mr_blend.colorWriteMask = 0;
+        mr_blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+
+        VkPipelineColorBlendStateCreateInfo color_blending{};
+        color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        color_blending.attachmentCount = 2;
+        color_blending.pAttachments = blend_attachments;
+
+        VkGraphicsPipelineCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        ci.pNext = &rendering_info;
+        ci.stageCount = 2;
+        ci.pStages = stages;
+        ci.pVertexInputState = &vertex_input;
+        ci.pInputAssemblyState = &input_assembly;
+        ci.pViewportState = &viewport_state;
+        ci.pRasterizationState = &rasterizer;
+        ci.pMultisampleState = &multisampling;
+        ci.pDepthStencilState = &depth_stencil;
+        ci.pColorBlendState = &color_blending;
+        ci.pDynamicState = &dynamic_state;
+        ci.layout = render_layout_;
+
+        VkPipeline pipeline;
+        if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
+            FJELL_GFX_ERROR("Failed to recreate particle render pipeline");
+            return VkPipeline{VK_NULL_HANDLE};
+        }
+        return pipeline;
+    };
+
+    render_additive_ = create_render_pipeline(VK_BLEND_FACTOR_ONE);
+    render_alpha_ = create_render_pipeline(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+
+    vkDestroyShaderModule(device_, vert_mod, nullptr);
+    vkDestroyShaderModule(device_, frag_mod, nullptr);
+
+    FJELL_GFX_DEBUG("Particle pipelines reloaded");
+}
+
 void ParticleSystem::destroy() {
     mega_particle_buffer_.reset();
     mega_counter_buffer_.reset();

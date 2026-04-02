@@ -2026,6 +2026,7 @@ void VulkanContext::update_shadow_descriptors() {
 void VulkanContext::reload_pipeline() {
     gpu_.pipeline()->recreate();
     gpu_.pipeline_cache()->recreate_all();
+    particle_system_.recreate_pipelines();
     sync_custom_depth_pipelines();
 }
 

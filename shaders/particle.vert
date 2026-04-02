@@ -107,8 +107,10 @@ void main() {
         float u0 = float(col) * u_size;
         float v0 = float(row) * v_size;
 
-        frag_uv = vec2(mix(u0, u0 + u_size, frag_uv.x),
-                        mix(v0, v0 + v_size, frag_uv.y));
+        // Small inset to avoid sampling neighboring frames at edges
+        float eps = 0.01;
+        frag_uv = vec2(mix(u0 + eps, u0 + u_size - eps, frag_uv.x),
+                        mix(v0 + v_size - eps, v0 + eps, frag_uv.y));
     }
 
     vec3 world_pos;
