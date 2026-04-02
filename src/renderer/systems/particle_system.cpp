@@ -63,10 +63,12 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     push_range.size = sizeof(ParticleComputePush);
 
+    // Set 0 = particle SSBOs, Set 1 = global (for SDF access in sim shader)
+    VkDescriptorSetLayout compute_sets[] = {compute_set_layout_, global_set_layout_};
     VkPipelineLayoutCreateInfo pipe_layout_ci{};
     pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipe_layout_ci.setLayoutCount = 1;
-    pipe_layout_ci.pSetLayouts = &compute_set_layout_;
+    pipe_layout_ci.setLayoutCount = 2;
+    pipe_layout_ci.pSetLayouts = compute_sets;
     pipe_layout_ci.pushConstantRangeCount = 1;
     pipe_layout_ci.pPushConstantRanges = &push_range;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &compute_layout_) != VK_SUCCESS) {
@@ -819,7 +821,8 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     }
 }
 
-void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene) {
+void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene,
+                                      VkDescriptorSet global_set) {
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
     ++frame_seed_;
@@ -929,11 +932,20 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         vkCmdPipelineBarrier2(cmd, &dep);
     };
 
+    // Bind both descriptor sets: set 0 = particle SSBOs, set 1 = global (SDF access)
+    auto bind_compute_sets = [&]() {
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
+                                0, 1, &compute_set_, 0, nullptr);
+        if (global_set != VK_NULL_HANDLE) {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
+                                    1, 1, &global_set, 0, nullptr);
+        }
+    };
+
     // ── Phase 1: Emit (single dispatch) ──
     if (max_emit_count > 0) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline_);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
-                                0, 1, &compute_set_, 0, nullptr);
+        bind_compute_sets();
         vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(push), &push);
         vkCmdDispatch(cmd, (max_emit_count + 255) / 256, emitter_count, 1);
@@ -942,8 +954,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
 
     // ── Phase 2: Simulate (single dispatch) ──
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sim_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
-                            0, 1, &compute_set_, 0, nullptr);
+    bind_compute_sets();
     vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, (total_max + 255) / 256, 1, 1);
@@ -951,8 +962,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
 
     // ── Phase 3: Indirect prep (single dispatch) ──
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, indirect_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, compute_layout_,
-                            0, 1, &compute_set_, 0, nullptr);
+    bind_compute_sets();
     vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, (emitter_count + 255) / 256, 1, 1);

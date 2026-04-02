@@ -21,6 +21,7 @@
 #define MOD_NOISE              104
 #define MOD_ATTRACT            105
 #define MOD_VELOCITY_LIMIT     106
+#define MOD_COLLISION          107
 
 #define MOD_TERMINATOR         0xFFFFFFFF
 

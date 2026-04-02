@@ -140,6 +140,7 @@ public:
     overlay_callback_ = std::move(callback);
   }
 
+  void set_active_render_scene(Scene* s) { active_render_scene_ = s; }
   void set_show_colliders(bool show) { show_colliders_ = show; }
   [[nodiscard]] bool show_colliders() const { return show_colliders_; }
 
@@ -318,6 +319,7 @@ private:
   UiPreviewCallback ui_preview_callback_;
   glm::vec2 viewport_offset_{0.0f, 0.0f};
   bool show_colliders_{false};
+  Scene* active_render_scene_{nullptr}; // editor context's preview scene (if different from main)
   std::vector<GpuSdfInstance> pending_sdf_instances_;
   bool show_sdf_debug_{false};
   int sdf_debug_axis_{1};       // default Y axis

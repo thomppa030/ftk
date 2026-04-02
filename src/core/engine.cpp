@@ -1503,6 +1503,9 @@ void Engine::run() {
         active_context().render_previews(*vulkan_context_, render_scene,
                                           clock_.delta_time(), light_, thread_pool_);
 
+        // Set active editor's render scene for SDF gathering
+        vulkan_context_->set_active_render_scene(active_context().render_scene());
+
         // Phase 4: Record commands
         vulkan_context_->record_frame(requests, light_, render_scene, clock_.delta_time(),
                                        scene_context_->selected_id(), thread_pool_,

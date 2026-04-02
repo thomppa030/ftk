@@ -52,7 +52,8 @@ public:
     void recreate_pipelines();
 
     void sync_emitters(Scene& scene);
-    void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene);
+    void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene,
+                          VkDescriptorSet global_set = VK_NULL_HANDLE);
     void insert_barriers(VkCommandBuffer cmd);
     void record_render(const FrameContext& ctx);
 

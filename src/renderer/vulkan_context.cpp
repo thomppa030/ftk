@@ -490,7 +490,8 @@ void VulkanContext::register_gpu_driven_passes() {
 #endif
                 if (current_ctx_.scene) {
                     auto& scene_ref = const_cast<Scene&>(*current_ctx_.scene);
-                    particle_system_.dispatch_compute(cb, current_ctx_.delta_time, scene_ref);
+                    particle_system_.dispatch_compute(cb, current_ctx_.delta_time, scene_ref,
+                                                      current_ctx_.global_descriptor_set);
                     particle_system_.insert_barriers(cb);
                 }
             }, {});
@@ -1895,41 +1896,46 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     }
 
     // Update scene SDF — register mesh SDFs and check dirty transforms
-    if (scene) {
+    {
         std::vector<GpuSdfInstance> sdf_instances;
-        for (const auto& obj : scene->objects()) {
-            auto* spatial = obj->as_spatial();
-            if (!spatial) continue;
-            auto* mesh_comp = obj->components.get<MeshComponent>();
-            if (!mesh_comp || !mesh_comp->model) continue;
+        auto gather_sdf = [&](Scene& s) {
+            for (const auto& obj : s.objects()) {
+                auto* spatial = obj->as_spatial();
+                if (!spatial) continue;
+                auto* mesh_comp = obj->components.get<MeshComponent>();
+                if (!mesh_comp || !mesh_comp->model) continue;
 
-            auto* model = mesh_comp->model;
-            if (!model->has_sdf()) continue;
+                auto* model = mesh_comp->model;
+                if (!model->has_sdf()) continue;
 
-            // Register this model's SDF data if not already uploaded
-            scene_sdf_pass_.register_model_sdf(*model, reinterpret_cast<uintptr_t>(model));
+                scene_sdf_pass_.register_model_sdf(*model, reinterpret_cast<uintptr_t>(model));
 
-            // Check if this object moved
-            if (spatial->world_dirty_) {
-                scene_sdf_pass_.mark_dirty();
+                if (spatial->world_dirty_) {
+                    scene_sdf_pass_.mark_dirty();
+                }
+
+                auto it = scene_sdf_pass_.model_entry(reinterpret_cast<uintptr_t>(model));
+                if (it) {
+                    GpuSdfInstance inst{};
+                    inst.world_to_sdf = glm::inverse(spatial->world_matrix_);
+                    inst.sdf_min = it->sdf_min;
+                    inst.sdf_scale = it->max_dist;
+                    inst.sdf_max = it->sdf_max;
+                    inst.grid_offset = it->offset;
+                    inst.grid_resolution = glm::uvec3(it->resolution);
+                    sdf_instances.push_back(inst);
+                }
             }
+        };
 
-            // Build instance for compositing
-            auto it = scene_sdf_pass_.model_entry(reinterpret_cast<uintptr_t>(model));
-            if (it) {
-                GpuSdfInstance inst{};
-                inst.world_to_sdf = glm::inverse(spatial->world_matrix_);
-                inst.sdf_min = it->sdf_min;
-                inst.sdf_scale = it->max_dist;
-                inst.sdf_max = it->sdf_max;
-                inst.grid_offset = it->offset;
-                inst.grid_resolution = glm::uvec3(it->resolution);
-                sdf_instances.push_back(inst);
-            }
+        if (scene) gather_sdf(*scene);
+
+        // Gather from active editor context's preview scene (e.g. VFX editor ground plane)
+        if (active_render_scene_ && active_render_scene_ != scene) {
+            gather_sdf(*active_render_scene_);
         }
 
         if (scene_sdf_pass_.dirty() && !sdf_instances.empty()) {
-            // Store instances for compositing in the main command buffer
             pending_sdf_instances_ = std::move(sdf_instances);
         }
     }

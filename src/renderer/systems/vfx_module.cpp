@@ -54,6 +54,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "InitialRotation") return std::make_unique<InitialRotationModule>();
     if (type_name == "InitialTexture") return std::make_unique<InitialTextureModule>();
     if (type_name == "Flipbook")        return std::make_unique<FlipbookModule>();
+    if (type_name == "Collision")       return std::make_unique<CollisionModule>();
     if (type_name == "Billboard")        return std::make_unique<BillboardModule>();
     return nullptr;
 }
@@ -483,6 +484,58 @@ void VelocityLimitModule::to_json(nlohmann::json& j) const {
 
 void VelocityLimitModule::from_json(const nlohmann::json& j) {
     max_speed = j.value("max_speed", 10.0f);
+}
+
+// ─── Collision ──────────────────────────────────────────────────────────
+
+uint32_t CollisionModule::write_gpu_data(uint8_t* buffer) const {
+    // payload: response(1) + restitution(1) + friction(1) + pad(1)
+    //        + sdf_min(3) + pad(1) + sdf_max(3) + pad(1) = 12 words
+    uint32_t total = write_header(buffer, type(), 12);
+    write_uint(buffer, 8, static_cast<uint32_t>(response));
+    write_float(buffer, 12, restitution);
+    write_float(buffer, 16, friction);
+    write_float(buffer, 20, 0.0f);
+    // SDF volume bounds (hardcoded to match SceneSdfPass defaults for now)
+    write_vec3(buffer, 24, glm::vec3(-10.0f));
+    write_float(buffer, 36, 0.0f);
+    write_vec3(buffer, 40, glm::vec3(10.0f));
+    write_float(buffer, 52, 0.0f);
+    return total;
+}
+
+bool CollisionModule::draw_inspector() {
+    bool changed = false;
+    const char* modes[] = {"Bounce", "Slide", "Kill"};
+    int r = static_cast<int>(response);
+    if (ImGui::Combo("Response", &r, modes, 3)) {
+        response = static_cast<Response>(r);
+        changed = true;
+    }
+    if (response == Response::bounce) {
+        if (ImGui::SliderFloat("Restitution", &restitution, 0.0f, 1.0f)) changed = true;
+        if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) changed = true;
+    } else if (response == Response::slide) {
+        if (ImGui::SliderFloat("Friction", &friction, 0.0f, 1.0f)) changed = true;
+    }
+    return changed;
+}
+
+void CollisionModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Collision";
+    const char* mode_names[] = {"bounce", "slide", "kill"};
+    j["response"] = mode_names[static_cast<int>(response)];
+    j["restitution"] = restitution;
+    j["friction"] = friction;
+}
+
+void CollisionModule::from_json(const nlohmann::json& j) {
+    std::string r = j.value("response", "bounce");
+    if (r == "slide") response = Response::slide;
+    else if (r == "kill") response = Response::kill;
+    else response = Response::bounce;
+    restitution = j.value("restitution", 0.5f);
+    friction = j.value("friction", 0.2f);
 }
 
 // ─── InitialStretch ──────────────────────────────────────────────────────

@@ -27,6 +27,9 @@ layout(std430, set = 0, binding = 5) readonly buffer ModuleBuffer {
 
 #include "include/particle_modules.glsl"
 
+// Set 1 = global descriptors (for SDF access)
+layout(set = 1, binding = 9) uniform sampler3D scene_sdf;
+
 layout(push_constant) uniform PushConstants {
     float dt;
     uint  random_seed;
@@ -105,6 +108,57 @@ void main() {
             float spd = length(p.velocity);
             if (spd > max_speed) {
                 p.velocity = normalize(p.velocity) * max_speed;
+            }
+        }
+        else if (mtype == MOD_COLLISION) {
+            uint response_mode = module_data[mo + 2];
+            float restitution = MOD_FLOAT(mo, 3);
+            float friction_val = MOD_FLOAT(mo, 4);
+            vec3 sdf_min = MOD_VEC3(mo, 6);
+            vec3 sdf_max = MOD_VEC3(mo, 10);
+
+            vec3 sdf_extent = sdf_max - sdf_min;
+            vec3 uvw = (p.position - sdf_min) / sdf_extent;
+
+            if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0)))) {
+                float dist = textureLod(scene_sdf, uvw, 0).r;
+
+                if (dist < 0.0) {
+                    // Compute SDF gradient (surface normal) via central differences
+                    vec3 texel = 1.0 / vec3(textureSize(scene_sdf, 0));
+                    float dx = textureLod(scene_sdf, uvw + vec3(texel.x, 0, 0), 0).r
+                             - textureLod(scene_sdf, uvw - vec3(texel.x, 0, 0), 0).r;
+                    float dy = textureLod(scene_sdf, uvw + vec3(0, texel.y, 0), 0).r
+                             - textureLod(scene_sdf, uvw - vec3(0, texel.y, 0), 0).r;
+                    float dz = textureLod(scene_sdf, uvw + vec3(0, 0, texel.z), 0).r
+                             - textureLod(scene_sdf, uvw - vec3(0, 0, texel.z), 0).r;
+                    vec3 normal = normalize(vec3(dx, dy, dz));
+
+                    // Push particle out: dist is negative inside, so -dist is positive penetration depth
+                    // Scale from SDF space back to world space
+                    float penetration = -dist;
+                    p.position += normal * (penetration + 0.01);
+
+                    if (response_mode == 0u) {
+                        // Bounce: reflect velocity along normal
+                        float vn = dot(p.velocity, normal);
+                        if (vn < 0.0) {
+                            p.velocity -= (1.0 + restitution) * vn * normal;
+                            vec3 v_tan = p.velocity - dot(p.velocity, normal) * normal;
+                            p.velocity -= v_tan * friction_val;
+                        }
+                    } else if (response_mode == 1u) {
+                        // Slide: remove normal component, apply friction
+                        float vn = dot(p.velocity, normal);
+                        if (vn < 0.0) {
+                            p.velocity -= vn * normal;
+                            p.velocity *= (1.0 - friction_val);
+                        }
+                    } else {
+                        // Kill
+                        p.lifetime = 0.0;
+                    }
+                }
             }
         }
 

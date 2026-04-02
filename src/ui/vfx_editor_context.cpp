@@ -641,6 +641,7 @@ void VfxEditorContext::draw_module_palette() {
         add_btn("Noise",            []{ return std::make_unique<NoiseModule>(); },            emitter.update_modules);
         add_btn("Attract",          []{ return std::make_unique<AttractModule>(); },          emitter.update_modules);
         add_btn("Velocity Limit",   []{ return std::make_unique<VelocityLimitModule>(); },   emitter.update_modules);
+        add_btn("Collision",        []{ return std::make_unique<CollisionModule>(); },      emitter.update_modules);
 
         ImGui::SeparatorText("Render");
         add_btn("Billboard",        []{ return std::make_unique<BillboardModule>(); },        emitter.render_modules);

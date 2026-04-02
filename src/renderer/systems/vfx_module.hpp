@@ -33,6 +33,7 @@ enum class ModuleType : uint32_t {
     noise              = 104,
     attract            = 105,
     velocity_limit     = 106,
+    collision          = 107,
 
     // Render modules
     billboard          = 200,
@@ -240,6 +241,25 @@ struct VelocityLimitModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::velocity_limit; }
     [[nodiscard]] const char* name() const override { return "Velocity Limit"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct CollisionModule final : VfxModule {
+    enum class Response : uint32_t {
+        bounce = 0,
+        slide  = 1,
+        kill   = 2,
+    };
+
+    Response response{Response::bounce};
+    float restitution{0.5f};     // bounciness (0-1)
+    float friction{0.2f};        // tangential damping (0-1)
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::collision; }
+    [[nodiscard]] const char* name() const override { return "Collision"; }
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;

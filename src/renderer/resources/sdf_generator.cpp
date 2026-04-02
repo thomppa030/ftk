@@ -45,24 +45,6 @@ static float point_triangle_distance(const glm::vec3& p,
     return glm::length(p - (a + ab * v + ac * w));
 }
 
-static bool ray_triangle_intersect(const glm::vec3& origin, const glm::vec3& dir,
-                                    const glm::vec3& a, const glm::vec3& b,
-                                    const glm::vec3& c) {
-    glm::vec3 e1 = b - a, e2 = c - a;
-    glm::vec3 h = glm::cross(dir, e2);
-    float det = glm::dot(e1, h);
-    if (std::abs(det) < 1e-8f) return false;
-    float inv = 1.0f / det;
-    glm::vec3 s = origin - a;
-    float u = inv * glm::dot(s, h);
-    if (u < 0.0f || u > 1.0f) return false;
-    glm::vec3 q = glm::cross(s, e1);
-    float v = inv * glm::dot(dir, q);
-    if (v < 0.0f || u + v > 1.0f) return false;
-    float t = inv * glm::dot(e2, q);
-    return t > 1e-8f;
-}
-
 SdfResult generate_sdf(const glm::vec3* vertices, uint32_t vertex_count,
                        const uint32_t* indices, uint32_t index_count,
                        const glm::vec3& aabb_min, const glm::vec3& aabb_max,
@@ -97,25 +79,27 @@ SdfResult generate_sdf(const glm::vec3* vertices, uint32_t vertex_count,
                     (float(z) + 0.5f) / float(res));
 
                 float min_d = max_dist;
+                uint32_t closest_tri = 0;
                 for (uint32_t t = 0; t < tri_count; ++t) {
                     float d = point_triangle_distance(p,
                         vertices[indices[t * 3]],
                         vertices[indices[t * 3 + 1]],
                         vertices[indices[t * 3 + 2]]);
-                    if (d < min_d) min_d = d;
-                }
-
-                uint32_t hits = 0;
-                glm::vec3 ray_dir(1.0f, 0.0f, 0.0f);
-                for (uint32_t t = 0; t < tri_count; ++t) {
-                    if (ray_triangle_intersect(p, ray_dir,
-                        vertices[indices[t * 3]],
-                        vertices[indices[t * 3 + 1]],
-                        vertices[indices[t * 3 + 2]])) {
-                        ++hits;
+                    if (d < min_d) {
+                        min_d = d;
+                        closest_tri = t;
                     }
                 }
-                if (hits & 1) min_d = -min_d;
+
+                // Sign: check if point is on the back side of the closest triangle
+                const glm::vec3& a = vertices[indices[closest_tri * 3]];
+                const glm::vec3& b = vertices[indices[closest_tri * 3 + 1]];
+                const glm::vec3& c = vertices[indices[closest_tri * 3 + 2]];
+                glm::vec3 face_normal = glm::cross(b - a, c - a);
+                // CW winding (Vulkan convention) — normal points inward, flip sign
+                if (glm::dot(face_normal, p - a) > 0.0f) {
+                    min_d = -min_d;
+                }
 
                 float normalized = std::clamp(min_d / max_dist, -1.0f, 1.0f);
                 result.data[z * res * res + y * res + x] =
