@@ -65,16 +65,32 @@ void VfxEditorContext::init() {
         [this](int lane_idx) {
             if (lane_idx >= 0 && lane_idx < static_cast<int>(effect_->emitters.size())) {
                 selected_emitter_ = lane_idx;
-                // Also select the corresponding node in imnodes
-                for (const auto& en : emitter_nodes_) {
-                    if (en.emitter_index == lane_idx) {
-                        ImNodes::ClearNodeSelection();
-                        ImNodes::SelectNode(en.node_id);
-                        break;
-                    }
-                }
+                // Node selection synced in draw_node_editor() where the
+                // correct imnodes context is active
             }
         }));
+
+    // Pause: freeze all emitters
+    timeline_connections_.push_back(timeline_.on_pause.bind([this]() {
+        if (!effect_) return;
+        for (auto& em : effect_->emitters) em.paused = true;
+    }));
+
+    // Play: resume all emitters
+    timeline_connections_.push_back(timeline_.on_play.bind([this]() {
+        if (!effect_) return;
+        for (auto& em : effect_->emitters) em.paused = false;
+    }));
+
+    // Stop: reset emitter state so bursts re-fire and emission restarts
+    timeline_connections_.push_back(timeline_.on_stop.bind([this]() {
+        if (!effect_) return;
+        for (auto& em : effect_->emitters) {
+            em.burst_fired = false;
+            em.emit_accumulator = 0.0f;
+            em.paused = false;
+        }
+    }));
 
     init_shared_panels(deps_.vulkan_context);
     history_panel().init(&command_history());
@@ -130,6 +146,16 @@ void VfxEditorContext::draw(float dt) {
 
     timeline_.draw(dt * time_scale_);
 
+    // Detect timeline loop wrap — reset burst state so effects replay
+    float cur_time = timeline_.time();
+    if (effect_ && timeline_.playing() && cur_time < prev_timeline_time_) {
+        for (auto& em : effect_->emitters) {
+            em.burst_fired = false;
+            em.emit_accumulator = 0.0f;
+        }
+    }
+    prev_timeline_time_ = cur_time;
+
     draw_shared_panels(dt);
 }
 
@@ -158,7 +184,12 @@ bool VfxEditorContext::handle_shortcuts() {
     if (ImGui::GetIO().WantTextInput) return false;
 
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
-        timeline_.set_playing(!timeline_.playing());
+        bool now_playing = !timeline_.playing();
+        timeline_.set_playing(now_playing);
+        if (effect_) {
+            for (auto& em : effect_->emitters)
+                em.paused = !now_playing;
+        }
         return true;
     }
 
@@ -434,20 +465,28 @@ void VfxEditorContext::draw_node_editor() {
 
 void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
                                           std::vector<std::unique_ptr<VfxModule>>& stack,
-                                          const char* /*stack_label*/) {
+                                          const char* stack_label) {
+    ImGui::PushID(stack_label);
     ImGui::PushID(index);
+
+    // Delete button first (right-aligned), before the tree node claims the row
+    float btn_w = ImGui::CalcTextSize("X").x + ImGui::GetStyle().FramePadding.x * 2;
+    float btn_x = ImGui::GetWindowWidth() - btn_w - 10;
 
     ImGui::Checkbox("##en", &mod->enabled);
     ImGui::SameLine();
 
-    bool open = ImGui::TreeNodeEx(mod->name(),
-        ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth);
+    // Reserve space for the delete button by limiting tree node width
+    float avail = btn_x - ImGui::GetCursorPosX() - ImGui::GetStyle().ItemSpacing.x;
+    ImGui::PushItemWidth(avail);
+    bool open = ImGui::TreeNodeEx(mod->name(), ImGuiTreeNodeFlags_DefaultOpen);
+    ImGui::PopItemWidth();
 
-    float btn_w = ImGui::CalcTextSize("X").x + ImGui::GetStyle().FramePadding.x * 2;
-    ImGui::SameLine(ImGui::GetWindowWidth() - btn_w - 10);
+    ImGui::SameLine(btn_x);
     if (ImGui::SmallButton("X")) {
         stack.erase(stack.begin() + index);
         if (open) ImGui::TreePop();
+        ImGui::PopID();
         ImGui::PopID();
         return;
     }
@@ -506,6 +545,7 @@ void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
         ImGui::TreePop();
     }
 
+    ImGui::PopID();
     ImGui::PopID();
 }
 
@@ -590,6 +630,7 @@ void VfxEditorContext::draw_module_palette() {
         add_btn("Burst",            []{ return std::make_unique<BurstModule>(); },            emitter.spawn_modules);
         add_btn("Initial Rotation", []{ return std::make_unique<InitialRotationModule>(); }, emitter.spawn_modules);
         add_btn("Initial Texture",  []{ return std::make_unique<InitialTextureModule>(); },  emitter.spawn_modules);
+        add_btn("Flipbook",         []{ return std::make_unique<FlipbookModule>(); },       emitter.spawn_modules);
 
         ImGui::SeparatorText("Update");
         add_btn("Gravity",          []{ return std::make_unique<GravityModule>(); },          emitter.update_modules);

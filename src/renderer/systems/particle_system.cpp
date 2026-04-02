@@ -709,19 +709,22 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         auto& sub = ec->effect->emitters[gpu.emitter_index];
 
         // CPU-side emission accumulation (per sub-emitter)
+        float eff_dt = sub.paused ? 0.0f : dt;
         uint32_t emit_count = 0;
-        uint32_t burst = sub.burst_count();
-        if (burst > 0 && !sub.burst_fired) {
-            emit_count = burst;
-            sub.burst_fired = true;
+        if (!sub.paused) {
+            uint32_t burst = sub.burst_count();
+            if (burst > 0 && !sub.burst_fired) {
+                emit_count = burst;
+                sub.burst_fired = true;
+            }
+            sub.emit_accumulator += sub.emission_rate() * dt;
+            emit_count += static_cast<uint32_t>(sub.emit_accumulator);
+            sub.emit_accumulator -= std::floor(sub.emit_accumulator);
         }
-        sub.emit_accumulator += sub.emission_rate() * dt;
-        emit_count += static_cast<uint32_t>(sub.emit_accumulator);
-        sub.emit_accumulator -= std::floor(sub.emit_accumulator);
         if (emit_count > max_emit_count) max_emit_count = emit_count;
 
         data.emitter_position = glm::vec3(spatial->world_matrix_[3]);
-        data.dt = dt;
+        data.dt = eff_dt;
         data.gravity = {}; // read from modules now
         data.max_particles = gpu.max_particles;
         data.color_start = {}; // read from modules

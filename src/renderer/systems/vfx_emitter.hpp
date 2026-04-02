@@ -40,6 +40,7 @@ struct VfxEmitter {
     // Runtime (not serialized, managed by ParticleSystem)
     float emit_accumulator{0.0f};
     bool burst_fired{false};
+    bool paused{false};  // suppress emission + freeze simulation
 };
 
 /// A complete VFX effect — one or more emitters that play together.

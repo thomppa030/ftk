@@ -112,6 +112,7 @@ private:
 
     // Playback
     float time_scale_{1.0f};
+    float prev_timeline_time_{0.0f};
 };
 
 } // namespace fjell
