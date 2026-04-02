@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstring>
+#include <filesystem>
 
 namespace fjell {
 
@@ -49,6 +50,9 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "Attract")          return std::make_unique<AttractModule>();
     if (type_name == "VelocityLimit")    return std::make_unique<VelocityLimitModule>();
     if (type_name == "InitialStretch")   return std::make_unique<InitialStretchModule>();
+    if (type_name == "Burst")            return std::make_unique<BurstModule>();
+    if (type_name == "InitialRotation") return std::make_unique<InitialRotationModule>();
+    if (type_name == "InitialTexture") return std::make_unique<InitialTextureModule>();
     if (type_name == "Billboard")        return std::make_unique<BillboardModule>();
     return nullptr;
 }
@@ -501,6 +505,112 @@ void InitialStretchModule::to_json(nlohmann::json& j) const {
 
 void InitialStretchModule::from_json(const nlohmann::json& j) {
     stretch = j.value("stretch", 0.0f);
+}
+
+// ─── InitialTexture ─────────────────────────────────────────────────────
+
+uint32_t InitialTextureModule::write_gpu_data(uint8_t* buffer) const {
+    uint32_t total = write_header(buffer, type(), 2);
+    write_uint(buffer, 8, bindless_index);
+    write_uint(buffer, 12, 0); // pad
+    return total;
+}
+
+bool InitialTextureModule::draw_inspector() {
+    // Texture assignment is handled by the editor context (drag-drop).
+    // This just shows the current state.
+    if (!texture_path.empty()) {
+        auto filename = std::filesystem::path(texture_path).filename().string();
+        ImGui::TextDisabled("%s", filename.c_str());
+    } else {
+        ImGui::TextDisabled("(none — drag texture here)");
+    }
+    return false;
+}
+
+void InitialTextureModule::to_json(nlohmann::json& j) const {
+    j["type"] = "InitialTexture";
+    j["texture"] = texture_path;
+    // bindless_index is runtime-only — not serialized
+}
+
+void InitialTextureModule::from_json(const nlohmann::json& j) {
+    texture_path = j.value("texture", "");
+    // bindless_index is resolved at runtime, not loaded from JSON
+}
+
+// ─── InitialRotation ────────────────────────────────────────────────────
+
+uint32_t InitialRotationModule::write_gpu_data(uint8_t* buffer) const {
+    uint32_t total = write_header(buffer, type(), 4);
+    write_float(buffer, 8, rotation_min);
+    write_float(buffer, 12, rotation_max);
+    write_float(buffer, 16, speed);
+    write_float(buffer, 20, speed_variance);
+    return total;
+}
+
+bool InitialRotationModule::draw_inspector() {
+    bool changed = false;
+    float deg_min = glm::degrees(rotation_min);
+    float deg_max = glm::degrees(rotation_max);
+    if (ImGui::DragFloat("Min (deg)", &deg_min, 1.0f, -360.0f, 360.0f)) {
+        rotation_min = glm::radians(deg_min);
+        changed = true;
+    }
+    if (ImGui::DragFloat("Max (deg)", &deg_max, 1.0f, -360.0f, 360.0f)) {
+        rotation_max = glm::radians(deg_max);
+        changed = true;
+    }
+    float spd_deg = glm::degrees(speed);
+    float var_deg = glm::degrees(speed_variance);
+    if (ImGui::DragFloat("Speed (deg/s)", &spd_deg, 1.0f, -3600.0f, 3600.0f)) {
+        speed = glm::radians(spd_deg);
+        changed = true;
+    }
+    if (ImGui::DragFloat("Variance (deg/s)", &var_deg, 1.0f, 0.0f, 3600.0f)) {
+        speed_variance = glm::radians(var_deg);
+        changed = true;
+    }
+    return changed;
+}
+
+void InitialRotationModule::to_json(nlohmann::json& j) const {
+    j["type"] = "InitialRotation";
+    j["rotation_min"] = rotation_min;
+    j["rotation_max"] = rotation_max;
+    j["speed"] = speed;
+    j["speed_variance"] = speed_variance;
+}
+
+void InitialRotationModule::from_json(const nlohmann::json& j) {
+    rotation_min = j.value("rotation_min", 0.0f);
+    rotation_max = j.value("rotation_max", 6.2832f);
+    speed = j.value("speed", 0.0f);
+    speed_variance = j.value("speed_variance", 0.0f);
+}
+
+// ─── Burst ──────────────────────────────────────────────────────────────
+
+uint32_t BurstModule::write_gpu_data(uint8_t* /*buffer*/) const {
+    // Burst is CPU-only emission logic — no GPU payload
+    return 0;
+}
+
+bool BurstModule::draw_inspector() {
+    int c = static_cast<int>(count);
+    bool changed = ImGui::DragInt("Count", &c, 1.0f, 1, 100000);
+    if (changed) count = static_cast<uint32_t>(std::max(c, 1));
+    return changed;
+}
+
+void BurstModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Burst";
+    j["count"] = count;
+}
+
+void BurstModule::from_json(const nlohmann::json& j) {
+    count = j.value("count", 100u);
 }
 
 // ─── Billboard ───────────────────────────────────────────────────────────

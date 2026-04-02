@@ -186,6 +186,23 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
     try {
         auto loaded = load_vfx_effect(fjvfx_abs_path_);
         effect_ = std::make_shared<VfxEffect>(std::move(loaded));
+
+        // Resolve texture paths to bindless indices
+        for (auto& emitter : effect_->emitters) {
+            for (auto& mod : emitter.spawn_modules) {
+                if (mod->type() == ModuleType::initial_texture) {
+                    auto* tex_mod = static_cast<InitialTextureModule*>(mod.get());
+                    if (!tex_mod->texture_path.empty() && tex_mod->bindless_index == 0) {
+                        auto resolved = base_path::resolve_asset(
+                            tex_mod->texture_path, deps_.project_mgr->active());
+                        auto result = deps_.resource_manager->load_texture(resolved);
+                        if (result) {
+                            tex_mod->bindless_index = deps_.resource_manager->bindless_index(*result);
+                        }
+                    }
+                }
+            }
+        }
     } catch (const std::exception& e) {
         FJELL_CORE_ERROR("VFX editor: failed to load {}: {}", fjvfx_path, e.what());
         return;
@@ -438,6 +455,51 @@ void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
     if (open) {
         if (mod->enabled) {
             mod->draw_inspector();
+
+            // Texture module: thumbnail + drag-drop (same pattern as material editor)
+            if (mod->type() == ModuleType::initial_texture) {
+                auto* tex_mod = static_cast<InitialTextureModule*>(mod);
+
+                // Thumbnail
+                float thumb_size = 48.0f;
+                if (!tex_mod->texture_path.empty() && deps_.icon_cache) {
+                    auto resolved = base_path::resolve_asset(
+                        tex_mod->texture_path, deps_.project_mgr->active());
+                    auto desc = deps_.icon_cache->thumbnail(resolved);
+                    if (desc) {
+                        ImGui::Image(desc, {thumb_size, thumb_size});
+                    } else {
+                        ImGui::Dummy({thumb_size, thumb_size});
+                    }
+                } else {
+                    ImGui::Dummy({thumb_size, thumb_size});
+                }
+
+                // Clear button
+                if (!tex_mod->texture_path.empty()) {
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Clear")) {
+                        tex_mod->texture_path.clear();
+                        tex_mod->bindless_index = 0;
+                    }
+                }
+
+                // Drag-drop target for texture assets from content browser
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                        std::string path(static_cast<const char*>(payload->Data));
+                        auto ext = std::filesystem::path(path).extension().string();
+                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga") {
+                            tex_mod->texture_path = path;
+                            auto result = deps_.resource_manager->load_texture(path);
+                            if (result) {
+                                tex_mod->bindless_index = deps_.resource_manager->bindless_index(*result);
+                            }
+                        }
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+            }
         } else {
             ImGui::TextDisabled("(disabled)");
         }
@@ -525,6 +587,9 @@ void VfxEditorContext::draw_module_palette() {
         add_btn("Initial Velocity", []{ return std::make_unique<InitialVelocityModule>(); },  emitter.spawn_modules);
         add_btn("Initial Color",    []{ return std::make_unique<InitialColorModule>(); },     emitter.spawn_modules);
         add_btn("Initial Size",     []{ return std::make_unique<InitialSizeModule>(); },      emitter.spawn_modules);
+        add_btn("Burst",            []{ return std::make_unique<BurstModule>(); },            emitter.spawn_modules);
+        add_btn("Initial Rotation", []{ return std::make_unique<InitialRotationModule>(); }, emitter.spawn_modules);
+        add_btn("Initial Texture",  []{ return std::make_unique<InitialTextureModule>(); },  emitter.spawn_modules);
 
         ImGui::SeparatorText("Update");
         add_btn("Gravity",          []{ return std::make_unique<GravityModule>(); },          emitter.update_modules);

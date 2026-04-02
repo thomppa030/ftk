@@ -8,6 +8,10 @@
 #define MOD_INITIAL_VELOCITY   3
 #define MOD_INITIAL_COLOR      4
 #define MOD_INITIAL_SIZE       5
+#define MOD_INITIAL_STRETCH    6
+#define MOD_BURST              7
+#define MOD_INITIAL_ROTATION   8
+#define MOD_INITIAL_TEXTURE    9
 
 #define MOD_GRAVITY            100
 #define MOD_COLOR_OVER_LIFE    101

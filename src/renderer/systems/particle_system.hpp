@@ -7,6 +7,9 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include "renderer/renderer_constants.hpp"
+
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <unordered_set>
@@ -86,7 +89,7 @@ private:
     // Descriptor pool + single sets
     VkDescriptorPool pool_{VK_NULL_HANDLE};
     VkDescriptorSet compute_set_{VK_NULL_HANDLE};
-    VkDescriptorSet render_set_{VK_NULL_HANDLE};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> render_sets_{};
 
     // Mega buffers
     std::unique_ptr<Buffer> mega_particle_buffer_;
@@ -104,13 +107,14 @@ private:
     // Capacity
     uint32_t total_particle_capacity_{0};
     uint32_t emitter_capacity_{0};
-    uint32_t additive_count_{0};
 
     // Cached layouts
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
     VkFormat color_format_{VK_FORMAT_UNDEFINED};
     VkFormat depth_format_{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count_{VK_SAMPLE_COUNT_1_BIT};
+    VkSampler depth_sampler_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
 
     uint32_t frame_seed_{0};
 };

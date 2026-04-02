@@ -81,6 +81,15 @@ float VfxEmitter::emission_rate() const {
     return 50.0f;
 }
 
+uint32_t VfxEmitter::burst_count() const {
+    for (const auto& m : spawn_modules) {
+        if (m->type() == ModuleType::burst) {
+            return static_cast<const BurstModule*>(m.get())->count;
+        }
+    }
+    return 0;
+}
+
 float VfxEmitter::lifetime_min() const {
     for (const auto& m : spawn_modules) {
         if (m->type() == ModuleType::initial_lifetime) {

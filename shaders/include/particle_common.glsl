@@ -10,7 +10,11 @@ struct Particle {
     float size;
     float size_end;
     uint  emitter_index;
-    float pad1;
+    float stretch;         // 0 = billboard, >0 = velocity-aligned streak (length multiplier)
+    float rotation;        // radians
+    float rotation_speed;  // radians/sec
+    uint  texture_index;   // bindless texture index (0 = procedural)
+    float _pad1;
 };
 
 struct EmitterData {

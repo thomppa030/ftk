@@ -20,6 +20,9 @@ enum class ModuleType : uint32_t {
     initial_color      = 4,
     initial_size       = 5,
     initial_stretch    = 6,
+    burst              = 7,
+    initial_rotation   = 8,
+    initial_texture    = 9,
 
     // Update modules
     gravity            = 100,
@@ -247,6 +250,43 @@ struct InitialStretchModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_stretch; }
     [[nodiscard]] const char* name() const override { return "Initial Stretch"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct InitialTextureModule final : VfxModule {
+    std::string texture_path;         // relative asset path (serialized)
+    uint32_t bindless_index{0};       // resolved at runtime
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::initial_texture; }
+    [[nodiscard]] const char* name() const override { return "Initial Texture"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct InitialRotationModule final : VfxModule {
+    float rotation_min{0.0f};       // radians
+    float rotation_max{6.2832f};    // full turn
+    float speed{0.0f};              // radians/sec
+    float speed_variance{0.0f};     // +/- range
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::initial_rotation; }
+    [[nodiscard]] const char* name() const override { return "Initial Rotation"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct BurstModule final : VfxModule {
+    uint32_t count{100};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::burst; }
+    [[nodiscard]] const char* name() const override { return "Burst"; }
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;

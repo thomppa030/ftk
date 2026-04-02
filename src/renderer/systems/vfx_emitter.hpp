@@ -27,6 +27,7 @@ struct VfxEmitter {
 
     /// Extract emission config from spawn modules
     [[nodiscard]] float emission_rate() const;
+    [[nodiscard]] uint32_t burst_count() const;
     [[nodiscard]] float lifetime_min() const;
     [[nodiscard]] float lifetime_max() const;
 
@@ -38,6 +39,7 @@ struct VfxEmitter {
 
     // Runtime (not serialized, managed by ParticleSystem)
     float emit_accumulator{0.0f};
+    bool burst_fired{false};
 };
 
 /// A complete VFX effect — one or more emitters that play together.

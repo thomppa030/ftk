@@ -10,15 +10,20 @@
 #include "scene/scene.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <stdexcept>
 
 namespace fjell {
 
+// Must match the GPU Particle struct in particle_common.glsl
+constexpr VkDeviceSize PARTICLE_STRIDE = 80;
+
 void ParticleSystem::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     physical_device_ = device.physical_device();
     global_set_layout_ = resources.global_set_layout;
+    bindless_set_layout_ = resources.material_set_layout;
     color_format_ = resources.color_format;
     depth_format_ = resources.depth_format;
     sample_count_ = resources.sample_count;
@@ -101,28 +106,46 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     vkDestroyShaderModule(device_, sim_mod, nullptr);
     vkDestroyShaderModule(device_, indirect_mod, nullptr);
 
-    // ── Render descriptor set layout (particle SSBO) ──
+    // ── Depth sampler for soft particles ──
 
-    VkDescriptorSetLayoutBinding render_binding{};
-    render_binding.binding = 0;
-    render_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    render_binding.descriptorCount = 1;
-    render_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    VkSamplerCreateInfo sampler_ci{};
+    sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_ci.magFilter = VK_FILTER_NEAREST;
+    sampler_ci.minFilter = VK_FILTER_NEAREST;
+    sampler_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    if (vkCreateSampler(device_, &sampler_ci, nullptr, &depth_sampler_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create particle depth sampler");
+    }
+
+    // ── Render descriptor set layout (particle SSBO + depth texture) ──
+
+    VkDescriptorSetLayoutBinding render_bindings[2]{};
+    render_bindings[0].binding = 0;
+    render_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    render_bindings[0].descriptorCount = 1;
+    render_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    render_bindings[1].binding = 1;
+    render_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    render_bindings[1].descriptorCount = 1;
+    render_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo render_layout_ci{};
     render_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    render_layout_ci.bindingCount = 1;
-    render_layout_ci.pBindings = &render_binding;
+    render_layout_ci.bindingCount = 2;
+    render_layout_ci.pBindings = render_bindings;
     if (vkCreateDescriptorSetLayout(device_, &render_layout_ci, nullptr, &render_set_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create particle render set layout");
     }
 
-    // ── Render pipeline layout (set 0 = global, set 1 = particle SSBO) ──
+    // ── Render pipeline layout (set 0 = global, set 1 = particle SSBO + depth, set 2 = bindless textures) ──
 
-    VkDescriptorSetLayout render_sets[] = {global_set_layout_, render_set_layout_};
+    VkDescriptorSetLayout render_sets[] = {global_set_layout_, render_set_layout_, bindless_set_layout_};
     VkPipelineLayoutCreateInfo render_pipe_ci{};
     render_pipe_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    render_pipe_ci.setLayoutCount = 2;
+    render_pipe_ci.setLayoutCount = 3;
     render_pipe_ci.pSetLayouts = render_sets;
     if (vkCreatePipelineLayout(device_, &render_pipe_ci, nullptr, &render_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create particle render pipeline layout");
@@ -239,16 +262,19 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     // ── Descriptor pool (2 sets: compute + render) ──
 
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_size.descriptorCount = 7; // 6 compute + 1 render
+    constexpr uint32_t RENDER_SET_COUNT = MAX_FRAMES_IN_FLIGHT;
+    VkDescriptorPoolSize pool_sizes[2]{};
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    pool_sizes[0].descriptorCount = 6 + RENDER_SET_COUNT; // 6 compute + 1 per render frame
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[1].descriptorCount = RENDER_SET_COUNT; // depth texture per frame
 
     VkDescriptorPoolCreateInfo desc_pool_ci{};
     desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     desc_pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-    desc_pool_ci.maxSets = 2;
-    desc_pool_ci.poolSizeCount = 1;
-    desc_pool_ci.pPoolSizes = &pool_size;
+    desc_pool_ci.maxSets = 1 + RENDER_SET_COUNT; // 1 compute + N render
+    desc_pool_ci.poolSizeCount = 2;
+    desc_pool_ci.pPoolSizes = pool_sizes;
     if (vkCreateDescriptorPool(device_, &desc_pool_ci, nullptr, &pool_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create particle descriptor pool");
     }
@@ -269,6 +295,7 @@ void ParticleSystem::destroy() {
         if (handle != VK_NULL_HANDLE) { destroy_fn(device_, handle, nullptr); handle = VK_NULL_HANDLE; }
     };
 
+    safe_destroy(depth_sampler_, vkDestroySampler);
     safe_destroy(pool_, vkDestroyDescriptorPool);
     safe_destroy(render_alpha_, vkDestroyPipeline);
     safe_destroy(render_additive_, vkDestroyPipeline);
@@ -296,9 +323,11 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         vkFreeDescriptorSets(device_, pool_, 1, &compute_set_);
         compute_set_ = VK_NULL_HANDLE;
     }
-    if (render_set_ != VK_NULL_HANDLE) {
-        vkFreeDescriptorSets(device_, pool_, 1, &render_set_);
-        render_set_ = VK_NULL_HANDLE;
+    for (auto& rs : render_sets_) {
+        if (rs != VK_NULL_HANDLE) {
+            vkFreeDescriptorSets(device_, pool_, 1, &rs);
+            rs = VK_NULL_HANDLE;
+        }
     }
 
     total_particle_capacity_ = total_particles;
@@ -308,7 +337,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
                                      VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
-    VkDeviceSize particle_size = static_cast<VkDeviceSize>(total_particles) * 64;
+    VkDeviceSize particle_size = static_cast<VkDeviceSize>(total_particles) * PARTICLE_STRIDE;
     VkDeviceSize counter_size = static_cast<VkDeviceSize>(emitter_count) * 2 * sizeof(uint32_t);
     VkDeviceSize dead_list_size = static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t);
     VkDeviceSize indirect_size = static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t);
@@ -347,7 +376,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vk_check(vkBeginCommandBuffer(cmd, &begin), "begin copy cmd");
 
-        VkDeviceSize old_particle_bytes = static_cast<VkDeviceSize>(old_particle_cap) * 64;
+        VkDeviceSize old_particle_bytes = static_cast<VkDeviceSize>(old_particle_cap) * PARTICLE_STRIDE;
         VkBufferCopy region{0, 0, old_particle_bytes};
         vkCmdCopyBuffer(cmd, old_particle->handle(), mega_particle_buffer_->handle(), 1, &region);
 
@@ -403,9 +432,15 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         return;
     }
 
-    alloc.pSetLayouts = &render_set_layout_;
-    if (vkAllocateDescriptorSets(device_, &alloc, &render_set_) != VK_SUCCESS) {
-        FJELL_GFX_ERROR("Failed to allocate particle render descriptor set");
+    // Allocate per-frame render descriptor sets
+    VkDescriptorSetLayout render_layouts[MAX_FRAMES_IN_FLIGHT];
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        render_layouts[i] = render_set_layout_;
+    }
+    alloc.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+    alloc.pSetLayouts = render_layouts;
+    if (vkAllocateDescriptorSets(device_, &alloc, render_sets_.data()) != VK_SUCCESS) {
+        FJELL_GFX_ERROR("Failed to allocate particle render descriptor sets");
         return;
     }
 
@@ -418,7 +453,8 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, mega_indirect_buffer_->size()};
     VkDescriptorBufferInfo module_info{module_buffer_->handle(), 0, module_buffer_->size()};
 
-    VkWriteDescriptorSet writes[7]{};
+    // Compute set: 6 bindings
+    VkWriteDescriptorSet writes[6]{};
     for (auto& w : writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 
     writes[0].dstSet = compute_set_; writes[0].dstBinding = 0;
@@ -445,11 +481,19 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[5].descriptorCount = 1; writes[5].pBufferInfo = &module_info;
 
-    writes[6].dstSet = render_set_; writes[6].dstBinding = 0;
-    writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    writes[6].descriptorCount = 1; writes[6].pBufferInfo = &particle_info;
+    vkUpdateDescriptorSets(device_, 6, writes, 0, nullptr);
 
-    vkUpdateDescriptorSets(device_, 7, writes, 0, nullptr);
+    // Render sets: write particle SSBO (binding 0) to each frame's set
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VkWriteDescriptorSet render_write{};
+        render_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        render_write.dstSet = render_sets_[i];
+        render_write.dstBinding = 0;
+        render_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        render_write.descriptorCount = 1;
+        render_write.pBufferInfo = &particle_info;
+        vkUpdateDescriptorSets(device_, 1, &render_write, 0, nullptr);
+    }
 
     FJELL_GFX_DEBUG("Particle mega-buffers rebuilt: {} particles, {} emitters",
                     total_particles, emitter_count);
@@ -481,8 +525,8 @@ void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
     // Zero particle buffer and indirect draw commands for the target range
     for (uint32_t i = from; i < to; ++i) {
         const auto& em = emitters_[i];
-        VkDeviceSize particle_offset = static_cast<VkDeviceSize>(em.base_offset) * 64;
-        VkDeviceSize particle_size = static_cast<VkDeviceSize>(em.max_particles) * 64;
+        VkDeviceSize particle_offset = static_cast<VkDeviceSize>(em.base_offset) * PARTICLE_STRIDE;
+        VkDeviceSize particle_size = static_cast<VkDeviceSize>(em.max_particles) * PARTICLE_STRIDE;
         vkCmdFillBuffer(cmd, mega_particle_buffer_->handle(), particle_offset, particle_size, 0);
 
         VkDeviceSize indirect_offset = static_cast<VkDeviceSize>(i) * 4 * sizeof(uint32_t);
@@ -553,14 +597,11 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         }
     }
 
-    // Build set of alive emitter keys for fast lookup
     auto key_match = [](const EmitterGpu& gpu, const EmitterKey& key) {
         return gpu.object_id == key.object_id && gpu.emitter_index == key.emitter_index;
     };
 
-    // Remove dead emitters (keep offsets stable — just mark slots as dead)
-    // We don't reclaim their particle buffer space to avoid shifting offsets.
-    // Space is reclaimed on full realloc.
+    // Remove dead emitters
     for (auto it = emitters_.begin(); it != emitters_.end();) {
         bool alive = false;
         for (const auto& se : scene_emitters) {
@@ -595,7 +636,8 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         if (end > next_offset) next_offset = end;
     }
 
-    // Append new emitters at the end
+    // Append new emitters (order must be stable — particles store emitter_index
+    // at emit time and use it to look up EmitterData in the sim shader)
     uint32_t first_new = static_cast<uint32_t>(emitters_.size());
     for (const auto& ne : new_emitters) {
         EmitterGpu gpu{};
@@ -606,12 +648,6 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         gpu.blend_mode = ne.blend_mode;
         emitters_.push_back(gpu);
         next_offset += ne.max_particles;
-    }
-
-    // Recount additive emitters for render batching
-    additive_count_ = 0;
-    for (const auto& em : emitters_) {
-        if (em.blend_mode == ParticleBlendMode::additive) ++additive_count_;
     }
 
     uint32_t total = next_offset;
@@ -626,10 +662,8 @@ void ParticleSystem::sync_emitters(Scene& scene) {
         if (new_total == 0) new_total = total;
         if (new_count == 0) new_count = count;
         rebuild_mega_buffers(new_total, new_count);
-        // Old data was copied — only initialize new emitters
         init_emitter_range(first_new, count);
     } else {
-        // Buffer has capacity — only initialize new emitters
         vkQueueWaitIdle(queue_);
         init_emitter_range(first_new, count);
     }
@@ -675,9 +709,15 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         auto& sub = ec->effect->emitters[gpu.emitter_index];
 
         // CPU-side emission accumulation (per sub-emitter)
+        uint32_t emit_count = 0;
+        uint32_t burst = sub.burst_count();
+        if (burst > 0 && !sub.burst_fired) {
+            emit_count = burst;
+            sub.burst_fired = true;
+        }
         sub.emit_accumulator += sub.emission_rate() * dt;
-        uint32_t emit_count = static_cast<uint32_t>(sub.emit_accumulator);
-        sub.emit_accumulator -= static_cast<float>(emit_count);
+        emit_count += static_cast<uint32_t>(sub.emit_accumulator);
+        sub.emit_accumulator -= std::floor(sub.emit_accumulator);
         if (emit_count > max_emit_count) max_emit_count = emit_count;
 
         data.emitter_position = glm::vec3(spatial->world_matrix_[3]);
@@ -786,14 +826,32 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("particle_record_render");
     if (emitters_.empty()) return;
 
-    uint32_t emitter_count = static_cast<uint32_t>(emitters_.size());
-    uint32_t alpha_count = emitter_count - additive_count_;
+    // Update this frame's depth texture descriptor (safe: fence waited before recording)
+    VkDescriptorSet frame_set = render_sets_[ctx.frame_index];
 
-    // Bind global + particle SSBO once
+    VkDescriptorImageInfo depth_info{};
+    depth_info.sampler = depth_sampler_;
+    depth_info.imageView = ctx.target->depth_view();
+    depth_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+    VkWriteDescriptorSet depth_write{};
+    depth_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    depth_write.dstSet = frame_set;
+    depth_write.dstBinding = 1;
+    depth_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    depth_write.descriptorCount = 1;
+    depth_write.pImageInfo = &depth_info;
+    vkUpdateDescriptorSets(device_, 1, &depth_write, 0, nullptr);
+
+    // Bind global + particle set (SSBO + depth) + bindless textures
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_layout_,
                             0, 1, &ctx.global_descriptor_set, 0, nullptr);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_layout_,
-                            1, 1, &render_set_, 0, nullptr);
+                            1, 1, &frame_set, 0, nullptr);
+    if (ctx.bindless_set != VK_NULL_HANDLE) {
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_layout_,
+                                2, 1, &ctx.bindless_set, 0, nullptr);
+    }
 
     VkViewport vp{};
     vp.width = static_cast<float>(ctx.target->extent().width);
@@ -805,23 +863,38 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
 
     constexpr uint32_t stride = sizeof(VkDrawIndirectCommand);
 
-    // Additive emitters
-    if (additive_count_ > 0) {
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_additive_);
-        vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-        vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-        vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(), 0,
-                          additive_count_, stride);
-    }
+    // Draw each emitter individually with its blend mode pipeline.
+    // Emitters can be in any order — particles store emitter_index at emit time,
+    // so we can't reorder the emitters_ vector. Instead we batch consecutive
+    // runs of the same blend mode into single multi-draw indirect calls.
+    VkPipeline current_pipeline = VK_NULL_HANDLE;
+    uint32_t batch_start = 0;
+    uint32_t batch_count = 0;
 
-    // Alpha emitters
-    if (alpha_count > 0) {
-        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_alpha_);
-        vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
-        vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+    auto flush_batch = [&]() {
+        if (batch_count == 0) return;
         vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(),
-                          additive_count_ * stride, alpha_count, stride);
+                          batch_start * stride, batch_count, stride);
+        batch_count = 0;
+    };
+
+    for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
+        VkPipeline needed = (emitters_[i].blend_mode == ParticleBlendMode::additive)
+            ? render_additive_ : render_alpha_;
+
+        if (needed != current_pipeline) {
+            flush_batch();
+            current_pipeline = needed;
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
+            vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
+            vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+            batch_start = i;
+        }
+
+        if (batch_count == 0) batch_start = i;
+        ++batch_count;
     }
+    flush_batch();
 }
 
 } // namespace fjell

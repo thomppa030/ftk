@@ -112,5 +112,6 @@ void main() {
     }
 
     p.position += p.velocity * dt;
+    p.rotation += p.rotation_speed * dt;
     particles[idx] = p;
 }

@@ -1828,7 +1828,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
                           gpu_.image_available_semaphore(current_frame_), VK_NULL_HANDLE,
                           &image_index);
 
-    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_NOT_READY) {
         gpu_.swapchain().recreate();
         has_recorded_frame_ = false;
         return false;  // fence stays signaled — next wait will pass through
@@ -1860,7 +1860,9 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         debug_draw_->update(*scene, selected_id, show_colliders_);
     }
 
-    // Sync particle emitters before recording — may rebuild GPU buffers
+    // Sync particle emitters — may rebuild GPU buffers.
+    // Safe here: begin_frame() already waited on this frame slot's fence,
+    // so the GPU is done with this slot's resources.
     if (scene) {
         particle_system_.sync_emitters(*scene);
     }
