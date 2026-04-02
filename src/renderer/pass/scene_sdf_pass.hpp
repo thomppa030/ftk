@@ -56,6 +56,18 @@ public:
     [[nodiscard]] const glm::vec3& volume_max() const { return volume_max_; }
     [[nodiscard]] uint32_t resolution() const { return resolution_; }
 
+    // Per-model SDF metadata
+    struct MeshSdfEntry {
+        uint32_t offset;      // in int16 units
+        uint32_t resolution;
+        glm::vec3 sdf_min;
+        glm::vec3 sdf_max;
+        float max_dist;
+    };
+
+    // Lookup a registered model's SDF entry (returns nullptr if not found)
+    [[nodiscard]] const MeshSdfEntry* model_entry(uint32_t model_id) const;
+
 private:
     void create_volume_image();
     void create_compute_pipeline();
@@ -89,14 +101,6 @@ private:
     uint32_t resolution_{DEFAULT_RESOLUTION};
     bool dirty_{true};
 
-    // Track which models have been uploaded (model_id -> offset in mesh_sdf_buffer_)
-    struct MeshSdfEntry {
-        uint32_t offset;      // in int16 units
-        uint32_t resolution;
-        glm::vec3 sdf_min;
-        glm::vec3 sdf_max;
-        float max_dist;
-    };
     std::unordered_map<uint32_t, MeshSdfEntry> model_sdf_entries_;
 };
 

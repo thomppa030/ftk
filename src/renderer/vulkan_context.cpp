@@ -1886,6 +1886,68 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         particle_system_.sync_emitters(*scene);
     }
 
+    // Update scene SDF — register mesh SDFs and check dirty transforms
+    if (scene) {
+        std::vector<GpuSdfInstance> sdf_instances;
+        for (const auto& obj : scene->objects()) {
+            auto* spatial = obj->as_spatial();
+            if (!spatial) continue;
+            auto* mesh_comp = obj->components.get<MeshComponent>();
+            if (!mesh_comp || !mesh_comp->model) continue;
+
+            auto* model = mesh_comp->model;
+            if (!model->has_sdf()) continue;
+
+            // Register this model's SDF data if not already uploaded
+            scene_sdf_pass_.register_model_sdf(*model, reinterpret_cast<uintptr_t>(model));
+
+            // Check if this object moved
+            if (spatial->world_dirty_) {
+                scene_sdf_pass_.mark_dirty();
+            }
+
+            // Build instance for compositing
+            auto it = scene_sdf_pass_.model_entry(reinterpret_cast<uintptr_t>(model));
+            if (it) {
+                GpuSdfInstance inst{};
+                inst.world_to_sdf = glm::inverse(spatial->world_matrix_);
+                inst.sdf_min = it->sdf_min;
+                inst.sdf_scale = it->max_dist;
+                inst.sdf_max = it->sdf_max;
+                inst.grid_offset = it->offset;
+                inst.grid_resolution = glm::uvec3(it->resolution);
+                sdf_instances.push_back(inst);
+            }
+        }
+
+        if (scene_sdf_pass_.dirty() && !sdf_instances.empty()) {
+            // Need a command buffer for the compositing dispatch
+            VkCommandBuffer sdf_cmd{};
+            VkCommandBufferAllocateInfo sdf_alloc{};
+            sdf_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            sdf_alloc.commandPool = gpu_.command_pool();
+            sdf_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            sdf_alloc.commandBufferCount = 1;
+            vkAllocateCommandBuffers(gpu_.device(), &sdf_alloc, &sdf_cmd);
+
+            VkCommandBufferBeginInfo sdf_begin{};
+            sdf_begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+            sdf_begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            vkBeginCommandBuffer(sdf_cmd, &sdf_begin);
+
+            scene_sdf_pass_.composite(sdf_cmd, sdf_instances);
+
+            vkEndCommandBuffer(sdf_cmd);
+            VkSubmitInfo sdf_submit{};
+            sdf_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            sdf_submit.commandBufferCount = 1;
+            sdf_submit.pCommandBuffers = &sdf_cmd;
+            vkQueueSubmit(gpu_.graphics_queue(), 1, &sdf_submit, VK_NULL_HANDLE);
+            vkQueueWaitIdle(gpu_.graphics_queue());
+            vkFreeCommandBuffers(gpu_.device(), gpu_.command_pool(), 1, &sdf_cmd);
+        }
+    }
+
     // Update binding 4 (depth texture for light culling) before recording
     // Must happen before command buffer starts to avoid invalidating in-flight descriptors
     if (!viewports.empty() && viewports[0].target) {

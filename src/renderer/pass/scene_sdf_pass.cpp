@@ -273,6 +273,11 @@ bool SceneSdfPass::register_model_sdf(const Model& model, uint32_t model_id) {
     return true;
 }
 
+const SceneSdfPass::MeshSdfEntry* SceneSdfPass::model_entry(uint32_t model_id) const {
+    auto it = model_sdf_entries_.find(model_id);
+    return it != model_sdf_entries_.end() ? &it->second : nullptr;
+}
+
 void SceneSdfPass::set_bounds(const glm::vec3& min, const glm::vec3& max) {
     if (volume_min_ != min || volume_max_ != max) {
         volume_min_ = min;
