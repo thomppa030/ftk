@@ -11,7 +11,7 @@
 namespace fjell {
 
 static constexpr uint32_t FJMESH_MAGIC   = 0x484D4A46; // "FJMH" little-endian
-static constexpr uint32_t FJMESH_VERSION = 3;
+static constexpr uint32_t FJMESH_VERSION = 4;
 
 static constexpr uint32_t FJMESH_FLAG_SKINNED = 1; // vertices are SkinnedVertex (92 bytes)
 
@@ -77,6 +77,15 @@ struct FjMeshHeader {
     // v3+ fields (appended at the end for backward compatibility)
     uint32_t joint_count;      // 0 for static meshes, >0 for skinned
     uint32_t pad_v3;           // alignment
+
+    // v4+ fields — per-mesh SDF (signed distance field)
+    uint32_t sdf_resolution;   // grid cells per axis (0 = no SDF data)
+    uint32_t sdf_pad;
+    glm::vec3 sdf_min;         // local-space AABB of SDF volume (with margin)
+    float sdf_pad2;
+    glm::vec3 sdf_max;
+    float sdf_pad3;
+    uint64_t sdf_data_offset;  // int16_t[res*res*res] SDF voxel data
 };
 
 // ── .fjskel format ──────────────────────────────────────────────────────

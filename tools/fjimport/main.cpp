@@ -25,6 +25,8 @@
 #include <ozz/base/maths/soa_transform.h>
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -62,7 +64,135 @@ struct ImportResult {
     std::vector<uint32_t> collision_indices;
     std::vector<fjell::FjMeshLodLevel> lod_levels;
     fjell::AABB aabb;
+
+    // SDF data (v4)
+    std::vector<int16_t> sdf_data;
+    uint32_t sdf_resolution{0};
+    glm::vec3 sdf_min{0.0f};
+    glm::vec3 sdf_max{0.0f};
 };
+
+// ── SDF generation ──────────────────────────────────────────────────────
+
+static float point_triangle_distance(const glm::vec3& p,
+                                      const glm::vec3& a,
+                                      const glm::vec3& b,
+                                      const glm::vec3& c) {
+    glm::vec3 ab = b - a, ac = c - a, ap = p - a;
+    float d1 = glm::dot(ab, ap), d2 = glm::dot(ac, ap);
+    if (d1 <= 0.0f && d2 <= 0.0f) return glm::length(p - a);
+
+    glm::vec3 bp = p - b;
+    float d3 = glm::dot(ab, bp), d4 = glm::dot(ac, bp);
+    if (d3 >= 0.0f && d4 <= d3) return glm::length(p - b);
+
+    float vc = d1 * d4 - d3 * d2;
+    if (vc <= 0.0f && d1 >= 0.0f && d3 <= 0.0f) {
+        float v = d1 / (d1 - d3);
+        return glm::length(p - (a + ab * v));
+    }
+
+    glm::vec3 cp = p - c;
+    float d5 = glm::dot(ab, cp), d6 = glm::dot(ac, cp);
+    if (d6 >= 0.0f && d5 <= d6) return glm::length(p - c);
+
+    float vb = d5 * d2 - d1 * d6;
+    if (vb <= 0.0f && d2 >= 0.0f && d6 <= 0.0f) {
+        float w = d2 / (d2 - d6);
+        return glm::length(p - (a + ac * w));
+    }
+
+    float va = d3 * d6 - d5 * d4;
+    if (va <= 0.0f && (d4 - d3) >= 0.0f && (d5 - d6) >= 0.0f) {
+        float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return glm::length(p - (b + (c - b) * w));
+    }
+
+    float denom = 1.0f / (va + vb + vc);
+    float v = vb * denom;
+    float w = vc * denom;
+    return glm::length(p - (a + ab * v + ac * w));
+}
+
+static bool ray_triangle_intersect(const glm::vec3& origin, const glm::vec3& dir,
+                                    const glm::vec3& a, const glm::vec3& b,
+                                    const glm::vec3& c) {
+    glm::vec3 e1 = b - a, e2 = c - a;
+    glm::vec3 h = glm::cross(dir, e2);
+    float det = glm::dot(e1, h);
+    if (std::abs(det) < 1e-8f) return false;
+    float inv = 1.0f / det;
+    glm::vec3 s = origin - a;
+    float u = inv * glm::dot(s, h);
+    if (u < 0.0f || u > 1.0f) return false;
+    glm::vec3 q = glm::cross(s, e1);
+    float v = inv * glm::dot(dir, q);
+    if (v < 0.0f || u + v > 1.0f) return false;
+    float t = inv * glm::dot(e2, q);
+    return t > 1e-8f;
+}
+
+static void generate_sdf(ImportResult& result, uint32_t resolution) {
+    if (result.collision_vertices.empty() || result.collision_indices.empty()) return;
+
+    // SDF volume covers the mesh AABB with 10% margin
+    glm::vec3 extent = result.aabb.max - result.aabb.min;
+    glm::vec3 margin = extent * 0.1f;
+    glm::vec3 sdf_min = result.aabb.min - margin;
+    glm::vec3 sdf_max = result.aabb.max + margin;
+    glm::vec3 sdf_extent = sdf_max - sdf_min;
+
+    uint32_t res = resolution;
+    result.sdf_resolution = res;
+    result.sdf_min = sdf_min;
+    result.sdf_max = sdf_max;
+    result.sdf_data.resize(res * res * res);
+
+    float max_dist = glm::length(sdf_extent);
+
+    const auto& verts = result.collision_vertices;
+    const auto& inds = result.collision_indices;
+    uint32_t tri_count = static_cast<uint32_t>(inds.size()) / 3;
+
+    for (uint32_t z = 0; z < res; ++z) {
+        for (uint32_t y = 0; y < res; ++y) {
+            for (uint32_t x = 0; x < res; ++x) {
+                glm::vec3 p = sdf_min + sdf_extent * glm::vec3(
+                    (float(x) + 0.5f) / float(res),
+                    (float(y) + 0.5f) / float(res),
+                    (float(z) + 0.5f) / float(res));
+
+                // Minimum unsigned distance to any triangle
+                float min_dist = max_dist;
+                for (uint32_t t = 0; t < tri_count; ++t) {
+                    float d = point_triangle_distance(p,
+                        verts[inds[t * 3]], verts[inds[t * 3 + 1]], verts[inds[t * 3 + 2]]);
+                    if (d < min_dist) min_dist = d;
+                }
+
+                // Sign: ray cast along +X, count intersections
+                uint32_t hits = 0;
+                glm::vec3 ray_dir(1.0f, 0.0f, 0.0f);
+                for (uint32_t t = 0; t < tri_count; ++t) {
+                    if (ray_triangle_intersect(p, ray_dir,
+                        verts[inds[t * 3]], verts[inds[t * 3 + 1]], verts[inds[t * 3 + 2]])) {
+                        ++hits;
+                    }
+                }
+                if (hits & 1) min_dist = -min_dist; // inside
+
+                // Store as int16 (fixed-point: value / 32767 * max_dist)
+                float normalized = min_dist / max_dist;
+                normalized = std::clamp(normalized, -1.0f, 1.0f);
+                result.sdf_data[z * res * res + y * res + x] =
+                    static_cast<int16_t>(normalized * 32767.0f);
+            }
+        }
+    }
+
+    std::fprintf(stderr, "  SDF: %ux%ux%u grid (%zu KB)\n",
+                 res, res, res, result.sdf_data.size() * 2 / 1024);
+}
 
 // Append a submesh to the import result from local vertices/indices, building meshlets
 static void append_submesh(ImportResult& result,
@@ -266,6 +396,9 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
         result.lod_levels.pop_back();
     }
 
+    // Generate per-mesh SDF from collision geometry
+    generate_sdf(result, 32);
+
     return true;
 }
 
@@ -333,6 +466,17 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
     header.lod_levels_offset = align_to(offset, 4);
     offset = header.lod_levels_offset + header.lod_count * sizeof(fjell::FjMeshLodLevel);
 
+    // SDF section (v4)
+    header.sdf_resolution = result.sdf_resolution;
+    header.sdf_min = result.sdf_min;
+    header.sdf_max = result.sdf_max;
+    if (result.sdf_resolution > 0 && !result.sdf_data.empty()) {
+        header.sdf_data_offset = align_to(offset, 4);
+        offset = header.sdf_data_offset + result.sdf_data.size() * sizeof(int16_t);
+    } else {
+        header.sdf_data_offset = 0;
+    }
+
     uint64_t file_size = offset;
 
     // Write header
@@ -379,6 +523,12 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
 
     pad_to(header.lod_levels_offset);
     std::fwrite(result.lod_levels.data(), sizeof(fjell::FjMeshLodLevel), result.lod_levels.size(), f);
+
+    // SDF data (v4)
+    if (header.sdf_data_offset > 0 && !result.sdf_data.empty()) {
+        pad_to(header.sdf_data_offset);
+        std::fwrite(result.sdf_data.data(), sizeof(int16_t), result.sdf_data.size(), f);
+    }
 
     std::fclose(f);
 
