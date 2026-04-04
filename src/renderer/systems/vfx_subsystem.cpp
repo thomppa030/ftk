@@ -5,6 +5,7 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/systems/vfx_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
+#include "renderer/systems/vfx_module.hpp"
 #include "scene/scene.hpp"
 
 namespace fjell {
@@ -45,7 +46,22 @@ void VfxSubsystem::spawn(VfxAssetHandle asset_handle, const glm::vec3& position,
     // Load a fresh copy of the effect (modules contain unique_ptrs, can't copy)
     auto path = resources.asset_path_of(asset_handle);
     if (!path.empty()) {
-        emitter.effect = std::make_shared<VfxEffect>(load_vfx_effect(path));
+        auto loaded = load_vfx_effect(path);
+
+        // Resolve texture modules to bindless indices
+        for (auto& em : loaded.emitters) {
+            for (auto& mod : em.spawn_modules) {
+                if (mod->type() == ModuleType::initial_texture) {
+                    auto* tex = static_cast<InitialTextureModule*>(mod.get());
+                    if (!tex->texture_path.empty()) {
+                        auto r = resources.load_texture(tex->texture_path);
+                        if (r) tex->bindless_index = resources.bindless_index(*r);
+                    }
+                }
+            }
+        }
+
+        emitter.effect = std::make_shared<VfxEffect>(std::move(loaded));
         emitter.vfx_path = path;
     }
 
