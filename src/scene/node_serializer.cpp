@@ -186,7 +186,8 @@ static void load_components(Node& node, const nlohmann::json& j,
                     if (mod->type() == ModuleType::initial_texture) {
                         auto* tex_mod = static_cast<InitialTextureModule*>(mod.get());
                         if (!tex_mod->texture_path.empty()) {
-                            auto result = resources.load_texture(tex_mod->texture_path);
+                            auto result = resources.load_texture(
+                                base_path::resolve_asset(tex_mod->texture_path, project));
                             if (result) {
                                 tex_mod->bindless_index = resources.bindless_index(*result);
                             }
