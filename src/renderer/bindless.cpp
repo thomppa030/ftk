@@ -106,6 +106,7 @@ Result<> BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_dev
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
     material_ssbo_->map();
+    std::memset(material_ssbo_->mapped(), 0, mat_ssbo_size);
 
     // Pre-allocate custom params SSBO
     VkDeviceSize params_ssbo_size = INITIAL_PARAMS_CAPACITY * sizeof(float);
