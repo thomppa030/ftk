@@ -44,6 +44,8 @@ layout(location = 2) in vec2 in_tex_coord;
 layout(location = 3) in vec3 in_normal;
 layout(location = 4) in vec4 in_tangent;
 
+invariant gl_Position;
+
 void main() {
     uint draw_index = gl_BaseInstance;
     mat4 model = draws[draw_index].model;
@@ -62,5 +64,6 @@ void main() {
 /*FJSL_VERTEX_USER_CODE*/
     }
 
-    gl_Position = ubo.projection * ubo.view * model * vec4(VERTEX, 1.0);
+    vec4 world_pos = model * vec4(VERTEX, 1.0);
+    gl_Position = ubo.projection * ubo.view * world_pos;
 }
