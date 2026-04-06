@@ -568,6 +568,9 @@ Engine::~Engine() {
     contexts_.clear();
     scene_context_ = nullptr;
     scene_ = {};
+    // Free VMA-backed resources before VulkanContext (and its allocator) is destroyed.
+    subsystems_.clear();
+    asset_loader_.reset();
     resource_manager_.reset();
     IconCache::set_instance(nullptr);
     icon_cache_.reset();

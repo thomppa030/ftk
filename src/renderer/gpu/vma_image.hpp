@@ -11,6 +11,8 @@ namespace fjell {
 
 /// Create a VMA-backed image. Returns VK_SUCCESS on success.
 /// Writes the image handle to *image and the allocation to *allocation.
+/// Create a VMA-backed image. Returns VK_SUCCESS on success.
+/// Writes the image handle to *image and the allocation to *allocation.
 inline VkResult create_vma_image(VmaAllocator allocator,
                                  const VkImageCreateInfo* image_info,
                                  VkImage* image,

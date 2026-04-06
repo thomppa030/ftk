@@ -150,6 +150,9 @@ GpuContext::~GpuContext() {
     }
 #endif
 
+    // Release swapchain VMA images before destroying allocator.
+    swapchain_.cleanup();
+
     secondary_pools_.destroy();
     if (command_pool_ != VK_NULL_HANDLE)
         vkDestroyCommandPool(vk_device, command_pool_, nullptr);
