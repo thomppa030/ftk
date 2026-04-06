@@ -31,6 +31,8 @@ layout(location = 4) in vec4 in_tangent;
 layout(location = 5) in uvec4 in_bone_ids;
 layout(location = 6) in vec4 in_bone_weights;
 
+invariant gl_Position;
+
 void main() {
     DrawData dd = draws[gl_BaseInstance];
     uint base = dd.bone_offset;
@@ -41,5 +43,6 @@ void main() {
               + bone_matrices[base + in_bone_ids.w] * in_bone_weights.w;
 
     vec4 skinned_pos = skin * vec4(in_position, 1.0);
-    gl_Position = ubo.projection * ubo.view * dd.model * skinned_pos;
+    vec4 world_pos = dd.model * skinned_pos;
+    gl_Position = ubo.projection * ubo.view * world_pos;
 }

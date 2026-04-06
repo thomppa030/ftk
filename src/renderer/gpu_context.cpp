@@ -84,7 +84,7 @@ GpuContext::GpuContext(Window& window)
         meshlet_buffer_ = std::make_unique<MeshletBuffer>(
             device_.handle(), allocator_, command_pool_, device_.graphics_queue());
         meshlet_descriptor_.create(device_.handle(), allocator_);
-        use_mesh_shaders_ = true;
+        use_mesh_shaders_ = false;
     }
 
     // Query and clamp MSAA sample count

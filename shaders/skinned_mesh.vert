@@ -38,6 +38,8 @@ layout(location = 3) out vec3 frag_world_normal;
 layout(location = 4) out mat3 frag_TBN;
 layout(location = 7) flat out uint frag_draw_index;
 
+invariant gl_Position;
+
 void main() {
     uint draw_index = gl_BaseInstance;
     DrawData dd = draws[draw_index];

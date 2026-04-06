@@ -14,18 +14,21 @@ FetchContent_Declare(
     glfw
     GIT_REPOSITORY https://github.com/glfw/glfw.git
     GIT_TAG        3.4
+    GIT_SHALLOW    TRUE
 )
 
 FetchContent_Declare(
     glm
     GIT_REPOSITORY https://github.com/g-truc/glm.git
     GIT_TAG        1.0.1
+    GIT_SHALLOW    TRUE
 )
 
 FetchContent_Declare(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG        v1.15.0
+    GIT_SHALLOW    TRUE
 )
 
 FetchContent_Declare(
@@ -67,6 +70,7 @@ FetchContent_Declare(
     json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
 )
 
 set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
@@ -75,6 +79,7 @@ FetchContent_Declare(
     JoltPhysics
     GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
     GIT_TAG        v5.2.0
+    GIT_SHALLOW    TRUE
     SOURCE_SUBDIR  Build
 )
 
@@ -197,6 +202,7 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
     EXCLUDE_FROM_ALL
 )
+
 
 FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype tracy meshoptimizer ozz-animation assimp Catch2)
 

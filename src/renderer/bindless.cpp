@@ -107,6 +107,7 @@ Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator) {
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     material_ssbo_->map();
+    std::memset(material_ssbo_->mapped(), 0, mat_ssbo_size);
 
     // Pre-allocate custom params SSBO
     VkDeviceSize params_ssbo_size = INITIAL_PARAMS_CAPACITY * sizeof(float);
