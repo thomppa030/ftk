@@ -32,6 +32,7 @@ BlendSpace1DEditorContext::BlendSpace1DEditorContext(BlendSpace1DEditorDeps deps
 
 void BlendSpace1DEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
+                           deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "BS1D Preview");
 

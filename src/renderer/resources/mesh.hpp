@@ -14,7 +14,7 @@ namespace fjell {
 
 class Mesh {
 public:
-    Mesh(VkDevice device, VkPhysicalDevice physical_device,
+    Mesh(VmaAllocator allocator, VkDevice device,
          VkCommandPool command_pool, VkQueue transfer_queue,
          std::span<const Vertex> vertices,
          std::span<const uint32_t> indices);

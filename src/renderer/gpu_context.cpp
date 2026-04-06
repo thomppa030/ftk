@@ -47,27 +47,43 @@ void transition_image(VkCommandBuffer cmd, VkImage image,
 
 // ── GpuContext ───────────────────────────────────────────────────────────
 
+static VmaAllocator create_vma_allocator(const Device& device) {
+    VmaAllocatorCreateInfo vma_ci{};
+    vma_ci.instance = device.instance();
+    vma_ci.physicalDevice = device.physical_device();
+    vma_ci.device = device.handle();
+    vma_ci.vulkanApiVersion = VK_API_VERSION_1_3;
+    VmaAllocator allocator{VK_NULL_HANDLE};
+    if (vmaCreateAllocator(&vma_ci, &allocator) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create VMA allocator");
+    }
+    return allocator;
+}
+
 GpuContext::GpuContext(Window& window)
     : window_{window}
     , device_{window}
-    , swapchain_{device_, window}
+    , allocator_{create_vma_allocator(device_)}
+    , swapchain_{device_, allocator_, window}
     , render_stats_{std::make_unique<RenderStats>()} {
     FJELL_GFX_INFO("Initializing GPU context");
+    FJELL_GFX_INFO("VMA allocator created");
+
     create_command_pool();
     create_descriptor_resources();
-    if (auto r = bindless_textures_.create(device_.handle(), device_.physical_device()); !r) {
+    if (auto r = bindless_textures_.create(device_.handle(), allocator_); !r) {
         throw std::runtime_error(r.error());
     }
 
     // Multi-draw indirect setup
     mega_buffer_ = std::make_unique<MegaBuffer>(
-        device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
+        device_.handle(), allocator_, command_pool_, device_.graphics_queue());
 
     // Meshlet buffers + descriptor (uploaded at model load time)
     if (device_.mesh_shader_supported()) {
         meshlet_buffer_ = std::make_unique<MeshletBuffer>(
-            device_.handle(), device_.physical_device(), command_pool_, device_.graphics_queue());
-        meshlet_descriptor_.create(device_.handle(), device_.physical_device());
+            device_.handle(), allocator_, command_pool_, device_.graphics_queue());
+        meshlet_descriptor_.create(device_.handle(), allocator_);
         use_mesh_shaders_ = true;
     }
 
@@ -137,6 +153,9 @@ GpuContext::~GpuContext() {
     secondary_pools_.destroy();
     if (command_pool_ != VK_NULL_HANDLE)
         vkDestroyCommandPool(vk_device, command_pool_, nullptr);
+
+    if (allocator_ != VK_NULL_HANDLE)
+        vmaDestroyAllocator(allocator_);
 }
 
 void GpuContext::create_descriptor_resources() {
@@ -221,25 +240,25 @@ void GpuContext::create_descriptor_resources() {
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         uniform_buffers_[i] = std::make_unique<Buffer>(
-            vk_device, device_.physical_device(), sizeof(GlobalUbo),
+            allocator_, sizeof(GlobalUbo),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         uniform_buffers_[i]->map();
 
         // Light SSBO (host-visible for CPU upload)
         light_ssbo_[i] = std::make_unique<Buffer>(
-            vk_device, device_.physical_device(), light_ssbo_size,
+            allocator_, light_ssbo_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         light_ssbo_[i]->map();
 
         // Tile light index SSBO (device-local, compute writes, fragment reads)
         tile_light_ssbo_[i] = std::make_unique<Buffer>(
-            vk_device, device_.physical_device(), tile_ssbo_size,
+            allocator_, tile_ssbo_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            VMA_MEMORY_USAGE_AUTO);
     }
 
     // Depth sampler for compute light culling (nearest, clamp-to-edge)
@@ -385,6 +404,7 @@ PassResources GpuContext::pass_resources() const {
     res.depth_format = device_.find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = msaa_samples_;
+    res.allocator = allocator_;
     return res;
 }
 

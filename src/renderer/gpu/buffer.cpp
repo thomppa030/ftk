@@ -7,34 +7,24 @@
 
 namespace fjell {
 
-Buffer::Buffer(VkDevice device, VkPhysicalDevice physical_device,
-               VkDeviceSize size, VkBufferUsageFlags usage,
-               VkMemoryPropertyFlags properties)
-    : device_{device}, size_{size} {
+Buffer::Buffer(VmaAllocator allocator, VkDeviceSize size,
+               VkBufferUsageFlags usage, VmaMemoryUsage memory_usage,
+               VmaAllocationCreateFlags flags)
+    : allocator_{allocator}, size_{size} {
     VkBufferCreateInfo buffer_info{};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_info.size = size;
     buffer_info.usage = usage;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(device_, &buffer_info, nullptr, &buffer_) != VK_SUCCESS) {
+    VmaAllocationCreateInfo alloc_ci{};
+    alloc_ci.usage = memory_usage;
+    alloc_ci.flags = flags;
+
+    if (vmaCreateBuffer(allocator_, &buffer_info, &alloc_ci,
+                        &buffer_, &allocation_, nullptr) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create buffer");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetBufferMemoryRequirements(device_, buffer_, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = mem_reqs.size;
-    alloc_info.memoryTypeIndex = find_memory_type(
-        physical_device, mem_reqs.memoryTypeBits, properties);
-
-    if (vkAllocateMemory(device_, &alloc_info, nullptr, &memory_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate buffer memory");
-    }
-
-    vkBindBufferMemory(device_, buffer_, memory_, 0);
 }
 
 Buffer::~Buffer() {
@@ -42,17 +32,14 @@ Buffer::~Buffer() {
         unmap();
     }
     if (buffer_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device_, buffer_, nullptr);
-    }
-    if (memory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(device_, memory_, nullptr);
+        vmaDestroyBuffer(allocator_, buffer_, allocation_);
     }
 }
 
 Buffer::Buffer(Buffer&& other) noexcept
-    : device_{other.device_}
+    : allocator_{other.allocator_}
     , buffer_{std::exchange(other.buffer_, VK_NULL_HANDLE)}
-    , memory_{std::exchange(other.memory_, VK_NULL_HANDLE)}
+    , allocation_{std::exchange(other.allocation_, VK_NULL_HANDLE)}
     , size_{other.size_}
     , mapped_{std::exchange(other.mapped_, nullptr)} {
 }
@@ -60,15 +47,13 @@ Buffer::Buffer(Buffer&& other) noexcept
 Buffer& Buffer::operator=(Buffer&& other) noexcept {
     if (this != &other) {
         if (buffer_ != VK_NULL_HANDLE) {
-            vkDestroyBuffer(device_, buffer_, nullptr);
-        }
-        if (memory_ != VK_NULL_HANDLE) {
-            vkFreeMemory(device_, memory_, nullptr);
+            if (mapped_) unmap();
+            vmaDestroyBuffer(allocator_, buffer_, allocation_);
         }
 
-        device_ = other.device_;
+        allocator_ = other.allocator_;
         buffer_ = std::exchange(other.buffer_, VK_NULL_HANDLE);
-        memory_ = std::exchange(other.memory_, VK_NULL_HANDLE);
+        allocation_ = std::exchange(other.allocation_, VK_NULL_HANDLE);
         size_ = other.size_;
         mapped_ = std::exchange(other.mapped_, nullptr);
     }
@@ -77,14 +62,14 @@ Buffer& Buffer::operator=(Buffer&& other) noexcept {
 
 void Buffer::map() {
     if (!mapped_) {
-        vk_check(vkMapMemory(device_, memory_, 0, size_, 0, &mapped_),
+        vk_check(vmaMapMemory(allocator_, allocation_, &mapped_),
                  "Failed to map buffer memory");
     }
 }
 
 void Buffer::unmap() {
     if (mapped_) {
-        vkUnmapMemory(device_, memory_);
+        vmaUnmapMemory(allocator_, allocation_);
         mapped_ = nullptr;
     }
 }
@@ -135,26 +120,11 @@ void Buffer::copy(VkDevice device, VkCommandPool command_pool,
     vkFreeCommandBuffers(device, command_pool, 1, &cmd);
 }
 
-uint32_t Buffer::find_memory_type(VkPhysicalDevice physical_device,
-                                  uint32_t type_filter,
-                                  VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
-
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
-        if ((type_filter & (1 << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-    throw std::runtime_error("Failed to find suitable memory type");
-}
-
-Result<Buffer> Buffer::create(VkDevice device, VkPhysicalDevice physical_device,
-                              VkDeviceSize size, VkBufferUsageFlags usage,
-                              VkMemoryPropertyFlags properties) {
+Result<Buffer> Buffer::create(VmaAllocator allocator, VkDeviceSize size,
+                              VkBufferUsageFlags usage, VmaMemoryUsage memory_usage,
+                              VmaAllocationCreateFlags flags) {
     Buffer buf{};
-    buf.device_ = device;
+    buf.allocator_ = allocator;
     buf.size_ = size;
 
     VkBufferCreateInfo buffer_info{};
@@ -163,42 +133,14 @@ Result<Buffer> Buffer::create(VkDevice device, VkPhysicalDevice physical_device,
     buffer_info.usage = usage;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(device, &buffer_info, nullptr, &buf.buffer_) != VK_SUCCESS) {
+    VmaAllocationCreateInfo alloc_ci{};
+    alloc_ci.usage = memory_usage;
+    alloc_ci.flags = flags;
+
+    if (vmaCreateBuffer(allocator, &buffer_info, &alloc_ci,
+                        &buf.buffer_, &buf.allocation_, nullptr) != VK_SUCCESS) {
         return make_error("Failed to create buffer");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetBufferMemoryRequirements(device, buf.buffer_, &mem_reqs);
-
-    VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
-
-    uint32_t mem_type_index = UINT32_MAX;
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
-        if ((mem_reqs.memoryTypeBits & (1 << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
-            mem_type_index = i;
-            break;
-        }
-    }
-    if (mem_type_index == UINT32_MAX) {
-        vkDestroyBuffer(device, buf.buffer_, nullptr);
-        buf.buffer_ = VK_NULL_HANDLE;
-        return make_error("Failed to find suitable memory type for buffer");
-    }
-
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = mem_reqs.size;
-    alloc_info.memoryTypeIndex = mem_type_index;
-
-    if (vkAllocateMemory(device, &alloc_info, nullptr, &buf.memory_) != VK_SUCCESS) {
-        vkDestroyBuffer(device, buf.buffer_, nullptr);
-        buf.buffer_ = VK_NULL_HANDLE;
-        return make_error("Failed to allocate buffer memory");
-    }
-
-    vkBindBufferMemory(device, buf.buffer_, buf.memory_, 0);
     return buf;
 }
 

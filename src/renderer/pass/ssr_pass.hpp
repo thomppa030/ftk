@@ -2,6 +2,7 @@
 
 #include "renderer/pass/render_pass.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -13,7 +14,7 @@ public:
     // Per-viewport resolution-dependent image state.
     struct Images {
         VkImage ssr_image{VK_NULL_HANDLE};
-        VkDeviceMemory ssr_memory{VK_NULL_HANDLE};
+        VmaAllocation ssr_memory{VK_NULL_HANDLE};
         VkImageView ssr_view{VK_NULL_HANDLE};
         VkExtent2D extent{};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
@@ -29,13 +30,13 @@ public:
         VkImageView last_color_view{VK_NULL_HANDLE};
         VkImageView last_mr_view{VK_NULL_HANDLE};
 
-        void create(VkDevice device, VkPhysicalDevice physical_device,
+        void create(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout trace_layout,
                      VkDescriptorSetLayout composite_layout,
                      VkSampler nearest_sampler,
                      uint32_t width, uint32_t height);
-        void destroy(VkDevice device);
-        void resize(VkDevice device, VkPhysicalDevice physical_device,
+        void destroy(VkDevice device, VmaAllocator allocator);
+        void resize(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout trace_layout,
                      VkDescriptorSetLayout composite_layout,
                      VkSampler nearest_sampler,
@@ -79,7 +80,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Resolution-independent (shared across all Images)
     VkSampler linear_sampler_{VK_NULL_HANDLE};

@@ -51,19 +51,19 @@ struct LodLevel {
 class Model {
 public:
     // Load from glTF/GLB file (existing path)
-    Model(VkDevice device, VkPhysicalDevice physical_device,
+    Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_device,
           VkCommandPool command_pool, VkQueue queue,
           const std::string& path, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);
 
     // Create from primitive mesh data (cube/plane/sphere)
-    Model(VkDevice device, VkPhysicalDevice physical_device,
+    Model(VmaAllocator allocator, VkDevice device,
           VkCommandPool command_pool, VkQueue queue,
           const PrimitiveMeshData& data, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);
 
     // Create from pre-loaded .fjmesh data (no parsing, no meshlet building)
-    Model(VkDevice device, VkPhysicalDevice physical_device,
+    Model(VmaAllocator allocator, VkDevice device,
           VkCommandPool command_pool, VkQueue queue,
           FjMeshData&& data, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);

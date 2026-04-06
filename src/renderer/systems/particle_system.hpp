@@ -5,6 +5,7 @@
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include "renderer/renderer_constants.hpp"
@@ -71,7 +72,7 @@ private:
     void init_emitter_range(uint32_t from, uint32_t to);
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     VkQueue queue_{VK_NULL_HANDLE};
 

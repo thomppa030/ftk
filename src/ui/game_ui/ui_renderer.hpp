@@ -30,7 +30,8 @@ static_assert(sizeof(UiWorldPushConstants) == 80);
 
 class UiRenderer {
 public:
-    void create(Device& device, const PassResources& resources,
+    void create(Device& device, VmaAllocator allocator,
+                const PassResources& resources,
                 VkFormat output_format = VK_FORMAT_UNDEFINED);
     void destroy();
 
@@ -105,7 +106,7 @@ private:
     std::array<std::vector<ClipGroup>, MAX_FRAMES_IN_FLIGHT> transparent_groups_;
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Quad pipelines
     VkDescriptorSetLayout quad_set_layout_{VK_NULL_HANDLE};

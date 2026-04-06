@@ -6,10 +6,10 @@
 #include <array>
 namespace fjell {
 
-Result<> CullPass::create(VkDevice device, VkPhysicalDevice physical_device,
+Result<> CullPass::create(VkDevice device, VmaAllocator allocator,
                           VkDescriptorSetLayout global_set_layout) {
     device_ = device;
-    physical_device_ = physical_device;
+    allocator_ = allocator;
 
     // Set 1 layout: cull-specific buffers
     // binding 0: DrawAABB[] (read-only)
@@ -111,17 +111,17 @@ void CullPass::ensure_capacity(uint32_t frame_index, uint32_t count) {
     if (new_cap < 256) new_cap = 256;
 
     aabb_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_,
+        allocator_,
         new_cap * sizeof(GpuDrawAABB),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     aabb_buffers_[frame_index]->map();
 
     visibility_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_,
+        allocator_,
         new_cap * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     visibility_buffers_[frame_index]->map();
 
     capacities_[frame_index] = new_cap;

@@ -1,5 +1,6 @@
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
@@ -14,7 +15,7 @@ namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void HizPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+void HizPass::Images::create(VkDevice device, VmaAllocator allocator,
                                VkDescriptorSetLayout set_layout, VkSampler sampler,
                                uint32_t width, uint32_t height) {
     // Hi-Z mip 0 = half-res
@@ -36,21 +37,8 @@ void HizPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
     image_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    vk_check(vkCreateImage(device, &image_ci, nullptr, &hiz_image),
+    vk_check(create_vma_image(allocator, &image_ci, &hiz_image, &hiz_memory),
              "Failed to create Hi-Z image");
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device, hiz_image, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vk_check(vkAllocateMemory(device, &alloc, nullptr, &hiz_memory),
-             "Failed to allocate Hi-Z memory");
-    vkBindImageMemory(device, hiz_image, hiz_memory, 0);
 
     // Sampled view: all mips
     VkImageViewCreateInfo view_ci{};
@@ -128,7 +116,7 @@ void HizPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
 
 }
 
-void HizPass::Images::destroy(VkDevice device) {
+void HizPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     if (pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, pool, nullptr);
         pool = VK_NULL_HANDLE;
@@ -144,21 +132,16 @@ void HizPass::Images::destroy(VkDevice device) {
         vkDestroyImageView(device, hiz_sampled_view, nullptr);
         hiz_sampled_view = VK_NULL_HANDLE;
     }
-    if (hiz_image != VK_NULL_HANDLE) {
-        vkDestroyImage(device, hiz_image, nullptr);
-        hiz_image = VK_NULL_HANDLE;
-    }
-    if (hiz_memory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, hiz_memory, nullptr);
-        hiz_memory = VK_NULL_HANDLE;
-    }
+    destroy_vma_image(allocator, hiz_image, hiz_memory);
+    hiz_image = VK_NULL_HANDLE;
+    hiz_memory = VK_NULL_HANDLE;
     hiz_mip_count = 0;
     hiz_width = 0;
     hiz_height = 0;
     last_depth_view = VK_NULL_HANDLE;
 }
 
-void HizPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+void HizPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                VkDescriptorSetLayout set_layout, VkSampler sampler,
                                uint32_t width, uint32_t height) {
     uint32_t new_w = std::max(width / 2, 1u);
@@ -166,15 +149,15 @@ void HizPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
     if (new_w == hiz_width && new_h == hiz_height) return;
     vkDeviceWaitIdle(device);
 
-    destroy(device);
-    create(device, physical_device, set_layout, sampler, width, height);
+    destroy(device, allocator);
+    create(device, allocator, set_layout, sampler, width, height);
 }
 
 // ── HizPass (singleton) ─────────────────────────────────────────────────────
 
-Result<> HizPass::create(Device& device, const PassResources& /*resources*/) {
+Result<> HizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
 
     // Sampler: nearest filter, clamp to edge, all mips
     VkSamplerCreateInfo sampler_ci{};
@@ -246,7 +229,7 @@ Result<> HizPass::create(Device& device, const PassResources& /*resources*/) {
 }
 
 void HizPass::destroy() {
-    default_images_.destroy(device_);
+    default_images_.destroy(device_, allocator_);
     if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
     if (set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, set_layout_, nullptr); set_layout_ = VK_NULL_HANDLE; }
@@ -254,7 +237,7 @@ void HizPass::destroy() {
 }
 
 void HizPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, physical_device_, set_layout_, sampler_, width, height);
+    default_images_.resize(device_, allocator_, set_layout_, sampler_, width, height);
 }
 
 void HizPass::record(const FrameContext& ctx) {
@@ -273,8 +256,8 @@ void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
     uint32_t needed_w = std::max(depth_width / 2, 1u);
     uint32_t needed_h = std::max(depth_height / 2, 1u);
     if (needed_w != imgs.hiz_width || needed_h != imgs.hiz_height) {
-        imgs.destroy(device_);
-        imgs.create(device_, physical_device_, set_layout_, sampler_, depth_width, depth_height);
+        imgs.destroy(device_, allocator_);
+        imgs.create(device_, allocator_, set_layout_, sampler_, depth_width, depth_height);
     }
     if (imgs.hiz_mip_count == 0) return;
 

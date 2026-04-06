@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -17,11 +18,11 @@ struct RenderTargetDesc {
     VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
 };
 
-/// A pooled render target — image + view + memory.
+/// A pooled render target — image + view + allocation.
 struct RenderTarget {
     VkImage image{VK_NULL_HANDLE};
     VkImageView view{VK_NULL_HANDLE};
-    VkDeviceMemory memory{VK_NULL_HANDLE};
+    VmaAllocation allocation{VK_NULL_HANDLE};
     VkExtent2D extent{};
     VkFormat format{VK_FORMAT_UNDEFINED};
 };
@@ -32,7 +33,7 @@ struct RenderTarget {
 /// create_images/destroy_images boilerplate for intermediate targets.
 class RenderTargetPool {
 public:
-    RenderTargetPool(VkDevice device, VkPhysicalDevice physical_device);
+    RenderTargetPool(VkDevice device, VmaAllocator allocator);
     ~RenderTargetPool();
 
     RenderTargetPool(const RenderTargetPool&) = delete;
@@ -67,7 +68,7 @@ private:
     void destroy_entry(PoolEntry& entry);
 
     VkDevice device_;
-    VkPhysicalDevice physical_device_;
+    VmaAllocator allocator_;
     std::vector<PoolEntry> entries_;
 
     static constexpr uint32_t MAX_UNUSED_FRAMES = 8;

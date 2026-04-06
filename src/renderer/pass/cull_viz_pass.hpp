@@ -4,6 +4,7 @@
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -34,13 +35,13 @@ private:
     void destroy_image();
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     VkImage image_{VK_NULL_HANDLE};
-    VkDeviceMemory memory_{VK_NULL_HANDLE};
+    VmaAllocation memory_{VK_NULL_HANDLE};
     VkImageView view_{VK_NULL_HANDLE};
     VkImage depth_image_{VK_NULL_HANDLE};
-    VkDeviceMemory depth_memory_{VK_NULL_HANDLE};
+    VmaAllocation depth_memory_{VK_NULL_HANDLE};
     VkImageView depth_view_{VK_NULL_HANDLE};
     VkFormat depth_format_{VK_FORMAT_UNDEFINED};
     VkSampler sampler_{VK_NULL_HANDLE};

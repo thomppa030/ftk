@@ -4,36 +4,36 @@
 
 namespace fjell {
 
-PostProcessResources::PostProcessResources(VkDevice device, VkPhysicalDevice physical_device,
+PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocator,
                                             uint32_t width, uint32_t height,
                                             const PostProcessConfig& config,
                                             const PassRefs& passes)
-    : device_(device), physical_device_(physical_device), config_(config)
+    : device_(device), allocator_(allocator), config_(config)
     , passes_storage_(std::make_unique<PassRefs>(passes)) {
 
     passes_ = passes_storage_.get();
 
     if (config_.hiz && width > 0 && height > 0) {
-        hiz_images_.create(device_, physical_device_,
+        hiz_images_.create(device_, allocator_,
                            passes_->hiz.image_set_layout(), passes_->hiz.sampler(),
                            width, height);
     }
     if (config_.gtao) {
         uint32_t half_w = std::max(1u, width / 2);
         uint32_t half_h = std::max(1u, height / 2);
-        gtao_images_.create(device_, physical_device_,
+        gtao_images_.create(device_, allocator_,
                             passes_->gtao.image_set_layout(), passes_->gtao.ao_sampler(),
                             half_w, half_h);
     }
     if (config_.bloom && width > 0 && height > 0) {
-        bloom_images_.create(device_, physical_device_,
+        bloom_images_.create(device_, allocator_,
                              passes_->bloom.single_tex_set_layout(),
                              passes_->bloom.composite_set_layout(),
                              passes_->bloom.bloom_sampler(),
                              width, height);
     }
     if (config_.ssr && width > 0 && height > 0) {
-        ssr_images_.create(device_, physical_device_,
+        ssr_images_.create(device_, allocator_,
                            passes_->ssr.trace_set_layout(),
                            passes_->ssr.composite_set_layout(),
                            passes_->ssr.nearest_sampler(),
@@ -42,7 +42,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VkPhysicalDevice phy
     if (config_.volumetric_fog) {
         uint32_t vol_w = std::max(1u, width / VolumetricFogPass::SCREEN_DIVISOR);
         uint32_t vol_h = std::max(1u, height / VolumetricFogPass::SCREEN_DIVISOR);
-        fog_images_.create(device_, physical_device_,
+        fog_images_.create(device_, allocator_,
                            passes_->fog.inject_set_layout(),
                            passes_->fog.temporal_set_layout(),
                            passes_->fog.integrate_set_layout(),
@@ -51,7 +51,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VkPhysicalDevice phy
                            vol_w, vol_h);
     }
     if (config_.tonemap && width > 0 && height > 0) {
-        tonemap_images_.create(device_, physical_device_,
+        tonemap_images_.create(device_, allocator_,
                                passes_->tonemap.image_set_layout(),
                                width, height);
     }
@@ -59,16 +59,16 @@ PostProcessResources::PostProcessResources(VkDevice device, VkPhysicalDevice phy
 
 PostProcessResources::~PostProcessResources() {
     if (device_ == VK_NULL_HANDLE) return;
-    hiz_images_.destroy(device_);
-    gtao_images_.destroy(device_);
-    bloom_images_.destroy(device_);
-    ssr_images_.destroy(device_);
-    fog_images_.destroy(device_);
-    tonemap_images_.destroy(device_);
+    hiz_images_.destroy(device_, allocator_);
+    gtao_images_.destroy(device_, allocator_);
+    bloom_images_.destroy(device_, allocator_);
+    ssr_images_.destroy(device_, allocator_);
+    fog_images_.destroy(device_, allocator_);
+    tonemap_images_.destroy(device_, allocator_);
 }
 
 PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcept
-    : device_(other.device_), physical_device_(other.physical_device_)
+    : device_(other.device_), allocator_(other.allocator_)
     , config_(other.config_)
     , passes_storage_(std::move(other.passes_storage_))
     , hiz_images_(other.hiz_images_), gtao_images_(other.gtao_images_)
@@ -87,15 +87,15 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
 PostProcessResources& PostProcessResources::operator=(PostProcessResources&& other) noexcept {
     if (this != &other) {
         if (device_ != VK_NULL_HANDLE) {
-            hiz_images_.destroy(device_);
-            gtao_images_.destroy(device_);
-            bloom_images_.destroy(device_);
-            ssr_images_.destroy(device_);
-            fog_images_.destroy(device_);
-            tonemap_images_.destroy(device_);
+            hiz_images_.destroy(device_, allocator_);
+            gtao_images_.destroy(device_, allocator_);
+            bloom_images_.destroy(device_, allocator_);
+            ssr_images_.destroy(device_, allocator_);
+            fog_images_.destroy(device_, allocator_);
+            tonemap_images_.destroy(device_, allocator_);
         }
         device_ = other.device_;
-        physical_device_ = other.physical_device_;
+        allocator_ = other.allocator_;
         config_ = other.config_;
         passes_storage_ = std::move(other.passes_storage_);
         passes_ = passes_storage_.get();
@@ -120,31 +120,31 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     if (passes_ == nullptr || width == 0 || height == 0) return;
 
     if (config_.hiz) {
-        hiz_images_.resize(device_, physical_device_,
+        hiz_images_.resize(device_, allocator_,
                            passes_->hiz.image_set_layout(), passes_->hiz.sampler(),
                            width, height);
     }
     if (config_.gtao) {
-        gtao_images_.resize(device_, physical_device_,
+        gtao_images_.resize(device_, allocator_,
                             passes_->gtao.image_set_layout(), passes_->gtao.ao_sampler(),
                             width, height);
     }
     if (config_.bloom) {
-        bloom_images_.resize(device_, physical_device_,
+        bloom_images_.resize(device_, allocator_,
                              passes_->bloom.single_tex_set_layout(),
                              passes_->bloom.composite_set_layout(),
                              passes_->bloom.bloom_sampler(),
                              width, height);
     }
     if (config_.ssr) {
-        ssr_images_.resize(device_, physical_device_,
+        ssr_images_.resize(device_, allocator_,
                            passes_->ssr.trace_set_layout(),
                            passes_->ssr.composite_set_layout(),
                            passes_->ssr.nearest_sampler(),
                            width, height);
     }
     if (config_.volumetric_fog) {
-        fog_images_.resize(device_, physical_device_,
+        fog_images_.resize(device_, allocator_,
                            passes_->fog.inject_set_layout(),
                            passes_->fog.temporal_set_layout(),
                            passes_->fog.integrate_set_layout(),
@@ -153,7 +153,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
                            width, height);
     }
     if (config_.tonemap) {
-        tonemap_images_.resize(device_, physical_device_,
+        tonemap_images_.resize(device_, allocator_,
                                passes_->tonemap.image_set_layout(),
                                width, height);
     }

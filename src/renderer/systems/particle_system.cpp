@@ -21,7 +21,7 @@ constexpr VkDeviceSize PARTICLE_STRIDE = 80;
 
 void ParticleSystem::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
     global_set_layout_ = resources.global_set_layout;
     bindless_set_layout_ = resources.material_set_layout;
     color_format_ = resources.color_format;
@@ -497,21 +497,21 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkDeviceSize emitter_data_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(GpuEmitterData);
 
     mega_particle_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, particle_size,
-        STORAGE_SRC_DST, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocator_, particle_size,
+        STORAGE_SRC_DST, VMA_MEMORY_USAGE_AUTO);
 
     mega_counter_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, counter_size,
-        STORAGE_SRC_DST, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocator_, counter_size,
+        STORAGE_SRC_DST, VMA_MEMORY_USAGE_AUTO);
 
     mega_dead_list_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, dead_list_size,
-        STORAGE_SRC_DST, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocator_, dead_list_size,
+        STORAGE_SRC_DST, VMA_MEMORY_USAGE_AUTO);
 
     mega_indirect_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, indirect_size,
+        allocator_, indirect_size,
         STORAGE_SRC_DST | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     // Copy old data to new buffers if we had previous data
     if (old_particle && old_particle_cap > 0) {
@@ -558,18 +558,18 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     }
 
     emitter_data_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, emitter_data_size,
+        allocator_, emitter_data_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     emitter_data_buffer_->map();
 
     // Module buffer: 1024 bytes per emitter (largest module is 72 bytes,
     // emitters can have 10+ modules, so 512 is too small)
     VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * 1024;
     module_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, module_size,
+        allocator_, module_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     module_buffer_->map();
 
     // ── Allocate descriptor sets ──

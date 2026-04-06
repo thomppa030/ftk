@@ -3,6 +3,7 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -17,7 +18,7 @@ public:
     // Per-viewport resolution-dependent image state.
     struct Images {
         VkImage hiz_image{VK_NULL_HANDLE};
-        VkDeviceMemory hiz_memory{VK_NULL_HANDLE};
+        VmaAllocation hiz_memory{VK_NULL_HANDLE};
         VkImageView hiz_sampled_view{VK_NULL_HANDLE};
         std::array<VkImageView, MAX_HIZ_MIPS> hiz_mip_views{};
         uint32_t hiz_mip_count{0};
@@ -31,11 +32,11 @@ public:
         // Cached depth view to avoid redundant descriptor updates
         VkImageView last_depth_view{VK_NULL_HANDLE};
 
-        void create(VkDevice device, VkPhysicalDevice physical_device,
+        void create(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout, VkSampler sampler,
                      uint32_t width, uint32_t height);
-        void destroy(VkDevice device);
-        void resize(VkDevice device, VkPhysicalDevice physical_device,
+        void destroy(VkDevice device, VmaAllocator allocator);
+        void resize(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout, VkSampler sampler,
                      uint32_t width, uint32_t height);
 
@@ -61,7 +62,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Resolution-independent (shared across all Images)
     VkSampler sampler_{VK_NULL_HANDLE};

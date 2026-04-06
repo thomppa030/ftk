@@ -47,7 +47,8 @@ struct PassResources;
 ///
 class GameUi {
 public:
-    void create(Device& device, const PassResources& resources,
+    void create(Device& device, VmaAllocator allocator,
+                const PassResources& resources,
                 BindlessTextures& bindless,
                 VkCommandPool command_pool, VkQueue queue,
                 const std::string& font_path,
@@ -55,7 +56,8 @@ public:
 
     /// Create with a shared font atlas (avoids expensive re-generation).
     /// The caller must keep the source GameUi alive for the font atlas lifetime.
-    void create_with_shared_font(Device& device, const PassResources& resources,
+    void create_with_shared_font(Device& device, VmaAllocator allocator,
+                                 const PassResources& resources,
                                  BindlessTextures& bindless,
                                  const FontAtlas& shared_atlas,
                                  VkFormat output_format = VK_FORMAT_UNDEFINED);

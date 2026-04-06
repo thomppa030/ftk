@@ -40,7 +40,7 @@ public:
         TonemapPass& tonemap;
     };
 
-    PostProcessResources(VkDevice device, VkPhysicalDevice physical_device,
+    PostProcessResources(VkDevice device, VmaAllocator allocator,
                           uint32_t width, uint32_t height,
                           const PostProcessConfig& config,
                           const PassRefs& passes);
@@ -68,7 +68,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     PostProcessConfig config_;
 
     // Cached layout/sampler refs for resize (non-owning)

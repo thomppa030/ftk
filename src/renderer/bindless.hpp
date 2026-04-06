@@ -45,7 +45,7 @@ public:
     static constexpr uint32_t MAX_TEXTURES = 1024;
     static constexpr uint32_t MAX_MATERIALS = 1024;
 
-    [[nodiscard]] Result<> create(VkDevice device, VkPhysicalDevice physical_device);
+    [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator);
     void destroy();
 
     // Register a texture and get its bindless index.
@@ -93,7 +93,7 @@ private:
     static constexpr uint32_t INITIAL_PARAMS_CAPACITY = 4096; // floats
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     VkDescriptorSetLayout layout_{VK_NULL_HANDLE};
     VkDescriptorPool pool_{VK_NULL_HANDLE};

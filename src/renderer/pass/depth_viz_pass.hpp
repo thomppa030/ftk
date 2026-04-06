@@ -3,6 +3,7 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 namespace fjell {
@@ -28,11 +29,11 @@ private:
     void destroy_image();
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Output color image
     VkImage image_{VK_NULL_HANDLE};
-    VkDeviceMemory memory_{VK_NULL_HANDLE};
+    VmaAllocation memory_{VK_NULL_HANDLE};
     VkImageView view_{VK_NULL_HANDLE};
     VkSampler sampler_{VK_NULL_HANDLE};
     VkExtent2D extent_{};

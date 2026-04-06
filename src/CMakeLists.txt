@@ -27,6 +27,7 @@ endif()
 # --- Main engine ---
 add_executable(fjell
     main.cpp
+    renderer/gpu/vma_impl.cpp
     core/base_path.cpp
     core/clock.cpp
     core/game_builder.cpp
@@ -241,6 +242,7 @@ target_link_libraries(fjell PRIVATE
     fastgltf::fastgltf
     glfw
     glm::glm
+    GPUOpen::VulkanMemoryAllocator
     Jolt
     nlohmann_json::nlohmann_json
     spdlog::spdlog
@@ -277,6 +279,14 @@ if(MSVC)
 else()
     target_compile_options(fjell PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
+
+# Treat VMA headers as system headers to suppress warnings from them
+get_target_property(VMA_INCLUDE_DIRS GPUOpen::VulkanMemoryAllocator INTERFACE_INCLUDE_DIRECTORIES)
+if(VMA_INCLUDE_DIRS)
+    target_include_directories(fjell SYSTEM PRIVATE ${VMA_INCLUDE_DIRS})
+endif()
+# VMA implementation compiles third-party code — suppress warnings
+set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
 
 # Treat fastgltf headers as system headers to suppress warnings from them
 get_target_property(FASTGLTF_INCLUDE_DIRS fastgltf::fastgltf INTERFACE_INCLUDE_DIRECTORIES)
@@ -336,6 +346,7 @@ file(CREATE_LINK "${CMAKE_SOURCE_DIR}/engine_assets" "${CMAKE_BINARY_DIR}/engine
 # --- Fjell Hub (launcher) ---
 add_executable(fjell-hub
     hub/main.cpp
+    renderer/gpu/vma_impl.cpp
     hub/hub_ui.cpp
     hub/recent_projects.cpp
     ui/file_browser.cpp
@@ -369,6 +380,7 @@ target_include_directories(fjell-hub SYSTEM PRIVATE
 target_link_libraries(fjell-hub PRIVATE
     fjell-platform
     glfw
+    GPUOpen::VulkanMemoryAllocator
     nlohmann_json::nlohmann_json
     spdlog::spdlog
     Vulkan::Vulkan
@@ -380,6 +392,12 @@ if(MSVC)
 else()
     target_compile_options(fjell-hub PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
+# VMA system headers for fjell-hub
+if(VMA_INCLUDE_DIRS)
+    target_include_directories(fjell-hub SYSTEM PRIVATE ${VMA_INCLUDE_DIRS})
+endif()
+# VMA implementation — suppress warnings in fjell-hub too
+set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
 
 # --- Install rules ---
 install(TARGETS fjell fjell-hub RUNTIME DESTINATION .)

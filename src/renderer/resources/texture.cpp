@@ -10,7 +10,8 @@
 
 namespace fjell {
 
-Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
+Texture::Texture(VkDevice device, VmaAllocator allocator,
+                 VkPhysicalDevice physical_device,
                  VkCommandPool command_pool, VkQueue queue,
                  const std::string& path, bool nearest)
     : device_{device} {
@@ -23,7 +24,7 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
     // Pixel art: no mipmaps, nearest filter, clamp to edge
     uint32_t mip = nearest ? 1 : 0;
     bool clamp = nearest;
-    upload(physical_device, command_pool, queue, pixels,
+    upload(allocator, physical_device, command_pool, queue, pixels,
            static_cast<uint32_t>(width), static_cast<uint32_t>(height),
            VK_FORMAT_R8G8B8A8_SRGB, mip, clamp, nearest);
     stbi_image_free(pixels);
@@ -31,12 +32,13 @@ Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
     FJELL_GFX_DEBUG("Texture loaded from file: {}x{} nearest={}", width, height, nearest);
 }
 
-Texture::Texture(VkDevice device, VkPhysicalDevice physical_device,
+Texture::Texture(VkDevice device, VmaAllocator allocator,
+                 VkPhysicalDevice physical_device,
                  VkCommandPool command_pool, VkQueue queue,
                  const uint8_t* pixels, uint32_t width, uint32_t height,
                  VkFormat format, uint32_t mip_levels, bool clamp_to_edge, bool nearest)
     : device_{device} {
-    upload(physical_device, command_pool, queue, pixels, width, height, format, mip_levels, clamp_to_edge, nearest);
+    upload(allocator, physical_device, command_pool, queue, pixels, width, height, format, mip_levels, clamp_to_edge, nearest);
 
     FJELL_GFX_DEBUG("Texture loaded from memory: {}x{}", width, height);
 }
@@ -47,7 +49,8 @@ Texture::~Texture() {
     }
 }
 
-void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_pool,
+void Texture::upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
+                     VkCommandPool command_pool,
                      VkQueue queue, const void* pixels, uint32_t width, uint32_t height,
                      VkFormat format, uint32_t mip_levels_override, bool clamp_to_edge,
                      bool nearest) {
@@ -55,18 +58,18 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
     uint32_t mip_levels = mip_levels_override > 0 ? mip_levels_override :
         static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 
-    Buffer staging{device_, physical_device, image_size,
+    Buffer staging{allocator, image_size,
                    VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                   VMA_MEMORY_USAGE_AUTO,
+                   VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     staging.write(pixels, image_size);
 
     image_ = std::make_unique<Image>(
-        device_, physical_device, width, height,
+        allocator, width, height,
         format, VK_IMAGE_TILING_OPTIMAL,
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
         VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, mip_levels);
+        VMA_MEMORY_USAGE_AUTO, mip_levels);
 
     VkCommandBufferAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -117,7 +120,7 @@ void Texture::upload(VkPhysicalDevice physical_device, VkCommandPool command_poo
 
     vkFreeCommandBuffers(device_, command_pool, 1, &cmd);
 
-    image_->create_view(format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
+    image_->create_view(device_, format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
 
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(physical_device, &props);

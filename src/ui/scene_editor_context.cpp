@@ -48,6 +48,7 @@ SceneEditorContext::SceneEditorContext(SceneEditorDeps deps)
 
 void SceneEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
+                           deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "Viewport");
 
@@ -597,7 +598,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
         // Use the same MSAA as the main viewport — pipelines are compiled
         // with this sample count and can't be changed per-viewport.
         camera_preview_target_ = std::make_unique<OffscreenPass>(
-            vk.device_ref(), 320, 180, vk.msaa_samples());
+            vk.device_ref(), vk.allocator(), 320, 180, vk.msaa_samples());
 
         PostProcessConfig preview_config{};
         preview_config.hiz = false;
@@ -612,7 +613,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
             vk.ssr_pass(), vk.volumetric_fog_pass(), vk.tonemap_pass()};
 
         camera_preview_pp_ = std::make_unique<PostProcessResources>(
-            vk.device(), vk.physical_device(), 320, 180, preview_config, refs);
+            vk.device(), vk.allocator(), 320, 180, preview_config, refs);
         camera_preview_node_id_ = selected_id_;
         // Skip rendering for MAX_FRAMES_IN_FLIGHT frames to let all in-flight
         // command buffers drain before the preview's descriptors are first used

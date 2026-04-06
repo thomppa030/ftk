@@ -4,15 +4,16 @@
 
 namespace fjell {
 
-BoneBuffer::BoneBuffer(VkDevice device, VkPhysicalDevice physical_device)
-    : device_(device), physical_device_(physical_device) {
+BoneBuffer::BoneBuffer(VkDevice device, VmaAllocator allocator)
+    : device_(device), allocator_(allocator) {
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         buffers_[i] = std::make_unique<Buffer>(
-            device_, physical_device_,
+            allocator_,
             INITIAL_CAPACITY * sizeof(glm::mat4),
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         buffers_[i]->map();
         capacities_[i] = INITIAL_CAPACITY;
     }
@@ -47,10 +48,11 @@ void BoneBuffer::ensure_capacity(uint32_t frame_index, uint32_t required) {
     }
 
     auto new_buf = std::make_unique<Buffer>(
-        device_, physical_device_,
+        allocator_,
         new_cap * sizeof(glm::mat4),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     new_buf->map();
 
     // Copy existing data

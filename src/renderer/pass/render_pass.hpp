@@ -5,6 +5,7 @@
 #include <array>
 #include <vector>
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 namespace fjell {
@@ -26,6 +27,7 @@ struct PassResources {
     VkFormat depth_format{VK_FORMAT_UNDEFINED};
     VkFormat color_format{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
+    VmaAllocator allocator{VK_NULL_HANDLE};
 };
 
 class IndirectBatch;

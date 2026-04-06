@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -20,7 +21,7 @@ public:
     VizImage(VizImage&&) = delete;
     VizImage& operator=(VizImage&&) = delete;
 
-    void init(VkDevice device, VkPhysicalDevice physical_device,
+    void init(VkDevice device, VmaAllocator allocator,
               VkFormat format);
     void cleanup();
 
@@ -40,12 +41,12 @@ private:
     void destroy_image();
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     VkFormat format_{VK_FORMAT_UNDEFINED};
     VkSampler sampler_{VK_NULL_HANDLE};
 
     VkImage image_{VK_NULL_HANDLE};
-    VkDeviceMemory memory_{VK_NULL_HANDLE};
+    VmaAllocation allocation_{VK_NULL_HANDLE};
     VkImageView view_{VK_NULL_HANDLE};
     VkExtent2D extent_{};
     VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};

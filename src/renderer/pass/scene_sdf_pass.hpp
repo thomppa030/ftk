@@ -3,6 +3,7 @@
 #include "renderer/gpu/buffer.hpp"
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -33,7 +34,7 @@ public:
     static constexpr uint32_t DEFAULT_RESOLUTION = 128;
     static constexpr VkFormat SDF_FORMAT = VK_FORMAT_R16_SFLOAT;
 
-    void create(Device& device, VkDescriptorSetLayout global_set_layout);
+    void create(Device& device, VkDescriptorSetLayout global_set_layout, VmaAllocator allocator);
     void destroy();
 
     // Register a model's per-mesh SDF data. Returns true if data was uploaded.
@@ -77,11 +78,11 @@ private:
     void create_compute_pipeline();
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Global SDF 3D texture
     VkImage sdf_image_{VK_NULL_HANDLE};
-    VkDeviceMemory sdf_memory_{VK_NULL_HANDLE};
+    VmaAllocation sdf_memory_{VK_NULL_HANDLE};
     VkImageView sdf_view_{VK_NULL_HANDLE};
     VkSampler sdf_sampler_{VK_NULL_HANDLE};
 
@@ -110,7 +111,7 @@ private:
     // Slice visualization
     static constexpr uint32_t SLICE_SIZE = 256;
     VkImage slice_image_{VK_NULL_HANDLE};
-    VkDeviceMemory slice_memory_{VK_NULL_HANDLE};
+    VmaAllocation slice_memory_{VK_NULL_HANDLE};
     VkImageView slice_view_{VK_NULL_HANDLE};
     VkSampler slice_sampler_{VK_NULL_HANDLE};
     VkPipelineLayout slice_layout_{VK_NULL_HANDLE};

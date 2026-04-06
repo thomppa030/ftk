@@ -5,6 +5,7 @@
 #include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -48,7 +49,7 @@ private:
   static_assert(sizeof(GpuSprite) == 64);
 
   VkDevice device_{VK_NULL_HANDLE};
-  VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+  VmaAllocator allocator_{VK_NULL_HANDLE};
 
   // Pipeline
   VkDescriptorSetLayout sprite_set_layout_{VK_NULL_HANDLE};

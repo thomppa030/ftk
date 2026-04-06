@@ -1,5 +1,5 @@
 #include "renderer/pass/tonemap_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -16,7 +16,7 @@ namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void TonemapPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
                                   VkDescriptorSetLayout set_layout,
                                   uint32_t width, uint32_t height) {
     extent = {width, height};
@@ -34,22 +34,9 @@ void TonemapPass::Images::create(VkDevice device, VkPhysicalDevice physical_devi
     ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (vkCreateImage(device, &ci, nullptr, &image) != VK_SUCCESS) {
+    if (create_vma_image(allocator, &ci, &image, &memory) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create tonemap output image");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device, image, &mem_reqs);
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (vkAllocateMemory(device, &alloc, nullptr, &memory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate tonemap output memory");
-    }
-    vkBindImageMemory(device, image, memory, 0);
 
     VkImageViewCreateInfo view_ci{};
     view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -87,24 +74,24 @@ void TonemapPass::Images::create(VkDevice device, VkPhysicalDevice physical_devi
     }
 }
 
-void TonemapPass::Images::destroy(VkDevice device) {
+void TonemapPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
     if (pool != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device, pool, nullptr); pool = VK_NULL_HANDLE; }
     if (view != VK_NULL_HANDLE) { vkDestroyImageView(device, view, nullptr); view = VK_NULL_HANDLE; }
-    if (image != VK_NULL_HANDLE) { vkDestroyImage(device, image, nullptr); image = VK_NULL_HANDLE; }
-    if (memory != VK_NULL_HANDLE) { vkFreeMemory(device, memory, nullptr); memory = VK_NULL_HANDLE; }
+    destroy_vma_image(allocator, image, memory);
+    image = VK_NULL_HANDLE; memory = VK_NULL_HANDLE;
     extent = {};
     for (auto& s : input_sets) s = VK_NULL_HANDLE;
 }
 
-void TonemapPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+void TonemapPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                   VkDescriptorSetLayout set_layout,
                                   uint32_t width, uint32_t height) {
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
 
-    destroy(device);
-    if (width > 0 && height > 0) create(device, physical_device, set_layout, width, height);
+    destroy(device, allocator);
+    if (width > 0 && height > 0) create(device, allocator, set_layout, width, height);
 }
 
 VkDescriptorSet TonemapPass::Images::imgui_texture(VkSampler sampler) {
@@ -124,9 +111,9 @@ void TonemapPass::Images::invalidate_imgui_texture() {
 
 // ── TonemapPass (singleton) ─────────────────────────────────────────────────
 
-Result<> TonemapPass::create(Device& device, const PassResources& /*resources*/) {
+Result<> TonemapPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
 
     input_sampler_ = vk_utils::create_linear_clamp_sampler(device_);
     sampler_ = vk_utils::create_linear_clamp_sampler(device_);
@@ -175,7 +162,7 @@ Result<> TonemapPass::create(Device& device, const PassResources& /*resources*/)
 }
 
 void TonemapPass::destroy() {
-    default_images_.destroy(device_);
+    default_images_.destroy(device_, allocator_);
 
     if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
@@ -185,7 +172,7 @@ void TonemapPass::destroy() {
 }
 
 void TonemapPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, physical_device_, set_layout_, width, height);
+    default_images_.resize(device_, allocator_, set_layout_, width, height);
 }
 
 VkDescriptorSet TonemapPass::imgui_texture() {

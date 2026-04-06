@@ -14,8 +14,8 @@
 
 namespace fjell {
 
-DebugDraw::DebugDraw(VkDevice device, VkPhysicalDevice physical_device)
-    : device_{device}, physical_device_{physical_device} {}
+DebugDraw::DebugDraw(VkDevice device, VmaAllocator allocator)
+    : device_{device}, allocator_{allocator} {}
 
 // ── Geometry helpers ────────────────────────────────────────────────────
 
@@ -260,9 +260,10 @@ void DebugDraw::update(const Scene& scene, uint32_t selected_id,
         // Round up to avoid frequent reallocations
         buffer_capacity_ = std::max(required, VkDeviceSize{4096});
         vertex_buffer_ = std::make_unique<Buffer>(
-            device_, physical_device_, buffer_capacity_,
+            allocator_, buffer_capacity_,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         vertex_buffer_->map();
     }
     vertex_buffer_->write(vertices_.data(), required);

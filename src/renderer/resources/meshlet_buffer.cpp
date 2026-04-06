@@ -6,10 +6,10 @@
 
 namespace fjell {
 
-MeshletBuffer::MeshletBuffer(VkDevice device, VkPhysicalDevice physical_device,
+MeshletBuffer::MeshletBuffer(VkDevice device, VmaAllocator allocator,
                              VkCommandPool command_pool, VkQueue queue)
     : device_{device}
-    , physical_device_{physical_device}
+    , allocator_{allocator}
     , command_pool_{command_pool}
     , queue_{queue}
     , meshlet_capacity_{INITIAL_MESHLET_SIZE}
@@ -20,20 +20,20 @@ MeshletBuffer::MeshletBuffer(VkDevice device, VkPhysicalDevice physical_device,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
     meshlet_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, meshlet_capacity_, ssbo_usage,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocator_, meshlet_capacity_, ssbo_usage,
+        VMA_MEMORY_USAGE_AUTO);
 
     bounds_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, bounds_capacity_, ssbo_usage,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocator_, bounds_capacity_, ssbo_usage,
+        VMA_MEMORY_USAGE_AUTO);
 
     vertex_index_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, vertex_index_capacity_, ssbo_usage,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocator_, vertex_index_capacity_, ssbo_usage,
+        VMA_MEMORY_USAGE_AUTO);
 
     triangle_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, triangle_capacity_, ssbo_usage,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        allocator_, triangle_capacity_, ssbo_usage,
+        VMA_MEMORY_USAGE_AUTO);
 
     FJELL_GFX_INFO("MeshletBuffer created: {}KB meshlets, {}KB bounds, {}KB vert_idx, {}KB tris",
                    meshlet_capacity_ / 1024, bounds_capacity_ / 1024,
@@ -90,27 +90,31 @@ MeshletRange MeshletBuffer::upload(const MeshletBuildResult& result,
     }
 
     // Stage all data in one command buffer
-    Buffer meshlet_staging{device_, physical_device_, meshlet_size,
+    Buffer meshlet_staging{allocator_, meshlet_size,
                            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                           VMA_MEMORY_USAGE_AUTO,
+                           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     meshlet_staging.write(adjusted_meshlets.data(), meshlet_size);
 
-    Buffer bounds_staging{device_, physical_device_, bounds_size,
+    Buffer bounds_staging{allocator_, bounds_size,
                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                          VMA_MEMORY_USAGE_AUTO,
+                          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     bounds_staging.write(result.bounds.data(), bounds_size);
 
-    Buffer vert_staging{device_, physical_device_, vert_idx_size,
+    Buffer vert_staging{allocator_, vert_idx_size,
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                        VMA_MEMORY_USAGE_AUTO,
+                        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     vert_staging.write(result.meshlet_vertices.data(), vert_idx_size);
 
     // Pad triangle data to 4-byte alignment
     std::vector<uint8_t> padded_tris(tri_size_padded, 0);
     std::memcpy(padded_tris.data(), result.meshlet_triangles.data(), tri_size_raw);
-    Buffer tri_staging{device_, physical_device_, tri_size_padded,
+    Buffer tri_staging{allocator_, tri_size_padded,
                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                       VMA_MEMORY_USAGE_AUTO,
+                       VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     tri_staging.write(padded_tris.data(), tri_size_padded);
 
     VkCommandBufferAllocateInfo alloc_info{};
@@ -171,9 +175,9 @@ void MeshletBuffer::grow_buffer(std::unique_ptr<Buffer>& buf, VkDeviceSize new_s
     FJELL_GFX_INFO("MeshletBuffer: growing buffer to {}KB", new_size / 1024);
 
     auto new_buf = std::make_unique<Buffer>(
-        device_, physical_device_, new_size,
+        allocator_, new_size,
         usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     if (used > 0) {
         Buffer::copy(device_, command_pool_, queue_, *buf, *new_buf, used);

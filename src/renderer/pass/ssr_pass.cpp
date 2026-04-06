@@ -1,7 +1,7 @@
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -84,7 +84,7 @@ static void insert_image_barrier(VkCommandBuffer cmd, VkImage image,
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void SsrPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+void SsrPass::Images::create(VkDevice device, VmaAllocator allocator,
                                VkDescriptorSetLayout trace_layout,
                                VkDescriptorSetLayout composite_layout,
                                VkSampler nearest_sampler,
@@ -106,23 +106,9 @@ void SsrPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
                    VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-        if (vkCreateImage(device, &ci, nullptr, &ssr_image) != VK_SUCCESS) {
+        if (create_vma_image(allocator, &ci, &ssr_image, &ssr_memory) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create SSR output image");
         }
-
-        VkMemoryRequirements reqs;
-        vkGetImageMemoryRequirements(device, ssr_image, &reqs);
-
-        VkMemoryAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        alloc.allocationSize = reqs.size;
-        alloc.memoryTypeIndex = Buffer::find_memory_type(
-            physical_device, reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-        if (vkAllocateMemory(device, &alloc, nullptr, &ssr_memory) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate SSR output image memory");
-        }
-        vkBindImageMemory(device, ssr_image, ssr_memory, 0);
 
         VkImageViewCreateInfo vi{};
         vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -215,7 +201,7 @@ void SsrPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
     }
 }
 
-void SsrPass::Images::destroy(VkDevice device) {
+void SsrPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
     if (pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, pool, nullptr);
@@ -224,8 +210,8 @@ void SsrPass::Images::destroy(VkDevice device) {
         composite_set = VK_NULL_HANDLE;
     }
     if (ssr_view != VK_NULL_HANDLE) { vkDestroyImageView(device, ssr_view, nullptr); ssr_view = VK_NULL_HANDLE; }
-    if (ssr_image != VK_NULL_HANDLE) { vkDestroyImage(device, ssr_image, nullptr); ssr_image = VK_NULL_HANDLE; }
-    if (ssr_memory != VK_NULL_HANDLE) { vkFreeMemory(device, ssr_memory, nullptr); ssr_memory = VK_NULL_HANDLE; }
+    destroy_vma_image(allocator, ssr_image, ssr_memory);
+    ssr_image = VK_NULL_HANDLE; ssr_memory = VK_NULL_HANDLE;
     extent = {};
     last_hiz_view = VK_NULL_HANDLE;
     last_prev_color_view = VK_NULL_HANDLE;
@@ -233,7 +219,7 @@ void SsrPass::Images::destroy(VkDevice device) {
     last_mr_view = VK_NULL_HANDLE;
 }
 
-void SsrPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+void SsrPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                VkDescriptorSetLayout trace_layout,
                                VkDescriptorSetLayout composite_layout,
                                VkSampler nearest_sampler,
@@ -242,8 +228,8 @@ void SsrPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
 
-    destroy(device);
-    create(device, physical_device, trace_layout, composite_layout, nearest_sampler, width, height);
+    destroy(device, allocator);
+    create(device, allocator, trace_layout, composite_layout, nearest_sampler, width, height);
 }
 
 VkDescriptorSet SsrPass::Images::imgui_texture(VkSampler sampler) {
@@ -265,7 +251,7 @@ void SsrPass::Images::invalidate_imgui_texture() {
 
 Result<> SsrPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
     auto global_set_layout = resources.global_set_layout;
 
     // Samplers
@@ -357,14 +343,14 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
     composite_pipeline_ = create_compute_pipeline(device_, composite_pipeline_layout_, "shaders/ssr_composite.comp.spv");
 
     // Create 1x1 placeholder so descriptors are valid from frame 1
-    default_images_.create(device_, physical_device_, trace_set_layout_, composite_set_layout_, nearest_sampler_, 1, 1);
+    default_images_.create(device_, allocator_, trace_set_layout_, composite_set_layout_, nearest_sampler_, 1, 1);
 
     FJELL_GFX_DEBUG("SSR pass created");
     return {};
 }
 
 void SsrPass::destroy() {
-    default_images_.destroy(device_);
+    default_images_.destroy(device_, allocator_);
 
     auto safe_destroy = [&](auto destroy_fn, auto& handle) {
         if (handle != VK_NULL_HANDLE) {
@@ -384,7 +370,7 @@ void SsrPass::destroy() {
 }
 
 void SsrPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, physical_device_, trace_set_layout_, composite_set_layout_, nearest_sampler_, width, height);
+    default_images_.resize(device_, allocator_, trace_set_layout_, composite_set_layout_, nearest_sampler_, width, height);
 }
 
 VkDescriptorSet SsrPass::imgui_texture() {

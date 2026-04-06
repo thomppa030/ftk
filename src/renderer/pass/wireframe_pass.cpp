@@ -19,7 +19,7 @@ namespace fjell {
 Result<> WireframePass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
-    viz_image_.init(device.handle(), device.physical_device(), VK_FORMAT_R8G8B8A8_SRGB);
+    viz_image_.init(device.handle(), resources.allocator, VK_FORMAT_R8G8B8A8_SRGB);
     viz_image_.create(64, 64);
 
     // Shaders: reuse depth_push.vert (transforms position via UBO), wireframe.frag (solid color)

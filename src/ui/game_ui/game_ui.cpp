@@ -15,26 +15,28 @@
 
 namespace fjell {
 
-void GameUi::create(Device& device, const PassResources& resources,
+void GameUi::create(Device& device, VmaAllocator allocator,
+                    const PassResources& resources,
                     BindlessTextures& bindless,
                     VkCommandPool command_pool, VkQueue queue,
                     const std::string& font_path,
                     VkFormat output_format) {
     bindless_ = &bindless;
-    renderer_.create(device, resources, output_format);
+    renderer_.create(device, allocator, resources, output_format);
 
     if (!font_path.empty() && std::filesystem::exists(font_path)) {
-        font_atlas_.create(font_path, device.handle(), device.physical_device(),
-                           command_pool, queue, bindless);
+        font_atlas_.create(font_path, device.handle(), allocator,
+                           device.physical_device(), command_pool, queue, bindless);
     }
 }
 
-void GameUi::create_with_shared_font(Device& device, const PassResources& resources,
+void GameUi::create_with_shared_font(Device& device, VmaAllocator allocator,
+                                      const PassResources& resources,
                                       BindlessTextures& bindless,
                                       const FontAtlas& shared_atlas,
                                       VkFormat output_format) {
     bindless_ = &bindless;
-    renderer_.create(device, resources, output_format);
+    renderer_.create(device, allocator, resources, output_format);
     shared_font_atlas_ = &shared_atlas;
 }
 

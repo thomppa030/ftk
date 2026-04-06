@@ -4,6 +4,7 @@
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -20,7 +21,7 @@ static_assert(sizeof(GpuMeshletInstance) == 8);
 
 class MeshletInstancePass {
 public:
-    void create(VkDevice device, VkPhysicalDevice physical_device,
+    void create(VkDevice device, VmaAllocator allocator,
                 VkDescriptorSetLayout global_set_layout);
     void destroy();
 
@@ -80,7 +81,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Expand pass
     VkPipelineLayout expand_layout_{VK_NULL_HANDLE};

@@ -1,5 +1,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "animation/animation_system.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
@@ -37,7 +38,7 @@ namespace fjell {
 
 VulkanContext::VulkanContext(Window& window)
     : gpu_{window}
-    , target_pool_{gpu_.device(), gpu_.physical_device()} {
+    , target_pool_{gpu_.device(), gpu_.allocator()} {
     FJELL_GFX_INFO("Initializing Vulkan context");
 
     // Scene gathering: indirect batches + draw data descriptors
@@ -58,11 +59,11 @@ VulkanContext::VulkanContext(Window& window)
     check_pass(depth_prepass_.create(gpu_.device_ref(), pass_resources));
     check_pass(hiz_pass_.create(gpu_.device_ref(), pass_resources));
     if (gpu_.use_mesh_shaders()) {
-        meshlet_instance_pass_.create(gpu_.device(), gpu_.physical_device(),
+        meshlet_instance_pass_.create(gpu_.device(), gpu_.allocator(),
                                        gpu_.global_set_layout());
         check_pass(mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources));
         check_pass(meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources));
-        check_pass(cull_pass_.create(gpu_.device(), gpu_.physical_device(),
+        check_pass(cull_pass_.create(gpu_.device(), gpu_.allocator(),
                                      gpu_.global_set_layout()));
         check_pass(cull_viz_pass_.create(gpu_.device_ref(), pass_resources));
     }
@@ -81,7 +82,7 @@ VulkanContext::VulkanContext(Window& window)
     check_pass(sky_pass_.create(gpu_.device_ref(), pass_resources));
 
     // Sky cubemap for IBL (creates cubemap + BRDF LUT)
-    sky_cubemap_pass_.create(gpu_.device(), gpu_.physical_device(),
+    sky_cubemap_pass_.create(gpu_.device(), gpu_.allocator(),
                               gpu_.command_pool(), gpu_.graphics_queue());
     sky_cubemap_pass_.set_colors(sky_pass_.top_color(), sky_pass_.bottom_color());
 
@@ -154,7 +155,7 @@ VulkanContext::VulkanContext(Window& window)
     check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
     light_grid_pass_.set_mode(1);
     check_pass(light_grid_pass_.create(gpu_.device_ref(), pass_resources));
-    scene_sdf_pass_.create(gpu_.device_ref(), pass_resources.global_set_layout);
+    scene_sdf_pass_.create(gpu_.device_ref(), pass_resources.global_set_layout, pass_resources.allocator);
 
     // Write scene SDF (binding 9) into global descriptors — must be after pass creation
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -179,7 +180,7 @@ VulkanContext::VulkanContext(Window& window)
     tilemap_renderer_.create(gpu_.device_ref(), pass_resources);
     FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
-    debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.physical_device());
+    debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.allocator());
 
     register_passes();
 
@@ -188,7 +189,7 @@ VulkanContext::VulkanContext(Window& window)
     default_config.ssr = true;
     default_config.volumetric_fog = true;
     PostProcessResources::PassRefs refs{hiz_pass_, gtao_pass_, bloom_pass_, ssr_pass_, volumetric_fog_pass_, tonemap_pass_};
-    default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.physical_device(), 256, 256, default_config, refs);
+    default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
 }
@@ -212,12 +213,7 @@ VulkanContext::~VulkanContext() {
     if (prev_frame_color_view_ != VK_NULL_HANDLE) {
         vkDestroyImageView(vk_device, prev_frame_color_view_, nullptr);
     }
-    if (prev_frame_color_ != VK_NULL_HANDLE) {
-        vkDestroyImage(vk_device, prev_frame_color_, nullptr);
-    }
-    if (prev_frame_color_memory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(vk_device, prev_frame_color_memory_, nullptr);
-    }
+    destroy_vma_image(gpu_.allocator(), prev_frame_color_, prev_frame_color_allocation_);
 
     light_cull_pass_.destroy();
     sky_cubemap_pass_.destroy();
@@ -1066,14 +1062,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                 vkDestroyImageView(vk, prev_frame_color_view_, nullptr);
                 prev_frame_color_view_ = VK_NULL_HANDLE;
             }
-            if (prev_frame_color_ != VK_NULL_HANDLE) {
-                vkDestroyImage(vk, prev_frame_color_, nullptr);
-                prev_frame_color_ = VK_NULL_HANDLE;
-            }
-            if (prev_frame_color_memory_ != VK_NULL_HANDLE) {
-                vkFreeMemory(vk, prev_frame_color_memory_, nullptr);
-                prev_frame_color_memory_ = VK_NULL_HANDLE;
-            }
+            destroy_vma_image(gpu_.allocator(), prev_frame_color_, prev_frame_color_allocation_);
+            prev_frame_color_ = VK_NULL_HANDLE;
+            prev_frame_color_allocation_ = VK_NULL_HANDLE;
 
             prev_frame_extent_ = ext;
 
@@ -1088,19 +1079,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             ci.tiling = VK_IMAGE_TILING_OPTIMAL;
             ci.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
             ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            vkCreateImage(vk, &ci, nullptr, &prev_frame_color_);
-
-            VkMemoryRequirements reqs;
-            vkGetImageMemoryRequirements(vk, prev_frame_color_, &reqs);
-
-            VkMemoryAllocateInfo alloc{};
-            alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            alloc.allocationSize = reqs.size;
-            alloc.memoryTypeIndex = Buffer::find_memory_type(
-                gpu_.physical_device(), reqs.memoryTypeBits,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-            vkAllocateMemory(vk, &alloc, nullptr, &prev_frame_color_memory_);
-            vkBindImageMemory(vk, prev_frame_color_, prev_frame_color_memory_, 0);
+            create_vma_image(gpu_.allocator(), &ci, &prev_frame_color_, &prev_frame_color_allocation_);
 
             VkImageViewCreateInfo vi{};
             vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1680,7 +1659,7 @@ void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
 
-    ui.create(gpu_.device_ref(), res, gpu_.bindless_textures(),
+    ui.create(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
               gpu_.command_pool(), gpu_.graphics_queue(),
               font_path, output_format);
 }
@@ -1696,7 +1675,7 @@ void VulkanContext::init_game_ui_shared(GameUi& ui, const FontAtlas& shared_atla
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
 
-    ui.create_with_shared_font(gpu_.device_ref(), res, gpu_.bindless_textures(),
+    ui.create_with_shared_font(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
                                 shared_atlas, output_format);
 }
 
@@ -1710,7 +1689,7 @@ void VulkanContext::init_game_ui_world(GameUi& ui, const FontAtlas& shared_atlas
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
 
-    ui.create_with_shared_font(gpu_.device_ref(), res, gpu_.bindless_textures(),
+    ui.create_with_shared_font(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
                                 shared_atlas, OffscreenPass::COLOR_FORMAT);
     ui.create_world_pipelines(gpu_.device_ref(), res);
 }
@@ -2192,7 +2171,7 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
         ssr_pass_, volumetric_fog_pass_, tonemap_pass_};
 
     auto viewport = std::make_unique<SceneViewport>(
-        gpu_.device_ref(), gpu_.device(), gpu_.physical_device(),
+        gpu_.device_ref(), gpu_.device(), gpu_.allocator(),
         config, refs, bindless_idx);
 
     scene_viewports_[config.name] = std::move(viewport);

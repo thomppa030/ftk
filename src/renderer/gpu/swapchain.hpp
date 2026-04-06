@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -12,7 +13,7 @@ class Window;
 
 class Swapchain {
 public:
-    Swapchain(Device& device, Window& window);
+    Swapchain(Device& device, VmaAllocator allocator, Window& window);
     ~Swapchain();
 
     Swapchain(const Swapchain&) = delete;
@@ -46,6 +47,7 @@ private:
         const VkSurfaceCapabilitiesKHR& capabilities) const;
 
     Device& device_;
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     Window& window_;
 
     VkSwapchainKHR swapchain_{VK_NULL_HANDLE};
@@ -55,7 +57,7 @@ private:
     VkExtent2D extent_{};
 
     VkImage depth_image_{VK_NULL_HANDLE};
-    VkDeviceMemory depth_memory_{VK_NULL_HANDLE};
+    VmaAllocation depth_allocation_{VK_NULL_HANDLE};
     VkImageView depth_image_view_{VK_NULL_HANDLE};
 
     std::vector<VkSemaphore> render_finished_;

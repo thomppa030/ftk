@@ -1,5 +1,5 @@
 #include "renderer/pass/shadow_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -160,24 +160,9 @@ void ShadowPass::create_images() {
     image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (vkCreateImage(device_, &image_info, nullptr, &image_) != VK_SUCCESS) {
+    if (create_vma_image(allocator_, &image_info, &image_, &memory_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create shadow map image");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device_, image_, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    if (vkAllocateMemory(device_, &alloc, nullptr, &memory_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate shadow map memory");
-    }
-    vkBindImageMemory(device_, image_, memory_, 0);
 
     // Array view (all layers) for sampling in the fragment shader
     VkImageViewCreateInfo array_view_info{};
@@ -247,21 +232,16 @@ void ShadowPass::destroy_images() {
         vkDestroyImageView(device_, array_view_, nullptr);
         array_view_ = VK_NULL_HANDLE;
     }
-    if (image_ != VK_NULL_HANDLE) {
-        vkDestroyImage(device_, image_, nullptr);
-        image_ = VK_NULL_HANDLE;
-    }
-    if (memory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(device_, memory_, nullptr);
-        memory_ = VK_NULL_HANDLE;
-    }
+    destroy_vma_image(allocator_, image_, memory_);
+    image_ = VK_NULL_HANDLE;
+    memory_ = VK_NULL_HANDLE;
 }
 
 // ── Pipeline ────────────────────────────────────────────────────────────
 
 Result<> ShadowPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
     draw_data_layout_ = resources.draw_data_layout;
     global_set_layout_ = resources.global_set_layout;
     material_set_layout_ = resources.material_set_layout;

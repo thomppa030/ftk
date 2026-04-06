@@ -14,6 +14,7 @@
 #include "renderer/renderer_constants.hpp"
 #include "renderer/gpu/swapchain.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #ifdef FJELL_ENABLE_TRACY
@@ -60,6 +61,7 @@ public:
     // ── Device ──────────────────────────────────────────────────────────
     [[nodiscard]] VkDevice device() const { return device_.handle(); }
     [[nodiscard]] VkPhysicalDevice physical_device() const { return device_.physical_device(); }
+    [[nodiscard]] VmaAllocator allocator() const { return allocator_; }
     [[nodiscard]] VkInstance instance() const { return device_.instance(); }
     [[nodiscard]] VkQueue graphics_queue() const { return device_.graphics_queue(); }
     [[nodiscard]] uint32_t graphics_family() const;
@@ -145,6 +147,7 @@ private:
 
     Window& window_;
     Device device_;
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     Swapchain swapchain_;
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};

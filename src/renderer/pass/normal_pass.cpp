@@ -22,7 +22,7 @@ static constexpr VkFormat NORMAL_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
 Result<> NormalPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
-    viz_image_.init(device.handle(), device.physical_device(), NORMAL_FORMAT);
+    viz_image_.init(device.handle(), resources.allocator, NORMAL_FORMAT);
     viz_image_.create(64, 64);
 
     auto vert_code = read_spirv(base_path::resolve("shaders/normal_viz.vert.spv"));

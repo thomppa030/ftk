@@ -2,6 +2,7 @@
 
 #include "renderer/pass/render_pass.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -14,12 +15,12 @@ public:
     struct Images {
         // AO output image (R8_UNORM, half-res)
         VkImage ao_image{VK_NULL_HANDLE};
-        VkDeviceMemory ao_memory{VK_NULL_HANDLE};
+        VmaAllocation ao_memory{VK_NULL_HANDLE};
         VkImageView ao_view{VK_NULL_HANDLE};
 
         // Blur temp image (R8_UNORM, half-res)
         VkImage blur_image{VK_NULL_HANDLE};
-        VkDeviceMemory blur_memory{VK_NULL_HANDLE};
+        VmaAllocation blur_memory{VK_NULL_HANDLE};
         VkImageView blur_view{VK_NULL_HANDLE};
 
         VkExtent2D extent{};  // half-res dimensions
@@ -32,11 +33,11 @@ public:
         VkDescriptorSet blur_h_set{VK_NULL_HANDLE};
         VkDescriptorSet blur_v_set{VK_NULL_HANDLE};
 
-        void create(VkDevice device, VkPhysicalDevice physical_device,
+        void create(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout, VkSampler sampler,
                      uint32_t half_w, uint32_t half_h);
-        void destroy(VkDevice device);
-        void resize(VkDevice device, VkPhysicalDevice physical_device,
+        void destroy(VkDevice device, VmaAllocator allocator);
+        void resize(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout, VkSampler sampler,
                      uint32_t width, uint32_t height);
 
@@ -74,7 +75,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Resolution-independent (shared across all Images)
     VkSampler ao_sampler_{VK_NULL_HANDLE};

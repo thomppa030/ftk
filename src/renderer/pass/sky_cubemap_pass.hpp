@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -12,7 +13,7 @@ namespace fjell {
 /// Not a RenderPass — called directly as a utility.
 class SkyCubemapPass {
 public:
-    void create(VkDevice device, VkPhysicalDevice physical_device,
+    void create(VkDevice device, VmaAllocator allocator,
                 VkCommandPool command_pool, VkQueue queue);
     void destroy();
 
@@ -43,13 +44,13 @@ private:
     static constexpr uint32_t MIP_LEVELS = 7; // floor(log2(64)) + 1
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     VkQueue queue_{VK_NULL_HANDLE};
 
     // Cubemap
     VkImage cubemap_image_{VK_NULL_HANDLE};
-    VkDeviceMemory cubemap_memory_{VK_NULL_HANDLE};
+    VmaAllocation cubemap_memory_{VK_NULL_HANDLE};
     VkImageView cubemap_view_{VK_NULL_HANDLE};        // CUBE view for sampling
     VkImageView cubemap_storage_view_{VK_NULL_HANDLE}; // 2D_ARRAY view for compute storage (mip 0)
     VkSampler cubemap_sampler_{VK_NULL_HANDLE};
@@ -63,7 +64,7 @@ private:
 
     // BRDF LUT
     VkImage brdf_lut_image_{VK_NULL_HANDLE};
-    VkDeviceMemory brdf_lut_memory_{VK_NULL_HANDLE};
+    VmaAllocation brdf_lut_memory_{VK_NULL_HANDLE};
     VkImageView brdf_lut_view_{VK_NULL_HANDLE};
     VkSampler brdf_lut_sampler_{VK_NULL_HANDLE};
 

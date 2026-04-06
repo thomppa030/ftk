@@ -5,6 +5,7 @@
 #include "renderer/gpu/swapchain.hpp"
 #include "ui/imgui_layer.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include "platform/platform.hpp"
@@ -58,7 +59,15 @@ int main() {
         fjell::Window window{"Fjell", HUB_WIDTH, HUB_HEIGHT};
         fjell::Device device{window};
 
-        fjell::Swapchain swapchain{device, window};
+        VmaAllocatorCreateInfo vma_ci{};
+        vma_ci.instance = device.instance();
+        vma_ci.physicalDevice = device.physical_device();
+        vma_ci.device = device.handle();
+        vma_ci.vulkanApiVersion = VK_API_VERSION_1_3;
+        VmaAllocator allocator{VK_NULL_HANDLE};
+        vmaCreateAllocator(&vma_ci, &allocator);
+
+        fjell::Swapchain swapchain{device, allocator, window};
 
         // Resolve font dir from executable location
         std::string font_dir;
@@ -226,6 +235,7 @@ int main() {
             vkDestroyFence(device.handle(), fences[i], nullptr);
         }
         vkDestroyCommandPool(device.handle(), cmd_pool, nullptr);
+        vmaDestroyAllocator(allocator);
 
     } catch (const std::exception& e) {
         FJELL_CORE_CRITICAL("Fatal: {}", e.what());

@@ -15,7 +15,7 @@ class Scene;
 // ticks their animators, and uploads bone matrices to the GPU each frame.
 class AnimationSystem {
 public:
-    AnimationSystem(VkDevice device, VkPhysicalDevice physical_device);
+    AnimationSystem(VkDevice device, VmaAllocator allocator);
 
     // Update all animators on skeletal mesh nodes (call once per frame).
     void update(Scene& scene, float dt);

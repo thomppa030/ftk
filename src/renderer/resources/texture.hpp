@@ -12,11 +12,13 @@ namespace fjell {
 
 class Texture {
 public:
-    Texture(VkDevice device, VkPhysicalDevice physical_device,
+    Texture(VkDevice device, VmaAllocator allocator,
+            VkPhysicalDevice physical_device,
             VkCommandPool command_pool, VkQueue queue,
             const std::string& path, bool nearest = false);
 
-    Texture(VkDevice device, VkPhysicalDevice physical_device,
+    Texture(VkDevice device, VmaAllocator allocator,
+            VkPhysicalDevice physical_device,
             VkCommandPool command_pool, VkQueue queue,
             const uint8_t* pixels, uint32_t width, uint32_t height,
             VkFormat format = VK_FORMAT_R8G8B8A8_SRGB,
@@ -37,7 +39,8 @@ public:
     [[nodiscard]] uint32_t height() const { return image_->height(); }
 
 private:
-    void upload(VkPhysicalDevice physical_device, VkCommandPool command_pool,
+    void upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
+                VkCommandPool command_pool,
                 VkQueue queue, const void* pixels, uint32_t width, uint32_t height,
                 VkFormat format = VK_FORMAT_R8G8B8A8_SRGB,
                 uint32_t mip_levels = 0,

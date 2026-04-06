@@ -5,17 +5,17 @@
 
 namespace fjell {
 
-SceneViewport::SceneViewport(Device& device, VkDevice vk_device, VkPhysicalDevice physical_device,
+SceneViewport::SceneViewport(Device& device, VkDevice vk_device, VmaAllocator allocator,
                              const SceneViewportConfig& config,
                              const PostProcessResources::PassRefs& pass_refs,
                              uint32_t reserved_bindless_index)
     : config_(config)
     , bindless_index_(reserved_bindless_index)
     , vk_device_(vk_device) {
-    offscreen_ = std::make_unique<OffscreenPass>(device, config_.width, config_.height, config_.samples);
+    offscreen_ = std::make_unique<OffscreenPass>(device, allocator, config_.width, config_.height, config_.samples);
 
     pp_ = std::make_unique<PostProcessResources>(
-        vk_device, physical_device, config_.width, config_.height, config_.pp_config, pass_refs);
+        vk_device, allocator, config_.width, config_.height, config_.pp_config, pass_refs);
 
     output_sampler_ = vk_utils::create_linear_clamp_sampler(vk_device_);
 

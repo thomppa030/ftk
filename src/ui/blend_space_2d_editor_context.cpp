@@ -32,6 +32,7 @@ BlendSpace2DEditorContext::BlendSpace2DEditorContext(BlendSpace2DEditorDeps deps
 
 void BlendSpace2DEditorContext::init() {
     viewport_manager_.init(deps_.vulkan_context->device_ref(),
+                           deps_.vulkan_context->allocator(),
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "BS2D Preview");
 

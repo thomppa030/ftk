@@ -32,7 +32,8 @@ void FontAtlas::destroy() {
 }
 
 void FontAtlas::create(const std::string& font_path,
-                       VkDevice device, VkPhysicalDevice physical_device,
+                       VkDevice device, VmaAllocator allocator,
+                       VkPhysicalDevice physical_device,
                        VkCommandPool command_pool, VkQueue queue,
                        BindlessTextures& bindless) {
     auto* ft = msdfgen::initializeFreetype();
@@ -195,7 +196,7 @@ void FontAtlas::create(const std::string& font_path,
 
     // CLAMP_TO_EDGE prevents sampling outside the atlas; no anisotropic filtering for MSDF
     atlas_texture_ = std::make_unique<Texture>(
-        device, physical_device, command_pool, queue,
+        device, allocator, physical_device, command_pool, queue,
         atlas.data(), atlas_width_, atlas_height_,
         VK_FORMAT_R8G8B8A8_UNORM, 1, true);
     atlas_index_ = bindless.add(*atlas_texture_);

@@ -42,7 +42,7 @@ struct PipelineDrawRange {
 
 class IndirectBatch {
 public:
-    IndirectBatch(VkDevice device, VkPhysicalDevice physical_device);
+    IndirectBatch(VkDevice device, VmaAllocator allocator);
 
     void build(const std::vector<DrawCommand>& opaque_commands,
                const std::vector<DrawCommand>& transparent_commands,
@@ -112,7 +112,7 @@ private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
 
     VkDevice device_;
-    VkPhysicalDevice physical_device_;
+    VmaAllocator allocator_;
 
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> indirect_buffers_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> draw_data_buffers_;

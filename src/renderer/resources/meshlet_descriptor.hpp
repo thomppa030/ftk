@@ -19,7 +19,7 @@ class MeshletDescriptor {
 public:
     MeshletDescriptor() = default;
 
-    void create(VkDevice device, VkPhysicalDevice physical_device = VK_NULL_HANDLE);
+    void create(VkDevice device, VmaAllocator allocator = VK_NULL_HANDLE);
     void destroy();
 
     void update(const MeshletBuffer& meshlet_buf, const MegaBuffer& mega_buf,
@@ -34,7 +34,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     std::unique_ptr<DescriptorSetLayout> layout_;
     std::unique_ptr<DescriptorPool> pool_;
     std::unique_ptr<Buffer> dummy_buffer_;

@@ -19,7 +19,7 @@ namespace fjell {
 Result<> UvVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
 
-    viz_image_.init(device.handle(), device.physical_device(), VK_FORMAT_R8G8B8A8_SRGB);
+    viz_image_.init(device.handle(), resources.allocator, VK_FORMAT_R8G8B8A8_SRGB);
     viz_image_.create(64, 64);
 
     auto vert_code = read_spirv(base_path::resolve("shaders/uv_viz.vert.spv"));

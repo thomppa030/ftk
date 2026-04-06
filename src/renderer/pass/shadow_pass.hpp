@@ -4,6 +4,7 @@
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -50,11 +51,11 @@ private:
     void destroy_images();
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Depth texture array: one layer per cascade
     VkImage image_{VK_NULL_HANDLE};
-    VkDeviceMemory memory_{VK_NULL_HANDLE};
+    VmaAllocation memory_{VK_NULL_HANDLE};
     VkImageView array_view_{VK_NULL_HANDLE};                          // all layers
     std::array<VkImageView, CASCADE_COUNT> cascade_views_{};          // per-layer
     VkSampler sampler_{VK_NULL_HANDLE};

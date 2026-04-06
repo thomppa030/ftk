@@ -7,9 +7,9 @@
 
 namespace fjell {
 
-void MeshletDescriptor::create(VkDevice device, VkPhysicalDevice physical_device) {
+void MeshletDescriptor::create(VkDevice device, VmaAllocator allocator) {
     device_ = device;
-    physical_device_ = physical_device;
+    allocator_ = allocator;
 
     // Set 3 layout: 6 SSBO bindings for meshlet data
     // binding 0: Meshlet[]
@@ -44,9 +44,9 @@ void MeshletDescriptor::create(VkDevice device, VkPhysicalDevice physical_device
 
     // Create a small dummy buffer for binding 5 when no visible buffer is available
     dummy_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, 16,
+        allocator_, 16,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     FJELL_GFX_DEBUG("Meshlet descriptor created (set 3, 6 SSBOs)");
 }

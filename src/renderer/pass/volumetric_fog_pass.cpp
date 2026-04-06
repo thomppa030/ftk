@@ -1,7 +1,7 @@
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -103,7 +103,7 @@ static VkPipelineLayout create_pipeline_layout(
 // ── VolumeImage helpers ─────────────────────────────────────────────────────
 
 VolumetricFogPass::VolumeImage VolumetricFogPass::create_volume_image(
-        VkDevice device, VkPhysicalDevice physical_device,
+        VkDevice device, VmaAllocator allocator,
         uint32_t w, uint32_t h, uint32_t d) {
     VolumeImage img{};
 
@@ -119,23 +119,9 @@ VolumetricFogPass::VolumeImage VolumetricFogPass::create_volume_image(
     ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (vkCreateImage(device, &ci, nullptr, &img.image) != VK_SUCCESS) {
+    if (create_vma_image(allocator, &ci, &img.image, &img.memory) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create fog volume image");
     }
-
-    VkMemoryRequirements reqs;
-    vkGetImageMemoryRequirements(device, img.image, &reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device, reqs.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    if (vkAllocateMemory(device, &alloc, nullptr, &img.memory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate fog volume memory");
-    }
-    vkBindImageMemory(device, img.image, img.memory, 0);
 
     VkImageViewCreateInfo vi{};
     vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -151,16 +137,15 @@ VolumetricFogPass::VolumeImage VolumetricFogPass::create_volume_image(
     return img;
 }
 
-void VolumetricFogPass::destroy_volume_image(VkDevice device, VolumeImage& img) {
+void VolumetricFogPass::destroy_volume_image(VkDevice device, VmaAllocator allocator, VolumeImage& img) {
     if (img.view) vkDestroyImageView(device, img.view, nullptr);
-    if (img.image) vkDestroyImage(device, img.image, nullptr);
-    if (img.memory) vkFreeMemory(device, img.memory, nullptr);
+    destroy_vma_image(allocator, img.image, img.memory);
     img = {};
 }
 
 // ── Images ──────────────────────────────────────────────────────────────────
 
-void VolumetricFogPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+void VolumetricFogPass::Images::create(VkDevice device, VmaAllocator allocator,
                                         VkDescriptorSetLayout inject_layout,
                                         VkDescriptorSetLayout temporal_layout,
                                         VkDescriptorSetLayout integrate_layout,
@@ -173,9 +158,9 @@ void VolumetricFogPass::Images::create(VkDevice device, VkPhysicalDevice physica
     frame_counter = 0;
 
     // Create volume images
-    scatter_volumes[0] = create_volume_image(device, physical_device, vol_w, vol_h, DEPTH_SLICES);
-    scatter_volumes[1] = create_volume_image(device, physical_device, vol_w, vol_h, DEPTH_SLICES);
-    integrated_volume = create_volume_image(device, physical_device, vol_w, vol_h, DEPTH_SLICES);
+    scatter_volumes[0] = create_volume_image(device, allocator, vol_w, vol_h, DEPTH_SLICES);
+    scatter_volumes[1] = create_volume_image(device, allocator, vol_w, vol_h, DEPTH_SLICES);
+    integrated_volume = create_volume_image(device, allocator, vol_w, vol_h, DEPTH_SLICES);
 
     // Consolidated descriptor pool:
     // Sets: 2 (inject) + 2 (temporal) + 2 (integrate) + MAX_FRAMES_IN_FLIGHT (composite) = 9
@@ -319,7 +304,7 @@ void VolumetricFogPass::Images::create(VkDevice device, VkPhysicalDevice physica
     }
 }
 
-void VolumetricFogPass::Images::destroy(VkDevice device) {
+void VolumetricFogPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
     if (pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, pool, nullptr);
@@ -329,13 +314,13 @@ void VolumetricFogPass::Images::destroy(VkDevice device) {
         for (auto& s : integrate_sets) s = VK_NULL_HANDLE;
         for (auto& s : composite_sets) s = VK_NULL_HANDLE;
     }
-    destroy_volume_image(device, scatter_volumes[0]);
-    destroy_volume_image(device, scatter_volumes[1]);
-    destroy_volume_image(device, integrated_volume);
+    destroy_volume_image(device, allocator, scatter_volumes[0]);
+    destroy_volume_image(device, allocator, scatter_volumes[1]);
+    destroy_volume_image(device, allocator, integrated_volume);
     volume_extent = {};
 }
 
-void VolumetricFogPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+void VolumetricFogPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                         VkDescriptorSetLayout inject_layout,
                                         VkDescriptorSetLayout temporal_layout,
                                         VkDescriptorSetLayout integrate_layout,
@@ -356,8 +341,8 @@ void VolumetricFogPass::Images::resize(VkDevice device, VkPhysicalDevice physica
     }
     vkDeviceWaitIdle(device);
 
-    destroy(device);
-    create(device, physical_device, inject_layout, temporal_layout, integrate_layout,
+    destroy(device, allocator);
+    create(device, allocator, inject_layout, temporal_layout, integrate_layout,
            composite_layout, linear_sampler, vol_w, vol_h);
 }
 
@@ -427,7 +412,7 @@ static void update_composite_descriptors(VkDevice device, VkSampler linear_sampl
 
 Result<> VolumetricFogPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
     auto global_set_layout = resources.global_set_layout;
 
     // Linear sampler for trilinear 3D texture sampling
@@ -550,7 +535,7 @@ Result<> VolumetricFogPass::create(Device& device, const PassResources& resource
     }
 
     // Create default images with initial 1x1x1 volumes so descriptors are valid
-    default_images_.create(device_, physical_device_,
+    default_images_.create(device_, allocator_,
                            inject_set_layout_, temporal_set_layout_,
                            integrate_set_layout_, composite_set_layout_,
                            linear_sampler_, 1, 1);
@@ -562,7 +547,7 @@ Result<> VolumetricFogPass::create(Device& device, const PassResources& resource
 void VolumetricFogPass::destroy() {
     if (!device_) return;
 
-    default_images_.destroy(device_);
+    default_images_.destroy(device_, allocator_);
 
     auto destroy_pass = [&](VkPipeline& p, VkPipelineLayout& l, VkDescriptorSetLayout& sl) {
         if (p) { vkDestroyPipeline(device_, p, nullptr); p = VK_NULL_HANDLE; }
@@ -581,7 +566,7 @@ void VolumetricFogPass::destroy() {
 }
 
 void VolumetricFogPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, physical_device_,
+    default_images_.resize(device_, allocator_,
                            inject_set_layout_, temporal_set_layout_,
                            integrate_set_layout_, composite_set_layout_,
                            linear_sampler_, width, height);

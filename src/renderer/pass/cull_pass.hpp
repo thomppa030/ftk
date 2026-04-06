@@ -5,6 +5,7 @@
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -22,7 +23,7 @@ static_assert(sizeof(GpuDrawAABB) == 32, "GpuDrawAABB must be 32 bytes for std43
 
 class CullPass {
 public:
-    [[nodiscard]] Result<> create(VkDevice device, VkPhysicalDevice physical_device,
+    [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator,
                                   VkDescriptorSetLayout global_set_layout);
     void destroy();
 
@@ -51,7 +52,7 @@ private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};

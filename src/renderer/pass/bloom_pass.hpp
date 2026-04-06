@@ -3,6 +3,7 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -20,7 +21,7 @@ public:
 
     struct MipLevel {
         VkImage image{VK_NULL_HANDLE};
-        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VmaAllocation allocation{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
         uint32_t width{0};
         uint32_t height{0};
@@ -31,7 +32,7 @@ public:
         std::array<MipLevel, MIP_COUNT> mips{};
 
         VkImage output_image{VK_NULL_HANDLE};
-        VkDeviceMemory output_memory{VK_NULL_HANDLE};
+        VmaAllocation output_allocation{VK_NULL_HANDLE};
         VkImageView output_view{VK_NULL_HANDLE};
         VkExtent2D extent{};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
@@ -42,13 +43,13 @@ public:
         VkDescriptorSet source_sets[MAX_FRAMES_IN_FLIGHT]{};
         VkDescriptorSet composite_sets[MAX_FRAMES_IN_FLIGHT]{};
 
-        void create(VkDevice device, VkPhysicalDevice physical_device,
+        void create(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout single_tex_layout,
                      VkDescriptorSetLayout composite_layout,
                      VkSampler sampler,
                      uint32_t width, uint32_t height);
-        void destroy(VkDevice device);
-        void resize(VkDevice device, VkPhysicalDevice physical_device,
+        void destroy(VkDevice device, VmaAllocator allocator);
+        void resize(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout single_tex_layout,
                      VkDescriptorSetLayout composite_layout,
                      VkSampler sampler,
@@ -82,7 +83,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Resolution-independent (shared across all Images)
     VkSampler sampler_{VK_NULL_HANDLE};

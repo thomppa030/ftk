@@ -9,6 +9,7 @@
 #include "renderer/systems/vfx_emitter.hpp"
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -33,7 +34,8 @@ struct MaterialAsset;
 
 class ResourceManager {
 public:
-    ResourceManager(VkDevice device, VkPhysicalDevice physical_device,
+    ResourceManager(VkDevice device, VmaAllocator allocator,
+                    VkPhysicalDevice physical_device,
                     VkCommandPool command_pool, VkQueue queue,
                     BindlessTextures& bindless, MegaBuffer* mega_buffer = nullptr,
                     MeshletBuffer* meshlet_buffer = nullptr,
@@ -152,6 +154,7 @@ private:
     };
 
     VkDevice device_;
+    VmaAllocator allocator_;
     VkPhysicalDevice physical_device_;
     VkCommandPool command_pool_;
     VkQueue queue_;

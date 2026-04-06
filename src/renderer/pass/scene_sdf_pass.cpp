@@ -1,5 +1,6 @@
 #include "renderer/pass/scene_sdf_pass.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -13,9 +14,9 @@
 
 namespace fjell {
 
-void SceneSdfPass::create(Device& device, VkDescriptorSetLayout /*global_set_layout*/) {
+void SceneSdfPass::create(Device& device, VkDescriptorSetLayout /*global_set_layout*/, VmaAllocator allocator) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = allocator;
 
     create_volume_image();
     create_compute_pipeline();
@@ -40,14 +41,9 @@ void SceneSdfPass::destroy() {
         safe(slice_pool_, vkDestroyDescriptorPool);
         safe(slice_sampler_, vkDestroySampler);
         safe(slice_view_, vkDestroyImageView);
-        if (slice_image_ != VK_NULL_HANDLE) {
-            vkDestroyImage(device_, slice_image_, nullptr);
-            slice_image_ = VK_NULL_HANDLE;
-        }
-        if (slice_memory_ != VK_NULL_HANDLE) {
-            vkFreeMemory(device_, slice_memory_, nullptr);
-            slice_memory_ = VK_NULL_HANDLE;
-        }
+        destroy_vma_image(allocator_, slice_image_, slice_memory_);
+        slice_image_ = VK_NULL_HANDLE;
+        slice_memory_ = VK_NULL_HANDLE;
         slice_initialized_ = false;
     }
 
@@ -60,14 +56,9 @@ void SceneSdfPass::destroy() {
     safe(pool_, vkDestroyDescriptorPool);
     safe(sdf_sampler_, vkDestroySampler);
     safe(sdf_view_, vkDestroyImageView);
-    if (sdf_image_ != VK_NULL_HANDLE) {
-        vkDestroyImage(device_, sdf_image_, nullptr);
-        sdf_image_ = VK_NULL_HANDLE;
-    }
-    if (sdf_memory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(device_, sdf_memory_, nullptr);
-        sdf_memory_ = VK_NULL_HANDLE;
-    }
+    destroy_vma_image(allocator_, sdf_image_, sdf_memory_);
+    sdf_image_ = VK_NULL_HANDLE;
+    sdf_memory_ = VK_NULL_HANDLE;
 }
 
 void SceneSdfPass::create_volume_image() {
@@ -83,29 +74,7 @@ void SceneSdfPass::create_volume_image() {
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
     ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vk_check(vkCreateImage(device_, &ci, nullptr, &sdf_image_), "SDF create image");
-
-    VkMemoryRequirements reqs;
-    vkGetImageMemoryRequirements(device_, sdf_image_, &reqs);
-
-    VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(physical_device_, &mem_props);
-
-    uint32_t mem_type = UINT32_MAX;
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
-        if ((reqs.memoryTypeBits & (1u << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
-            mem_type = i;
-            break;
-        }
-    }
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = reqs.size;
-    alloc.memoryTypeIndex = mem_type;
-    vk_check(vkAllocateMemory(device_, &alloc, nullptr, &sdf_memory_), "SDF pass");
-    vk_check(vkBindImageMemory(device_, sdf_image_, sdf_memory_, 0), "SDF pass");
+    vk_check(create_vma_image(allocator_, &ci, &sdf_image_, &sdf_memory_), "SDF create image");
 
     // Image view
     VkImageViewCreateInfo vci{};
@@ -220,16 +189,18 @@ void SceneSdfPass::create_compute_pipeline() {
 
     // Allocate mesh SDF buffer (4MB — room for ~60 meshes at 32³)
     mesh_sdf_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, 4 * 1024 * 1024,
+        allocator_, 4 * 1024 * 1024,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     mesh_sdf_buffer_->map();
 
     // Allocate instance buffer (enough for 256 instances)
     instance_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, 256 * sizeof(GpuSdfInstance),
+        allocator_, 256 * sizeof(GpuSdfInstance),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     instance_buffer_->map();
 
     // Write bindings 1 and 2
@@ -398,25 +369,7 @@ void SceneSdfPass::render_slice(VkCommandBuffer cmd, uint32_t axis, float slice_
         ci.tiling = VK_IMAGE_TILING_OPTIMAL;
         ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        vk_check(vkCreateImage(device_, &ci, nullptr, &slice_image_), "SDF slice image");
-
-        VkMemoryRequirements reqs;
-        vkGetImageMemoryRequirements(device_, slice_image_, &reqs);
-        VkPhysicalDeviceMemoryProperties mem_props;
-        vkGetPhysicalDeviceMemoryProperties(physical_device_, &mem_props);
-        uint32_t mem_type = UINT32_MAX;
-        for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
-            if ((reqs.memoryTypeBits & (1u << i)) &&
-                (mem_props.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
-                mem_type = i; break;
-            }
-        }
-        VkMemoryAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        alloc.allocationSize = reqs.size;
-        alloc.memoryTypeIndex = mem_type;
-        vk_check(vkAllocateMemory(device_, &alloc, nullptr, &slice_memory_), "SDF slice mem");
-        vk_check(vkBindImageMemory(device_, slice_image_, slice_memory_, 0), "SDF slice bind");
+        vk_check(create_vma_image(allocator_, &ci, &slice_image_, &slice_memory_), "SDF slice image");
 
         VkImageViewCreateInfo vci{};
         vci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;

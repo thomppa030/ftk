@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 namespace fjell {
@@ -47,7 +48,8 @@ public:
     FontAtlas& operator=(FontAtlas&&) = delete;
 
     void create(const std::string& font_path,
-                VkDevice device, VkPhysicalDevice physical_device,
+                VkDevice device, VmaAllocator allocator,
+                VkPhysicalDevice physical_device,
                 VkCommandPool command_pool, VkQueue queue,
                 BindlessTextures& bindless);
 

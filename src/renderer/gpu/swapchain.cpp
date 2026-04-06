@@ -1,6 +1,6 @@
 #include "renderer/gpu/swapchain.hpp"
-#include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 
@@ -14,8 +14,8 @@
 
 namespace fjell {
 
-Swapchain::Swapchain(Device& device, Window& window)
-    : device_{device}, window_{window} {
+Swapchain::Swapchain(Device& device, VmaAllocator allocator, Window& window)
+    : device_{device}, allocator_{allocator}, window_{window} {
     create_swapchain();
     create_image_views();
     create_depth_resources();
@@ -36,13 +36,10 @@ void Swapchain::cleanup() {
 
     if (depth_image_view_ != VK_NULL_HANDLE)
         vkDestroyImageView(vk_device, depth_image_view_, nullptr);
-    if (depth_image_ != VK_NULL_HANDLE)
-        vkDestroyImage(vk_device, depth_image_, nullptr);
-    if (depth_memory_ != VK_NULL_HANDLE)
-        vkFreeMemory(vk_device, depth_memory_, nullptr);
+    destroy_vma_image(allocator_, depth_image_, depth_allocation_);
     depth_image_view_ = VK_NULL_HANDLE;
     depth_image_ = VK_NULL_HANDLE;
-    depth_memory_ = VK_NULL_HANDLE;
+    depth_allocation_ = VK_NULL_HANDLE;
 
     for (auto view : image_views_)
         vkDestroyImageView(vk_device, view, nullptr);
@@ -173,25 +170,9 @@ void Swapchain::create_depth_resources() {
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(vk_device, &image_info, nullptr, &depth_image_) != VK_SUCCESS) {
+    if (create_vma_image(allocator_, &image_info, &depth_image_, &depth_allocation_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create depth image");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(vk_device, depth_image_, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = mem_reqs.size;
-    alloc_info.memoryTypeIndex = Buffer::find_memory_type(
-        device_.physical_device(), mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    if (vkAllocateMemory(vk_device, &alloc_info, nullptr, &depth_memory_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate depth image memory");
-    }
-
-    vkBindImageMemory(vk_device, depth_image_, depth_memory_, 0);
 
     VkImageViewCreateInfo view_info{};
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;

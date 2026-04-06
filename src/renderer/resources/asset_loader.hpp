@@ -3,6 +3,7 @@
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/resource_handle.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <mutex>
@@ -19,7 +20,7 @@ class ThreadPool;
 class AssetLoader {
 public:
     AssetLoader(ThreadPool& pool, ResourceManager& resources,
-                VkDevice device, VkPhysicalDevice physical_device,
+                VmaAllocator allocator, VkDevice device,
                 VkCommandPool command_pool, VkQueue queue,
                 MegaBuffer* mega, MeshletBuffer* meshlet_buf);
 
@@ -44,8 +45,8 @@ private:
 
     ThreadPool& pool_;
     ResourceManager& resources_;
+    VmaAllocator allocator_;
     VkDevice device_;
-    VkPhysicalDevice physical_device_;
     VkCommandPool command_pool_;
     VkQueue queue_;
     MegaBuffer* mega_;

@@ -141,10 +141,11 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
     return pipeline;
 }
 
-void UiRenderer::create(Device& device, const PassResources& resources,
+void UiRenderer::create(Device& device, VmaAllocator allocator,
+                        const PassResources& resources,
                         VkFormat output_format) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = allocator;
     global_set_layout_ = resources.global_set_layout;
     bindless_set_layout_ = resources.material_set_layout;
     color_format_ = (output_format != VK_FORMAT_UNDEFINED) ? output_format : resources.color_format;
@@ -214,15 +215,17 @@ void UiRenderer::create(Device& device, const PassResources& resources,
     // Double-buffered SSBOs + descriptor sets
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         quad_ssbos_[i] = std::make_unique<Buffer>(
-            device_, physical_device_, SSBO_SIZE,
+            allocator_, SSBO_SIZE,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         quad_ssbos_[i]->map();
 
         text_ssbos_[i] = std::make_unique<Buffer>(
-            device_, physical_device_, TEXT_SSBO_SIZE,
+            allocator_, TEXT_SSBO_SIZE,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         text_ssbos_[i]->map();
 
         VkDescriptorSetAllocateInfo alloc{};

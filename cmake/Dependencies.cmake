@@ -256,3 +256,13 @@ if(NOT imnodes_POPULATED)
 endif()
 
 find_package(Vulkan REQUIRED)
+
+# VMA — Vulkan Memory Allocator
+FetchContent_Declare(
+    VulkanMemoryAllocator
+    GIT_REPOSITORY https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+    GIT_TAG        v3.2.1
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
+FetchContent_MakeAvailable(VulkanMemoryAllocator)

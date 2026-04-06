@@ -3,6 +3,7 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 namespace fjell {
@@ -14,7 +15,7 @@ public:
     // Per-viewport resolution-dependent image state.
     struct Images {
         VkImage image{VK_NULL_HANDLE};
-        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VmaAllocation memory{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
         VkExtent2D extent{};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
@@ -23,11 +24,11 @@ public:
         VkDescriptorPool pool{VK_NULL_HANDLE};
         VkDescriptorSet input_sets[MAX_FRAMES_IN_FLIGHT]{};
 
-        void create(VkDevice device, VkPhysicalDevice physical_device,
+        void create(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
                      uint32_t width, uint32_t height);
-        void destroy(VkDevice device);
-        void resize(VkDevice device, VkPhysicalDevice physical_device,
+        void destroy(VkDevice device, VmaAllocator allocator);
+        void resize(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout set_layout,
                      uint32_t width, uint32_t height);
 
@@ -60,7 +61,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Resolution-independent (shared across all Images)
     VkSampler sampler_{VK_NULL_HANDLE};

@@ -7,8 +7,8 @@
 
 namespace fjell {
 
-AnimationSystem::AnimationSystem(VkDevice device, VkPhysicalDevice physical_device)
-    : bone_buffer_{device, physical_device} {
+AnimationSystem::AnimationSystem(VkDevice device, VmaAllocator allocator)
+    : bone_buffer_{device, allocator} {
 }
 
 void AnimationSystem::update(Scene& scene, float dt) {

@@ -96,6 +96,7 @@ public:
   [[nodiscard]] GpuContext& gpu() { return gpu_; }
   [[nodiscard]] VkDevice device() const { return gpu_.device(); }
   [[nodiscard]] VkPhysicalDevice physical_device() const { return gpu_.physical_device(); }
+  [[nodiscard]] VmaAllocator allocator() const { return gpu_.allocator(); }
   [[nodiscard]] VkCommandPool command_pool() const { return gpu_.command_pool(); }
   [[nodiscard]] VkQueue graphics_queue() const { return gpu_.graphics_queue(); }
   [[nodiscard]] BindlessTextures &bindless_textures() { return gpu_.bindless_textures(); }
@@ -304,7 +305,7 @@ private:
 
   // ── SSR prev-frame state ──────────────────────────────────────────────
   VkImage prev_frame_color_{VK_NULL_HANDLE};
-  VkDeviceMemory prev_frame_color_memory_{VK_NULL_HANDLE};
+  VmaAllocation prev_frame_color_allocation_{VK_NULL_HANDLE};
   VkImageView prev_frame_color_view_{VK_NULL_HANDLE};
   VkExtent2D prev_frame_extent_{};
 

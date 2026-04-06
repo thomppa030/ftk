@@ -13,9 +13,9 @@
 
 namespace fjell {
 
-IndirectBatch::IndirectBatch(VkDevice device, VkPhysicalDevice physical_device)
+IndirectBatch::IndirectBatch(VkDevice device, VmaAllocator allocator)
     : device_{device}
-    , physical_device_{physical_device} {
+    , allocator_{allocator} {
 }
 
 void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
@@ -25,41 +25,46 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
     if (new_cap < 256) new_cap = 256;
 
     indirect_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_,
+        allocator_,
         new_cap * sizeof(VkDrawIndexedIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     indirect_buffers_[frame_index]->map();
 
     draw_data_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_,
+        allocator_,
         new_cap * sizeof(GpuDrawData),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     draw_data_buffers_[frame_index]->map();
 
     // Mesh shader indirect dispatch buffers
     mesh_indirect_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_,
+        allocator_,
         new_cap * sizeof(VkDrawMeshTasksIndirectCommandEXT),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     mesh_indirect_buffers_[frame_index]->map();
 
     // Count buffer: one uint32_t per pipeline range
     uint32_t max_ranges = std::max(new_cap, 64u);
     mesh_count_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_,
+        allocator_,
         max_ranges * sizeof(uint32_t),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     mesh_count_buffers_[frame_index]->map();
 
     pipeline_bin_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_,
+        allocator_,
         new_cap * sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     pipeline_bin_buffers_[frame_index]->map();
 
     capacities_[frame_index] = new_cap;

@@ -1,13 +1,13 @@
 #include "renderer/render_target_pool.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/vk_check.hpp"
 
 #include <algorithm>
 
 namespace fjell {
 
-RenderTargetPool::RenderTargetPool(VkDevice device, VkPhysicalDevice physical_device)
-    : device_{device}, physical_device_{physical_device} {}
+RenderTargetPool::RenderTargetPool(VkDevice device, VmaAllocator allocator)
+    : device_{device}, allocator_{allocator} {}
 
 RenderTargetPool::~RenderTargetPool() {
     reset();
@@ -91,23 +91,9 @@ RenderTargetPool::PoolEntry RenderTargetPool::create_entry(const RenderTargetDes
     image_info.usage = desc.usage;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    vk_check(vkCreateImage(device_, &image_info, nullptr, &entry.target.image),
+    vk_check(create_vma_image(allocator_, &image_info,
+                              &entry.target.image, &entry.target.allocation),
              "create pool render target image");
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device_, entry.target.image, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    vk_check(vkAllocateMemory(device_, &alloc, nullptr, &entry.target.memory),
-             "allocate pool render target memory");
-    vk_check(vkBindImageMemory(device_, entry.target.image, entry.target.memory, 0),
-             "bind pool render target memory");
 
     VkImageViewCreateInfo view_info{};
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -128,10 +114,7 @@ RenderTargetPool::PoolEntry RenderTargetPool::create_entry(const RenderTargetDes
 void RenderTargetPool::destroy_entry(PoolEntry& entry) {
     if (entry.target.view != VK_NULL_HANDLE)
         vkDestroyImageView(device_, entry.target.view, nullptr);
-    if (entry.target.image != VK_NULL_HANDLE)
-        vkDestroyImage(device_, entry.target.image, nullptr);
-    if (entry.target.memory != VK_NULL_HANDLE)
-        vkFreeMemory(device_, entry.target.memory, nullptr);
+    destroy_vma_image(allocator_, entry.target.image, entry.target.allocation);
     entry.target = {};
 }
 

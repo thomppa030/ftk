@@ -1,5 +1,6 @@
 #pragma once
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -10,7 +11,8 @@ class Device;
 
 class OffscreenPass {
 public:
-    OffscreenPass(Device& device, uint32_t width, uint32_t height,
+    OffscreenPass(Device& device, VmaAllocator allocator,
+                  uint32_t width, uint32_t height,
                   VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT);
     ~OffscreenPass();
 
@@ -67,16 +69,17 @@ private:
     void cleanup_images();
 
     Device& device_;
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
 
     // Color render target (MSAA when samples > 1)
     VkImage color_image_{VK_NULL_HANDLE};
-    VkDeviceMemory color_memory_{VK_NULL_HANDLE};
+    VmaAllocation color_allocation_{VK_NULL_HANDLE};
     VkImageView color_view_{VK_NULL_HANDLE};
 
     // Resolve target (single-sample, only created when MSAA)
     VkImage resolve_color_image_{VK_NULL_HANDLE};
-    VkDeviceMemory resolve_color_memory_{VK_NULL_HANDLE};
+    VmaAllocation resolve_color_allocation_{VK_NULL_HANDLE};
     VkImageView resolve_color_view_{VK_NULL_HANDLE};
 
     VkSampler sampler_{VK_NULL_HANDLE};
@@ -84,27 +87,27 @@ private:
 
     // Depth render target (MSAA when samples > 1)
     VkImage depth_image_{VK_NULL_HANDLE};
-    VkDeviceMemory depth_memory_{VK_NULL_HANDLE};
+    VmaAllocation depth_allocation_{VK_NULL_HANDLE};
     VkImageView depth_view_{VK_NULL_HANDLE};
 
     // Depth resolve target (single-sample, only created when MSAA)
     VkImage resolve_depth_image_{VK_NULL_HANDLE};
-    VkDeviceMemory resolve_depth_memory_{VK_NULL_HANDLE};
+    VmaAllocation resolve_depth_allocation_{VK_NULL_HANDLE};
     VkImageView resolve_depth_view_{VK_NULL_HANDLE};
 
     // Metallic/roughness render target (MSAA when samples > 1)
     VkImage mr_image_{VK_NULL_HANDLE};
-    VkDeviceMemory mr_memory_{VK_NULL_HANDLE};
+    VmaAllocation mr_allocation_{VK_NULL_HANDLE};
     VkImageView mr_view_{VK_NULL_HANDLE};
 
     // Metallic/roughness resolve target (single-sample, only created when MSAA)
     VkImage resolve_mr_image_{VK_NULL_HANDLE};
-    VkDeviceMemory resolve_mr_memory_{VK_NULL_HANDLE};
+    VmaAllocation resolve_mr_allocation_{VK_NULL_HANDLE};
     VkImageView resolve_mr_view_{VK_NULL_HANDLE};
 
     // Screen color copy (single-sample, for SCREEN_TEXTURE in transparent shaders)
     VkImage screen_color_image_{VK_NULL_HANDLE};
-    VkDeviceMemory screen_color_memory_{VK_NULL_HANDLE};
+    VmaAllocation screen_color_allocation_{VK_NULL_HANDLE};
     VkImageView screen_color_view_{VK_NULL_HANDLE};
     bool screen_color_needs_init_{true};
 

@@ -1,5 +1,5 @@
 #include "renderer/pass/bloom_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -174,7 +174,7 @@ static void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-void BloomPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+void BloomPass::Images::create(VkDevice device, VmaAllocator allocator,
                                 VkDescriptorSetLayout single_tex_layout,
                                 VkDescriptorSetLayout composite_layout,
                                 VkSampler sampler,
@@ -199,24 +199,9 @@ void BloomPass::Images::create(VkDevice device, VkPhysicalDevice physical_device
         ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-        if (vkCreateImage(device, &ci, nullptr, &mip.image) != VK_SUCCESS) {
+        if (create_vma_image(allocator, &ci, &mip.image, &mip.allocation) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create bloom mip image");
         }
-
-        VkMemoryRequirements mem_reqs;
-        vkGetImageMemoryRequirements(device, mip.image, &mem_reqs);
-
-        VkMemoryAllocateInfo alloc{};
-        alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        alloc.allocationSize = mem_reqs.size;
-        alloc.memoryTypeIndex = Buffer::find_memory_type(
-            physical_device, mem_reqs.memoryTypeBits,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-        if (vkAllocateMemory(device, &alloc, nullptr, &mip.memory) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate bloom mip memory");
-        }
-        vkBindImageMemory(device, mip.image, mip.memory, 0);
 
         VkImageViewCreateInfo view_ci{};
         view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -252,21 +237,9 @@ void BloomPass::Images::create(VkDevice device, VkPhysicalDevice physical_device
     out_ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     out_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (vkCreateImage(device, &out_ci, nullptr, &output_image) != VK_SUCCESS) {
+    if (create_vma_image(allocator, &out_ci, &output_image, &output_allocation) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create bloom output image");
     }
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device, output_image, &mem_reqs);
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (vkAllocateMemory(device, &alloc, nullptr, &output_memory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate bloom output memory");
-    }
-    vkBindImageMemory(device, output_image, output_memory, 0);
 
     VkImageViewCreateInfo out_view_ci{};
     out_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -339,7 +312,7 @@ void BloomPass::Images::create(VkDevice device, VkPhysicalDevice physical_device
     }
 }
 
-void BloomPass::Images::destroy(VkDevice device) {
+void BloomPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
     if (pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, pool, nullptr);
@@ -350,17 +323,17 @@ void BloomPass::Images::destroy(VkDevice device) {
     }
     for (auto& mip : mips) {
         if (mip.view != VK_NULL_HANDLE) vkDestroyImageView(device, mip.view, nullptr);
-        if (mip.image != VK_NULL_HANDLE) vkDestroyImage(device, mip.image, nullptr);
-        if (mip.memory != VK_NULL_HANDLE) vkFreeMemory(device, mip.memory, nullptr);
+        destroy_vma_image(allocator, mip.image, mip.allocation);
         mip = {};
     }
     if (output_view != VK_NULL_HANDLE) { vkDestroyImageView(device, output_view, nullptr); output_view = VK_NULL_HANDLE; }
-    if (output_image != VK_NULL_HANDLE) { vkDestroyImage(device, output_image, nullptr); output_image = VK_NULL_HANDLE; }
-    if (output_memory != VK_NULL_HANDLE) { vkFreeMemory(device, output_memory, nullptr); output_memory = VK_NULL_HANDLE; }
+    destroy_vma_image(allocator, output_image, output_allocation);
+    output_image = VK_NULL_HANDLE;
+    output_allocation = VK_NULL_HANDLE;
     extent = {};
 }
 
-void BloomPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+void BloomPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                 VkDescriptorSetLayout single_tex_layout,
                                 VkDescriptorSetLayout composite_layout,
                                 VkSampler sampler,
@@ -368,9 +341,9 @@ void BloomPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
 
-    destroy(device);
+    destroy(device, allocator);
     if (width > 0 && height > 0) {
-        create(device, physical_device, single_tex_layout, composite_layout, sampler, width, height);
+        create(device, allocator, single_tex_layout, composite_layout, sampler, width, height);
     }
 }
 
@@ -391,9 +364,9 @@ void BloomPass::Images::invalidate_imgui_texture() {
 
 // ── BloomPass (singleton) ───────────────────────────────────────────────────
 
-Result<> BloomPass::create(Device& device, const PassResources& /*resources*/) {
+Result<> BloomPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
 
     // Sampler (linear, clamp)
     VkSamplerCreateInfo sampler_ci{};
@@ -498,7 +471,7 @@ Result<> BloomPass::create(Device& device, const PassResources& /*resources*/) {
 }
 
 void BloomPass::destroy() {
-    default_images_.destroy(device_);
+    default_images_.destroy(device_, allocator_);
 
     auto d = [this](auto& h) { if (h != VK_NULL_HANDLE) { vkDestroyPipeline(device_, h, nullptr); h = VK_NULL_HANDLE; } };
     d(downsample_pipeline_); d(upsample_pipeline_); d(composite_pipeline_);
@@ -511,7 +484,7 @@ void BloomPass::destroy() {
 }
 
 void BloomPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, physical_device_, single_tex_layout_, composite_layout_, sampler_, width, height);
+    default_images_.resize(device_, allocator_, single_tex_layout_, composite_layout_, sampler_, width, height);
 }
 
 VkDescriptorSet BloomPass::imgui_texture() {

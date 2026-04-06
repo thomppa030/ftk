@@ -18,7 +18,7 @@ struct MeshletRange {
 
 class MeshletBuffer {
 public:
-    MeshletBuffer(VkDevice device, VkPhysicalDevice physical_device,
+    MeshletBuffer(VkDevice device, VmaAllocator allocator,
                   VkCommandPool command_pool, VkQueue queue);
 
     MeshletRange upload(const MeshletBuildResult& result, uint32_t mega_vertex_offset);
@@ -40,7 +40,7 @@ private:
                      VkDeviceSize used, VkBufferUsageFlags usage);
 
     VkDevice device_;
-    VkPhysicalDevice physical_device_;
+    VmaAllocator allocator_;
     VkCommandPool command_pool_;
     VkQueue queue_;
 

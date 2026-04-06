@@ -10,10 +10,10 @@
 
 namespace fjell {
 
-void MeshletInstancePass::create(VkDevice device, VkPhysicalDevice physical_device,
+void MeshletInstancePass::create(VkDevice device, VmaAllocator allocator,
                                   VkDescriptorSetLayout global_set_layout) {
     device_ = device;
-    physical_device_ = physical_device;
+    allocator_ = allocator;
 
     // ── Expand pass descriptor layout (set 0) ──
     // binding 0: DrawData[] (read-only)
@@ -203,42 +203,42 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
     VkDeviceSize instance_size = static_cast<VkDeviceSize>(new_cap) * sizeof(GpuMeshletInstance);
 
     instance_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_, instance_size,
+        allocator_, instance_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     // Visible buffer: N segments, each capable of holding all instances
     VkDeviceSize visible_size = instance_size * MAX_PIPELINE_BINS;
     visible_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_, visible_size,
+        allocator_, visible_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     // Atomic counter for expand pass
     expand_counters_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_, sizeof(uint32_t),
+        allocator_, sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     // Indirect dispatch commands: one VkDrawMeshTasksIndirectCommandEXT per bin
     VkDeviceSize indirect_size = MAX_PIPELINE_BINS * sizeof(VkDrawMeshTasksIndirectCommandEXT);
     indirect_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_, indirect_size,
+        allocator_, indirect_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
         VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     // Culled instances buffer (for two-pass occlusion: stores Hi-Z rejected from first pass)
     culled_buffers_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_, instance_size,
+        allocator_, instance_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     // Culled counter
     culled_counters_[frame_index] = std::make_unique<Buffer>(
-        device_, physical_device_, sizeof(uint32_t),
+        allocator_, sizeof(uint32_t),
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     capacities_[frame_index] = new_cap;
 }

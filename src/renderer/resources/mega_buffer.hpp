@@ -21,7 +21,7 @@ struct MegaMeshEntry {
 
 class MegaBuffer {
 public:
-    MegaBuffer(VkDevice device, VkPhysicalDevice physical_device,
+    MegaBuffer(VkDevice device, VmaAllocator allocator,
                VkCommandPool command_pool, VkQueue queue);
 
     MegaMeshEntry upload(const std::vector<Vertex>& vertices,
@@ -41,7 +41,7 @@ private:
     void grow_index_buffer(VkDeviceSize new_size);
 
     VkDevice device_;
-    VkPhysicalDevice physical_device_;
+    VmaAllocator allocator_;
     VkCommandPool command_pool_;
     VkQueue queue_;
 

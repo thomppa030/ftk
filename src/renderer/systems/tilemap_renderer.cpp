@@ -20,7 +20,7 @@ namespace fjell {
 
 void TilemapRenderer::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
     global_set_layout_ = resources.global_set_layout;
     bindless_set_layout_ = resources.material_set_layout;
     color_format_ = resources.color_format;
@@ -174,9 +174,9 @@ void TilemapRenderer::create(Device& device, const PassResources& resources) {
     // Double-buffered SSBOs + descriptor sets
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         tile_ssbos_[i] = std::make_unique<Buffer>(
-            device_, physical_device_, SSBO_SIZE,
+            allocator_, SSBO_SIZE,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+            VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
         tile_ssbos_[i]->map();
 
         VkDescriptorSetAllocateInfo alloc{};

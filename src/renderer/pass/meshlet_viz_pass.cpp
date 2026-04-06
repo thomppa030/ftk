@@ -1,5 +1,5 @@
 #include "renderer/pass/meshlet_viz_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -19,7 +19,7 @@ static constexpr VkFormat VIZ_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
 Result<> MeshletVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
     draw_mesh_tasks_indirect_count_ = device.draw_mesh_tasks_indirect_count_fn();
     draw_data_layout_ = resources.draw_data_layout;
@@ -165,19 +165,7 @@ void MeshletVizPass::create_image(uint32_t width, uint32_t height) {
     image_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vkCreateImage(device_, &image_ci, nullptr, &image_);
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device_, image_, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vkAllocateMemory(device_, &alloc, nullptr, &memory_);
-    vkBindImageMemory(device_, image_, memory_, 0);
+    create_vma_image(allocator_, &image_ci, &image_, &memory_);
 
     VkImageViewCreateInfo view_ci{};
     view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -199,15 +187,7 @@ void MeshletVizPass::create_image(uint32_t width, uint32_t height) {
     depth_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
     depth_ci.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
     depth_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vkCreateImage(device_, &depth_ci, nullptr, &depth_image_);
-
-    vkGetImageMemoryRequirements(device_, depth_image_, &mem_reqs);
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vkAllocateMemory(device_, &alloc, nullptr, &depth_memory_);
-    vkBindImageMemory(device_, depth_image_, depth_memory_, 0);
+    create_vma_image(allocator_, &depth_ci, &depth_image_, &depth_memory_);
 
     VkImageViewCreateInfo depth_view_ci{};
     depth_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -220,11 +200,14 @@ void MeshletVizPass::create_image(uint32_t width, uint32_t height) {
 
 void MeshletVizPass::destroy_image() {
     if (depth_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, depth_view_, nullptr); depth_view_ = VK_NULL_HANDLE; }
-    if (depth_image_ != VK_NULL_HANDLE) { vkDestroyImage(device_, depth_image_, nullptr); depth_image_ = VK_NULL_HANDLE; }
-    if (depth_memory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, depth_memory_, nullptr); depth_memory_ = VK_NULL_HANDLE; }
+    destroy_vma_image(allocator_, depth_image_, depth_memory_);
+    depth_image_ = VK_NULL_HANDLE;
+    depth_memory_ = VK_NULL_HANDLE;
+
     if (view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, view_, nullptr); view_ = VK_NULL_HANDLE; }
-    if (image_ != VK_NULL_HANDLE) { vkDestroyImage(device_, image_, nullptr); image_ = VK_NULL_HANDLE; }
-    if (memory_ != VK_NULL_HANDLE) { vkFreeMemory(device_, memory_, nullptr); memory_ = VK_NULL_HANDLE; }
+    destroy_vma_image(allocator_, image_, memory_);
+    image_ = VK_NULL_HANDLE;
+    memory_ = VK_NULL_HANDLE;
 }
 
 void MeshletVizPass::resize(uint32_t width, uint32_t height) {

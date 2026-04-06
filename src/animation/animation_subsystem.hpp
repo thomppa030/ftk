@@ -10,8 +10,8 @@ namespace fjell {
 
 class AnimationSubsystem : public Subsystem {
 public:
-    AnimationSubsystem(VkDevice device, VkPhysicalDevice physical_device)
-        : system_{device, physical_device} {}
+    AnimationSubsystem(VkDevice device, VmaAllocator allocator)
+        : system_{device, allocator} {}
 
     [[nodiscard]] std::string_view name() const override { return "Animation"; }
 

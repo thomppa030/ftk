@@ -9,8 +9,9 @@
 
 namespace fjell {
 
-void ViewportManager::init(Device& device, VkSampleCountFlagBits msaa_samples) {
+void ViewportManager::init(Device& device, VmaAllocator allocator, VkSampleCountFlagBits msaa_samples) {
     device_ = &device;
+    allocator_ = allocator;
     msaa_samples_ = msaa_samples;
 }
 
@@ -123,7 +124,7 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
         if (panel.needs_offscreen && device_) {
             auto w = std::max(static_cast<uint32_t>(panel.size.x), 256u);
             auto h = std::max(static_cast<uint32_t>(panel.size.y), 256u);
-            panel.offscreen = std::make_unique<OffscreenPass>(*device_, w, h, msaa_samples_);
+            panel.offscreen = std::make_unique<OffscreenPass>(*device_, allocator_, w, h, msaa_samples_);
             panel.needs_offscreen = false;
         }
         if (!panel.offscreen) continue;

@@ -1,5 +1,5 @@
 #include "renderer/pass/gtao_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -37,9 +37,9 @@ struct BlurPushConstants {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
-static void create_ao_image(VkDevice device, VkPhysicalDevice physical_device,
+static void create_ao_image(VkDevice device, VmaAllocator allocator,
                              uint32_t width, uint32_t height,
-                             VkImage& image, VkDeviceMemory& memory, VkImageView& view) {
+                             VkImage& image, VmaAllocation& allocation, VkImageView& view) {
     VkImageCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ci.imageType = VK_IMAGE_TYPE_2D;
@@ -53,24 +53,9 @@ static void create_ao_image(VkDevice device, VkPhysicalDevice physical_device,
                VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (vkCreateImage(device, &ci, nullptr, &image) != VK_SUCCESS) {
+    if (create_vma_image(allocator, &ci, &image, &allocation) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create GTAO image");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device, image, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    if (vkAllocateMemory(device, &alloc, nullptr, &memory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate GTAO image memory");
-    }
-    vkBindImageMemory(device, image, memory, 0);
 
     VkImageViewCreateInfo view_ci{};
     view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -84,20 +69,20 @@ static void create_ao_image(VkDevice device, VkPhysicalDevice physical_device,
     }
 }
 
-static void destroy_ao_image(VkDevice device,
-                              VkImage& image, VkDeviceMemory& memory, VkImageView& view) {
+static void destroy_ao_image(VkDevice device, VmaAllocator allocator,
+                              VkImage& image, VmaAllocation& allocation, VkImageView& view) {
     if (view != VK_NULL_HANDLE) { vkDestroyImageView(device, view, nullptr); view = VK_NULL_HANDLE; }
-    if (image != VK_NULL_HANDLE) { vkDestroyImage(device, image, nullptr); image = VK_NULL_HANDLE; }
-    if (memory != VK_NULL_HANDLE) { vkFreeMemory(device, memory, nullptr); memory = VK_NULL_HANDLE; }
+    destroy_vma_image(allocator, image, allocation);
+    image = VK_NULL_HANDLE; allocation = VK_NULL_HANDLE;
 }
 
-void GtaoPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
+void GtaoPass::Images::create(VkDevice device, VmaAllocator allocator,
                                 VkDescriptorSetLayout set_layout, VkSampler sampler,
                                 uint32_t half_w, uint32_t half_h) {
     extent = {half_w, half_h};
 
-    create_ao_image(device, physical_device, half_w, half_h, ao_image, ao_memory, ao_view);
-    create_ao_image(device, physical_device, half_w, half_h, blur_image, blur_memory, blur_view);
+    create_ao_image(device, allocator, half_w, half_h, ao_image, ao_memory, ao_view);
+    create_ao_image(device, allocator, half_w, half_h, blur_image, blur_memory, blur_view);
 
     images_need_init = true;
 
@@ -209,7 +194,7 @@ void GtaoPass::Images::create(VkDevice device, VkPhysicalDevice physical_device,
     }
 }
 
-void GtaoPass::Images::destroy(VkDevice device) {
+void GtaoPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
     if (pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, pool, nullptr);
@@ -218,12 +203,12 @@ void GtaoPass::Images::destroy(VkDevice device) {
         blur_h_set = VK_NULL_HANDLE;
         blur_v_set = VK_NULL_HANDLE;
     }
-    destroy_ao_image(device, ao_image, ao_memory, ao_view);
-    destroy_ao_image(device, blur_image, blur_memory, blur_view);
+    destroy_ao_image(device, allocator, ao_image, ao_memory, ao_view);
+    destroy_ao_image(device, allocator, blur_image, blur_memory, blur_view);
     extent = {};
 }
 
-void GtaoPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
+void GtaoPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                 VkDescriptorSetLayout set_layout, VkSampler sampler,
                                 uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
@@ -233,8 +218,8 @@ void GtaoPass::Images::resize(VkDevice device, VkPhysicalDevice physical_device,
     if (extent.width == half_w && extent.height == half_h) return;
     vkDeviceWaitIdle(device);
 
-    destroy(device);
-    create(device, physical_device, set_layout, sampler, half_w, half_h);
+    destroy(device, allocator);
+    create(device, allocator, set_layout, sampler, half_w, half_h);
 }
 
 VkDescriptorSet GtaoPass::Images::imgui_texture(VkSampler sampler) {
@@ -256,7 +241,7 @@ void GtaoPass::Images::invalidate_imgui_texture() {
 
 Result<> GtaoPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
     auto global_set_layout = resources.global_set_layout;
 
     // Sampler for AO texture (linear, clamp)
@@ -377,14 +362,14 @@ Result<> GtaoPass::create(Device& device, const PassResources& resources) {
     }
 
     // Create 1x1 placeholder images so binding 5 is valid from frame 1
-    default_images_.create(device_, physical_device_, pass_set_layout_, ao_sampler_, 1, 1);
+    default_images_.create(device_, allocator_, pass_set_layout_, ao_sampler_, 1, 1);
 
     FJELL_GFX_DEBUG("GTAO pass created");
     return {};
 }
 
 void GtaoPass::destroy() {
-    default_images_.destroy(device_);
+    default_images_.destroy(device_, allocator_);
 
     if (ao_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, ao_sampler_, nullptr); ao_sampler_ = VK_NULL_HANDLE; }
     if (gtao_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, gtao_pipeline_, nullptr); gtao_pipeline_ = VK_NULL_HANDLE; }
@@ -395,7 +380,7 @@ void GtaoPass::destroy() {
 }
 
 void GtaoPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, physical_device_, pass_set_layout_, ao_sampler_, width, height);
+    default_images_.resize(device_, allocator_, pass_set_layout_, ao_sampler_, width, height);
 }
 
 VkDescriptorSet GtaoPass::imgui_texture() {

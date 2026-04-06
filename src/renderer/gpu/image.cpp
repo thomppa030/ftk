@@ -1,5 +1,4 @@
 #include "renderer/gpu/image.hpp"
-#include "renderer/gpu/buffer.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,11 +7,10 @@
 
 namespace fjell {
 
-Image::Image(VkDevice device, VkPhysicalDevice physical_device,
-             uint32_t width, uint32_t height, VkFormat format,
-             VkImageTiling tiling, VkImageUsageFlags usage,
-             VkMemoryPropertyFlags properties, uint32_t mip_levels)
-    : device_{device}, width_{width}, height_{height} {
+Image::Image(VmaAllocator allocator, uint32_t width, uint32_t height,
+             VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+             VmaMemoryUsage memory_usage, uint32_t mip_levels)
+    : allocator_{allocator}, width_{width}, height_{height} {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.imageType = VK_IMAGE_TYPE_2D;
@@ -28,39 +26,27 @@ Image::Image(VkDevice device, VkPhysicalDevice physical_device,
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(device_, &image_info, nullptr, &image_) != VK_SUCCESS) {
+    VmaAllocationCreateInfo alloc_ci{};
+    alloc_ci.usage = memory_usage;
+
+    if (vmaCreateImage(allocator_, &image_info, &alloc_ci,
+                       &image_, &allocation_, nullptr) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create image");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device_, image_, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = mem_reqs.size;
-    alloc_info.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device, mem_reqs.memoryTypeBits, properties);
-
-    if (vkAllocateMemory(device_, &alloc_info, nullptr, &memory_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate image memory");
-    }
-
-    vkBindImageMemory(device_, image_, memory_, 0);
 }
 
 Image::~Image() {
     if (view_ != VK_NULL_HANDLE)
         vkDestroyImageView(device_, view_, nullptr);
     if (image_ != VK_NULL_HANDLE)
-        vkDestroyImage(device_, image_, nullptr);
-    if (memory_ != VK_NULL_HANDLE)
-        vkFreeMemory(device_, memory_, nullptr);
+        vmaDestroyImage(allocator_, image_, allocation_);
 }
 
 Image::Image(Image&& other) noexcept
-    : device_{other.device_}
+    : allocator_{other.allocator_}
+    , device_{other.device_}
     , image_{std::exchange(other.image_, VK_NULL_HANDLE)}
-    , memory_{std::exchange(other.memory_, VK_NULL_HANDLE)}
+    , allocation_{std::exchange(other.allocation_, VK_NULL_HANDLE)}
     , view_{std::exchange(other.view_, VK_NULL_HANDLE)}
     , width_{other.width_}
     , height_{other.height_} {
@@ -69,12 +55,12 @@ Image::Image(Image&& other) noexcept
 Image& Image::operator=(Image&& other) noexcept {
     if (this != &other) {
         if (view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, view_, nullptr);
-        if (image_ != VK_NULL_HANDLE) vkDestroyImage(device_, image_, nullptr);
-        if (memory_ != VK_NULL_HANDLE) vkFreeMemory(device_, memory_, nullptr);
+        if (image_ != VK_NULL_HANDLE) vmaDestroyImage(allocator_, image_, allocation_);
 
+        allocator_ = other.allocator_;
         device_ = other.device_;
         image_ = std::exchange(other.image_, VK_NULL_HANDLE);
-        memory_ = std::exchange(other.memory_, VK_NULL_HANDLE);
+        allocation_ = std::exchange(other.allocation_, VK_NULL_HANDLE);
         view_ = std::exchange(other.view_, VK_NULL_HANDLE);
         width_ = other.width_;
         height_ = other.height_;
@@ -82,12 +68,11 @@ Image& Image::operator=(Image&& other) noexcept {
     return *this;
 }
 
-Result<Image> Image::create(VkDevice device, VkPhysicalDevice physical_device,
-                            uint32_t width, uint32_t height, VkFormat format,
-                            VkImageTiling tiling, VkImageUsageFlags usage,
-                            VkMemoryPropertyFlags properties, uint32_t mip_levels) {
+Result<Image> Image::create(VmaAllocator allocator, uint32_t width, uint32_t height,
+                            VkFormat format, VkImageTiling tiling, VkImageUsageFlags usage,
+                            VmaMemoryUsage memory_usage, uint32_t mip_levels) {
     Image img{};
-    img.device_ = device;
+    img.allocator_ = allocator;
     img.width_ = width;
     img.height_ = height;
 
@@ -106,42 +91,19 @@ Result<Image> Image::create(VkDevice device, VkPhysicalDevice physical_device,
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateImage(device, &image_info, nullptr, &img.image_) != VK_SUCCESS) {
+    VmaAllocationCreateInfo alloc_ci{};
+    alloc_ci.usage = memory_usage;
+
+    if (vmaCreateImage(allocator, &image_info, &alloc_ci,
+                       &img.image_, &img.allocation_, nullptr) != VK_SUCCESS) {
         return make_error("Failed to create image");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device, img.image_, &mem_reqs);
-
-    VkPhysicalDeviceMemoryProperties mem_props;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &mem_props);
-
-    uint32_t mem_type_index = UINT32_MAX;
-    for (uint32_t i = 0; i < mem_props.memoryTypeCount; ++i) {
-        if ((mem_reqs.memoryTypeBits & (1 << i)) &&
-            (mem_props.memoryTypes[i].propertyFlags & properties) == properties) {
-            mem_type_index = i;
-            break;
-        }
-    }
-    if (mem_type_index == UINT32_MAX) {
-        return make_error("Failed to find suitable memory type for image");
-    }
-
-    VkMemoryAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = mem_reqs.size;
-    alloc_info.memoryTypeIndex = mem_type_index;
-
-    if (vkAllocateMemory(device, &alloc_info, nullptr, &img.memory_) != VK_SUCCESS) {
-        return make_error("Failed to allocate image memory");
-    }
-
-    vkBindImageMemory(device, img.image_, img.memory_, 0);
     return img;
 }
 
-void Image::create_view(VkFormat format, VkImageAspectFlags aspect, uint32_t mip_levels) {
+void Image::create_view(VkDevice device, VkFormat format, VkImageAspectFlags aspect,
+                        uint32_t mip_levels) {
+    device_ = device;
     VkImageViewCreateInfo view_info{};
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = image_;
@@ -158,7 +120,9 @@ void Image::create_view(VkFormat format, VkImageAspectFlags aspect, uint32_t mip
     }
 }
 
-Result<> Image::create_view_checked(VkFormat format, VkImageAspectFlags aspect, uint32_t mip_levels) {
+Result<> Image::create_view_checked(VkDevice device, VkFormat format,
+                                    VkImageAspectFlags aspect, uint32_t mip_levels) {
+    device_ = device;
     VkImageViewCreateInfo view_info{};
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = image_;

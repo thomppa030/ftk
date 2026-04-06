@@ -33,7 +33,7 @@ struct FjSkinnedMeshData {
 // When loaded from .fjskel, also owns the embedded Skeleton.
 class SkeletalModel {
 public:
-    SkeletalModel(VkDevice device, VkPhysicalDevice physical_device,
+    SkeletalModel(VmaAllocator allocator, VkDevice device,
                   VkCommandPool command_pool, VkQueue transfer_queue,
                   FjSkinnedMeshData&& data);
 

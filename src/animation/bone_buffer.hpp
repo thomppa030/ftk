@@ -15,7 +15,7 @@ namespace fjell {
 
 class BoneBuffer {
 public:
-    BoneBuffer(VkDevice device, VkPhysicalDevice physical_device);
+    BoneBuffer(VkDevice device, VmaAllocator allocator);
 
     void begin_frame(uint32_t frame_index);
 
@@ -39,7 +39,7 @@ private:
     void ensure_capacity(uint32_t frame_index, uint32_t required);
 
     VkDevice device_;
-    VkPhysicalDevice physical_device_;
+    VmaAllocator allocator_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> buffers_;
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> offsets_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> capacities_{};

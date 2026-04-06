@@ -1,5 +1,5 @@
 #include "renderer/pass/depth_viz_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -14,9 +14,9 @@
 
 namespace fjell {
 
-Result<> DepthVizPass::create(Device& device, const PassResources& /*resources*/) {
+Result<> DepthVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
-    physical_device_ = device.physical_device();
+    allocator_ = resources.allocator;
 
     // Sampler for reading the depth texture
     VkSamplerCreateInfo depth_sampler_info{};
@@ -236,24 +236,9 @@ void DepthVizPass::create_image(uint32_t width, uint32_t height) {
     image_ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     image_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    if (vkCreateImage(device_, &image_ci, nullptr, &image_) != VK_SUCCESS) {
+    if (create_vma_image(allocator_, &image_ci, &image_, &memory_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create depth viz output image");
     }
-
-    VkMemoryRequirements mem_reqs;
-    vkGetImageMemoryRequirements(device_, image_, &mem_reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = mem_reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, mem_reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    if (vkAllocateMemory(device_, &alloc, nullptr, &memory_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate depth viz output memory");
-    }
-    vkBindImageMemory(device_, image_, memory_, 0);
 
     VkImageViewCreateInfo view_ci{};
     view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -272,14 +257,9 @@ void DepthVizPass::destroy_image() {
         vkDestroyImageView(device_, view_, nullptr);
         view_ = VK_NULL_HANDLE;
     }
-    if (image_ != VK_NULL_HANDLE) {
-        vkDestroyImage(device_, image_, nullptr);
-        image_ = VK_NULL_HANDLE;
-    }
-    if (memory_ != VK_NULL_HANDLE) {
-        vkFreeMemory(device_, memory_, nullptr);
-        memory_ = VK_NULL_HANDLE;
-    }
+    destroy_vma_image(allocator_, image_, memory_);
+    image_ = VK_NULL_HANDLE;
+    memory_ = VK_NULL_HANDLE;
 }
 
 void DepthVizPass::resize(uint32_t width, uint32_t height) {

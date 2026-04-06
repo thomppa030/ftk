@@ -5,25 +5,25 @@
 
 namespace fjell {
 
-MegaBuffer::MegaBuffer(VkDevice device, VkPhysicalDevice physical_device,
+MegaBuffer::MegaBuffer(VkDevice device, VmaAllocator allocator,
                        VkCommandPool command_pool, VkQueue queue)
     : device_{device}
-    , physical_device_{physical_device}
+    , allocator_{allocator}
     , command_pool_{command_pool}
     , queue_{queue}
     , vertex_capacity_{INITIAL_VERTEX_SIZE}
     , index_capacity_{INITIAL_INDEX_SIZE} {
     vertex_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, vertex_capacity_,
+        allocator_, vertex_capacity_,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     index_buffer_ = std::make_unique<Buffer>(
-        device_, physical_device_, index_capacity_,
+        allocator_, index_capacity_,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     FJELL_GFX_INFO("MegaBuffer created: {}MB vertex, {}MB index",
                    vertex_capacity_ / (1024 * 1024),
@@ -47,17 +47,17 @@ MegaMeshEntry MegaBuffer::upload(const std::vector<Vertex>& vertices,
     }
 
     // Stage and copy vertex data
-    Buffer vertex_staging{device_, physical_device_, vertex_size,
+    Buffer vertex_staging{allocator_, vertex_size,
                           VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                          VMA_MEMORY_USAGE_AUTO,
+                          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     vertex_staging.write(vertices.data(), vertex_size);
 
     // Stage and copy index data
-    Buffer index_staging{device_, physical_device_, index_size,
+    Buffer index_staging{allocator_, index_size,
                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                         VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                         VMA_MEMORY_USAGE_AUTO,
+                         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     index_staging.write(indices.data(), index_size);
 
     // Submit both copies in one command buffer
@@ -120,10 +120,10 @@ void MegaBuffer::grow_vertex_buffer(VkDeviceSize new_size) {
     FJELL_GFX_INFO("MegaBuffer: growing vertex buffer to {}MB", new_size / (1024 * 1024));
 
     auto new_buffer = std::make_unique<Buffer>(
-        device_, physical_device_, new_size,
+        allocator_, new_size,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     if (vertex_offset_ > 0) {
         VkDeviceSize used = static_cast<VkDeviceSize>(vertex_offset_) * sizeof(Vertex);
@@ -138,10 +138,10 @@ void MegaBuffer::grow_index_buffer(VkDeviceSize new_size) {
     FJELL_GFX_INFO("MegaBuffer: growing index buffer to {}MB", new_size / (1024 * 1024));
 
     auto new_buffer = std::make_unique<Buffer>(
-        device_, physical_device_, new_size,
+        allocator_, new_size,
         VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        VMA_MEMORY_USAGE_AUTO);
 
     if (index_offset_ > 0) {
         VkDeviceSize used = static_cast<VkDeviceSize>(index_offset_) * sizeof(uint32_t);

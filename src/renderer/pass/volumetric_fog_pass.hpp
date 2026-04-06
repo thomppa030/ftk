@@ -3,6 +3,7 @@
 #include "renderer/pass/render_pass.hpp"
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -20,7 +21,7 @@ public:
 
     struct VolumeImage {
         VkImage image{VK_NULL_HANDLE};
-        VkDeviceMemory memory{VK_NULL_HANDLE};
+        VmaAllocation memory{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
     };
 
@@ -42,15 +43,15 @@ public:
         VkDescriptorSet integrate_sets[2]{};
         VkDescriptorSet composite_sets[MAX_FRAMES_IN_FLIGHT]{};
 
-        void create(VkDevice device, VkPhysicalDevice physical_device,
+        void create(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout inject_layout,
                      VkDescriptorSetLayout temporal_layout,
                      VkDescriptorSetLayout integrate_layout,
                      VkDescriptorSetLayout composite_layout,
                      VkSampler linear_sampler,
                      uint32_t vol_w, uint32_t vol_h);
-        void destroy(VkDevice device);
-        void resize(VkDevice device, VkPhysicalDevice physical_device,
+        void destroy(VkDevice device, VmaAllocator allocator);
+        void resize(VkDevice device, VmaAllocator allocator,
                      VkDescriptorSetLayout inject_layout,
                      VkDescriptorSetLayout temporal_layout,
                      VkDescriptorSetLayout integrate_layout,
@@ -93,12 +94,12 @@ public:
     [[nodiscard]] VkSampler fog_sampler() const { return linear_sampler_; }
 
 private:
-    static VolumeImage create_volume_image(VkDevice device, VkPhysicalDevice physical_device,
+    static VolumeImage create_volume_image(VkDevice device, VmaAllocator allocator,
                                             uint32_t w, uint32_t h, uint32_t d);
-    static void destroy_volume_image(VkDevice device, VolumeImage& img);
+    static void destroy_volume_image(VkDevice device, VmaAllocator allocator, VolumeImage& img);
 
     VkDevice device_{VK_NULL_HANDLE};
-    VkPhysicalDevice physical_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Resolution-independent (shared across all Images)
     VkSampler linear_sampler_{VK_NULL_HANDLE};

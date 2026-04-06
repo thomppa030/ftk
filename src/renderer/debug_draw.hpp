@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -15,7 +16,7 @@ struct CameraNode;
 
 class DebugDraw {
 public:
-    DebugDraw(VkDevice device, VkPhysicalDevice physical_device);
+    DebugDraw(VkDevice device, VmaAllocator allocator);
 
     void update(const Scene& scene, uint32_t selected_id = 0,
                 bool show_colliders = true);
@@ -41,7 +42,7 @@ private:
                     const glm::vec3& axis_b, float radius, uint32_t segments);
 
     VkDevice device_;
-    VkPhysicalDevice physical_device_;
+    VmaAllocator allocator_;
 
     std::vector<glm::vec3> vertices_;
     std::vector<DrawCommand> draw_commands_;

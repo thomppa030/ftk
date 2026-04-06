@@ -9,17 +9,17 @@
 
 namespace fjell {
 
-SkeletalModel::SkeletalModel(VkDevice device, VkPhysicalDevice physical_device,
+SkeletalModel::SkeletalModel(VmaAllocator allocator, VkDevice device,
                              VkCommandPool command_pool, VkQueue transfer_queue,
                              FjSkinnedMeshData&& data)
-    : vertex_buffer_{device, physical_device,
+    : vertex_buffer_{allocator,
                      data.vertices.size() * sizeof(SkinnedVertex),
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}
-    , index_buffer_{device, physical_device,
+                     VMA_MEMORY_USAGE_AUTO}
+    , index_buffer_{allocator,
                     data.indices.size() * sizeof(uint32_t),
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT}
+                    VMA_MEMORY_USAGE_AUTO}
     , index_count_{static_cast<uint32_t>(data.indices.size())}
     , joint_count_{data.joint_count}
     , local_aabb_{data.aabb}
@@ -41,20 +41,18 @@ SkeletalModel::SkeletalModel(VkDevice device, VkPhysicalDevice physical_device,
 
     // Stage and upload vertex data
     VkDeviceSize vert_size = data.vertices.size() * sizeof(SkinnedVertex);
-    Buffer vert_staging{device, physical_device, vert_size,
+    Buffer vert_staging{allocator, vert_size,
                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                        VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     vert_staging.write(data.vertices.data(), vert_size);
     Buffer::copy(device, command_pool, transfer_queue,
                  vert_staging, vertex_buffer_, vert_size);
 
     // Stage and upload index data
     VkDeviceSize idx_size = data.indices.size() * sizeof(uint32_t);
-    Buffer idx_staging{device, physical_device, idx_size,
+    Buffer idx_staging{allocator, idx_size,
                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT};
+                       VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
     idx_staging.write(data.indices.data(), idx_size);
     Buffer::copy(device, command_pool, transfer_queue,
                  idx_staging, index_buffer_, idx_size);

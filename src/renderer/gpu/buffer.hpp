@@ -2,6 +2,7 @@
 
 #include "core/result.hpp"
 
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -11,15 +12,15 @@ namespace fjell {
 class Buffer {
 public:
     /// Throwing constructor — used by existing init-time code.
-    Buffer(VkDevice device, VkPhysicalDevice physical_device,
-           VkDeviceSize size, VkBufferUsageFlags usage,
-           VkMemoryPropertyFlags properties);
+    Buffer(VmaAllocator allocator, VkDeviceSize size,
+           VkBufferUsageFlags usage, VmaMemoryUsage memory_usage,
+           VmaAllocationCreateFlags flags = 0);
 
     /// Non-throwing factory — returns Result<Buffer> for error-propagating callers.
     [[nodiscard]] static Result<Buffer> create(
-        VkDevice device, VkPhysicalDevice physical_device,
-        VkDeviceSize size, VkBufferUsageFlags usage,
-        VkMemoryPropertyFlags properties);
+        VmaAllocator allocator, VkDeviceSize size,
+        VkBufferUsageFlags usage, VmaMemoryUsage memory_usage,
+        VmaAllocationCreateFlags flags = 0);
 
     ~Buffer();
 
@@ -40,15 +41,11 @@ public:
                      VkQueue queue, const Buffer& src, Buffer& dst,
                      VkDeviceSize size);
 
-    [[nodiscard]] static uint32_t find_memory_type(
-        VkPhysicalDevice physical_device, uint32_t type_filter,
-        VkMemoryPropertyFlags properties);
-
 private:
     Buffer() = default;
-    VkDevice device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
     VkBuffer buffer_{VK_NULL_HANDLE};
-    VkDeviceMemory memory_{VK_NULL_HANDLE};
+    VmaAllocation allocation_{VK_NULL_HANDLE};
     VkDeviceSize size_{0};
     void* mapped_{nullptr};
 };

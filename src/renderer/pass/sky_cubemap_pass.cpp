@@ -1,5 +1,5 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
@@ -12,10 +12,10 @@
 
 namespace fjell {
 
-void SkyCubemapPass::create(VkDevice device, VkPhysicalDevice physical_device,
+void SkyCubemapPass::create(VkDevice device, VmaAllocator allocator,
                             VkCommandPool command_pool, VkQueue queue) {
     device_ = device;
-    physical_device_ = physical_device;
+    allocator_ = allocator;
     command_pool_ = command_pool;
     queue_ = queue;
 
@@ -40,8 +40,7 @@ void SkyCubemapPass::destroy() {
     // BRDF LUT image
     if (brdf_lut_sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, brdf_lut_sampler_, nullptr);
     if (brdf_lut_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, brdf_lut_view_, nullptr);
-    if (brdf_lut_image_ != VK_NULL_HANDLE) vkDestroyImage(device_, brdf_lut_image_, nullptr);
-    if (brdf_lut_memory_ != VK_NULL_HANDLE) vkFreeMemory(device_, brdf_lut_memory_, nullptr);
+    destroy_vma_image(allocator_, brdf_lut_image_, brdf_lut_memory_);
 
     // Cubemap compute
     if (cubemap_pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(device_, cubemap_pipeline_, nullptr);
@@ -53,8 +52,7 @@ void SkyCubemapPass::destroy() {
     if (cubemap_sampler_ != VK_NULL_HANDLE) vkDestroySampler(device_, cubemap_sampler_, nullptr);
     if (cubemap_storage_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, cubemap_storage_view_, nullptr);
     if (cubemap_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, cubemap_view_, nullptr);
-    if (cubemap_image_ != VK_NULL_HANDLE) vkDestroyImage(device_, cubemap_image_, nullptr);
-    if (cubemap_memory_ != VK_NULL_HANDLE) vkFreeMemory(device_, cubemap_memory_, nullptr);
+    destroy_vma_image(allocator_, cubemap_image_, cubemap_memory_);
 
     device_ = VK_NULL_HANDLE;
 }
@@ -289,22 +287,8 @@ void SkyCubemapPass::create_cubemap() {
                VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vk_check(vkCreateImage(device_, &ci, nullptr, &cubemap_image_),
+    vk_check(create_vma_image(allocator_, &ci, &cubemap_image_, &cubemap_memory_),
              "Failed to create sky cubemap image");
-
-    VkMemoryRequirements reqs;
-    vkGetImageMemoryRequirements(device_, cubemap_image_, &reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vk_check(vkAllocateMemory(device_, &alloc, nullptr, &cubemap_memory_),
-             "Failed to allocate sky cubemap memory");
-    vk_check(vkBindImageMemory(device_, cubemap_image_, cubemap_memory_, 0),
-             "Failed to bind sky cubemap memory");
 
     // Cube view for sampling (all mips, all layers)
     VkImageViewCreateInfo vi{};
@@ -361,22 +345,8 @@ void SkyCubemapPass::create_brdf_lut() {
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
     ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    vk_check(vkCreateImage(device_, &ci, nullptr, &brdf_lut_image_),
+    vk_check(create_vma_image(allocator_, &ci, &brdf_lut_image_, &brdf_lut_memory_),
              "Failed to create BRDF LUT image");
-
-    VkMemoryRequirements reqs;
-    vkGetImageMemoryRequirements(device_, brdf_lut_image_, &reqs);
-
-    VkMemoryAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc.allocationSize = reqs.size;
-    alloc.memoryTypeIndex = Buffer::find_memory_type(
-        physical_device_, reqs.memoryTypeBits,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    vk_check(vkAllocateMemory(device_, &alloc, nullptr, &brdf_lut_memory_),
-             "Failed to allocate BRDF LUT memory");
-    vk_check(vkBindImageMemory(device_, brdf_lut_image_, brdf_lut_memory_, 0),
-             "Failed to bind BRDF LUT memory");
 
     // Image view
     VkImageViewCreateInfo vi{};

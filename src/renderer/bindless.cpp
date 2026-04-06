@@ -8,9 +8,9 @@
 
 namespace fjell {
 
-Result<> BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_device) {
+Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator) {
     device_ = device;
-    physical_device_ = physical_device;
+    allocator_ = allocator;
 
     // Default sampler for empty slots
     VkSamplerCreateInfo sampler_ci{};
@@ -102,17 +102,19 @@ Result<> BindlessTextures::create(VkDevice device, VkPhysicalDevice physical_dev
     // Pre-allocate material SSBO (96 bytes per material * 1024 = 96 KB)
     VkDeviceSize mat_ssbo_size = sizeof(GpuMaterial) * MAX_MATERIALS;
     material_ssbo_ = std::make_unique<Buffer>(
-        device_, physical_device_, mat_ssbo_size,
+        allocator_, mat_ssbo_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     material_ssbo_->map();
 
     // Pre-allocate custom params SSBO
     VkDeviceSize params_ssbo_size = INITIAL_PARAMS_CAPACITY * sizeof(float);
     params_ssbo_ = std::make_unique<Buffer>(
-        device_, physical_device_, params_ssbo_size,
+        allocator_, params_ssbo_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     params_ssbo_->map();
     // Initialize with a single zero so the buffer is never empty
     params_.push_back(0.0f);
@@ -294,9 +296,10 @@ void BindlessTextures::update_material_buffer() {
             // Grow the params SSBO and re-bind descriptor
             VkDeviceSize new_size = needed * 2;
             params_ssbo_ = std::make_unique<Buffer>(
-                device_, physical_device_, new_size,
+                allocator_, new_size,
                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+                VMA_MEMORY_USAGE_AUTO,
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
             params_ssbo_->map();
 
             VkDescriptorBufferInfo params_info{};
