@@ -20,10 +20,12 @@ target_link_libraries(fjimport PRIVATE
     glm::glm
     nlohmann_json::nlohmann_json
     spdlog::spdlog
+    Vulkan::Headers
 )
 
 if(MSVC)
     target_compile_options(fjimport PRIVATE /W4 /WX)
+    target_compile_definitions(fjimport PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
     target_compile_options(fjimport PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
