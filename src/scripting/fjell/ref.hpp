@@ -3,12 +3,14 @@
 
 #pragma once
 
+#include "fjell/api.h"
+
 #include <cstdint>
 #include <utility>
 
-extern "C" void fjell_ref_acquire(uint32_t ref_token);
-extern "C" void fjell_ref_release(uint32_t ref_token);
-extern "C" void* fjell_ref_resolve(uint32_t handle_id);
+extern "C" FJELL_SDK_EXPORT void fjell_ref_acquire(uint32_t ref_token);
+extern "C" FJELL_SDK_EXPORT void fjell_ref_release(uint32_t ref_token);
+extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t handle_id);
 
 namespace fjell {
 

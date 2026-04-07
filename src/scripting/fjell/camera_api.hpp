@@ -1,21 +1,23 @@
 // camera_api.hpp — Static camera API for game scripts
 #pragma once
 
+#include "fjell/api.h"
+
 #include <cstdint>
 
 extern "C" {
-void     fjell_camera_set_active(uint32_t node_id);
-uint32_t fjell_camera_get_active();
-float    fjell_camera_get_fov();
-void     fjell_camera_set_fov(float fov);
-float    fjell_camera_get_near();
-void     fjell_camera_set_near(float near_plane);
-float    fjell_camera_get_far();
-void     fjell_camera_set_far(float far_plane);
-void     fjell_camera_set_ortho(float size);
-void     fjell_camera_set_perspective(float fov);
-void     fjell_camera_set_projection_override(const float* mat4_ptr);
-void     fjell_camera_clear_projection_override();
+FJELL_SDK_EXPORT void     fjell_camera_set_active(uint32_t node_id);
+FJELL_SDK_EXPORT uint32_t fjell_camera_get_active();
+FJELL_SDK_EXPORT float    fjell_camera_get_fov();
+FJELL_SDK_EXPORT void     fjell_camera_set_fov(float fov);
+FJELL_SDK_EXPORT float    fjell_camera_get_near();
+FJELL_SDK_EXPORT void     fjell_camera_set_near(float near_plane);
+FJELL_SDK_EXPORT float    fjell_camera_get_far();
+FJELL_SDK_EXPORT void     fjell_camera_set_far(float far_plane);
+FJELL_SDK_EXPORT void     fjell_camera_set_ortho(float size);
+FJELL_SDK_EXPORT void     fjell_camera_set_perspective(float fov);
+FJELL_SDK_EXPORT void     fjell_camera_set_projection_override(const float* mat4_ptr);
+FJELL_SDK_EXPORT void     fjell_camera_clear_projection_override();
 }
 
 namespace fjell {

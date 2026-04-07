@@ -3,9 +3,11 @@
 
 #pragma once
 
+#include "fjell/api.h"
+
 #include <cstdint>
 
-extern "C" void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation);
+extern "C" FJELL_SDK_EXPORT void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation);
 
 namespace fjell {
 

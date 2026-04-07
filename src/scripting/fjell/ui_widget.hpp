@@ -1,6 +1,7 @@
 // ui_widget.hpp — UiWidget base class for game UI widgets
 #pragma once
 
+#include "fjell/api.h"
 #include "fjell/delegate.hpp"
 #include "fjell/world.hpp"
 
@@ -23,9 +24,9 @@ public:
     void set(const std::string& key, const std::string& value);
     [[nodiscard]] std::string get(const std::string& key) const;
 
-    void bind_action(const std::string& name,
+    FJELL_SDK_EXPORT void bind_action(const std::string& name,
                      std::function<void()> callback);
-    void bind_action(const std::string& name,
+    FJELL_SDK_EXPORT void bind_action(const std::string& name,
                      std::function<void(const std::vector<std::string>&)> callback);
 
 private:

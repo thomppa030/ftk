@@ -1,12 +1,14 @@
 // animator_api.hpp — Skeletal animation API for game scripts
 #pragma once
 
+#include "fjell/api.h"
+
 #include <cstdint>
 
 extern "C" {
-void  fjell_animator_set_param(uint32_t node_id, const char* name, float value);
-float fjell_animator_get_param(uint32_t node_id, const char* name);
-const char* fjell_animator_current_state(uint32_t node_id);
+FJELL_SDK_EXPORT void  fjell_animator_set_param(uint32_t node_id, const char* name, float value);
+FJELL_SDK_EXPORT float fjell_animator_get_param(uint32_t node_id, const char* name);
+FJELL_SDK_EXPORT const char* fjell_animator_current_state(uint32_t node_id);
 }
 
 namespace fjell {

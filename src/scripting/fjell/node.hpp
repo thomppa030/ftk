@@ -1,6 +1,7 @@
 // node.hpp — Lightweight node handle for game scripts
 #pragma once
 
+#include "fjell/api.h"
 #include "fjell/component.hpp"
 
 #include <glm/glm.hpp>
@@ -9,12 +10,12 @@
 #include <cstdint>
 
 extern "C" {
-void     fjell_scene_destroy(uint32_t node_id);
-float*   fjell_scene_get_position(uint32_t node_id);
-float*   fjell_scene_get_scale(uint32_t node_id);
-float*   fjell_scene_get_rotation(uint32_t node_id);
-void*    fjell_scene_get_component(uint32_t node_id, const char* type_name);
-void*    fjell_scene_add_component(uint32_t node_id, const char* type_name);
+FJELL_SDK_EXPORT void     fjell_scene_destroy(uint32_t node_id);
+FJELL_SDK_EXPORT float*   fjell_scene_get_position(uint32_t node_id);
+FJELL_SDK_EXPORT float*   fjell_scene_get_scale(uint32_t node_id);
+FJELL_SDK_EXPORT float*   fjell_scene_get_rotation(uint32_t node_id);
+FJELL_SDK_EXPORT void*    fjell_scene_get_component(uint32_t node_id, const char* type_name);
+FJELL_SDK_EXPORT void*    fjell_scene_add_component(uint32_t node_id, const char* type_name);
 }
 
 namespace fjell {

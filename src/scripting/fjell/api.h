@@ -7,6 +7,22 @@
 #include <stdint.h>
 #include <stddef.h>
 
+// FJELL_SDK_EXPORT marks symbols exported from the engine exe for script DLLs.
+// When building the engine (FJELL_ENGINE_BUILD), symbols are exported.
+// When building game scripts (DLL), symbols are imported.
+#ifdef _WIN32
+    #ifdef FJELL_ENGINE_BUILD
+        #define FJELL_SDK_EXPORT __declspec(dllexport)
+    #else
+        #define FJELL_SDK_EXPORT __declspec(dllimport)
+    #endif
+    // FJELL_GAME_EXPORT marks symbols exported FROM the game DLL to the engine.
+    #define FJELL_GAME_EXPORT __declspec(dllexport)
+#else
+    #define FJELL_SDK_EXPORT
+    #define FJELL_GAME_EXPORT
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

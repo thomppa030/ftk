@@ -8,15 +8,15 @@
 #include <glm/glm.hpp>
 
 extern "C" {
-void fjell_input_bind_void(uint32_t action_handle_id, int trigger,
+FJELL_SDK_EXPORT void fjell_input_bind_void(uint32_t action_handle_id, int trigger,
                             void* instance, void (*fn)(void*));
-void fjell_input_bind_float(uint32_t action_handle_id, int trigger,
+FJELL_SDK_EXPORT void fjell_input_bind_float(uint32_t action_handle_id, int trigger,
                              void* instance, void (*fn)(void*, float));
-void fjell_input_bind_vec2(uint32_t action_handle_id, int trigger,
+FJELL_SDK_EXPORT void fjell_input_bind_vec2(uint32_t action_handle_id, int trigger,
                             void* instance, void (*fn)(void*, float, float));
-void fjell_input_clear_connections();
-void fjell_input_push_context(const char* name);
-void fjell_input_pop_context(const char* name);
+FJELL_SDK_EXPORT void fjell_input_clear_connections();
+FJELL_SDK_EXPORT void fjell_input_push_context(const char* name);
+FJELL_SDK_EXPORT void fjell_input_pop_context(const char* name);
 }
 
 namespace fjell {

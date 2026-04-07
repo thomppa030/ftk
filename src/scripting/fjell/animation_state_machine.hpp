@@ -2,6 +2,7 @@
 // Copy of animation/animation_state_machine.hpp, shipped as part of the SDK.
 #pragma once
 
+#include "fjell/api.h"
 #include "fjell/delegate.hpp"
 
 #include <cstdint>
@@ -48,7 +49,7 @@ public:
     void load(const std::string& path);
     bool update(float dt);
 
-    void set_param(const std::string& name, float value);
+    FJELL_SDK_EXPORT void set_param(const std::string& name, float value);
     [[nodiscard]] float get_param(const std::string& name) const;
 
     [[nodiscard]] const std::string& current_state_name() const { return current_; }

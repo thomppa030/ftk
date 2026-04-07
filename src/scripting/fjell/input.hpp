@@ -7,19 +7,21 @@
 #ifndef FJELL_INPUT_HPP
 #define FJELL_INPUT_HPP
 
+#include "fjell/api.h"
+
 #include <glm/glm.hpp>
 
 #include <array>
 
 struct GLFWwindow;
 
-extern "C" void fjell_input_set_cursor_captured(bool captured);
+extern "C" FJELL_SDK_EXPORT void fjell_input_set_cursor_captured(bool captured);
 
 namespace fjell {
 
 class Input {
 public:
-    [[nodiscard]] bool is_key_pressed(int key) const;
+    [[nodiscard]] FJELL_SDK_EXPORT bool is_key_pressed(int key) const;
     [[nodiscard]] bool is_key_held(int key) const;
     [[nodiscard]] bool is_key_released(int key) const;
 

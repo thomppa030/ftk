@@ -42,10 +42,10 @@ struct FjellGeneratedInfo {
 struct FjellTypeRegistry;
 
 // Engine exports these via -rdynamic — game .so calls them at registration
-extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc);
-extern "C" void fjell_reg_notify(FjellTypeRegistry* reg, const FjellNotifyTypeOOP* desc);
-extern "C" void fjell_set_generated_table(const FjellGeneratedInfo* table, uint32_t count);
-extern "C" const FjellGeneratedInfo* fjell_find_generated(const char* name);
+extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc);
+extern "C" FJELL_SDK_EXPORT void fjell_reg_notify(FjellTypeRegistry* reg, const FjellNotifyTypeOOP* desc);
+extern "C" FJELL_SDK_EXPORT void fjell_set_generated_table(const FjellGeneratedInfo* table, uint32_t count);
+extern "C" FJELL_SDK_EXPORT const FjellGeneratedInfo* fjell_find_generated(const char* name);
 
 namespace fjell {
 
@@ -158,8 +158,8 @@ inline FjellNotifyAutoReg*& fjell_notify_auto_reg_head() {
     public:
 
 #define FJELL_REGISTER() \
-    extern "C" uint32_t fjell_api_version() { return FJELL_API_VERSION; } \
-    extern "C" void fjell_register(FjellTypeRegistry* registry) { \
+    extern "C" FJELL_GAME_EXPORT uint32_t fjell_api_version() { return FJELL_API_VERSION; } \
+    extern "C" FJELL_GAME_EXPORT void fjell_register(FjellTypeRegistry* registry) { \
         for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry); \
         for (auto* r = fjell_ui_auto_reg_head(); r; r = r->next) r->fn(registry); \
         for (auto* r = fjell_notify_auto_reg_head(); r; r = r->next) r->fn(registry); \

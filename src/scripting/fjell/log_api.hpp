@@ -1,12 +1,14 @@
 // log_api.hpp — Static logging API for game scripts
 #pragma once
 
+#include "fjell/api.h"
+
 #include <cstdio>
 
 extern "C" {
-void fjell_log_info(const char* msg);
-void fjell_log_warn(const char* msg);
-void fjell_log_error(const char* msg);
+FJELL_SDK_EXPORT void fjell_log_info(const char* msg);
+FJELL_SDK_EXPORT void fjell_log_warn(const char* msg);
+FJELL_SDK_EXPORT void fjell_log_error(const char* msg);
 }
 
 namespace fjell {

@@ -1,6 +1,8 @@
 // viewport_api.hpp — Static viewport API for game scripts
 #pragma once
 
+#include "fjell/api.h"
+
 #include <cstdint>
 
 // Post-process feature flags for scene viewports.
@@ -17,12 +19,12 @@ enum FjellViewportFlags : uint32_t {
 };
 
 extern "C" {
-uint32_t fjell_viewport_create(const char* name, uint32_t width, uint32_t height,
+FJELL_SDK_EXPORT uint32_t fjell_viewport_create(const char* name, uint32_t width, uint32_t height,
                                 uint32_t flags);
-void     fjell_viewport_destroy(const char* name);
-void     fjell_viewport_set_camera(const char* name, uint32_t camera_node_id);
-uint32_t fjell_viewport_bindless_index(const char* name);
-void     fjell_viewport_resize(const char* name, uint32_t width, uint32_t height);
+FJELL_SDK_EXPORT void     fjell_viewport_destroy(const char* name);
+FJELL_SDK_EXPORT void     fjell_viewport_set_camera(const char* name, uint32_t camera_node_id);
+FJELL_SDK_EXPORT uint32_t fjell_viewport_bindless_index(const char* name);
+FJELL_SDK_EXPORT void     fjell_viewport_resize(const char* name, uint32_t width, uint32_t height);
 }
 
 namespace fjell {

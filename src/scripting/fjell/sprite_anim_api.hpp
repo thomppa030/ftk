@@ -1,15 +1,17 @@
 // sprite_anim_api.hpp — Sprite animation API for game scripts
 #pragma once
 
+#include "fjell/api.h"
+
 #include <cstdint>
 
 extern "C" {
-void  fjell_sprite_anim_set_param(uint32_t node_id, const char* name, float value);
-float fjell_sprite_anim_get_param(uint32_t node_id, const char* name);
-const char* fjell_sprite_anim_current_state(uint32_t node_id);
-void  fjell_sprite_anim_set_flip_h(uint32_t node_id, bool flip);
-bool  fjell_sprite_anim_is_finished(uint32_t node_id);
-void  fjell_sprite_anim_set_playing(uint32_t node_id, bool playing);
+FJELL_SDK_EXPORT void  fjell_sprite_anim_set_param(uint32_t node_id, const char* name, float value);
+FJELL_SDK_EXPORT float fjell_sprite_anim_get_param(uint32_t node_id, const char* name);
+FJELL_SDK_EXPORT const char* fjell_sprite_anim_current_state(uint32_t node_id);
+FJELL_SDK_EXPORT void  fjell_sprite_anim_set_flip_h(uint32_t node_id, bool flip);
+FJELL_SDK_EXPORT bool  fjell_sprite_anim_is_finished(uint32_t node_id);
+FJELL_SDK_EXPORT void  fjell_sprite_anim_set_playing(uint32_t node_id, bool playing);
 }
 
 namespace fjell {

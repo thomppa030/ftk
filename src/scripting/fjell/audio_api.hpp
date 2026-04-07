@@ -1,6 +1,7 @@
 // audio_api.hpp — Static audio API for game scripts
 #pragma once
 
+#include "fjell/api.h"
 #include "fjell/ref.hpp"
 
 #include <glm/glm.hpp>
@@ -8,7 +9,7 @@
 #include <cstdint>
 
 extern "C" {
-void fjell_audio_play(uint32_t handle_id, float x, float y, float z,
+FJELL_SDK_EXPORT void fjell_audio_play(uint32_t handle_id, float x, float y, float z,
                       float volume, float pitch);
 }
 
