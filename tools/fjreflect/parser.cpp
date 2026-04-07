@@ -535,6 +535,24 @@ bool query_offsets(std::vector<ComponentInfo>& components,
             return false;
         }
 
+        // Block api.h from being included (it redefines our macros and
+        // pulls in Windows SDK headers we don't need for offset queries).
+        // Provide the minimal types api.h would have defined.
+        out << "#define FJELL_SCRIPTING_API_H\n"; // api.h include guard
+        out << "#define FJELL_SDK_EXPORT\n";
+        out << "#define FJELL_GAME_EXPORT\n";
+        out << "#define FJELL_API_VERSION 0\n";
+        out << "#include <cstdint>\n";
+        out << "#include <cstddef>\n";
+        out << "enum FjellFieldType { FJELL_FIELD_FLOAT=0, FJELL_FIELD_INT, FJELL_FIELD_BOOL,\n"
+               "    FJELL_FIELD_VEC2, FJELL_FIELD_VEC3, FJELL_FIELD_VEC4,\n"
+               "    FJELL_FIELD_COLOR3, FJELL_FIELD_COLOR4, FJELL_FIELD_STRING,\n"
+               "    FJELL_FIELD_ENUM, FJELL_FIELD_WEAK_REF, FJELL_FIELD_REF,\n"
+               "    FJELL_FIELD_SHARED_REF, FJELL_FIELD_WIDGET_PTR };\n";
+        out << "struct FjellFieldDesc { const char* name; FjellFieldType type;\n"
+               "    uint32_t offset; uint32_t size; const char* ref_target;\n"
+               "    float min; float max; float step; const char* const* enum_names; };\n\n";
+
         // Stub engine extern "C" symbols that registration macros reference.
         // Headers only declare classes + fields, no engine method bodies.
         out << "struct FjellTypeRegistry;\n";
@@ -601,11 +619,35 @@ bool query_offsets(std::vector<ComponentInfo>& components,
     if (is_msvc) {
         auto query_exe = query_bin;
         query_exe += ".exe";
-        cmd = "\"" + compiler + "\" /std:c++latest /w /EHsc"
-            + includes + " /Fe\"" + query_exe.string() + "\""
-            + " \"" + query_src.string() + "\""
-            + " /link /NOLOGO 2>&1";
-        std::cerr << "fjreflect: MSVC cmd: " << cmd << "\n";
+        // Derive vcvarsall.bat path from cl.exe path:
+        // cl.exe is at .../VC/Tools/MSVC/<ver>/bin/Hostx64/x64/cl.exe
+        // vcvarsall is at .../VC/Auxiliary/Build/vcvarsall.bat
+        auto cl_path = std::filesystem::path(compiler);
+        // cl.exe: .../VC/Tools/MSVC/<ver>/bin/Host<arch>/<arch>/cl.exe
+        //         7 parent_path() calls to reach .../VC
+        auto vc_root = cl_path.parent_path();
+        for (int i = 0; i < 6; ++i) vc_root = vc_root.parent_path();
+        auto vcvarsall = vc_root / "Auxiliary" / "Build" / "vcvarsall.bat";
+
+        // Write a temporary .bat file that sets up the MSVC environment
+        // and compiles the query. _popen uses cmd.exe which makes quoting
+        // paths with spaces unreliable; a .bat file avoids that entirely.
+        auto bat_file = tmp_dir / "fjreflect_build.bat";
+        {
+            std::ofstream bat(bat_file);
+            bat << "@echo off\n";
+            if (std::filesystem::exists(vcvarsall)) {
+                bat << "call \"" << vcvarsall.string() << "\" x64 >nul 2>&1\n";
+            }
+            // Use /MDd and _DEBUG to match Debug build's std::string/container
+            // layout (iterator debugging changes sizeof(std::string) from 32 to 40).
+            bat << "\"" << cl_path.string() << "\" /std:c++latest /w /EHsc /MDd /D_DEBUG"
+                << includes
+                << " /Fe\"" << query_exe.string() << "\""
+                << " \"" << query_src.string() << "\""
+                << " /link /NOLOGO /FORCE:UNRESOLVED\n";
+        }
+        cmd = "\"" + bat_file.string() + "\" 2>&1";
         query_bin = query_exe;
     } else {
         cmd = compiler + " -std=c++23 -Wno-attributes -Wno-invalid-offsetof -w"
@@ -662,6 +704,7 @@ bool query_offsets(std::vector<ComponentInfo>& components,
     std::filesystem::remove(query_bin);
     std::filesystem::remove(tmp_dir / "fjreflect_query.o");
     std::filesystem::remove(tmp_dir / "fjreflect_query.obj"); // MSVC object file
+    std::filesystem::remove(tmp_dir / "fjreflect_build.bat"); // MSVC build script
 
     return true;
 }
