@@ -40,6 +40,10 @@ public:
     // Write/overwrite the engine-managed scripts/CMakeLists.txt
     static void write_scripts_cmake(const Project& project);
 
+    // Write CMakeLists.txt to a specific path (safe to call from background thread)
+    static void write_scripts_cmake_to(const std::filesystem::path& cmake_path,
+                                       const std::filesystem::path& sdk_include);
+
     static constexpr const char* MANIFEST_NAME = "project.fjell";
 
 private:

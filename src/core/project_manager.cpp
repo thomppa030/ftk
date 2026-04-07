@@ -6,6 +6,7 @@
 #include "scripting/script_manager.hpp"
 
 #include <nlohmann/json.hpp>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cctype>
@@ -105,19 +106,25 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
         return;
     }
 
-    // These two touch the Project object — must run on main thread. Fast.
     Project::refresh_headers(*project_);
-    Project::write_scripts_cmake(*project_);
 
     // Snapshot paths for the background thread (no Project access after this)
     namespace fs = std::filesystem;
-    auto scripts_dir = project_->root() / "scripts";
+    auto project_root = project_->root();
+    auto scripts_dir = project_root / "scripts";
     auto build_dir = scripts_dir / "build";
     auto generated_dir = scripts_dir / "generated";
-    auto so_path = project_->root() / (std::string("game") + platform::SHARED_LIB_EXT);
+    auto so_path = project_root / (std::string("game") + platform::SHARED_LIB_EXT);
 
 #ifdef _WIN32
     auto fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "fjreflect.exe";
+    if (!fs::exists(fjreflect_path)) {
+        // MSVC multi-config puts executables in Debug/ or Release/ subdirs
+        fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "Debug" / "fjreflect.exe";
+    }
+    if (!fs::exists(fjreflect_path)) {
+        fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "Release" / "fjreflect.exe";
+    }
     if (!fs::exists(fjreflect_path)) {
         fjreflect_path = base_path::dir() / "fjreflect.exe";
     }
@@ -133,7 +140,13 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
 
     build_future_ = std::async(std::launch::async,
         [scripts_dir, build_dir, generated_dir, so_path,
-         fjreflect_path, sdk_include]() -> BuildResult {
+         fjreflect_path, sdk_include, project_root]() -> BuildResult {
+            // Write CMakeLists.txt on the background thread to avoid
+            // stack overflow on the main thread (deep ImGui call stack).
+            Project::write_scripts_cmake_to(
+                project_root / "scripts" / "CMakeLists.txt",
+                sdk_include);
+
             fs::create_directories(generated_dir);
 
             std::string all_output;
@@ -153,10 +166,17 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                     auto glm_dir = build_dir / "_deps" / "glm-src";
 
 #ifdef _WIN32
+    #ifdef FJELL_CXX_COMPILER
+                    auto reflect_cmd = fjreflect_path.string() +
+                        " --output-dir " + generated_dir.string() +
+                        " --include-dir " + sdk_include.string() +
+                        " --compiler \"" FJELL_CXX_COMPILER "\"";
+    #else
                     auto reflect_cmd = fjreflect_path.string() +
                         " --output-dir " + generated_dir.string() +
                         " --include-dir " + sdk_include.string() +
                         " --compiler cl";
+    #endif
 #else
                     auto reflect_cmd = fjreflect_path.string() +
                         " --output-dir " + generated_dir.string() +
@@ -253,8 +273,8 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                                 reg << "};\n";
                             }
 
-                            reg << "\nextern \"C\" uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
-                            reg << "extern \"C\" void fjell_register(FjellTypeRegistry* registry) {\n";
+                            reg << "\nextern \"C\" FJELL_GAME_EXPORT uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
+                            reg << "extern \"C\" FJELL_GAME_EXPORT void fjell_register(FjellTypeRegistry* registry) {\n";
                             if (!script_types.empty()) {
                                 reg << "    fjell_set_generated_table(fjreflect_generated, "
                                     << script_types.size() << ");\n";
