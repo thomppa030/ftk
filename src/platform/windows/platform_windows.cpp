@@ -111,9 +111,6 @@ Result<> exec_replace(const std::vector<std::string>& args) {
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
     ExitProcess(exit_code);
-
-    // Unreachable, but satisfies the return type
-    return {};
 }
 
 Result<> open_path(const std::filesystem::path& path) {
