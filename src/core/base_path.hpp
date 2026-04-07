@@ -5,7 +5,7 @@
 
 namespace fjell {
 
-class Project;
+class Project; // defined in core/project.hpp
 
 namespace base_path {
 

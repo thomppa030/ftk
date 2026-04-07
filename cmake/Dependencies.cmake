@@ -224,6 +224,22 @@ if(NOT MSVC)
     endif()
 endif()
 
+# ozz-animation manually sets /MT flags, override to use dynamic CRT (/MD) on MSVC
+if(MSVC)
+    foreach(_ozz_tgt ozz_base ozz_animation ozz_animation_offline)
+        if(TARGET ${_ozz_tgt})
+            set_property(TARGET ${_ozz_tgt} PROPERTY
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+            # Strip any manually-added /MT or /MTd flags from ozz's compile options
+            get_target_property(_opts ${_ozz_tgt} COMPILE_OPTIONS)
+            if(_opts)
+                list(FILTER _opts EXCLUDE REGEX "/MT[d]?")
+                set_property(TARGET ${_ozz_tgt} PROPERTY COMPILE_OPTIONS ${_opts})
+            endif()
+        endif()
+    endforeach()
+endif()
+
 # Bridge FetchContent'd FreeType for msdfgen's find_package(Freetype) call.
 # FindFreetype.cmake does filesystem searches and won't see the target, so we
 # pre-set the variables it expects and create the imported-target alias.

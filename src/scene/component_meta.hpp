@@ -16,7 +16,7 @@ class ResourceManager;
 class Scene;
 struct Node;
 struct Node3D;
-struct Project;
+class Project;
 
 struct InspectorContext {
     Scene* scene;
