@@ -28,6 +28,7 @@ private:
     VkPipeline skinned_pipeline_{VK_NULL_HANDLE};
     VkDescriptorSetLayout draw_data_layout_{VK_NULL_HANDLE};
 
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     std::unordered_map<uint32_t, VkPipeline> custom_depth_pipelines_;
     DepthPipelineConfig depth_config_;
 };

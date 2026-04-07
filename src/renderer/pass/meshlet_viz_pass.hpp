@@ -22,6 +22,7 @@ private:
     void destroy_image();
 
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
     VkImage image_{VK_NULL_HANDLE};

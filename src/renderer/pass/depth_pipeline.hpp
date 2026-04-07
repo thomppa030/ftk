@@ -25,6 +25,7 @@ struct DepthPipelineConfig {
     bool depth_bias{false};
     float depth_bias_constant{0.0f};
     float depth_bias_slope{0.0f};
+    VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
 };
 
 // Create a depth-only vertex pipeline from a custom vertex shader SPV.
@@ -114,7 +115,7 @@ inline VkPipeline create_depth_vertex_pipeline(VkDevice device,
     pipeline_info.layout = cfg.layout;
 
     VkPipeline result = VK_NULL_HANDLE;
-    vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info,
+    vkCreateGraphicsPipelines(device, cfg.pipeline_cache, 1, &pipeline_info,
                                nullptr, &result);
 
     vkDestroyShaderModule(device, vert_module, nullptr);

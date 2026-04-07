@@ -17,7 +17,8 @@ MeshletBuffer::MeshletBuffer(VkDevice device, VmaAllocator allocator,
     , vertex_index_capacity_{INITIAL_VERTEX_INDEX_SIZE}
     , triangle_capacity_{INITIAL_TRIANGLE_SIZE} {
     constexpr VkBufferUsageFlags ssbo_usage =
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 
     meshlet_buffer_ = std::make_unique<Buffer>(
         allocator_, meshlet_capacity_, ssbo_usage,

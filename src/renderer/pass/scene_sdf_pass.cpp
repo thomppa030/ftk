@@ -14,8 +14,10 @@
 
 namespace fjell {
 
-void SceneSdfPass::create(Device& device, VkDescriptorSetLayout /*global_set_layout*/, VmaAllocator allocator) {
+void SceneSdfPass::create(Device& device, VkDescriptorSetLayout /*global_set_layout*/, VmaAllocator allocator,
+                          VkPipelineCache pipeline_cache) {
     device_ = device.handle();
+    vk_pipeline_cache_ = pipeline_cache;
     allocator_ = allocator;
 
     create_volume_image();
@@ -148,7 +150,7 @@ void SceneSdfPass::create_compute_pipeline() {
     comp_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
     comp_ci.stage = stage;
     comp_ci.layout = composite_layout_;
-    vk_check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &comp_ci, nullptr, &composite_pipeline_), "SDF pass");
+    vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci, nullptr, &composite_pipeline_), "SDF pass");
     vkDestroyShaderModule(device_, mod, nullptr);
 
     // Descriptor pool
@@ -428,7 +430,7 @@ void SceneSdfPass::render_slice(VkCommandBuffer cmd, uint32_t axis, float slice_
         comp_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
         comp_ci.stage = stage;
         comp_ci.layout = slice_layout_;
-        vk_check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &comp_ci, nullptr, &slice_pipeline_), "SDF slice pipeline");
+        vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci, nullptr, &slice_pipeline_), "SDF slice pipeline");
         vkDestroyShaderModule(device_, mod, nullptr);
 
         // Descriptor pool + set

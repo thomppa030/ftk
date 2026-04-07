@@ -19,6 +19,9 @@ inline VkResult create_vma_image(VmaAllocator allocator,
                                  VmaAllocation* allocation) {
     VmaAllocationCreateInfo alloc_ci{};
     alloc_ci.usage = VMA_MEMORY_USAGE_AUTO;
+    // Dedicated allocation for images — driver zeroes dedicated pages,
+    // preventing uninitialized VMA pool memory from causing first-frame artifacts.
+    alloc_ci.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
     return vmaCreateImage(allocator, image_info, &alloc_ci,
                           image, allocation, nullptr);
 }

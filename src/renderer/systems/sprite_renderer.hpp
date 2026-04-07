@@ -49,6 +49,7 @@ private:
   static_assert(sizeof(GpuSprite) == 64);
 
   VkDevice device_{VK_NULL_HANDLE};
+  VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
   VmaAllocator allocator_{VK_NULL_HANDLE};
 
   // Pipeline

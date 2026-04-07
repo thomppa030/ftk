@@ -19,7 +19,8 @@ public:
              VkDescriptorSetLayout draw_data_layout,
              VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT,
              const std::string& vert_shader = "shaders/mesh.vert.spv",
-             const std::string& frag_shader = "shaders/mesh.frag.spv");
+             const std::string& frag_shader = "shaders/mesh.frag.spv",
+             VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
     ~Pipeline();
 
     Pipeline(const Pipeline&) = delete;
@@ -48,6 +49,7 @@ private:
     std::string vert_shader_;
     std::string frag_shader_;
 
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
 };

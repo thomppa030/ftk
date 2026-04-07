@@ -99,6 +99,7 @@ private:
     static void destroy_volume_image(VkDevice device, VmaAllocator allocator, VolumeImage& img);
 
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Resolution-independent (shared across all Images)

@@ -111,7 +111,7 @@ public:
   [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return gpu_.msaa_samples(); }
   [[nodiscard]] bool mesh_shaders_available() const { return gpu_.mesh_shaders_available(); }
   [[nodiscard]] bool use_mesh_shaders() const { return gpu_.use_mesh_shaders(); }
-  void set_use_mesh_shaders(bool enable) { gpu_.set_use_mesh_shaders(enable); }
+  void set_use_mesh_shaders(bool enable);
   [[nodiscard]] MegaBuffer *mega_buffer() { return gpu_.mega_buffer(); }
   [[nodiscard]] MeshletBuffer *meshlet_buffer() { return gpu_.meshlet_buffer(); }
   [[nodiscard]] PipelineCache *pipeline_cache() { return gpu_.pipeline_cache(); }
@@ -326,6 +326,7 @@ private:
   int sdf_debug_axis_{1};       // default Y axis
   float sdf_debug_slice_{0.5f};
   bool playing_{false};
+  bool meshlet_passes_created_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
   float ibl_intensity_{1.0f};

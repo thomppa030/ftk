@@ -23,7 +23,8 @@ PipelineCache::PipelineCache(Device& device,
                              VkDescriptorSetLayout material_layout,
                              VkDescriptorSetLayout draw_data_layout,
                              VkSampleCountFlagBits samples,
-                             VkDescriptorSetLayout meshlet_layout)
+                             VkDescriptorSetLayout meshlet_layout,
+                             VkPipelineCache vk_cache)
     : device_{device}
     , color_format_{color_format}
     , depth_format_{depth_format}
@@ -31,7 +32,8 @@ PipelineCache::PipelineCache(Device& device,
     , material_layout_{material_layout}
     , draw_data_layout_{draw_data_layout}
     , meshlet_layout_{meshlet_layout}
-    , samples_{samples} {
+    , samples_{samples}
+    , vk_cache_{vk_cache} {
 
     shader_source_dir_ = base_path::resolve("shaders");
     generated_dir_ = base_path::resolve("shaders/generated");
@@ -429,7 +431,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     pipeline_ci.layout = layout_;
     pipeline_ci.renderPass = VK_NULL_HANDLE;
 
-    if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.opaque) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.opaque) != VK_SUCCESS) {
         vkDestroyShaderModule(vk, vert_module, nullptr);
         vkDestroyShaderModule(vk, frag_module, nullptr);
         throw std::runtime_error("Failed to create opaque pipeline for: " + entry.fjsl_path);
@@ -488,7 +490,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     pipeline_ci.pColorBlendState = &trans_blending;
     pipeline_ci.pDepthStencilState = &trans_depth;
 
-    if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.transparent) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.transparent) != VK_SUCCESS) {
         vkDestroyShaderModule(vk, vert_module, nullptr);
         vkDestroyShaderModule(vk, frag_module, nullptr);
         throw std::runtime_error("Failed to create transparent pipeline for: " + entry.fjsl_path);
@@ -526,7 +528,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     pipeline_ci.pInputAssemblyState = &input_assembly;
     pipeline_ci.layout = layout_;
 
-    if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.skinned_opaque) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.skinned_opaque) != VK_SUCCESS) {
         vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
         vkDestroyShaderModule(vk, vert_module, nullptr);
         vkDestroyShaderModule(vk, frag_module, nullptr);
@@ -537,7 +539,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     pipeline_ci.pColorBlendState = &trans_blending;
     pipeline_ci.pDepthStencilState = &trans_depth;
 
-    if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.skinned_transparent) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.skinned_transparent) != VK_SUCCESS) {
         vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
         vkDestroyShaderModule(vk, vert_module, nullptr);
         vkDestroyShaderModule(vk, frag_module, nullptr);
@@ -578,7 +580,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         pipeline_ci.pInputAssemblyState = nullptr;
         pipeline_ci.layout = gpu_driven_layout_;
 
-        if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.gpu_driven) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.gpu_driven) != VK_SUCCESS) {
             vkDestroyShaderModule(vk, gpu_task_module, nullptr);
             vkDestroyShaderModule(vk, gpu_mesh_module, nullptr);
             vkDestroyShaderModule(vk, vert_module, nullptr);
@@ -643,7 +645,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         pipeline_ci.pDepthStencilState = &depth_stencil;
         pipeline_ci.layout = outline_layout_;
 
-        if (vkCreateGraphicsPipelines(vk, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &entry.outline) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.outline) != VK_SUCCESS) {
             vkDestroyShaderModule(vk, outline_vert_mod, nullptr);
             vkDestroyShaderModule(vk, outline_frag_mod, nullptr);
             throw std::runtime_error("Failed to create outline pipeline for: " + entry.fjsl_path);

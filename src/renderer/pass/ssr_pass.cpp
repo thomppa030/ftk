@@ -35,7 +35,8 @@ struct SsrCompositePushConstants {
 };
 
 static VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layout,
-                                           const std::string& shader_path) {
+                                           const std::string& shader_path,
+                                           VkPipelineCache pipeline_cache = VK_NULL_HANDLE) {
     auto code = read_spirv(base_path::resolve(shader_path));
     auto module = create_shader_module(device, code);
 
@@ -51,7 +52,7 @@ static VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layo
     ci.layout = layout;
 
     VkPipeline pipeline{VK_NULL_HANDLE};
-    if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
+    if (vkCreateComputePipelines(device, pipeline_cache, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
         vkDestroyShaderModule(device, module, nullptr);
         throw std::runtime_error("Failed to create compute pipeline: " + shader_path);
     }
@@ -251,6 +252,7 @@ void SsrPass::Images::invalidate_imgui_texture() {
 
 Result<> SsrPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     auto global_set_layout = resources.global_set_layout;
 
@@ -339,8 +341,8 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
     composite_pipeline_layout_ = create_layout(composite_set_layout_, sizeof(SsrCompositePushConstants));
 
     // Compute pipelines
-    trace_pipeline_ = create_compute_pipeline(device_, trace_pipeline_layout_, "shaders/ssr_trace.comp.spv");
-    composite_pipeline_ = create_compute_pipeline(device_, composite_pipeline_layout_, "shaders/ssr_composite.comp.spv");
+    trace_pipeline_ = create_compute_pipeline(device_, trace_pipeline_layout_, "shaders/ssr_trace.comp.spv", vk_pipeline_cache_);
+    composite_pipeline_ = create_compute_pipeline(device_, composite_pipeline_layout_, "shaders/ssr_composite.comp.spv", vk_pipeline_cache_);
 
     // Create 1x1 placeholder so descriptors are valid from frame 1
     default_images_.create(device_, allocator_, trace_set_layout_, composite_set_layout_, nearest_sampler_, 1, 1);

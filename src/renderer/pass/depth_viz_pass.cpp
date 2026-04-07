@@ -16,6 +16,7 @@ namespace fjell {
 
 Result<> DepthVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
 
     // Sampler for reading the depth texture
@@ -177,7 +178,7 @@ Result<> DepthVizPass::create(Device& device, const PassResources& resources) {
     pipeline_ci.layout = layout_;
     pipeline_ci.renderPass = VK_NULL_HANDLE;
 
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
+    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci,
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);

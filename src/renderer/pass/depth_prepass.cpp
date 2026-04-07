@@ -17,6 +17,7 @@ namespace fjell {
 
 Result<> DepthPrePass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     draw_data_layout_ = resources.draw_data_layout;
 
     // Store config for creating custom pipelines later
@@ -109,6 +110,7 @@ Result<> DepthPrePass::create(Device& device, const PassResources& resources) {
     }
 
     depth_config_.layout = layout_;
+    depth_config_.pipeline_cache = vk_pipeline_cache_;
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
@@ -131,7 +133,7 @@ Result<> DepthPrePass::create(Device& device, const PassResources& resources) {
     pipeline_info.layout = layout_;
     pipeline_info.renderPass = VK_NULL_HANDLE;
 
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_info,
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
@@ -157,7 +159,7 @@ Result<> DepthPrePass::create(Device& device, const PassResources& resources) {
     pipeline_info.pStages = stages.data();
     pipeline_info.pVertexInputState = &skinned_vertex_input;
 
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_info,
                                    nullptr, &skinned_pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
         vkDestroyShaderModule(device_, vert_module, nullptr);

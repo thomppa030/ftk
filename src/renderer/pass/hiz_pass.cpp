@@ -157,6 +157,7 @@ void HizPass::Images::resize(VkDevice device, VmaAllocator allocator,
 
 Result<> HizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
 
     // Sampler: nearest filter, clamp to edge, all mips
@@ -220,7 +221,7 @@ Result<> HizPass::create(Device& device, const PassResources& resources) {
     ci.stage = stage;
     ci.layout = layout_;
 
-    vk_check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_),
+    vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline_),
              "Failed to create Hi-Z compute pipeline");
     vkDestroyShaderModule(device_, module, nullptr);
 

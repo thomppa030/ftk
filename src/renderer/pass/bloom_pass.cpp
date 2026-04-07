@@ -16,7 +16,8 @@ namespace fjell {
 static VkPipeline create_fullscreen_pipeline(
         VkDevice device, VkPipelineLayout layout,
         VkShaderModule vert, VkShaderModule frag, VkFormat color_format,
-        bool additive_blend = false) {
+        bool additive_blend = false,
+        VkPipelineCache pipeline_cache = VK_NULL_HANDLE) {
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -99,7 +100,7 @@ static VkPipeline create_fullscreen_pipeline(
     pipeline_ci.layout = layout;
 
     VkPipeline pipeline;
-    if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_ci,
+    if (vkCreateGraphicsPipelines(device, pipeline_cache, 1, &pipeline_ci,
                                    nullptr, &pipeline) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create bloom pipeline");
     }
@@ -366,6 +367,7 @@ void BloomPass::Images::invalidate_imgui_texture() {
 
 Result<> BloomPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
 
     // Sampler (linear, clamp)
@@ -457,9 +459,9 @@ Result<> BloomPass::create(Device& device, const PassResources& resources) {
     auto comp_mod = create_shader_module(device_, comp_code);
 
     VkFormat fmt = VK_FORMAT_R16G16B16A16_SFLOAT;
-    downsample_pipeline_ = create_fullscreen_pipeline(device_, downsample_layout_, vert_mod, down_mod, fmt);
-    upsample_pipeline_   = create_fullscreen_pipeline(device_, upsample_layout_, vert_mod, up_mod, fmt, true);
-    composite_pipeline_  = create_fullscreen_pipeline(device_, composite_layout_pipeline_, vert_mod, comp_mod, fmt);
+    downsample_pipeline_ = create_fullscreen_pipeline(device_, downsample_layout_, vert_mod, down_mod, fmt, false, vk_pipeline_cache_);
+    upsample_pipeline_   = create_fullscreen_pipeline(device_, upsample_layout_, vert_mod, up_mod, fmt, true, vk_pipeline_cache_);
+    composite_pipeline_  = create_fullscreen_pipeline(device_, composite_layout_pipeline_, vert_mod, comp_mod, fmt, false, vk_pipeline_cache_);
 
     vkDestroyShaderModule(device_, comp_mod, nullptr);
     vkDestroyShaderModule(device_, up_mod, nullptr);

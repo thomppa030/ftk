@@ -11,8 +11,10 @@
 namespace fjell {
 
 void MeshletInstancePass::create(VkDevice device, VmaAllocator allocator,
-                                  VkDescriptorSetLayout global_set_layout) {
+                                  VkDescriptorSetLayout global_set_layout,
+                                  VkPipelineCache pipeline_cache) {
     device_ = device;
+    vk_pipeline_cache_ = pipeline_cache;
     allocator_ = allocator;
 
     // ── Expand pass descriptor layout (set 0) ──
@@ -75,7 +77,7 @@ void MeshletInstancePass::create(VkDevice device, VmaAllocator allocator,
         ci.stage = stage;
         ci.layout = expand_layout_;
 
-        vk_check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci,
+        vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci,
                                            nullptr, &expand_pipeline_),
                  "Failed to create meshlet expand compute pipeline");
         vkDestroyShaderModule(device_, module, nullptr);
@@ -162,7 +164,7 @@ void MeshletInstancePass::create(VkDevice device, VmaAllocator allocator,
         ci.stage = stage;
         ci.layout = cull_layout_;
 
-        vk_check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci,
+        vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci,
                                            nullptr, &cull_pipeline_),
                  "Failed to create meshlet cull compute pipeline");
         vkDestroyShaderModule(device_, module, nullptr);

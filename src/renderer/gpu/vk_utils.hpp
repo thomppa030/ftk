@@ -121,6 +121,7 @@ struct FullscreenPipelineInfo {
     VkPolygonMode polygon_mode{VK_POLYGON_MODE_FILL};
     VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};
     bool blend_enable{false};
+    VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
 };
 
 /// Create a graphics pipeline for a fullscreen pass (no vertex buffer, triangle list).
@@ -213,7 +214,7 @@ inline VkPipeline create_fullscreen_pipeline(const FullscreenPipelineInfo& info)
     ci.layout = info.layout;
 
     VkPipeline pipeline = VK_NULL_HANDLE;
-    vkCreateGraphicsPipelines(info.device, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline);
+    vkCreateGraphicsPipelines(info.device, info.pipeline_cache, 1, &ci, nullptr, &pipeline);
     return pipeline;
 }
 

@@ -113,6 +113,7 @@ public:
     // ── Pipelines ───────────────────────────────────────────────────────
     [[nodiscard]] Pipeline* pipeline() { return pipeline_.get(); }
     [[nodiscard]] PipelineCache* pipeline_cache() { return pipeline_cache_.get(); }
+    [[nodiscard]] VkPipelineCache vk_pipeline_cache() const { return vk_pipeline_cache_; }
 
     // ── Light data (global descriptor bindings) ─────────────────────────
     [[nodiscard]] Buffer& light_ssbo(uint32_t frame_index) { return *light_ssbo_[frame_index]; }
@@ -163,6 +164,7 @@ private:
     BindlessTextures bindless_textures_;
 
     // Pipelines
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     std::unique_ptr<Pipeline> pipeline_;
     std::unique_ptr<PipelineCache> pipeline_cache_;
 

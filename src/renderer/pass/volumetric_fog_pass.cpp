@@ -52,7 +52,8 @@ static float halton(int index, int base) {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 static VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layout,
-                                           const std::string& shader_path) {
+                                           const std::string& shader_path,
+                                           VkPipelineCache pipeline_cache = VK_NULL_HANDLE) {
     auto code = read_spirv(base_path::resolve(shader_path));
     auto module = create_shader_module(device, code);
 
@@ -68,7 +69,7 @@ static VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layo
     ci.layout = layout;
 
     VkPipeline pipeline;
-    if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &ci,
+    if (vkCreateComputePipelines(device, pipeline_cache, 1, &ci,
                                   nullptr, &pipeline) != VK_SUCCESS) {
         vkDestroyShaderModule(device, module, nullptr);
         throw std::runtime_error("Failed to create volumetric fog compute pipeline");
@@ -412,6 +413,7 @@ static void update_composite_descriptors(VkDevice device, VkSampler linear_sampl
 
 Result<> VolumetricFogPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     auto global_set_layout = resources.global_set_layout;
 
@@ -447,7 +449,7 @@ Result<> VolumetricFogPass::create(Device& device, const PassResources& resource
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
             sizeof(FogPushConstants));
         inject_pipeline_ = create_compute_pipeline(
-            device_, inject_pipeline_layout_, "shaders/fog_inject.comp.spv");
+            device_, inject_pipeline_layout_, "shaders/fog_inject.comp.spv", vk_pipeline_cache_);
     }
 
     // ── Temporal set layout: binding 0 = storage image (current rw), binding 1 = sampler3D (prev) ──
@@ -474,7 +476,7 @@ Result<> VolumetricFogPass::create(Device& device, const PassResources& resource
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
             sizeof(FogPushConstants));
         temporal_pipeline_ = create_compute_pipeline(
-            device_, temporal_pipeline_layout_, "shaders/fog_temporal.comp.spv");
+            device_, temporal_pipeline_layout_, "shaders/fog_temporal.comp.spv", vk_pipeline_cache_);
     }
 
     // ── Integrate set layout: binding 0 = sampler3D (scatter), binding 1 = storage image (integrated) ──
@@ -499,7 +501,7 @@ Result<> VolumetricFogPass::create(Device& device, const PassResources& resource
         integrate_pipeline_layout_ = create_pipeline_layout(
             device_, &integrate_set_layout_, 1, sizeof(FogPushConstants));
         integrate_pipeline_ = create_compute_pipeline(
-            device_, integrate_pipeline_layout_, "shaders/fog_integrate.comp.spv");
+            device_, integrate_pipeline_layout_, "shaders/fog_integrate.comp.spv", vk_pipeline_cache_);
     }
 
     // ── Composite set layout: binding 0 = sampler3D, binding 1 = sampler2D (depth), binding 2 = storage image (color) ──
@@ -531,7 +533,7 @@ Result<> VolumetricFogPass::create(Device& device, const PassResources& resource
             device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
             sizeof(FogPushConstants));
         composite_pipeline_ = create_compute_pipeline(
-            device_, composite_pipeline_layout_, "shaders/fog_composite.comp.spv");
+            device_, composite_pipeline_layout_, "shaders/fog_composite.comp.spv", vk_pipeline_cache_);
     }
 
     // Create default images with initial 1x1x1 volumes so descriptors are valid

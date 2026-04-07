@@ -28,6 +28,7 @@ struct PassResources {
     VkFormat color_format{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
     VmaAllocator allocator{VK_NULL_HANDLE};
+    VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
 };
 
 class IndirectBatch;

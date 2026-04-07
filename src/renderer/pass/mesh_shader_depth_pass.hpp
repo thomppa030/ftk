@@ -22,6 +22,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
 

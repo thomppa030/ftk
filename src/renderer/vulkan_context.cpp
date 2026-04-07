@@ -60,12 +60,13 @@ VulkanContext::VulkanContext(Window& window)
     check_pass(hiz_pass_.create(gpu_.device_ref(), pass_resources));
     if (gpu_.use_mesh_shaders()) {
         meshlet_instance_pass_.create(gpu_.device(), gpu_.allocator(),
-                                       gpu_.global_set_layout());
+                                       gpu_.global_set_layout(), pass_resources.pipeline_cache);
         check_pass(mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources));
         check_pass(meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources));
         check_pass(cull_pass_.create(gpu_.device(), gpu_.allocator(),
-                                     gpu_.global_set_layout()));
+                                     gpu_.global_set_layout(), pass_resources.pipeline_cache));
         check_pass(cull_viz_pass_.create(gpu_.device_ref(), pass_resources));
+        meshlet_passes_created_ = true;
     }
     check_pass(shadow_pass_.create(gpu_.device_ref(), pass_resources));
     check_pass(depth_viz_pass_.create(gpu_.device_ref(), pass_resources));
@@ -83,7 +84,8 @@ VulkanContext::VulkanContext(Window& window)
 
     // Sky cubemap for IBL (creates cubemap + BRDF LUT)
     sky_cubemap_pass_.create(gpu_.device(), gpu_.allocator(),
-                              gpu_.command_pool(), gpu_.graphics_queue());
+                              gpu_.command_pool(), gpu_.graphics_queue(),
+                              pass_resources.pipeline_cache);
     sky_cubemap_pass_.set_colors(sky_pass_.top_color(), sky_pass_.bottom_color());
 
     // Generate cubemap (one-shot at startup)
@@ -155,7 +157,8 @@ VulkanContext::VulkanContext(Window& window)
     check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
     light_grid_pass_.set_mode(1);
     check_pass(light_grid_pass_.create(gpu_.device_ref(), pass_resources));
-    scene_sdf_pass_.create(gpu_.device_ref(), pass_resources.global_set_layout, pass_resources.allocator);
+    scene_sdf_pass_.create(gpu_.device_ref(), pass_resources.global_set_layout, pass_resources.allocator,
+                            pass_resources.pipeline_cache);
 
     // Write scene SDF (binding 9) into global descriptors — must be after pass creation
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -241,6 +244,45 @@ VulkanContext::~VulkanContext() {
     // indirect batches and draw data descriptors.
     // GpuContext (gpu_) destroyed automatically — owns device, swapchain,
     // command pools, descriptors, sync objects, mega_buffer, pipelines, etc.
+}
+
+void VulkanContext::set_use_mesh_shaders(bool enable) {
+    gpu_.set_use_mesh_shaders(enable);
+
+    // Lazily create meshlet passes on first enable
+    if (enable && gpu_.use_mesh_shaders() && !meshlet_passes_created_) {
+        PassResources pass_resources = gpu_.pass_resources();
+        pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
+
+        meshlet_instance_pass_.create(gpu_.device(), gpu_.allocator(),
+                                       gpu_.global_set_layout(), pass_resources.pipeline_cache);
+        auto r1 = mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources);
+        auto r2 = meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources);
+        auto r3 = cull_pass_.create(gpu_.device(), gpu_.allocator(),
+                                     gpu_.global_set_layout(), pass_resources.pipeline_cache);
+        auto r4 = cull_viz_pass_.create(gpu_.device_ref(), pass_resources);
+        if (!r1 || !r2 || !r3 || !r4) {
+            FJELL_GFX_ERROR("Failed to create meshlet passes — disabling mesh shaders");
+            gpu_.set_use_mesh_shaders(false);
+            return;
+        }
+        meshlet_passes_created_ = true;
+
+        // Register custom vertex displacement depth pipelines for the newly
+        // created mesh shader depth pass (vertex prepass + shadow already have theirs).
+        auto* pc = gpu_.pipeline_cache();
+        if (pc) {
+            for (uint32_t id = 0; id < pc->shader_count(); ++id) {
+                if (!pc->has_custom_vertex(id)) continue;
+                const auto& depth_mesh = pc->depth_mesh_spv(id);
+                if (!depth_mesh.empty()) {
+                    mesh_shader_depth_pass_.register_custom_depth(id, depth_mesh);
+                }
+            }
+        }
+
+        FJELL_GFX_INFO("Meshlet passes created (lazy init)");
+    }
 }
 
 void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources, const Project* project) {
@@ -2142,7 +2184,7 @@ void VulkanContext::sync_custom_depth_pipelines() {
     for (uint32_t id = 0; id < pc->shader_count(); ++id) {
         if (!pc->has_custom_vertex(id)) continue;
 
-        if (gpu_.use_mesh_shaders()) {
+        if (gpu_.mesh_shaders_available()) {
             const auto& depth_mesh = pc->depth_mesh_spv(id);
             if (!depth_mesh.empty()) {
                 mesh_shader_depth_pass_.register_custom_depth(id, depth_mesh);

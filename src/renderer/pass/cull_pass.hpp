@@ -24,7 +24,8 @@ static_assert(sizeof(GpuDrawAABB) == 32, "GpuDrawAABB must be 32 bytes for std43
 class CullPass {
 public:
     [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator,
-                                  VkDescriptorSetLayout global_set_layout);
+                                  VkDescriptorSetLayout global_set_layout,
+                                  VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
     void destroy();
 
     // Upload AABBs for this frame (called from IndirectBatch::build or vulkan_context)
@@ -52,6 +53,7 @@ private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
 
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
     VkPipelineLayout layout_{VK_NULL_HANDLE};

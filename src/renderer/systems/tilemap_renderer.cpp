@@ -20,6 +20,7 @@ namespace fjell {
 
 void TilemapRenderer::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     global_set_layout_ = resources.global_set_layout;
     bindless_set_layout_ = resources.material_set_layout;
@@ -150,7 +151,7 @@ void TilemapRenderer::create(Device& device, const PassResources& resources) {
     ci.pDynamicState = &dynamic_state;
     ci.layout = layout_;
 
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline_) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create tilemap pipeline");
     }
 

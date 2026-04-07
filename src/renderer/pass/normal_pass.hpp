@@ -26,6 +26,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
 
     VizImage viz_image_;
 

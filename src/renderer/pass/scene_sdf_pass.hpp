@@ -34,7 +34,8 @@ public:
     static constexpr uint32_t DEFAULT_RESOLUTION = 128;
     static constexpr VkFormat SDF_FORMAT = VK_FORMAT_R16_SFLOAT;
 
-    void create(Device& device, VkDescriptorSetLayout global_set_layout, VmaAllocator allocator);
+    void create(Device& device, VkDescriptorSetLayout global_set_layout, VmaAllocator allocator,
+                VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
     void destroy();
 
     // Register a model's per-mesh SDF data. Returns true if data was uploaded.
@@ -78,6 +79,7 @@ private:
     void create_compute_pipeline();
 
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Global SDF 3D texture

@@ -16,6 +16,7 @@ namespace fjell {
 
 Result<> MeshShaderDepthPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
     draw_mesh_tasks_indirect_count_ = device.draw_mesh_tasks_indirect_count_fn();
     draw_data_layout_ = resources.draw_data_layout;
@@ -123,7 +124,7 @@ Result<> MeshShaderDepthPass::create(Device& device, const PassResources& resour
     pipeline_info.pDynamicState = &dynamic_state;
     pipeline_info.layout = layout_;
 
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_info,
                                    nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, task_module, nullptr);
         vkDestroyShaderModule(device_, mesh_module, nullptr);
@@ -181,7 +182,7 @@ Result<> MeshShaderDepthPass::create(Device& device, const PassResources& resour
     pipeline_info.pInputAssemblyState = &input_assembly;
     pipeline_info.layout = skinned_layout_;
 
-    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_info,
                                    nullptr, &skinned_pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, skinned_vert_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
@@ -266,7 +267,7 @@ void MeshShaderDepthPass::register_custom_depth(uint32_t pipeline_id,
     pipeline_info.layout = layout_;
 
     VkPipeline custom_pipeline = VK_NULL_HANDLE;
-    vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_info,
+    vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_info,
                                nullptr, &custom_pipeline);
     register_pipeline(device_, custom_depth_pipelines_, pipeline_id, custom_pipeline);
 

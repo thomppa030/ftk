@@ -241,6 +241,7 @@ void GtaoPass::Images::invalidate_imgui_texture() {
 
 Result<> GtaoPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     auto global_set_layout = resources.global_set_layout;
 
@@ -311,7 +312,7 @@ Result<> GtaoPass::create(Device& device, const PassResources& resources) {
         pipeline_ci.stage = stage;
         pipeline_ci.layout = gtao_layout_;
 
-        if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
+        if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci,
                                       nullptr, &gtao_pipeline_) != VK_SUCCESS) {
             vkDestroyShaderModule(device_, comp_module, nullptr);
             return make_error("Failed to create GTAO compute pipeline");
@@ -353,7 +354,7 @@ Result<> GtaoPass::create(Device& device, const PassResources& resources) {
         pipeline_ci.stage = stage;
         pipeline_ci.layout = blur_layout_;
 
-        if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
+        if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci,
                                       nullptr, &blur_pipeline_) != VK_SUCCESS) {
             vkDestroyShaderModule(device_, comp_module, nullptr);
             return make_error("Failed to create GTAO blur compute pipeline");

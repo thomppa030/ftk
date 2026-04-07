@@ -113,6 +113,7 @@ void TonemapPass::Images::invalidate_imgui_texture() {
 
 Result<> TonemapPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
 
     input_sampler_ = vk_utils::create_linear_clamp_sampler(device_);
@@ -152,6 +153,7 @@ Result<> TonemapPass::create(Device& device, const PassResources& resources) {
         .vert_module = vert_module,
         .frag_module = frag_module,
         .color_format = VK_FORMAT_R8G8B8A8_SRGB,
+        .pipeline_cache = vk_pipeline_cache_,
     });
 
     vkDestroyShaderModule(device_, frag_module, nullptr);

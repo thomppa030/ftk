@@ -51,6 +51,7 @@ private:
     void destroy_images();
 
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Depth texture array: one layer per cascade

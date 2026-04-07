@@ -5,8 +5,12 @@
 #include "core/log.hpp"
 #include "core/window.hpp"
 
+#include "core/base_path.hpp"
+
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 #include <span>
 #include <stdexcept>
@@ -45,6 +49,59 @@ void transition_image(VkCommandBuffer cmd, VkImage image,
     vkCmdPipelineBarrier2(cmd, &dep);
 }
 
+// ── Pipeline cache disk persistence ──────────────────────────────────────
+
+static std::string pipeline_cache_path() {
+    return base_path::resolve("pipeline_cache.bin");
+}
+
+static VkPipelineCache load_pipeline_cache(VkDevice device) {
+    VkPipelineCacheCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+
+    std::string path = pipeline_cache_path();
+    std::vector<char> data;
+    if (std::filesystem::exists(path)) {
+        std::ifstream f(path, std::ios::binary | std::ios::ate);
+        if (f.is_open()) {
+            auto size = f.tellg();
+            if (size > 0) {
+                data.resize(static_cast<size_t>(size));
+                f.seekg(0);
+                f.read(data.data(), size);
+                ci.initialDataSize = data.size();
+                ci.pInitialData = data.data();
+            }
+        }
+    }
+
+    VkPipelineCache cache{VK_NULL_HANDLE};
+    // If the data is stale (wrong driver/GPU), Vulkan silently ignores it
+    vkCreatePipelineCache(device, &ci, nullptr, &cache);
+    if (!data.empty()) {
+        FJELL_GFX_INFO("Pipeline cache loaded from disk ({} bytes)", data.size());
+    }
+    return cache;
+}
+
+static void save_pipeline_cache(VkDevice device, VkPipelineCache cache) {
+    if (cache == VK_NULL_HANDLE) return;
+
+    size_t size = 0;
+    vkGetPipelineCacheData(device, cache, &size, nullptr);
+    if (size == 0) return;
+
+    std::vector<char> data(size);
+    vkGetPipelineCacheData(device, cache, &size, data.data());
+
+    std::string path = pipeline_cache_path();
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (f.is_open()) {
+        f.write(data.data(), static_cast<std::streamsize>(size));
+        FJELL_GFX_INFO("Pipeline cache saved to disk ({} bytes)", size);
+    }
+}
+
 // ── GpuContext ───────────────────────────────────────────────────────────
 
 static VmaAllocator create_vma_allocator(const Device& device) {
@@ -68,6 +125,8 @@ GpuContext::GpuContext(Window& window)
     , render_stats_{std::make_unique<RenderStats>()} {
     FJELL_GFX_INFO("Initializing GPU context");
     FJELL_GFX_INFO("VMA allocator created");
+
+    vk_pipeline_cache_ = load_pipeline_cache(device_.handle());
 
     create_command_pool();
     create_descriptor_resources();
@@ -105,17 +164,26 @@ void GpuContext::init_pipelines(VkDescriptorSetLayout draw_data_layout) {
     pipeline_ = std::make_unique<Pipeline>(
         device_, OffscreenPass::COLOR_FORMAT, depth_format,
         global_set_layout_->handle(), bindless_textures_.layout(),
-        draw_data_layout, msaa_samples_);
+        draw_data_layout, msaa_samples_,
+        "shaders/mesh.vert.spv", "shaders/mesh.frag.spv",
+        vk_pipeline_cache_);
 
     pipeline_cache_ = std::make_unique<PipelineCache>(
         device_, OffscreenPass::COLOR_FORMAT, depth_format,
         global_set_layout_->handle(), bindless_textures_.layout(),
         draw_data_layout, msaa_samples_,
-        use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE);
+        device_.mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE,
+        vk_pipeline_cache_);
 }
 
 GpuContext::~GpuContext() {
     auto vk_device = device_.handle();
+
+    save_pipeline_cache(vk_device, vk_pipeline_cache_);
+    if (vk_pipeline_cache_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineCache(vk_device, vk_pipeline_cache_, nullptr);
+        vk_pipeline_cache_ = VK_NULL_HANDLE;
+    }
 
     for (auto& ub : uniform_buffers_)
         ub.reset();
@@ -403,11 +471,12 @@ PassResources GpuContext::pass_resources() const {
     res.global_set_layout = global_set_layout_->handle();
     res.material_set_layout = bindless_textures_.layout();
     res.draw_data_layout = VK_NULL_HANDLE; // set by caller if needed
-    res.meshlet_layout = use_mesh_shaders_ ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
+    res.meshlet_layout = device_.mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
     res.depth_format = device_.find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = msaa_samples_;
     res.allocator = allocator_;
+    res.pipeline_cache = vk_pipeline_cache_;
     return res;
 }
 

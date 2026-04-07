@@ -13,8 +13,10 @@
 namespace fjell {
 
 void SkyCubemapPass::create(VkDevice device, VmaAllocator allocator,
-                            VkCommandPool command_pool, VkQueue queue) {
+                            VkCommandPool command_pool, VkQueue queue,
+                            VkPipelineCache pipeline_cache) {
     device_ = device;
+    vk_pipeline_cache_ = pipeline_cache;
     allocator_ = allocator;
     command_pool_ = command_pool;
     queue_ = queue;
@@ -448,7 +450,7 @@ void SkyCubemapPass::create_cubemap_pipeline() {
     comp_ci.stage.module = module;
     comp_ci.stage.pName = "main";
     comp_ci.layout = cubemap_pipeline_layout_;
-    vk_check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &comp_ci,
+    vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci,
                                        nullptr, &cubemap_pipeline_),
              "Failed to create cubemap compute pipeline");
 
@@ -525,7 +527,7 @@ void SkyCubemapPass::create_brdf_pipeline() {
     comp_ci.stage.module = module;
     comp_ci.stage.pName = "main";
     comp_ci.layout = brdf_pipeline_layout_;
-    vk_check(vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &comp_ci,
+    vk_check(vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &comp_ci,
                                        nullptr, &brdf_pipeline_),
              "Failed to create BRDF compute pipeline");
 

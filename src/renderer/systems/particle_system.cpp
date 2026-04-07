@@ -21,6 +21,7 @@ constexpr VkDeviceSize PARTICLE_STRIDE = 80;
 
 void ParticleSystem::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     global_set_layout_ = resources.global_set_layout;
     bindless_set_layout_ = resources.material_set_layout;
@@ -94,7 +95,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         ci.layout = compute_layout_;
 
         VkPipeline pipeline;
-        if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
+        if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create particle compute pipeline");
         }
         return pipeline;
@@ -250,7 +251,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         ci.layout = render_layout_;
 
         VkPipeline pipeline;
-        if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create particle render pipeline");
         }
         return pipeline;
@@ -310,7 +311,7 @@ void ParticleSystem::recreate_pipelines() {
         ci.layout = compute_layout_;
 
         VkPipeline pipeline;
-        if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
+        if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
             FJELL_GFX_ERROR("Failed to recreate particle compute pipeline: {}", path);
             vkDestroyShaderModule(device_, mod, nullptr);
             return VkPipeline{VK_NULL_HANDLE};
@@ -419,7 +420,7 @@ void ParticleSystem::recreate_pipelines() {
         ci.layout = render_layout_;
 
         VkPipeline pipeline;
-        if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
+        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline) != VK_SUCCESS) {
             FJELL_GFX_ERROR("Failed to recreate particle render pipeline");
             return VkPipeline{VK_NULL_HANDLE};
         }

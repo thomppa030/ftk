@@ -21,6 +21,7 @@ static constexpr VkFormat NORMAL_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
 
 Result<> NormalPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
 
     viz_image_.init(device.handle(), resources.allocator, NORMAL_FORMAT);
     viz_image_.create(64, 64);
@@ -129,7 +130,7 @@ Result<> NormalPass::create(Device& device, const PassResources& resources) {
     pipeline_ci.pDynamicState = &dynamic_state;
     pipeline_ci.layout = layout_;
 
-    vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline_);
+    vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci, nullptr, &pipeline_);
 
     vkDestroyShaderModule(device_, frag_module, nullptr);
     vkDestroyShaderModule(device_, vert_module, nullptr);

@@ -25,7 +25,8 @@ public:
                   VkDescriptorSetLayout material_layout,
                   VkDescriptorSetLayout draw_data_layout,
                   VkSampleCountFlagBits samples,
-                  VkDescriptorSetLayout meshlet_layout = VK_NULL_HANDLE);
+                  VkDescriptorSetLayout meshlet_layout = VK_NULL_HANDLE,
+                  VkPipelineCache vk_cache = VK_NULL_HANDLE);
     ~PipelineCache();
 
     PipelineCache(const PipelineCache&) = delete;
@@ -119,6 +120,7 @@ private:
     std::string outline_vertex_template_;
     std::string shader_source_dir_;
     std::string generated_dir_;
+    VkPipelineCache vk_cache_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell

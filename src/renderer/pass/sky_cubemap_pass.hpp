@@ -14,7 +14,8 @@ namespace fjell {
 class SkyCubemapPass {
 public:
     void create(VkDevice device, VmaAllocator allocator,
-                VkCommandPool command_pool, VkQueue queue);
+                VkCommandPool command_pool, VkQueue queue,
+                VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
     void destroy();
 
     /// Set sky gradient colors. Marks dirty so next generate() re-renders.
@@ -44,6 +45,7 @@ private:
     static constexpr uint32_t MIP_LEVELS = 7; // floor(log2(64)) + 1
 
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     VkQueue queue_{VK_NULL_HANDLE};

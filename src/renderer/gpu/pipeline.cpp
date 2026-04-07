@@ -20,7 +20,8 @@ Pipeline::Pipeline(Device& device,
                    VkDescriptorSetLayout draw_data_layout,
                    VkSampleCountFlagBits samples,
                    const std::string& vert_shader,
-                   const std::string& frag_shader)
+                   const std::string& frag_shader,
+                   VkPipelineCache pipeline_cache)
     : device_{device}
     , color_format_{color_format}
     , depth_format_{depth_format}
@@ -29,7 +30,8 @@ Pipeline::Pipeline(Device& device,
     , draw_data_layout_{draw_data_layout}
     , samples_{samples}
     , vert_shader_{vert_shader}
-    , frag_shader_{frag_shader} {
+    , frag_shader_{frag_shader}
+    , vk_pipeline_cache_{pipeline_cache} {
     create();
 }
 
@@ -184,7 +186,7 @@ Result<> Pipeline::create_impl() {
     pipeline_info.layout = layout_;
     pipeline_info.renderPass = VK_NULL_HANDLE;
 
-    if (vkCreateGraphicsPipelines(device_.handle(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline_) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(device_.handle(), vk_pipeline_cache_, 1, &pipeline_info, nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_.handle(), frag_module, nullptr);
         vkDestroyShaderModule(device_.handle(), vert_module, nullptr);
         return make_error("Failed to create graphics pipeline");

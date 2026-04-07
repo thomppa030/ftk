@@ -22,7 +22,8 @@ static_assert(sizeof(GpuMeshletInstance) == 8);
 class MeshletInstancePass {
 public:
     void create(VkDevice device, VmaAllocator allocator,
-                VkDescriptorSetLayout global_set_layout);
+                VkDescriptorSetLayout global_set_layout,
+                VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
     void destroy();
 
     // Resize buffers if total meshlet instance count grew
@@ -81,6 +82,7 @@ public:
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
     // Expand pass

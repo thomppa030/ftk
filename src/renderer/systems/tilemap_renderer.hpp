@@ -42,6 +42,7 @@ private:
     };
 
     VkDevice device_{VK_NULL_HANDLE};
+    VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
     VkDescriptorSetLayout tile_set_layout_{VK_NULL_HANDLE};

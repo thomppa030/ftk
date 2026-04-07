@@ -19,6 +19,7 @@ static constexpr VkFormat VIZ_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
 Result<> MeshletVizPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     draw_mesh_tasks_ = device.draw_mesh_tasks_fn();
     draw_mesh_tasks_indirect_count_ = device.draw_mesh_tasks_indirect_count_fn();
@@ -133,7 +134,7 @@ Result<> MeshletVizPass::create(Device& device, const PassResources& resources) 
     pipeline_ci.pColorBlendState = &color_blending;
     pipeline_ci.pDynamicState = &dynamic_state;
     pipeline_ci.layout = layout_;
-    vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci, nullptr, &pipeline_);
+    vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci, nullptr, &pipeline_);
 
     vkDestroyShaderModule(device_, task_module, nullptr);
     vkDestroyShaderModule(device_, mesh_module, nullptr);

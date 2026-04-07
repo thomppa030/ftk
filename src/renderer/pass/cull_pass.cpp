@@ -7,8 +7,10 @@
 namespace fjell {
 
 Result<> CullPass::create(VkDevice device, VmaAllocator allocator,
-                          VkDescriptorSetLayout global_set_layout) {
+                          VkDescriptorSetLayout global_set_layout,
+                          VkPipelineCache pipeline_cache) {
     device_ = device;
+    vk_pipeline_cache_ = pipeline_cache;
     allocator_ = allocator;
 
     // Set 1 layout: cull-specific buffers
@@ -78,7 +80,7 @@ Result<> CullPass::create(VkDevice device, VmaAllocator allocator,
     pipeline_ci.stage = stage;
     pipeline_ci.layout = layout_;
 
-    if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
+    if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci,
                                   nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, comp_module, nullptr);
         return make_error("Failed to create cull compute pipeline");

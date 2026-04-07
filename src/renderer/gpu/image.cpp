@@ -28,6 +28,7 @@ Image::Image(VmaAllocator allocator, uint32_t width, uint32_t height,
 
     VmaAllocationCreateInfo alloc_ci{};
     alloc_ci.usage = memory_usage;
+    alloc_ci.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 
     if (vmaCreateImage(allocator_, &image_info, &alloc_ci,
                        &image_, &allocation_, nullptr) != VK_SUCCESS) {
@@ -93,6 +94,7 @@ Result<Image> Image::create(VmaAllocator allocator, uint32_t width, uint32_t hei
 
     VmaAllocationCreateInfo alloc_ci{};
     alloc_ci.usage = memory_usage;
+    alloc_ci.flags = VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 
     if (vmaCreateImage(allocator, &image_info, &alloc_ci,
                        &img.image_, &img.allocation_, nullptr) != VK_SUCCESS) {

@@ -10,6 +10,7 @@ namespace fjell {
 
 Result<> LightCullPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
 
     auto comp_code = read_spirv(base_path::resolve("shaders/light_cull.comp.spv"));
     auto comp_module = create_shader_module(device_, comp_code);
@@ -44,7 +45,7 @@ Result<> LightCullPass::create(Device& device, const PassResources& resources) {
     pipeline_ci.stage = stage;
     pipeline_ci.layout = layout_;
 
-    if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pipeline_ci,
+    if (vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &pipeline_ci,
                                   nullptr, &pipeline_) != VK_SUCCESS) {
         vkDestroyShaderModule(device_, comp_module, nullptr);
         return make_error("Failed to create light cull compute pipeline");
