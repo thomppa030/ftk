@@ -1,4 +1,5 @@
 #include "animation/animation_state_machine.hpp"
+#include "fjell/api.h"
 #include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
@@ -248,7 +249,7 @@ bool AnimationStateMachine::update(float dt) {
     return false;
 }
 
-void AnimationStateMachine::set_param(const std::string& name, float value) {
+FJELL_SDK_EXPORT void AnimationStateMachine::set_param(const std::string& name, float value) {
     params_[name] = value;
 }
 

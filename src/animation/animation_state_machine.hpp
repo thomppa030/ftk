@@ -1,5 +1,6 @@
 #pragma once
 
+#include "fjell/api.h"
 #include "core/delegate.hpp"
 #include "core/result.hpp"
 
@@ -57,7 +58,7 @@ public:
     bool update(float dt);
 
     // Parameter access (used by gameplay code to drive transitions).
-    void set_param(const std::string& name, float value);
+    FJELL_SDK_EXPORT void set_param(const std::string& name, float value);
     [[nodiscard]] float get_param(const std::string& name) const;
 
     // Current playback state.

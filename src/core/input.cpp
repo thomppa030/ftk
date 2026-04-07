@@ -1,4 +1,5 @@
 #include "core/input.hpp"
+#include "fjell/api.h"
 #include "core/profiler.hpp"
 #include "core/window.hpp"
 
@@ -51,7 +52,7 @@ void Input::update() {
     }
 }
 
-bool Input::is_key_pressed(int key) const {
+FJELL_SDK_EXPORT bool Input::is_key_pressed(int key) const {
     if (key < 0 || key >= MAX_KEYS) return false;
     return keys_[key] == KeyState::Pressed;
 }

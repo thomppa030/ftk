@@ -1,6 +1,7 @@
 #ifndef FJELL_INPUT_HPP
 #define FJELL_INPUT_HPP
 
+#include "fjell/api.h"
 #include <glm/glm.hpp>
 
 #include <array>
@@ -16,7 +17,7 @@ public:
 
     [[nodiscard]] GLFWwindow* window() const { return window_; }
 
-    [[nodiscard]] bool is_key_pressed(int key) const;
+    [[nodiscard]] FJELL_SDK_EXPORT bool is_key_pressed(int key) const;
     [[nodiscard]] bool is_key_held(int key) const;
     [[nodiscard]] bool is_key_released(int key) const;
 

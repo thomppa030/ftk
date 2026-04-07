@@ -8,16 +8,22 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_data_bind.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_animation.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp
 )
 
-target_include_directories(fjell-testable PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(fjell-testable PUBLIC
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/scripting
+)
 target_link_libraries(fjell-testable PUBLIC
     spdlog::spdlog
     nlohmann_json::nlohmann_json
+    glm::glm
 )
 
 if(MSVC)
     target_compile_options(fjell-testable PRIVATE /W4 /WX)
+    target_compile_definitions(fjell-testable PRIVATE FJELL_ENGINE_BUILD)
 else()
     target_compile_options(fjell-testable PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()

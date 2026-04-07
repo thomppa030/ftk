@@ -271,9 +271,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(fjell PRIVATE -rdynamic)
 endif()
 
+# Export symbols from the engine exe so game script DLLs can link against them.
+# On Linux this is handled by -rdynamic above.
+# On Windows, ENABLE_EXPORTS generates fjell.lib import library; symbols are
+# marked for export via FJELL_SDK_EXPORT in the SDK headers.
+set_target_properties(fjell PROPERTIES ENABLE_EXPORTS TRUE)
+
 if(MSVC)
     target_compile_options(fjell PRIVATE /W4 /WX)
-    target_compile_definitions(fjell PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(fjell PRIVATE _CRT_SECURE_NO_WARNINGS FJELL_ENGINE_BUILD)
+    # Pass the full path to cl.exe so fjreflect can use it at runtime
+    string(REPLACE "\\" "/" _FJELL_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
+    target_compile_definitions(fjell PRIVATE "FJELL_CXX_COMPILER=\"${_FJELL_CXX_COMPILER}\"")
     # Suppress warnings in third-party ImGuizmo source
     set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()

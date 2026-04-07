@@ -1,6 +1,7 @@
 #include "scripting/script_manager.hpp"
 #include "scripting/script_globals.hpp"
 #include "scripting/fjell/component.hpp"
+#include "fjell/api.h"
 #include "animation/anim_notify_registry.hpp"
 #include "scripting/fjell/ui_component.hpp"
 #include "scripting/fjell/ui_registry.hpp"
@@ -63,7 +64,7 @@ static const AssetTypeInfo* find_asset_type(const std::string& ref_type_name) {
 
 static auto& s_services = fjell::script_services();
 
-extern "C" void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation) {
+extern "C" FJELL_SDK_EXPORT void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation) {
     if (!s_services.scene || id == 0) return nullptr;
     if (s_services.scene->generation_of(id) != generation) return nullptr;
     return s_services.scene->find_spatial(id);
@@ -73,16 +74,16 @@ extern "C" void* fjell_resolve_weak_ref(uint32_t id, uint32_t generation) {
 
 static fjell::RefCountTable s_ref_table;
 
-extern "C" void fjell_ref_acquire(uint32_t ref_token) {
+extern "C" FJELL_SDK_EXPORT void fjell_ref_acquire(uint32_t ref_token) {
     s_ref_table.acquire(ref_token);
 }
 
-extern "C" void fjell_ref_release(uint32_t ref_token) {
+extern "C" FJELL_SDK_EXPORT void fjell_ref_release(uint32_t ref_token) {
     s_ref_table.release(ref_token);
     // TODO: when count hits zero, queue resource for deferred cleanup
 }
 
-extern "C" void* fjell_ref_resolve(uint32_t /*handle_id*/) {
+extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t /*handle_id*/) {
     // TODO: resolve handle_id through ResourceManager
     return nullptr;
 }
@@ -91,15 +92,15 @@ extern "C" void* fjell_ref_resolve(uint32_t /*handle_id*/) {
 
 static fjell::RefCountTable s_shared_ref_table;
 
-extern "C" void fjell_shared_ref_acquire(uint32_t ref_token) {
+extern "C" FJELL_SDK_EXPORT void fjell_shared_ref_acquire(uint32_t ref_token) {
     s_shared_ref_table.acquire(ref_token);
 }
 
-extern "C" void fjell_shared_ref_release(uint32_t ref_token) {
+extern "C" FJELL_SDK_EXPORT void fjell_shared_ref_release(uint32_t ref_token) {
     s_shared_ref_table.release(ref_token);
 }
 
-extern "C" void* fjell_shared_ref_resolve(uint32_t /*ref_token*/) {
+extern "C" FJELL_SDK_EXPORT void* fjell_shared_ref_resolve(uint32_t /*ref_token*/) {
     // TODO: resolve through shared object pool
     return nullptr;
 }
@@ -108,19 +109,19 @@ extern "C" void* fjell_shared_ref_resolve(uint32_t /*ref_token*/) {
 
 static fjell::GcVisitor* s_active_visitor = nullptr;
 
-extern "C" void fjell_gc_trace_weak(void* /*visitor*/, void* weak_ref_data) {
+extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_weak(void* /*visitor*/, void* weak_ref_data) {
     if (s_active_visitor && weak_ref_data) {
         s_active_visitor->trace_weak(*static_cast<fjell::WeakRefData*>(weak_ref_data));
     }
 }
 
-extern "C" void fjell_gc_trace_ref(void* /*visitor*/, void* ref_data) {
+extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_ref(void* /*visitor*/, void* ref_data) {
     if (s_active_visitor && ref_data) {
         s_active_visitor->trace_ref(*static_cast<fjell::RefData*>(ref_data));
     }
 }
 
-extern "C" void fjell_gc_trace_shared(void* /*visitor*/, void* shared_ref_data) {
+extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_shared(void* /*visitor*/, void* shared_ref_data) {
     if (s_active_visitor && shared_ref_data) {
         s_active_visitor->trace_shared(*static_cast<fjell::SharedRefData*>(shared_ref_data));
     }
@@ -159,12 +160,12 @@ static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
 static const FjellGeneratedInfo* s_generated_table = nullptr;
 static uint32_t s_generated_count = 0;
 
-extern "C" void fjell_set_generated_table(const FjellGeneratedInfo* table, uint32_t count) {
+extern "C" FJELL_SDK_EXPORT void fjell_set_generated_table(const FjellGeneratedInfo* table, uint32_t count) {
     s_generated_table = table;
     s_generated_count = count;
 }
 
-extern "C" const FjellGeneratedInfo* fjell_find_generated(const char* name) {
+extern "C" FJELL_SDK_EXPORT const FjellGeneratedInfo* fjell_find_generated(const char* name) {
     if (!s_generated_table || !name) return nullptr;
     for (uint32_t i = 0; i < s_generated_count; ++i) {
         if (std::strcmp(s_generated_table[i].name, name) == 0) {
@@ -174,7 +175,7 @@ extern "C" const FjellGeneratedInfo* fjell_find_generated(const char* name) {
     return nullptr;
 }
 
-extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc) {
+extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponentTypeOOP* desc) {
     if (!reg || !desc) return;
     fjell::OwnedScriptType owned;
     owned.name = desc->name;
@@ -188,7 +189,7 @@ extern "C" void fjell_reg_component(FjellTypeRegistry* reg, const FjellComponent
     reg->scripts.push_back(std::move(owned));
 }
 
-extern "C" void fjell_reg_notify(FjellTypeRegistry* reg, const FjellNotifyTypeOOP* desc) {
+extern "C" FJELL_SDK_EXPORT void fjell_reg_notify(FjellTypeRegistry* reg, const FjellNotifyTypeOOP* desc) {
     if (!reg || !desc) return;
     fjell::NotifyTypeInfo info;
     info.name = desc->name;
@@ -207,12 +208,12 @@ extern "C" void fjell_reg_notify(FjellTypeRegistry* reg, const FjellNotifyTypeOO
 static const FjellUiGeneratedInfo* s_ui_generated_table = nullptr;
 static uint32_t s_ui_generated_count = 0;
 
-extern "C" void fjell_set_ui_generated_table(const FjellUiGeneratedInfo* table, uint32_t count) {
+extern "C" FJELL_SDK_EXPORT void fjell_set_ui_generated_table(const FjellUiGeneratedInfo* table, uint32_t count) {
     s_ui_generated_table = table;
     s_ui_generated_count = count;
 }
 
-extern "C" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char* name) {
+extern "C" FJELL_SDK_EXPORT const FjellUiGeneratedInfo* fjell_find_ui_generated(const char* name) {
     if (!s_ui_generated_table || !name) return nullptr;
     for (uint32_t i = 0; i < s_ui_generated_count; ++i) {
         if (std::strcmp(s_ui_generated_table[i].name, name) == 0) {
@@ -222,7 +223,7 @@ extern "C" const FjellUiGeneratedInfo* fjell_find_ui_generated(const char* name)
     return nullptr;
 }
 
-extern "C" void fjell_reg_ui_component(FjellTypeRegistry* reg, const FjellUiWidgetTypeOOP* desc) {
+extern "C" FJELL_SDK_EXPORT void fjell_reg_ui_component(FjellTypeRegistry* reg, const FjellUiWidgetTypeOOP* desc) {
     if (!reg || !desc) return;
     fjell::OwnedUiWidgetType owned;
     owned.name = desc->name;

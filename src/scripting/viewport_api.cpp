@@ -1,3 +1,4 @@
+#include "fjell/api.h"
 #include "scripting/script_globals.hpp"
 #include "scripting/fjell/viewport_api.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -6,7 +7,7 @@
 #include "scene/camera_node.hpp"
 #include "scene/scene.hpp"
 
-extern "C" uint32_t fjell_viewport_create(const char* name, uint32_t width, uint32_t height,
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_viewport_create(const char* name, uint32_t width, uint32_t height,
                                            uint32_t flags) {
     auto& s = fjell::script_services();
     if (!s.vulkan || !name) return 0;
@@ -31,7 +32,7 @@ extern "C" uint32_t fjell_viewport_create(const char* name, uint32_t width, uint
     return bindless_idx;
 }
 
-extern "C" void fjell_viewport_destroy(const char* name) {
+extern "C" FJELL_SDK_EXPORT void fjell_viewport_destroy(const char* name) {
     auto& s = fjell::script_services();
     if (!s.vulkan || !name) return;
 
@@ -41,7 +42,7 @@ extern "C" void fjell_viewport_destroy(const char* name) {
     s.vulkan->destroy_scene_viewport(name);
 }
 
-extern "C" void fjell_viewport_set_camera(const char* name, uint32_t camera_node_id) {
+extern "C" FJELL_SDK_EXPORT void fjell_viewport_set_camera(const char* name, uint32_t camera_node_id) {
     auto& s = fjell::script_services();
     if (!s.vulkan || !s.scene || !name) return;
 
@@ -62,13 +63,13 @@ extern "C" void fjell_viewport_set_camera(const char* name, uint32_t camera_node
     viewport->set_view(view);
 }
 
-extern "C" uint32_t fjell_viewport_bindless_index(const char* name) {
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_viewport_bindless_index(const char* name) {
     auto& s = fjell::script_services();
     if (!s.vulkan || !name) return 0;
     return s.vulkan->scene_viewport_bindless_index(name);
 }
 
-extern "C" void fjell_viewport_resize(const char* name, uint32_t width, uint32_t height) {
+extern "C" FJELL_SDK_EXPORT void fjell_viewport_resize(const char* name, uint32_t width, uint32_t height) {
     auto& s = fjell::script_services();
     if (!s.vulkan || !name) return;
     auto* viewport = s.vulkan->scene_viewport(name);

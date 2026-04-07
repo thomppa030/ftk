@@ -1,3 +1,4 @@
+#include "fjell/api.h"
 #include "scripting/script_globals.hpp"
 #include "scripting/script_manager.hpp"
 #include "scene/scene.hpp"
@@ -8,7 +9,7 @@
 
 #include <string_view>
 
-extern "C" uint32_t fjell_scene_find_node(const char* name) {
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node(const char* name) {
     auto* scene = fjell::script_services().scene;
     if (!scene || !name) return 0;
     for (const auto& obj : scene->objects()) {
@@ -17,33 +18,33 @@ extern "C" uint32_t fjell_scene_find_node(const char* name) {
     return 0;
 }
 
-extern "C" void fjell_scene_destroy(uint32_t node_id) {
+extern "C" FJELL_SDK_EXPORT void fjell_scene_destroy(uint32_t node_id) {
     auto* scene = fjell::script_services().scene;
     if (scene) scene->queue_destroy(node_id);
 }
 
-extern "C" float* fjell_scene_get_position(uint32_t node_id) {
+extern "C" FJELL_SDK_EXPORT float* fjell_scene_get_position(uint32_t node_id) {
     auto* scene = fjell::script_services().scene;
     if (!scene) return nullptr;
     auto* node = scene->find_spatial(node_id);
     return node ? &node->transform.position.x : nullptr;
 }
 
-extern "C" float* fjell_scene_get_scale(uint32_t node_id) {
+extern "C" FJELL_SDK_EXPORT float* fjell_scene_get_scale(uint32_t node_id) {
     auto* scene = fjell::script_services().scene;
     if (!scene) return nullptr;
     auto* node = scene->find_spatial(node_id);
     return node ? &node->transform.scale.x : nullptr;
 }
 
-extern "C" float* fjell_scene_get_rotation(uint32_t node_id) {
+extern "C" FJELL_SDK_EXPORT float* fjell_scene_get_rotation(uint32_t node_id) {
     auto* scene = fjell::script_services().scene;
     if (!scene) return nullptr;
     auto* node = scene->find_spatial(node_id);
     return node ? &node->transform.rotation.x : nullptr;
 }
 
-extern "C" void* fjell_scene_get_component(uint32_t node_id, const char* type_name) {
+extern "C" FJELL_SDK_EXPORT void* fjell_scene_get_component(uint32_t node_id, const char* type_name) {
     auto* scene = fjell::script_services().scene;
     if (!scene || !type_name) return nullptr;
     auto* node = scene->find(node_id);
@@ -72,7 +73,7 @@ extern "C" void* fjell_scene_get_component(uint32_t node_id, const char* type_na
     return nullptr;
 }
 
-extern "C" uint32_t fjell_scene_spawn_empty(const char* name,
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_empty(const char* name,
                                             float x, float y, float z) {
     auto* scene = fjell::script_services().scene;
     if (!scene) return 0;
@@ -81,7 +82,7 @@ extern "C" uint32_t fjell_scene_spawn_empty(const char* name,
     return scene->add_empty(t, name ? name : "Spawned");
 }
 
-extern "C" void* fjell_scene_add_component(uint32_t node_id,
+extern "C" FJELL_SDK_EXPORT void* fjell_scene_add_component(uint32_t node_id,
                                            const char* type_name) {
     auto* scene = fjell::script_services().scene;
     if (!scene || !type_name) return nullptr;

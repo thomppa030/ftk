@@ -23,7 +23,7 @@ const char* resolve_action_name(uint32_t handle_id) {
 
 } // anonymous namespace
 
-extern "C" void fjell_input_bind_void(uint32_t action_handle_id, int trigger,
+extern "C" FJELL_SDK_EXPORT void fjell_input_bind_void(uint32_t action_handle_id, int trigger,
                                        void* instance, void (*fn)(void*)) {
     auto* iam = get_iam();
     if (!iam) return;
@@ -49,7 +49,7 @@ extern "C" void fjell_input_bind_void(uint32_t action_handle_id, int trigger,
     }
 }
 
-extern "C" void fjell_input_bind_float(uint32_t action_handle_id, int trigger,
+extern "C" FJELL_SDK_EXPORT void fjell_input_bind_float(uint32_t action_handle_id, int trigger,
                                         void* instance, void (*fn)(void*, float)) {
     auto* iam = get_iam();
     if (!iam) return;
@@ -68,7 +68,7 @@ extern "C" void fjell_input_bind_float(uint32_t action_handle_id, int trigger,
     }
 }
 
-extern "C" void fjell_input_bind_vec2(uint32_t action_handle_id, int trigger,
+extern "C" FJELL_SDK_EXPORT void fjell_input_bind_vec2(uint32_t action_handle_id, int trigger,
                                        void* instance, void (*fn)(void*, float, float)) {
     auto* iam = get_iam();
     if (!iam) return;
@@ -89,16 +89,16 @@ extern "C" void fjell_input_bind_vec2(uint32_t action_handle_id, int trigger,
     }
 }
 
-extern "C" void fjell_input_clear_connections() {
+extern "C" FJELL_SDK_EXPORT void fjell_input_clear_connections() {
     s_input_connections.clear();
 }
 
-extern "C" void fjell_input_push_context(const char* name) {
+extern "C" FJELL_SDK_EXPORT void fjell_input_push_context(const char* name) {
     auto* iam = get_iam();
     if (iam && name) iam->push_context(name);
 }
 
-extern "C" void fjell_input_pop_context(const char* name) {
+extern "C" FJELL_SDK_EXPORT void fjell_input_pop_context(const char* name) {
     auto* iam = get_iam();
     if (iam && name) iam->pop_context(name);
 }
