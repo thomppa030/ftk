@@ -1,7 +1,12 @@
+#include "fjell/api.h"
 #include "scripting/fjell/ui_widget.hpp"
 #include "ui/game_ui/ui_context.hpp"
 
 namespace fjell {
+
+UiContext::~UiContext() = default;
+UiContext::UiContext(UiContext&&) noexcept = default;
+UiContext& UiContext::operator=(UiContext&&) noexcept = default;
 
 void UiWidgetContext::set(const std::string& key, const std::string& value) {
     if (ctx_) ctx_->set(key, value);
@@ -12,7 +17,7 @@ std::string UiWidgetContext::get(const std::string& key) const {
     return "";
 }
 
-void UiWidgetContext::bind_action(const std::string& name,
+FJELL_SDK_EXPORT void UiWidgetContext::bind_action(const std::string& name,
                                    std::function<void()> callback) {
     if (!ctx_ || !connections_) return;
     // Wrap the script callback in engine-allocated shared_ptr so the Delegate's
@@ -23,7 +28,7 @@ void UiWidgetContext::bind_action(const std::string& name,
     }));
 }
 
-void UiWidgetContext::bind_action(const std::string& name,
+FJELL_SDK_EXPORT void UiWidgetContext::bind_action(const std::string& name,
                                    std::function<void(const std::vector<std::string>&)> callback) {
     if (!ctx_ || !connections_) return;
     auto shared_cb = std::make_shared<std::function<void(const std::vector<std::string>&)>>(

@@ -17,7 +17,13 @@ namespace fjell {
 class UiContext {
 public:
     UiContext() = default;
+    ~UiContext();  // out-of-line to prevent MSVC eager member instantiation
     explicit UiContext(UiContext* parent) : parent_{parent} {}
+
+    UiContext(const UiContext&) = delete;
+    UiContext& operator=(const UiContext&) = delete;
+    UiContext(UiContext&&) noexcept;
+    UiContext& operator=(UiContext&&) noexcept;
 
     void set_parent(UiContext* parent) { parent_ = parent; }
     [[nodiscard]] UiContext* parent() const { return parent_; }
