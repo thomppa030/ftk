@@ -271,7 +271,7 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
     for (const auto& entry : fs::directory_iterator(so_path.parent_path())) {
         if (entry.is_regular_file()) {
             auto name = entry.path().filename().string();
-            if (name.starts_with("game_") && name.ends_with(".so") &&
+            if (name.starts_with("game_") && name.ends_with(platform::SHARED_LIB_EXT) &&
                 entry.path() != loaded_temp_path_) {
                 fs::remove(entry.path());
             }
@@ -280,7 +280,7 @@ Result<> ScriptManager::load(const std::filesystem::path& so_path) {
 
     static uint32_t s_reload_counter = 0;
     auto temp = so_path.parent_path() /
-        ("game_" + std::to_string(++s_reload_counter) + ".so");
+        ("game_" + std::to_string(++s_reload_counter) + platform::SHARED_LIB_EXT);
     std::filesystem::copy_file(so_path, temp,
                                std::filesystem::copy_options::overwrite_existing);
 

@@ -114,12 +114,19 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
     auto scripts_dir = project_->root() / "scripts";
     auto build_dir = scripts_dir / "build";
     auto generated_dir = scripts_dir / "generated";
-    auto so_path = project_->root() / "game.so";
+    auto so_path = project_->root() / (std::string("game") + platform::SHARED_LIB_EXT);
 
+#ifdef _WIN32
+    auto fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "fjreflect.exe";
+    if (!fs::exists(fjreflect_path)) {
+        fjreflect_path = base_path::dir() / "fjreflect.exe";
+    }
+#else
     auto fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "fjreflect";
     if (!fs::exists(fjreflect_path)) {
         fjreflect_path = base_path::dir() / "fjreflect";
     }
+#endif
     auto sdk_include = base_path::dir() / ".." / "src" / "scripting";
 
     FJELL_CORE_INFO("Building scripts...");
@@ -145,10 +152,17 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                 if (!source_list.empty()) {
                     auto glm_dir = build_dir / "_deps" / "glm-src";
 
+#ifdef _WIN32
+                    auto reflect_cmd = fjreflect_path.string() +
+                        " --output-dir " + generated_dir.string() +
+                        " --include-dir " + sdk_include.string() +
+                        " --compiler cl";
+#else
                     auto reflect_cmd = fjreflect_path.string() +
                         " --output-dir " + generated_dir.string() +
                         " --include-dir " + sdk_include.string() +
                         " --compiler g++";
+#endif
 
                     if (fs::exists(glm_dir)) {
                         reflect_cmd += " --include-dir " + glm_dir.string();
@@ -264,7 +278,7 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
             // ── cmake configure + build ──────────────────────────────
             auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
                        " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
-                       "cmake --build " + build_dir.string() + " -j$(nproc) 2>&1";
+                       "cmake --build " + build_dir.string() + " --parallel 2>&1";
 
             std::string build_output;
             int ret = platform::run_command(cmd, build_output);

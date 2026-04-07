@@ -683,7 +683,7 @@ void ContentBrowser::draw_context_menu() {
                 case FileType::shader:
                 case FileType::material:
                     if (ImGui::MenuItem("Open")) {
-                        (void)platform::spawn_detached({"xdg-open", entry.path.string()});
+                        (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
                     break;
@@ -718,7 +718,7 @@ void ContentBrowser::draw_context_menu() {
                         ImGui::CloseCurrentPopup();
                     }
                     if (ImGui::MenuItem("Open in Code Editor")) {
-                        (void)platform::spawn_detached({"xdg-open", entry.path.string()});
+                        (void)platform::open_path(entry.path);
                         ImGui::CloseCurrentPopup();
                     }
                     break;
@@ -771,7 +771,7 @@ void ContentBrowser::draw_context_menu() {
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Show in File Manager")) {
-                (void)platform::spawn_detached({"xdg-open", current_dir_.string()});
+                (void)platform::open_path(current_dir_);
             }
             if (ImGui::MenuItem("Copy Path")) {
                 auto rel = std::filesystem::relative(current_dir_, root_);
@@ -816,7 +816,7 @@ void ContentBrowser::draw_common_context_items(int index) {
     ImGui::Separator();
     if (ImGui::MenuItem("Show in File Manager")) {
         auto dir = entry.is_directory ? entry.path : entry.path.parent_path();
-        (void)platform::spawn_detached({"xdg-open", dir.string()});
+        (void)platform::open_path(dir);
     }
     if (ImGui::MenuItem("Copy Path")) {
         auto rel = std::filesystem::relative(entry.path, root_);
@@ -912,11 +912,11 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::cpp_source:
         case FileType::header:
         case FileType::shader:
-            (void)platform::spawn_detached({"xdg-open", entry.path.string()});
+            (void)platform::open_path(entry.path);
             break;
 
         case FileType::material:
-            (void)platform::spawn_detached({"xdg-open", entry.path.string()});
+            (void)platform::open_path(entry.path);
             on_open_asset.broadcast(entry.path.string(), "material");
             break;
 
@@ -956,7 +956,7 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         }
 
         case FileType::ui_layout: {
-            (void)platform::spawn_detached({"xdg-open", entry.path.string()});
+            (void)platform::open_path(entry.path);
             // Only open .fjui files in editor (not .fjss — those are opened via their .fjui)
             auto ext = entry.path.extension().string();
             if (ext == ".fjui") {

@@ -12,15 +12,24 @@ RecentProjects::RecentProjects() {
 }
 
 std::filesystem::path RecentProjects::config_path() {
-    const char* xdg = std::getenv("XDG_CONFIG_HOME");
     std::filesystem::path base;
+#ifdef _WIN32
+    const char* appdata = std::getenv("APPDATA");
+    if (appdata && appdata[0] != '\0') {
+        base = appdata;
+    } else {
+        base = std::filesystem::temp_directory_path();
+    }
+#else
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
     if (xdg && xdg[0] != '\0') {
         base = xdg;
     } else {
         const char* home = std::getenv("HOME");
         base = home ? std::filesystem::path(home) / ".config"
-                    : std::filesystem::path("/tmp");
+                    : std::filesystem::temp_directory_path();
     }
+#endif
     return base / "fjell" / "hub.json";
 }
 

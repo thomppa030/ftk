@@ -207,19 +207,21 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype tracy meshoptimizer ozz-animation assimp Catch2)
 
 # Assimp has internal warnings that fail with -Werror in Release, suppress them
-if(TARGET assimp)
+if(TARGET assimp AND NOT MSVC)
     target_compile_options(assimp PRIVATE -Wno-error)
 endif()
 
 # ozz-animation triggers -Wuninitialized in GCC 15 Release builds
-if(TARGET ozz_animation)
-    target_compile_options(ozz_animation PRIVATE -Wno-error)
-endif()
-if(TARGET ozz_base)
-    target_compile_options(ozz_base PRIVATE -Wno-error)
-endif()
-if(TARGET ozz_animation_offline)
-    target_compile_options(ozz_animation_offline PRIVATE -Wno-error)
+if(NOT MSVC)
+    if(TARGET ozz_animation)
+        target_compile_options(ozz_animation PRIVATE -Wno-error)
+    endif()
+    if(TARGET ozz_base)
+        target_compile_options(ozz_base PRIVATE -Wno-error)
+    endif()
+    if(TARGET ozz_animation_offline)
+        target_compile_options(ozz_animation_offline PRIVATE -Wno-error)
+    endif()
 endif()
 
 # Bridge FetchContent'd FreeType for msdfgen's find_package(Freetype) call.

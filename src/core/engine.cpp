@@ -17,6 +17,7 @@ extern "C" void fjell_input_clear_connections();
 #include "scripting/script_subsystem.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
 #include "platform/platform.hpp"
+#include "platform/shared_library.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
 #include "ui/theme.hpp"
@@ -267,7 +268,7 @@ void Engine::init_scene() {
     load_input_actions();
 
     if (game_mode_) {
-        auto game_so = base_path::resolve("game.so");
+        auto game_so = base_path::resolve(std::string("game") + platform::SHARED_LIB_EXT);
         if (std::filesystem::exists(game_so)) {
             if (auto r = script_subsystem_->manager().load(game_so); !r) {
                 FJELL_CORE_ERROR("{}", r.error());
@@ -913,7 +914,7 @@ void Engine::draw_console() {
 
 void Engine::load_project_scripts() {
     if (!project_mgr_.active()) return;
-    auto so_path = project_mgr_.active()->root() / "game.so";
+    auto so_path = project_mgr_.active()->root() / (std::string("game") + platform::SHARED_LIB_EXT);
     if (std::filesystem::exists(so_path)) {
         if (auto r = script_subsystem_->manager().load(so_path); !r) {
             FJELL_CORE_ERROR("{}", r.error());

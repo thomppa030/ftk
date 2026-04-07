@@ -3,6 +3,7 @@
 #include "core/log.hpp"
 #include "core/project.hpp"
 #include "platform/platform.hpp"
+#include "platform/shared_library.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -50,10 +51,11 @@ Result<> GameBuilder::build(const Project& project,
                      fs::copy_options::recursive | fs::copy_options::overwrite_existing);
         }
 
-        // Copy game scripts .so if available
-        auto game_so = project.root() / "game.so";
+        // Copy game scripts library if available
+        auto lib_name = std::string("game") + platform::SHARED_LIB_EXT;
+        auto game_so = project.root() / lib_name;
         if (fs::exists(game_so)) {
-            fs::copy_file(game_so, output_dir / "game.so",
+            fs::copy_file(game_so, output_dir / lib_name,
                           fs::copy_options::overwrite_existing);
         }
 

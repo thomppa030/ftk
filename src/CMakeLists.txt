@@ -286,7 +286,11 @@ if(VMA_INCLUDE_DIRS)
     target_include_directories(fjell SYSTEM PRIVATE ${VMA_INCLUDE_DIRS})
 endif()
 # VMA implementation compiles third-party code — suppress warnings
-set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
+if(MSVC)
+    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
+else()
+    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
+endif()
 
 # Treat fastgltf headers as system headers to suppress warnings from them
 get_target_property(FASTGLTF_INCLUDE_DIRS fastgltf::fastgltf INTERFACE_INCLUDE_DIRECTORIES)
@@ -336,9 +340,11 @@ add_custom_target(fjell_shader_resources ALL
 )
 add_dependencies(fjell fjell_shader_resources)
 
-# Symlink assets into build dir so the executable finds them during development
-file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBOLIC)
-file(CREATE_LINK "${CMAKE_SOURCE_DIR}/engine_assets" "${CMAKE_BINARY_DIR}/engine_assets" SYMBOLIC)
+# Symlink assets into build dir so the executable finds them during development.
+# COPY_ON_ERROR: falls back to a full copy if symlinks aren't available
+# (e.g. Windows without Developer Mode or admin privileges).
+file(CREATE_LINK "${CMAKE_SOURCE_DIR}/assets" "${CMAKE_BINARY_DIR}/assets" SYMBOLIC COPY_ON_ERROR)
+file(CREATE_LINK "${CMAKE_SOURCE_DIR}/engine_assets" "${CMAKE_BINARY_DIR}/engine_assets" SYMBOLIC COPY_ON_ERROR)
 
 # SDK headers live in src/scripting/fjell/ — projects include directly via
 # -I<engine_src>/src/scripting, so #include <fjell/component.hpp> works.
@@ -397,7 +403,11 @@ if(VMA_INCLUDE_DIRS)
     target_include_directories(fjell-hub SYSTEM PRIVATE ${VMA_INCLUDE_DIRS})
 endif()
 # VMA implementation — suppress warnings in fjell-hub too
-set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
+if(MSVC)
+    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
+else()
+    set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
+endif()
 
 # --- Install rules ---
 install(TARGETS fjell fjell-hub RUNTIME DESTINATION .)

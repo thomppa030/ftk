@@ -5,6 +5,10 @@ add_executable(fjreflect
 )
 
 target_compile_features(fjreflect PRIVATE cxx_std_23)
-target_compile_options(fjreflect PRIVATE -Wall -Wextra -Wpedantic)
+if(MSVC)
+    target_compile_options(fjreflect PRIVATE /W4 /WX)
+else()
+    target_compile_options(fjreflect PRIVATE -Wall -Wextra -Wpedantic)
+endif()
 
 install(TARGETS fjreflect RUNTIME DESTINATION bin)
