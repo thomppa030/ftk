@@ -10,6 +10,11 @@
 #include <sstream>
 #include <string>
 
+#ifdef _WIN32
+#define popen _popen
+#define pclose _pclose
+#endif
+
 namespace fjreflect {
 
 // ── Type mapping ────────────────────────────────────────────────────────
@@ -390,8 +395,8 @@ ParseResult parse_file(const std::string& filepath) {
                     // Extract pointed-to type name (strip trailing * and namespace)
                     auto bare = type_str.substr(0, type_str.size() - 1);
                     while (!bare.empty() && bare.back() == ' ') bare.pop_back();
-                    if (auto ns = bare.rfind("::"); ns != std::string::npos)
-                        bare = bare.substr(ns + 2);
+                    if (auto ns_pos = bare.rfind("::"); ns_pos != std::string::npos)
+                        bare = bare.substr(ns_pos + 2);
                     fi.ref_target = bare;
                     fi.line = pending_line;
                     fi.is_bind = true;
@@ -453,8 +458,8 @@ ParseResult parse_file(const std::string& filepath) {
                         fi.fj_field_type = "FJELL_FIELD_WIDGET_PTR";
                         auto bare = type_str.substr(0, type_str.size() - 1);
                         while (!bare.empty() && bare.back() == ' ') bare.pop_back();
-                        if (auto ns = bare.rfind("::"); ns != std::string::npos)
-                            bare = bare.substr(ns + 2);
+                        if (auto ns_pos = bare.rfind("::"); ns_pos != std::string::npos)
+                            bare = bare.substr(ns_pos + 2);
                         fi.ref_target = bare;
                         fi.line = static_cast<unsigned>(j + 1);
                         fi.is_bind = true;
@@ -574,18 +579,39 @@ bool query_offsets(std::vector<ComponentInfo>& components,
     }
 
     // Build compiler command
+    bool is_msvc = compiler.find("cl") != std::string::npos
+                && compiler.find("clang") == std::string::npos;
+
     std::string includes;
-    auto source_dir = std::filesystem::path(source_file).parent_path().string();
+    auto source_dir = std::filesystem::path(source_file).parent_path().generic_string();
     if (!source_dir.empty()) {
-        includes += " -I" + source_dir;
+        if (is_msvc)
+            includes += " /I\"" + source_dir + "\"";
+        else
+            includes += " -I" + source_dir;
     }
     for (const auto& dir : include_dirs) {
-        includes += " -I" + dir;
+        if (is_msvc)
+            includes += " /I\"" + dir + "\"";
+        else
+            includes += " -I" + dir;
     }
 
-    std::string cmd = compiler + " -std=c++23 -Wno-attributes -Wno-invalid-offsetof -w"
-        " -Wl,--unresolved-symbols=ignore-in-object-files"
-        + includes + " -o " + query_bin.string() + " " + query_src.string() + " 2>&1";
+    std::string cmd;
+    if (is_msvc) {
+        auto query_exe = query_bin;
+        query_exe += ".exe";
+        cmd = "\"" + compiler + "\" /std:c++latest /w /EHsc"
+            + includes + " /Fe\"" + query_exe.string() + "\""
+            + " \"" + query_src.string() + "\""
+            + " /link /NOLOGO 2>&1";
+        std::cerr << "fjreflect: MSVC cmd: " << cmd << "\n";
+        query_bin = query_exe;
+    } else {
+        cmd = compiler + " -std=c++23 -Wno-attributes -Wno-invalid-offsetof -w"
+            " -Wl,--unresolved-symbols=ignore-in-object-files"
+            + includes + " -o " + query_bin.string() + " " + query_src.string() + " 2>&1";
+    }
 
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
@@ -605,7 +631,7 @@ bool query_offsets(std::vector<ComponentInfo>& components,
     }
 
     // Run
-    pipe = popen(query_bin.c_str(), "r");
+    pipe = popen(query_bin.string().c_str(), "r");
     if (!pipe) {
         std::cerr << "fjreflect: cannot run offset query\n";
         return false;
@@ -635,6 +661,7 @@ bool query_offsets(std::vector<ComponentInfo>& components,
     std::filesystem::remove(query_src);
     std::filesystem::remove(query_bin);
     std::filesystem::remove(tmp_dir / "fjreflect_query.o");
+    std::filesystem::remove(tmp_dir / "fjreflect_query.obj"); // MSVC object file
 
     return true;
 }
