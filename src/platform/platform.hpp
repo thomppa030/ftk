@@ -22,4 +22,8 @@ Result<> spawn_detached(const std::vector<std::string>& args);
 /// args[0] is the executable path. Does not return on success.
 Result<> exec_replace(const std::vector<std::string>& args);
 
+/// Open a file or directory with the system default handler.
+/// (xdg-open on Linux, ShellExecuteA on Windows)
+Result<> open_path(const std::filesystem::path& path);
+
 } // namespace fjell::platform

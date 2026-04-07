@@ -22,7 +22,11 @@ void FileBrowser::open(const std::string& title) {
 #ifdef _WIN32
     if (!home) home = std::getenv("USERPROFILE");
 #endif
-    navigate(home ? std::filesystem::path(home) : std::filesystem::path("/"));
+    if (home) {
+        navigate(std::filesystem::path(home));
+    } else {
+        navigate(std::filesystem::current_path());
+    }
 }
 
 void FileBrowser::close() {

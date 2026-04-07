@@ -5,9 +5,15 @@
 
 namespace fjell::platform {
 
+#ifdef _WIN32
+inline constexpr const char* SHARED_LIB_EXT = ".dll";
+#else
+inline constexpr const char* SHARED_LIB_EXT = ".so";
+#endif
+
 /// Cross-platform dynamic library loader.
 ///
-/// Linux/macOS: dlopen/dlsym. Windows: LoadLibrary/GetProcAddress (future).
+/// Linux: dlopen/dlsym. Windows: LoadLibrary/GetProcAddress.
 class SharedLibrary {
 public:
     SharedLibrary() = default;

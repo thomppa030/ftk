@@ -8,6 +8,8 @@
 #define NOMINMAX
 #include <Windows.h>
 
+#include <shellapi.h>
+
 #include <array>
 #include <cstdio>
 #include <stdexcept>
@@ -71,6 +73,55 @@ Result<> spawn_detached(const std::vector<std::string>& args) {
     // Close handles — we don't wait on the child
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
+    return {};
+}
+
+Result<> exec_replace(const std::vector<std::string>& args) {
+    if (args.empty()) return make_error("exec_replace: empty args");
+
+    // Build command line string: quote each argument
+    std::string cmd_line;
+    for (size_t i = 0; i < args.size(); ++i) {
+        if (i > 0) cmd_line += ' ';
+        bool needs_quotes = args[i].find(' ') != std::string::npos;
+        if (needs_quotes) cmd_line += '"';
+        cmd_line += args[i];
+        if (needs_quotes) cmd_line += '"';
+    }
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    PROCESS_INFORMATION pi{};
+
+    BOOL ok = CreateProcessA(
+        nullptr,
+        cmd_line.data(),
+        nullptr, nullptr,
+        FALSE,
+        0,
+        nullptr, nullptr,
+        &si, &pi);
+
+    if (!ok) return make_error("exec_replace: CreateProcessA failed");
+
+    // Wait for the child, then exit this process with its exit code
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code = 0;
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    ExitProcess(exit_code);
+
+    // Unreachable, but satisfies the return type
+    return {};
+}
+
+Result<> open_path(const std::filesystem::path& path) {
+    auto result = ShellExecuteA(nullptr, "open", path.string().c_str(),
+                                nullptr, nullptr, SW_SHOWNORMAL);
+    if (reinterpret_cast<intptr_t>(result) <= 32) {
+        return make_error("open_path: ShellExecuteA failed");
+    }
     return {};
 }
 

@@ -13,7 +13,7 @@ namespace fjell::platform {
 /// Watches one or more paths for modifications. Call poll() each frame
 /// to check for changes — the callback fires synchronously during poll().
 ///
-/// Linux: inotify. macOS: FSEvents (future). Windows: ReadDirectoryChangesW (future).
+/// Linux: inotify. Windows: ReadDirectoryChangesW. macOS: FSEvents (future).
 class FileWatcher {
 public:
     /// Called when a watched file or a file inside a watched directory changes.

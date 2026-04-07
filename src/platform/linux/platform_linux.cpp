@@ -81,4 +81,8 @@ Result<> exec_replace(const std::vector<std::string>& args) {
     return make_error("exec_replace: execv failed");
 }
 
+Result<> open_path(const std::filesystem::path& path) {
+    return spawn_detached({"xdg-open", path.string()});
+}
+
 } // namespace fjell::platform
