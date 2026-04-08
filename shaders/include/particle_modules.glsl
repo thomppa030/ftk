@@ -27,6 +27,7 @@
 #define MOD_CURVE_SIZE_OVER_LIFE  109
 #define MOD_WIND                  110
 #define MOD_ORBITAL               111
+#define MOD_EMISSIVE              112
 
 #define ORBITAL_VORTEX  0
 #define ORBITAL_ORBIT   1

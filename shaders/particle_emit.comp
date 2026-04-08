@@ -198,6 +198,11 @@ void main() {
             float factor = MOD_FLOAT(mo, 2);
             p.velocity += em.emitter_velocity * factor;
         }
+        else if (mtype == MOD_EMISSIVE) {
+            vec3 emissive_color = MOD_VEC3(mo, 2);
+            float emissive_intensity = MOD_FLOAT(mo, 5);
+            p.color.rgb *= emissive_color * emissive_intensity;
+        }
 
         mo += msize;
     }

@@ -66,6 +66,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "Wind")             return std::make_unique<WindModule>();
     if (type_name == "EmitOverDistance") return std::make_unique<EmitOverDistanceModule>();
     if (type_name == "Orbital")          return std::make_unique<OrbitalModule>();
+    if (type_name == "Emissive")         return std::make_unique<EmissiveModule>();
     return nullptr;
 }
 
@@ -1282,6 +1283,44 @@ void LitParticleModule::to_json(nlohmann::json& j) const {
 void LitParticleModule::from_json(const nlohmann::json& j) {
     metallic = j.value("metallic", 0.0f);
     roughness = j.value("roughness", 0.5f);
+}
+
+// ─── Emissive ───────────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> EmissiveModule::pin_descriptors() {
+    return {
+        {"color", PinDataType::vec3_type, &color, {}, 0.0f, 1.0f, 0.01f},
+        {"intensity", PinDataType::float_type, &intensity, {}, 0.0f, 50.0f, 0.1f},
+    };
+}
+
+uint32_t EmissiveModule::write_gpu_data(uint8_t* buffer) const {
+    // header(2) + color(3) + intensity(1) + pad(2) = 8 words (4-word aligned)
+    uint32_t total = write_header(buffer, type(), 6);
+    write_vec3(buffer, 8, color);
+    write_float(buffer, 20, intensity);
+    return total; // 24 bytes
+}
+
+bool EmissiveModule::draw_inspector() {
+    bool changed = false;
+    if (ImGui::ColorEdit3("Color", &color.x)) changed = true;
+    if (ImGui::DragFloat("Intensity", &intensity, 0.1f, 0.0f, 50.0f)) changed = true;
+    return changed;
+}
+
+void EmissiveModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Emissive";
+    j["color"] = {color.x, color.y, color.z};
+    j["intensity"] = intensity;
+}
+
+void EmissiveModule::from_json(const nlohmann::json& j) {
+    if (j.contains("color")) {
+        auto& c = j["color"];
+        color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+    }
+    intensity = j.value("intensity", 5.0f);
 }
 
 // ─── Trail ──────────────────────────────────────────────────────────────

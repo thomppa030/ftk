@@ -1612,6 +1612,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
         std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
         ++spot_count;
     }
+
 }
 
 void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,

@@ -43,6 +43,7 @@ enum class ModuleType : uint32_t {
     curve_size_over_life  = 109,
     wind                  = 110,
     orbital               = 111,
+    emissive              = 112,
 
     // Render modules
     billboard          = 200,
@@ -224,6 +225,19 @@ struct OrbitalModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::orbital; }
     [[nodiscard]] const char* name() const override { return "Orbital"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct EmissiveModule final : VfxModule {
+    glm::vec3 color{1.0f, 0.8f, 0.3f};
+    float intensity{5.0f};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::emissive; }
+    [[nodiscard]] const char* name() const override { return "Emissive"; }
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;

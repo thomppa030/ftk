@@ -79,6 +79,7 @@ public:
     void record_opaque(const FrameContext& ctx) override;
     void record_transparent(const FrameContext& ctx) override;
 
+
 private:
     // Internal implementations (called by the virtual overrides above)
     void sync_emitters(Scene& scene);
