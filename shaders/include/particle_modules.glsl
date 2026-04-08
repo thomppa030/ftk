@@ -26,6 +26,11 @@
 #define MOD_CURVE_COLOR_OVER_LIFE 108
 #define MOD_CURVE_SIZE_OVER_LIFE  109
 #define MOD_WIND                  110
+#define MOD_ORBITAL               111
+
+#define ORBITAL_VORTEX  0
+#define ORBITAL_ORBIT   1
+#define ORBITAL_SWIRL   2
 
 #define MOD_BILLBOARD          200
 #define MOD_TRAIL              201

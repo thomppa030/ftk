@@ -42,6 +42,7 @@ enum class ModuleType : uint32_t {
     curve_color_over_life = 108,
     curve_size_over_life  = 109,
     wind                  = 110,
+    orbital               = 111,
 
     // Render modules
     billboard          = 200,
@@ -202,6 +203,27 @@ struct WindModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::wind; }
     [[nodiscard]] const char* name() const override { return "Wind"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+enum class OrbitalMode : uint32_t {
+    vortex = 0, // spin around axis
+    orbit  = 1, // orbit center point
+    swirl  = 2, // vortex + inward pull
+};
+
+struct OrbitalModule final : VfxModule {
+    OrbitalMode mode{OrbitalMode::vortex};
+    glm::vec3 axis{0.0f, 1.0f, 0.0f};   // rotation axis (vortex/swirl) or center (orbit)
+    float speed{2.0f};                    // angular speed (radians/sec)
+    float pull{0.0f};                     // inward pull strength (swirl mode)
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::orbital; }
+    [[nodiscard]] const char* name() const override { return "Orbital"; }
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;

@@ -65,6 +65,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "MeshParticle")     return std::make_unique<MeshParticleModule>();
     if (type_name == "Wind")             return std::make_unique<WindModule>();
     if (type_name == "EmitOverDistance") return std::make_unique<EmitOverDistanceModule>();
+    if (type_name == "Orbital")          return std::make_unique<OrbitalModule>();
     return nullptr;
 }
 
@@ -488,6 +489,67 @@ void WindModule::from_json(const nlohmann::json& j) {
         direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
     }
     strength = j.value("strength", 1.0f);
+}
+
+// ─── Orbital ────────────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> OrbitalModule::pin_descriptors() {
+    return {
+        {"mode", PinDataType::enum_type, &mode, {"Vortex", "Orbit", "Swirl"}},
+        {"axis", PinDataType::vec3_type, &axis, {}, -1.0f, 1.0f, 0.01f},
+        {"speed", PinDataType::float_type, &speed, {}, -20.0f, 20.0f, 0.1f},
+        {"pull", PinDataType::float_type, &pull, {}, -10.0f, 10.0f, 0.1f},
+    };
+}
+
+uint32_t OrbitalModule::write_gpu_data(uint8_t* buffer) const {
+    // header(2) + mode(1) + axis(3) + speed(1) + pull(1) = 8 words
+    uint32_t total = write_header(buffer, type(), 8);
+    write_uint(buffer, 8, static_cast<uint32_t>(mode));
+    write_vec3(buffer, 12, axis);
+    write_float(buffer, 24, speed);
+    write_float(buffer, 28, pull);
+    return total;
+}
+
+bool OrbitalModule::draw_inspector() {
+    bool changed = false;
+    const char* modes[] = {"Vortex", "Orbit", "Swirl"};
+    int m = static_cast<int>(mode);
+    if (ImGui::Combo("Mode", &m, modes, 3)) {
+        mode = static_cast<OrbitalMode>(m);
+        changed = true;
+    }
+    if (ImGui::DragFloat3("Axis / Center", &axis.x, 0.01f, -1.0f, 1.0f)) changed = true;
+    if (ImGui::DragFloat("Speed", &speed, 0.1f, -20.0f, 20.0f)) changed = true;
+    if (mode == OrbitalMode::swirl) {
+        if (ImGui::DragFloat("Pull", &pull, 0.1f, -10.0f, 10.0f)) changed = true;
+    }
+    return changed;
+}
+
+void OrbitalModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Orbital";
+    const char* mode_names[] = {"vortex", "orbit", "swirl"};
+    j["mode"] = mode_names[static_cast<int>(mode)];
+    j["axis"] = {axis.x, axis.y, axis.z};
+    j["speed"] = speed;
+    if (mode == OrbitalMode::swirl) {
+        j["pull"] = pull;
+    }
+}
+
+void OrbitalModule::from_json(const nlohmann::json& j) {
+    auto m = j.value("mode", "vortex");
+    if (m == "orbit") mode = OrbitalMode::orbit;
+    else if (m == "swirl") mode = OrbitalMode::swirl;
+    else mode = OrbitalMode::vortex;
+    if (j.contains("axis")) {
+        auto& a = j["axis"];
+        axis = {a[0].get<float>(), a[1].get<float>(), a[2].get<float>()};
+    }
+    speed = j.value("speed", 2.0f);
+    pull = j.value("pull", 0.0f);
 }
 
 // ─── ColorOverLife ───────────────────────────────────────────────────────
