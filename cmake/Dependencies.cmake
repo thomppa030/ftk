@@ -48,7 +48,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
-    GIT_TAG        docking
+    GIT_TAG        f5f6ca07be7ce0ea9eed6c04d55833bac3f6b50b  # docking branch, 1.92.7
     GIT_SHALLOW    TRUE
 )
 
@@ -272,6 +272,25 @@ endif()
 FetchContent_GetProperties(imgui)
 if(NOT imgui_POPULATED)
     FetchContent_Populate(imgui)
+
+    # Apply stack layout extensions (BeginHorizontal/BeginVertical/Spring)
+    # from imgui-node-editor: https://github.com/thedmd/imgui-node-editor
+    # Original PR: https://github.com/ocornut/imgui/pull/846
+    set(_layout_patch "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/imgui_layout.patch")
+    set(_layout_marker "${imgui_SOURCE_DIR}/.layout_patched")
+    if(EXISTS "${_layout_patch}" AND NOT EXISTS "${_layout_marker}")
+        execute_process(
+            COMMAND patch -p1 -i "${_layout_patch}"
+            WORKING_DIRECTORY "${imgui_SOURCE_DIR}"
+            RESULT_VARIABLE _patch_result
+        )
+        if(_patch_result EQUAL 0)
+            file(WRITE "${_layout_marker}" "patched")
+            message(STATUS "imgui: applied stack layout extensions patch")
+        else()
+            message(WARNING "imgui: failed to apply layout patch (result: ${_patch_result})")
+        endif()
+    endif()
 endif()
 
 # ImGuizmo — same pattern
