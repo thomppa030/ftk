@@ -764,6 +764,7 @@ void VfxEditorContext::draw_context_menu() {
             add_btn("Initial Color",    []{ return std::make_unique<InitialColorModule>(); },     emitter.spawn_modules, 0);
             add_btn("Initial Size",     []{ return std::make_unique<InitialSizeModule>(); },      emitter.spawn_modules, 0);
             add_btn("Burst",            []{ return std::make_unique<BurstModule>(); },            emitter.spawn_modules, 0);
+            add_btn("Emit Over Distance", []{ return std::make_unique<EmitOverDistanceModule>(); }, emitter.spawn_modules, 0);
             add_btn("Initial Rotation", []{ return std::make_unique<InitialRotationModule>(); },  emitter.spawn_modules, 0);
             add_btn("Initial Texture",  []{ return std::make_unique<InitialTextureModule>(); },   emitter.spawn_modules, 0);
             add_btn("Flipbook",         []{ return std::make_unique<FlipbookModule>(); },         emitter.spawn_modules, 0);

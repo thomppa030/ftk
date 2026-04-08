@@ -28,6 +28,7 @@ enum class ModuleType : uint32_t {
     initial_texture    = 9,
     flipbook           = 10,
     velocity_inherit   = 11,
+    emit_over_distance = 12,
 
     // Update modules
     gravity            = 100,
@@ -358,6 +359,18 @@ struct BurstModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::burst; }
     [[nodiscard]] const char* name() const override { return "Burst"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct EmitOverDistanceModule final : VfxModule {
+    float particles_per_meter{10.0f};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::emit_over_distance; }
+    [[nodiscard]] const char* name() const override { return "Emit Over Distance"; }
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;

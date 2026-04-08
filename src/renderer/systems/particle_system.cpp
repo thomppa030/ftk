@@ -1569,6 +1569,22 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         } else {
             data.emitter_velocity = glm::vec3(0.0f);
         }
+        // Distance-based emission (before updating prev_position)
+        if (gpu.has_prev_position && !sub.paused) {
+            float frame_dist = glm::length(pos - gpu.prev_position);
+            for (const auto& mod : sub.spawn_modules) {
+                if (mod->enabled && mod->type() == ModuleType::emit_over_distance) {
+                    auto* eod = static_cast<const EmitOverDistanceModule*>(mod.get());
+                    sub.distance_accumulator += frame_dist * eod->particles_per_meter;
+                    uint32_t distance_emit = static_cast<uint32_t>(sub.distance_accumulator);
+                    sub.distance_accumulator -= std::floor(sub.distance_accumulator);
+                    emit_count += distance_emit;
+                    if (emit_count > max_emit_count) max_emit_count = emit_count;
+                    break;
+                }
+            }
+        }
+
         gpu.prev_position = pos;
         gpu.has_prev_position = true;
 

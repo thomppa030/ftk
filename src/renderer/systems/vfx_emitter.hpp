@@ -39,6 +39,7 @@ struct VfxEmitter {
 
     // Runtime (not serialized, managed by ParticleSystem)
     float emit_accumulator{0.0f};
+    float distance_accumulator{0.0f};
     float burst_elapsed{0.0f};
     bool burst_fired{false};
     bool paused{false};  // suppress emission + freeze simulation

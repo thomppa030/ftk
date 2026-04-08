@@ -64,6 +64,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "LitParticle")      return std::make_unique<LitParticleModule>();
     if (type_name == "MeshParticle")     return std::make_unique<MeshParticleModule>();
     if (type_name == "Wind")             return std::make_unique<WindModule>();
+    if (type_name == "EmitOverDistance") return std::make_unique<EmitOverDistanceModule>();
     return nullptr;
 }
 
@@ -849,6 +850,29 @@ void BurstModule::to_json(nlohmann::json& j) const {
 
 void BurstModule::from_json(const nlohmann::json& j) {
     count = j.value("count", 100u);
+}
+
+// ─── EmitOverDistance ────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> EmitOverDistanceModule::pin_descriptors() {
+    return {{"particles_per_meter", PinDataType::float_type, &particles_per_meter, {}, 0.1f, 200.0f, 0.5f}};
+}
+
+uint32_t EmitOverDistanceModule::write_gpu_data(uint8_t* /*buffer*/) const {
+    return 0; // CPU-only module, no GPU data
+}
+
+bool EmitOverDistanceModule::draw_inspector() {
+    return ImGui::DragFloat("Particles / m", &particles_per_meter, 0.5f, 0.1f, 200.0f);
+}
+
+void EmitOverDistanceModule::to_json(nlohmann::json& j) const {
+    j["type"] = "EmitOverDistance";
+    j["particles_per_meter"] = particles_per_meter;
+}
+
+void EmitOverDistanceModule::from_json(const nlohmann::json& j) {
+    particles_per_meter = j.value("particles_per_meter", 10.0f);
 }
 
 // ─── Flipbook ───────────────────────────────────────────────────────────
