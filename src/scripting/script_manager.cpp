@@ -12,6 +12,7 @@
 #include "scripting/ref_count_table.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
+#include "core/string_utils.hpp"
 #include "core/input_action_map.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -806,43 +807,45 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
         const auto& f = fields[i];
         void* ptr = base + f.offset;
         float spd = f.speed > 0.0f ? f.speed : 0.1f;
+        std::string label = display_name(f.name);
+        const char* lbl = label.c_str();
 
         ImGui::PushID(static_cast<int>(i));
         switch (f.type) {
             case FJELL_FIELD_FLOAT:
-                ImGui::DragFloat(f.name.c_str(), static_cast<float*>(ptr), spd, f.min, f.max);
+                ImGui::DragFloat(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
                 break;
             case FJELL_FIELD_INT:
-                ImGui::DragInt(f.name.c_str(), static_cast<int*>(ptr),
+                ImGui::DragInt(lbl, static_cast<int*>(ptr),
                                spd, static_cast<int>(f.min), static_cast<int>(f.max));
                 break;
             case FJELL_FIELD_BOOL:
-                ImGui::Checkbox(f.name.c_str(), static_cast<bool*>(ptr));
+                ImGui::Checkbox(lbl, static_cast<bool*>(ptr));
                 break;
             case FJELL_FIELD_VEC2:
-                ImGui::DragFloat2(f.name.c_str(), static_cast<float*>(ptr), spd, f.min, f.max);
+                ImGui::DragFloat2(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
                 break;
             case FJELL_FIELD_VEC3:
-                ImGui::DragFloat3(f.name.c_str(), static_cast<float*>(ptr), spd, f.min, f.max);
+                ImGui::DragFloat3(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
                 break;
             case FJELL_FIELD_VEC4:
-                ImGui::DragFloat4(f.name.c_str(), static_cast<float*>(ptr), spd, f.min, f.max);
+                ImGui::DragFloat4(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
                 break;
             case FJELL_FIELD_COLOR3:
-                ImGui::ColorEdit3(f.name.c_str(), static_cast<float*>(ptr));
+                ImGui::ColorEdit3(lbl, static_cast<float*>(ptr));
                 break;
             case FJELL_FIELD_COLOR4:
-                ImGui::ColorEdit4(f.name.c_str(), static_cast<float*>(ptr));
+                ImGui::ColorEdit4(lbl, static_cast<float*>(ptr));
                 break;
             case FJELL_FIELD_STRING:
-                ImGui::InputText(f.name.c_str(), static_cast<char*>(ptr), f.size);
+                ImGui::InputText(lbl, static_cast<char*>(ptr), f.size);
                 break;
             case FJELL_FIELD_ENUM:
                 if (!f.enum_labels.empty()) {
                     std::string preview = f.enum_labels[
                         std::clamp(*static_cast<int*>(ptr), 0,
                                    static_cast<int>(f.enum_labels.size()) - 1)];
-                    if (ImGui::BeginCombo(f.name.c_str(), preview.c_str())) {
+                    if (ImGui::BeginCombo(lbl, preview.c_str())) {
                         for (int e = 0; e < static_cast<int>(f.enum_labels.size()); ++e) {
                             if (ImGui::Selectable(f.enum_labels[e].c_str(),
                                                   *static_cast<int*>(ptr) == e)) {
@@ -864,7 +867,7 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                         target_name = "(stale)";
                     }
                 }
-                ImGui::Text("%s: %s", f.name.c_str(), target_name);
+                ImGui::Text("%s: %s", lbl, target_name);
                 ImGui::SameLine();
                 if (ImGui::SmallButton("Clear")) {
                     *ref = {};
@@ -894,7 +897,7 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                         ? std::string("(none)")
                         : std::filesystem::path(current_path).filename().string();
 
-                    ImGui::Text("%s", f.name.c_str());
+                    ImGui::Text("%s", lbl);
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##ref_display", display.data(), display.size(),
                                      ImGuiInputTextFlags_ReadOnly);
@@ -926,18 +929,18 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
                         }
                     }
                 } else {
-                    ImGui::Text("%s: handle %u", f.name.c_str(), ref->handle_id);
+                    ImGui::Text("%s: handle %u", lbl, ref->handle_id);
                 }
                 break;
             }
             case FJELL_FIELD_SHARED_REF: {
                 auto* ref = static_cast<SharedRefData*>(ptr);
-                ImGui::Text("%s: token %u", f.name.c_str(), ref->ref_token);
+                ImGui::Text("%s: token %u", lbl, ref->ref_token);
                 break;
             }
             case FJELL_FIELD_WIDGET_PTR: {
                 auto* widget = *static_cast<UiComponent**>(ptr);
-                ImGui::Text("%s: %s", f.name.c_str(),
+                ImGui::Text("%s: %s", lbl,
                             widget ? f.ref_type_name.c_str() : "(unbound)");
                 break;
             }

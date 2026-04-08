@@ -1,4 +1,5 @@
 #include "ui/material_params_widget.hpp"
+#include "core/string_utils.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
@@ -26,7 +27,7 @@ bool draw_material_params(const ShaderMetadata& meta,
         uint32_t abs_offset = gpu.param_offset + u.slot;
 
         ImGui::PushID(u.name.c_str());
-        ImGui::Text("%s", u.name.c_str());
+        ImGui::Text("%s", display_name(u.name).c_str());
         ImGui::SetNextItemWidth(-1);
 
         // Read current values from CPU-side params buffer
