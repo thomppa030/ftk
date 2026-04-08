@@ -1,5 +1,6 @@
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -354,6 +355,16 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
 void SsrPass::destroy() {
     default_images_.destroy(device_, allocator_);
 
+    // Prev-frame history buffer
+    if (prev_frame_view_ != VK_NULL_HANDLE) {
+        vkDestroyImageView(device_, prev_frame_view_, nullptr);
+        prev_frame_view_ = VK_NULL_HANDLE;
+    }
+    destroy_vma_image(allocator_, prev_frame_image_, prev_frame_allocation_);
+    prev_frame_image_ = VK_NULL_HANDLE;
+    prev_frame_allocation_ = VK_NULL_HANDLE;
+    prev_frame_extent_ = {};
+
     auto safe_destroy = [&](auto destroy_fn, auto& handle) {
         if (handle != VK_NULL_HANDLE) {
             destroy_fn(device_, handle, nullptr);
@@ -369,6 +380,122 @@ void SsrPass::destroy() {
     safe_destroy(vkDestroyPipelineLayout, trace_pipeline_layout_);
     safe_destroy(vkDestroyPipeline, composite_pipeline_);
     safe_destroy(vkDestroyPipelineLayout, composite_pipeline_layout_);
+}
+
+void SsrPass::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
+                                 VkCommandPool command_pool, VkQueue queue,
+                                 uint32_t width, uint32_t height) {
+    if (prev_frame_image_ != VK_NULL_HANDLE &&
+        width == prev_frame_extent_.width &&
+        height == prev_frame_extent_.height) {
+        return;
+    }
+
+    vkDeviceWaitIdle(device);
+
+    if (prev_frame_view_ != VK_NULL_HANDLE) {
+        vkDestroyImageView(device, prev_frame_view_, nullptr);
+        prev_frame_view_ = VK_NULL_HANDLE;
+    }
+    destroy_vma_image(allocator, prev_frame_image_, prev_frame_allocation_);
+    prev_frame_image_ = VK_NULL_HANDLE;
+    prev_frame_allocation_ = VK_NULL_HANDLE;
+
+    prev_frame_extent_ = {width, height};
+
+    VkImageCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ci.extent = {width, height, 1};
+    ci.mipLevels = 1;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    create_vma_image(allocator, &ci, &prev_frame_image_, &prev_frame_allocation_);
+
+    VkImageViewCreateInfo vi{};
+    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    vi.image = prev_frame_image_;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCreateImageView(device, &vi, nullptr, &prev_frame_view_);
+
+    resize(width, height);
+
+    // Clear to black and transition to SHADER_READ_ONLY so first-frame SSR
+    // reads valid (black) data.
+    VkCommandBuffer init_cmd;
+    VkCommandBufferAllocateInfo cmd_ai{};
+    cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmd_ai.commandPool = command_pool;
+    cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmd_ai.commandBufferCount = 1;
+    vkAllocateCommandBuffers(device, &cmd_ai, &init_cmd);
+
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(init_cmd, &begin);
+
+    transition_image(init_cmd, prev_frame_image_,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+    VkClearColorValue black{};
+    VkImageSubresourceRange clear_range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(init_cmd, prev_frame_image_,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &clear_range);
+
+    transition_image(init_cmd, prev_frame_image_,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+
+    vkEndCommandBuffer(init_cmd);
+
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &init_cmd;
+    vkQueueSubmit(queue, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(queue);
+    vkFreeCommandBuffers(device, command_pool, 1, &init_cmd);
+}
+
+void SsrPass::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent) {
+    if (!enabled_ || prev_frame_image_ == VK_NULL_HANDLE) return;
+
+    // src color → TRANSFER_SRC
+    transition_image(cmd, src_color,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+
+    // prev_frame → TRANSFER_DST
+    transition_image(cmd, prev_frame_image_,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
+    VkImageCopy region{};
+    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.extent = {extent.width, extent.height, 1};
+    vkCmdCopyImage(cmd,
+        src_color, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        prev_frame_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1, &region);
+
+    // prev_frame → SHADER_READ_ONLY for next frame's SSR trace
+    transition_image(cmd, prev_frame_image_,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 
 void SsrPass::resize(uint32_t width, uint32_t height) {

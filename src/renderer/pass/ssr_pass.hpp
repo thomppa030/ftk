@@ -55,6 +55,14 @@ public:
 
     void resize(uint32_t width, uint32_t height);
 
+    // Previous-frame color buffer management (for SSR history).
+    // Call ensure_prev_frame before rendering; call copy_prev_frame after.
+    void ensure_prev_frame(VkDevice device, VmaAllocator allocator,
+                           VkCommandPool command_pool, VkQueue queue,
+                           uint32_t width, uint32_t height);
+    void copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent);
+    [[nodiscard]] VkImageView prev_frame_view() const { return prev_frame_view_; }
+
     [[nodiscard]] VkImageView ssr_view() const { return default_images_.ssr_view; }
     [[nodiscard]] VkImage ssr_image() const { return default_images_.ssr_image; }
 
@@ -104,6 +112,12 @@ private:
 
     // Default per-viewport images
     Images default_images_;
+
+    // Previous-frame color buffer (singleton, main viewport only)
+    VkImage prev_frame_image_{VK_NULL_HANDLE};
+    VmaAllocation prev_frame_allocation_{VK_NULL_HANDLE};
+    VkImageView prev_frame_view_{VK_NULL_HANDLE};
+    VkExtent2D prev_frame_extent_{};
 };
 
 } // namespace fjell

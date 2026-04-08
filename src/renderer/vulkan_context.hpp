@@ -303,11 +303,6 @@ private:
   uint32_t pending_image_index_{0};
   bool has_recorded_frame_{false};
 
-  // ── SSR prev-frame state ──────────────────────────────────────────────
-  VkImage prev_frame_color_{VK_NULL_HANDLE};
-  VmaAllocation prev_frame_color_allocation_{VK_NULL_HANDLE};
-  VkImageView prev_frame_color_view_{VK_NULL_HANDLE};
-  VkExtent2D prev_frame_extent_{};
 
   // ── Selection outline ─────────────────────────────────────────────────
   void draw_outline(VkCommandBuffer cmd, const FrameContext &ctx);
