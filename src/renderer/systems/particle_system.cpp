@@ -1,9 +1,11 @@
 #include "renderer/systems/particle_system.hpp"
+#include "renderer/frustum.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
 #include "renderer/systems/vfx_expression_eval.hpp"
+#include "renderer/systems/vfx_module.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -123,9 +125,9 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         throw std::runtime_error("Failed to create particle depth sampler");
     }
 
-    // ── Render descriptor set layout (particle SSBO + depth texture) ──
+    // ── Render descriptor set layout (particles + depth + emitter data + counters) ──
 
-    VkDescriptorSetLayoutBinding render_bindings[2]{};
+    VkDescriptorSetLayoutBinding render_bindings[4]{};
     render_bindings[0].binding = 0;
     render_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     render_bindings[0].descriptorCount = 1;
@@ -136,9 +138,19 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     render_bindings[1].descriptorCount = 1;
     render_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
+    render_bindings[2].binding = 2;
+    render_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    render_bindings[2].descriptorCount = 1;
+    render_bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    render_bindings[3].binding = 3;
+    render_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    render_bindings[3].descriptorCount = 1;
+    render_bindings[3].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
     VkDescriptorSetLayoutCreateInfo render_layout_ci{};
     render_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    render_layout_ci.bindingCount = 2;
+    render_layout_ci.bindingCount = 4;
     render_layout_ci.pBindings = render_bindings;
     if (vkCreateDescriptorSetLayout(device_, &render_layout_ci, nullptr, &render_set_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create particle render set layout");
@@ -261,6 +273,16 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     render_additive_ = create_render_pipeline(VK_BLEND_FACTOR_ONE);
     render_alpha_ = create_render_pipeline(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
 
+    // ── Trail render pipelines (triangle strip, different vertex shader) ──
+    auto trail_vert_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle_trail.vert.spv")));
+    stages[0].module = trail_vert_mod;
+    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+    input_assembly.primitiveRestartEnable = VK_FALSE;
+
+    render_trail_additive_ = create_render_pipeline(VK_BLEND_FACTOR_ONE);
+    render_trail_alpha_ = create_render_pipeline(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+
+    vkDestroyShaderModule(device_, trail_vert_mod, nullptr);
     vkDestroyShaderModule(device_, vert_mod, nullptr);
     vkDestroyShaderModule(device_, frag_mod, nullptr);
 
@@ -269,7 +291,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     constexpr uint32_t RENDER_SET_COUNT = MAX_FRAMES_IN_FLIGHT;
     VkDescriptorPoolSize pool_sizes[2]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    pool_sizes[0].descriptorCount = 6 + RENDER_SET_COUNT; // 6 compute + 1 per render frame
+    pool_sizes[0].descriptorCount = 6 + RENDER_SET_COUNT * 3; // 6 compute + 3 per render frame (particles + emitter_data + counters)
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     pool_sizes[1].descriptorCount = RENDER_SET_COUNT; // depth texture per frame
 
@@ -296,6 +318,8 @@ void ParticleSystem::recreate_pipelines() {
     safe_destroy(indirect_pipeline_, vkDestroyPipeline);
     safe_destroy(render_additive_, vkDestroyPipeline);
     safe_destroy(render_alpha_, vkDestroyPipeline);
+    safe_destroy(render_trail_additive_, vkDestroyPipeline);
+    safe_destroy(render_trail_alpha_, vkDestroyPipeline);
 
     // Recreate compute pipelines from recompiled SPIR-V
     auto make_compute = [&](const std::string& path) {
@@ -431,6 +455,16 @@ void ParticleSystem::recreate_pipelines() {
     render_additive_ = create_render_pipeline(VK_BLEND_FACTOR_ONE);
     render_alpha_ = create_render_pipeline(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
 
+    // Trail render pipelines
+    auto trail_vert_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle_trail.vert.spv")));
+    stages[0].module = trail_vert_mod;
+    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+    input_assembly.primitiveRestartEnable = VK_FALSE;
+
+    render_trail_additive_ = create_render_pipeline(VK_BLEND_FACTOR_ONE);
+    render_trail_alpha_ = create_render_pipeline(VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA);
+
+    vkDestroyShaderModule(device_, trail_vert_mod, nullptr);
     vkDestroyShaderModule(device_, vert_mod, nullptr);
     vkDestroyShaderModule(device_, frag_mod, nullptr);
 
@@ -452,6 +486,8 @@ void ParticleSystem::destroy() {
 
     safe_destroy(depth_sampler_, vkDestroySampler);
     safe_destroy(pool_, vkDestroyDescriptorPool);
+    safe_destroy(render_trail_alpha_, vkDestroyPipeline);
+    safe_destroy(render_trail_additive_, vkDestroyPipeline);
     safe_destroy(render_alpha_, vkDestroyPipeline);
     safe_destroy(render_additive_, vkDestroyPipeline);
     safe_destroy(render_layout_, vkDestroyPipelineLayout);
@@ -493,7 +529,8 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
                                      VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
     VkDeviceSize particle_size = static_cast<VkDeviceSize>(total_particles) * PARTICLE_STRIDE;
-    VkDeviceSize counter_size = static_cast<VkDeviceSize>(emitter_count) * 2 * sizeof(uint32_t);
+    // 3 uints per emitter: alive_count, dead_count, trail_head
+    VkDeviceSize counter_size = static_cast<VkDeviceSize>(emitter_count) * 3 * sizeof(uint32_t);
     VkDeviceSize dead_list_size = static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t);
     VkDeviceSize indirect_size = static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t);
     VkDeviceSize emitter_data_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(GpuEmitterData);
@@ -565,9 +602,8 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     emitter_data_buffer_->map();
 
-    // Module buffer: 1024 bytes per emitter (largest module is 72 bytes,
-    // emitters can have 10+ modules, so 512 is too small)
-    VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * 1024;
+    // Module buffer: 2048 bytes per emitter (curve modules use up to 528 bytes each)
+    VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * 2048;
     module_buffer_ = std::make_unique<Buffer>(
         allocator_, module_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -640,14 +676,28 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     // Render sets: write particle SSBO (binding 0) to each frame's set
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkWriteDescriptorSet render_write{};
-        render_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        render_write.dstSet = render_sets_[i];
-        render_write.dstBinding = 0;
-        render_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        render_write.descriptorCount = 1;
-        render_write.pBufferInfo = &particle_info;
-        vkUpdateDescriptorSets(device_, 1, &render_write, 0, nullptr);
+        VkWriteDescriptorSet render_writes[3]{};
+        render_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        render_writes[0].dstSet = render_sets_[i];
+        render_writes[0].dstBinding = 0;
+        render_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        render_writes[0].descriptorCount = 1;
+        render_writes[0].pBufferInfo = &particle_info;
+
+        render_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        render_writes[1].dstSet = render_sets_[i];
+        render_writes[1].dstBinding = 2;
+        render_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        render_writes[1].descriptorCount = 1;
+        render_writes[1].pBufferInfo = &emitter_info;
+
+        render_writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        render_writes[2].dstSet = render_sets_[i];
+        render_writes[2].dstBinding = 3;
+        render_writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        render_writes[2].descriptorCount = 1;
+        render_writes[2].pBufferInfo = &counter_info;
+        vkUpdateDescriptorSets(device_, 3, render_writes, 0, nullptr);
     }
 
     FJELL_GFX_DEBUG("Particle mega-buffers rebuilt: {} particles, {} emitters",
@@ -708,10 +758,10 @@ void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
         }
     }
 
-    // Initialize counters for the target range only
+    // Initialize counters for the target range only (3 uints: alive, dead, trail_head)
     for (uint32_t i = from; i < to; ++i) {
-        uint32_t counters[2] = {0, emitters_[i].max_particles};
-        VkDeviceSize counter_offset = static_cast<VkDeviceSize>(i) * 2 * sizeof(uint32_t);
+        uint32_t counters[3] = {0, emitters_[i].max_particles, 0};
+        VkDeviceSize counter_offset = static_cast<VkDeviceSize>(i) * 3 * sizeof(uint32_t);
         vkCmdUpdateBuffer(cmd, mega_counter_buffer_->handle(), counter_offset,
                           sizeof(counters), counters);
     }
@@ -823,12 +873,44 @@ void ParticleSystem::sync_emitters(Scene& scene) {
     }
 }
 
+static glm::vec3 compute_spawn_extent(const VfxEmitter& emitter) {
+    glm::vec3 extent{0.0f};
+    for (const auto& mod : emitter.spawn_modules) {
+        if (!mod->enabled) continue;
+        if (auto* pos = dynamic_cast<const InitialPositionModule*>(mod.get())) {
+            switch (pos->shape) {
+                case SpawnShape::sphere: extent = glm::vec3(pos->radius); break;
+                case SpawnShape::box:    extent = pos->half_extents; break;
+                case SpawnShape::cone:   extent = glm::vec3(pos->radius); break;
+                default: break;
+            }
+        }
+    }
+    return extent;
+}
+
+static float max_velocity_magnitude(const VfxEmitter& emitter) {
+    float max_speed = 0.0f;
+    for (const auto& mod : emitter.spawn_modules) {
+        if (!mod->enabled) continue;
+        if (auto* vel = dynamic_cast<const InitialVelocityModule*>(mod.get())) {
+            max_speed = std::max(max_speed, glm::length(vel->velocity_max));
+            max_speed = std::max(max_speed, vel->speed_max);
+        }
+    }
+    return max_speed;
+}
+
 void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene,
-                                      VkDescriptorSet global_set) {
+                                      VkDescriptorSet global_set,
+                                      const glm::vec3& camera_pos,
+                                      const glm::mat4& view_projection) {
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
     ++frame_seed_;
     accumulated_time_ += dt;
+    camera_pos_ = camera_pos;
+    Frustum frustum = Frustum::from_vp_matrix_zo(view_projection);
 
     uint32_t emitter_count = static_cast<uint32_t>(emitters_.size());
     uint32_t total_max = 0;
@@ -879,7 +961,35 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         }
         if (emit_count > max_emit_count) max_emit_count = emit_count;
 
-        data.emitter_position = glm::vec3(spatial->world_matrix_[3]);
+        glm::vec3 pos = glm::vec3(spatial->world_matrix_[3]);
+        data.emitter_position = pos;
+        if (gpu.has_prev_position) {
+            data.emitter_velocity = (pos - gpu.prev_position) / std::max(dt, 0.0001f);
+        } else {
+            data.emitter_velocity = glm::vec3(0.0f);
+        }
+        gpu.prev_position = pos;
+        gpu.has_prev_position = true;
+
+        // ── Frustum culling + distance LOD ──
+        glm::vec3 spawn_ext = compute_spawn_extent(sub);
+        float max_travel = sub.lifetime_max() * max_velocity_magnitude(sub);
+        AABB emitter_aabb;
+        emitter_aabb.min = pos - spawn_ext - glm::vec3(max_travel);
+        emitter_aabb.max = pos + spawn_ext + glm::vec3(max_travel);
+        gpu.visible = frustum.intersects(emitter_aabb);
+
+        if (gpu.visible) {
+            float dist = glm::length(camera_pos - pos);
+            float lod_factor = 1.0f;
+            if (dist > 100.0f)      lod_factor = 0.0f;
+            else if (dist > 60.0f)  lod_factor = 0.25f;
+            else if (dist > 30.0f)  lod_factor = 0.5f;
+            emit_count = static_cast<uint32_t>(static_cast<float>(emit_count) * lod_factor);
+        } else {
+            emit_count = 0;
+        }
+
         data.dt = eff_dt;
         data.gravity = {}; // read from modules now
         data.max_particles = gpu.max_particles;
@@ -894,8 +1004,26 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         data.velocity_max = {};
         data.random_seed = frame_seed_ ^ ((gpu.object_id * 31 + gpu.emitter_index) * 2654435761u);
         data.base_offset = gpu.base_offset;
-        data.counter_offset = static_cast<uint32_t>(i) * 2;
+        data.counter_offset = static_cast<uint32_t>(i) * 3;
         data.dead_list_offset = gpu.base_offset;
+
+        // Detect trail emitter from render modules
+        bool is_trail = false;
+        float trail_width = 0.1f;
+        float trail_wol = 1.0f;
+        for (const auto& rm : sub.render_modules) {
+            if (rm->enabled && rm->type() == ModuleType::trail) {
+                is_trail = true;
+                auto* tm = dynamic_cast<const TrailModule*>(rm.get());
+                if (tm) { trail_width = tm->width; trail_wol = tm->width_over_life; }
+                break;
+            }
+        }
+        gpu.is_trail = is_trail;
+        data.flags = is_trail ? 1u : 0u;
+        data.trail_head = 0; // read from counter buffer by indirect shader
+        data.trail_width = trail_width;
+        data.trail_width_over_life = trail_wol;
 
         // Evaluate expression graph (writes computed values to module members)
         evaluate_expression_graph(sub, accumulated_time_, dt);
@@ -904,8 +1032,8 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         data.module_offset = module_word_offset;
         uint32_t module_buf_capacity = static_cast<uint32_t>(module_buffer_->size());
         uint32_t byte_offset = module_word_offset * 4;
-        if (byte_offset + 1024 > module_buf_capacity) {
-            FJELL_GFX_ERROR("Module buffer overflow: offset {} + 1024 > capacity {}",
+        if (byte_offset + 2048 > module_buf_capacity) {
+            FJELL_GFX_ERROR("Module buffer overflow: offset {} + 2048 > capacity {}",
                             byte_offset, module_buf_capacity);
             continue;
         }
@@ -1032,38 +1160,50 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
 
     constexpr uint32_t stride = sizeof(VkDrawIndirectCommand);
 
-    // Draw each emitter individually with its blend mode pipeline.
-    // Emitters can be in any order — particles store emitter_index at emit time,
-    // so we can't reorder the emitters_ vector. Instead we batch consecutive
-    // runs of the same blend mode into single multi-draw indirect calls.
-    VkPipeline current_pipeline = VK_NULL_HANDLE;
-    uint32_t batch_start = 0;
-    uint32_t batch_count = 0;
+    // Build sorted draw order: additive first (order-independent),
+    // then alpha-blended back-to-front by distance to camera.
+    std::vector<uint32_t> draw_order;
+    draw_order.reserve(emitters_.size());
 
-    auto flush_batch = [&]() {
-        if (batch_count == 0) return;
-        vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(),
-                          batch_start * stride, batch_count, stride);
-        batch_count = 0;
-    };
-
+    std::vector<uint32_t> alpha_indices;
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
-        VkPipeline needed = (emitters_[i].blend_mode == ParticleBlendMode::additive)
-            ? render_additive_ : render_alpha_;
+        if (!emitters_[i].visible) continue;
+        if (emitters_[i].blend_mode == ParticleBlendMode::additive) {
+            draw_order.push_back(i);
+        } else {
+            alpha_indices.push_back(i);
+        }
+    }
+
+    // Sort alpha emitters back-to-front
+    std::sort(alpha_indices.begin(), alpha_indices.end(), [&](uint32_t a, uint32_t b) {
+        glm::vec3 da = emitter_data_cache_[a].emitter_position - camera_pos_;
+        glm::vec3 db = emitter_data_cache_[b].emitter_position - camera_pos_;
+        return glm::dot(da, da) > glm::dot(db, db);
+    });
+    draw_order.insert(draw_order.end(), alpha_indices.begin(), alpha_indices.end());
+
+    VkPipeline current_pipeline = VK_NULL_HANDLE;
+
+    for (uint32_t idx : draw_order) {
+        bool additive = emitters_[idx].blend_mode == ParticleBlendMode::additive;
+        VkPipeline needed;
+        if (emitters_[idx].is_trail) {
+            needed = additive ? render_trail_additive_ : render_trail_alpha_;
+        } else {
+            needed = additive ? render_additive_ : render_alpha_;
+        }
 
         if (needed != current_pipeline) {
-            flush_batch();
             current_pipeline = needed;
             vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, current_pipeline);
             vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
             vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
-            batch_start = i;
         }
 
-        if (batch_count == 0) batch_start = i;
-        ++batch_count;
+        vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(),
+                          idx * stride, 1, stride);
     }
-    flush_batch();
 }
 
 } // namespace fjell

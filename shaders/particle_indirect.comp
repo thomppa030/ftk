@@ -31,8 +31,18 @@ void main() {
     EmitterData em = emitters[eidx];
 
     // VkDrawIndirectCommand: vertexCount, instanceCount, firstVertex, firstInstance
-    indirect_cmds[eidx * 4 + 0] = em.max_particles * 6;  // draw all slots
-    indirect_cmds[eidx * 4 + 1] = 1;
-    indirect_cmds[eidx * 4 + 2] = 0;
-    indirect_cmds[eidx * 4 + 3] = em.base_offset;         // -> gl_InstanceIndex
+    if ((em.flags & 1u) != 0u) {
+        // Trail emitter: triangle strip, 2 vertices per particle
+        uint alive = counters[em.counter_offset];
+        indirect_cmds[eidx * 4 + 0] = min(alive, em.max_particles) * 2;
+        indirect_cmds[eidx * 4 + 1] = 1;
+        indirect_cmds[eidx * 4 + 2] = 0;
+        indirect_cmds[eidx * 4 + 3] = em.base_offset;
+    } else {
+        // Billboard emitter: 6 vertices per particle (2 triangles)
+        indirect_cmds[eidx * 4 + 0] = em.max_particles * 6;
+        indirect_cmds[eidx * 4 + 1] = 1;
+        indirect_cmds[eidx * 4 + 2] = 0;
+        indirect_cmds[eidx * 4 + 3] = em.base_offset;
+    }
 }

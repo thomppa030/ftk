@@ -13,6 +13,7 @@
 #define MOD_INITIAL_ROTATION   8
 #define MOD_INITIAL_TEXTURE    9
 #define MOD_FLIPBOOK           10
+#define MOD_VELOCITY_INHERIT   11
 
 #define MOD_GRAVITY            100
 #define MOD_COLOR_OVER_LIFE    101
@@ -22,6 +23,11 @@
 #define MOD_ATTRACT            105
 #define MOD_VELOCITY_LIMIT     106
 #define MOD_COLLISION          107
+#define MOD_CURVE_COLOR_OVER_LIFE 108
+#define MOD_CURVE_SIZE_OVER_LIFE  109
+
+#define MOD_BILLBOARD          200
+#define MOD_TRAIL              201
 
 #define MOD_TERMINATOR         0xFFFFFFFF
 
@@ -40,5 +46,15 @@
 #define MOD_FLOAT(base, word) uintBitsToFloat(module_data[(base) + (word)])
 #define MOD_VEC3(base, word) vec3(MOD_FLOAT(base, word), MOD_FLOAT(base, (word)+1), MOD_FLOAT(base, (word)+2))
 #define MOD_VEC4(base, word) vec4(MOD_FLOAT(base, word), MOD_FLOAT(base, (word)+1), MOD_FLOAT(base, (word)+2), MOD_FLOAT(base, (word)+3))
+
+// Sample a baked curve LUT with linear interpolation.
+// base: module start offset, lut_offset: word offset to first sample, n: sample count
+float sample_curve_lut(uint base, uint lut_offset, uint n, float t) {
+    float f = clamp(t, 0.0, 1.0) * float(n - 1);
+    uint i0 = uint(f);
+    uint i1 = min(i0 + 1, n - 1);
+    float frac = f - float(i0);
+    return mix(MOD_FLOAT(base, lut_offset + i0), MOD_FLOAT(base, lut_offset + i1), frac);
+}
 
 #endif

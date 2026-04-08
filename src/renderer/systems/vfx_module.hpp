@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/systems/vfx_curve.hpp"
 #include "renderer/systems/vfx_pin.hpp"
 
 #include <glm/glm.hpp>
@@ -26,6 +27,7 @@ enum class ModuleType : uint32_t {
     initial_rotation   = 8,
     initial_texture    = 9,
     flipbook           = 10,
+    velocity_inherit   = 11,
 
     // Update modules
     gravity            = 100,
@@ -36,9 +38,12 @@ enum class ModuleType : uint32_t {
     attract            = 105,
     velocity_limit     = 106,
     collision          = 107,
+    curve_color_over_life = 108,
+    curve_size_over_life  = 109,
 
     // Render modules
     billboard          = 200,
+    trail              = 201,
 };
 
 // Position shape for InitialPosition module
@@ -371,6 +376,59 @@ struct FlipbookModule final : VfxModule {
 struct BillboardModule final : VfxModule {
     [[nodiscard]] ModuleType type() const override { return ModuleType::billboard; }
     [[nodiscard]] const char* name() const override { return "Billboard"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct VelocityInheritanceModule final : VfxModule {
+    float factor{1.0f};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::velocity_inherit; }
+    [[nodiscard]] const char* name() const override { return "Velocity Inheritance"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+/// 32-sample LUT per channel. GPU reads with linear interpolation.
+constexpr uint32_t kCurveLutSamples = 32;
+
+struct CurveColorOverLifeModule final : VfxModule {
+    Curve curve_r{Curve::linear(1.0f, 1.0f)};
+    Curve curve_g{Curve::linear(0.8f, 0.1f)};
+    Curve curve_b{Curve::linear(0.2f, 0.0f)};
+    Curve curve_a{Curve::linear(1.0f, 0.0f)};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::curve_color_over_life; }
+    [[nodiscard]] const char* name() const override { return "Curve Color Over Life"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct TrailModule final : VfxModule {
+    float width{0.1f};
+    float width_over_life{1.0f};  // 1.0 = constant, 0.0 = taper to zero at death
+    bool face_camera{true};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::trail; }
+    [[nodiscard]] const char* name() const override { return "Trail"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct CurveSizeOverLifeModule final : VfxModule {
+    Curve curve{Curve::linear(0.1f, 0.02f)};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::curve_size_over_life; }
+    [[nodiscard]] const char* name() const override { return "Curve Size Over Life"; }
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;

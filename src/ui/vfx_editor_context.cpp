@@ -736,6 +736,7 @@ void VfxEditorContext::draw_context_menu() {
             add_btn("Initial Rotation", []{ return std::make_unique<InitialRotationModule>(); },  emitter.spawn_modules, 0);
             add_btn("Initial Texture",  []{ return std::make_unique<InitialTextureModule>(); },   emitter.spawn_modules, 0);
             add_btn("Flipbook",         []{ return std::make_unique<FlipbookModule>(); },         emitter.spawn_modules, 0);
+            add_btn("Velocity Inheritance", []{ return std::make_unique<VelocityInheritanceModule>(); }, emitter.spawn_modules, 0);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Update")) {
@@ -747,10 +748,14 @@ void VfxEditorContext::draw_context_menu() {
             add_btn("Attract",          []{ return std::make_unique<AttractModule>(); },          emitter.update_modules, 1);
             add_btn("Velocity Limit",   []{ return std::make_unique<VelocityLimitModule>(); },   emitter.update_modules, 1);
             add_btn("Collision",        []{ return std::make_unique<CollisionModule>(); },        emitter.update_modules, 1);
+            ImGui::Separator();
+            add_btn("Curve Color Over Life", []{ return std::make_unique<CurveColorOverLifeModule>(); }, emitter.update_modules, 1);
+            add_btn("Curve Size Over Life",  []{ return std::make_unique<CurveSizeOverLifeModule>(); },  emitter.update_modules, 1);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Render")) {
             add_btn("Billboard",        []{ return std::make_unique<BillboardModule>(); },        emitter.render_modules, 2);
+            add_btn("Trail",            []{ return std::make_unique<TrailModule>(); },            emitter.render_modules, 2);
             ImGui::EndMenu();
         }
         ImGui::Separator();

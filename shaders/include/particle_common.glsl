@@ -36,6 +36,12 @@ struct EmitterData {
     uint  counter_offset;
     uint  dead_list_offset;
     uint  module_offset;
+    vec3  emitter_velocity;
+    float _pad0;
+    uint  flags;              // bit 0: is_trail
+    uint  trail_head;         // ring buffer write index
+    float trail_width;        // base width
+    float trail_width_over_life; // 0=taper, 1=constant
 };
 
 #endif

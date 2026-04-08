@@ -18,7 +18,7 @@
 
 namespace fjell {
 
-// GPU-side emitter metadata (128 bytes, matches GLSL EmitterData)
+// GPU-side emitter metadata (160 bytes, matches GLSL EmitterData)
 struct GpuEmitterData {
     glm::vec3 emitter_position; float dt;
     glm::vec3 gravity;          uint32_t max_particles;
@@ -31,8 +31,13 @@ struct GpuEmitterData {
     uint32_t counter_offset;
     uint32_t dead_list_offset;
     uint32_t module_offset;       // offset into module buffer (in uint32_t units)
+    glm::vec3 emitter_velocity; float _pad0;
+    uint32_t flags;               // bit 0: is_trail emitter
+    uint32_t trail_head;          // ring buffer write index (from counter buffer)
+    float    trail_width;         // base width for trail strips
+    float    trail_width_over_life; // 0=taper to zero, 1=constant width
 };
-static_assert(sizeof(GpuEmitterData) == 128);
+static_assert(sizeof(GpuEmitterData) == 160);
 
 // Push constants for all compute shaders (16 bytes)
 struct ParticleComputePush {
@@ -54,7 +59,9 @@ public:
 
     void sync_emitters(Scene& scene);
     void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene,
-                          VkDescriptorSet global_set = VK_NULL_HANDLE);
+                          VkDescriptorSet global_set = VK_NULL_HANDLE,
+                          const glm::vec3& camera_pos = glm::vec3(0.0f),
+                          const glm::mat4& view_projection = glm::mat4(1.0f));
     void insert_barriers(VkCommandBuffer cmd);
     void record_render(const FrameContext& ctx);
 
@@ -65,6 +72,10 @@ private:
         uint32_t max_particles{0};
         uint32_t base_offset{0};
         ParticleBlendMode blend_mode{ParticleBlendMode::additive};
+        glm::vec3 prev_position{0.0f};
+        bool has_prev_position{false};
+        bool visible{true};       // frustum culling result
+        bool is_trail{false};     // uses trail ring buffer emit + strip rendering
     };
 
     void rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count);
@@ -84,11 +95,15 @@ private:
     VkPipeline sim_pipeline_{VK_NULL_HANDLE};
     VkPipeline indirect_pipeline_{VK_NULL_HANDLE};
 
-    // Render pipeline
+    // Render pipeline (billboard)
     VkDescriptorSetLayout render_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout render_layout_{VK_NULL_HANDLE};
     VkPipeline render_additive_{VK_NULL_HANDLE};
     VkPipeline render_alpha_{VK_NULL_HANDLE};
+
+    // Render pipeline (trail / ribbon)
+    VkPipeline render_trail_additive_{VK_NULL_HANDLE};
+    VkPipeline render_trail_alpha_{VK_NULL_HANDLE};
 
     // Descriptor pool + single sets
     VkDescriptorPool pool_{VK_NULL_HANDLE};
@@ -122,6 +137,7 @@ private:
 
     uint32_t frame_seed_{0};
     float accumulated_time_{0.0f};
+    glm::vec3 camera_pos_{0.0f};
 };
 
 } // namespace fjell

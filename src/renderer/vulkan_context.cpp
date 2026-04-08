@@ -528,8 +528,10 @@ void VulkanContext::register_gpu_driven_passes() {
 #endif
                 if (current_ctx_.scene) {
                     auto& scene_ref = const_cast<Scene&>(*current_ctx_.scene);
+                    auto vp = gatherer_.projection_matrix() * gatherer_.view_matrix();
                     particle_system_.dispatch_compute(cb, current_ctx_.delta_time, scene_ref,
-                                                      current_ctx_.global_descriptor_set);
+                                                      current_ctx_.global_descriptor_set,
+                                                      gatherer_.camera_position(), vp);
                     particle_system_.insert_barriers(cb);
                 }
             }, {});

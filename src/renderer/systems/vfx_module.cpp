@@ -1,4 +1,5 @@
 #include "renderer/systems/vfx_module.hpp"
+#include "ui/imgui_curve_editor.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -56,6 +57,10 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "Flipbook")        return std::make_unique<FlipbookModule>();
     if (type_name == "Collision")       return std::make_unique<CollisionModule>();
     if (type_name == "Billboard")        return std::make_unique<BillboardModule>();
+    if (type_name == "VelocityInheritance") return std::make_unique<VelocityInheritanceModule>();
+    if (type_name == "CurveColorOverLife") return std::make_unique<CurveColorOverLifeModule>();
+    if (type_name == "CurveSizeOverLife") return std::make_unique<CurveSizeOverLifeModule>();
+    if (type_name == "Trail")            return std::make_unique<TrailModule>();
     return nullptr;
 }
 
@@ -903,6 +908,192 @@ void BillboardModule::to_json(nlohmann::json& j) const {
 
 void BillboardModule::from_json(const nlohmann::json& /*j*/) {
     // no params
+}
+
+// ─── VelocityInheritance ────────────────────────────────────────────────
+
+std::vector<PinDescriptor> VelocityInheritanceModule::pin_descriptors() {
+    return {{"factor", PinDataType::float_type, &factor, {}, 0.0f, 1.0f, 0.01f}};
+}
+
+uint32_t VelocityInheritanceModule::write_gpu_data(uint8_t* buffer) const {
+    uint32_t total = write_header(buffer, type(), 2);
+    write_float(buffer, 8, factor);
+    write_float(buffer, 12, 0.0f); // pad
+    return total;
+}
+
+bool VelocityInheritanceModule::draw_inspector() {
+    return ImGui::SliderFloat("Factor", &factor, 0.0f, 1.0f);
+}
+
+void VelocityInheritanceModule::to_json(nlohmann::json& j) const {
+    j["type"] = "VelocityInheritance";
+    j["factor"] = factor;
+}
+
+void VelocityInheritanceModule::from_json(const nlohmann::json& j) {
+    factor = j.value("factor", 1.0f);
+}
+
+// ─── CurveColorOverLife ─────────────────────────────────────────────────
+
+uint32_t CurveColorOverLifeModule::write_gpu_data(uint8_t* buffer) const {
+    // Layout: header(2) + sample_count(1) + pad(1) + R[32] + G[32] + B[32] + A[32]
+    constexpr uint32_t payload_words = 2 + kCurveLutSamples * 4; // 130
+    uint32_t total = write_header(buffer, type(), payload_words);
+    write_uint(buffer, 8, kCurveLutSamples);
+    write_uint(buffer, 12, 0); // pad
+    uint32_t off = 16;
+    float lut[kCurveLutSamples];
+    curve_r.bake(lut, kCurveLutSamples);
+    for (uint32_t i = 0; i < kCurveLutSamples; ++i) write_float(buffer, off + i * 4, lut[i]);
+    off += kCurveLutSamples * 4;
+    curve_g.bake(lut, kCurveLutSamples);
+    for (uint32_t i = 0; i < kCurveLutSamples; ++i) write_float(buffer, off + i * 4, lut[i]);
+    off += kCurveLutSamples * 4;
+    curve_b.bake(lut, kCurveLutSamples);
+    for (uint32_t i = 0; i < kCurveLutSamples; ++i) write_float(buffer, off + i * 4, lut[i]);
+    off += kCurveLutSamples * 4;
+    curve_a.bake(lut, kCurveLutSamples);
+    for (uint32_t i = 0; i < kCurveLutSamples; ++i) write_float(buffer, off + i * 4, lut[i]);
+    return total;
+}
+
+bool CurveColorOverLifeModule::draw_inspector() {
+    bool changed = false;
+    if (ImGui::TreeNode("Red")) {
+        changed |= CurveEditor("##r", curve_r);
+        ImGui::TreePop();
+    }
+    if (ImGui::TreeNode("Green")) {
+        changed |= CurveEditor("##g", curve_g);
+        ImGui::TreePop();
+    }
+    if (ImGui::TreeNode("Blue")) {
+        changed |= CurveEditor("##b", curve_b);
+        ImGui::TreePop();
+    }
+    if (ImGui::TreeNode("Alpha")) {
+        changed |= CurveEditor("##a", curve_a);
+        ImGui::TreePop();
+    }
+    ImGui::Separator();
+    if (ImGui::Button("Linear")) {
+        curve_r = Curve::linear(1.0f, 1.0f);
+        curve_g = Curve::linear(0.8f, 0.1f);
+        curve_b = Curve::linear(0.2f, 0.0f);
+        curve_a = Curve::linear(1.0f, 0.0f);
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Fade Out")) {
+        curve_r = Curve::linear(1.0f, 1.0f);
+        curve_g = Curve::linear(1.0f, 1.0f);
+        curve_b = Curve::linear(1.0f, 1.0f);
+        curve_a = Curve::ease_in(1.0f, 0.0f);
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Pulse")) {
+        curve_a = Curve::bell(1.0f);
+        changed = true;
+    }
+    return changed;
+}
+
+void CurveColorOverLifeModule::to_json(nlohmann::json& j) const {
+    j["type"] = "CurveColorOverLife";
+    curve_r.to_json(j["r"]);
+    curve_g.to_json(j["g"]);
+    curve_b.to_json(j["b"]);
+    curve_a.to_json(j["a"]);
+}
+
+void CurveColorOverLifeModule::from_json(const nlohmann::json& j) {
+    if (j.contains("r")) curve_r.from_json(j["r"]);
+    if (j.contains("g")) curve_g.from_json(j["g"]);
+    if (j.contains("b")) curve_b.from_json(j["b"]);
+    if (j.contains("a")) curve_a.from_json(j["a"]);
+}
+
+// ─── CurveSizeOverLife ──────────────────────────────────────────────────
+
+uint32_t CurveSizeOverLifeModule::write_gpu_data(uint8_t* buffer) const {
+    // Layout: header(2) + sample_count(1) + pad(1) + samples[32]
+    constexpr uint32_t payload_words = 2 + kCurveLutSamples; // 34
+    uint32_t total = write_header(buffer, type(), payload_words);
+    write_uint(buffer, 8, kCurveLutSamples);
+    write_uint(buffer, 12, 0); // pad
+    float lut[kCurveLutSamples];
+    curve.bake(lut, kCurveLutSamples);
+    for (uint32_t i = 0; i < kCurveLutSamples; ++i) {
+        write_float(buffer, 16 + i * 4, lut[i]);
+    }
+    return total;
+}
+
+bool CurveSizeOverLifeModule::draw_inspector() {
+    bool changed = CurveEditor("##size", curve, {-1, 150}, 0.0f, 1.0f);
+    ImGui::Separator();
+    if (ImGui::Button("Linear")) {
+        curve = Curve::linear(0.1f, 0.02f);
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Shrink")) {
+        curve = Curve::ease_in(0.1f, 0.0f);
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Grow")) {
+        curve = Curve::ease_out(0.0f, 0.1f);
+        changed = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Pulse")) {
+        curve = Curve::bell(0.15f);
+        changed = true;
+    }
+    return changed;
+}
+
+void CurveSizeOverLifeModule::to_json(nlohmann::json& j) const {
+    j["type"] = "CurveSizeOverLife";
+    curve.to_json(j["curve"]);
+}
+
+void CurveSizeOverLifeModule::from_json(const nlohmann::json& j) {
+    if (j.contains("curve")) curve.from_json(j["curve"]);
+}
+
+// ─── Trail ──────────────────────────────────────────────────────────────
+
+uint32_t TrailModule::write_gpu_data(uint8_t* /*buffer*/) const {
+    // Trail has no GPU module data — it's handled via emitter flags and the trail pipeline
+    return 0;
+}
+
+bool TrailModule::draw_inspector() {
+    bool changed = false;
+    changed |= ImGui::DragFloat("Width", &width, 0.001f, 0.001f, 10.0f);
+    changed |= ImGui::SliderFloat("Width Over Life", &width_over_life, 0.0f, 1.0f,
+                                   "%.2f (0=taper, 1=constant)");
+    changed |= ImGui::Checkbox("Face Camera", &face_camera);
+    return changed;
+}
+
+void TrailModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Trail";
+    j["width"] = width;
+    j["width_over_life"] = width_over_life;
+    j["face_camera"] = face_camera;
+}
+
+void TrailModule::from_json(const nlohmann::json& j) {
+    width = j.value("width", 0.1f);
+    width_over_life = j.value("width_over_life", 1.0f);
+    face_camera = j.value("face_camera", true);
 }
 
 } // namespace fjell

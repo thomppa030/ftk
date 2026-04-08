@@ -55,6 +55,7 @@ add_executable(fjell
     renderer/resources/material.cpp
     renderer/resources/material_asset.cpp
     renderer/systems/vfx_asset.cpp
+    renderer/systems/vfx_curve.cpp
     renderer/systems/vfx_module.cpp
     renderer/systems/vfx_emitter.cpp
     renderer/systems/vfx_expression.cpp
@@ -186,6 +187,7 @@ add_executable(fjell
     ui/material_editor_context.cpp
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
+    ui/imgui_curve_editor.cpp
     ui/material_params_widget.cpp
     ui/scene_editor_context.cpp
     ui/dockspace_layout.cpp

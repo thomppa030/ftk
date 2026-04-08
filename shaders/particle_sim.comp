@@ -54,14 +54,21 @@ void main() {
 
     p.lifetime -= dt;
     if (p.lifetime <= 0.0) {
-        particles[idx].lifetime = 0.0;
-        uint local_idx = idx - em.base_offset;
-        uint slot = atomicAdd(counters[em.counter_offset + 1], 1);
-        if (slot < em.max_particles) {
-            dead_indices[em.dead_list_offset + slot] = local_idx;
+        if ((em.flags & 1u) != 0u) {
+            // Trail emitter: keep particle alive (ring buffer overwrites old slots).
+            // Clamp lifetime to a small positive value so the strip stays connected.
+            // The age-based color/size fade handles visual disappearance.
+            p.lifetime = 0.001;
+        } else {
+            particles[idx].lifetime = 0.0;
+            uint local_idx = idx - em.base_offset;
+            uint slot = atomicAdd(counters[em.counter_offset + 1], 1);
+            if (slot < em.max_particles) {
+                dead_indices[em.dead_list_offset + slot] = local_idx;
+            }
+            atomicAdd(counters[em.counter_offset], -1);
+            return;
         }
-        atomicAdd(counters[em.counter_offset], -1);
-        return;
     }
 
     float age = 1.0 - (p.lifetime / p.max_lifetime);
@@ -115,6 +122,19 @@ void main() {
             if (spd > max_speed) {
                 p.velocity = normalize(p.velocity) * max_speed;
             }
+        }
+        else if (mtype == MOD_CURVE_COLOR_OVER_LIFE) {
+            uint n = module_data[mo + 2];
+            // LUT layout: [header:2][n:1][pad:1][R:n][G:n][B:n][A:n]
+            float r = sample_curve_lut(mo, 4, n, age);
+            float g = sample_curve_lut(mo, 4 + n, n, age);
+            float b = sample_curve_lut(mo, 4 + n * 2, n, age);
+            float a = sample_curve_lut(mo, 4 + n * 3, n, age);
+            p.color = vec4(r, g, b, a);
+        }
+        else if (mtype == MOD_CURVE_SIZE_OVER_LIFE) {
+            uint n = module_data[mo + 2];
+            p.size = sample_curve_lut(mo, 4, n, age);
         }
         else if (mtype == MOD_COLLISION) {
             uint response_mode = module_data[mo + 2];
