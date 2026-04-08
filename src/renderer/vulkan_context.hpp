@@ -6,6 +6,7 @@
 #include "renderer/debug_draw.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/scene_sdf_pass.hpp"
+#include "renderer/systems/render_subsystem.hpp"
 #include "renderer/systems/particle_system.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/cull_pass.hpp"
@@ -294,9 +295,11 @@ private:
   SceneSdfPass scene_sdf_pass_;
 
   // Particles / sprites
-  ParticleSystem particle_system_;
-  SpriteRenderer sprite_renderer_;
-  TilemapRenderer tilemap_renderer_;
+  // Rendering subsystems (particles, sprites, tilemaps, etc.)
+  std::vector<std::unique_ptr<RenderSubsystem>> render_subsystems_;
+  ParticleSystem* particle_system_{};
+  SpriteRenderer* sprite_renderer_{};
+  TilemapRenderer* tilemap_renderer_{};
 
   // ── Scene gathering ────────────────────────────────────────────────────
   SceneGatherer gatherer_;

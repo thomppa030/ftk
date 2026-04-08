@@ -3,6 +3,7 @@
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/systems/render_subsystem.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/systems/vfx_module.hpp"
 
@@ -61,22 +62,30 @@ static_assert(sizeof(ParticleComputePush) == 16);
 class Device;
 class Scene;
 
-class ParticleSystem {
+class ParticleSystem : public RenderSubsystem {
 public:
-    void create(Device& device, const PassResources& resources);
-    void destroy();
+    void create(Device& device, const PassResources& resources) override;
+    void destroy() override;
     void recreate_pipelines();
 
+    // RenderSubsystem lifecycle
+    void sync(const RenderSubsystemContext& ctx) override;
+    void update(const RenderSubsystemContext& ctx) override;
+    void record_compute(const FrameContext& ctx) override;
+    void record_opaque(const FrameContext& ctx) override;
+    void record_transparent(const FrameContext& ctx) override;
+
+private:
+    // Internal implementations (called by the virtual overrides above)
     void sync_emitters(Scene& scene);
     void dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scene,
-                          VkDescriptorSet global_set = VK_NULL_HANDLE,
-                          const glm::vec3& camera_pos = glm::vec3(0.0f),
-                          const glm::mat4& view_projection = glm::mat4(1.0f));
+                          VkDescriptorSet global_set,
+                          const glm::vec3& camera_pos,
+                          const glm::mat4& view_projection);
     void insert_barriers(VkCommandBuffer cmd);
     void record_render(const FrameContext& ctx);
     void record_render_opaque(const FrameContext& ctx);
 
-private:
     struct EmitterGpu {
         uint32_t object_id{0};
         uint32_t emitter_index{0};  // index into VfxEffect::emitters
@@ -205,6 +214,7 @@ private:
     uint32_t frame_seed_{0};
     float accumulated_time_{0.0f};
     glm::vec3 camera_pos_{0.0f};
+    glm::mat4 cached_view_projection_{1.0f};
 };
 
 } // namespace fjell

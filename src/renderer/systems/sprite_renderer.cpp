@@ -239,9 +239,20 @@ void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources, con
     }
 }
 
-void SpriteRenderer::update(const Scene& scene, const glm::mat4& view_projection,
-                            const glm::vec3& camera_position, uint32_t frame_index,
-                            bool playing) {
+void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
+    if (ctx.scene) {
+        update_impl(*ctx.scene, ctx.view_projection, ctx.camera_position,
+                     ctx.frame_index, ctx.playing);
+    }
+}
+
+void SpriteRenderer::record_opaque(const FrameContext& ctx) {
+    record_render(ctx);
+}
+
+void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_projection,
+                                  const glm::vec3& camera_position, uint32_t frame_index,
+                                  bool playing) {
     FJELL_PROFILE_SCOPE_N("sprite_update");
     Frustum frustum = Frustum::from_vp_matrix(view_projection);
 

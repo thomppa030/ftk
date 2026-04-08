@@ -177,10 +177,27 @@ VulkanContext::VulkanContext(Window& window)
         vkUpdateDescriptorSets(gpu_.device(), 1, &sdf_write, 0, nullptr);
     }
 
-    particle_system_.create(gpu_.device_ref(), pass_resources);
-    FJELL_GFX_DEBUG("Creating sprite renderer");
-    sprite_renderer_.create(gpu_.device_ref(), pass_resources);
-    tilemap_renderer_.create(gpu_.device_ref(), pass_resources);
+    // Create render subsystems
+    auto add_subsystem = [&](auto sys) {
+        sys->create(gpu_.device_ref(), pass_resources);
+        render_subsystems_.push_back(std::move(sys));
+    };
+
+    {
+        auto ps = std::make_unique<ParticleSystem>();
+        particle_system_ = ps.get();
+        add_subsystem(std::move(ps));
+    }
+    {
+        auto sr = std::make_unique<SpriteRenderer>();
+        sprite_renderer_ = sr.get();
+        add_subsystem(std::move(sr));
+    }
+    {
+        auto tr = std::make_unique<TilemapRenderer>();
+        tilemap_renderer_ = tr.get();
+        add_subsystem(std::move(tr));
+    }
     FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.allocator());
@@ -200,10 +217,12 @@ VulkanContext::VulkanContext(Window& window)
 VulkanContext::~VulkanContext() {
     default_pp_.reset();
     debug_draw_.reset();
-    tilemap_renderer_.destroy();
-    sprite_renderer_.destroy();
+    for (auto& sys : render_subsystems_) sys->destroy();
+    render_subsystems_.clear();
+    particle_system_ = nullptr;
+    sprite_renderer_ = nullptr;
+    tilemap_renderer_ = nullptr;
     scene_sdf_pass_.destroy();
-    particle_system_.destroy();
     light_grid_pass_.destroy();
     light_heatmap_pass_.destroy();
     gtao_pass_.destroy();
@@ -278,11 +297,11 @@ void VulkanContext::set_use_mesh_shaders(bool enable) {
 }
 
 void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources, const Project* project) {
-    sprite_renderer_.sync_textures(scene, resources, project);
+    sprite_renderer_->sync_textures(scene, resources, project);
 }
 
 void VulkanContext::sync_tilemap_textures(Scene& scene, ResourceManager& resources, const Project* project) {
-    tilemap_renderer_.sync_textures(scene, resources, project);
+    tilemap_renderer_->sync_textures(scene, resources, project);
 }
 
 // ── Pass registration ────────────────────────────────────────────────────
@@ -509,23 +528,18 @@ void VulkanContext::register_gpu_driven_passes() {
         }
     });
 
-    // Particle compute
+    // Subsystem compute (particles, etc.)
     render_pipeline_.register_pass({
-        .name = "particle_compute",
+        .name = "subsystem_compute",
         .order = 520,
         .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
-            graph.add_pass("particle_compute", [this](VkCommandBuffer cb) {
+            graph.add_pass("subsystem_compute", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Particle Compute");
+                TracyVkZone(gpu_.tracy_ctx(), cb, "Subsystem Compute");
 #endif
-                if (current_ctx_.scene) {
-                    auto& scene_ref = const_cast<Scene&>(*current_ctx_.scene);
-                    auto vp = gatherer_.projection_matrix() * gatherer_.view_matrix();
-                    particle_system_.dispatch_compute(cb, current_ctx_.delta_time, scene_ref,
-                                                      current_ctx_.global_descriptor_set,
-                                                      gatherer_.camera_position(), vp);
-                    particle_system_.insert_barriers(cb);
-                }
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                for (auto& sys : render_subsystems_) sys->record_compute(local);
             }, {});
         }
     });
@@ -733,15 +747,12 @@ void VulkanContext::register_opaque_pass() {
 #endif
                 }
 
-                // Opaque particle rendering (mesh debris, solid particles)
-                particle_system_.record_render_opaque(local);
+                for (auto& sys : render_subsystems_) sys->record_opaque(local);
 
                 sky_pass_.record(local);
                 grid_pass_.record(local);
                 debug_pass_.record(local);
                 draw_outline(cb, local);
-                tilemap_renderer_.record_render(local);
-                sprite_renderer_.record_render(local);
 
                 vkCmdEndRendering(cb);
             }, {{imgs.msaa_color_id, ImageUsage::color_attachment},
@@ -864,7 +875,7 @@ void VulkanContext::register_transparent_pass() {
                         target->extent(), current_frame_);
                 }
 
-                particle_system_.record_render(local);
+                for (auto& sys : render_subsystems_) sys->record_transparent(local);
 
                 vkCmdEndRendering(cb);
             }, {{imgs.msaa_color_id, ImageUsage::color_attachment},
@@ -1188,12 +1199,16 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     meshlet_instance_pass_.visible_buffer_size(current_frame_));
     }
 
-    // Update sprite/tilemap SSBOs for this frame
-    if (scene) {
-        sprite_renderer_.update(*scene, gatherer_.projection_matrix() * gatherer_.view_matrix(),
-                                gatherer_.camera_position(), current_frame_, playing_);
-        tilemap_renderer_.update(*scene, gatherer_.projection_matrix() * gatherer_.view_matrix(),
-                                  current_frame_);
+    // Update render subsystems (gather data, upload SSBOs)
+    {
+        RenderSubsystemContext sub_ctx{};
+        sub_ctx.scene = scene;
+        sub_ctx.view_projection = gatherer_.projection_matrix() * gatherer_.view_matrix();
+        sub_ctx.camera_position = gatherer_.camera_position();
+        sub_ctx.frame_index = current_frame_;
+        sub_ctx.dt = dt;
+        sub_ctx.playing = playing_;
+        for (auto& sys : render_subsystems_) sys->update(sub_ctx);
     }
 
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
@@ -1816,11 +1831,14 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         debug_draw_->update(*scene, selected_id, show_colliders_);
     }
 
-    // Sync particle emitters — may rebuild GPU buffers.
+    // Sync render subsystems — may rebuild GPU buffers.
     // Safe here: begin_frame() already waited on this frame slot's fence,
     // so the GPU is done with this slot's resources.
-    if (scene) {
-        particle_system_.sync_emitters(*scene);
+    {
+        RenderSubsystemContext sub_ctx{};
+        sub_ctx.scene = scene;
+        sub_ctx.frame_index = current_frame_;
+        for (auto& sys : render_subsystems_) sys->sync(sub_ctx);
     }
 
     // Update scene SDF — register mesh SDFs and check dirty transforms
@@ -2080,7 +2098,7 @@ void VulkanContext::draw_sdf_debug_window() {
 void VulkanContext::reload_pipeline() {
     gpu_.pipeline()->recreate();
     gpu_.pipeline_cache()->recreate_all();
-    particle_system_.recreate_pipelines();
+    particle_system_->recreate_pipelines();
     sync_custom_depth_pipelines();
 }
 

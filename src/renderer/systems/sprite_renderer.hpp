@@ -3,6 +3,7 @@
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/renderer_constants.hpp"
+#include "renderer/systems/render_subsystem.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -19,24 +20,26 @@ class Device;
 class ResourceManager;
 class Scene;
 
-class SpriteRenderer {
+class SpriteRenderer : public RenderSubsystem {
 public:
-  void create(Device &device, const PassResources &resources);
-  void destroy();
+  void create(Device &device, const PassResources &resources) override;
+  void destroy() override;
 
-  // Resolve texture paths to bindless indices
+  // RenderSubsystem lifecycle
+  void update(const RenderSubsystemContext &ctx) override;
+  void record_opaque(const FrameContext &ctx) override;
+
+  // Resolve texture paths to bindless indices (called externally by editor)
   void sync_textures(Scene &scene, ResourceManager &resources,
                      const class Project *project = nullptr);
 
-  // Gather sprites, sort back-to-front, upload SSBO
-  void update(const Scene &scene, const glm::mat4 &view_projection,
-              const glm::vec3 &camera_position, uint32_t frame_index,
-              bool playing = false);
-
-  // Record draw commands
+private:
+  // Internal implementations
+  void update_impl(const Scene &scene, const glm::mat4 &view_projection,
+                   const glm::vec3 &camera_position, uint32_t frame_index,
+                   bool playing);
   void record_render(const FrameContext &ctx);
 
-private:
   struct GpuSprite {
     glm::vec3 position;     // 12
     uint32_t flags;         // 4  (bit 0: flat, bit 1: flip_h)

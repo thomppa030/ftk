@@ -241,8 +241,18 @@ void TilemapRenderer::sync_textures(Scene& scene, ResourceManager& resources, co
     }
 }
 
-void TilemapRenderer::update(const Scene& scene, const glm::mat4& /*view_projection*/,
-                              uint32_t frame_index) {
+void TilemapRenderer::update(const RenderSubsystemContext& ctx) {
+    if (ctx.scene) {
+        update_impl(*ctx.scene, ctx.view_projection, ctx.frame_index);
+    }
+}
+
+void TilemapRenderer::record_opaque(const FrameContext& ctx) {
+    record_render(ctx);
+}
+
+void TilemapRenderer::update_impl(const Scene& scene, const glm::mat4& /*view_projection*/,
+                                   uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("tilemap_update");
 
     uint32_t total_tiles = 0;

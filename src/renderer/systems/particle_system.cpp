@@ -1256,6 +1256,37 @@ void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
     vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
 }
 
+// ── RenderSubsystem overrides ──────────────────────────────────────────
+
+void ParticleSystem::sync(const RenderSubsystemContext& ctx) {
+    if (ctx.scene) sync_emitters(*ctx.scene);
+}
+
+void ParticleSystem::update(const RenderSubsystemContext& ctx) {
+    // Cache view_projection for record_compute (GPU dispatch needs it for frustum).
+    cached_view_projection_ = ctx.view_projection;
+}
+
+void ParticleSystem::record_compute(const FrameContext& ctx) {
+    if (!ctx.scene) return;
+    auto& scene_ref = const_cast<Scene&>(*ctx.scene);
+    dispatch_compute(ctx.cmd, ctx.delta_time, scene_ref,
+                     ctx.global_descriptor_set,
+                     ctx.camera_position,
+                     cached_view_projection_);
+    insert_barriers(ctx.cmd);
+}
+
+void ParticleSystem::record_opaque(const FrameContext& ctx) {
+    record_render_opaque(ctx);
+}
+
+void ParticleSystem::record_transparent(const FrameContext& ctx) {
+    record_render(ctx);
+}
+
+// ── Internal implementations ───────────────────────────────────────────
+
 void ParticleSystem::sync_emitters(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("particle_sync_emitters");
 
