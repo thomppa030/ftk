@@ -14,6 +14,7 @@
 #include "core/input.hpp"
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
+#include "core/string_utils.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/theme.hpp"
 
@@ -405,6 +406,7 @@ void VfxEditorContext::rebuild_node_positions() {
 static constexpr float kPinIconSize = 10.0f;
 static constexpr float kNodeMinWidth = 160.0f;
 
+
 static void draw_pin_icon(PinDataType type, bool connected, float size = kPinIconSize) {
     // Text renders at CursorPos.y + CurrLineTextBaseOffset (see imgui TextEx).
     // We match that: circle center = text visual center.
@@ -594,7 +596,7 @@ void VfxEditorContext::draw_node_editor() {
                             ne::EndPin();
                             ImGui::SameLine(0, 4.0f);
 
-                            ImGui::TextUnformatted(pins[p].name.c_str());
+                            ImGui::TextUnformatted(display_name(pins[p].name).c_str());
                             ImGui::SameLine(0, 6.0f);
 
                             draw_value_preview(pins[p]);
