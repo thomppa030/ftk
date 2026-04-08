@@ -84,6 +84,11 @@ void main() {
             vec3 force = MOD_VEC3(mo, 2);
             p.velocity += force * dt;
         }
+        else if (mtype == MOD_WIND) {
+            vec3 dir = MOD_VEC3(mo, 2);
+            float str = MOD_FLOAT(mo, 5);
+            p.velocity += dir * str * dt;
+        }
         else if (mtype == MOD_COLOR_OVER_LIFE) {
             vec4 col_start = MOD_VEC4(mo, 2);
             vec4 col_end = MOD_VEC4(mo, 6);

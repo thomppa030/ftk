@@ -25,6 +25,7 @@
 #define MOD_COLLISION          107
 #define MOD_CURVE_COLOR_OVER_LIFE 108
 #define MOD_CURVE_SIZE_OVER_LIFE  109
+#define MOD_WIND                  110
 
 #define MOD_BILLBOARD          200
 #define MOD_TRAIL              201

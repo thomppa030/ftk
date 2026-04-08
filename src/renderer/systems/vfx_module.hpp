@@ -40,6 +40,7 @@ enum class ModuleType : uint32_t {
     collision          = 107,
     curve_color_over_life = 108,
     curve_size_over_life  = 109,
+    wind                  = 110,
 
     // Render modules
     billboard          = 200,
@@ -187,6 +188,19 @@ struct GravityModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::gravity; }
     [[nodiscard]] const char* name() const override { return "Gravity"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct WindModule final : VfxModule {
+    glm::vec3 direction{1.0f, 0.0f, 0.0f};
+    float strength{1.0f};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::wind; }
+    [[nodiscard]] const char* name() const override { return "Wind"; }
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;

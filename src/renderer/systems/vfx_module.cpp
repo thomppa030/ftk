@@ -63,6 +63,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "Trail")            return std::make_unique<TrailModule>();
     if (type_name == "LitParticle")      return std::make_unique<LitParticleModule>();
     if (type_name == "MeshParticle")     return std::make_unique<MeshParticleModule>();
+    if (type_name == "Wind")             return std::make_unique<WindModule>();
     return nullptr;
 }
 
@@ -448,6 +449,44 @@ void GravityModule::from_json(const nlohmann::json& j) {
         auto& f = j["force"];
         force = {f[0].get<float>(), f[1].get<float>(), f[2].get<float>()};
     }
+}
+
+// ─── Wind ───────────────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> WindModule::pin_descriptors() {
+    return {
+        {"direction", PinDataType::vec3_type, &direction, {}, -1.0f, 1.0f, 0.01f},
+        {"strength", PinDataType::float_type, &strength, {}, 0.0f, 100.0f, 0.1f},
+    };
+}
+
+uint32_t WindModule::write_gpu_data(uint8_t* buffer) const {
+    // header(2) + direction(3) + strength(1) = 6 words
+    uint32_t total = write_header(buffer, type(), 6);
+    write_vec3(buffer, 8, direction);
+    write_float(buffer, 20, strength);
+    return total;
+}
+
+bool WindModule::draw_inspector() {
+    bool changed = false;
+    if (ImGui::DragFloat3("Direction", &direction.x, 0.01f, -1.0f, 1.0f)) changed = true;
+    if (ImGui::DragFloat("Strength", &strength, 0.1f, 0.0f, 100.0f)) changed = true;
+    return changed;
+}
+
+void WindModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Wind";
+    j["direction"] = {direction.x, direction.y, direction.z};
+    j["strength"] = strength;
+}
+
+void WindModule::from_json(const nlohmann::json& j) {
+    if (j.contains("direction")) {
+        auto& d = j["direction"];
+        direction = {d[0].get<float>(), d[1].get<float>(), d[2].get<float>()};
+    }
+    strength = j.value("strength", 1.0f);
 }
 
 // ─── ColorOverLife ───────────────────────────────────────────────────────

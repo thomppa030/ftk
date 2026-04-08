@@ -779,6 +779,7 @@ void VfxEditorContext::draw_context_menu() {
             add_btn("Attract",          []{ return std::make_unique<AttractModule>(); },          emitter.update_modules, 1);
             add_btn("Velocity Limit",   []{ return std::make_unique<VelocityLimitModule>(); },   emitter.update_modules, 1);
             add_btn("Collision",        []{ return std::make_unique<CollisionModule>(); },        emitter.update_modules, 1);
+            add_btn("Wind",             []{ return std::make_unique<WindModule>(); },             emitter.update_modules, 1);
             ImGui::Separator();
             add_btn("Curve Color Over Life", []{ return std::make_unique<CurveColorOverLifeModule>(); }, emitter.update_modules, 1);
             add_btn("Curve Size Over Life",  []{ return std::make_unique<CurveSizeOverLifeModule>(); },  emitter.update_modules, 1);
