@@ -756,6 +756,8 @@ void VfxEditorContext::draw_context_menu() {
         if (ImGui::BeginMenu("Render")) {
             add_btn("Billboard",        []{ return std::make_unique<BillboardModule>(); },        emitter.render_modules, 2);
             add_btn("Trail",            []{ return std::make_unique<TrailModule>(); },            emitter.render_modules, 2);
+            add_btn("Lit Particle",     []{ return std::make_unique<LitParticleModule>(); },     emitter.render_modules, 2);
+            add_btn("Mesh Particle",    []{ return std::make_unique<MeshParticleModule>(); },    emitter.render_modules, 2);
             ImGui::EndMenu();
         }
         ImGui::Separator();
@@ -918,9 +920,9 @@ void VfxEditorContext::draw_module_stack() {
             emitter.max_particles = static_cast<uint32_t>(std::max(100, max_p));
         }
 
-        const char* blend_modes[] = {"Additive", "Alpha"};
+        const char* blend_modes[] = {"Additive", "Alpha", "Opaque"};
         int bm = static_cast<int>(emitter.blend_mode);
-        if (ImGui::Combo("Blend Mode", &bm, blend_modes, 2)) {
+        if (ImGui::Combo("Blend Mode", &bm, blend_modes, 3)) {
             emitter.blend_mode = static_cast<ParticleBlendMode>(bm);
         }
 

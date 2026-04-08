@@ -735,6 +735,9 @@ void VulkanContext::register_color_passes() {
 #endif
                 }
 
+                // Opaque particle rendering (mesh debris, solid particles)
+                particle_system_.record_render_opaque(local);
+
                 sky_pass_.record(local);
                 grid_pass_.record(local);
                 debug_pass_.record(local);
@@ -747,7 +750,7 @@ void VulkanContext::register_color_passes() {
                 {imgs.color_id, ImageUsage::color_attachment},
                 {imgs.msaa_mr_id, ImageUsage::color_attachment},
                 {imgs.mr_id, ImageUsage::color_attachment},
-                {imgs.msaa_depth_id, ImageUsage::depth_attachment_read},
+                {imgs.msaa_depth_id, ImageUsage::depth_attachment},
                 {imgs.depth_id, ImageUsage::depth_attachment}});
         }
     });

@@ -44,6 +44,8 @@ enum class ModuleType : uint32_t {
     // Render modules
     billboard          = 200,
     trail              = 201,
+    lit_particle       = 202,
+    mesh_particle      = 203,
 };
 
 // Position shape for InitialPosition module
@@ -405,6 +407,40 @@ struct CurveColorOverLifeModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::curve_color_over_life; }
     [[nodiscard]] const char* name() const override { return "Curve Color Over Life"; }
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+enum class ParticleMeshShape : uint32_t {
+    cube   = 0,
+    sphere = 1,
+    custom = 2,
+};
+
+struct MeshParticleModule final : VfxModule {
+    ParticleMeshShape shape{ParticleMeshShape::cube};
+    std::string model_path;     // only used when shape == custom
+    std::string material_path;  // .fjmat material for PBR textures
+    uint32_t resolved_material_id{0}; // runtime: resolved from material_path
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::mesh_particle; }
+    [[nodiscard]] const char* name() const override { return "Mesh Particle"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct LitParticleModule final : VfxModule {
+    float metallic{0.0f};
+    float roughness{0.5f};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::lit_particle; }
+    [[nodiscard]] const char* name() const override { return "Lit Particle"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;

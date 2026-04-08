@@ -61,6 +61,8 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "CurveColorOverLife") return std::make_unique<CurveColorOverLifeModule>();
     if (type_name == "CurveSizeOverLife") return std::make_unique<CurveSizeOverLifeModule>();
     if (type_name == "Trail")            return std::make_unique<TrailModule>();
+    if (type_name == "LitParticle")      return std::make_unique<LitParticleModule>();
+    if (type_name == "MeshParticle")     return std::make_unique<MeshParticleModule>();
     return nullptr;
 }
 
@@ -1065,6 +1067,96 @@ void CurveSizeOverLifeModule::to_json(nlohmann::json& j) const {
 
 void CurveSizeOverLifeModule::from_json(const nlohmann::json& j) {
     if (j.contains("curve")) curve.from_json(j["curve"]);
+}
+
+// ─── MeshParticle ───────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> MeshParticleModule::pin_descriptors() {
+    return {{"shape", PinDataType::enum_type, &shape, {"Cube", "Sphere", "Custom"}}};
+}
+
+uint32_t MeshParticleModule::write_gpu_data(uint8_t* /*buffer*/) const {
+    return 0; // render module — no GPU module data
+}
+
+bool MeshParticleModule::draw_inspector() {
+    bool changed = false;
+    const char* shapes[] = {"Cube", "Sphere", "Custom"};
+    int s = static_cast<int>(shape);
+    if (ImGui::Combo("Shape", &s, shapes, 3)) {
+        shape = static_cast<ParticleMeshShape>(s);
+        changed = true;
+    }
+    if (shape == ParticleMeshShape::custom) {
+        char buf[256]{};
+        std::strncpy(buf, model_path.c_str(), sizeof(buf) - 1);
+        if (ImGui::InputText("Model Path", buf, sizeof(buf))) {
+            model_path = buf;
+            changed = true;
+        }
+    }
+    {
+        char mat_buf[256]{};
+        std::strncpy(mat_buf, material_path.c_str(), sizeof(mat_buf) - 1);
+        if (ImGui::InputText("Material (.fjmat)", mat_buf, sizeof(mat_buf))) {
+            material_path = mat_buf;
+            resolved_material_id = 0; // force re-resolve
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+void MeshParticleModule::to_json(nlohmann::json& j) const {
+    j["type"] = "MeshParticle";
+    const char* shape_names[] = {"cube", "sphere", "custom"};
+    j["shape"] = shape_names[static_cast<int>(shape)];
+    if (shape == ParticleMeshShape::custom && !model_path.empty()) {
+        j["model_path"] = model_path;
+    }
+    if (!material_path.empty()) {
+        j["material"] = material_path;
+    }
+}
+
+void MeshParticleModule::from_json(const nlohmann::json& j) {
+    auto s = j.value("shape", "cube");
+    if (s == "sphere") shape = ParticleMeshShape::sphere;
+    else if (s == "custom") shape = ParticleMeshShape::custom;
+    else shape = ParticleMeshShape::cube;
+    model_path = j.value("model_path", "");
+    material_path = j.value("material", "");
+}
+
+// ─── LitParticle ────────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> LitParticleModule::pin_descriptors() {
+    return {
+        {"metallic", PinDataType::float_type, &metallic, {}, 0.0f, 1.0f, 0.01f},
+        {"roughness", PinDataType::float_type, &roughness, {}, 0.0f, 1.0f, 0.01f},
+    };
+}
+
+uint32_t LitParticleModule::write_gpu_data(uint8_t* /*buffer*/) const {
+    return 0; // render module — no GPU module data
+}
+
+bool LitParticleModule::draw_inspector() {
+    bool changed = false;
+    changed |= ImGui::SliderFloat("Metallic", &metallic, 0.0f, 1.0f);
+    changed |= ImGui::SliderFloat("Roughness", &roughness, 0.04f, 1.0f);
+    return changed;
+}
+
+void LitParticleModule::to_json(nlohmann::json& j) const {
+    j["type"] = "LitParticle";
+    j["metallic"] = metallic;
+    j["roughness"] = roughness;
+}
+
+void LitParticleModule::from_json(const nlohmann::json& j) {
+    metallic = j.value("metallic", 0.0f);
+    roughness = j.value("roughness", 0.5f);
 }
 
 // ─── Trail ──────────────────────────────────────────────────────────────

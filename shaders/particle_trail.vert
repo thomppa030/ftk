@@ -33,6 +33,9 @@ layout(std430, set = 1, binding = 3) readonly buffer Counters {
 layout(location = 0) out vec2 frag_uv;
 layout(location = 1) out vec4 frag_color;
 layout(location = 2) out flat uint frag_texture_index;
+layout(location = 3) out vec3 frag_world_pos;
+layout(location = 4) out vec3 frag_world_normal;
+layout(location = 5) out flat uint frag_is_mesh;
 
 void main() {
     uint base_offset = gl_InstanceIndex;
@@ -91,6 +94,10 @@ void main() {
 
     float offset = (side == 0u) ? -w : w;
     vec3 world_pos = p.position + right * offset;
+
+    frag_world_pos = world_pos;
+    frag_world_normal = normalize(ubo.camera_position.xyz - world_pos);
+    frag_is_mesh = 0u;
 
     gl_Position = ubo.projection * ubo.view * vec4(world_pos, 1.0);
 

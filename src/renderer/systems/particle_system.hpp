@@ -3,6 +3,8 @@
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/resources/mega_buffer.hpp"
+#include "renderer/systems/vfx_module.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -39,6 +41,14 @@ struct GpuEmitterData {
 };
 static_assert(sizeof(GpuEmitterData) == 160);
 
+// Push constants for lit particle fragment shader (12 bytes)
+struct ParticleLitPush {
+    float metallic;
+    float roughness;
+    uint32_t material_id; // 0 = no material, use push metallic/roughness
+};
+static_assert(sizeof(ParticleLitPush) == 12);
+
 // Push constants for all compute shaders (16 bytes)
 struct ParticleComputePush {
     float dt;
@@ -64,6 +74,7 @@ public:
                           const glm::mat4& view_projection = glm::mat4(1.0f));
     void insert_barriers(VkCommandBuffer cmd);
     void record_render(const FrameContext& ctx);
+    void record_render_opaque(const FrameContext& ctx);
 
 private:
     struct EmitterGpu {
@@ -76,6 +87,13 @@ private:
         bool has_prev_position{false};
         bool visible{true};       // frustum culling result
         bool is_trail{false};     // uses trail ring buffer emit + strip rendering
+        bool is_lit{false};       // uses lit PBR fragment shader
+        float lit_metallic{0.0f};
+        float lit_roughness{0.5f};
+        bool is_mesh{false};     // uses mesh instanced rendering
+        ParticleMeshShape mesh_shape{ParticleMeshShape::cube};
+        MegaMeshEntry mesh_entry{}; // resolved mesh geometry
+        uint32_t mesh_material_id{0}; // resolved material for mesh particles
     };
 
     void rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count);
@@ -104,6 +122,13 @@ private:
     // Render pipeline (trail / ribbon)
     VkPipeline render_trail_additive_{VK_NULL_HANDLE};
     VkPipeline render_trail_alpha_{VK_NULL_HANDLE};
+
+    // Lit render pipelines (separate layout with push constants)
+    VkPipelineLayout render_lit_layout_{VK_NULL_HANDLE};
+    VkPipeline render_lit_additive_{VK_NULL_HANDLE};
+    VkPipeline render_lit_alpha_{VK_NULL_HANDLE};
+    VkPipeline render_lit_trail_additive_{VK_NULL_HANDLE};
+    VkPipeline render_lit_trail_alpha_{VK_NULL_HANDLE};
 
     // Descriptor pool + single sets
     VkDescriptorPool pool_{VK_NULL_HANDLE};
@@ -134,6 +159,48 @@ private:
     VkSampleCountFlagBits sample_count_{VK_SAMPLE_COUNT_1_BIT};
     VkSampler depth_sampler_{VK_NULL_HANDLE};
     VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
+
+    // Opaque render pipelines (depth write, back-face cull)
+    VkPipeline render_opaque_{VK_NULL_HANDLE};          // unlit billboard opaque
+    VkPipeline render_opaque_lit_{VK_NULL_HANDLE};      // lit billboard opaque
+    VkPipeline render_mesh_opaque_{VK_NULL_HANDLE};     // unlit mesh opaque
+    VkPipeline render_mesh_opaque_lit_{VK_NULL_HANDLE}; // lit mesh opaque
+    VkPipelineLayout render_opaque_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout render_opaque_lit_layout_{VK_NULL_HANDLE};
+
+    // ── Mesh particle rendering ──
+    // Instance data written by compute, read by mesh vertex shader
+    struct GpuMeshInstance {
+        glm::mat4 model;          // 64
+        glm::vec4 color;          // 16
+        uint32_t texture_index;   // 4
+        uint32_t pad[3];          // 12
+    };
+    static_assert(sizeof(GpuMeshInstance) == 96);
+
+    std::unique_ptr<Buffer> mesh_instance_buffer_;
+    std::unique_ptr<Buffer> mesh_indirect_buffer_;
+    std::unique_ptr<Buffer> mesh_instance_count_buffer_; // atomic counter per mesh emitter
+
+    VkPipeline mesh_instance_pipeline_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout mesh_compute_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout mesh_compute_layout_{VK_NULL_HANDLE};
+    VkDescriptorSet mesh_compute_set_{VK_NULL_HANDLE};
+
+    // Mesh render pipelines (unlit + lit) × (additive + alpha) = 4
+    VkPipeline render_mesh_additive_{VK_NULL_HANDLE};
+    VkPipeline render_mesh_alpha_{VK_NULL_HANDLE};
+    VkPipeline render_mesh_lit_additive_{VK_NULL_HANDLE};
+    VkPipeline render_mesh_lit_alpha_{VK_NULL_HANDLE};
+    VkPipelineLayout mesh_render_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout mesh_render_lit_layout_{VK_NULL_HANDLE};
+
+    // Built-in primitive meshes
+    MegaMeshEntry mesh_cube_{};
+    MegaMeshEntry mesh_sphere_{};
+    bool primitives_uploaded_{false};
+
+    void upload_primitives(MegaBuffer& mega_buffer);
 
     uint32_t frame_seed_{0};
     float accumulated_time_{0.0f};
