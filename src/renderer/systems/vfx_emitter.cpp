@@ -23,7 +23,7 @@ float VfxEmitter::emission_rate() const {
             return static_cast<const SpawnRateModule*>(m.get())->rate;
         }
     }
-    return 50.0f;
+    return 0.0f;
 }
 
 uint32_t VfxEmitter::burst_count() const {

@@ -128,6 +128,13 @@ static const bool registered = [] {
                 }
                 changed = true;
             }
+            if (em->effect) {
+                if (ImGui::Checkbox("Looping", &em->looping)) changed = true;
+                ImGui::SameLine();
+                if (ImGui::Button("Fire")) {
+                    em->fire = true;
+                }
+            }
             return changed;
         },
 
@@ -140,10 +147,14 @@ static const bool registered = [] {
             if (!em->vfx_path.empty()) {
                 out["_vfx_path"] = em->vfx_path;
             }
+            if (!em->looping) {
+                out["looping"] = false;
+            }
         },
 
         .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/, const Project* /*proj*/) {
             auto& em = node.components.add<EmitterComponent>();
+            em.looping = j.value("looping", true);
             // Legacy v1 flat fields — convert to module-based effect
             if (j.contains("emission_rate")) {
                 em.effect = effect_from_legacy_json(j);

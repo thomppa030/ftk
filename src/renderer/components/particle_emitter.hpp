@@ -19,6 +19,8 @@ enum class ParticleBlendMode : uint8_t {
 struct EmitterComponent : NodeComponent {
     std::shared_ptr<VfxEffect> effect;
     std::string vfx_path; // .fjvfx asset path
+    bool looping{true};   // re-fire bursts after all particles expire
+    bool fire{false};     // one-frame flag: trigger burst manually
 };
 
 } // namespace fjell

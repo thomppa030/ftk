@@ -1530,6 +1530,12 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
 
         auto& sub = ec->effect->emitters[gpu.emitter_index];
 
+        // Manual fire button — reset burst for all sub-emitters
+        if (ec->fire) {
+            sub.burst_fired = false;
+            sub.burst_elapsed = 0.0f;
+        }
+
         // CPU-side emission accumulation (per sub-emitter)
         float eff_dt = sub.paused ? 0.0f : dt;
         uint32_t emit_count = 0;
@@ -1538,7 +1544,18 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
             if (burst > 0 && !sub.burst_fired) {
                 emit_count = burst;
                 sub.burst_fired = true;
+                sub.burst_elapsed = 0.0f;
             }
+
+            // Looping: re-fire burst after all particles from previous burst expire
+            if (burst > 0 && sub.burst_fired && ec->looping) {
+                sub.burst_elapsed += dt;
+                if (sub.burst_elapsed >= sub.lifetime_max()) {
+                    sub.burst_fired = false;
+                    sub.burst_elapsed = 0.0f;
+                }
+            }
+
             sub.emit_accumulator += sub.emission_rate() * dt;
             emit_count += static_cast<uint32_t>(sub.emit_accumulator);
             sub.emit_accumulator -= std::floor(sub.emit_accumulator);
@@ -1665,6 +1682,13 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         }
         uint32_t bytes = sub.write_gpu_modules(module_ptr + byte_offset);
         module_word_offset += bytes / 4;
+    }
+
+    // Clear one-frame fire flags
+    for (size_t i = 0; i < emitters_.size(); ++i) {
+        auto* obj = scene.find(emitters_[i].object_id);
+        auto* ec = obj ? obj->components.get<EmitterComponent>() : nullptr;
+        if (ec) ec->fire = false;
     }
 
     // Upload emitter data
