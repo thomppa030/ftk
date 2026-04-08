@@ -869,7 +869,9 @@ void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
                         auto ext = std::filesystem::path(path).extension().string();
                         if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga") {
                             tex_mod->texture_path = path;
-                            auto result = deps_.resource_manager->load_texture(path);
+                            auto abs_path = base_path::resolve_asset(
+                                path, deps_.project_mgr->active());
+                            auto result = deps_.resource_manager->load_texture(abs_path);
                             if (result) {
                                 tex_mod->bindless_index = deps_.resource_manager->bindless_index(*result);
                             }
