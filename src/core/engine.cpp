@@ -13,6 +13,8 @@ extern "C" void fjell_input_clear_connections();
 #include "physics/physics_subsystem.hpp"
 #include "renderer/systems/sprite_anim_subsystem.hpp"
 #include "renderer/systems/vfx_subsystem.hpp"
+#include "renderer/systems/vfx_asset.hpp"
+#include "renderer/components/particle_emitter.hpp"
 #include "scripting/script_globals.hpp"
 #include "scripting/script_subsystem.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
@@ -266,6 +268,7 @@ void Engine::init_scene() {
         create_default_scene();
     }
     load_input_actions();
+    setup_vfx_watcher();
 
     if (game_mode_) {
         auto game_so = base_path::resolve(std::string("game") + platform::SHARED_LIB_EXT);
@@ -941,7 +944,76 @@ void Engine::load_scene(const std::string& path) {
     scene_context_->command_history().clear();
     vulkan_context_->sync_custom_depth_pipelines();
     load_input_actions();
+    setup_vfx_watcher();
 }
+
+#ifndef NDEBUG
+void Engine::setup_vfx_watcher() {
+    vfx_watcher_.clear();
+    vfx_changed_ = false;
+    if (!project_mgr_.active()) return;
+
+    std::unordered_set<std::string> watched_dirs;
+    for (const auto& obj : scene_.objects()) {
+        auto* ec = obj->components.get<EmitterComponent>();
+        if (!ec || ec->vfx_path.empty()) continue;
+        auto abs = project_mgr_.active()->resolve(ec->vfx_path);
+        auto dir = std::filesystem::path(abs).parent_path().string();
+        if (watched_dirs.contains(dir)) continue;
+        watched_dirs.insert(dir);
+        vfx_watcher_.watch(dir, [this](const std::filesystem::path& p) {
+            if (p.extension() == ".fjvfx") {
+                vfx_changed_ = true;
+                vfx_changed_path_ = p.string();
+            }
+        });
+        FJELL_GFX_DEBUG("VFX watcher: watching '{}'", dir);
+    }
+}
+
+void Engine::reload_changed_vfx() {
+    if (vfx_changed_path_.empty()) return;
+
+    // Convert absolute path to project-relative for matching
+    std::string relative_path;
+    if (project_mgr_.active()) {
+        auto root = project_mgr_.active()->root().string();
+        if (vfx_changed_path_.starts_with(root)) {
+            relative_path = vfx_changed_path_.substr(root.size());
+            if (!relative_path.empty() && relative_path[0] == '/')
+                relative_path = relative_path.substr(1);
+        }
+    }
+
+    try {
+        auto effect = load_vfx_effect(vfx_changed_path_);
+        resolve_vfx_textures(effect, *resource_manager_, project_mgr_.active());
+        auto shared = std::make_shared<VfxEffect>(std::move(effect));
+
+        // Replace in all EmitterComponents that reference this path
+        int replaced = 0;
+        for (const auto& obj : scene_.objects()) {
+            auto* ec = obj->components.get<EmitterComponent>();
+            if (!ec) continue;
+            if (ec->vfx_path == relative_path || ec->vfx_path == vfx_changed_path_) {
+                ec->effect = shared;
+                replaced++;
+            }
+        }
+
+        if (replaced > 0) {
+            FJELL_CORE_INFO("VFX hot-reloaded: {} ({} instance(s) in scene)", relative_path, replaced);
+        } else {
+            FJELL_CORE_WARN("VFX file changed but no scene emitters matched: relative='{}' abs='{}'",
+                            relative_path, vfx_changed_path_);
+        }
+    } catch (const std::exception& e) {
+        FJELL_CORE_ERROR("VFX hot-reload failed for {}: {}", vfx_changed_path_, e.what());
+    }
+
+    vfx_changed_path_.clear();
+}
+#endif
 
 void Engine::load_input_actions() {
     int found = 0;
@@ -1400,6 +1472,10 @@ void Engine::run() {
 #ifndef NDEBUG
         if (shader_watcher_ && shader_watcher_->poll()) {
             vulkan_context_->reload_pipeline();
+        }
+        if (vfx_watcher_.poll() && vfx_changed_) {
+            vfx_changed_ = false;
+            reload_changed_vfx();
         }
 #endif
 

@@ -184,6 +184,13 @@ void VfxEditorContext::shutdown() {
 }
 
 void VfxEditorContext::draw(float dt) {
+#ifndef NDEBUG
+    if (fjvfx_watcher_.poll() && fjvfx_changed_) {
+        fjvfx_changed_ = false;
+        reload_effect();
+    }
+#endif
+
     if (auto* vp = viewport_manager_.active_panel()) {
         auto t = ctx_title("VFX Preview");
         if (vp->title != t) vp->title = std::move(t);
@@ -288,24 +295,8 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
 
     try {
         auto loaded = load_vfx_effect(fjvfx_abs_path_);
+        resolve_vfx_textures(loaded, *deps_.resource_manager, deps_.project_mgr->active());
         effect_ = std::make_shared<VfxEffect>(std::move(loaded));
-
-        // Resolve texture paths to bindless indices
-        for (auto& emitter : effect_->emitters) {
-            for (auto& mod : emitter.spawn_modules) {
-                if (mod->type() == ModuleType::initial_texture) {
-                    auto* tex_mod = static_cast<InitialTextureModule*>(mod.get());
-                    if (!tex_mod->texture_path.empty() && tex_mod->bindless_index == 0) {
-                        auto resolved = base_path::resolve_asset(
-                            tex_mod->texture_path, deps_.project_mgr->active());
-                        auto result = deps_.resource_manager->load_texture(resolved);
-                        if (result) {
-                            tex_mod->bindless_index = deps_.resource_manager->bindless_index(*result);
-                        }
-                    }
-                }
-            }
-        }
     } catch (const std::exception& e) {
         FJELL_CORE_ERROR("VFX editor: failed to load {}: {}", fjvfx_path, e.what());
         return;
@@ -326,7 +317,47 @@ void VfxEditorContext::open_effect(const std::string& fjvfx_path) {
     }
 
     FJELL_CORE_INFO("VFX editor opened: {}", fjvfx_path);
+
+#ifndef NDEBUG
+    fjvfx_watcher_.clear();
+    fjvfx_changed_ = false;
+    fjvfx_watcher_.watch(fjvfx_abs_path_, [this](const std::filesystem::path&) {
+        fjvfx_changed_ = true;
+    });
+#endif
 }
+
+#ifndef NDEBUG
+void VfxEditorContext::reload_effect() {
+    if (fjvfx_abs_path_.empty()) return;
+
+    // Preserve editor state
+    int prev_emitter = selected_emitter_;
+    int prev_stack = selected_module_stack_;
+    int prev_module = selected_module_index_;
+
+    try {
+        auto loaded = load_vfx_effect(fjvfx_abs_path_);
+        resolve_vfx_textures(loaded, *deps_.resource_manager, deps_.project_mgr->active());
+        effect_ = std::make_shared<VfxEffect>(std::move(loaded));
+    } catch (const std::exception& e) {
+        FJELL_CORE_ERROR("VFX hot-reload failed for {}: {}", fjvfx_path_, e.what());
+        return;
+    }
+
+    // Restore selection (clamp to new bounds)
+    int emitter_count = static_cast<int>(effect_->emitters.size());
+    selected_emitter_ = (prev_emitter >= 0 && prev_emitter < emitter_count)
+        ? prev_emitter : (emitter_count > 0 ? 0 : -1);
+    selected_module_stack_ = prev_stack;
+    selected_module_index_ = prev_module;
+
+    timeline_.set_duration(std::max(effect_->max_lifetime() + 1.0f, 3.0f));
+    setup_preview();
+
+    FJELL_CORE_INFO("VFX hot-reloaded: {}", fjvfx_path_);
+}
+#endif
 
 void VfxEditorContext::save_effect() {
     if (fjvfx_abs_path_.empty() || !effect_) return;

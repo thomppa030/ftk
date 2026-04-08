@@ -1632,7 +1632,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
             switch (mesh_shape) {
                 case ParticleMeshShape::cube:   gpu.mesh_entry = mesh_cube_; break;
                 case ParticleMeshShape::sphere: gpu.mesh_entry = mesh_sphere_; break;
-                default: gpu.mesh_entry = mesh_cube_; break; // TODO: custom mesh resolution
+                default: gpu.mesh_entry = mesh_cube_; break;
             }
         }
 

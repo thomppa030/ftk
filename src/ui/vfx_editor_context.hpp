@@ -7,6 +7,10 @@
 #include "renderer/systems/vfx_pin.hpp"
 #include "scene/scene.hpp"
 
+#ifndef NDEBUG
+#include "platform/file_watcher.hpp"
+#endif
+
 #include <string>
 #include <vector>
 
@@ -127,6 +131,13 @@ private:
     // Playback
     float time_scale_{1.0f};
     float prev_timeline_time_{0.0f};
+
+    // Hot-reload
+#ifndef NDEBUG
+    platform::FileWatcher fjvfx_watcher_;
+    bool fjvfx_changed_{false};
+    void reload_effect();
+#endif
 };
 
 } // namespace fjell

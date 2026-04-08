@@ -179,22 +179,7 @@ static void load_components(Node& node, const nlohmann::json& j,
         auto resolved = base_path::resolve_asset(vfx_path, project);
         try {
             auto effect = load_vfx_effect(resolved);
-
-            // Resolve texture module paths to bindless indices
-            for (auto& emitter : effect.emitters) {
-                for (auto& mod : emitter.spawn_modules) {
-                    if (mod->type() == ModuleType::initial_texture) {
-                        auto* tex_mod = static_cast<InitialTextureModule*>(mod.get());
-                        if (!tex_mod->texture_path.empty()) {
-                            auto result = resources.load_texture(
-                                base_path::resolve_asset(tex_mod->texture_path, project));
-                            if (result) {
-                                tex_mod->bindless_index = resources.bindless_index(*result);
-                            }
-                        }
-                    }
-                }
-            }
+            resolve_vfx_textures(effect, resources, project);
 
             auto& ec = node.components.get<EmitterComponent>()
                 ? *node.components.get<EmitterComponent>()

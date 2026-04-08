@@ -2,6 +2,8 @@
 #include "renderer/systems/vfx_emitter.hpp"
 #include "renderer/systems/vfx_expression.hpp"
 #include "renderer/systems/vfx_module.hpp"
+#include "renderer/resources/resource_manager.hpp"
+#include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
@@ -213,6 +215,23 @@ void save_vfx_effect(const std::string& path, const VfxEffect& effect) {
         throw std::runtime_error("Failed to write .fjvfx file: " + path);
     }
     f << j.dump(4) << "\n";
+}
+
+void resolve_vfx_textures(VfxEffect& effect, ResourceManager& resources,
+                          const Project* project) {
+    for (auto& emitter : effect.emitters) {
+        for (auto& mod : emitter.spawn_modules) {
+            if (mod->type() != ModuleType::initial_texture) continue;
+            auto* tex_mod = static_cast<InitialTextureModule*>(mod.get());
+            if (tex_mod->texture_path.empty() || tex_mod->bindless_index != 0) continue;
+
+            auto resolved = base_path::resolve_asset(tex_mod->texture_path, project);
+            auto result = resources.load_texture(resolved);
+            if (result) {
+                tex_mod->bindless_index = resources.bindless_index(*result);
+            }
+        }
+    }
 }
 
 } // namespace fjell
