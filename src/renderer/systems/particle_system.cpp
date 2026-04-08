@@ -3,6 +3,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
+#include "renderer/systems/vfx_expression_eval.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -827,6 +828,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     FJELL_PROFILE_SCOPE_N("particle_dispatch_compute");
     if (emitters_.empty()) return;
     ++frame_seed_;
+    accumulated_time_ += dt;
 
     uint32_t emitter_count = static_cast<uint32_t>(emitters_.size());
     uint32_t total_max = 0;
@@ -894,6 +896,9 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         data.base_offset = gpu.base_offset;
         data.counter_offset = static_cast<uint32_t>(i) * 2;
         data.dead_list_offset = gpu.base_offset;
+
+        // Evaluate expression graph (writes computed values to module members)
+        evaluate_expression_graph(sub, accumulated_time_, dt);
 
         // Write module data
         data.module_offset = module_word_offset;

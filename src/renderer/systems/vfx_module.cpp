@@ -59,6 +59,134 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     return nullptr;
 }
 
+// ─── Pin descriptors ────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> SpawnRateModule::pin_descriptors() {
+    return {{"rate", PinDataType::float_type, &rate, {}, 0.0f, 10000.0f, 1.0f}};
+}
+
+std::vector<PinDescriptor> InitialLifetimeModule::pin_descriptors() {
+    return {
+        {"min", PinDataType::float_type, &lifetime_min, {}, 0.01f, 60.0f, 0.01f},
+        {"max", PinDataType::float_type, &lifetime_max, {}, 0.01f, 60.0f, 0.01f},
+    };
+}
+
+std::vector<PinDescriptor> InitialPositionModule::pin_descriptors() {
+    return {
+        {"shape", PinDataType::enum_type, &shape, {"Point", "Sphere", "Box", "Cone"}},
+        {"radius", PinDataType::float_type, &radius, {}, 0.0f, 100.0f, 0.01f},
+        {"half_extents", PinDataType::vec3_type, &half_extents, {}, 0.0f, 100.0f, 0.01f},
+    };
+}
+
+std::vector<PinDescriptor> InitialVelocityModule::pin_descriptors() {
+    return {
+        {"mode", PinDataType::enum_type, &mode, {"Directional", "Random", "Cone"}},
+        {"velocity_min", PinDataType::vec3_type, &velocity_min, {}, -100.0f, 100.0f, 0.1f},
+        {"velocity_max", PinDataType::vec3_type, &velocity_max, {}, -100.0f, 100.0f, 0.1f},
+        {"direction", PinDataType::vec3_type, &direction, {}, -1.0f, 1.0f, 0.01f},
+        {"angle", PinDataType::float_type, &angle, {}, 0.0f, 180.0f, 0.5f},
+        {"speed_min", PinDataType::float_type, &speed_min, {}, 0.0f, 100.0f, 0.1f},
+        {"speed_max", PinDataType::float_type, &speed_max, {}, 0.0f, 100.0f, 0.1f},
+    };
+}
+
+std::vector<PinDescriptor> InitialColorModule::pin_descriptors() {
+    return {{"color", PinDataType::vec4_type, &color, {}, 0.0f, 1.0f, 0.01f}};
+}
+
+std::vector<PinDescriptor> InitialSizeModule::pin_descriptors() {
+    return {
+        {"min", PinDataType::float_type, &size_min, {}, 0.0f, 100.0f, 0.01f},
+        {"max", PinDataType::float_type, &size_max, {}, 0.0f, 100.0f, 0.01f},
+    };
+}
+
+std::vector<PinDescriptor> GravityModule::pin_descriptors() {
+    return {{"force", PinDataType::vec3_type, &force, {}, -100.0f, 100.0f, 0.1f}};
+}
+
+std::vector<PinDescriptor> ColorOverLifeModule::pin_descriptors() {
+    return {
+        {"start", PinDataType::vec4_type, &color_start, {}, 0.0f, 1.0f, 0.01f},
+        {"end", PinDataType::vec4_type, &color_end, {}, 0.0f, 1.0f, 0.01f},
+    };
+}
+
+std::vector<PinDescriptor> SizeOverLifeModule::pin_descriptors() {
+    return {
+        {"start", PinDataType::float_type, &size_start, {}, 0.0f, 100.0f, 0.01f},
+        {"end", PinDataType::float_type, &size_end, {}, 0.0f, 100.0f, 0.01f},
+    };
+}
+
+std::vector<PinDescriptor> DragModule::pin_descriptors() {
+    return {{"drag", PinDataType::float_type, &drag, {}, 0.0f, 10.0f, 0.01f}};
+}
+
+std::vector<PinDescriptor> NoiseModule::pin_descriptors() {
+    return {
+        {"strength", PinDataType::float_type, &strength, {}, 0.0f, 100.0f, 0.1f},
+        {"frequency", PinDataType::float_type, &frequency, {}, 0.01f, 50.0f, 0.1f},
+        {"scroll_speed", PinDataType::float_type, &scroll_speed, {}, 0.0f, 10.0f, 0.1f},
+    };
+}
+
+std::vector<PinDescriptor> AttractModule::pin_descriptors() {
+    return {
+        {"position", PinDataType::vec3_type, &position, {}, -100.0f, 100.0f, 0.1f},
+        {"strength", PinDataType::float_type, &strength, {}, 0.0f, 100.0f, 0.1f},
+        {"radius", PinDataType::float_type, &radius, {}, 0.0f, 100.0f, 0.1f},
+    };
+}
+
+std::vector<PinDescriptor> VelocityLimitModule::pin_descriptors() {
+    return {{"max_speed", PinDataType::float_type, &max_speed, {}, 0.0f, 1000.0f, 0.1f}};
+}
+
+std::vector<PinDescriptor> CollisionModule::pin_descriptors() {
+    return {
+        {"response", PinDataType::enum_type, &response, {"Bounce", "Slide", "Kill"}},
+        {"source", PinDataType::enum_type, &source, {"SDF", "Depth", "Both"}},
+        {"restitution", PinDataType::float_type, &restitution, {}, 0.0f, 1.0f, 0.01f},
+        {"friction", PinDataType::float_type, &friction, {}, 0.0f, 1.0f, 0.01f},
+    };
+}
+
+std::vector<PinDescriptor> InitialStretchModule::pin_descriptors() {
+    return {{"stretch", PinDataType::float_type, &stretch, {}, 0.0f, 10.0f, 0.01f}};
+}
+
+std::vector<PinDescriptor> InitialTextureModule::pin_descriptors() {
+    return {{"bindless_index", PinDataType::uint_type, &bindless_index, {}}};
+}
+
+std::vector<PinDescriptor> InitialRotationModule::pin_descriptors() {
+    return {
+        {"rotation_min", PinDataType::float_type, &rotation_min, {}, 0.0f, 6.2832f, 0.01f},
+        {"rotation_max", PinDataType::float_type, &rotation_max, {}, 0.0f, 6.2832f, 0.01f},
+        {"speed", PinDataType::float_type, &speed, {}, -20.0f, 20.0f, 0.1f},
+        {"speed_variance", PinDataType::float_type, &speed_variance, {}, 0.0f, 20.0f, 0.1f},
+    };
+}
+
+std::vector<PinDescriptor> BurstModule::pin_descriptors() {
+    return {{"count", PinDataType::uint_type, &count, {}}};
+}
+
+std::vector<PinDescriptor> FlipbookModule::pin_descriptors() {
+    return {
+        {"columns", PinDataType::uint_type, &columns, {}},
+        {"rows", PinDataType::uint_type, &rows, {}},
+        {"frame_count", PinDataType::uint_type, &frame_count, {}},
+        {"fps", PinDataType::float_type, &fps, {}, 1.0f, 120.0f, 0.5f},
+        {"mode", PinDataType::enum_type, &mode, {"Over Lifetime", "FPS Loop", "FPS Clamp"}},
+    };
+}
+
+// BillboardModule has no parameters — uses default empty pin_descriptors()
+
 // ─── SpawnRate ───────────────────────────────────────────────────────────
 
 uint32_t SpawnRateModule::write_gpu_data(uint8_t* buffer) const {

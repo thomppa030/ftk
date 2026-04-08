@@ -67,6 +67,13 @@ FetchContent_Declare(
 )
 
 FetchContent_Declare(
+    imgui_node_editor
+    GIT_REPOSITORY https://github.com/thedmd/imgui-node-editor.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_Declare(
     json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
     GIT_TAG        v3.11.3
@@ -277,6 +284,35 @@ endif()
 FetchContent_GetProperties(imnodes)
 if(NOT imnodes_POPULATED)
     FetchContent_Populate(imnodes)
+endif()
+
+# imgui-node-editor — same pattern
+FetchContent_GetProperties(imgui_node_editor)
+if(NOT imgui_node_editor_POPULATED)
+    FetchContent_Populate(imgui_node_editor)
+    # Patch: guard operator*(float, ImVec2) which ImGui docking branch already defines
+    foreach(_file
+        "${imgui_node_editor_SOURCE_DIR}/imgui_extra_math.h"
+        "${imgui_node_editor_SOURCE_DIR}/imgui_extra_math.inl")
+        file(READ "${_file}" _contents)
+        string(REPLACE
+            "inline ImVec2 operator*(const float lhs, const ImVec2& rhs)"
+            "#if IMGUI_VERSION_NUM < 19100\ninline ImVec2 operator*(const float lhs, const ImVec2& rhs)"
+            _contents "${_contents}")
+        # Close the guard: add #endif after the function body in .inl, after declaration in .h
+        if("${_file}" MATCHES "\\.inl$")
+            string(REPLACE
+                "return ImVec2(lhs * rhs.x, lhs * rhs.y);\n}"
+                "return ImVec2(lhs * rhs.x, lhs * rhs.y);\n}\n#endif"
+                _contents "${_contents}")
+        else()
+            string(REPLACE
+                "inline ImVec2 operator*(const float lhs, const ImVec2& rhs);\n#"
+                "inline ImVec2 operator*(const float lhs, const ImVec2& rhs);\n#endif\n#"
+                _contents "${_contents}")
+        endif()
+        file(WRITE "${_file}" "${_contents}")
+    endforeach()
 endif()
 
 find_package(Vulkan REQUIRED)

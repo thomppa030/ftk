@@ -57,6 +57,8 @@ add_executable(fjell
     renderer/systems/vfx_asset.cpp
     renderer/systems/vfx_module.cpp
     renderer/systems/vfx_emitter.cpp
+    renderer/systems/vfx_expression.cpp
+    renderer/systems/vfx_expression_eval.cpp
     renderer/resources/mega_buffer.cpp
     renderer/resources/mesh.cpp
     renderer/resources/meshlet.cpp
@@ -221,6 +223,12 @@ add_executable(fjell
 
     # imnodes
     ${imnodes_SOURCE_DIR}/imnodes.cpp
+
+    # imgui-node-editor
+    ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor.cpp
+    ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor_api.cpp
+    ${imgui_node_editor_SOURCE_DIR}/imgui_canvas.cpp
+    ${imgui_node_editor_SOURCE_DIR}/crude_json.cpp
 )
 
 target_include_directories(fjell PRIVATE
@@ -234,6 +242,7 @@ target_include_directories(fjell SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}
     ${imnodes_SOURCE_DIR}
+    ${imgui_node_editor_SOURCE_DIR}
     ${miniaudio_SOURCE_DIR}
 )
 
@@ -299,6 +308,23 @@ if(MSVC)
     set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
 else()
     set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
+endif()
+
+# imgui-node-editor — suppress warnings from third-party code
+if(MSVC)
+    set_source_files_properties(
+        ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor.cpp
+        ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor_api.cpp
+        ${imgui_node_editor_SOURCE_DIR}/imgui_canvas.cpp
+        ${imgui_node_editor_SOURCE_DIR}/crude_json.cpp
+        PROPERTIES COMPILE_FLAGS "/w")
+else()
+    set_source_files_properties(
+        ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor.cpp
+        ${imgui_node_editor_SOURCE_DIR}/imgui_node_editor_api.cpp
+        ${imgui_node_editor_SOURCE_DIR}/imgui_canvas.cpp
+        ${imgui_node_editor_SOURCE_DIR}/crude_json.cpp
+        PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
 # Treat fastgltf headers as system headers to suppress warnings from them

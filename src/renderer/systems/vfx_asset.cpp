@@ -1,5 +1,6 @@
 #include "renderer/systems/vfx_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
+#include "renderer/systems/vfx_expression.hpp"
 #include "renderer/systems/vfx_module.hpp"
 #include "core/log.hpp"
 
@@ -7,6 +8,7 @@
 
 #include <fstream>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace fjell {
 
@@ -33,6 +35,77 @@ static VfxEmitter load_emitter_v2(const nlohmann::json& je) {
     if (je.contains("update")) load_modules(je["update"], emitter.update_modules);
     if (je.contains("render")) load_modules(je["render"], emitter.render_modules);
 
+    // Expression graph (optional)
+    if (je.contains("expressions")) {
+        auto& jex = je["expressions"];
+        auto& graph = emitter.expression_graph;
+        if (jex.contains("nodes")) {
+            for (const auto& jn : jex["nodes"]) {
+                auto type_str = jn.value("type", "");
+                // Map type name to enum
+                static const std::unordered_map<std::string, ExprNodeType> type_map = {
+                    {"constant_float", ExprNodeType::constant_float},
+                    {"constant_vec3",  ExprNodeType::constant_vec3},
+                    {"constant_vec4",  ExprNodeType::constant_vec4},
+                    {"time",           ExprNodeType::time},
+                    {"delta_time",     ExprNodeType::delta_time},
+                    {"random",         ExprNodeType::random},
+                    {"add",            ExprNodeType::add},
+                    {"subtract",       ExprNodeType::subtract},
+                    {"multiply",       ExprNodeType::multiply},
+                    {"divide",         ExprNodeType::divide},
+                    {"negate",         ExprNodeType::negate},
+                    {"abs",            ExprNodeType::abs_node},
+                    {"sin",            ExprNodeType::sin_node},
+                    {"cos",            ExprNodeType::cos_node},
+                    {"lerp",           ExprNodeType::lerp},
+                    {"remap",          ExprNodeType::remap},
+                    {"clamp",          ExprNodeType::clamp},
+                    {"split_vec3",     ExprNodeType::split_vec3},
+                    {"combine_vec3",   ExprNodeType::combine_vec3},
+                    {"split_vec4",     ExprNodeType::split_vec4},
+                    {"combine_vec4",   ExprNodeType::combine_vec4},
+                };
+                auto it = type_map.find(type_str);
+                if (it == type_map.end()) continue;
+
+                auto node = std::make_unique<ExpressionNode>();
+                node->type = it->second;
+                node->node_id = jn.value("id", graph.next_node_id++);
+
+                // Load constant value
+                if (jn.contains("value")) {
+                    auto& jv = jn["value"];
+                    if (jv.is_number()) {
+                        node->constant_value = jv.get<float>();
+                    } else if (jv.is_array() && jv.size() == 3) {
+                        node->constant_value = glm::vec3(jv[0], jv[1], jv[2]);
+                    } else if (jv.is_array() && jv.size() == 4) {
+                        node->constant_value = glm::vec4(jv[0], jv[1], jv[2], jv[3]);
+                    }
+                }
+
+                // Track max ID for future allocations
+                if (node->node_id >= graph.next_node_id) {
+                    graph.next_node_id = node->node_id + 1;
+                }
+                graph.nodes.push_back(std::move(node));
+            }
+        }
+        if (jex.contains("links")) {
+            for (const auto& jl : jex["links"]) {
+                ExpressionLink link;
+                link.link_id = jl.value("id", graph.next_link_id++);
+                link.source_pin_id = jl.value("source", uint64_t(0));
+                link.target_pin_id = jl.value("target", uint64_t(0));
+                if (link.link_id >= graph.next_link_id) {
+                    graph.next_link_id = link.link_id + 1;
+                }
+                graph.links.push_back(link);
+            }
+        }
+    }
+
     return emitter;
 }
 
@@ -56,6 +129,51 @@ static nlohmann::json save_emitter_v2(const VfxEmitter& emitter) {
     je["spawn"] = save_modules(emitter.spawn_modules);
     je["update"] = save_modules(emitter.update_modules);
     je["render"] = save_modules(emitter.render_modules);
+
+    // Expression graph
+    if (!emitter.expression_graph.empty()) {
+        static const char* expr_type_names[] = {
+            "constant_float", "constant_vec3", "constant_vec4",
+            "time", "delta_time", "random",
+            "add", "subtract", "multiply", "divide",
+            "negate", "abs", "sin", "cos",
+            "lerp", "remap", "clamp",
+            "split_vec3", "combine_vec3", "split_vec4", "combine_vec4",
+        };
+
+        nlohmann::json jex;
+        nlohmann::json nodes_arr = nlohmann::json::array();
+        for (const auto& node : emitter.expression_graph.nodes) {
+            nlohmann::json jn;
+            jn["id"] = node->node_id;
+            jn["type"] = expr_type_names[static_cast<int>(node->type)];
+
+            // Save constant value
+            if (node->type == ExprNodeType::constant_float) {
+                jn["value"] = std::get<float>(node->constant_value);
+            } else if (node->type == ExprNodeType::constant_vec3) {
+                auto v = std::get<glm::vec3>(node->constant_value);
+                jn["value"] = {v.x, v.y, v.z};
+            } else if (node->type == ExprNodeType::constant_vec4) {
+                auto v = std::get<glm::vec4>(node->constant_value);
+                jn["value"] = {v.x, v.y, v.z, v.w};
+            }
+            nodes_arr.push_back(jn);
+        }
+        jex["nodes"] = nodes_arr;
+
+        nlohmann::json links_arr = nlohmann::json::array();
+        for (const auto& link : emitter.expression_graph.links) {
+            nlohmann::json jl;
+            jl["id"] = link.link_id;
+            jl["source"] = link.source_pin_id;
+            jl["target"] = link.target_pin_id;
+            links_arr.push_back(jl);
+        }
+        jex["links"] = links_arr;
+
+        je["expressions"] = jex;
+    }
 
     return je;
 }

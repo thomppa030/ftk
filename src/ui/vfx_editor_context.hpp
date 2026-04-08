@@ -4,10 +4,13 @@
 #include "ui/timeline_widget.hpp"
 #include "ui/viewport_manager.hpp"
 #include "core/delegate.hpp"
+#include "renderer/systems/vfx_pin.hpp"
 #include "scene/scene.hpp"
 
 #include <string>
 #include <vector>
+
+namespace ax::NodeEditor { struct EditorContext; }
 
 namespace fjell {
 
@@ -17,6 +20,7 @@ class Input;
 class ProjectManager;
 class ResourceManager;
 class VulkanContext;
+struct PinDescriptor;
 struct VfxEffect;
 struct VfxEmitter;
 struct VfxModule;
@@ -72,12 +76,27 @@ public:
 private:
     void draw_node_editor();
     void draw_module_stack();
-    void draw_module_palette();
+    void draw_context_menu();
+    void draw_expression_nodes();
+    void draw_links();
+    void handle_link_creation();
+    void handle_deletion();
     void setup_preview();
+    void rebuild_node_positions();
+    [[nodiscard]] PinDataType resolve_pin_type(uint64_t pin_id) const;
 
     void draw_module_entry(VfxModule* mod, int index,
                            std::vector<std::unique_ptr<VfxModule>>& stack,
                            const char* stack_label);
+
+    // Node/pin ID encoding
+    static constexpr int kSpawnBase  = 10000;
+    static constexpr int kUpdateBase = 20000;
+    static constexpr int kRenderBase = 30000;
+    [[nodiscard]] static int module_node_id(int stack, int index);
+    [[nodiscard]] static int input_pin_id(int node_id, int pin_index);
+    [[nodiscard]] static int output_pin_id(int node_id);
+    void decode_node_id(int node_id, int& stack, int& index) const;
 
     VfxEditorDeps deps_;
     std::string name_{"VFX"};
@@ -92,19 +111,14 @@ private:
     uint32_t preview_node_id_{0};
     ViewportManager viewport_manager_;
 
-    // Node editor state
-    bool nodes_initialized_{false};
-    void* imnodes_ctx_{nullptr}; // ImNodesContext*, opaque to avoid imnodes include
-    int node_id_counter_{0};
-    struct EmitterNode {
-        int node_id;
-        int emitter_index;  // index into effect_->emitters
-        int output_pin_id;  // for future linking
-    };
-    std::vector<EmitterNode> emitter_nodes_;
+    // Node editor
+    ax::NodeEditor::EditorContext* node_editor_ctx_{nullptr};
+    bool needs_initial_layout_{false};
 
     // Selection
     int selected_emitter_{-1};
+    int selected_module_stack_{-1};   // 0=spawn, 1=update, 2=render
+    int selected_module_index_{-1};
 
     // Timeline
     VfxTimeline timeline_;

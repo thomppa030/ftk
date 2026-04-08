@@ -121,6 +121,7 @@ private:
     VkDescriptorSetLayout bindless_set_layout_{VK_NULL_HANDLE};
 
     uint32_t frame_seed_{0};
+    float accumulated_time_{0.0f};
 };
 
 } // namespace fjell

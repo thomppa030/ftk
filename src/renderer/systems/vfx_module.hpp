@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/systems/vfx_pin.hpp"
+
 #include <glm/glm.hpp>
 #include <nlohmann/json_fwd.hpp>
 
@@ -69,6 +71,9 @@ struct VfxModule {
     /// Draw ImGui inspector. Returns true if any parameter changed.
     virtual bool draw_inspector() = 0;
 
+    /// Describe parameters as typed pins for the node graph.
+    [[nodiscard]] virtual std::vector<PinDescriptor> pin_descriptors() { return {}; }
+
     /// JSON serialization
     virtual void to_json(nlohmann::json& j) const = 0;
     virtual void from_json(const nlohmann::json& j) = 0;
@@ -92,6 +97,7 @@ struct SpawnRateModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::spawn_rate; }
     [[nodiscard]] const char* name() const override { return "Spawn Rate"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -104,6 +110,7 @@ struct InitialLifetimeModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_lifetime; }
     [[nodiscard]] const char* name() const override { return "Initial Lifetime"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -117,6 +124,7 @@ struct InitialPositionModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_position; }
     [[nodiscard]] const char* name() const override { return "Initial Position"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -135,6 +143,7 @@ struct InitialVelocityModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_velocity; }
     [[nodiscard]] const char* name() const override { return "Initial Velocity"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -146,6 +155,7 @@ struct InitialColorModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_color; }
     [[nodiscard]] const char* name() const override { return "Initial Color"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -158,6 +168,7 @@ struct InitialSizeModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_size; }
     [[nodiscard]] const char* name() const override { return "Initial Size"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -169,6 +180,7 @@ struct GravityModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::gravity; }
     [[nodiscard]] const char* name() const override { return "Gravity"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -181,6 +193,7 @@ struct ColorOverLifeModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::color_over_life; }
     [[nodiscard]] const char* name() const override { return "Color Over Life"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -193,6 +206,7 @@ struct SizeOverLifeModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::size_over_life; }
     [[nodiscard]] const char* name() const override { return "Size Over Life"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -204,6 +218,7 @@ struct DragModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::drag; }
     [[nodiscard]] const char* name() const override { return "Drag"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -217,6 +232,7 @@ struct NoiseModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::noise; }
     [[nodiscard]] const char* name() const override { return "Noise"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -230,6 +246,7 @@ struct AttractModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::attract; }
     [[nodiscard]] const char* name() const override { return "Attract"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -241,6 +258,7 @@ struct VelocityLimitModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::velocity_limit; }
     [[nodiscard]] const char* name() const override { return "Velocity Limit"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -267,6 +285,7 @@ struct CollisionModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::collision; }
     [[nodiscard]] const char* name() const override { return "Collision"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -278,6 +297,7 @@ struct InitialStretchModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_stretch; }
     [[nodiscard]] const char* name() const override { return "Initial Stretch"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -290,6 +310,7 @@ struct InitialTextureModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_texture; }
     [[nodiscard]] const char* name() const override { return "Initial Texture"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -304,6 +325,7 @@ struct InitialRotationModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_rotation; }
     [[nodiscard]] const char* name() const override { return "Initial Rotation"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -315,6 +337,7 @@ struct BurstModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::burst; }
     [[nodiscard]] const char* name() const override { return "Burst"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;
@@ -338,6 +361,7 @@ struct FlipbookModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::flipbook; }
     [[nodiscard]] const char* name() const override { return "Flipbook"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
     void to_json(nlohmann::json& j) const override;

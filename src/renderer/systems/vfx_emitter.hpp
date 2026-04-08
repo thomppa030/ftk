@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/components/particle_emitter.hpp"
+#include "renderer/systems/vfx_expression.hpp"
 #include "renderer/systems/vfx_module.hpp"
 
 #include <memory>
@@ -18,6 +19,8 @@ struct VfxEmitter {
     std::vector<std::unique_ptr<VfxModule>> spawn_modules;
     std::vector<std::unique_ptr<VfxModule>> update_modules;
     std::vector<std::unique_ptr<VfxModule>> render_modules;
+
+    ExpressionGraph expression_graph;
 
     /// Build a default emitter with the standard module stack
     static VfxEmitter make_default();
