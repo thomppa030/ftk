@@ -197,6 +197,8 @@ public:
   [[nodiscard]] PostProcessResources& default_pp() { return *default_pp_; }
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
+  void set_resource_manager(ResourceManager* rm) { resource_manager_ = rm; }
+  void set_project(const Project* p) { project_ = p; }
 
   // ── Scene Viewports (render-to-texture for materials) ─────────────────
   /// Create a named scene viewport. Returns the bindless index of its output.
@@ -335,6 +337,8 @@ private:
   bool meshlet_passes_created_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
+  ResourceManager* resource_manager_{nullptr};
+  const Project* project_{nullptr};
   float ibl_intensity_{1.0f};
   float elapsed_time_{0.0f};
 

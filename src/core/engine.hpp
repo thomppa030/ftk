@@ -20,7 +20,6 @@
 #include "ui/menu_bar.hpp"
 
 #ifndef NDEBUG
-#include "platform/file_watcher.hpp"
 #include "renderer/shader_watcher.hpp"
 #endif
 
@@ -154,11 +153,6 @@ private:
 
 #ifndef NDEBUG
     std::optional<ShaderWatcher> shader_watcher_;
-    platform::FileWatcher vfx_watcher_;
-    bool vfx_changed_{false};
-    std::string vfx_changed_path_;
-    void reload_changed_vfx();
-    void setup_vfx_watcher();
 #endif
 
     // Project

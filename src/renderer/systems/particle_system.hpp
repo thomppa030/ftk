@@ -4,6 +4,10 @@
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/systems/render_subsystem.hpp"
+
+#ifndef NDEBUG
+#include "platform/file_watcher.hpp"
+#endif
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/systems/vfx_module.hpp"
 
@@ -215,6 +219,14 @@ private:
     float accumulated_time_{0.0f};
     glm::vec3 camera_pos_{0.0f};
     glm::mat4 cached_view_projection_{1.0f};
+
+#ifndef NDEBUG
+    platform::FileWatcher vfx_watcher_;
+    bool vfx_changed_{false};
+    std::string vfx_changed_path_;
+    void setup_vfx_watcher(const RenderSubsystemContext& ctx);
+    void reload_changed_vfx(const RenderSubsystemContext& ctx);
+#endif
 };
 
 } // namespace fjell

@@ -7,6 +7,8 @@
 namespace fjell {
 
 class Device;
+class Project;
+class ResourceManager;
 class Scene;
 struct FrameContext;
 struct PassResources;
@@ -15,6 +17,8 @@ struct PassResources;
 // Each subsystem reads what it needs and ignores the rest.
 struct RenderSubsystemContext {
     Scene* scene{nullptr};
+    ResourceManager* resource_manager{nullptr};
+    const Project* project{nullptr};
     glm::mat4 view_projection{1.0f};
     glm::vec3 camera_position{0.0f};
     uint32_t frame_index{0};

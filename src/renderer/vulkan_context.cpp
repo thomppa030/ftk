@@ -1203,6 +1203,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     {
         RenderSubsystemContext sub_ctx{};
         sub_ctx.scene = scene;
+        sub_ctx.resource_manager = resource_manager_;
+        sub_ctx.project = project_;
         sub_ctx.view_projection = gatherer_.projection_matrix() * gatherer_.view_matrix();
         sub_ctx.camera_position = gatherer_.camera_position();
         sub_ctx.frame_index = current_frame_;
@@ -1837,6 +1839,8 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     {
         RenderSubsystemContext sub_ctx{};
         sub_ctx.scene = scene;
+        sub_ctx.resource_manager = resource_manager_;
+        sub_ctx.project = project_;
         sub_ctx.frame_index = current_frame_;
         for (auto& sys : render_subsystems_) sys->sync(sub_ctx);
     }

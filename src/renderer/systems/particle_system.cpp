@@ -3,6 +3,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
+#include "renderer/systems/vfx_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
 #include "renderer/systems/vfx_expression_eval.hpp"
 #include "renderer/systems/vfx_module.hpp"
@@ -10,6 +11,7 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "core/project.hpp"
 #include "scene/scene.hpp"
 
 #include <algorithm>
@@ -1259,6 +1261,13 @@ void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
 // ── RenderSubsystem overrides ──────────────────────────────────────────
 
 void ParticleSystem::sync(const RenderSubsystemContext& ctx) {
+#ifndef NDEBUG
+    if (vfx_watcher_.poll() && vfx_changed_) {
+        vfx_changed_ = false;
+        reload_changed_vfx(ctx);
+    }
+    setup_vfx_watcher(ctx);
+#endif
     if (ctx.scene) sync_emitters(*ctx.scene);
 }
 
@@ -2011,5 +2020,77 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
         }
     }
 }
+
+// ── VFX hot-reload (debug builds only) ──────────────────────────────────
+
+#ifndef NDEBUG
+void ParticleSystem::setup_vfx_watcher(const RenderSubsystemContext& ctx) {
+    if (!ctx.scene || !ctx.project) return;
+
+    // Only set up once per scene — check if watcher already has watches
+    // by tracking whether we've seen this scene pointer before.
+    static const Scene* last_scene = nullptr;
+    if (ctx.scene == last_scene) return;
+    last_scene = ctx.scene;
+
+    vfx_watcher_.clear();
+    vfx_changed_ = false;
+
+    std::unordered_set<std::string> watched_dirs;
+    for (const auto& obj : ctx.scene->objects()) {
+        auto* ec = obj->components.get<EmitterComponent>();
+        if (!ec || ec->vfx_path.empty()) continue;
+        auto abs = ctx.project->resolve(ec->vfx_path);
+        auto dir = std::filesystem::path(abs).parent_path().string();
+        if (watched_dirs.contains(dir)) continue;
+        watched_dirs.insert(dir);
+        vfx_watcher_.watch(dir, [this](const std::filesystem::path& p) {
+            if (p.extension() == ".fjvfx") {
+                vfx_changed_ = true;
+                vfx_changed_path_ = p.string();
+            }
+        });
+    }
+}
+
+void ParticleSystem::reload_changed_vfx(const RenderSubsystemContext& ctx) {
+    if (vfx_changed_path_.empty() || !ctx.scene || !ctx.project) return;
+
+    // Convert absolute path to project-relative for matching
+    std::string relative_path;
+    auto root = ctx.project->root().string();
+    if (vfx_changed_path_.starts_with(root)) {
+        relative_path = vfx_changed_path_.substr(root.size());
+        if (!relative_path.empty() && relative_path[0] == '/')
+            relative_path = relative_path.substr(1);
+    }
+
+    try {
+        auto effect = load_vfx_effect(vfx_changed_path_);
+        if (ctx.resource_manager) {
+            resolve_vfx_textures(effect, *ctx.resource_manager, ctx.project);
+        }
+        auto shared = std::make_shared<VfxEffect>(std::move(effect));
+
+        int replaced = 0;
+        for (const auto& obj : ctx.scene->objects()) {
+            auto* ec = obj->components.get<EmitterComponent>();
+            if (!ec) continue;
+            if (ec->vfx_path == relative_path || ec->vfx_path == vfx_changed_path_) {
+                ec->effect = shared;
+                replaced++;
+            }
+        }
+
+        if (replaced > 0) {
+            FJELL_CORE_INFO("VFX hot-reloaded: {} ({} instance(s))", relative_path, replaced);
+        }
+    } catch (const std::exception& e) {
+        FJELL_CORE_ERROR("VFX hot-reload failed: {}", e.what());
+    }
+
+    vfx_changed_path_.clear();
+}
+#endif
 
 } // namespace fjell
