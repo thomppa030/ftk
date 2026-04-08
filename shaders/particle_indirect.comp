@@ -31,7 +31,14 @@ void main() {
     EmitterData em = emitters[eidx];
 
     // VkDrawIndirectCommand: vertexCount, instanceCount, firstVertex, firstInstance
-    if ((em.flags & 1u) != 0u) {
+    // Mesh emitters (bit 2) don't use billboard indirect — zero their command
+    if ((em.flags & 4u) != 0u) {
+        indirect_cmds[eidx * 4 + 0] = 0;
+        indirect_cmds[eidx * 4 + 1] = 0;
+        indirect_cmds[eidx * 4 + 2] = 0;
+        indirect_cmds[eidx * 4 + 3] = 0;
+    }
+    else if ((em.flags & 1u) != 0u) {
         // Trail emitter: triangle strip, 2 vertices per particle
         uint alive = counters[em.counter_offset];
         indirect_cmds[eidx * 4 + 0] = min(alive, em.max_particles) * 2;
