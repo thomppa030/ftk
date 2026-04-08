@@ -1262,8 +1262,8 @@ void ParticleSystem::init_emitter_range(uint32_t from, uint32_t to) {
 
 void ParticleSystem::sync(const RenderSubsystemContext& ctx) {
 #ifndef NDEBUG
-    if (vfx_watcher_.poll() && vfx_changed_) {
-        vfx_changed_ = false;
+    (void)vfx_watcher_.poll();
+    if (vfx_changed_ && ctx.scene && ctx.project) {
         reload_changed_vfx(ctx);
     }
     setup_vfx_watcher(ctx);
@@ -2026,12 +2026,8 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
 #ifndef NDEBUG
 void ParticleSystem::setup_vfx_watcher(const RenderSubsystemContext& ctx) {
     if (!ctx.scene || !ctx.project) return;
-
-    // Only set up once per scene — check if watcher already has watches
-    // by tracking whether we've seen this scene pointer before.
-    static const Scene* last_scene = nullptr;
-    if (ctx.scene == last_scene) return;
-    last_scene = ctx.scene;
+    if (ctx.scene == watched_scene_) return;
+    watched_scene_ = ctx.scene;
 
     vfx_watcher_.clear();
     vfx_changed_ = false;
@@ -2048,48 +2044,56 @@ void ParticleSystem::setup_vfx_watcher(const RenderSubsystemContext& ctx) {
             if (p.extension() == ".fjvfx") {
                 vfx_changed_ = true;
                 vfx_changed_path_ = p.string();
+                vfx_relative_path_.clear();
+                vfx_pending_effect_.reset();
+                vfx_reloaded_scenes_.clear();
             }
         });
     }
 }
 
 void ParticleSystem::reload_changed_vfx(const RenderSubsystemContext& ctx) {
-    if (vfx_changed_path_.empty() || !ctx.scene || !ctx.project) return;
+    if (vfx_changed_path_.empty()) return;
 
-    // Convert absolute path to project-relative for matching
-    std::string relative_path;
-    auto root = ctx.project->root().string();
-    if (vfx_changed_path_.starts_with(root)) {
-        relative_path = vfx_changed_path_.substr(root.size());
-        if (!relative_path.empty() && relative_path[0] == '/')
-            relative_path = relative_path.substr(1);
+    // Already applied to this scene
+    if (vfx_reloaded_scenes_.contains(ctx.scene)) return;
+    vfx_reloaded_scenes_.insert(ctx.scene);
+
+    // Parse and cache effect on first call
+    if (!vfx_pending_effect_) {
+        auto root = ctx.project->root().string();
+        if (vfx_changed_path_.starts_with(root)) {
+            vfx_relative_path_ = vfx_changed_path_.substr(root.size());
+            if (!vfx_relative_path_.empty() && vfx_relative_path_[0] == '/')
+                vfx_relative_path_ = vfx_relative_path_.substr(1);
+        }
+        try {
+            auto effect = load_vfx_effect(vfx_changed_path_);
+            if (ctx.resource_manager)
+                resolve_vfx_textures(effect, *ctx.resource_manager, ctx.project);
+            vfx_pending_effect_ = std::make_shared<VfxEffect>(std::move(effect));
+        } catch (const std::exception& e) {
+            FJELL_CORE_ERROR("VFX hot-reload failed: {}", e.what());
+            // Clear state so we don't retry every frame
+            vfx_changed_ = false;
+            vfx_changed_path_.clear();
+            return;
+        }
     }
 
-    try {
-        auto effect = load_vfx_effect(vfx_changed_path_);
-        if (ctx.resource_manager) {
-            resolve_vfx_textures(effect, *ctx.resource_manager, ctx.project);
+    int replaced = 0;
+    for (const auto& obj : ctx.scene->objects()) {
+        auto* ec = obj->components.get<EmitterComponent>();
+        if (!ec) continue;
+        if (ec->vfx_path == vfx_relative_path_ || ec->vfx_path == vfx_changed_path_) {
+            ec->effect = vfx_pending_effect_;
+            replaced++;
         }
-        auto shared = std::make_shared<VfxEffect>(std::move(effect));
-
-        int replaced = 0;
-        for (const auto& obj : ctx.scene->objects()) {
-            auto* ec = obj->components.get<EmitterComponent>();
-            if (!ec) continue;
-            if (ec->vfx_path == relative_path || ec->vfx_path == vfx_changed_path_) {
-                ec->effect = shared;
-                replaced++;
-            }
-        }
-
-        if (replaced > 0) {
-            FJELL_CORE_INFO("VFX hot-reloaded: {} ({} instance(s))", relative_path, replaced);
-        }
-    } catch (const std::exception& e) {
-        FJELL_CORE_ERROR("VFX hot-reload failed: {}", e.what());
     }
 
-    vfx_changed_path_.clear();
+    if (replaced > 0) {
+        FJELL_CORE_INFO("VFX hot-reloaded: {} ({} instance(s))", vfx_relative_path_, replaced);
+    }
 }
 #endif
 
