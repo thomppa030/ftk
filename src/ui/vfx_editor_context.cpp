@@ -620,6 +620,21 @@ void VfxEditorContext::draw_node_editor() {
                 ImGui::EndHorizontal();
                 ImGui::PopStyleVar();
 
+                // Texture preview for InitialTextureModule
+                if (mod->type() == ModuleType::initial_texture) {
+                    auto* tex_mod = static_cast<InitialTextureModule*>(mod);
+                    if (!tex_mod->texture_path.empty() && deps_.icon_cache) {
+                        auto resolved = base_path::resolve_asset(
+                            tex_mod->texture_path, deps_.project_mgr->active());
+                        auto desc = deps_.icon_cache->thumbnail(resolved);
+                        if (desc) {
+                            ImGui::Spring(0, 4.0f);
+                            constexpr float preview_size = 48.0f;
+                            ImGui::Image(desc, ImVec2(preview_size, preview_size));
+                        }
+                    }
+                }
+
                 ImGui::EndVertical();
                 ImGui::PopID();
                 ne::EndNode();
