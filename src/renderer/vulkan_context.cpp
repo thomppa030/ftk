@@ -553,6 +553,12 @@ void VulkanContext::register_gpu_driven_passes() {
 }
 
 void VulkanContext::register_color_passes() {
+    register_opaque_pass();
+    register_screen_color_copy_pass();
+    register_transparent_pass();
+}
+
+void VulkanContext::register_opaque_pass() {
     render_pipeline_.register_pass({
         .name = "color_opaque",
         .order = 600,
@@ -746,8 +752,9 @@ void VulkanContext::register_color_passes() {
                 {imgs.depth_id, ImageUsage::depth_attachment}});
         }
     });
+}
 
-    // ── Screen color copy: snapshot resolved color for SCREEN_TEXTURE ───
+void VulkanContext::register_screen_color_copy_pass() {
     render_pipeline_.register_pass({
         .name = "screen_color_copy",
         .order = 625,
@@ -769,8 +776,9 @@ void VulkanContext::register_color_passes() {
                 {imgs.screen_color_id, ImageUsage::transfer_dst}});
         }
     });
+}
 
-    // ── Color pass: transparent geometry + worldspace UI + particles ─────
+void VulkanContext::register_transparent_pass() {
     render_pipeline_.register_pass({
         .name = "color_transparent",
         .order = 650,
@@ -1079,6 +1087,49 @@ void VulkanContext::register_pass_resources() {
 
 // ── Command buffer recording ────────────────────────────────────────────
 
+FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPass& target,
+                                                 Scene* scene, float dt, uint32_t selected_id,
+                                                 PostProcessResources* pp, bool skip_shadows,
+                                                 bool flip_tonemap_y) {
+    FrameContext ctx{};
+    ctx.cmd = cmd;
+    ctx.target = &target;
+    ctx.queue = &gatherer_.render_queue();
+    ctx.camera_position = gatherer_.camera_position();
+    ctx.global_descriptor_set = gpu_.global_descriptor_set(current_frame_);
+    ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
+    ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
+    ctx.debug_draw = debug_draw_.get();
+    ctx.scene = scene;
+    ctx.delta_time = dt;
+    ctx.selected_id = selected_id;
+    ctx.show_colliders = show_colliders_;
+    ctx.frame_index = current_frame_;
+    ctx.indirect_batch = gatherer_.indirect_batch();
+    ctx.mega_buffer = gpu_.mega_buffer();
+    ctx.use_mesh_shaders = gpu_.use_mesh_shaders();
+    ctx.pipeline_cache = gpu_.pipeline_cache();
+    if (gpu_.use_mesh_shaders()) {
+        ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
+        ctx.gpu_driven_indirect = meshlet_instance_pass_.indirect_buffer(current_frame_);
+        ctx.gpu_driven_segment_size = meshlet_instance_pass_.segment_size(current_frame_);
+    }
+    ctx.mr_view = target.mr_view();
+    ctx.prev_frame_color_view = ssr_pass_.prev_frame_view();
+    ctx.pp_resources = pp;
+    ctx.skip_shadows = skip_shadows;
+    ctx.flip_tonemap_y = flip_tonemap_y;
+    if (pp && pp->hiz() && pp->hiz()->ready()) {
+        ctx.hiz_view = pp->hiz()->hiz_sampled_view;
+        ctx.hiz_sampler = hiz_pass_.sampler();
+        ctx.hiz_mip_count = pp->hiz()->hiz_mip_count;
+    }
+    ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
+    ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
+    ctx.target_pool = &target_pool_;
+    return ctx;
+}
+
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
                                     ThreadPool& pool, PostProcessResources* pp,
@@ -1145,45 +1196,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                   current_frame_);
     }
 
-    FrameContext ctx{};
-    ctx.cmd = cmd;
-    ctx.target = &target;
-    ctx.queue = &gatherer_.render_queue();
-    ctx.camera_position = gatherer_.camera_position();
-    ctx.global_descriptor_set = gpu_.global_descriptor_set(current_frame_);
-    ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
-    ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
-    ctx.debug_draw = debug_draw_.get();
-    ctx.scene = scene;
-    ctx.delta_time = dt;
-    ctx.selected_id = selected_id;
-    ctx.show_colliders = show_colliders_;
-    ctx.frame_index = current_frame_;
-    ctx.indirect_batch = gatherer_.indirect_batch();
-    ctx.mega_buffer = gpu_.mega_buffer();
-    ctx.use_mesh_shaders = gpu_.use_mesh_shaders();
-    ctx.pipeline_cache = gpu_.pipeline_cache();
-    if (gpu_.use_mesh_shaders()) {
-        ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
-        ctx.gpu_driven_indirect = meshlet_instance_pass_.indirect_buffer(current_frame_);
-        ctx.gpu_driven_segment_size = meshlet_instance_pass_.segment_size(current_frame_);
-    }
-    ctx.mr_view = target.mr_view();
-    ctx.prev_frame_color_view = ssr_pass_.prev_frame_view();
-    ctx.pp_resources = pp;
-    ctx.skip_shadows = skip_shadows;
-    ctx.flip_tonemap_y = flip_tonemap_y;
-    if (pp->hiz() && pp->hiz()->ready()) {
-        ctx.hiz_view = pp->hiz()->hiz_sampled_view;
-        ctx.hiz_sampler = hiz_pass_.sampler();
-        ctx.hiz_mip_count = pp->hiz()->hiz_mip_count;
-    }
-    ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
-    ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
-    ctx.target_pool = &target_pool_;
-
-    // Store current frame context for pass build callbacks
-    current_ctx_ = ctx;
+    current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
+                                        pp, skip_shadows, flip_tonemap_y);
 
     // Init screen color image on first use (or after resize) so the descriptor
     // at binding 8 doesn't point to an UNDEFINED-layout image.
