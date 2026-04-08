@@ -151,16 +151,22 @@ void VfxEditorContext::init() {
     config.SettingsFile = nullptr; // in-memory only
     node_editor_ctx_ = ne::CreateEditor(&config);
 
-    // Style: thicker links, more visible
+    // Style
     ne::SetCurrentEditor(node_editor_ctx_);
     auto& style = ne::GetStyle();
     style.LinkStrength = 200.0f;
     style.ScrollDuration = 0.35f;
-    style.NodeRounding = 6.0f;
-    style.NodeBorderWidth = 1.5f;
-    style.HoveredNodeBorderWidth = 2.5f;
-    style.SelectedNodeBorderWidth = 2.5f;
+    style.NodeRounding = 4.0f;
+    style.NodeBorderWidth = 1.0f;
+    style.HoveredNodeBorderWidth = 1.5f;
+    style.SelectedNodeBorderWidth = 2.0f;
     style.PinRounding = 3.0f;
+    style.Colors[ne::StyleColor_Bg]            = ImColor(22, 23, 26, 255);
+    style.Colors[ne::StyleColor_Grid]          = ImColor(38, 40, 44, 128);
+    style.Colors[ne::StyleColor_NodeBg]        = ImColor(30, 31, 34, 240);
+    style.Colors[ne::StyleColor_NodeBorder]    = ImColor(52, 54, 58, 255);
+    style.Colors[ne::StyleColor_HovNodeBorder] = ImColor(80, 85, 95, 255);
+    style.Colors[ne::StyleColor_SelNodeBorder] = ImColor(212, 160, 84, 255);
     ne::SetCurrentEditor(nullptr);
 
     init_shared_panels(deps_.vulkan_context);
@@ -396,29 +402,31 @@ void VfxEditorContext::rebuild_node_positions() {
 
 // ── Node Editor ─────────────────────────────────────────────────────────
 
-static constexpr float kPinIconSize = 12.0f;
+static constexpr float kPinIconSize = 10.0f;
+static constexpr float kNodeMinWidth = 160.0f;
 
 static void draw_pin_icon(PinDataType type, bool connected, float size = kPinIconSize) {
-    ImVec2 sz(size, size);
+    // Text renders at CursorPos.y + CurrLineTextBaseOffset (see imgui TextEx).
+    // We match that: circle center = text visual center.
+    float text_h = ImGui::GetTextLineHeight();
+    float baseline = ImGui::GetCurrentWindow()->DC.CurrLineTextBaseOffset;
     ImVec2 pos = ImGui::GetCursorScreenPos();
+    float cx = pos.x + size * 0.5f;
+    float cy = pos.y + baseline + text_h * 0.5f;
+    float r = size * 0.4f;
+
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    ImVec2 center(pos.x + sz.x * 0.5f, pos.y + sz.y * 0.5f);
-    float r = sz.x * 0.4f;
     ImColor col = pin_color(type);
     if (connected) {
-        dl->AddCircleFilled(center, r, col);
+        dl->AddCircleFilled(ImVec2(cx, cy), r, col);
+        dl->AddCircle(ImVec2(cx, cy), r, ImColor(col.Value.x * 0.6f, col.Value.y * 0.6f,
+                      col.Value.z * 0.6f, 1.0f), 12, 1.5f);
     } else {
-        dl->AddCircle(center, r, col, 12, 2.0f);
+        dl->AddCircleFilled(ImVec2(cx, cy), r, ImColor(col.Value.x * 0.15f, col.Value.y * 0.15f,
+                            col.Value.z * 0.15f, 0.8f));
+        dl->AddCircle(ImVec2(cx, cy), r, col, 12, 1.5f);
     }
-    ImGui::Dummy(sz);
-}
-
-/// Draw a colored separator line at a fixed width.
-static void draw_colored_separator(ImU32 color, float width = 180.0f) {
-    ImVec2 p = ImGui::GetCursorScreenPos();
-    ImGui::GetWindowDrawList()->AddLine(
-        p, ImVec2(p.x + width, p.y), color, 1.0f);
-    ImGui::Dummy(ImVec2(width, 2));
+    ImGui::Dummy(ImVec2(size, text_h));
 }
 
 void VfxEditorContext::draw_node_editor() {
@@ -522,6 +530,16 @@ void VfxEditorContext::draw_node_editor() {
             }
         };
 
+        // Check if a pin has any link connected to it
+        auto& mod_graph = emitter.expression_graph;
+        auto is_mod_pin_linked = [&](int pid) {
+            uint64_t id = static_cast<uint64_t>(pid);
+            for (auto& link : mod_graph.links)
+                if (link.source_pin_id == id || link.target_pin_id == id)
+                    return true;
+            return false;
+        };
+
         // Draw module nodes for each stack
         auto draw_stack = [&](int stack_idx, auto& modules) {
             for (int i = 0; i < static_cast<int>(modules.size()); ++i) {
@@ -532,48 +550,98 @@ void VfxEditorContext::draw_node_editor() {
                                     i == selected_module_index_);
 
                 ImU32 col = stack_color(stack_idx);
-                ne::PushStyleColor(ne::StyleColor_NodeBg, ImColor(32, 33, 36, 230));
                 ne::PushStyleColor(ne::StyleColor_NodeBorder,
-                    is_selected ? ImColor(212, 160, 84, 255) : ImColor(55, 57, 62, 255));
-                ne::PushStyleVar(ne::StyleVar_NodeRounding, 6.0f);
-                ne::PushStyleVar(ne::StyleVar_NodePadding, ImVec4(8, 6, 8, 8));
+                    is_selected ? ImColor(212, 160, 84, 255) : ImColor(52, 54, 58, 255));
+                ne::PushStyleVar(ne::StyleVar_NodePadding, ImVec4(10, 8, 10, 8));
 
                 ne::BeginNode(ne::NodeId(nid));
+                ImGui::PushID(nid);
+                ImGui::BeginVertical("node");
 
-                // ── Title ──
-                ImGui::PushStyleColor(ImGuiCol_Text, col);
-                ImGui::Text("%s", mod->name());
-                ImGui::PopStyleColor();
-                if (!mod->enabled) {
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(off)");
-                }
-                draw_colored_separator(col);
+                // ── Header ──
+                ImGui::BeginHorizontal("header", ImVec2(kNodeMinWidth, 0));
+                    ImGui::Spring(1);
+                    ImFont* bold = ImGui::GetIO().Fonts->Fonts.Size > 1
+                        ? ImGui::GetIO().Fonts->Fonts[1] : nullptr;
+                    if (bold) ImGui::PushFont(bold);
+                    ImGui::TextUnformatted(mod->name());
+                    if (bold) ImGui::PopFont();
+                    if (!mod->enabled) {
+                        ImGui::Spring(0, 4.0f);
+                        ImGui::TextColored(ImVec4(0.45f, 0.46f, 0.48f, 1.0f), "(off)");
+                    }
+                    ImGui::Spring(1);
+                ImGui::EndHorizontal();
+                ImVec2 header_max = ImGui::GetItemRectMax();
 
-                // ── Input pins (left) ──
-                auto pins = mod->pin_descriptors();
-                for (int p = 0; p < static_cast<int>(pins.size()); ++p) {
-                    if (pins[p].data_type == PinDataType::enum_type) continue;
+                ImGui::Spring(0, 10.0f);
 
-                    ne::BeginPin(ne::PinId(input_pin_id(nid, p)), ne::PinKind::Input);
-                        draw_pin_icon(pins[p].data_type, false);
-                    ne::EndPin();
-                    ImGui::SameLine();
-                    ImGui::Text("%s", pins[p].name.c_str());
-                    ImGui::SameLine();
-                    draw_value_preview(pins[p]);
-                }
+                // ── Pins area ──
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 6.0f));
+                ImGui::BeginHorizontal("content", ImVec2(0, 0), 0.0f);
+                    ImGui::Spring(0, 0);
 
-                // ── Single output pin (right, own row) ──
-                ImGui::Text("out");
-                ImGui::SameLine();
-                ne::BeginPin(ne::PinId(output_pin_id(nid)), ne::PinKind::Output);
-                    draw_pin_icon(PinDataType::float_type, false);
-                ne::EndPin();
+                    // Inputs column (left-aligned)
+                    auto pins = mod->pin_descriptors();
+                    ImGui::BeginVertical("inputs", ImVec2(0, 0), 0.0f);
+                        for (int p = 0; p < static_cast<int>(pins.size()); ++p) {
+                            if (pins[p].data_type == PinDataType::enum_type) continue;
 
+                            ne::BeginPin(ne::PinId(input_pin_id(nid, p)), ne::PinKind::Input);
+                                ne::PinPivotAlignment(ImVec2(0.0f, 0.5f));
+                                ne::PinPivotSize(ImVec2(0, 0));
+                                draw_pin_icon(pins[p].data_type, is_mod_pin_linked(input_pin_id(nid, p)));
+                            ne::EndPin();
+                            ImGui::SameLine(0, 4.0f);
+
+                            ImGui::TextUnformatted(pins[p].name.c_str());
+                            ImGui::SameLine(0, 6.0f);
+
+                            draw_value_preview(pins[p]);
+                        }
+                    ImGui::EndVertical();
+
+                    ImGui::Spring(1);
+
+                    // Output column (right-aligned)
+                    ImGui::BeginVertical("outputs", ImVec2(0, 0), 1.0f);
+                        // Use same structure as input: icon first for consistent row height
+                        ne::BeginPin(ne::PinId(output_pin_id(nid)), ne::PinKind::Output);
+                            ne::PinPivotAlignment(ImVec2(1.0f, 0.5f));
+                            ne::PinPivotSize(ImVec2(0, 0));
+                            draw_pin_icon(PinDataType::float_type, is_mod_pin_linked(output_pin_id(nid)));
+                        ne::EndPin();
+                        ImGui::SameLine(0, 4.0f);
+                        ImGui::TextUnformatted("out");
+                    ImGui::EndVertical();
+
+                ImGui::EndHorizontal();
+                ImGui::PopStyleVar();
+
+                ImGui::EndVertical();
+                ImGui::PopID();
                 ne::EndNode();
-                ne::PopStyleVar(2);
-                ne::PopStyleColor(2);
+
+                // Draw header background behind the title (full node width)
+                if (ImGui::IsItemVisible()) {
+                    auto* bg = ne::GetNodeBackgroundDrawList(ne::NodeId(nid));
+                    float rounding = ne::GetStyle().NodeRounding;
+                    float bw = ne::GetStyle().NodeBorderWidth * 0.5f;
+                    ImVec2 node_pos = ne::GetNodePosition(ne::NodeId(nid));
+                    ImVec2 node_size = ne::GetNodeSize(ne::NodeId(nid));
+                    ImVec2 hmin(node_pos.x + bw, node_pos.y + bw);
+                    ImVec2 hmax(node_pos.x + node_size.x - bw, header_max.y + 4.0f);
+                    bg->AddRectFilled(hmin, hmax,
+                        IM_COL32(ImU8(col >> 0), ImU8(col >> 8), ImU8(col >> 16), 40),
+                        rounding, ImDrawFlags_RoundCornersTop);
+                    bg->AddLine(
+                        ImVec2(hmin.x, hmax.y),
+                        ImVec2(hmax.x, hmax.y),
+                        IM_COL32(ImU8(col >> 0), ImU8(col >> 8), ImU8(col >> 16), 80), 1.0f);
+                }
+
+                ne::PopStyleVar(1);
+                ne::PopStyleColor(1);
             }
         };
 
@@ -886,21 +954,39 @@ void VfxEditorContext::draw_expression_nodes() {
     if (!effect_ || selected_emitter_ < 0) return;
     auto& graph = effect_->emitters[selected_emitter_].expression_graph;
 
+    auto is_pin_linked = [&](uint64_t pid) {
+        for (auto& link : graph.links)
+            if (link.source_pin_id == pid || link.target_pin_id == pid)
+                return true;
+        return false;
+    };
+
     for (auto& node : graph.nodes) {
         auto nid = ne::NodeId(node->node_id);
+        int nid_int = static_cast<int>(node->node_id);
         auto pins = expr_node_pins(node->type);
 
-        ne::PushStyleColor(ne::StyleColor_NodeBg, ImColor(28, 30, 34, 230));
-        ne::PushStyleColor(ne::StyleColor_NodeBorder, ImColor(65, 70, 80, 255));
-        ne::PushStyleVar(ne::StyleVar_NodeRounding, 4.0f);
-        ne::PushStyleVar(ne::StyleVar_NodePadding, ImVec4(8, 4, 8, 6));
+        ne::PushStyleVar(ne::StyleVar_NodePadding, ImVec4(10, 8, 10, 8));
 
         ne::BeginNode(nid);
+        ImGui::PushID(nid_int);
+        ImGui::BeginVertical("node");
 
-        // ── Title ──
-        ImGui::TextColored(ImVec4(0.6f, 0.65f, 0.75f, 1.0f),
-                           "%s", expr_node_name(node->type));
-        draw_colored_separator(IM_COL32(80, 88, 100, 200), 100.0f);
+        // ── Header ──
+        ImGui::BeginHorizontal("header");
+            ImGui::Spring(1);
+            ImFont* bold = ImGui::GetIO().Fonts->Fonts.Size > 1
+                ? ImGui::GetIO().Fonts->Fonts[1] : nullptr;
+            if (bold) ImGui::PushFont(bold);
+            ImGui::TextColored(ImVec4(0.65f, 0.70f, 0.80f, 1.0f),
+                               "%s", expr_node_name(node->type));
+            if (bold) ImGui::PopFont();
+            ImGui::Spring(1);
+        ImGui::EndHorizontal();
+        // (expr_header_min not needed — header bg uses node position)
+        ImVec2 expr_header_max = ImGui::GetItemRectMax();
+
+        ImGui::Spring(0, 10.0f);
 
         // ── Constant value editing ──
         if (node->type == ExprNodeType::constant_float) {
@@ -930,35 +1016,73 @@ void VfxEditorContext::draw_expression_nodes() {
             else in_idx.push_back(p);
         }
 
-        // Pair inputs and outputs on same rows
-        int rows = std::max(static_cast<int>(in_idx.size()),
-                            static_cast<int>(out_idx.size()));
-        for (int r = 0; r < rows; ++r) {
-            // Input on left
-            if (r < static_cast<int>(in_idx.size())) {
-                int p = in_idx[r];
-                ne::BeginPin(ne::PinId(node->node_id * 100 + p), ne::PinKind::Input);
-                    draw_pin_icon(pins[p].type, false);
-                ne::EndPin();
-                ImGui::SameLine();
-                ImGui::Text("%s", pins[p].name);
-            }
+        // ── Pins area ──
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 6.0f));
+        ImGui::BeginHorizontal("content", ImVec2(0, 0), 0.0f);
+            ImGui::Spring(0, 0);
 
-            // Output on right (same line)
-            if (r < static_cast<int>(out_idx.size())) {
-                int p = out_idx[r];
-                ImGui::SameLine(0, 16.0f);
-                ImGui::Text("%s", pins[p].name);
-                ImGui::SameLine();
-                ne::BeginPin(ne::PinId(node->node_id * 100 + 50 + p), ne::PinKind::Output);
-                    draw_pin_icon(pins[p].type, false);
-                ne::EndPin();
-            }
+            // Inputs column
+            ImGui::BeginVertical("inputs", ImVec2(0, 0), 0.0f);
+                if (in_idx.empty()) {
+                    ImGui::Dummy(ImVec2(0, 0));
+                }
+                for (int idx : in_idx) {
+                    uint64_t pid = node->node_id * 100 + idx;
+                    ne::BeginPin(ne::PinId(static_cast<int>(pid)), ne::PinKind::Input);
+                        ne::PinPivotAlignment(ImVec2(0.0f, 0.5f));
+                        ne::PinPivotSize(ImVec2(0, 0));
+                        draw_pin_icon(pins[idx].type, is_pin_linked(pid));
+                    ne::EndPin();
+                    ImGui::SameLine(0, 4.0f);
+                    ImGui::TextUnformatted(pins[idx].name);
+                }
+            ImGui::EndVertical();
+
+            ImGui::Spring(1);
+
+            // Outputs column
+            ImGui::BeginVertical("outputs", ImVec2(0, 0), 1.0f);
+                if (out_idx.empty()) {
+                    ImGui::Dummy(ImVec2(0, 0));
+                }
+                for (int idx : out_idx) {
+                    uint64_t pid = node->node_id * 100 + 50 + idx;
+                    ne::BeginPin(ne::PinId(static_cast<int>(pid)), ne::PinKind::Output);
+                        ne::PinPivotAlignment(ImVec2(1.0f, 0.5f));
+                        ne::PinPivotSize(ImVec2(0, 0));
+                        draw_pin_icon(pins[idx].type, is_pin_linked(pid));
+                    ne::EndPin();
+                    ImGui::SameLine(0, 4.0f);
+                    ImGui::TextUnformatted(pins[idx].name);
+                }
+            ImGui::EndVertical();
+
+        ImGui::EndHorizontal();
+        ImGui::PopStyleVar();
+
+        ImGui::EndVertical();
+        ImGui::PopID();
+        ne::EndNode();
+
+        // Draw header background (full node width)
+        if (ImGui::IsItemVisible()) {
+            auto* bg = ne::GetNodeBackgroundDrawList(nid);
+            float rounding = ne::GetStyle().NodeRounding;
+            float bw = ne::GetStyle().NodeBorderWidth * 0.5f;
+            ImVec2 node_pos = ne::GetNodePosition(nid);
+            ImVec2 node_size = ne::GetNodeSize(nid);
+            ImVec2 hmin(node_pos.x + bw, node_pos.y + bw);
+            ImVec2 hmax(node_pos.x + node_size.x - bw, expr_header_max.y + 4.0f);
+            bg->AddRectFilled(hmin, hmax,
+                IM_COL32(70, 80, 100, 35),
+                rounding, ImDrawFlags_RoundCornersTop);
+            bg->AddLine(
+                ImVec2(hmin.x, hmax.y),
+                ImVec2(hmax.x, hmax.y),
+                IM_COL32(70, 80, 100, 80), 1.0f);
         }
 
-        ne::EndNode();
-        ne::PopStyleVar(2);
-        ne::PopStyleColor(2);
+        ne::PopStyleVar(1);
     }
 }
 
@@ -1001,15 +1125,27 @@ void VfxEditorContext::handle_link_creation() {
                 auto src = static_cast<uint64_t>(start_id.Get());
                 auto dst = static_cast<uint64_t>(end_id.Get());
 
-                PinDataType src_type = resolve_pin_type(src);
-                PinDataType dst_type = resolve_pin_type(dst);
+                // Ensure output → input direction (output pins have index >= 50)
+                bool src_is_output = (src % 100) >= 50;
+                bool dst_is_output = (dst % 100) >= 50;
 
-                if (types_compatible(src_type, dst_type)) {
-                    if (ne::AcceptNewItem(ImColor(pin_color(src_type)), 3.0f)) {
-                        graph.add_link(src, dst);
-                    }
-                } else {
+                // Reject input→input or output→output
+                if (src_is_output == dst_is_output) {
                     ne::RejectNewItem(ImColor(200, 50, 50, 255), 2.0f);
+                } else {
+                    // Normalize: source should be the output pin
+                    if (!src_is_output) std::swap(src, dst);
+
+                    PinDataType src_type = resolve_pin_type(src);
+                    PinDataType dst_type = resolve_pin_type(dst);
+
+                    if (types_compatible(src_type, dst_type)) {
+                        if (ne::AcceptNewItem(ImColor(pin_color(src_type)), 3.0f)) {
+                            graph.add_link(src, dst);
+                        }
+                    } else {
+                        ne::RejectNewItem(ImColor(200, 50, 50, 255), 2.0f);
+                    }
                 }
             }
         }
@@ -1044,6 +1180,26 @@ void VfxEditorContext::handle_deletion() {
         }
     }
     ne::EndDelete();
+
+    // Alt+click to disconnect: on a link or on a pin
+    if (ImGui::GetIO().KeyAlt && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        ne::LinkId hovered_link = ne::GetHoveredLink();
+        if (hovered_link) {
+            graph.remove_link(static_cast<uint64_t>(hovered_link.Get()));
+        } else {
+            ne::PinId hovered_pin = ne::GetHoveredPin();
+            if (hovered_pin) {
+                uint64_t pid = static_cast<uint64_t>(hovered_pin.Get());
+                // Remove all links connected to this pin
+                for (int i = static_cast<int>(graph.links.size()) - 1; i >= 0; --i) {
+                    if (graph.links[i].source_pin_id == pid ||
+                        graph.links[i].target_pin_id == pid) {
+                        graph.remove_link(graph.links[i].link_id);
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ── Pin type resolution ─────────────────────────────────────────────────
