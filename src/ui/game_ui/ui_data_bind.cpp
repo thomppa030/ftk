@@ -6,14 +6,14 @@
 
 namespace fjell {
 
-bool UiDataBind::resolve(UiNode& root, UiContext& context) {
+DataBindResult UiDataBind::resolve(UiNode& root, UiContext& context) {
     FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
-    bool changed = false;
-    resolve_node(root, context, changed);
-    return changed;
+    DataBindResult result{};
+    resolve_node(root, context, result);
+    return result;
 }
 
-void UiDataBind::resolve_node(UiNode& node, UiContext& context, bool& changed) {
+void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& result) {
     // Determine which context to use for this node and its children.
     // Priority: foreach item context > widget scoped context > parent context
     UiContext& ctx = node.foreach_context ? *node.foreach_context
@@ -30,23 +30,22 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, bool& changed) {
         }
     }
 
-    // Evaluate if="key" directive
+    // Evaluate if="key" directive — visibility change affects layout
     auto if_it = node.attributes.find("if");
     if (if_it != node.attributes.end()) {
         const auto& key = if_it->second;
         bool visible = false;
         auto val = ctx.get(key);
-        // Truthy: non-empty, not "0", not "false"
         if (!val.empty() && val != "0" && val != "false") {
             visible = true;
         }
         if (node.hidden_by_if != !visible) {
             node.hidden_by_if = !visible;
-            changed = true;
+            result.layout_changed = true;
         }
     }
 
-    // Evaluate class:name="key==value" bindings
+    // Evaluate class:name="key==value" bindings — class change affects style/layout
     for (const auto& [attr, condition] : node.attributes) {
         if (attr.size() <= 6 || attr.substr(0, 6) != "class:") continue;
         auto class_name = attr.substr(6);
@@ -54,13 +53,11 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, bool& changed) {
         bool should_have = false;
         auto eq_pos = condition.find("==");
         if (eq_pos != std::string::npos) {
-            // "key==value" — compare context value to literal or {key} reference
             auto key = condition.substr(0, eq_pos);
             auto expected = condition.substr(eq_pos + 2);
             auto resolved = resolve_template(expected, ctx);
             should_have = (ctx.get(key) == resolved);
         } else {
-            // Just a key — truthy check
             auto val = ctx.get(condition);
             should_have = !val.empty() && val != "0" && val != "false";
         }
@@ -68,25 +65,25 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, bool& changed) {
         bool has_it = node.has_class(class_name);
         if (should_have && !has_it) {
             node.classes.push_back(class_name);
-            changed = true;
+            result.layout_changed = true;
         } else if (!should_have && has_it) {
             node.classes.erase(
                 std::remove(node.classes.begin(), node.classes.end(), class_name),
                 node.classes.end());
-            changed = true;
+            result.layout_changed = true;
         }
     }
 
-    // Resolve {key} templates in text content
+    // Resolve {key} templates in text content — text only, no layout change
     if (node.type == UiNodeType::text && !node.text_template.empty()) {
         auto resolved = resolve_template(node.text_template, ctx);
         if (resolved != node.text_content) {
             node.text_content = std::move(resolved);
-            changed = true;
+            result.text_changed = true;
         }
     }
 
-    // Update bar element fill width from value/max attributes
+    // Update bar element fill width from value/max attributes — redraw only
     if (node.tag == "bar") {
         auto val_it = node.attributes.find("value");
         auto max_it = node.attributes.find("max");
@@ -101,18 +98,17 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, bool& changed) {
             float pct = val / max;
             if (pct < 0.0f) pct = 0.0f;
             if (pct > 1.0f) pct = 1.0f;
-
-            // Store the computed percentage for the renderer
             node.attributes["_fill_pct"] = std::to_string(pct);
+            result.text_changed = true; // bar fill is a visual-only change
         }
     }
 
-    // Process foreach directives in children before recursing
-    resolve_foreach(node, ctx, changed);
+    // Process foreach directives — structural, affects layout
+    resolve_foreach(node, ctx, result);
 
     for (auto& child : node.children) {
-        if (child->is_foreach_template) continue; // skip hidden template
-        resolve_node(*child, ctx, changed);
+        if (child->is_foreach_template) continue;
+        resolve_node(*child, ctx, result);
     }
 }
 
@@ -141,7 +137,7 @@ std::unique_ptr<UiNode> UiDataBind::clone_node(const UiNode& source, UiNode* new
     return clone;
 }
 
-void UiDataBind::resolve_foreach(UiNode& parent, UiContext& context, bool& changed) {
+void UiDataBind::resolve_foreach(UiNode& parent, UiContext& context, DataBindResult& result) {
     for (size_t i = 0; i < parent.children.size(); ++i) {
         auto& child = *parent.children[i];
         auto foreach_it = child.attributes.find("foreach");
@@ -153,7 +149,7 @@ void UiDataBind::resolve_foreach(UiNode& parent, UiContext& context, bool& chang
         if (!child.is_foreach_template) {
             child.is_foreach_template = true;
             child.hidden_by_if = true;
-            changed = true;
+            result.layout_changed = true;
         }
 
         // Get list from context (mutable — we need to set __index on items)
@@ -172,7 +168,7 @@ void UiDataBind::resolve_foreach(UiNode& parent, UiContext& context, bool& chang
         }
 
         if (existing_clones != list_count) {
-            changed = true;
+            result.layout_changed = true;
 
             // Remove excess clones
             if (existing_clones > list_count) {

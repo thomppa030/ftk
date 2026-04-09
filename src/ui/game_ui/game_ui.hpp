@@ -115,6 +115,7 @@ private:
     FontAtlas font_atlas_;
     const FontAtlas* shared_font_atlas_{nullptr}; // non-owning, overrides font_atlas_ when set
     bool dirty_{true};
+    bool layout_dirty_{true};
     bool needs_redraw_{true};
     uint32_t redraw_countdown_{0}; // force N frames of redraw after a change
 

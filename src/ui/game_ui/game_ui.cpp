@@ -126,16 +126,20 @@ void GameUi::update(float viewport_width, float viewport_height,
     needs_redraw_ = false;
 
     // 1. Data binding: resolve {key} templates and if directives
-    bool bind_changed = data_bind_.resolve(*root_, context_);
-    if (bind_changed) {
+    auto bind_result = data_bind_.resolve(*root_, context_);
+    if (bind_result.layout_changed) {
         dirty_ = true;
+        layout_dirty_ = true;
+        needs_redraw_ = true;
+    } else if (bind_result.text_changed) {
         needs_redraw_ = true;
     }
 
-    // 2. Full style resolve (on first frame or when bindings changed)
+    // 2. Full style resolve (on first frame or when layout-affecting bindings changed)
     if (dirty_) {
         style_resolver_.resolve(*root_, stylesheet_);
         dirty_ = false;
+        layout_dirty_ = true;
         needs_redraw_ = true;
     }
 
@@ -147,6 +151,7 @@ void GameUi::update(float viewport_width, float viewport_height,
         // 4. Re-resolve only dirty nodes (state changed by input)
         if (input_changed) {
             needs_redraw_ = true;
+            layout_dirty_ = true;
             for (auto* node : ui_input_.dirty_nodes()) {
                 style_resolver_.resolve_single(*node, stylesheet_);
             }
@@ -155,7 +160,10 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     // 5. Animate transitions
     bool animating = animation_.update(*root_, dt);
-    if (animating) needs_redraw_ = true;
+    if (animating) {
+        needs_redraw_ = true;
+        layout_dirty_ = true;
+    }
 
     // When something changes, flush all in-flight SSBO slots
     if (needs_redraw_) {
@@ -164,8 +172,11 @@ void GameUi::update(float viewport_width, float viewport_height,
     if (redraw_countdown_ == 0) return;
     --redraw_countdown_;
 
-    // 6. Compute flexbox layout
-    layout_.compute(*root_, viewport_width, viewport_height);
+    // 6. Compute flexbox layout (only when structure/style changed, not text-only)
+    if (dirty_ || layout_dirty_) {
+        layout_.compute(*root_, viewport_width, viewport_height);
+        layout_dirty_ = false;
+    }
 
     // 7. Flatten quads to SSBO
     renderer_.update(*root_, viewport_width, viewport_height, frame_index);
