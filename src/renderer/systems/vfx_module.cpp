@@ -85,9 +85,10 @@ std::vector<PinDescriptor> InitialLifetimeModule::pin_descriptors() {
 
 std::vector<PinDescriptor> InitialPositionModule::pin_descriptors() {
     return {
-        {"shape", PinDataType::enum_type, &shape, {"Point", "Sphere", "Box", "Cone"}},
+        {"shape", PinDataType::enum_type, &shape, {"Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Disk"}},
         {"radius", PinDataType::float_type, &radius, {}, 0.0f, 100.0f, 0.01f},
         {"half_extents", PinDataType::vec3_type, &half_extents, {}, 0.0f, 100.0f, 0.01f},
+        {"edge_length", PinDataType::float_type, &edge_length, {}, 0.0f, 100.0f, 0.01f},
     };
 }
 
@@ -250,38 +251,45 @@ void InitialLifetimeModule::from_json(const nlohmann::json& j) {
 // ─── InitialPosition ─────────────────────────────────────────────────────
 
 uint32_t InitialPositionModule::write_gpu_data(uint8_t* buffer) const {
-    // shape(1) + radius(1) + half_extents(3) + pad(1) = 6 words
-    uint32_t total = write_header(buffer, type(), 6);
+    // shape(1) + radius(1) + half_extents(3) + edge_length(1) + pad(2) = 8 words
+    uint32_t total = write_header(buffer, type(), 8);
     write_uint(buffer, 8, static_cast<uint32_t>(shape));
     write_float(buffer, 12, radius);
     write_vec3(buffer, 16, half_extents);
-    write_float(buffer, 28, 0.0f); // pad
+    write_float(buffer, 28, edge_length);
+    write_float(buffer, 32, 0.0f); // pad
+    write_float(buffer, 36, 0.0f); // pad
     return total;
 }
 
 bool InitialPositionModule::draw_inspector() {
     bool changed = false;
-    const char* shapes[] = {"Point", "Sphere", "Box", "Cone"};
+    const char* shapes[] = {"Point", "Sphere", "Box", "Cone", "Ring", "Edge", "Disk"};
     int s = static_cast<int>(shape);
-    if (ImGui::Combo("Shape", &s, shapes, 4)) {
+    if (ImGui::Combo("Shape", &s, shapes, 7)) {
         shape = static_cast<SpawnShape>(s);
         changed = true;
     }
-    if (shape == SpawnShape::sphere) {
+    if (shape == SpawnShape::sphere || shape == SpawnShape::cone ||
+        shape == SpawnShape::ring || shape == SpawnShape::disk) {
         changed |= ImGui::DragFloat("Radius", &radius, 0.01f, 0.0f, 100.0f);
     }
     if (shape == SpawnShape::box) {
         changed |= ImGui::DragFloat3("Half Extents", &half_extents.x, 0.01f, 0.0f, 100.0f);
+    }
+    if (shape == SpawnShape::edge) {
+        changed |= ImGui::DragFloat("Length", &edge_length, 0.01f, 0.0f, 100.0f);
     }
     return changed;
 }
 
 void InitialPositionModule::to_json(nlohmann::json& j) const {
     j["type"] = "InitialPosition";
-    const char* names[] = {"point", "sphere", "box", "cone"};
+    const char* names[] = {"point", "sphere", "box", "cone", "ring", "edge", "disk"};
     j["shape"] = names[static_cast<int>(shape)];
     j["radius"] = radius;
     j["half_extents"] = {half_extents.x, half_extents.y, half_extents.z};
+    j["edge_length"] = edge_length;
 }
 
 void InitialPositionModule::from_json(const nlohmann::json& j) {
@@ -289,9 +297,13 @@ void InitialPositionModule::from_json(const nlohmann::json& j) {
     if (s == "sphere") shape = SpawnShape::sphere;
     else if (s == "box") shape = SpawnShape::box;
     else if (s == "cone") shape = SpawnShape::cone;
+    else if (s == "ring") shape = SpawnShape::ring;
+    else if (s == "edge") shape = SpawnShape::edge;
+    else if (s == "disk") shape = SpawnShape::disk;
     else shape = SpawnShape::point;
 
     radius = j.value("radius", 0.1f);
+    edge_length = j.value("edge_length", 1.0f);
     if (j.contains("half_extents")) {
         auto& h = j["half_extents"];
         half_extents = {h[0].get<float>(), h[1].get<float>(), h[2].get<float>()};

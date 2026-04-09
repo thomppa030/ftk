@@ -45,6 +45,9 @@
 #define SHAPE_SPHERE  1
 #define SHAPE_BOX     2
 #define SHAPE_CONE    3
+#define SHAPE_RING    4
+#define SHAPE_EDGE    5
+#define SHAPE_DISK    6
 
 // Velocity modes (InitialVelocity)
 #define VELMODE_DIRECTIONAL 0

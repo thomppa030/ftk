@@ -117,8 +117,8 @@ void main() {
         }
         else if (mtype == MOD_INITIAL_POSITION) {
             uint shape = module_data[mo + 2];
+            float radius = MOD_FLOAT(mo, 3);
             if (shape == SHAPE_SPHERE) {
-                float radius = MOD_FLOAT(mo, 3);
                 p.position = em.emitter_position + rand_in_sphere(seed) * radius;
             }
             else if (shape == SHAPE_BOX) {
@@ -130,8 +130,23 @@ void main() {
                 );
             }
             else if (shape == SHAPE_CONE) {
-                // Cone: spawn on the base disk, direction is up the cone axis
-                float radius = MOD_FLOAT(mo, 3);
+                float r = sqrt(rand01(seed)) * radius;
+                float phi = rand01(seed) * 6.28318530718;
+                p.position = em.emitter_position + vec3(r * cos(phi), 0.0, r * sin(phi));
+            }
+            else if (shape == SHAPE_RING) {
+                // Circumference of a circle in XZ plane
+                float phi = rand01(seed) * 6.28318530718;
+                p.position = em.emitter_position + vec3(radius * cos(phi), 0.0, radius * sin(phi));
+            }
+            else if (shape == SHAPE_EDGE) {
+                // Line segment along local X, centered at origin
+                float edge_len = MOD_FLOAT(mo, 7);
+                float t = rand01(seed) * 2.0 - 1.0;
+                p.position = em.emitter_position + vec3(t * edge_len * 0.5, 0.0, 0.0);
+            }
+            else if (shape == SHAPE_DISK) {
+                // Filled circle in XZ plane (uniform area distribution)
                 float r = sqrt(rand01(seed)) * radius;
                 float phi = rand01(seed) * 6.28318530718;
                 p.position = em.emitter_position + vec3(r * cos(phi), 0.0, r * sin(phi));

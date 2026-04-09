@@ -58,6 +58,9 @@ enum class SpawnShape : uint32_t {
     sphere = 1,
     box    = 2,
     cone   = 3,
+    ring   = 4,
+    edge   = 5,
+    disk   = 6,
 };
 
 // Velocity mode for InitialVelocity module
@@ -130,8 +133,9 @@ struct InitialLifetimeModule final : VfxModule {
 
 struct InitialPositionModule final : VfxModule {
     SpawnShape shape{SpawnShape::point};
-    float radius{0.1f};        // sphere
+    float radius{0.1f};           // sphere, cone, ring, disk
     glm::vec3 half_extents{0.5f}; // box
+    float edge_length{1.0f};      // edge (centered, along local X)
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::initial_position; }
     [[nodiscard]] const char* name() const override { return "Initial Position"; }

@@ -1510,7 +1510,10 @@ static glm::vec3 compute_spawn_extent(const VfxEmitter& emitter) {
             switch (pos->shape) {
                 case SpawnShape::sphere: extent = glm::vec3(pos->radius); break;
                 case SpawnShape::box:    extent = pos->half_extents; break;
-                case SpawnShape::cone:   extent = glm::vec3(pos->radius); break;
+                case SpawnShape::cone:   extent = glm::vec3(pos->radius, 0.0f, pos->radius); break;
+                case SpawnShape::ring:   extent = glm::vec3(pos->radius, 0.0f, pos->radius); break;
+                case SpawnShape::disk:   extent = glm::vec3(pos->radius, 0.0f, pos->radius); break;
+                case SpawnShape::edge:   extent = glm::vec3(pos->edge_length * 0.5f, 0.0f, 0.0f); break;
                 default: break;
             }
         }
