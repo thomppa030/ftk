@@ -949,6 +949,10 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         vkFreeDescriptorSets(device_, pool_, 1, &compute_set_);
         compute_set_ = VK_NULL_HANDLE;
     }
+    if (mesh_compute_set_ != VK_NULL_HANDLE) {
+        vkFreeDescriptorSets(device_, pool_, 1, &mesh_compute_set_);
+        mesh_compute_set_ = VK_NULL_HANDLE;
+    }
     for (auto& rs : render_sets_) {
         if (rs != VK_NULL_HANDLE) {
             vkFreeDescriptorSets(device_, pool_, 1, &rs);
