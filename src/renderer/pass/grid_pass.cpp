@@ -77,7 +77,11 @@ Result<> GridPass::create(Device& device, const PassResources& resources) {
     mr_blend.colorWriteMask = 0; // Grid doesn't write MR
     mr_blend.blendEnable = VK_FALSE;
 
-    std::array blend_attachments = {blend_attachment, mr_blend};
+    VkPipelineColorBlendAttachmentState normal_blend{};
+    normal_blend.colorWriteMask = 0;
+    normal_blend.blendEnable = VK_FALSE;
+
+    std::array blend_attachments = {blend_attachment, mr_blend, normal_blend};
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -112,7 +116,7 @@ Result<> GridPass::create(Device& device, const PassResources& resources) {
     }
 
     VkFormat depth_format = resources.depth_format;
-    std::array<VkFormat, 2> color_formats = {resources.color_format, VK_FORMAT_R8G8_UNORM};
+    std::array<VkFormat, 3> color_formats = {resources.color_format, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;

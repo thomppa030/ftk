@@ -48,6 +48,7 @@ public:
 
     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr VkFormat MR_FORMAT = VK_FORMAT_R8G8_UNORM;
+    static constexpr VkFormat NORMAL_FORMAT = VK_FORMAT_R16G16_SFLOAT;
 
     // Returns the single-sample metallic/roughness view (resolve target when MSAA, direct when 1x).
     [[nodiscard]] VkImageView mr_view() const { return resolve_mr_view_ ? resolve_mr_view_ : mr_view_; }
@@ -57,6 +58,15 @@ public:
 
     [[nodiscard]] VkImage mr_image() const { return resolve_mr_image_ ? resolve_mr_image_ : mr_image_; }
     [[nodiscard]] VkImage msaa_mr_image() const { return mr_image_; }
+
+    // Returns the single-sample normal view (resolve target when MSAA, direct when 1x).
+    [[nodiscard]] VkImageView normal_view() const { return resolve_normal_view_ ? resolve_normal_view_ : normal_view_; }
+
+    // Returns the MSAA normal view for rendering into (same as normal_view when 1x).
+    [[nodiscard]] VkImageView msaa_normal_view() const { return normal_view_; }
+
+    [[nodiscard]] VkImage normal_image() const { return resolve_normal_image_ ? resolve_normal_image_ : normal_image_; }
+    [[nodiscard]] VkImage msaa_normal_image() const { return normal_image_; }
 
     // Screen color copy — snapshot of resolved color after opaques, before transparents.
     [[nodiscard]] VkImage screen_color_image() const { return screen_color_image_; }
@@ -104,6 +114,16 @@ private:
     VkImage resolve_mr_image_{VK_NULL_HANDLE};
     VmaAllocation resolve_mr_allocation_{VK_NULL_HANDLE};
     VkImageView resolve_mr_view_{VK_NULL_HANDLE};
+
+    // Normal render target — octahedral-encoded world normals (MSAA when samples > 1)
+    VkImage normal_image_{VK_NULL_HANDLE};
+    VmaAllocation normal_allocation_{VK_NULL_HANDLE};
+    VkImageView normal_view_{VK_NULL_HANDLE};
+
+    // Normal resolve target (single-sample, only created when MSAA)
+    VkImage resolve_normal_image_{VK_NULL_HANDLE};
+    VmaAllocation resolve_normal_allocation_{VK_NULL_HANDLE};
+    VkImageView resolve_normal_view_{VK_NULL_HANDLE};
 
     // Screen color copy (single-sample, for SCREEN_TEXTURE in transparent shaders)
     VkImage screen_color_image_{VK_NULL_HANDLE};

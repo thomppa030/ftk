@@ -118,18 +118,21 @@ void SpriteRenderer::create(Device& device, const PassResources& resources) {
     mr_blend.colorWriteMask = 0; // Sprites don't write MR
     mr_blend.blendEnable = VK_FALSE;
 
-    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+    VkPipelineColorBlendAttachmentState normal_blend{};
+    normal_blend.colorWriteMask = 0;
+    normal_blend.blendEnable = VK_FALSE;
+    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend};
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 2;
+    color_blending.attachmentCount = 3;
     color_blending.pAttachments = blend_attachments;
 
-    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM};
+    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 2;
+    rendering_info.colorAttachmentCount = 3;
     rendering_info.pColorAttachmentFormats = color_formats;
     rendering_info.depthAttachmentFormat = depth_format_;
 

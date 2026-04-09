@@ -26,6 +26,7 @@ layout(location = 2) in flat uint frag_texture_index;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec2 out_metallic_roughness;
+layout(location = 2) out vec2 out_normal;
 
 // Linearize depth from NDC [0,1] to positive view-space distance.
 // For perspectiveRH_ZO: z_view = proj[3][2] / (-d - proj[2][2])
@@ -62,4 +63,5 @@ void main() {
 
     out_color = vec4(color, alpha);
     out_metallic_roughness = vec2(0.0);
+    out_normal = vec2(0.0);
 }

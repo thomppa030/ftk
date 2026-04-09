@@ -147,6 +147,11 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     if (images.has_msaa) {
         images.msaa_mr_id = graph.register_image(target.msaa_mr_image());
     }
+    images.normal_id = graph.register_image(target.normal_image());
+    images.msaa_normal_id = images.normal_id;
+    if (images.has_msaa) {
+        images.msaa_normal_id = graph.register_image(target.msaa_normal_image());
+    }
     images.screen_color_id = graph.register_image(target.screen_color_image());
     graph.begin_frame();
 

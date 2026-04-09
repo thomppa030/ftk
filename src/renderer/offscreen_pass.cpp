@@ -79,6 +79,12 @@ void OffscreenPass::cleanup_images() {
     if (resolve_mr_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, resolve_mr_view_, nullptr);
     destroy_vma_image(allocator_, resolve_mr_image_, resolve_mr_allocation_);
 
+    if (normal_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, normal_view_, nullptr);
+    destroy_vma_image(allocator_, normal_image_, normal_allocation_);
+
+    if (resolve_normal_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, resolve_normal_view_, nullptr);
+    destroy_vma_image(allocator_, resolve_normal_image_, resolve_normal_allocation_);
+
     if (screen_color_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, screen_color_view_, nullptr);
     destroy_vma_image(allocator_, screen_color_image_, screen_color_allocation_);
 
@@ -100,6 +106,12 @@ void OffscreenPass::cleanup_images() {
     resolve_mr_view_ = VK_NULL_HANDLE;
     resolve_mr_image_ = VK_NULL_HANDLE;
     resolve_mr_allocation_ = VK_NULL_HANDLE;
+    normal_view_ = VK_NULL_HANDLE;
+    normal_image_ = VK_NULL_HANDLE;
+    normal_allocation_ = VK_NULL_HANDLE;
+    resolve_normal_view_ = VK_NULL_HANDLE;
+    resolve_normal_image_ = VK_NULL_HANDLE;
+    resolve_normal_allocation_ = VK_NULL_HANDLE;
     screen_color_view_ = VK_NULL_HANDLE;
     screen_color_image_ = VK_NULL_HANDLE;
     screen_color_allocation_ = VK_NULL_HANDLE;
@@ -293,6 +305,66 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
 
         if (vkCreateImageView(vk, &resolve_mr_view_info, nullptr, &resolve_mr_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve MR view");
+        }
+    }
+
+    // -- Normal image (octahedral-encoded world normals, MSAA when enabled) --
+    VkImageCreateInfo normal_info{};
+    normal_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    normal_info.imageType = VK_IMAGE_TYPE_2D;
+    normal_info.format = NORMAL_FORMAT;
+    normal_info.extent = {width, height, 1};
+    normal_info.mipLevels = 1;
+    normal_info.arrayLayers = 1;
+    normal_info.samples = msaa_samples_;
+    normal_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    normal_info.usage = msaa
+        ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+        : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    normal_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (create_vma_image(allocator_, &normal_info, &normal_image_, &normal_allocation_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create offscreen normal image");
+    }
+
+    VkImageViewCreateInfo normal_view_info{};
+    normal_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    normal_view_info.image = normal_image_;
+    normal_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    normal_view_info.format = NORMAL_FORMAT;
+    normal_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    if (vkCreateImageView(vk, &normal_view_info, nullptr, &normal_view_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create offscreen normal view");
+    }
+
+    // -- Resolve normal image (single-sample, only when MSAA) --
+    if (msaa) {
+        VkImageCreateInfo resolve_normal_info{};
+        resolve_normal_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        resolve_normal_info.imageType = VK_IMAGE_TYPE_2D;
+        resolve_normal_info.format = NORMAL_FORMAT;
+        resolve_normal_info.extent = {width, height, 1};
+        resolve_normal_info.mipLevels = 1;
+        resolve_normal_info.arrayLayers = 1;
+        resolve_normal_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        resolve_normal_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        resolve_normal_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        resolve_normal_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        if (create_vma_image(allocator_, &resolve_normal_info, &resolve_normal_image_, &resolve_normal_allocation_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create resolve normal image");
+        }
+
+        VkImageViewCreateInfo resolve_normal_view_info{};
+        resolve_normal_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        resolve_normal_view_info.image = resolve_normal_image_;
+        resolve_normal_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        resolve_normal_view_info.format = NORMAL_FORMAT;
+        resolve_normal_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        if (vkCreateImageView(vk, &resolve_normal_view_info, nullptr, &resolve_normal_view_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create resolve normal view");
         }
     }
 

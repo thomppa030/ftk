@@ -8,10 +8,12 @@ layout(location = 1) in flat uint frag_tex_index;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec2 out_metallic_roughness;
+layout(location = 2) out vec2 out_normal;
 
 void main() {
     vec4 tex_color = texture(textures[nonuniformEXT(frag_tex_index)], frag_uv);
     if (tex_color.a < 0.01) discard;
     out_color = tex_color;
     out_metallic_roughness = vec2(0.0);
+    out_normal = vec2(0.0);
 }

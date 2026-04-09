@@ -612,7 +612,21 @@ void VulkanContext::register_opaque_pass() {
                     mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
                 }
 
-                std::array<VkRenderingAttachmentInfo, 2> color_attachments = {color_attachment, mr_attachment};
+                VkRenderingAttachmentInfo normal_attachment{};
+                normal_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                normal_attachment.imageView = target->msaa_normal_view();
+                normal_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                normal_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                normal_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                normal_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+                if (msaa) {
+                    normal_attachment.resolveImageView = target->normal_view();
+                    normal_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    normal_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                }
+
+                std::array<VkRenderingAttachmentInfo, 3> color_attachments = {color_attachment, mr_attachment, normal_attachment};
 
                 VkRenderingAttachmentInfo depth_attachment{};
                 depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -759,6 +773,8 @@ void VulkanContext::register_opaque_pass() {
                 {imgs.color_id, ImageUsage::color_attachment},
                 {imgs.msaa_mr_id, ImageUsage::color_attachment},
                 {imgs.mr_id, ImageUsage::color_attachment},
+                {imgs.msaa_normal_id, ImageUsage::color_attachment},
+                {imgs.normal_id, ImageUsage::color_attachment},
                 {imgs.msaa_depth_id, ImageUsage::depth_attachment},
                 {imgs.depth_id, ImageUsage::depth_attachment}});
         }
@@ -828,7 +844,21 @@ void VulkanContext::register_transparent_pass() {
                     mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
                 }
 
-                std::array<VkRenderingAttachmentInfo, 2> color_attachments = {color_attachment, mr_attachment};
+                // Normal attachment — transparent objects don't write normals (colorWriteMask=0 in pipeline)
+                VkRenderingAttachmentInfo normal_attachment{};
+                normal_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                normal_attachment.imageView = target->msaa_normal_view();
+                normal_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                normal_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                normal_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+                if (msaa) {
+                    normal_attachment.resolveImageView = target->normal_view();
+                    normal_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    normal_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+                }
+
+                std::array<VkRenderingAttachmentInfo, 3> color_attachments = {color_attachment, mr_attachment, normal_attachment};
 
                 VkRenderingAttachmentInfo depth_attachment{};
                 depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -882,6 +912,8 @@ void VulkanContext::register_transparent_pass() {
                 {imgs.color_id, ImageUsage::color_attachment},
                 {imgs.msaa_mr_id, ImageUsage::color_attachment},
                 {imgs.mr_id, ImageUsage::color_attachment},
+                {imgs.msaa_normal_id, ImageUsage::color_attachment},
+                {imgs.normal_id, ImageUsage::color_attachment},
                 {imgs.msaa_depth_id, ImageUsage::shader_read},
                 {imgs.depth_id, ImageUsage::shader_read},
                 {imgs.screen_color_id, ImageUsage::shader_read}});

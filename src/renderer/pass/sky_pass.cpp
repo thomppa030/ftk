@@ -65,7 +65,11 @@ Result<> SkyPass::create(Device& device, const PassResources& resources) {
     mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
     mr_blend.blendEnable = VK_FALSE;
 
-    std::array blend_attachments = {blend, mr_blend};
+    VkPipelineColorBlendAttachmentState normal_blend{};
+    normal_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+    normal_blend.blendEnable = VK_FALSE;
+
+    std::array blend_attachments = {blend, mr_blend, normal_blend};
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -101,7 +105,7 @@ Result<> SkyPass::create(Device& device, const PassResources& resources) {
     }
 
     VkFormat depth_format = resources.depth_format;
-    std::array<VkFormat, 2> color_formats = {resources.color_format, VK_FORMAT_R8G8_UNORM};
+    std::array<VkFormat, 3> color_formats = {resources.color_format, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;

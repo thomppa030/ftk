@@ -86,6 +86,7 @@ layout(location = 7) flat in uint frag_draw_index;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec2 out_metallic_roughness;
+layout(location = 2) out vec2 out_normal;
 
 #include "fjell_pbr.glsl"
 #include "fjell_shadow.glsl"
@@ -178,6 +179,7 @@ void main() {
         // No normals — render unlit
         out_color = vec4(ALBEDO, ALPHA);
         out_metallic_roughness = vec2(0.0);
+        out_normal = vec2(0.0);
         return;
     }
 
@@ -235,4 +237,5 @@ void main() {
 
     out_color = vec4(color, ALPHA);
     out_metallic_roughness = vec2(METALLIC, ROUGHNESS);
+    out_normal = oct_encode(N);
 }

@@ -90,6 +90,7 @@ layout(location = 5) in flat uint frag_is_mesh;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec2 out_metallic_roughness;
+layout(location = 2) out vec2 out_normal;
 
 // ── PBR includes ────────────────────────────────────────────────────────
 
@@ -235,4 +236,5 @@ void main() {
 
     out_color = vec4(color, alpha);
     out_metallic_roughness = vec2(mat_metallic, mat_roughness);
+    out_normal = oct_encode(N);
 }

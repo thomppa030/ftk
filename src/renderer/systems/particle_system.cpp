@@ -237,11 +237,11 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM};
+    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 2;
+    rendering_info.colorAttachmentCount = 3;
     rendering_info.pColorAttachmentFormats = color_formats;
     rendering_info.depthAttachmentFormat = depth_format_;
 
@@ -261,11 +261,14 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         mr_blend.colorWriteMask = 0; // Particles don't write MR
         mr_blend.blendEnable = VK_FALSE;
 
-        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+        VkPipelineColorBlendAttachmentState normal_blend{};
+        normal_blend.colorWriteMask = 0;
+        normal_blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend};
 
         VkPipelineColorBlendStateCreateInfo color_blending{};
         color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 2;
+        color_blending.attachmentCount = 3;
         color_blending.pAttachments = blend_attachments;
 
         VkGraphicsPipelineCreateInfo ci{};
@@ -343,11 +346,14 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
         mr_blend.blendEnable = VK_FALSE;
 
-        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+        VkPipelineColorBlendAttachmentState normal_blend{};
+        normal_blend.colorWriteMask = 0;
+        normal_blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend};
 
         VkPipelineColorBlendStateCreateInfo color_blending{};
         color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 2;
+        color_blending.attachmentCount = 3;
         color_blending.pAttachments = blend_attachments;
 
         VkGraphicsPipelineCreateInfo ci{};
@@ -439,11 +445,14 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
         mr_blend.blendEnable = VK_FALSE;
 
-        VkPipelineColorBlendAttachmentState mesh_blend_attachments[] = {blend, mr_blend};
+        VkPipelineColorBlendAttachmentState mesh_normal_blend{};
+        mesh_normal_blend.colorWriteMask = 0;
+        mesh_normal_blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState mesh_blend_attachments[] = {blend, mr_blend, mesh_normal_blend};
 
         VkPipelineColorBlendStateCreateInfo color_blending{};
         color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 2;
+        color_blending.attachmentCount = 3;
         color_blending.pAttachments = mesh_blend_attachments;
 
         VkGraphicsPipelineCreateInfo ci{};
@@ -515,11 +524,14 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
         mr_blend.blendEnable = VK_FALSE;
 
-        VkPipelineColorBlendAttachmentState opaque_blend_attachments[] = {blend, mr_blend};
+        VkPipelineColorBlendAttachmentState opaque_normal_blend{};
+        opaque_normal_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+        opaque_normal_blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState opaque_blend_attachments[] = {blend, mr_blend, opaque_normal_blend};
 
         VkPipelineColorBlendStateCreateInfo color_blending{};
         color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 2;
+        color_blending.attachmentCount = 3;
         color_blending.pAttachments = opaque_blend_attachments;
 
         VkGraphicsPipelineCreateInfo ci{};
@@ -732,11 +744,11 @@ void ParticleSystem::recreate_pipelines() {
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM};
+    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 2;
+    rendering_info.colorAttachmentCount = 3;
     rendering_info.pColorAttachmentFormats = color_formats;
     rendering_info.depthAttachmentFormat = depth_format_;
 
@@ -756,11 +768,14 @@ void ParticleSystem::recreate_pipelines() {
         mr_blend.colorWriteMask = 0;
         mr_blend.blendEnable = VK_FALSE;
 
-        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+        VkPipelineColorBlendAttachmentState normal_blend{};
+        normal_blend.colorWriteMask = 0;
+        normal_blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend};
 
         VkPipelineColorBlendStateCreateInfo color_blending{};
         color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 2;
+        color_blending.attachmentCount = 3;
         color_blending.pAttachments = blend_attachments;
 
         VkGraphicsPipelineCreateInfo ci{};
@@ -818,11 +833,14 @@ void ParticleSystem::recreate_pipelines() {
         mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
         mr_blend.blendEnable = VK_FALSE;
 
-        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+        VkPipelineColorBlendAttachmentState normal_blend{};
+        normal_blend.colorWriteMask = 0;
+        normal_blend.blendEnable = VK_FALSE;
+        VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend};
 
         VkPipelineColorBlendStateCreateInfo color_blending{};
         color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        color_blending.attachmentCount = 2;
+        color_blending.attachmentCount = 3;
         color_blending.pAttachments = blend_attachments;
 
         VkGraphicsPipelineCreateInfo ci{};
