@@ -1,0 +1,80 @@
+#version 460
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(std140, set = 0, binding = 0) uniform DDGIConstants {
+    vec3 probe_grid_position;  float probe_sphere_scale;
+    vec3 probe_spacing;        float max_probe_offset;
+    vec3 reciprocal_spacing;   float self_shadow_bias;
+    ivec3 probe_counts;        uint debug_options;
+    int irr_tex_w;  int irr_tex_h;  int irr_side;  int probe_rays;
+    int vis_tex_w;  int vis_tex_h;  int vis_side;  int probe_update_offset;
+    int probe_update_count;    float hysteresis;
+    float infinite_bounces_mult; float pad0;
+    mat4 random_rotation;
+    vec3 camera_position;      float pad1;
+    mat4 inv_view_proj;
+    vec2 resolution;           float pad2; float pad3;
+} ddgi;
+
+#include "include/fjell_ddgi.glsl"
+
+layout(set = 0, binding = 1) uniform sampler2D radiance_tex;
+
+layout(std430, set = 0, binding = 5) buffer ProbeStatusSSBO {
+    uint probe_status[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint first_frame;
+};
+
+void main() {
+    int probe_index = int(gl_GlobalInvocationID.x);
+    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+    if (probe_index >= total_probes) return;
+
+    int backfaces_count = 0;
+    int closest_frontface_index = -1;
+    float closest_frontface_distance = 1e8;
+
+    uint flag = (first_frame == 1) ? PROBE_STATUS_UNINITIALIZED : probe_status[probe_index];
+
+    vec3 outer_bounds = normalize(ddgi.probe_spacing) * (length(ddgi.probe_spacing) + 2.0 * ddgi.self_shadow_bias);
+
+    for (int ray_index = 0; ray_index < ddgi.probe_rays; ++ray_index) {
+        ivec2 ray_coord = ivec2(ray_index, probe_index - ddgi.probe_update_offset);
+        if (probe_index < ddgi.probe_update_offset ||
+            probe_index >= ddgi.probe_update_offset + ddgi.probe_update_count) break;
+
+        float d_front = texelFetch(radiance_tex, ray_coord, 0).w;
+
+        if (d_front <= 0.0) {
+            backfaces_count += 1;
+        }
+
+        if (d_front > 0.0) {
+            vec3 front_dir = d_front * normalize(mat3(ddgi.random_rotation) *
+                spherical_fibonacci(float(ray_index), float(ddgi.probe_rays)));
+
+            if (all(lessThan(abs(front_dir), outer_bounds))) {
+                flag = PROBE_STATUS_ACTIVE;
+            }
+
+            if (d_front < closest_frontface_distance) {
+                closest_frontface_distance = d_front;
+                closest_frontface_index = ray_index;
+            }
+        }
+    }
+
+    if (backfaces_count > 0 && (float(backfaces_count) / float(ddgi.probe_rays)) > 0.25) {
+        flag = PROBE_STATUS_OFF;
+    } else if (closest_frontface_index == -1) {
+        flag = PROBE_STATUS_OFF;
+    } else if (closest_frontface_distance < 0.05) {
+        flag = PROBE_STATUS_ACTIVE;
+    }
+
+    probe_status[probe_index] = flag;
+}

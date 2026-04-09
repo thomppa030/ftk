@@ -261,26 +261,96 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create DDGI SDF trace pipeline");
     }
 
-    FJELL_GFX_DEBUG("DDGI pass created (SDF trace pipeline)");
+    // ── Update descriptor set layout ──
+    // binding 0: DDGIConstants UBO
+    // binding 1: radiance texture (sampler2D)
+    // binding 2: irradiance image (storage, rw)
+    // binding 3: visibility image (storage, rw)
+    // binding 4: probe offset image (storage, rw)
+    // binding 5: probe status SSBO (rw)
+    std::array<VkDescriptorSetLayoutBinding, 6> update_bindings{};
+    update_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    update_bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    update_bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    update_bindings[3] = {3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    update_bindings[4] = {4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    update_bindings[5] = {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+
+    VkDescriptorSetLayoutCreateInfo update_layout_ci{};
+    update_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    update_layout_ci.bindingCount = static_cast<uint32_t>(update_bindings.size());
+    update_layout_ci.pBindings = update_bindings.data();
+
+    if (vkCreateDescriptorSetLayout(vk_device_, &update_layout_ci, nullptr, &update_set_layout_) != VK_SUCCESS) {
+        return make_error("Failed to create DDGI update set layout");
+    }
+
+    // Update pipeline layout: descriptor set + push constant (first_frame uint)
+    VkPushConstantRange update_push{};
+    update_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    update_push.offset = 0;
+    update_push.size = sizeof(uint32_t);
+
+    VkPipelineLayoutCreateInfo update_pipe_layout_ci{};
+    update_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    update_pipe_layout_ci.setLayoutCount = 1;
+    update_pipe_layout_ci.pSetLayouts = &update_set_layout_;
+    update_pipe_layout_ci.pushConstantRangeCount = 1;
+    update_pipe_layout_ci.pPushConstantRanges = &update_push;
+
+    if (vkCreatePipelineLayout(vk_device_, &update_pipe_layout_ci, nullptr, &update_pipeline_layout_) != VK_SUCCESS) {
+        return make_error("Failed to create DDGI update pipeline layout");
+    }
+
+    // Helper: create compute pipeline from SPIR-V path
+    auto create_compute = [&](const std::string& spv_path, VkPipeline& out_pipeline) -> VkResult {
+        auto code = read_spirv(base_path::resolve(spv_path));
+        VkShaderModule mod = create_shader_module(vk_device_, code);
+        VkPipelineShaderStageCreateInfo s{};
+        s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        s.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        s.module = mod;
+        s.pName = "main";
+        VkComputePipelineCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        ci.stage = s;
+        ci.layout = update_pipeline_layout_;
+        VkResult r = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &ci, nullptr, &out_pipeline);
+        vkDestroyShaderModule(vk_device_, mod, nullptr);
+        return r;
+    };
+
+    if (create_compute("shaders/ddgi_irradiance_update.comp.spv", irradiance_update_pipeline_) != VK_SUCCESS)
+        return make_error("Failed to create DDGI irradiance update pipeline");
+    if (create_compute("shaders/ddgi_visibility_update.comp.spv", visibility_update_pipeline_) != VK_SUCCESS)
+        return make_error("Failed to create DDGI visibility update pipeline");
+    if (create_compute("shaders/ddgi_probe_offsets.comp.spv", probe_offset_pipeline_) != VK_SUCCESS)
+        return make_error("Failed to create DDGI probe offset pipeline");
+    if (create_compute("shaders/ddgi_probe_status.comp.spv", probe_status_pipeline_) != VK_SUCCESS)
+        return make_error("Failed to create DDGI probe status pipeline");
+
+    FJELL_GFX_DEBUG("DDGI pass created (SDF trace + 4 update pipelines)");
     return {};
 }
 
 void DdgiPass::destroy() {
     if (vk_device_ == VK_NULL_HANDLE) return;
 
-    if (trace_pipeline_ != VK_NULL_HANDLE)
-        vkDestroyPipeline(vk_device_, trace_pipeline_, nullptr);
-    if (trace_pipeline_layout_ != VK_NULL_HANDLE)
-        vkDestroyPipelineLayout(vk_device_, trace_pipeline_layout_, nullptr);
-    if (trace_set_layout_ != VK_NULL_HANDLE)
-        vkDestroyDescriptorSetLayout(vk_device_, trace_set_layout_, nullptr);
-    if (linear_sampler_ != VK_NULL_HANDLE)
-        vkDestroySampler(vk_device_, linear_sampler_, nullptr);
+    auto safe_destroy = [&](auto destroy_fn, auto& handle) {
+        if (handle != VK_NULL_HANDLE) { destroy_fn(vk_device_, handle, nullptr); handle = VK_NULL_HANDLE; }
+    };
 
-    trace_pipeline_ = VK_NULL_HANDLE;
-    trace_pipeline_layout_ = VK_NULL_HANDLE;
-    trace_set_layout_ = VK_NULL_HANDLE;
-    linear_sampler_ = VK_NULL_HANDLE;
+    safe_destroy(vkDestroyPipeline, trace_pipeline_);
+    safe_destroy(vkDestroyPipeline, irradiance_update_pipeline_);
+    safe_destroy(vkDestroyPipeline, visibility_update_pipeline_);
+    safe_destroy(vkDestroyPipeline, probe_offset_pipeline_);
+    safe_destroy(vkDestroyPipeline, probe_status_pipeline_);
+    safe_destroy(vkDestroyPipelineLayout, trace_pipeline_layout_);
+    safe_destroy(vkDestroyPipelineLayout, update_pipeline_layout_);
+    safe_destroy(vkDestroyDescriptorSetLayout, trace_set_layout_);
+    safe_destroy(vkDestroyDescriptorSetLayout, update_set_layout_);
+    safe_destroy(vkDestroySampler, linear_sampler_);
+
     vk_device_ = VK_NULL_HANDLE;
     device_ = nullptr;
 }
@@ -411,29 +481,34 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (trace_pipeline_ == VK_NULL_HANDLE) return;
     if (imgs.radiance_image == VK_NULL_HANDLE) return;
 
-    // Allocate descriptor pool + set for this Images instance if needed
+    // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         std::array<VkDescriptorPoolSize, 4> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3};
-        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1};
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1};
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2};          // trace UBO + update UBO
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4};  // trace: SDF+sky+offset, update: radiance
+        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4};           // trace: radiance, update: irr+vis+offset
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2};          // trace: status, update: status
 
         VkDescriptorPoolCreateInfo pool_ci{};
         pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_ci.maxSets = 1;
+        pool_ci.maxSets = 2;
         pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
         pool_ci.pPoolSizes = pool_sizes.data();
 
         vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &imgs.desc_pool);
 
+        std::array layouts = {trace_set_layout_, update_set_layout_};
+        std::array<VkDescriptorSet, 2> sets{};
+
         VkDescriptorSetAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc_info.descriptorPool = imgs.desc_pool;
-        alloc_info.descriptorSetCount = 1;
-        alloc_info.pSetLayouts = &trace_set_layout_;
+        alloc_info.descriptorSetCount = 2;
+        alloc_info.pSetLayouts = layouts.data();
 
-        vkAllocateDescriptorSets(vk_device_, &alloc_info, &imgs.trace_set);
+        vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
+        imgs.trace_set = sets[0];
+        imgs.update_set = sets[1];
         imgs.images_need_init = true;
     }
 
@@ -446,52 +521,106 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                                 ctx.sdf_view, ctx.sdf_sampler,
                                 ctx.sky_cubemap_view, ctx.sky_cubemap_sampler,
                                 linear_sampler_);
+
+        // Write update set descriptors
+        VkDescriptorBufferInfo ubo_info{};
+        ubo_info.buffer = imgs.constants_ubo->handle();
+        ubo_info.range = sizeof(GpuDdgiConstants);
+
+        VkDescriptorImageInfo radiance_info{};
+        radiance_info.sampler = linear_sampler_;
+        radiance_info.imageView = imgs.radiance_view;
+        radiance_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo irr_info{};
+        irr_info.imageView = imgs.irradiance_view;
+        irr_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorImageInfo vis_info{};
+        vis_info.imageView = imgs.visibility_view;
+        vis_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorImageInfo offset_info{};
+        offset_info.imageView = imgs.probe_offset_view;
+        offset_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+        VkDescriptorBufferInfo status_info{};
+        status_info.buffer = imgs.probe_status_buffer->handle();
+        status_info.range = VK_WHOLE_SIZE;
+
+        std::array<VkWriteDescriptorSet, 6> writes{};
+        for (auto& w : writes) {
+            w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            w.dstSet = imgs.update_set;
+            w.descriptorCount = 1;
+        }
+        writes[0].dstBinding = 0; writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; writes[0].pBufferInfo = &ubo_info;
+        writes[1].dstBinding = 1; writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; writes[1].pImageInfo = &radiance_info;
+        writes[2].dstBinding = 2; writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[2].pImageInfo = &irr_info;
+        writes[3].dstBinding = 3; writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[3].pImageInfo = &vis_info;
+        writes[4].dstBinding = 4; writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; writes[4].pImageInfo = &offset_info;
+        writes[5].dstBinding = 5; writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[5].pBufferInfo = &status_info;
+
+        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+        is_first_frame_ = true;
         imgs.images_need_init = false;
     }
 
-    // Can't trace without descriptors written
     if (ctx.sdf_view == VK_NULL_HANDLE) {
         frame_counter_++;
         return;
     }
 
-    // ── Transition radiance image to GENERAL for storage write ──
-    VkImageMemoryBarrier2 pre_barriers[2]{};
-    pre_barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    pre_barriers[0].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    pre_barriers[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    pre_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    pre_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    pre_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    pre_barriers[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    pre_barriers[0].image = imgs.radiance_image;
-    pre_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    auto barrier_image = [&](VkImage image, VkImageLayout old_layout, VkImageLayout new_layout,
+                             VkAccessFlags2 src_access, VkAccessFlags2 dst_access) {
+        VkImageMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.srcAccessMask = src_access;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask = dst_access;
+        b.oldLayout = old_layout;
+        b.newLayout = new_layout;
+        b.image = image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkDependencyInfo d{};
+        d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        d.imageMemoryBarrierCount = 1;
+        d.pImageMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(ctx.cmd, &d);
+    };
 
-    // Probe offset to shader read
-    pre_barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    pre_barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    pre_barriers[1].srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    pre_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    pre_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    pre_barriers[1].oldLayout = imgs.images_need_init ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL;
-    pre_barriers[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    pre_barriers[1].image = imgs.probe_offset_image;
-    pre_barriers[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    auto barrier_memory = [&]() {
+        VkMemoryBarrier2 m{};
+        m.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        m.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        m.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        m.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        m.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        VkDependencyInfo d{};
+        d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        d.memoryBarrierCount = 1;
+        d.pMemoryBarriers = &m;
+        vkCmdPipelineBarrier2(ctx.cmd, &d);
+    };
 
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 2;
-    dep.pImageMemoryBarriers = pre_barriers;
-    vkCmdPipelineBarrier2(ctx.cmd, &dep);
+    GpuDdgiConstants* constants = static_cast<GpuDdgiConstants*>(imgs.constants_ubo->mapped());
 
-    // ── Dispatch SDF trace ──
+    // ── 1. Pre-trace barriers ──
+    barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+    barrier_image(imgs.probe_offset_image,
+                  is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+
+    // ── 2. Dispatch SDF trace ──
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                             trace_pipeline_layout_, 0, 1, &imgs.trace_set, 0, nullptr);
 
-    // Push constants — light info + SDF volume bounds
     TracePushConstants push{};
-    // TODO: get from scene's directional light via FrameContext
     push.light_direction = glm::vec3(0.5f, 0.8f, 0.3f);
     push.light_intensity = 1.0f;
     push.light_color = glm::vec3(1.0f);
@@ -502,31 +631,74 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,
                        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
 
-    // Dispatch: x = ceil(probe_rays / 32), y = probe_update_count
-    GpuDdgiConstants* constants = static_cast<GpuDdgiConstants*>(imgs.constants_ubo->mapped());
     uint32_t groups_x = (static_cast<uint32_t>(config_.probe_rays) + 31) / 32;
     uint32_t groups_y = static_cast<uint32_t>(constants->probe_update_count);
 
     vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
 
-    // ── Barrier: radiance write → read for irradiance update (Phase 4) ──
-    VkImageMemoryBarrier2 post_barrier{};
-    post_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    post_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    post_barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-    post_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    post_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    post_barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    post_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    post_barrier.image = imgs.radiance_image;
-    post_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    // ── 3. Barrier: radiance write → read ──
+    barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
-    VkDependencyInfo post_dep{};
-    post_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    post_dep.imageMemoryBarrierCount = 1;
-    post_dep.pImageMemoryBarriers = &post_barrier;
-    vkCmdPipelineBarrier2(ctx.cmd, &post_dep);
+    // ── 4. Transition irradiance/visibility to GENERAL for update ──
+    barrier_image(imgs.irradiance_image,
+                  is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                  VK_IMAGE_LAYOUT_GENERAL,
+                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+    barrier_image(imgs.visibility_image,
+                  is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                  VK_IMAGE_LAYOUT_GENERAL,
+                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
 
+    uint32_t first_frame_val = is_first_frame_ ? 1u : 0u;
+
+    // ── 5. Dispatch irradiance update ──
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, irradiance_update_pipeline_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+    vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(uint32_t), &first_frame_val);
+    vkCmdDispatch(ctx.cmd,
+                  (static_cast<uint32_t>(imgs.irr_width) + 7) / 8,
+                  (static_cast<uint32_t>(imgs.irr_height) + 7) / 8, 1);
+
+    // ── 6. Dispatch visibility update ──
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, visibility_update_pipeline_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+    vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(uint32_t), &first_frame_val);
+    vkCmdDispatch(ctx.cmd,
+                  (static_cast<uint32_t>(imgs.vis_width) + 7) / 8,
+                  (static_cast<uint32_t>(imgs.vis_height) + 7) / 8, 1);
+
+    // ── 7. Barrier for probe offset/status computation ──
+    barrier_memory();
+    barrier_image(imgs.probe_offset_image,
+                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL,
+                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+
+    // ── 8. Dispatch probe offsets ──
+    uint32_t total = static_cast<uint32_t>(imgs.total_probes);
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_offset_pipeline_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+    vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(uint32_t), &first_frame_val);
+    vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
+
+    // ── 9. Dispatch probe status ──
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_status_pipeline_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+    vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(uint32_t), &first_frame_val);
+    vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
+
+    // ── 10. Final barrier: all outputs ready for sampling ──
+    barrier_memory();
+
+    is_first_frame_ = false;
     frame_counter_++;
 }
 

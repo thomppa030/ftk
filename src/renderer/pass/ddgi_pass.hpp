@@ -116,6 +116,7 @@ public:
         // Descriptor sets — written by DdgiPass after Images::create()
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
         VkDescriptorSet trace_set{VK_NULL_HANDLE};
+        VkDescriptorSet update_set{VK_NULL_HANDLE};
 
         void create(VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,
@@ -159,15 +160,20 @@ private:
     DdgiConfig config_;
     uint32_t frame_counter_{0};
 
-    // SDF trace compute pipeline
+    // Compute pipelines
     VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout trace_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline trace_pipeline_{VK_NULL_HANDLE};
-    VkSampler linear_sampler_{VK_NULL_HANDLE};
 
-    // Per-Images descriptor sets (one per frame-in-flight, allocated from Images)
-    // For now we use a single set since DDGI images don't change per-frame
-    VkDescriptorPool trace_pool_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout update_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout update_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline irradiance_update_pipeline_{VK_NULL_HANDLE};
+    VkPipeline visibility_update_pipeline_{VK_NULL_HANDLE};
+    VkPipeline probe_offset_pipeline_{VK_NULL_HANDLE};
+    VkPipeline probe_status_pipeline_{VK_NULL_HANDLE};
+
+    VkSampler linear_sampler_{VK_NULL_HANDLE};
+    bool is_first_frame_{true};
 };
 
 } // namespace fjell
