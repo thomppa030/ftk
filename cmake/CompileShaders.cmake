@@ -10,6 +10,9 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
         "${SHADER_DIR}/*.tese"
         "${SHADER_DIR}/*.mesh"
         "${SHADER_DIR}/*.task"
+        "${SHADER_DIR}/*.rgen"
+        "${SHADER_DIR}/*.rchit"
+        "${SHADER_DIR}/*.rmiss"
     )
 
     # Collect include files so shaders recompile when includes change

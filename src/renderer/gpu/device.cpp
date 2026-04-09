@@ -206,6 +206,45 @@ void Device::pick_physical_device() {
     if (!mesh_shader_supported_) {
         FJELL_GFX_INFO("Mesh shaders not available, using traditional vertex pipeline");
     }
+
+    // Probe for VK_KHR_ray_tracing_pipeline + VK_KHR_acceleration_structure
+    bool has_rt_pipeline = false;
+    bool has_accel_struct = false;
+    bool has_deferred_ops = false;
+    for (const auto& ext : available_exts) {
+        if (std::strcmp(ext.extensionName, VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) == 0)
+            has_rt_pipeline = true;
+        if (std::strcmp(ext.extensionName, VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) == 0)
+            has_accel_struct = true;
+        if (std::strcmp(ext.extensionName, VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) == 0)
+            has_deferred_ops = true;
+    }
+
+    if (has_rt_pipeline && has_accel_struct && has_deferred_ops) {
+        VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_features{};
+        rt_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+
+        VkPhysicalDeviceAccelerationStructureFeaturesKHR as_features{};
+        as_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+        as_features.pNext = &rt_features;
+
+        VkPhysicalDeviceFeatures2 features2{};
+        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        features2.pNext = &as_features;
+        vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
+
+        if (rt_features.rayTracingPipeline && as_features.accelerationStructure) {
+            ray_tracing_supported_ = true;
+            device_extensions_.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
+            device_extensions_.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+            device_extensions_.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            FJELL_GFX_INFO("Ray tracing supported");
+        }
+    }
+
+    if (!ray_tracing_supported_) {
+        FJELL_GFX_INFO("Ray tracing not available, DDGI will use SDF fallback");
+    }
 }
 
 void Device::create_logical_device() {
@@ -263,15 +302,38 @@ void Device::create_logical_device() {
     // Chain: create_info → features_11 → features_12 → features_13 [→ mesh_shader_features]
     features_13.pNext = nullptr;
 
-    // Conditionally chain mesh shader features
+    // Build pNext chain tail: mesh shader → RT → acceleration structure
+    // Each enabled feature struct chains onto features_13.pNext
+    void* chain_tail = nullptr;
+
     VkPhysicalDeviceMeshShaderFeaturesEXT mesh_shader_features{};
     if (mesh_shader_supported_) {
         mesh_shader_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
         mesh_shader_features.taskShader = VK_TRUE;
         mesh_shader_features.meshShader = VK_TRUE;
-        mesh_shader_features.pNext = nullptr;
-        features_13.pNext = &mesh_shader_features;
+        mesh_shader_features.pNext = chain_tail;
+        chain_tail = &mesh_shader_features;
     }
+
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR as_features{};
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR rt_features{};
+    if (ray_tracing_supported_) {
+        as_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+        as_features.accelerationStructure = VK_TRUE;
+        as_features.descriptorBindingAccelerationStructureUpdateAfterBind = VK_TRUE;
+        as_features.pNext = chain_tail;
+        chain_tail = &as_features;
+
+        rt_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
+        rt_features.rayTracingPipeline = VK_TRUE;
+        rt_features.pNext = chain_tail;
+        chain_tail = &rt_features;
+
+        // bufferDeviceAddress is required for acceleration structures
+        features_12.bufferDeviceAddress = VK_TRUE;
+    }
+
+    features_13.pNext = chain_tail;
 
     features_12.pNext = &features_13;
     features_11.pNext = &features_12;
@@ -305,6 +367,28 @@ void Device::create_logical_device() {
             vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksIndirectEXT"));
         pfn_draw_mesh_tasks_indirect_count_ = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectCountEXT>(
             vkGetDeviceProcAddr(device_, "vkCmdDrawMeshTasksIndirectCountEXT"));
+    }
+
+    // Load ray tracing extension function pointers
+    if (ray_tracing_supported_) {
+        pfn_create_rt_pipelines_ = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(
+            vkGetDeviceProcAddr(device_, "vkCreateRayTracingPipelinesKHR"));
+        pfn_cmd_trace_rays_ = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(
+            vkGetDeviceProcAddr(device_, "vkCmdTraceRaysKHR"));
+        pfn_get_rt_shader_group_handles_ = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(
+            vkGetDeviceProcAddr(device_, "vkGetRayTracingShaderGroupHandlesKHR"));
+        pfn_create_accel_struct_ = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(
+            vkGetDeviceProcAddr(device_, "vkCreateAccelerationStructureKHR"));
+        pfn_destroy_accel_struct_ = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(
+            vkGetDeviceProcAddr(device_, "vkDestroyAccelerationStructureKHR"));
+        pfn_get_accel_struct_build_sizes_ = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(
+            vkGetDeviceProcAddr(device_, "vkGetAccelerationStructureBuildSizesKHR"));
+        pfn_cmd_build_accel_structs_ = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(
+            vkGetDeviceProcAddr(device_, "vkCmdBuildAccelerationStructuresKHR"));
+        pfn_get_accel_struct_device_address_ = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(
+            vkGetDeviceProcAddr(device_, "vkGetAccelerationStructureDeviceAddressKHR"));
+        pfn_get_buffer_device_address_ = reinterpret_cast<PFN_vkGetBufferDeviceAddressKHR>(
+            vkGetDeviceProcAddr(device_, "vkGetBufferDeviceAddress"));
     }
 }
 
