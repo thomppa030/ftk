@@ -1305,7 +1305,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Build acceleration structures before command buffer recording starts.
     // BLAS builds use synchronous GPU submits that would conflict with in-flight recording.
-    ddgi_pass_.prepare_accel_structures(current_ctx_);
+    // Only needed when DDGI is enabled for this viewport — preview viewports skip this.
+    if (pp && pp->ddgi()) {
+        ddgi_pass_.prepare_accel_structures(current_ctx_);
+    }
 
     // Init screen color image on first use (or after resize) so the descriptor
     // at binding 8 doesn't point to an UNDEFINED-layout image.
@@ -1419,8 +1422,24 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         sc_write.descriptorCount = 1;
         sc_write.pImageInfo = &sc_desc;
 
+        // Binding 10: GI indirect — use fallback for preview viewports
+        // (the previous record_frame may have set this to a now-destroyed view after resize)
+        VkDescriptorImageInfo gi_desc{};
+        gi_desc.sampler = gpu_.gi_fallback_sampler();
+        gi_desc.imageView = gpu_.gi_fallback_view();
+        gi_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet gi_write{};
+        gi_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        gi_write.dstSet = gpu_.global_descriptor_set(current_frame_);
+        gi_write.dstBinding = 10;
+        gi_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        gi_write.descriptorCount = 1;
+        gi_write.pImageInfo = &gi_desc;
+
         vkUpdateDescriptorSets(vk, 2, writes.data(), 0, nullptr);
         vkUpdateDescriptorSets(vk, 1, &sc_write, 0, nullptr);
+        vkUpdateDescriptorSets(vk, 1, &gi_write, 0, nullptr);
     }
 
     update_uniform_buffer(current_frame_, req.view, req.projection,
