@@ -49,6 +49,7 @@ public:
     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr VkFormat MR_FORMAT = VK_FORMAT_R8G8_UNORM;
     static constexpr VkFormat NORMAL_FORMAT = VK_FORMAT_R16G16_SFLOAT;
+    static constexpr VkFormat DISTORTION_FORMAT = VK_FORMAT_R16G16_SFLOAT;
 
     // Returns the single-sample metallic/roughness view (resolve target when MSAA, direct when 1x).
     [[nodiscard]] VkImageView mr_view() const { return resolve_mr_view_ ? resolve_mr_view_ : mr_view_; }
@@ -73,6 +74,10 @@ public:
     [[nodiscard]] VkImageView screen_color_view() const { return screen_color_view_; }
     [[nodiscard]] bool screen_color_needs_init() const { return screen_color_needs_init_; }
     void mark_screen_color_initialized() { screen_color_needs_init_ = false; }
+
+    // Distortion buffer — UV offsets for refraction effects.
+    [[nodiscard]] VkImage distortion_image() const { return distortion_image_; }
+    [[nodiscard]] VkImageView distortion_view() const { return distortion_view_; }
 
 private:
     void create(uint32_t width, uint32_t height);
@@ -130,6 +135,11 @@ private:
     VmaAllocation screen_color_allocation_{VK_NULL_HANDLE};
     VkImageView screen_color_view_{VK_NULL_HANDLE};
     bool screen_color_needs_init_{true};
+
+    // Distortion buffer (single-sample, RG16F UV offsets for refraction)
+    VkImage distortion_image_{VK_NULL_HANDLE};
+    VmaAllocation distortion_allocation_{VK_NULL_HANDLE};
+    VkImageView distortion_view_{VK_NULL_HANDLE};
 
     VkExtent2D extent_{};
 

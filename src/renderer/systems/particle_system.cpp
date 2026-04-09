@@ -618,6 +618,85 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
         vkDestroyShaderModule(device_, mesh_comp_mod, nullptr);
     }
 
+    // ── Distortion render pipeline (single R16G16 attachment, additive, 1x MSAA) ──
+    {
+        auto dist_frag_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/particle_distortion.frag.spv")));
+
+        // Push constant: float strength
+        VkPushConstantRange dist_push{};
+        dist_push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        dist_push.size = sizeof(float);
+
+        VkDescriptorSetLayout dist_sets[] = {global_set_layout_, render_set_layout_, bindless_set_layout_};
+        VkPipelineLayoutCreateInfo dist_layout_ci{};
+        dist_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        dist_layout_ci.setLayoutCount = 3;
+        dist_layout_ci.pSetLayouts = dist_sets;
+        dist_layout_ci.pushConstantRangeCount = 1;
+        dist_layout_ci.pPushConstantRanges = &dist_push;
+        vkCreatePipelineLayout(device_, &dist_layout_ci, nullptr, &render_distortion_layout_);
+
+        VkPipelineShaderStageCreateInfo dist_stages[2]{};
+        dist_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        dist_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        dist_stages[0].module = vert_mod;
+        dist_stages[0].pName = "main";
+        dist_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        dist_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        dist_stages[1].module = dist_frag_mod;
+        dist_stages[1].pName = "main";
+
+        // Single color attachment: R16G16 additive
+        VkPipelineColorBlendAttachmentState dist_blend{};
+        dist_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+        dist_blend.blendEnable = VK_TRUE;
+        dist_blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        dist_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        dist_blend.colorBlendOp = VK_BLEND_OP_ADD;
+        dist_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        dist_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        dist_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo dist_color_blending{};
+        dist_color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        dist_color_blending.attachmentCount = 1;
+        dist_color_blending.pAttachments = &dist_blend;
+
+        // Single-sample, depth test read-only
+        VkPipelineMultisampleStateCreateInfo dist_ms{};
+        dist_ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        dist_ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkFormat dist_color_format = OffscreenPass::DISTORTION_FORMAT;
+        VkPipelineRenderingCreateInfo dist_rendering{};
+        dist_rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+        dist_rendering.colorAttachmentCount = 1;
+        dist_rendering.pColorAttachmentFormats = &dist_color_format;
+        dist_rendering.depthAttachmentFormat = depth_format_;
+
+        VkGraphicsPipelineCreateInfo dist_ci{};
+        dist_ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        dist_ci.pNext = &dist_rendering;
+        dist_ci.stageCount = 2;
+        dist_ci.pStages = dist_stages;
+        dist_ci.pVertexInputState = &vertex_input;
+        dist_ci.pInputAssemblyState = &input_assembly;
+        dist_ci.pViewportState = &viewport_state;
+        dist_ci.pRasterizationState = &rasterizer;
+        dist_ci.pMultisampleState = &dist_ms;
+        dist_ci.pDepthStencilState = &depth_stencil;
+        dist_ci.pColorBlendState = &dist_color_blending;
+        dist_ci.pDynamicState = &dynamic_state;
+        dist_ci.layout = render_distortion_layout_;
+
+        // Reset to triangle list (may have been changed to strip for trails)
+        input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        input_assembly.primitiveRestartEnable = VK_FALSE;
+
+        vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &dist_ci, nullptr, &render_distortion_);
+        vkDestroyShaderModule(device_, dist_frag_mod, nullptr);
+    }
+
     vkDestroyShaderModule(device_, mesh_vert_mod, nullptr);
     vkDestroyShaderModule(device_, lit_frag_mod, nullptr);
     vkDestroyShaderModule(device_, trail_vert_mod, nullptr);
@@ -921,6 +1000,8 @@ void ParticleSystem::destroy() {
     safe_destroy(render_mesh_alpha_, vkDestroyPipeline);
     safe_destroy(render_mesh_lit_additive_, vkDestroyPipeline);
     safe_destroy(render_mesh_lit_alpha_, vkDestroyPipeline);
+    safe_destroy(render_distortion_, vkDestroyPipeline);
+    safe_destroy(render_distortion_layout_, vkDestroyPipelineLayout);
     safe_destroy(render_trail_alpha_, vkDestroyPipeline);
     safe_destroy(render_trail_additive_, vkDestroyPipeline);
     safe_destroy(render_alpha_, vkDestroyPipeline);
@@ -1335,8 +1416,57 @@ void ParticleSystem::record_opaque(const FrameContext& ctx) {
     record_render_opaque(ctx);
 }
 
+void ParticleSystem::record_distortion(const FrameContext& ctx) {
+    record_render_distortion(ctx);
+}
+
 void ParticleSystem::record_transparent(const FrameContext& ctx) {
     record_render(ctx);
+}
+
+void ParticleSystem::record_render_distortion(const FrameContext& ctx) {
+    if (emitters_.empty() || !mega_indirect_buffer_) return;
+
+    bool has_any = false;
+    for (const auto& em : emitters_) {
+        if (em.visible && em.is_distortion) { has_any = true; break; }
+    }
+    if (!has_any) return;
+
+    VkDescriptorSet frame_set = render_sets_[ctx.frame_index];
+    if (frame_set == VK_NULL_HANDLE) return;
+
+    VkViewport vp{};
+    vp.width = static_cast<float>(ctx.target->extent().width);
+    vp.height = static_cast<float>(ctx.target->extent().height);
+    vp.maxDepth = 1.0f;
+
+    VkRect2D sc{};
+    sc.extent = ctx.target->extent();
+
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_distortion_);
+    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
+    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_distortion_layout_,
+                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_distortion_layout_,
+                            1, 1, &frame_set, 0, nullptr);
+    if (ctx.bindless_set != VK_NULL_HANDLE) {
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, render_distortion_layout_,
+                                2, 1, &ctx.bindless_set, 0, nullptr);
+    }
+
+    constexpr uint32_t stride = sizeof(VkDrawIndirectCommand);
+
+    for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
+        if (!emitters_[i].visible || !emitters_[i].is_distortion) continue;
+
+        float strength = emitters_[i].distortion_strength;
+        vkCmdPushConstants(ctx.cmd, render_distortion_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
+                           0, sizeof(float), &strength);
+        vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(), i * stride, 1, stride);
+    }
 }
 
 // ── Internal implementations ───────────────────────────────────────────
@@ -1726,6 +1856,24 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
             }
         }
 
+        // Detect distortion emitter from render modules.
+        // Distortion is a standalone render mode (billboard quads → UV offset buffer).
+        // Only active when the emitter has no trail/lit/mesh overrides.
+        bool is_distortion = false;
+        float distortion_strength = 0.05f;
+        if (!is_trail && !is_lit && !is_mesh) {
+            for (const auto& rm : sub.render_modules) {
+                if (rm->enabled && rm->type() == ModuleType::distortion) {
+                    is_distortion = true;
+                    auto* dm = dynamic_cast<const DistortionModule*>(rm.get());
+                    if (dm) distortion_strength = dm->strength;
+                    break;
+                }
+            }
+        }
+        gpu.is_distortion = is_distortion;
+        gpu.distortion_strength = distortion_strength;
+
         gpu.is_trail = is_trail;
         data.flags = (is_trail ? 1u : 0u) | (is_lit ? 2u : 0u) | (is_mesh ? 4u : 0u);
         data.trail_head = 0; // read from counter buffer by indirect shader
@@ -1887,6 +2035,7 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
     for (uint32_t i = 0; i < static_cast<uint32_t>(emitters_.size()); ++i) {
         if (!emitters_[i].visible) continue;
         if (emitters_[i].blend_mode == ParticleBlendMode::opaque) continue;
+        if (emitters_[i].is_distortion) continue; // drawn in distortion pass
         if (emitters_[i].blend_mode == ParticleBlendMode::additive) {
             draw_order.push_back(i);
         } else {

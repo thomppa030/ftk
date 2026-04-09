@@ -248,6 +248,7 @@ private:
   void register_color_passes();
   void register_opaque_pass();
   void register_screen_color_copy_pass();
+  void register_distortion_passes();
   void register_transparent_pass();
 
   FrameContext build_frame_context(VkCommandBuffer cmd, OffscreenPass &target,
@@ -279,6 +280,14 @@ private:
   SkyCubemapPass sky_cubemap_pass_;
   TransparentPass transparent_pass_;
   TonemapPass tonemap_pass_;
+
+  // Distortion apply (fullscreen pass: sample distortion buffer + screen color)
+  VkPipelineLayout distortion_apply_layout_{VK_NULL_HANDLE};
+  VkPipeline distortion_apply_pipeline_{VK_NULL_HANDLE};
+  VkDescriptorSetLayout distortion_apply_set_layout_{VK_NULL_HANDLE};
+  VkDescriptorPool distortion_apply_pool_{VK_NULL_HANDLE};
+  std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> distortion_apply_sets_{};
+  VkSampler distortion_sampler_{VK_NULL_HANDLE};
 
   // Meshlet passes
   MeshShaderDepthPass mesh_shader_depth_pass_;

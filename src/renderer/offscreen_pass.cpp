@@ -88,6 +88,9 @@ void OffscreenPass::cleanup_images() {
     if (screen_color_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, screen_color_view_, nullptr);
     destroy_vma_image(allocator_, screen_color_image_, screen_color_allocation_);
 
+    if (distortion_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, distortion_view_, nullptr);
+    destroy_vma_image(allocator_, distortion_image_, distortion_allocation_);
+
     color_view_ = VK_NULL_HANDLE;
     color_image_ = VK_NULL_HANDLE;
     color_allocation_ = VK_NULL_HANDLE;
@@ -115,6 +118,9 @@ void OffscreenPass::cleanup_images() {
     screen_color_view_ = VK_NULL_HANDLE;
     screen_color_image_ = VK_NULL_HANDLE;
     screen_color_allocation_ = VK_NULL_HANDLE;
+    distortion_view_ = VK_NULL_HANDLE;
+    distortion_image_ = VK_NULL_HANDLE;
+    distortion_allocation_ = VK_NULL_HANDLE;
     screen_color_needs_init_ = true;
 }
 
@@ -394,6 +400,34 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
 
     if (vkCreateImageView(vk, &sc_view_info, nullptr, &screen_color_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create screen color view");
+    }
+
+    // -- Distortion buffer (single-sample, RG16F UV offsets) --
+    VkImageCreateInfo dist_info{};
+    dist_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    dist_info.imageType = VK_IMAGE_TYPE_2D;
+    dist_info.format = DISTORTION_FORMAT;
+    dist_info.extent = {width, height, 1};
+    dist_info.mipLevels = 1;
+    dist_info.arrayLayers = 1;
+    dist_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    dist_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    dist_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    dist_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (create_vma_image(allocator_, &dist_info, &distortion_image_, &distortion_allocation_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create distortion image");
+    }
+
+    VkImageViewCreateInfo dist_view_info{};
+    dist_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    dist_view_info.image = distortion_image_;
+    dist_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    dist_view_info.format = DISTORTION_FORMAT;
+    dist_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    if (vkCreateImageView(vk, &dist_view_info, nullptr, &distortion_view_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create distortion view");
     }
 }
 

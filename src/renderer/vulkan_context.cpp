@@ -255,6 +255,14 @@ VulkanContext::~VulkanContext() {
     sky_pass_.destroy();
     transparent_pass_.destroy();
     tonemap_pass_.destroy();
+
+    // Distortion apply resources
+    auto vk_dev = gpu_.device();
+    if (distortion_apply_pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(vk_dev, distortion_apply_pipeline_, nullptr);
+    if (distortion_apply_layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(vk_dev, distortion_apply_layout_, nullptr);
+    if (distortion_apply_pool_ != VK_NULL_HANDLE) vkDestroyDescriptorPool(vk_dev, distortion_apply_pool_, nullptr);
+    if (distortion_apply_set_layout_ != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(vk_dev, distortion_apply_set_layout_, nullptr);
+    if (distortion_sampler_ != VK_NULL_HANDLE) vkDestroySampler(vk_dev, distortion_sampler_, nullptr);
     bloom_pass_.destroy();
     uv_viz_pass_.destroy();
     overdraw_pass_.destroy();
@@ -608,6 +616,7 @@ void VulkanContext::register_color_passes() {
     });
 
     register_screen_color_copy_pass();
+    register_distortion_passes();
     register_transparent_pass();
 }
 
@@ -840,6 +849,203 @@ void VulkanContext::register_screen_color_copy_pass() {
                     1, &region);
             }, {{imgs.color_id, ImageUsage::transfer_src},
                 {imgs.screen_color_id, ImageUsage::transfer_dst}});
+        }
+    });
+}
+
+void VulkanContext::register_distortion_passes() {
+    // Create distortion apply resources (once)
+    if (distortion_apply_pipeline_ == VK_NULL_HANDLE) {
+        auto vk = gpu_.device();
+
+        // Sampler
+        VkSamplerCreateInfo samp_ci{};
+        samp_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        samp_ci.magFilter = VK_FILTER_LINEAR;
+        samp_ci.minFilter = VK_FILTER_LINEAR;
+        samp_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samp_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samp_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(vk, &samp_ci, nullptr, &distortion_sampler_);
+
+        // Descriptor set layout: binding 0 = screen_color, binding 1 = distortion_buffer
+        VkDescriptorSetLayoutBinding bindings[2]{};
+        bindings[0].binding = 0;
+        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[0].descriptorCount = 1;
+        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        bindings[1].binding = 1;
+        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[1].descriptorCount = 1;
+        bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo layout_ci{};
+        layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        layout_ci.bindingCount = 2;
+        layout_ci.pBindings = bindings;
+        vkCreateDescriptorSetLayout(vk, &layout_ci, nullptr, &distortion_apply_set_layout_);
+
+        // Pipeline layout
+        VkPipelineLayoutCreateInfo pipe_layout_ci{};
+        pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipe_layout_ci.setLayoutCount = 1;
+        pipe_layout_ci.pSetLayouts = &distortion_apply_set_layout_;
+        vkCreatePipelineLayout(vk, &pipe_layout_ci, nullptr, &distortion_apply_layout_);
+
+        // Descriptor pool + per-frame sets
+        VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * MAX_FRAMES_IN_FLIGHT};
+        VkDescriptorPoolCreateInfo pool_ci{};
+        pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
+        pool_ci.poolSizeCount = 1;
+        pool_ci.pPoolSizes = &pool_size;
+        vkCreateDescriptorPool(vk, &pool_ci, nullptr, &distortion_apply_pool_);
+
+        std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
+        layouts.fill(distortion_apply_set_layout_);
+        VkDescriptorSetAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc_info.descriptorPool = distortion_apply_pool_;
+        alloc_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
+        alloc_info.pSetLayouts = layouts.data();
+        vkAllocateDescriptorSets(vk, &alloc_info, distortion_apply_sets_.data());
+
+        // Pipeline
+        auto vert_mod = create_shader_module(vk, read_spirv(base_path::resolve("shaders/depth_viz.vert.spv")));
+        auto frag_mod = create_shader_module(vk, read_spirv(base_path::resolve("shaders/distortion_apply.frag.spv")));
+
+        distortion_apply_pipeline_ = vk_utils::create_fullscreen_pipeline({
+            .device = vk,
+            .layout = distortion_apply_layout_,
+            .vert_module = vert_mod,
+            .frag_module = frag_mod,
+            .color_format = OffscreenPass::COLOR_FORMAT,
+            .samples = gpu_.msaa_samples(),
+            .blend_enable = true,
+            .pipeline_cache = gpu_.vk_pipeline_cache(),
+        });
+
+        vkDestroyShaderModule(vk, vert_mod, nullptr);
+        vkDestroyShaderModule(vk, frag_mod, nullptr);
+    }
+
+    // Pass 1: Render distortion particles into distortion buffer (order 640)
+    render_pipeline_.register_pass({
+        .name = "distortion_render",
+        .order = 640,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("distortion_render", [this](VkCommandBuffer cb) {
+                auto* target = current_ctx_.target;
+
+                VkRenderingAttachmentInfo color_attachment{};
+                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                color_attachment.imageView = target->distortion_view();
+                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                color_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+                VkRenderingAttachmentInfo depth_attachment{};
+                depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                depth_attachment.imageView = target->depth_view();
+                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+                depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+
+                VkRenderingInfo ri{};
+                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+                ri.renderArea.extent = target->extent();
+                ri.layerCount = 1;
+                ri.colorAttachmentCount = 1;
+                ri.pColorAttachments = &color_attachment;
+                ri.pDepthAttachment = &depth_attachment;
+
+                vkCmdBeginRendering(cb, &ri);
+
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                for (auto& sys : render_subsystems_) sys->record_distortion(local);
+
+                vkCmdEndRendering(cb);
+            }, {{imgs.distortion_id, ImageUsage::color_attachment},
+                {imgs.depth_id, ImageUsage::shader_read}});
+        }
+    });
+
+    // Pass 2: Apply distortion offsets to screen color (order 645, before transparent)
+    render_pipeline_.register_pass({
+        .name = "distortion_apply",
+        .order = 645,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("distortion_apply", [this](VkCommandBuffer cb) {
+                auto* target = current_ctx_.target;
+
+                // Update descriptor set with current frame's images
+                VkDescriptorImageInfo sc_info{};
+                sc_info.sampler = distortion_sampler_;
+                sc_info.imageView = target->screen_color_view();
+                sc_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkDescriptorImageInfo dist_info{};
+                dist_info.sampler = distortion_sampler_;
+                dist_info.imageView = target->distortion_view();
+                dist_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                VkDescriptorSet frame_set = distortion_apply_sets_[current_frame_];
+
+                VkWriteDescriptorSet writes[2]{};
+                writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[0].dstSet = frame_set;
+                writes[0].dstBinding = 0;
+                writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[0].descriptorCount = 1;
+                writes[0].pImageInfo = &sc_info;
+                writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                writes[1].dstSet = frame_set;
+                writes[1].dstBinding = 1;
+                writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                writes[1].descriptorCount = 1;
+                writes[1].pImageInfo = &dist_info;
+                vkUpdateDescriptorSets(gpu_.device(), 2, writes, 0, nullptr);
+
+                // Render fullscreen triangle into MSAA color (so transparent pass composites on top)
+                VkRenderingAttachmentInfo color_attachment{};
+                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+                color_attachment.imageView = target->msaa_color_view();
+                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+                VkRenderingInfo ri{};
+                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+                ri.renderArea.extent = target->extent();
+                ri.layerCount = 1;
+                ri.colorAttachmentCount = 1;
+                ri.pColorAttachments = &color_attachment;
+
+                vkCmdBeginRendering(cb, &ri);
+
+                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, distortion_apply_pipeline_);
+
+                VkViewport vp{};
+                vp.width = static_cast<float>(target->extent().width);
+                vp.height = static_cast<float>(target->extent().height);
+                vp.maxDepth = 1.0f;
+                vkCmdSetViewport(cb, 0, 1, &vp);
+
+                VkRect2D sc{};
+                sc.extent = target->extent();
+                vkCmdSetScissor(cb, 0, 1, &sc);
+
+                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        distortion_apply_layout_, 0, 1,
+                                        &frame_set, 0, nullptr);
+                vkCmdDraw(cb, 3, 1, 0, 0);
+
+                vkCmdEndRendering(cb);
+            }, {{imgs.distortion_id, ImageUsage::shader_read},
+                {imgs.screen_color_id, ImageUsage::shader_read},
+                {imgs.msaa_color_id, ImageUsage::color_attachment}});
         }
     });
 }

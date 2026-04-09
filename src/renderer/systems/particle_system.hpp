@@ -77,6 +77,7 @@ public:
     void update(const RenderSubsystemContext& ctx) override;
     void record_compute(const FrameContext& ctx) override;
     void record_opaque(const FrameContext& ctx) override;
+    void record_distortion(const FrameContext& ctx) override;
     void record_transparent(const FrameContext& ctx) override;
 
 
@@ -89,6 +90,7 @@ private:
                           const glm::mat4& view_projection);
     void insert_barriers(VkCommandBuffer cmd);
     void record_render(const FrameContext& ctx);
+    void record_render_distortion(const FrameContext& ctx);
     void record_render_opaque(const FrameContext& ctx);
 
 public:
@@ -106,7 +108,9 @@ public:
         bool is_lit{false};       // uses lit PBR fragment shader
         float lit_metallic{0.0f};
         float lit_roughness{0.5f};
-        bool is_mesh{false};     // uses mesh instanced rendering
+        bool is_mesh{false};         // uses mesh instanced rendering
+        bool is_distortion{false};   // renders into distortion UV-offset buffer
+        float distortion_strength{0.05f};
         ParticleMeshShape mesh_shape{ParticleMeshShape::cube};
         MegaMeshEntry mesh_entry{}; // resolved mesh geometry
         uint32_t mesh_material_id{0}; // resolved material for mesh particles
@@ -144,6 +148,10 @@ private:
     // Render pipeline (trail / ribbon)
     VkPipeline render_trail_additive_{VK_NULL_HANDLE};
     VkPipeline render_trail_alpha_{VK_NULL_HANDLE};
+
+    // Distortion render pipeline (single R16G16 attachment, 1x MSAA)
+    VkPipelineLayout render_distortion_layout_{VK_NULL_HANDLE};
+    VkPipeline render_distortion_{VK_NULL_HANDLE};
 
     // Lit render pipelines (separate layout with push constants)
     VkPipelineLayout render_lit_layout_{VK_NULL_HANDLE};

@@ -67,6 +67,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "EmitOverDistance") return std::make_unique<EmitOverDistanceModule>();
     if (type_name == "Orbital")          return std::make_unique<OrbitalModule>();
     if (type_name == "Emissive")         return std::make_unique<EmissiveModule>();
+    if (type_name == "Distortion")       return std::make_unique<DistortionModule>();
     return nullptr;
 }
 
@@ -1295,6 +1296,40 @@ void LitParticleModule::to_json(nlohmann::json& j) const {
 void LitParticleModule::from_json(const nlohmann::json& j) {
     metallic = j.value("metallic", 0.0f);
     roughness = j.value("roughness", 0.5f);
+}
+
+// ─── Distortion ─────────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> DistortionModule::pin_descriptors() {
+    return {
+        {"strength", PinDataType::float_type, &strength, {}, 0.0f, 1.0f, 0.001f},
+    };
+}
+
+uint32_t DistortionModule::write_gpu_data(uint8_t* buffer) const {
+    // strength(1) + normal_map_index(1) = 2 words
+    uint32_t total = write_header(buffer, type(), 2);
+    write_float(buffer, 8, strength);
+    write_uint(buffer, 12, normal_map_index);
+    return total;
+}
+
+bool DistortionModule::draw_inspector() {
+    bool changed = false;
+    changed |= ImGui::DragFloat("Strength", &strength, 0.001f, 0.0f, 1.0f);
+    // TODO: normal map texture picker
+    return changed;
+}
+
+void DistortionModule::to_json(nlohmann::json& j) const {
+    j["type"] = "Distortion";
+    j["strength"] = strength;
+    if (!normal_map_path.empty()) j["normal_map"] = normal_map_path;
+}
+
+void DistortionModule::from_json(const nlohmann::json& j) {
+    strength = j.value("strength", 0.05f);
+    normal_map_path = j.value("normal_map", "");
 }
 
 // ─── Emissive ───────────────────────────────────────────────────────────

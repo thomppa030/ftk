@@ -50,6 +50,7 @@ enum class ModuleType : uint32_t {
     trail              = 201,
     lit_particle       = 202,
     mesh_particle      = 203,
+    distortion         = 204,
 };
 
 // Position shape for InitialPosition module
@@ -507,6 +508,20 @@ struct LitParticleModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::lit_particle; }
     [[nodiscard]] const char* name() const override { return "Lit Particle"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+struct DistortionModule final : VfxModule {
+    float strength{0.05f};
+    std::string normal_map_path;
+    uint32_t normal_map_index{0}; // resolved bindless index
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::distortion; }
+    [[nodiscard]] const char* name() const override { return "Distortion"; }
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;

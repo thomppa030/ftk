@@ -58,6 +58,9 @@ public:
     // Draw opaque geometry — called during the opaque color pass.
     virtual void record_opaque(const FrameContext& ctx) { (void)ctx; }
 
+    // Draw distortion particles into the distortion UV-offset buffer.
+    virtual void record_distortion(const FrameContext& ctx) { (void)ctx; }
+
     // Draw transparent geometry — called during the transparent color pass.
     // Subsystems are sorted by transparent_order() before recording (lower = drawn first = behind).
     virtual void record_transparent(const FrameContext& ctx) { (void)ctx; }

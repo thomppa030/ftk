@@ -37,6 +37,7 @@
 #define MOD_TRAIL              201
 #define MOD_LIT_PARTICLE       202
 #define MOD_MESH_PARTICLE      203
+#define MOD_DISTORTION         204
 
 #define MOD_TERMINATOR         0xFFFFFFFF
 

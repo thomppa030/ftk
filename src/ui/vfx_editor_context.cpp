@@ -793,6 +793,7 @@ void VfxEditorContext::draw_context_menu() {
             add_btn("Trail",            []{ return std::make_unique<TrailModule>(); },            emitter.render_modules, 2);
             add_btn("Lit Particle",     []{ return std::make_unique<LitParticleModule>(); },     emitter.render_modules, 2);
             add_btn("Mesh Particle",    []{ return std::make_unique<MeshParticleModule>(); },    emitter.render_modules, 2);
+            add_btn("Distortion",       []{ return std::make_unique<DistortionModule>(); },      emitter.render_modules, 2);
             ImGui::EndMenu();
         }
         ImGui::Separator();
