@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/bloom_pass.hpp"
+#include "renderer/pass/ddgi_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
@@ -22,6 +23,7 @@ struct PostProcessConfig {
     bool ssr{false};
     bool volumetric_fog{false};
     bool tonemap{true};
+    bool ddgi{false};
 };
 
 /// Owns all per-viewport post-processing image state.
@@ -38,6 +40,7 @@ public:
         SsrPass& ssr;
         VolumetricFogPass& fog;
         TonemapPass& tonemap;
+        DdgiPass& ddgi;
     };
 
     PostProcessResources(VkDevice device, VmaAllocator allocator,
@@ -60,6 +63,7 @@ public:
     [[nodiscard]] SsrPass::Images* ssr() { return config_.ssr ? &ssr_images_ : nullptr; }
     [[nodiscard]] VolumetricFogPass::Images* volumetric_fog() { return config_.volumetric_fog ? &fog_images_ : nullptr; }
     [[nodiscard]] TonemapPass::Images* tonemap() { return config_.tonemap ? &tonemap_images_ : nullptr; }
+    [[nodiscard]] DdgiPass::Images* ddgi() { return config_.ddgi ? &ddgi_images_ : nullptr; }
 
     [[nodiscard]] const PostProcessConfig& config() const { return config_; }
 
@@ -81,6 +85,7 @@ private:
     SsrPass::Images ssr_images_;
     VolumetricFogPass::Images fog_images_;
     TonemapPass::Images tonemap_images_;
+    DdgiPass::Images ddgi_images_;
 };
 
 } // namespace fjell

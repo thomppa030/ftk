@@ -1,0 +1,144 @@
+#pragma once
+
+#include "renderer/pass/render_pass.hpp"
+#include "renderer/gpu/buffer.hpp"
+
+#include <glm/glm.hpp>
+#include <vk_mem_alloc.h>
+#include <vulkan/vulkan.h>
+
+#include <cstdint>
+#include <memory>
+
+namespace fjell {
+
+struct DdgiConfig {
+    glm::ivec3 probe_counts{8, 4, 8};
+    glm::vec3 probe_spacing{2.0f};
+    glm::vec3 grid_position{0.0f};
+    float hysteresis{0.97f};
+    int probe_rays{128};
+    int irradiance_side_length{6};
+    int visibility_side_length{6};
+    float self_shadow_bias{0.3f};
+    float max_probe_offset{0.5f};
+    float gi_intensity{1.0f};
+    bool half_res_output{true};
+};
+
+/// GPU-side constants UBO (std140 layout).
+struct GpuDdgiConstants {
+    glm::vec3 probe_grid_position;
+    float probe_sphere_scale{0.1f};
+
+    glm::vec3 probe_spacing;
+    float max_probe_offset;
+
+    glm::vec3 reciprocal_spacing;
+    float self_shadow_bias;
+
+    glm::ivec3 probe_counts;
+    uint32_t debug_options{0};
+
+    int32_t irr_tex_w{0};
+    int32_t irr_tex_h{0};
+    int32_t irr_side{0};
+    int32_t probe_rays{0};
+
+    int32_t vis_tex_w{0};
+    int32_t vis_tex_h{0};
+    int32_t vis_side{0};
+    int32_t probe_update_offset{0};
+
+    int32_t probe_update_count{0};
+    float hysteresis{0.97f};
+    float infinite_bounces_mult{0.0f};
+    float pad0{0.0f};
+
+    glm::mat4 random_rotation{1.0f};
+
+    // Camera data for sampling pass
+    glm::vec3 camera_position;
+    float pad1{0.0f};
+
+    glm::mat4 inv_view_proj{1.0f};
+
+    glm::vec2 resolution;
+    float pad2{0.0f};
+    float pad3{0.0f};
+};
+
+class DdgiPass : public RenderPass {
+public:
+    /// Per-viewport resolution-dependent image state.
+    struct Images {
+        // Radiance: probe_rays x total_probes, R16G16B16A16_SFLOAT
+        VkImage radiance_image{VK_NULL_HANDLE};
+        VmaAllocation radiance_memory{VK_NULL_HANDLE};
+        VkImageView radiance_view{VK_NULL_HANDLE};
+
+        // Irradiance atlas: R16G16B16A16_SFLOAT
+        VkImage irradiance_image{VK_NULL_HANDLE};
+        VmaAllocation irradiance_memory{VK_NULL_HANDLE};
+        VkImageView irradiance_view{VK_NULL_HANDLE};
+
+        // Visibility atlas: R16G16_SFLOAT
+        VkImage visibility_image{VK_NULL_HANDLE};
+        VmaAllocation visibility_memory{VK_NULL_HANDLE};
+        VkImageView visibility_view{VK_NULL_HANDLE};
+
+        // Probe offsets: R16G16B16A16_SFLOAT
+        VkImage probe_offset_image{VK_NULL_HANDLE};
+        VmaAllocation probe_offset_memory{VK_NULL_HANDLE};
+        VkImageView probe_offset_view{VK_NULL_HANDLE};
+
+        // Probe status SSBO (uint per probe)
+        std::unique_ptr<Buffer> probe_status_buffer;
+
+        // Constants UBO (host-mapped, updated each frame)
+        std::unique_ptr<Buffer> constants_ubo;
+
+        // Indirect output: screen-res or half-res, R16G16B16A16_SFLOAT
+        VkImage indirect_image{VK_NULL_HANDLE};
+        VmaAllocation indirect_memory{VK_NULL_HANDLE};
+        VkImageView indirect_view{VK_NULL_HANDLE};
+        VkExtent2D indirect_extent{};
+
+        // Atlas dimensions (computed from config)
+        int32_t irr_width{0};
+        int32_t irr_height{0};
+        int32_t vis_width{0};
+        int32_t vis_height{0};
+        int32_t total_probes{0};
+
+        bool images_need_init{true};
+
+        void create(VkDevice device, VmaAllocator allocator,
+                     const DdgiConfig& config,
+                     uint32_t screen_w, uint32_t screen_h);
+        void destroy(VkDevice device, VmaAllocator allocator);
+        void resize(VkDevice device, VmaAllocator allocator,
+                     const DdgiConfig& config,
+                     uint32_t screen_w, uint32_t screen_h);
+
+        void invalidate_imgui_texture();
+    };
+
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext& ctx) override;
+
+    /// Record into externally-provided images.
+    void record_into(const FrameContext& ctx, Images& imgs);
+
+    void set_config(const DdgiConfig& config) { config_ = config; }
+    [[nodiscard]] DdgiConfig& config() { return config_; }
+    [[nodiscard]] const DdgiConfig& config() const { return config_; }
+
+private:
+    Device* device_{nullptr};
+    DdgiConfig config_;
+    uint32_t frame_counter_{0};
+};
+
+} // namespace fjell

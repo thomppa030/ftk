@@ -152,6 +152,7 @@ VulkanContext::VulkanContext(Window& window)
     check_pass(gtao_pass_.create(gpu_.device_ref(), pass_resources));
     check_pass(ssr_pass_.create(gpu_.device_ref(), pass_resources));
     check_pass(volumetric_fog_pass_.create(gpu_.device_ref(), pass_resources));
+    check_pass(ddgi_pass_.create(gpu_.device_ref(), pass_resources));
     check_pass(light_cull_pass_.create(gpu_.device_ref(), pass_resources));
     light_heatmap_pass_.set_mode(0);
     check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
@@ -208,7 +209,7 @@ VulkanContext::VulkanContext(Window& window)
     PostProcessConfig default_config{};
     default_config.ssr = true;
     default_config.volumetric_fog = true;
-    PostProcessResources::PassRefs refs{hiz_pass_, gtao_pass_, bloom_pass_, ssr_pass_, volumetric_fog_pass_, tonemap_pass_};
+    PostProcessResources::PassRefs refs{hiz_pass_, gtao_pass_, bloom_pass_, ssr_pass_, volumetric_fog_pass_, tonemap_pass_, ddgi_pass_};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
@@ -228,6 +229,7 @@ VulkanContext::~VulkanContext() {
     gtao_pass_.destroy();
     ssr_pass_.destroy();
     volumetric_fog_pass_.destroy();
+    ddgi_pass_.destroy();
 
     light_cull_pass_.destroy();
     sky_cubemap_pass_.destroy();
@@ -2172,7 +2174,7 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
 
     PostProcessResources::PassRefs refs{
         hiz_pass_, gtao_pass_, bloom_pass_,
-        ssr_pass_, volumetric_fog_pass_, tonemap_pass_};
+        ssr_pass_, volumetric_fog_pass_, tonemap_pass_, ddgi_pass_};
 
     auto viewport = std::make_unique<SceneViewport>(
         gpu_.device_ref(), gpu_.device(), gpu_.allocator(),

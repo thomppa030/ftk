@@ -17,6 +17,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/grid_pass.hpp"
+#include "renderer/pass/ddgi_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
@@ -128,6 +129,7 @@ public:
   [[nodiscard]] GtaoPass &gtao_pass() { return gtao_pass_; }
   [[nodiscard]] SsrPass &ssr_pass() { return ssr_pass_; }
   [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return volumetric_fog_pass_; }
+  [[nodiscard]] DdgiPass &ddgi_pass() { return ddgi_pass_; }
   [[nodiscard]] TonemapPass &tonemap_pass() { return tonemap_pass_; }
   [[nodiscard]] LightVizPass &light_heatmap_pass() { return light_heatmap_pass_; }
   [[nodiscard]] LightVizPass &light_grid_pass() { return light_grid_pass_; }
@@ -287,6 +289,7 @@ private:
   GtaoPass gtao_pass_;
   SsrPass ssr_pass_;
   VolumetricFogPass volumetric_fog_pass_;
+  DdgiPass ddgi_pass_;
 
   // Forward+ light culling + visualization
   LightCullPass light_cull_pass_;
