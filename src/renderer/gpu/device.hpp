@@ -60,6 +60,18 @@ public:
     [[nodiscard]] PFN_vkCmdDrawMeshTasksIndirectCountEXT draw_mesh_tasks_indirect_count_fn() const {
         return pfn_draw_mesh_tasks_indirect_count_;
     }
+
+    // Ray tracing
+    [[nodiscard]] bool ray_tracing_supported() const { return ray_tracing_supported_; }
+    [[nodiscard]] PFN_vkCreateRayTracingPipelinesKHR create_rt_pipelines_fn() const { return pfn_create_rt_pipelines_; }
+    [[nodiscard]] PFN_vkCmdTraceRaysKHR cmd_trace_rays_fn() const { return pfn_cmd_trace_rays_; }
+    [[nodiscard]] PFN_vkGetRayTracingShaderGroupHandlesKHR get_rt_shader_group_handles_fn() const { return pfn_get_rt_shader_group_handles_; }
+    [[nodiscard]] PFN_vkCreateAccelerationStructureKHR create_accel_struct_fn() const { return pfn_create_accel_struct_; }
+    [[nodiscard]] PFN_vkDestroyAccelerationStructureKHR destroy_accel_struct_fn() const { return pfn_destroy_accel_struct_; }
+    [[nodiscard]] PFN_vkGetAccelerationStructureBuildSizesKHR get_accel_struct_build_sizes_fn() const { return pfn_get_accel_struct_build_sizes_; }
+    [[nodiscard]] PFN_vkCmdBuildAccelerationStructuresKHR cmd_build_accel_structs_fn() const { return pfn_cmd_build_accel_structs_; }
+    [[nodiscard]] PFN_vkGetAccelerationStructureDeviceAddressKHR get_accel_struct_device_address_fn() const { return pfn_get_accel_struct_device_address_; }
+    [[nodiscard]] PFN_vkGetBufferDeviceAddressKHR get_buffer_device_address_fn() const { return pfn_get_buffer_device_address_; }
     [[nodiscard]] VkFormat find_supported_format(
         const std::vector<VkFormat>& candidates, VkImageTiling tiling,
         VkFormatFeatureFlags features) const;
@@ -93,6 +105,17 @@ private:
     PFN_vkCmdDrawMeshTasksEXT pfn_draw_mesh_tasks_{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectEXT pfn_draw_mesh_tasks_indirect_{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectCountEXT pfn_draw_mesh_tasks_indirect_count_{nullptr};
+
+    bool ray_tracing_supported_{false};
+    PFN_vkCreateRayTracingPipelinesKHR pfn_create_rt_pipelines_{nullptr};
+    PFN_vkCmdTraceRaysKHR pfn_cmd_trace_rays_{nullptr};
+    PFN_vkGetRayTracingShaderGroupHandlesKHR pfn_get_rt_shader_group_handles_{nullptr};
+    PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};
+    PFN_vkDestroyAccelerationStructureKHR pfn_destroy_accel_struct_{nullptr};
+    PFN_vkGetAccelerationStructureBuildSizesKHR pfn_get_accel_struct_build_sizes_{nullptr};
+    PFN_vkCmdBuildAccelerationStructuresKHR pfn_cmd_build_accel_structs_{nullptr};
+    PFN_vkGetAccelerationStructureDeviceAddressKHR pfn_get_accel_struct_device_address_{nullptr};
+    PFN_vkGetBufferDeviceAddressKHR pfn_get_buffer_device_address_{nullptr};
 
 #ifdef NDEBUG
     static constexpr bool enable_validation_ = false;

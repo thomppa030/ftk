@@ -12,6 +12,13 @@
 
 namespace fjell {
 
+class AccelStructureManager;
+
+enum class DdgiBackend : uint8_t {
+    sdf_fallback,
+    ray_traced,
+};
+
 struct DdgiConfig {
     glm::ivec3 probe_counts{8, 4, 8};
     glm::vec3 probe_spacing{2.0f};
@@ -122,7 +129,8 @@ public:
 
         // Descriptor sets — written by DdgiPass after Images::create()
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
-        VkDescriptorSet trace_set{VK_NULL_HANDLE};
+        VkDescriptorSet trace_set{VK_NULL_HANDLE};     // SDF trace
+        VkDescriptorSet rt_trace_set{VK_NULL_HANDLE};  // RT trace
         VkDescriptorSet update_set{VK_NULL_HANDLE};
         VkDescriptorSet sample_set{VK_NULL_HANDLE};
 
@@ -149,6 +157,11 @@ public:
     [[nodiscard]] const DdgiConfig& config() const { return config_; }
     [[nodiscard]] VkSampler linear_sampler() const { return linear_sampler_; }
 
+    void set_backend(DdgiBackend b) { backend_ = b; }
+    [[nodiscard]] DdgiBackend backend() const { return backend_; }
+
+    void set_accel_manager(AccelStructureManager* mgr) { accel_manager_ = mgr; }
+
     /// Push constants for the SDF trace shader.
     struct TracePushConstants {
         glm::vec3 light_direction;
@@ -159,6 +172,14 @@ public:
         float pad0;
         glm::vec3 sdf_volume_max;
         float pad1;
+    };
+
+    /// Push constants for the RT trace shader.
+    struct RtTracePushConstants {
+        glm::vec3 light_direction;
+        float light_intensity;
+        glm::vec3 light_color;
+        float max_trace_dist;
     };
 
 private:
@@ -187,6 +208,21 @@ private:
 
     VkSampler linear_sampler_{VK_NULL_HANDLE};
     bool is_first_frame_{true};
+
+    // RT backend
+    DdgiBackend backend_{DdgiBackend::sdf_fallback};
+    AccelStructureManager* accel_manager_{nullptr};
+
+    VkDescriptorSetLayout rt_trace_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout rt_trace_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline rt_pipeline_{VK_NULL_HANDLE};
+
+    // Shader binding table
+    std::unique_ptr<Buffer> sbt_buffer_;
+    VkStridedDeviceAddressRegionKHR sbt_raygen_{};
+    VkStridedDeviceAddressRegionKHR sbt_miss_{};
+    VkStridedDeviceAddressRegionKHR sbt_hit_{};
+    VkStridedDeviceAddressRegionKHR sbt_callable_{};
 };
 
 } // namespace fjell

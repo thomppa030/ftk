@@ -17,6 +17,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/grid_pass.hpp"
+#include "renderer/gpu/accel_structure.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
@@ -345,6 +346,7 @@ private:
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
   ResourceManager* resource_manager_{nullptr};
+  std::unique_ptr<AccelStructureManager> accel_manager_;
   const Project* project_{nullptr};
   float ibl_intensity_{1.0f};
   float elapsed_time_{0.0f};

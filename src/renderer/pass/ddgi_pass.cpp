@@ -1,6 +1,9 @@
 #include "renderer/pass/ddgi_pass.hpp"
+#include "renderer/gpu/accel_structure.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/render_queue.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/pass/scene_sdf_pass.hpp"
@@ -476,6 +479,221 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     }
 
     FJELL_GFX_DEBUG("DDGI pass created (SDF trace + 4 update + sample pipelines)");
+
+    // ── RT trace pipeline (optional) ──
+    if (device.ray_tracing_supported()) {
+        FJELL_GFX_DEBUG("DDGI: Creating RT trace pipeline...");
+        // RT trace set layout:
+        // binding 0: DDGIConstants UBO
+        // binding 1: TLAS
+        // binding 2: radiance output (storage image)
+        // binding 3: sky cubemap (samplerCube)
+        // binding 4: probe status SSBO
+        // binding 5: probe offset texture (sampler2D)
+        // binding 6: vertex buffer SSBO (for closest-hit normal computation)
+        // binding 7: index buffer SSBO (for closest-hit triangle lookup)
+        // binding 8: per-instance data SSBO (material_id, first_index, vertex_offset)
+        std::array<VkDescriptorSetLayoutBinding, 9> rt_bindings{};
+        rt_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
+                          VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, nullptr};
+        rt_bindings[1] = {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1,
+                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
+        rt_bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
+        rt_bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                          VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, nullptr};
+        rt_bindings[4] = {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
+        rt_bindings[5] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
+        rt_bindings[6] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+        rt_bindings[7] = {7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+        rt_bindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+
+        // Enable UPDATE_AFTER_BIND on bindings updated every frame
+        std::array<VkDescriptorBindingFlags, 9> rt_bind_flags{};
+        rt_bind_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
+        rt_bind_flags[8] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // per-instance data
+
+        VkDescriptorSetLayoutBindingFlagsCreateInfo rt_flags_ci{};
+        rt_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+        rt_flags_ci.bindingCount = static_cast<uint32_t>(rt_bind_flags.size());
+        rt_flags_ci.pBindingFlags = rt_bind_flags.data();
+
+        VkDescriptorSetLayoutCreateInfo rt_layout_ci{};
+        rt_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        rt_layout_ci.pNext = &rt_flags_ci;
+        rt_layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+        rt_layout_ci.bindingCount = static_cast<uint32_t>(rt_bindings.size());
+        rt_layout_ci.pBindings = rt_bindings.data();
+
+        if (vkCreateDescriptorSetLayout(vk_device_, &rt_layout_ci, nullptr, &rt_trace_set_layout_) != VK_SUCCESS) {
+            return make_error("Failed to create DDGI RT trace set layout");
+        }
+
+        // RT pipeline layout: set 0 = RT trace set, set 1 = bindless set (for closest-hit material access)
+        VkPushConstantRange rt_push{};
+        rt_push.stageFlags = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
+        rt_push.offset = 0;
+        rt_push.size = sizeof(RtTracePushConstants);
+
+        std::array rt_set_layouts = {rt_trace_set_layout_, resources.material_set_layout};
+
+        VkPipelineLayoutCreateInfo rt_pipe_layout_ci{};
+        rt_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        rt_pipe_layout_ci.setLayoutCount = static_cast<uint32_t>(rt_set_layouts.size());
+        rt_pipe_layout_ci.pSetLayouts = rt_set_layouts.data();
+        rt_pipe_layout_ci.pushConstantRangeCount = 1;
+        rt_pipe_layout_ci.pPushConstantRanges = &rt_push;
+
+        if (vkCreatePipelineLayout(vk_device_, &rt_pipe_layout_ci, nullptr, &rt_trace_pipeline_layout_) != VK_SUCCESS) {
+            return make_error("Failed to create DDGI RT trace pipeline layout");
+        }
+
+        // Load RT shader modules
+        auto rgen_spirv = read_spirv(base_path::resolve("shaders/ddgi_probe_trace_rt.rgen.spv"));
+        auto rchit_spirv = read_spirv(base_path::resolve("shaders/ddgi_probe_trace_rt.rchit.spv"));
+        auto rmiss_spirv = read_spirv(base_path::resolve("shaders/ddgi_probe_trace_rt.rmiss.spv"));
+
+        VkShaderModule rgen_mod = create_shader_module(vk_device_, rgen_spirv);
+        VkShaderModule rchit_mod = create_shader_module(vk_device_, rchit_spirv);
+        VkShaderModule rmiss_mod = create_shader_module(vk_device_, rmiss_spirv);
+
+        std::array<VkPipelineShaderStageCreateInfo, 3> rt_stages{};
+        rt_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        rt_stages[0].stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+        rt_stages[0].module = rgen_mod;
+        rt_stages[0].pName = "main";
+
+        rt_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        rt_stages[1].stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+        rt_stages[1].module = rmiss_mod;
+        rt_stages[1].pName = "main";
+
+        rt_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        rt_stages[2].stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+        rt_stages[2].module = rchit_mod;
+        rt_stages[2].pName = "main";
+
+        // Shader groups: raygen, miss, hit
+        std::array<VkRayTracingShaderGroupCreateInfoKHR, 3> groups{};
+        // Raygen group
+        groups[0].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+        groups[0].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+        groups[0].generalShader = 0;
+        groups[0].closestHitShader = VK_SHADER_UNUSED_KHR;
+        groups[0].anyHitShader = VK_SHADER_UNUSED_KHR;
+        groups[0].intersectionShader = VK_SHADER_UNUSED_KHR;
+
+        // Miss group
+        groups[1].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+        groups[1].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR;
+        groups[1].generalShader = 1;
+        groups[1].closestHitShader = VK_SHADER_UNUSED_KHR;
+        groups[1].anyHitShader = VK_SHADER_UNUSED_KHR;
+        groups[1].intersectionShader = VK_SHADER_UNUSED_KHR;
+
+        // Closest-hit group
+        groups[2].sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR;
+        groups[2].type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR;
+        groups[2].generalShader = VK_SHADER_UNUSED_KHR;
+        groups[2].closestHitShader = 2;
+        groups[2].anyHitShader = VK_SHADER_UNUSED_KHR;
+        groups[2].intersectionShader = VK_SHADER_UNUSED_KHR;
+
+        VkRayTracingPipelineCreateInfoKHR rt_ci{};
+        rt_ci.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
+        rt_ci.stageCount = static_cast<uint32_t>(rt_stages.size());
+        rt_ci.pStages = rt_stages.data();
+        rt_ci.groupCount = static_cast<uint32_t>(groups.size());
+        rt_ci.pGroups = groups.data();
+        rt_ci.maxPipelineRayRecursionDepth = 1;
+        rt_ci.layout = rt_trace_pipeline_layout_;
+
+        VkResult rt_result = device.create_rt_pipelines_fn()(
+            vk_device_, VK_NULL_HANDLE, resources.pipeline_cache, 1, &rt_ci, nullptr, &rt_pipeline_);
+
+        vkDestroyShaderModule(vk_device_, rgen_mod, nullptr);
+        vkDestroyShaderModule(vk_device_, rchit_mod, nullptr);
+        vkDestroyShaderModule(vk_device_, rmiss_mod, nullptr);
+
+        if (rt_result != VK_SUCCESS) {
+            FJELL_GFX_WARN("Failed to create DDGI RT pipeline, falling back to SDF");
+            backend_ = DdgiBackend::sdf_fallback;
+        } else {
+            // Build shader binding table
+            VkPhysicalDeviceRayTracingPipelinePropertiesKHR rt_props{};
+            rt_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+            VkPhysicalDeviceProperties2 props2{};
+            props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            props2.pNext = &rt_props;
+            vkGetPhysicalDeviceProperties2(device.physical_device(), &props2);
+
+            uint32_t handle_size = rt_props.shaderGroupHandleSize;
+            uint32_t handle_alignment = rt_props.shaderGroupHandleAlignment;
+            uint32_t base_alignment = rt_props.shaderGroupBaseAlignment;
+            uint32_t handle_size_aligned = (handle_size + handle_alignment - 1) & ~(handle_alignment - 1);
+
+            uint32_t group_count = static_cast<uint32_t>(groups.size());
+            std::vector<uint8_t> handles(group_count * handle_size);
+            device.get_rt_shader_group_handles_fn()(
+                vk_device_, rt_pipeline_, 0, group_count,
+                handles.size(), handles.data());
+
+            // SBT layout: [raygen][miss][hit] each base-aligned
+            uint32_t raygen_size = (handle_size_aligned + base_alignment - 1) & ~(base_alignment - 1);
+            uint32_t miss_size = (handle_size_aligned + base_alignment - 1) & ~(base_alignment - 1);
+            uint32_t hit_size = (handle_size_aligned + base_alignment - 1) & ~(base_alignment - 1);
+            VkDeviceSize sbt_total = raygen_size + miss_size + hit_size;
+
+            sbt_buffer_ = std::make_unique<Buffer>(
+                resources.allocator, sbt_total,
+                VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                VMA_MEMORY_USAGE_AUTO,
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+
+            auto* sbt_data = static_cast<uint8_t*>(sbt_buffer_->mapped());
+            if (!sbt_data) {
+                sbt_buffer_->map();
+                sbt_data = static_cast<uint8_t*>(sbt_buffer_->mapped());
+            }
+
+            // Write raygen handle
+            std::memcpy(sbt_data, handles.data(), handle_size);
+            // Write miss handle
+            std::memcpy(sbt_data + raygen_size, handles.data() + handle_size, handle_size);
+            // Write hit handle
+            std::memcpy(sbt_data + raygen_size + miss_size, handles.data() + 2 * handle_size, handle_size);
+
+            VkBufferDeviceAddressInfo addr_info{};
+            addr_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+            addr_info.buffer = sbt_buffer_->handle();
+            VkDeviceAddress sbt_addr = device.get_buffer_device_address_fn()(vk_device_, &addr_info);
+
+            sbt_raygen_.deviceAddress = sbt_addr;
+            sbt_raygen_.stride = raygen_size;
+            sbt_raygen_.size = raygen_size;
+
+            sbt_miss_.deviceAddress = sbt_addr + raygen_size;
+            sbt_miss_.stride = miss_size;
+            sbt_miss_.size = miss_size;
+
+            sbt_hit_.deviceAddress = sbt_addr + raygen_size + miss_size;
+            sbt_hit_.stride = hit_size;
+            sbt_hit_.size = hit_size;
+
+            sbt_callable_ = {};
+
+            backend_ = DdgiBackend::ray_traced;
+            FJELL_GFX_INFO("DDGI RT pipeline created (raygen + miss + closest-hit)");
+        }
+    }
+
     return {};
 }
 
@@ -492,13 +710,17 @@ void DdgiPass::destroy() {
     safe_destroy(vkDestroyPipeline, probe_offset_pipeline_);
     safe_destroy(vkDestroyPipeline, probe_status_pipeline_);
     safe_destroy(vkDestroyPipeline, sample_pipeline_);
+    safe_destroy(vkDestroyPipeline, rt_pipeline_);
     safe_destroy(vkDestroyPipelineLayout, trace_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, update_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, sample_pipeline_layout_);
+    safe_destroy(vkDestroyPipelineLayout, rt_trace_pipeline_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, trace_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, update_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, sample_set_layout_);
+    safe_destroy(vkDestroyDescriptorSetLayout, rt_trace_set_layout_);
     safe_destroy(vkDestroySampler, linear_sampler_);
+    sbt_buffer_.reset();
 
     vk_device_ = VK_NULL_HANDLE;
     device_ = nullptr;
@@ -634,34 +856,56 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
-        std::array<VkDescriptorPoolSize, 4> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3};           // trace+update+sample UBO
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9};   // trace:3, update:1, sample:5
-        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 5};            // trace:1, update:3, sample:1
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};           // trace:1, update:1, sample:1
+        bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
+        uint32_t max_sets = has_rt ? 4u : 3u;
+
+        std::array<VkDescriptorPoolSize, 5> pool_sizes{};
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 4u : 3u};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u : 9u};
+        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 6u : 5u};
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 7u : 3u};
+        pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? 1u : 0u};
+        uint32_t pool_size_count = has_rt ? 5u : 4u;
 
         VkDescriptorPoolCreateInfo pool_ci{};
         pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
         pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-        pool_ci.maxSets = 3;
-        pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
+        pool_ci.maxSets = max_sets;
+        pool_ci.poolSizeCount = pool_size_count;
         pool_ci.pPoolSizes = pool_sizes.data();
 
         vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &imgs.desc_pool);
 
-        std::array layouts = {trace_set_layout_, update_set_layout_, sample_set_layout_};
-        std::array<VkDescriptorSet, 3> sets{};
+        if (has_rt) {
+            std::array layouts = {trace_set_layout_, rt_trace_set_layout_, update_set_layout_, sample_set_layout_};
+            std::array<VkDescriptorSet, 4> sets{};
 
-        VkDescriptorSetAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc_info.descriptorPool = imgs.desc_pool;
-        alloc_info.descriptorSetCount = 3;
-        alloc_info.pSetLayouts = layouts.data();
+            VkDescriptorSetAllocateInfo alloc_info{};
+            alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            alloc_info.descriptorPool = imgs.desc_pool;
+            alloc_info.descriptorSetCount = 4;
+            alloc_info.pSetLayouts = layouts.data();
 
-        vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
-        imgs.trace_set = sets[0];
-        imgs.update_set = sets[1];
-        imgs.sample_set = sets[2];
+            vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
+            imgs.trace_set = sets[0];
+            imgs.rt_trace_set = sets[1];
+            imgs.update_set = sets[2];
+            imgs.sample_set = sets[3];
+        } else {
+            std::array layouts = {trace_set_layout_, update_set_layout_, sample_set_layout_};
+            std::array<VkDescriptorSet, 3> sets{};
+
+            VkDescriptorSetAllocateInfo alloc_info{};
+            alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            alloc_info.descriptorPool = imgs.desc_pool;
+            alloc_info.descriptorSetCount = 3;
+            alloc_info.pSetLayouts = layouts.data();
+
+            vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
+            imgs.trace_set = sets[0];
+            imgs.update_set = sets[1];
+            imgs.sample_set = sets[2];
+        }
         imgs.images_need_init = true;
     }
 
@@ -771,11 +1015,60 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
         }
 
+        // Write RT trace descriptors (static bindings only — TLAS updated per-frame)
+        if (imgs.rt_trace_set != VK_NULL_HANDLE) {
+            VkDescriptorBufferInfo rt_ubo{};
+            rt_ubo.buffer = imgs.constants_ubo->handle();
+            rt_ubo.range = sizeof(GpuDdgiConstants);
+
+            VkDescriptorImageInfo rt_radiance{};
+            rt_radiance.imageView = imgs.radiance_view;
+            rt_radiance.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkDescriptorImageInfo rt_sky{};
+            rt_sky.sampler = ctx.sky_cubemap_sampler;
+            rt_sky.imageView = ctx.sky_cubemap_view;
+            rt_sky.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorBufferInfo rt_status{};
+            rt_status.buffer = imgs.probe_status_buffer->handle();
+            rt_status.range = VK_WHOLE_SIZE;
+
+            VkDescriptorImageInfo rt_offset{};
+            rt_offset.sampler = linear_sampler_;
+            rt_offset.imageView = imgs.probe_offset_view;
+            rt_offset.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            // Vertex + index buffers for closest-hit normal computation
+            VkDescriptorBufferInfo rt_verts{};
+            VkDescriptorBufferInfo rt_indices{};
+            if (ctx.mega_buffer) {
+                rt_verts.buffer = ctx.mega_buffer->vertex_buffer_handle();
+                rt_verts.range = VK_WHOLE_SIZE;
+                rt_indices.buffer = ctx.mega_buffer->index_buffer_handle();
+                rt_indices.range = VK_WHOLE_SIZE;
+            }
+
+            // Write bindings 0, 2-7 (skip binding 1 = TLAS, updated per-frame)
+            std::array<VkWriteDescriptorSet, 7> rtw{};
+            for (auto& w : rtw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.rt_trace_set; w.descriptorCount = 1; }
+            rtw[0].dstBinding = 0; rtw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; rtw[0].pBufferInfo = &rt_ubo;
+            rtw[1].dstBinding = 2; rtw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; rtw[1].pImageInfo = &rt_radiance;
+            rtw[2].dstBinding = 3; rtw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[2].pImageInfo = &rt_sky;
+            rtw[3].dstBinding = 4; rtw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[3].pBufferInfo = &rt_status;
+            rtw[4].dstBinding = 5; rtw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[4].pImageInfo = &rt_offset;
+            rtw[5].dstBinding = 6; rtw[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[5].pBufferInfo = &rt_verts;
+            rtw[6].dstBinding = 7; rtw[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[6].pBufferInfo = &rt_indices;
+
+            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rtw.size()), rtw.data(), 0, nullptr);
+        }
+
         is_first_frame_ = true;
         imgs.images_need_init = false;
     }
 
-    if (ctx.sdf_view == VK_NULL_HANDLE) {
+    // SDF backend requires the SDF view
+    if (backend_ == DdgiBackend::sdf_fallback && ctx.sdf_view == VK_NULL_HANDLE) {
         frame_counter_++;
         return;
     }
@@ -842,30 +1135,143 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
-    // ── 2. Dispatch SDF trace ──
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            trace_pipeline_layout_, 0, 1, &imgs.trace_set, 0, nullptr);
+    // ── 2. Build TLAS + dispatch trace (RT or SDF) ──
+    // Build TLAS if RT backend is active
+    if (backend_ == DdgiBackend::ray_traced && accel_manager_ && ctx.queue && ctx.mega_buffer) {
+        const auto& cmds = ctx.queue->commands();
+        if (!cmds.empty()) {
+            // Ensure BLAS for all visible models
+            for (const auto& dc : cmds) {
+                if (dc.model) {
+                    accel_manager_->ensure_blas(dc.model, *ctx.mega_buffer);
+                }
+            }
+            // Build TLAS — collect draw data + model pointers
+            std::vector<GpuDrawData> tlas_draws;
+            std::vector<const Model*> tlas_models;
+            tlas_draws.reserve(cmds.size());
+            tlas_models.reserve(cmds.size());
+            for (const auto& dc : cmds) {
+                if (!dc.model) continue;
+                // Use LOD 0 for TLAS (matches BLAS)
+                GpuDrawData data{};
+                data.model = dc.push.model;
+                data.material_id = dc.push.material_id;
+                tlas_draws.push_back(data);
+                tlas_models.push_back(dc.model);
+            }
+            if (!tlas_draws.empty()) {
+                accel_manager_->build_tlas(ctx.cmd, tlas_draws.data(),
+                                           static_cast<uint32_t>(tlas_draws.size()),
+                                           tlas_models);
+            }
+        }
+    }
 
-    TracePushConstants push{};
-    push.light_direction = glm::vec3(0.5f, 0.8f, 0.3f);
-    push.light_intensity = 1.0f;
-    push.light_color = glm::vec3(1.0f);
-    push.sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION);
-    push.sdf_volume_min = glm::vec3(-10.0f);
-    push.sdf_volume_max = glm::vec3(10.0f);
+    bool use_rt = backend_ == DdgiBackend::ray_traced
+                  && rt_pipeline_ != VK_NULL_HANDLE
+                  && accel_manager_ && accel_manager_->tlas_valid()
+                  && imgs.rt_trace_set != VK_NULL_HANDLE;
 
-    vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,
-                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+    if (use_rt) {
+        // Update TLAS descriptor (changes every frame)
+        VkWriteDescriptorSetAccelerationStructureKHR tlas_write_as{};
+        tlas_write_as.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+        tlas_write_as.accelerationStructureCount = 1;
+        VkAccelerationStructureKHR tlas = accel_manager_->tlas();
+        tlas_write_as.pAccelerationStructures = &tlas;
 
-    uint32_t groups_x = (static_cast<uint32_t>(config_.probe_rays) + 31) / 32;
-    uint32_t groups_y = static_cast<uint32_t>(constants->probe_update_count);
+        VkWriteDescriptorSet tlas_write{};
+        tlas_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        tlas_write.dstSet = imgs.rt_trace_set;
+        tlas_write.dstBinding = 1;
+        tlas_write.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+        tlas_write.descriptorCount = 1;
+        tlas_write.pNext = &tlas_write_as;
 
-    vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
+        // Per-instance data (material + geometry offsets)
+        VkDescriptorBufferInfo inst_data_info{};
+        inst_data_info.buffer = accel_manager_->instance_data_buffer();
+        inst_data_info.range = VK_WHOLE_SIZE;
+
+        VkWriteDescriptorSet inst_write{};
+        inst_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        inst_write.dstSet = imgs.rt_trace_set;
+        inst_write.dstBinding = 8;
+        inst_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        inst_write.descriptorCount = 1;
+        inst_write.pBufferInfo = &inst_data_info;
+
+        std::array writes = {tlas_write, inst_write};
+        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+        // Bind RT pipeline and descriptors
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rt_pipeline_);
+        std::array rt_sets = {imgs.rt_trace_set, ctx.bindless_set};
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+                                rt_trace_pipeline_layout_, 0,
+                                static_cast<uint32_t>(rt_sets.size()), rt_sets.data(),
+                                0, nullptr);
+
+        RtTracePushConstants rt_push{};
+        rt_push.light_direction = glm::vec3(0.5f, 0.8f, 0.3f);
+        rt_push.light_intensity = 1.0f;
+        rt_push.light_color = glm::vec3(1.0f);
+        rt_push.max_trace_dist = 40.0f;
+
+        vkCmdPushConstants(ctx.cmd, rt_trace_pipeline_layout_,
+                           VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
+                           0, sizeof(rt_push), &rt_push);
+
+        uint32_t width = static_cast<uint32_t>(config_.probe_rays);
+        uint32_t height = static_cast<uint32_t>(constants->probe_update_count);
+        device_->cmd_trace_rays_fn()(ctx.cmd,
+                                     &sbt_raygen_, &sbt_miss_, &sbt_hit_, &sbt_callable_,
+                                     width, height, 1);
+    } else {
+        // SDF fallback trace
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                trace_pipeline_layout_, 0, 1, &imgs.trace_set, 0, nullptr);
+
+        TracePushConstants push{};
+        push.light_direction = glm::vec3(0.5f, 0.8f, 0.3f);
+        push.light_intensity = 1.0f;
+        push.light_color = glm::vec3(1.0f);
+        push.sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION);
+        push.sdf_volume_min = glm::vec3(-10.0f);
+        push.sdf_volume_max = glm::vec3(10.0f);
+
+        vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,
+                           VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+
+        uint32_t groups_x = (static_cast<uint32_t>(config_.probe_rays) + 31) / 32;
+        uint32_t groups_y = static_cast<uint32_t>(constants->probe_update_count);
+        vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
+    }
 
     // ── 3. Barrier: radiance write → read ──
-    barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    if (use_rt) {
+        // RT writes from ray tracing stage, reads in compute stage
+        VkImageMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+        b.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.image = imgs.radiance_image;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkDependencyInfo d{};
+        d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        d.imageMemoryBarrierCount = 1;
+        d.pImageMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(ctx.cmd, &d);
+    } else {
+        barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                      VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+    }
 
     // ── 4. Transition irradiance/visibility to GENERAL for update ──
     barrier_image(imgs.irradiance_image,

@@ -27,6 +27,7 @@ endif()
 # --- Main engine ---
 add_executable(fjell
     main.cpp
+    renderer/gpu/accel_structure.cpp
     renderer/gpu/vma_impl.cpp
     core/base_path.cpp
     core/clock.cpp

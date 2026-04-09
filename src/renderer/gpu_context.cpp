@@ -112,6 +112,9 @@ static VmaAllocator create_vma_allocator(const Device& device) {
     vma_ci.physicalDevice = device.physical_device();
     vma_ci.device = device.handle();
     vma_ci.vulkanApiVersion = VK_API_VERSION_1_3;
+    if (device.ray_tracing_supported()) {
+        vma_ci.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+    }
     VmaAllocator allocator{VK_NULL_HANDLE};
     if (vmaCreateAllocator(&vma_ci, &allocator) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create VMA allocator");

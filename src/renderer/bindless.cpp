@@ -30,22 +30,24 @@ Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator) {
     // binding 2 = custom params SSBO
     std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
 
+    constexpr VkShaderStageFlags all_stages =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+        VK_SHADER_STAGE_MESH_BIT_EXT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[0].descriptorCount = MAX_TEXTURES;
-    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
 
     bindings[1].binding = 1;
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                              VK_SHADER_STAGE_MESH_BIT_EXT;
+    bindings[1].stageFlags = all_stages;
 
     bindings[2].binding = 2;
     bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[2].descriptorCount = 1;
-    bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                              VK_SHADER_STAGE_MESH_BIT_EXT;
+    bindings[2].stageFlags = all_stages;
 
     // Partially bound + update-after-bind on textures, update-after-bind on SSBOs
     std::array<VkDescriptorBindingFlags, 3> bind_flags{};

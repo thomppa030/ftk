@@ -153,6 +153,15 @@ VulkanContext::VulkanContext(Window& window)
     check_pass(ssr_pass_.create(gpu_.device_ref(), pass_resources));
     check_pass(volumetric_fog_pass_.create(gpu_.device_ref(), pass_resources));
     check_pass(ddgi_pass_.create(gpu_.device_ref(), pass_resources));
+
+    // Create acceleration structure manager for DDGI RT backend
+    if (gpu_.device_ref().ray_tracing_supported()) {
+        accel_manager_ = std::make_unique<AccelStructureManager>(
+            gpu_.device_ref(), gpu_.allocator(),
+            gpu_.command_pool(), gpu_.graphics_queue());
+        ddgi_pass_.set_accel_manager(accel_manager_.get());
+    }
+
     check_pass(light_cull_pass_.create(gpu_.device_ref(), pass_resources));
     light_heatmap_pass_.set_mode(0);
     check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
@@ -231,6 +240,7 @@ VulkanContext::~VulkanContext() {
     ssr_pass_.destroy();
     volumetric_fog_pass_.destroy();
     ddgi_pass_.destroy();
+    accel_manager_.reset();
 
     light_cull_pass_.destroy();
     sky_cubemap_pass_.destroy();

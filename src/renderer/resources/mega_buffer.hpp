@@ -35,6 +35,10 @@ public:
     [[nodiscard]] VkDeviceSize vertex_buffer_size() const {
         return static_cast<VkDeviceSize>(vertex_offset_) * sizeof(Vertex);
     }
+    [[nodiscard]] VkBuffer index_buffer_handle() const { return index_buffer_->handle(); }
+    [[nodiscard]] VkDeviceSize index_buffer_size() const {
+        return static_cast<VkDeviceSize>(index_offset_) * sizeof(uint32_t);
+    }
 
 private:
     void grow_vertex_buffer(VkDeviceSize new_size);
