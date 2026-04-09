@@ -250,7 +250,7 @@ void TilemapRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
-void TilemapRenderer::record_opaque(const FrameContext& ctx) {
+void TilemapRenderer::record_transparent(const FrameContext& ctx) {
     record_render(ctx);
 }
 

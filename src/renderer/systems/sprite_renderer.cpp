@@ -249,7 +249,7 @@ void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
-void SpriteRenderer::record_opaque(const FrameContext& ctx) {
+void SpriteRenderer::record_transparent(const FrameContext& ctx) {
     record_render(ctx);
 }
 

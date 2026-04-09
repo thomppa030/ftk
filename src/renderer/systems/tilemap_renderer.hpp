@@ -27,7 +27,7 @@ public:
 
     // RenderSubsystem lifecycle
     void update(const RenderSubsystemContext& ctx) override;
-    void record_opaque(const FrameContext& ctx) override;
+    void record_transparent(const FrameContext& ctx) override;
 
     // Resolve texture paths to bindless indices (called externally by editor)
     void sync_textures(Scene& scene, ResourceManager& resources, const Project* project = nullptr);
