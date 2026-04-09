@@ -29,20 +29,25 @@ public:
     [[nodiscard]] UiContext* parent() const { return parent_; }
 
     void set(const std::string& key, const std::string& value) {
+        auto it = values_.find(key);
+        if (it != values_.end() && it->second == value) return; // no change
         values_[key] = value;
+        ++generation_;
     }
 
     void set_float(const std::string& key, float value) {
-        values_[key] = std::to_string(value);
+        set(key, std::to_string(value));
     }
 
     void set_int(const std::string& key, int value) {
-        values_[key] = std::to_string(value);
+        set(key, std::to_string(value));
     }
 
     void set_bool(const std::string& key, bool value) {
-        values_[key] = value ? "1" : "0";
+        set(key, value ? "1" : "0");
     }
+
+    [[nodiscard]] uint64_t generation() const { return generation_; }
 
     [[nodiscard]] std::string get(const std::string& key) const {
         auto it = values_.find(key);
@@ -127,6 +132,7 @@ public:
 
 private:
     UiContext* parent_{nullptr};
+    uint64_t generation_{0};
     std::unordered_map<std::string, std::string> values_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;

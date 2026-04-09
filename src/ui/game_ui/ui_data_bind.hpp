@@ -31,6 +31,7 @@ private:
     void resolve_node(UiNode& node, UiContext& context, DataBindResult& result);
     void resolve_foreach(UiNode& parent, UiContext& context, DataBindResult& result);
     static std::unique_ptr<UiNode> clone_node(const UiNode& source, UiNode* new_parent);
+    uint64_t last_generation_{0};
 };
 
 } // namespace fjell

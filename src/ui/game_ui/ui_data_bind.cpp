@@ -8,6 +8,9 @@ namespace fjell {
 
 DataBindResult UiDataBind::resolve(UiNode& root, UiContext& context) {
     FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
+    uint64_t gen = context.generation();
+    if (gen == last_generation_) return {}; // nothing changed
+    last_generation_ = gen;
     DataBindResult result{};
     resolve_node(root, context, result);
     return result;
