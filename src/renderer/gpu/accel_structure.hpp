@@ -7,6 +7,9 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include "renderer/renderer_constants.hpp"
+
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <unordered_map>
@@ -51,14 +54,17 @@ public:
 
     /// Rebuild TLAS from this frame's draw instances.
     /// Call once per frame before DDGI RT tracing.
-    void build_tlas(VkCommandBuffer cmd,
+    void build_tlas(VkCommandBuffer cmd, uint32_t frame_index,
                     const GpuDrawData* draw_data, uint32_t draw_count,
                     const std::vector<const Model*>& draw_models);
 
-    [[nodiscard]] VkAccelerationStructureKHR tlas() const { return tlas_handle_; }
-    [[nodiscard]] bool tlas_valid() const { return tlas_handle_ != VK_NULL_HANDLE; }
-    [[nodiscard]] VkBuffer instance_data_buffer() const { return rt_instance_data_ ? rt_instance_data_->handle() : VK_NULL_HANDLE; }
-    [[nodiscard]] uint32_t instance_data_count() const { return rt_instance_count_; }
+    [[nodiscard]] VkAccelerationStructureKHR tlas(uint32_t frame_index) const { return frames_[frame_index].tlas_handle; }
+    [[nodiscard]] bool tlas_valid(uint32_t frame_index) const { return frames_[frame_index].tlas_handle != VK_NULL_HANDLE; }
+    [[nodiscard]] VkBuffer instance_data_buffer(uint32_t frame_index) const {
+        auto& f = frames_[frame_index];
+        return f.rt_instance_data ? f.rt_instance_data->handle() : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] uint32_t instance_data_count(uint32_t frame_index) const { return frames_[frame_index].rt_instance_count; }
 
 private:
     VkDeviceAddress buffer_address(VkBuffer buffer) const;
@@ -72,14 +78,16 @@ private:
 
     std::unordered_map<const Model*, Blas> blas_map_;
 
-    // TLAS
-    VkAccelerationStructureKHR tlas_handle_{VK_NULL_HANDLE};
-    std::unique_ptr<Buffer> tlas_buffer_;
-    std::unique_ptr<Buffer> tlas_scratch_;
-    std::unique_ptr<Buffer> instance_buffer_;
-    std::unique_ptr<Buffer> rt_instance_data_;
-    uint32_t instance_capacity_{0};
-    uint32_t rt_instance_count_{0};
+    // Per-frame TLAS (triple-buffered to avoid in-flight destruction)
+    struct FrameTlas {
+        VkAccelerationStructureKHR tlas_handle{VK_NULL_HANDLE};
+        std::unique_ptr<Buffer> tlas_buffer;
+        std::unique_ptr<Buffer> tlas_scratch;
+        std::unique_ptr<Buffer> instance_buffer;
+        std::unique_ptr<Buffer> rt_instance_data;
+        uint32_t rt_instance_count{0};
+    };
+    std::array<FrameTlas, MAX_FRAMES_IN_FLIGHT> frames_{};
 };
 
 } // namespace fjell

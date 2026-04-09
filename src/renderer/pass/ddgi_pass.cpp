@@ -1161,7 +1161,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                 tlas_models.push_back(dc.model);
             }
             if (!tlas_draws.empty()) {
-                accel_manager_->build_tlas(ctx.cmd, tlas_draws.data(),
+                accel_manager_->build_tlas(ctx.cmd, ctx.frame_index, tlas_draws.data(),
                                            static_cast<uint32_t>(tlas_draws.size()),
                                            tlas_models);
             }
@@ -1170,7 +1170,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     bool use_rt = backend_ == DdgiBackend::ray_traced
                   && rt_pipeline_ != VK_NULL_HANDLE
-                  && accel_manager_ && accel_manager_->tlas_valid()
+                  && accel_manager_ && accel_manager_->tlas_valid(ctx.frame_index)
                   && imgs.rt_trace_set != VK_NULL_HANDLE;
 
     if (use_rt) {
@@ -1178,7 +1178,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         VkWriteDescriptorSetAccelerationStructureKHR tlas_write_as{};
         tlas_write_as.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
         tlas_write_as.accelerationStructureCount = 1;
-        VkAccelerationStructureKHR tlas = accel_manager_->tlas();
+        VkAccelerationStructureKHR tlas = accel_manager_->tlas(ctx.frame_index);
         tlas_write_as.pAccelerationStructures = &tlas;
 
         VkWriteDescriptorSet tlas_write{};
@@ -1191,7 +1191,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         // Per-instance data (material + geometry offsets)
         VkDescriptorBufferInfo inst_data_info{};
-        inst_data_info.buffer = accel_manager_->instance_data_buffer();
+        inst_data_info.buffer = accel_manager_->instance_data_buffer(ctx.frame_index);
         inst_data_info.range = VK_WHOLE_SIZE;
 
         VkWriteDescriptorSet inst_write{};

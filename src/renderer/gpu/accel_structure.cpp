@@ -21,10 +21,13 @@ AccelStructureManager::AccelStructureManager(Device& device, VmaAllocator alloca
 }
 
 AccelStructureManager::~AccelStructureManager() {
+    vkDeviceWaitIdle(vk_device_);
     auto destroy_fn = device_.destroy_accel_struct_fn();
     if (destroy_fn) {
-        if (tlas_handle_ != VK_NULL_HANDLE) {
-            destroy_fn(vk_device_, tlas_handle_, nullptr);
+        for (auto& frame : frames_) {
+            if (frame.tlas_handle != VK_NULL_HANDLE) {
+                destroy_fn(vk_device_, frame.tlas_handle, nullptr);
+            }
         }
         for (auto& [model, blas] : blas_map_) {
             if (blas.handle != VK_NULL_HANDLE) {
@@ -182,10 +185,12 @@ void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& meg
                     geometries.size(), sizes.accelerationStructureSize / 1024);
 }
 
-void AccelStructureManager::build_tlas(VkCommandBuffer cmd,
+void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index,
                                        const GpuDrawData* draw_data, uint32_t draw_count,
                                        const std::vector<const Model*>& draw_models) {
     if (draw_count == 0) return;
+
+    auto& frame = frames_[frame_index];
 
     // Build instance array + per-instance data for hit shader
     std::vector<VkAccelerationStructureInstanceKHR> instances;
@@ -229,8 +234,8 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd,
     VkDeviceSize instance_size = instances.size() * sizeof(VkAccelerationStructureInstanceKHR);
 
     // Resize instance buffer if needed
-    if (!instance_buffer_ || instance_size > instance_buffer_->size()) {
-        instance_buffer_ = std::make_unique<Buffer>(
+    if (!frame.instance_buffer || instance_size > frame.instance_buffer->size()) {
+        frame.instance_buffer = std::make_unique<Buffer>(
             allocator_, instance_size,
             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
@@ -238,24 +243,24 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd,
             VMA_MEMORY_USAGE_AUTO,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     }
-    instance_buffer_->write(instances.data(), instance_size);
+    frame.instance_buffer->write(instances.data(), instance_size);
 
     // Write per-instance data for closest-hit shader
     VkDeviceSize rt_inst_size = rt_instances.size() * sizeof(GpuRtInstance);
-    if (!rt_instance_data_ || rt_inst_size > rt_instance_data_->size()) {
-        rt_instance_data_ = std::make_unique<Buffer>(
+    if (!frame.rt_instance_data || rt_inst_size > frame.rt_instance_data->size()) {
+        frame.rt_instance_data = std::make_unique<Buffer>(
             allocator_, rt_inst_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     }
-    rt_instance_data_->write(rt_instances.data(), rt_inst_size);
-    rt_instance_count_ = static_cast<uint32_t>(rt_instances.size());
+    frame.rt_instance_data->write(rt_instances.data(), rt_inst_size);
+    frame.rt_instance_count = static_cast<uint32_t>(rt_instances.size());
 
     // TLAS geometry
     VkAccelerationStructureGeometryInstancesDataKHR instances_data{};
     instances_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-    instances_data.data.deviceAddress = buffer_address(instance_buffer_->handle());
+    instances_data.data.deviceAddress = buffer_address(frame.instance_buffer->handle());
 
     VkAccelerationStructureGeometryKHR tlas_geom{};
     tlas_geom.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
@@ -279,13 +284,13 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd,
         &build_info, &instance_count, &sizes);
 
     // Recreate TLAS buffer if needed
-    if (!tlas_buffer_ || sizes.accelerationStructureSize > tlas_buffer_->size()) {
-        if (tlas_handle_ != VK_NULL_HANDLE) {
-            device_.destroy_accel_struct_fn()(vk_device_, tlas_handle_, nullptr);
-            tlas_handle_ = VK_NULL_HANDLE;
+    if (!frame.tlas_buffer || sizes.accelerationStructureSize > frame.tlas_buffer->size()) {
+        if (frame.tlas_handle != VK_NULL_HANDLE) {
+            device_.destroy_accel_struct_fn()(vk_device_, frame.tlas_handle, nullptr);
+            frame.tlas_handle = VK_NULL_HANDLE;
         }
 
-        tlas_buffer_ = std::make_unique<Buffer>(
+        frame.tlas_buffer = std::make_unique<Buffer>(
             allocator_, sizes.accelerationStructureSize,
             VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
@@ -293,24 +298,24 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd,
 
         VkAccelerationStructureCreateInfoKHR create_info{};
         create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-        create_info.buffer = tlas_buffer_->handle();
+        create_info.buffer = frame.tlas_buffer->handle();
         create_info.size = sizes.accelerationStructureSize;
         create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
 
-        vk_check(device_.create_accel_struct_fn()(vk_device_, &create_info, nullptr, &tlas_handle_),
+        vk_check(device_.create_accel_struct_fn()(vk_device_, &create_info, nullptr, &frame.tlas_handle),
                  "Failed to create TLAS");
     }
 
     // Scratch buffer
-    if (!tlas_scratch_ || sizes.buildScratchSize > tlas_scratch_->size()) {
-        tlas_scratch_ = std::make_unique<Buffer>(
+    if (!frame.tlas_scratch || sizes.buildScratchSize > frame.tlas_scratch->size()) {
+        frame.tlas_scratch = std::make_unique<Buffer>(
             allocator_, sizes.buildScratchSize,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
             VMA_MEMORY_USAGE_AUTO);
     }
 
-    build_info.dstAccelerationStructure = tlas_handle_;
-    build_info.scratchData.deviceAddress = buffer_address(tlas_scratch_->handle());
+    build_info.dstAccelerationStructure = frame.tlas_handle;
+    build_info.scratchData.deviceAddress = buffer_address(frame.tlas_scratch->handle());
 
     VkAccelerationStructureBuildRangeInfoKHR range{};
     range.primitiveCount = instance_count;
