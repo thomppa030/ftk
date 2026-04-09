@@ -181,15 +181,7 @@ static nlohmann::json save_emitter_v2(const VfxEmitter& emitter) {
     return je;
 }
 
-VfxEffect load_vfx_effect(const std::string& path) {
-    std::ifstream f(path);
-    if (!f.is_open()) {
-        throw std::runtime_error("Failed to open .fjvfx file: " + path);
-    }
-
-    nlohmann::json j;
-    f >> j;
-
+VfxEffect load_vfx_effect_from_json(const nlohmann::json& j) {
     VfxEffect effect;
     effect.name = j.value("name", "effect");
     if (j.contains("emitters")) {
@@ -198,6 +190,17 @@ VfxEffect load_vfx_effect(const std::string& path) {
         }
     }
     return effect;
+}
+
+VfxEffect load_vfx_effect(const std::string& path) {
+    std::ifstream f(path);
+    if (!f.is_open()) {
+        throw std::runtime_error("Failed to open .fjvfx file: " + path);
+    }
+
+    nlohmann::json j;
+    f >> j;
+    return load_vfx_effect_from_json(j);
 }
 
 void save_vfx_effect(const std::string& path, const VfxEffect& effect) {
