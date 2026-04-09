@@ -97,6 +97,7 @@ private:
     VmaAllocator allocator_;
     VkCommandPool command_pool_;
     VkQueue queue_;
+    VkDeviceSize scratch_alignment_{256}; // minAccelerationStructureScratchOffsetAlignment
 
     std::unordered_map<const Model*, Blas> blas_map_;
     std::unordered_map<const void*, Blas> entry_blas_map_;

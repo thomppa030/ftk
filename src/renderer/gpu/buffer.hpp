@@ -14,7 +14,8 @@ public:
     /// Throwing constructor — used by existing init-time code.
     Buffer(VmaAllocator allocator, VkDeviceSize size,
            VkBufferUsageFlags usage, VmaMemoryUsage memory_usage,
-           VmaAllocationCreateFlags flags = 0);
+           VmaAllocationCreateFlags flags = 0,
+           VkDeviceSize min_alignment = 0);
 
     /// Non-throwing factory — returns Result<Buffer> for error-propagating callers.
     [[nodiscard]] static Result<Buffer> create(

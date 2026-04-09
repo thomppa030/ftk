@@ -20,6 +20,14 @@ AccelStructureManager::AccelStructureManager(Device& device, VmaAllocator alloca
     , allocator_{allocator}
     , command_pool_{command_pool}
     , queue_{queue} {
+    // Query scratch buffer alignment requirement
+    VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props{};
+    as_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+    VkPhysicalDeviceProperties2 props2{};
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    props2.pNext = &as_props;
+    vkGetPhysicalDeviceProperties2(device.physical_device(), &props2);
+    scratch_alignment_ = as_props.minAccelerationStructureScratchOffsetAlignment;
 }
 
 AccelStructureManager::~AccelStructureManager() {
@@ -133,7 +141,7 @@ void AccelStructureManager::ensure_blas_entry(const void* key, const MegaMeshEnt
 
     Buffer scratch{allocator_, sizes.buildScratchSize,
                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                   VMA_MEMORY_USAGE_AUTO};
+                   VMA_MEMORY_USAGE_AUTO, 0, scratch_alignment_};
 
     build_info.dstAccelerationStructure = blas.handle;
     build_info.scratchData.deviceAddress = buffer_address(scratch.handle());
@@ -269,10 +277,10 @@ void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& meg
     addr_info.accelerationStructure = blas.handle;
     blas.device_address = device_.get_accel_struct_device_address_fn()(vk_device_, &addr_info);
 
-    // Scratch buffer
+    // Scratch buffer (must meet minAccelerationStructureScratchOffsetAlignment)
     Buffer scratch{allocator_, sizes.buildScratchSize,
                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                   VMA_MEMORY_USAGE_AUTO};
+                   VMA_MEMORY_USAGE_AUTO, 0, scratch_alignment_};
 
     // Build on GPU via one-shot command buffer
     build_info.dstAccelerationStructure = blas.handle;
@@ -573,12 +581,12 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
                  "Failed to create TLAS");
     }
 
-    // Scratch buffer
+    // Scratch buffer (must meet minAccelerationStructureScratchOffsetAlignment)
     if (!frame.tlas_scratch || sizes.buildScratchSize > frame.tlas_scratch->size()) {
         frame.tlas_scratch = std::make_unique<Buffer>(
             allocator_, sizes.buildScratchSize,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-            VMA_MEMORY_USAGE_AUTO);
+            VMA_MEMORY_USAGE_AUTO, 0, scratch_alignment_);
     }
 
     build_info.dstAccelerationStructure = frame.tlas_handle;

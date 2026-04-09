@@ -9,7 +9,7 @@ namespace fjell {
 
 Buffer::Buffer(VmaAllocator allocator, VkDeviceSize size,
                VkBufferUsageFlags usage, VmaMemoryUsage memory_usage,
-               VmaAllocationCreateFlags flags)
+               VmaAllocationCreateFlags flags, VkDeviceSize min_alignment)
     : allocator_{allocator}, size_{size} {
     VkBufferCreateInfo buffer_info{};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -21,8 +21,15 @@ Buffer::Buffer(VmaAllocator allocator, VkDeviceSize size,
     alloc_ci.usage = memory_usage;
     alloc_ci.flags = flags;
 
-    if (vmaCreateBuffer(allocator_, &buffer_info, &alloc_ci,
-                        &buffer_, &allocation_, nullptr) != VK_SUCCESS) {
+    VkResult result;
+    if (min_alignment > 0) {
+        result = vmaCreateBufferWithAlignment(allocator_, &buffer_info, &alloc_ci,
+                                              min_alignment, &buffer_, &allocation_, nullptr);
+    } else {
+        result = vmaCreateBuffer(allocator_, &buffer_info, &alloc_ci,
+                                 &buffer_, &allocation_, nullptr);
+    }
+    if (result != VK_SUCCESS) {
         throw std::runtime_error("Failed to create buffer");
     }
 }
