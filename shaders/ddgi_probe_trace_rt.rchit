@@ -143,8 +143,11 @@ void main() {
     // Sky ambient
     radiance += albedo * 0.15;
 
-    // Emissive surfaces add radiance directly
-    radiance += emission;
+    // Emissive surfaces: emission replaces PBR for probe radiance
+    // (emissive objects ARE light sources, not lit surfaces)
+    if (length(emission) > 0.0) {
+        radiance = emission;
+    }
 
     payload = vec4(radiance, hit_t);
 }

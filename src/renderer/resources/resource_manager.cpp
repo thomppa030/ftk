@@ -380,54 +380,41 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
         }
     }
 
-    // Compute emission color for RT GI from .fjmat params or FJSL metadata
+    // Compute emission color for RT GI from FJSL uniform metadata.
+    // Scans resolved param values for emission/glow uniforms and combines them.
+    if (shader_meta) {
+        float emission_strength = 0.0f;
+        glm::vec3 glow_color{0.0f};
+        bool has_glow_color = false;
+
+        for (const auto& u : shader_meta->uniforms) {
+            if (u.type == UniformType::Sampler2D) continue;
+
+            // Resolve actual value (from .fjmat or default)
+            std::vector<float> values = u.default_value;
+            auto p_it = asset.params.find(u.name);
+            if (p_it != asset.params.end()) values = p_it->second;
+
+            if ((u.name == "emission_strength" || u.name == "glow_strength") && !values.empty()) {
+                emission_strength = values[0];
+            } else if ((u.name == "glow_color" || u.name == "emission_color") && values.size() >= 3) {
+                glow_color = {values[0], values[1], values[2]};
+                has_glow_color = true;
+            }
+        }
+
+        if (has_glow_color && emission_strength > 0.0f) {
+            params.emission_color = glow_color * emission_strength;
+        } else if (has_glow_color) {
+            params.emission_color = glow_color;
+        } else if (emission_strength > 0.0f) {
+            params.emission_color = glm::vec3(emission_strength);
+        }
+
+    }
+
+    // Rebuild material with updated emission params
     {
-        // Explicit emission_color in .fjmat params
-        auto ec_it = asset.params.find("emission_color");
-        if (ec_it != asset.params.end() && ec_it->second.size() >= 3) {
-            params.emission_color = {ec_it->second[0], ec_it->second[1], ec_it->second[2]};
-        }
-
-        // Auto-detect from FJSL uniforms: look for emission/glow params
-        if (shader_meta && params.emission_color == glm::vec3(0.0f)) {
-            float emission_strength = 0.0f;
-            glm::vec3 glow_color{0.0f};
-            bool has_glow_color = false;
-
-            for (const auto& u : shader_meta->uniforms) {
-                if (u.type == UniformType::Sampler2D) continue;
-
-                // Resolve actual value (from .fjmat or default)
-                std::vector<float> values = u.default_value;
-                auto p_it = asset.params.find(u.name);
-                if (p_it != asset.params.end()) values = p_it->second;
-
-                if (u.name == "emission_strength" && !values.empty()) {
-                    emission_strength = values[0];
-                } else if (u.name == "glow_strength" && !values.empty()) {
-                    emission_strength = values[0];
-                } else if (u.name == "glow_color" && values.size() >= 3) {
-                    glow_color = {values[0], values[1], values[2]};
-                    has_glow_color = true;
-                } else if (u.name == "emission_color" && values.size() >= 3) {
-                    glow_color = {values[0], values[1], values[2]};
-                    has_glow_color = true;
-                }
-            }
-
-            // For shaders like "EMISSION *= emission_strength": emissive tex * strength
-            if (emission_strength > 0.0f && !has_glow_color) {
-                params.emission_color = glm::vec3(emission_strength);
-            }
-            // For shaders like "ALBEDO = glow_color * strength" (unlit emitters)
-            if (has_glow_color && emission_strength > 0.0f) {
-                params.emission_color = glow_color * emission_strength;
-            } else if (has_glow_color) {
-                params.emission_color = glow_color;
-            }
-        }
-
-        // Save custom params state, rebuild material with updated emission params
         uint32_t saved_param_offset = material->custom_param_offset();
         uint32_t saved_param_count = material->custom_param_count();
         material = std::make_unique<Material>(0, bc_idx, nm_idx, mr_idx, em_idx, params);
