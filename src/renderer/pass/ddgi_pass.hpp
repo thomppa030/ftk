@@ -23,13 +23,14 @@ struct DdgiConfig {
     glm::ivec3 probe_counts{8, 4, 8};
     glm::vec3 probe_spacing{2.0f};
     glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // centered around origin
-    float hysteresis{0.97f};
-    int probe_rays{128};
+    float hysteresis{0.85f};
+    int probe_rays{256};
     int irradiance_side_length{6};
     int visibility_side_length{6};
     float self_shadow_bias{0.3f};
     float max_probe_offset{0.5f};
-    float gi_intensity{0.3f};
+    float gi_intensity{1.0f};
+    float emissive_gi_boost{1.0f};
     bool half_res_output{true};
 };
 
@@ -180,6 +181,7 @@ public:
         float light_intensity;
         glm::vec3 light_color;
         float max_trace_dist;
+        float emissive_gi_boost;
     };
 
 private:

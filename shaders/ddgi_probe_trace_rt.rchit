@@ -9,6 +9,7 @@ layout(push_constant) uniform PushConstants {
     float light_intensity;
     vec3 light_color;
     float max_trace_dist;
+    float emissive_gi_boost;
 };
 
 // ── Material access (set 1 = bindless) ──────────────────────────────────
@@ -122,18 +123,16 @@ void main() {
     }
 
     // Emission: base_params[9..11] stores pre-computed emission color/strength
-    // from FJSL metadata (emission_strength, glow_color, etc.)
     vec3 emission_factor = vec3(mat.base_params[9], mat.base_params[10], mat.base_params[11]);
-    vec3 emission = vec3(0.0);
+    vec3 emission = emission_factor;
 
+    // If there's an emissive texture AND emission factor, modulate
     uint emissive_tex = mat.texture_indices[3];
-    if (emissive_tex > 0) {
+    if (emissive_tex > 0 && length(emission_factor) > 0.0) {
         vec3 emissive_sample = textureLod(textures[nonuniformEXT(emissive_tex)], uv, 2.0).rgb;
-        // emission_factor acts as a multiplier (from FJSL emission_strength)
-        emission = emissive_sample * max(emission_factor, vec3(1.0));
-    } else if (length(emission_factor) > 0.0) {
-        // No emissive texture but has emission color (e.g. glow_color * glow_strength)
-        emission = emission_factor;
+        if (length(emissive_sample) > 0.01) {
+            emission = emissive_sample * emission_factor;
+        }
     }
 
     // Direct lighting from directional light
@@ -143,11 +142,12 @@ void main() {
     // Sky ambient
     radiance += albedo * 0.15;
 
-    // Emissive surfaces: emission replaces PBR for probe radiance
-    // (emissive objects ARE light sources, not lit surfaces)
+    // Emissive surfaces: emission replaces PBR for probe radiance.
+    // Boosted to compensate for small solid angle in probe hemisphere.
     if (length(emission) > 0.0) {
-        radiance = emission;
+        radiance = emission * emissive_gi_boost;
     }
+
 
     payload = vec4(radiance, hit_t);
 }

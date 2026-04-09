@@ -1218,6 +1218,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         rt_push.light_intensity = 1.0f;
         rt_push.light_color = glm::vec3(1.0f);
         rt_push.max_trace_dist = 40.0f;
+        rt_push.emissive_gi_boost = config_.emissive_gi_boost;
 
         vkCmdPushConstants(ctx.cmd, rt_trace_pipeline_layout_,
                            VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
