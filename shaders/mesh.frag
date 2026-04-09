@@ -28,6 +28,7 @@ layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 layout(set = 0, binding = 5) uniform sampler2D ao_texture;
 layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
 layout(set = 0, binding = 7) uniform sampler2D brdf_lut;
+layout(set = 0, binding = 10) uniform sampler2D gi_indirect;
 
 struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
@@ -191,6 +192,12 @@ void main() {
 
     float ibl_intensity = ubo.ambient_color.w; // reuse ambient_intensity for IBL strength
     vec3 ambient = (diffuse_ibl + specular_ibl) * ao * ibl_intensity;
+
+    // DDGI indirect diffuse (gi_intensity packed in cascade_splits.w)
+    float gi_intensity = ubo.cascade_splits.w;
+    vec3 gi_sample = texture(gi_indirect, gl_FragCoord.xy / vec2(textureSize(gi_indirect, 0))).rgb;
+    vec3 gi_diffuse = gi_sample * kD * albedo * gi_intensity;
+    ambient += gi_diffuse * ao;
 
     vec3 color = ambient + Lo * mix(ao, 1.0, 0.5) + emissive;
 

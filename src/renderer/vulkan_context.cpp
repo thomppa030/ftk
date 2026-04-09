@@ -1598,7 +1598,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     for (uint32_t i = 0; i < ShadowPass::CASCADE_COUNT; ++i) {
         ubo.cascade_vp[i] = matrices[i];
     }
-    ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], 0.0f);
+    float gi_int = (default_pp_ && default_pp_->config().ddgi) ? ddgi_pass_.config().gi_intensity : 0.0f;
+    ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], gi_int);
 
     // Forward+ tile info
     uint32_t tiles_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
