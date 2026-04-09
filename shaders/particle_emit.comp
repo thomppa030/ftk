@@ -90,28 +90,11 @@ void main() {
         if (local_emit_idx >= total_emit) return;
     }
 
-    uint global_pi;
-    uint local_pi;
-
-    if ((em.flags & 1u) != 0u) {
-        // Trail emitter: ring buffer write (skip dead list)
-        uint head = atomicAdd(counters[em.counter_offset + 2], 1);
-        local_pi = head % em.max_particles;
-        global_pi = em.base_offset + local_pi;
-    } else {
-        // Normal emitter: atomically pop from dead list (CAS loop)
-        uint dead_idx = em.counter_offset + 1;
-        uint slot;
-        for (;;) {
-            slot = counters[dead_idx];
-            if (slot == 0) return; // nothing available
-            uint prev = atomicCompSwap(counters[dead_idx], slot, slot - 1);
-            if (prev == slot) break; // won the race
-            if (prev == 0) return;   // someone else took the last one
-        }
-        local_pi = dead_indices[em.dead_list_offset + slot - 1];
-        global_pi = em.base_offset + local_pi;
-    }
+    // Ring buffer emit: overwrite oldest slot, no dead list needed.
+    // If emit rate > death rate, oldest live particles get overwritten (budget overflow).
+    uint head = atomicAdd(counters[em.counter_offset + 2], 1);
+    uint local_pi = head % em.max_particles;
+    uint global_pi = em.base_offset + local_pi;
 
     uint seed = em.random_seed ^ hash(local_emit_idx);
 

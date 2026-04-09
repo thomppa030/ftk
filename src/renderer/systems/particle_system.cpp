@@ -1756,7 +1756,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         bool in_delay = sub.emitter_elapsed < sub.start_delay;
         float eff_dur = sub.effective_duration();
         float time_since_start = sub.emitter_elapsed - sub.start_delay;
-        bool past_duration = (sub.duration > 0.0f) && (time_since_start >= eff_dur);
+        bool past_duration = (eff_dur > 0.0f) && (time_since_start >= eff_dur);
         bool emitting = !sub.paused && !sub.finished && !in_delay && !past_duration;
 
         // Handle loop boundaries — wait for particle drain before restarting

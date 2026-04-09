@@ -95,19 +95,15 @@ void main() {
     p.lifetime -= dt;
     if (p.lifetime <= 0.0) {
         if ((em.flags & 1u) != 0u) {
+            // Trail: keep alive for strip connectivity
             p.lifetime = 0.001;
         } else {
-            // Emit death event before returning
+            // Emit death event for sub-emitters
             if (has_sub_emitter && (sub_trigger == SUB_EVENT_DEATH || sub_trigger == 2u)) {
                 emit_sub_event(p, em, SUB_EVENT_DEATH);
             }
+            // Mark dead — ring buffer emit will overwrite this slot eventually
             particles[idx].lifetime = 0.0;
-            uint local_idx = idx - em.base_offset;
-            uint slot = atomicAdd(counters[em.counter_offset + 1], 1);
-            if (slot < em.max_particles) {
-                dead_indices[em.dead_list_offset + slot] = local_idx;
-            }
-            atomicAdd(counters[em.counter_offset], -1);
             return;
         }
     }
