@@ -42,6 +42,11 @@ struct EmitterData {
     uint  trail_head;         // ring buffer write index
     float trail_width;        // base width
     float trail_width_over_life; // 0=taper, 1=constant
+    // Sub-emitter fields
+    uint  sub_event_offset;   // offset into sub-emitter event buffer
+    uint  sub_event_source;   // parent emitter index (0xFFFFFFFF = not a child)
+    uint  sub_burst_count;    // particles per event (child only)
+    float sub_vel_inherit;    // velocity inheritance factor (child only)
 };
 
 #endif

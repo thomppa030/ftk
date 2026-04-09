@@ -28,6 +28,11 @@
 #define MOD_WIND                  110
 #define MOD_ORBITAL               111
 #define MOD_EMISSIVE              112
+#define MOD_SUB_EMITTER           113
+
+// Sub-emitter event triggers
+#define SUB_EVENT_DEATH     0
+#define SUB_EVENT_COLLISION 1
 
 #define ORBITAL_VORTEX  0
 #define ORBITAL_ORBIT   1

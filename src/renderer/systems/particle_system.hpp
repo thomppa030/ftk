@@ -43,8 +43,13 @@ struct GpuEmitterData {
     uint32_t trail_head;          // ring buffer write index (from counter buffer)
     float    trail_width;         // base width for trail strips
     float    trail_width_over_life; // 0=taper to zero, 1=constant width
+    // Sub-emitter fields
+    uint32_t sub_event_offset;    // offset into event buffer for this emitter
+    uint32_t sub_event_source;    // parent emitter index (0xFFFFFFFF = not a child)
+    uint32_t sub_burst_count;     // particles per event (child only)
+    float    sub_vel_inherit;     // velocity inheritance factor (child only)
 };
-static_assert(sizeof(GpuEmitterData) == 160);
+static_assert(sizeof(GpuEmitterData) == 176);
 
 // Push constants for lit particle fragment shader (12 bytes)
 struct ParticleLitPush {
@@ -172,6 +177,8 @@ private:
     std::unique_ptr<Buffer> mega_indirect_buffer_;
     std::unique_ptr<Buffer> emitter_data_buffer_;  // HOST_VISIBLE, mapped
     std::unique_ptr<Buffer> module_buffer_;         // HOST_VISIBLE, per-emitter module data
+    std::unique_ptr<Buffer> sub_event_buffer_;      // GPU-only, sub-emitter events (64 bytes each)
+    std::unique_ptr<Buffer> sub_event_counter_buffer_; // GPU-only, one uint32 per emitter
 
     // Emitter tracking
     std::vector<EmitterGpu> emitters_;

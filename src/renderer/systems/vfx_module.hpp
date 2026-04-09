@@ -44,6 +44,7 @@ enum class ModuleType : uint32_t {
     wind                  = 110,
     orbital               = 111,
     emissive              = 112,
+    sub_emitter           = 113,
 
     // Render modules
     billboard          = 200,
@@ -243,6 +244,27 @@ struct EmissiveModule final : VfxModule {
 
     [[nodiscard]] ModuleType type() const override { return ModuleType::emissive; }
     [[nodiscard]] const char* name() const override { return "Emissive"; }
+    [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
+    uint32_t write_gpu_data(uint8_t* buffer) const override;
+    bool draw_inspector() override;
+    void to_json(nlohmann::json& j) const override;
+    void from_json(const nlohmann::json& j) override;
+};
+
+enum class SubEmitterTrigger : uint32_t {
+    death     = 0,
+    collision = 1,
+    both      = 2,
+};
+
+struct SubEmitterModule final : VfxModule {
+    SubEmitterTrigger trigger{SubEmitterTrigger::death};
+    uint32_t child_emitter_index{1}; // index into VfxEffect::emitters
+    uint32_t burst_count{5};
+    float velocity_inherit{0.5f};
+
+    [[nodiscard]] ModuleType type() const override { return ModuleType::sub_emitter; }
+    [[nodiscard]] const char* name() const override { return "Sub-Emitter"; }
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;

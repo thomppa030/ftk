@@ -68,6 +68,7 @@ std::unique_ptr<VfxModule> create_module(const std::string& type_name) {
     if (type_name == "Orbital")          return std::make_unique<OrbitalModule>();
     if (type_name == "Emissive")         return std::make_unique<EmissiveModule>();
     if (type_name == "Distortion")       return std::make_unique<DistortionModule>();
+    if (type_name == "SubEmitter")       return std::make_unique<SubEmitterModule>();
     return nullptr;
 }
 
@@ -1368,6 +1369,69 @@ void EmissiveModule::from_json(const nlohmann::json& j) {
         color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
     }
     intensity = j.value("intensity", 5.0f);
+}
+
+// ─── SubEmitter ─────────────────────────────────────────────────────────
+
+std::vector<PinDescriptor> SubEmitterModule::pin_descriptors() {
+    return {
+        {"trigger", PinDataType::enum_type, &trigger, {"Death", "Collision", "Both"}},
+        {"child_emitter_index", PinDataType::float_type, &burst_count, {}, 0.0f, 16.0f, 1.0f},
+        {"burst_count", PinDataType::float_type, &burst_count, {}, 1.0f, 100.0f, 1.0f},
+        {"velocity_inherit", PinDataType::float_type, &velocity_inherit, {}, 0.0f, 1.0f, 0.01f},
+    };
+}
+
+uint32_t SubEmitterModule::write_gpu_data(uint8_t* buffer) const {
+    // trigger(1) + child_emitter(1) + burst_count(1) + vel_inherit(1) = 4 words
+    uint32_t total = write_header(buffer, type(), 4);
+    write_uint(buffer, 8, static_cast<uint32_t>(trigger));
+    write_uint(buffer, 12, child_emitter_index);
+    write_uint(buffer, 16, burst_count);
+    write_float(buffer, 20, velocity_inherit);
+    return total;
+}
+
+bool SubEmitterModule::draw_inspector() {
+    bool changed = false;
+    const char* triggers[] = {"Death", "Collision", "Both"};
+    int t = static_cast<int>(trigger);
+    if (ImGui::Combo("Trigger", &t, triggers, 3)) {
+        trigger = static_cast<SubEmitterTrigger>(t);
+        changed = true;
+    }
+    int idx = static_cast<int>(child_emitter_index);
+    if (ImGui::InputInt("Child Emitter Index", &idx)) {
+        child_emitter_index = static_cast<uint32_t>(std::max(0, idx));
+        changed = true;
+    }
+    int bc = static_cast<int>(burst_count);
+    if (ImGui::InputInt("Burst Count", &bc)) {
+        burst_count = static_cast<uint32_t>(std::max(1, bc));
+        changed = true;
+    }
+    changed |= ImGui::DragFloat("Velocity Inherit", &velocity_inherit, 0.01f, 0.0f, 1.0f);
+    return changed;
+}
+
+void SubEmitterModule::to_json(nlohmann::json& j) const {
+    j["type"] = "SubEmitter";
+    const char* names[] = {"death", "collision", "both"};
+    j["trigger"] = names[static_cast<int>(trigger)];
+    j["child_emitter_index"] = child_emitter_index;
+    j["burst_count"] = burst_count;
+    j["velocity_inherit"] = velocity_inherit;
+}
+
+void SubEmitterModule::from_json(const nlohmann::json& j) {
+    auto t = j.value("trigger", "death");
+    if (t == "collision") trigger = SubEmitterTrigger::collision;
+    else if (t == "both") trigger = SubEmitterTrigger::both;
+    else trigger = SubEmitterTrigger::death;
+
+    child_emitter_index = j.value("child_emitter_index", 1u);
+    burst_count = j.value("burst_count", 5u);
+    velocity_inherit = j.value("velocity_inherit", 0.5f);
 }
 
 // ─── Trail ──────────────────────────────────────────────────────────────
