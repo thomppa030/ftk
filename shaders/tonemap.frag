@@ -1,6 +1,12 @@
 #version 460
 
 layout(set = 0, binding = 0) uniform sampler2D hdr_tex;
+layout(set = 0, binding = 1) uniform sampler2D bloom_tex;
+
+layout(push_constant) uniform PushConstants {
+    float bloom_intensity;
+    float has_bloom;  // > 0.5 = bloom is bound
+};
 
 layout(location = 0) out vec4 out_color;
 
@@ -52,6 +58,12 @@ vec3 agx_contrast(vec3 x) {
 void main() {
     vec2 uv = gl_FragCoord.xy / vec2(textureSize(hdr_tex, 0));
     vec3 color = max(texture(hdr_tex, uv).rgb, vec3(0.0));
+
+    // Add bloom (half-res mip sampled at full-res UVs)
+    if (has_bloom > 0.5) {
+        vec3 bloom = texture(bloom_tex, uv).rgb;
+        color += bloom * bloom_intensity;
+    }
 
     // sRGB linear → Rec.2020 linear
     color = LINEAR_SRGB_TO_LINEAR_REC2020 * color;

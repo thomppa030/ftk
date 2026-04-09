@@ -41,7 +41,8 @@ public:
     void record(const FrameContext& ctx) override;
 
     // Record into externally-provided images.
-    void record_into(const FrameContext& ctx, Images& imgs, VkImageView source);
+    void record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
+                     VkImageView bloom_view = VK_NULL_HANDLE, float bloom_intensity = 0.3f);
 
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();

@@ -98,7 +98,7 @@ private:
     VkPipelineLayout composite_layout_pipeline_{VK_NULL_HANDLE};
     VkPipeline composite_pipeline_{VK_NULL_HANDLE};
 
-    float threshold_{0.35f};
+    float threshold_{1.0f};
     float intensity_{0.25f};
     bool enabled_{true};
 

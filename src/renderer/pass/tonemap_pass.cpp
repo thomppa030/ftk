@@ -48,10 +48,10 @@ void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
         throw std::runtime_error("Failed to create tonemap output view");
     }
 
-    // Create own descriptor pool + sets
+    // Create own descriptor pool + sets (2 samplers per set: scene + bloom)
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -119,26 +119,38 @@ Result<> TonemapPass::create(Device& device, const PassResources& resources) {
     input_sampler_ = vk_utils::create_linear_clamp_sampler(device_);
     sampler_ = vk_utils::create_linear_clamp_sampler(device_);
 
-    // Descriptor set layout (shared by all Images instances)
-    VkDescriptorSetLayoutBinding binding{};
-    binding.binding = 0;
-    binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    binding.descriptorCount = 1;
-    binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    // Descriptor set layout: binding 0 = HDR scene, binding 1 = bloom mip
+    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 1;
-    layout_ci.pBindings = &binding;
+    layout_ci.bindingCount = static_cast<uint32_t>(bindings.size());
+    layout_ci.pBindings = bindings.data();
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &set_layout_) != VK_SUCCESS) {
         return make_error("Failed to create tonemap descriptor layout");
     }
 
-    // Pipeline layout
+    // Pipeline layout with push constants for bloom params
+    VkPushConstantRange push_range{};
+    push_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    push_range.offset = 0;
+    push_range.size = 2 * sizeof(float);
+
     VkPipelineLayoutCreateInfo pipe_layout_ci{};
     pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipe_layout_ci.setLayoutCount = 1;
     pipe_layout_ci.pSetLayouts = &set_layout_;
+    pipe_layout_ci.pushConstantRangeCount = 1;
+    pipe_layout_ci.pPushConstantRanges = &push_range;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &layout_) != VK_SUCCESS) {
         return make_error("Failed to create tonemap pipeline layout");
     }
@@ -189,14 +201,21 @@ void TonemapPass::record(const FrameContext& ctx) {
     record_into(ctx, default_images_, source_view_);
 }
 
-void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source) {
+void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
+                              VkImageView bloom_view, float bloom_intensity) {
     if (imgs.view == VK_NULL_HANDLE || source == VK_NULL_HANDLE) return;
 
     auto cmd = ctx.cmd;
 
-    // Update input descriptor
+    // Update input descriptors
     vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 0,
                                      source, input_sampler_);
+
+    // Write bloom descriptor (binding 1) — use a 1x1 black texture if no bloom
+    VkImageView bloom = bloom_view != VK_NULL_HANDLE ? bloom_view : source;
+    float has_bloom = bloom_view != VK_NULL_HANDLE ? 1.0f : 0.0f;
+    vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 1,
+                                     bloom, input_sampler_);
 
     // Transition output to writable
     vk_utils::prepare_color_attachment(cmd, imgs.image);
@@ -239,6 +258,9 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &imgs.input_sets[ctx.frame_index], 0, nullptr);
+
+    struct { float intensity; float active; } push{bloom_intensity, has_bloom};
+    vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
 
