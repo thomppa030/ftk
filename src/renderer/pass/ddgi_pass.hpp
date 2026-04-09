@@ -23,7 +23,7 @@ struct DdgiConfig {
     glm::ivec3 probe_counts{8, 4, 8};
     glm::vec3 probe_spacing{2.0f};
     glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // centered around origin
-    float hysteresis{0.85f};
+    float hysteresis{0.97f};
     int probe_rays{256};
     int irradiance_side_length{6};
     int visibility_side_length{6};

@@ -77,6 +77,8 @@ void main() {
 
             if (weight >= EPSILON) {
                 vec3 radiance = texelFetch(radiance_tex, sample_pos, 0).rgb;
+                // Clamp radiance to prevent emissive hotspots from causing flicker
+                radiance = min(radiance, vec3(30.0));
                 radiance *= energy_conservation;
                 result += vec4(radiance * weight, weight);
             }
