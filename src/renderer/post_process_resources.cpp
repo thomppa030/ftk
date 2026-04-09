@@ -55,11 +55,9 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
                                passes_->tonemap.image_set_layout(),
                                width, height);
     }
-    if (config_.ddgi && width > 0 && height > 0) {
-        ddgi_images_.create(device_, allocator_,
-                            passes_->ddgi.config(),
-                            width, height);
-    }
+    // DDGI images are NOT created in the constructor — they're created on first
+    // resize() to the real viewport size. This avoids the placeholder 256x256
+    // images being destroyed while in-flight command buffers reference them.
 }
 
 PostProcessResources::~PostProcessResources() {

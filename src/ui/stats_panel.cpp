@@ -112,16 +112,8 @@ void StatsPanel::draw(float dt, const char* title) {
             bool bloom_on = bloom.enabled();
             if (ImGui::Checkbox("Bloom", &bloom_on)) bloom.set_enabled(bloom_on);
 
-            auto& ddgi = ctx_->ddgi_pass();
-            auto& ddgi_cfg = ddgi.config();
-            bool ddgi_on = ctx_->default_pp().config().ddgi;
-            if (ImGui::Checkbox("DDGI", &ddgi_on)) {
-                // TODO: toggle requires PostProcessResources recreation
-                // For now just control intensity
-            }
-            if (ddgi_on) {
-                ImGui::SliderFloat("GI Intensity", &ddgi_cfg.gi_intensity, 0.0f, 2.0f);
-            }
+            auto& ddgi_cfg = ctx_->ddgi_pass().config();
+            ImGui::SliderFloat("GI Intensity", &ddgi_cfg.gi_intensity, 0.0f, 2.0f);
         }
     }
     ImGui::End();

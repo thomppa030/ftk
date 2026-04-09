@@ -209,8 +209,7 @@ VulkanContext::VulkanContext(Window& window)
     PostProcessConfig default_config{};
     default_config.ssr = true;
     default_config.volumetric_fog = true;
-    // DDGI disabled by default — enable via editor stats panel toggle
-    // (enabling at init triggers resize-while-in-flight on the 256x256 placeholder)
+    default_config.ddgi = true;
     PostProcessResources::PassRefs refs{hiz_pass_, gtao_pass_, bloom_pass_, ssr_pass_, volumetric_fog_pass_, tonemap_pass_, ddgi_pass_};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
@@ -1851,6 +1850,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
                     std::numeric_limits<uint64_t>::max());
 
     // GPU is now done with this frame slot — safe to destroy/resize resources.
+    apply_pending_ddgi_toggle();
 
     // Lazy-init per-thread command pools (needs thread count from pool)
     gpu_.ensure_secondary_pools(pool.thread_count());
@@ -2177,6 +2177,31 @@ void VulkanContext::draw_sdf_debug_window() {
         }
     }
     ImGui::End();
+}
+
+void VulkanContext::apply_pending_ddgi_toggle() {
+    if (!has_pending_ddgi_toggle_) return;
+    has_pending_ddgi_toggle_ = false;
+
+    auto& config = const_cast<PostProcessConfig&>(default_pp_->config());
+    if (config.ddgi == pending_ddgi_toggle_) return;
+
+    // Wait for ALL GPU work to complete before touching shared resources
+    submit_and_present(); // flush any pending recorded frame
+    vkDeviceWaitIdle(gpu_.device());
+
+    config.ddgi = pending_ddgi_toggle_;
+
+    // Get current viewport size
+    uint32_t w = 256, h = 256;
+    auto* tm = default_pp_->tonemap();
+    if (tm && tm->extent.width > 0) {
+        w = tm->extent.width;
+        h = tm->extent.height;
+    }
+
+    // Resize triggers create/destroy of DDGI images based on updated config
+    default_pp_->resize(w, h);
 }
 
 void VulkanContext::reload_pipeline() {

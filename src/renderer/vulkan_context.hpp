@@ -130,6 +130,8 @@ public:
   [[nodiscard]] SsrPass &ssr_pass() { return ssr_pass_; }
   [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return volumetric_fog_pass_; }
   [[nodiscard]] DdgiPass &ddgi_pass() { return ddgi_pass_; }
+  void set_ddgi_enabled(bool enabled) { pending_ddgi_toggle_ = enabled; has_pending_ddgi_toggle_ = true; }
+  void apply_pending_ddgi_toggle();
   [[nodiscard]] TonemapPass &tonemap_pass() { return tonemap_pass_; }
   [[nodiscard]] LightVizPass &light_heatmap_pass() { return light_heatmap_pass_; }
   [[nodiscard]] LightVizPass &light_grid_pass() { return light_grid_pass_; }
@@ -338,6 +340,8 @@ private:
   float sdf_debug_slice_{0.5f};
   bool playing_{false};
   bool meshlet_passes_created_{false};
+  bool has_pending_ddgi_toggle_{false};
+  bool pending_ddgi_toggle_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
   ResourceManager* resource_manager_{nullptr};

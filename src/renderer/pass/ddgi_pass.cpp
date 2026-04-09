@@ -148,8 +148,51 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
 void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
                                const DdgiConfig& config,
                                uint32_t screen_w, uint32_t screen_h) {
-    destroy(device, allocator);
-    create(device, allocator, config, screen_w, screen_h);
+    // First call: create everything
+    if (radiance_image == VK_NULL_HANDLE) {
+        create(device, allocator, config, screen_w, screen_h);
+        return;
+    }
+
+    // Subsequent calls: only recreate indirect_image if screen size changed
+    uint32_t new_w = config.half_res_output ? std::max(1u, screen_w / 2) : screen_w;
+    uint32_t new_h = config.half_res_output ? std::max(1u, screen_h / 2) : screen_h;
+    if (indirect_extent.width == new_w && indirect_extent.height == new_h) return;
+
+    // Only destroy/recreate the indirect output image, not the probe images
+    if (indirect_view != VK_NULL_HANDLE) vkDestroyImageView(device, indirect_view, nullptr);
+    destroy_vma_image(allocator, indirect_image, indirect_memory);
+    indirect_view = VK_NULL_HANDLE;
+    indirect_image = VK_NULL_HANDLE;
+    indirect_memory = VK_NULL_HANDLE;
+
+    indirect_extent = {new_w, new_h};
+
+    VkImageCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    info.imageType = VK_IMAGE_TYPE_2D;
+    info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    info.extent = {new_w, new_h, 1};
+    info.mipLevels = 1;
+    info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    create_vma_image(allocator, &info, &indirect_image, &indirect_memory);
+
+    VkImageViewCreateInfo view_info{};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = indirect_image;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    vkCreateImageView(device, &view_info, nullptr, &indirect_view);
+
+    // Mark descriptors as needing rewrite (sample set references indirect_view)
+    images_need_init = true;
 }
 
 void DdgiPass::Images::invalidate_imgui_texture() {
