@@ -95,6 +95,11 @@ struct VfxModule {
     virtual void from_json(const nlohmann::json& j) = 0;
 
     bool enabled{true};
+
+    // Editor node position (serialized so layout persists)
+    float editor_x{0.0f};
+    float editor_y{0.0f};
+    bool position_set{false};
 };
 
 /// Create a module instance by type name (for JSON deserialization)

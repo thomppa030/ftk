@@ -32,6 +32,14 @@ static VfxEmitter load_emitter_v2(const nlohmann::json& je) {
             auto mod = create_module(type_name);
             if (mod) {
                 mod->from_json(jm);
+                if (jm.contains("pos")) {
+                    auto& jp = jm["pos"];
+                    if (jp.is_array() && jp.size() == 2) {
+                        mod->editor_x = jp[0].get<float>();
+                        mod->editor_y = jp[1].get<float>();
+                        mod->position_set = true;
+                    }
+                }
                 out.push_back(std::move(mod));
             }
         }
@@ -91,6 +99,16 @@ static VfxEmitter load_emitter_v2(const nlohmann::json& je) {
                     }
                 }
 
+                // Editor position
+                if (jn.contains("pos")) {
+                    auto& jp = jn["pos"];
+                    if (jp.is_array() && jp.size() == 2) {
+                        node->editor_x = jp[0].get<float>();
+                        node->editor_y = jp[1].get<float>();
+                        node->position_set = true;
+                    }
+                }
+
                 // Track max ID for future allocations
                 if (node->node_id >= graph.next_node_id) {
                     graph.next_node_id = node->node_id + 1;
@@ -130,6 +148,9 @@ static nlohmann::json save_emitter_v2(const VfxEmitter& emitter) {
             if (!m->enabled) continue;
             nlohmann::json jm;
             m->to_json(jm);
+            if (m->position_set) {
+                jm["pos"] = {m->editor_x, m->editor_y};
+            }
             arr.push_back(jm);
         }
         return arr;
@@ -166,6 +187,9 @@ static nlohmann::json save_emitter_v2(const VfxEmitter& emitter) {
             } else if (node->type == ExprNodeType::constant_vec4) {
                 auto v = std::get<glm::vec4>(node->constant_value);
                 jn["value"] = {v.x, v.y, v.z, v.w};
+            }
+            if (node->position_set) {
+                jn["pos"] = {node->editor_x, node->editor_y};
             }
             nodes_arr.push_back(jn);
         }

@@ -92,6 +92,7 @@ private:
     void handle_deletion();
     void setup_preview();
     void rebuild_node_positions();
+    void sync_node_positions();
     [[nodiscard]] PinDataType resolve_pin_type(uint64_t pin_id) const;
 
     void draw_module_entry(VfxModule* mod, int index,
@@ -136,6 +137,10 @@ private:
     // Playback
     float time_scale_{1.0f};
     float prev_timeline_time_{0.0f};
+
+    // Context menu spawn position (canvas coords)
+    float context_menu_canvas_x_{0.0f};
+    float context_menu_canvas_y_{0.0f};
 
     // Hot-reload
 #ifndef NDEBUG

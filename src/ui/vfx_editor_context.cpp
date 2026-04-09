@@ -276,8 +276,20 @@ void VfxEditorContext::draw(float dt) {
 
     float cur_time = timeline_.time();
     if (effect_ && timeline_.playing() && cur_time < prev_timeline_time_) {
-        // Timeline looped — reset all emitter playback state
-        effect_->reset_playback();
+        // Timeline looped — reset timing for emitters with explicit duration,
+        // so they replay their timed sequence. Don't touch emitters with no
+        // duration set (they emit continuously, the particle system handles
+        // burst re-fire via burst_elapsed internally).
+        for (auto& em : effect_->emitters) {
+            if (em.duration > 0.0f) {
+                em.emitter_elapsed = em.start_delay;
+                em.loops_completed = 0;
+                em.burst_fired = false;
+                em.burst_elapsed = 0.0f;
+                em.emit_accumulator = 0.0f;
+                em.finished = false;
+            }
+        }
     }
     prev_timeline_time_ = cur_time;
 
@@ -406,6 +418,14 @@ void VfxEditorContext::reload_effect() {
 
 void VfxEditorContext::save_effect() {
     if (fjvfx_abs_path_.empty() || !effect_) return;
+
+    // Sync current emitter's node positions before saving
+    if (node_editor_ctx_) {
+        ne::SetCurrentEditor(node_editor_ctx_);
+        sync_node_positions();
+        ne::SetCurrentEditor(nullptr);
+    }
+
     save_vfx_effect(fjvfx_abs_path_, *effect_);
     FJELL_CORE_INFO("VFX saved: {}", fjvfx_abs_path_);
 }
@@ -450,30 +470,50 @@ void VfxEditorContext::rebuild_node_positions() {
 
     auto& emitter = effect_->emitters[selected_emitter_];
 
-    float x = 50.0f;
-    float y = 30.0f;
+    // Default grid positions for modules without saved positions
+    float default_x[] = {50.0f, 400.0f, 750.0f};
     float y_spacing = 140.0f;
 
-    // Spawn stack
-    for (int i = 0; i < static_cast<int>(emitter.spawn_modules.size()); ++i) {
-        ne::SetNodePosition(ne::NodeId(module_node_id(0, i)), ImVec2(x, y));
-        y += y_spacing;
-    }
+    auto apply_stack = [&](int stack_idx, std::vector<std::unique_ptr<VfxModule>>& stack) {
+        float y = 30.0f;
+        for (int i = 0; i < static_cast<int>(stack.size()); ++i) {
+            auto nid = ne::NodeId(module_node_id(stack_idx, i));
+            if (stack[i]->position_set) {
+                ne::SetNodePosition(nid, ImVec2(stack[i]->editor_x, stack[i]->editor_y));
+                stack[i]->position_set = false;
+            } else {
+                ne::SetNodePosition(nid, ImVec2(default_x[stack_idx], y));
+            }
+            y += y_spacing;
+        }
+    };
 
-    // Update stack — offset right
-    y = 30.0f;
-    x = 400.0f;
-    for (int i = 0; i < static_cast<int>(emitter.update_modules.size()); ++i) {
-        ne::SetNodePosition(ne::NodeId(module_node_id(1, i)), ImVec2(x, y));
-        y += y_spacing;
-    }
+    apply_stack(0, emitter.spawn_modules);
+    apply_stack(1, emitter.update_modules);
+    apply_stack(2, emitter.render_modules);
+}
 
-    // Render stack — offset further right
-    y = 30.0f;
-    x = 750.0f;
-    for (int i = 0; i < static_cast<int>(emitter.render_modules.size()); ++i) {
-        ne::SetNodePosition(ne::NodeId(module_node_id(2, i)), ImVec2(x, y));
-        y += y_spacing;
+void VfxEditorContext::sync_node_positions() {
+    if (!effect_ || selected_emitter_ < 0 || !node_editor_ctx_) return;
+    auto& emitter = effect_->emitters[selected_emitter_];
+
+    auto sync_stack = [&](int stack_idx, std::vector<std::unique_ptr<VfxModule>>& stack) {
+        for (int i = 0; i < static_cast<int>(stack.size()); ++i) {
+            auto pos = ne::GetNodePosition(ne::NodeId(module_node_id(stack_idx, i)));
+            stack[i]->editor_x = pos.x;
+            stack[i]->editor_y = pos.y;
+            stack[i]->position_set = true;
+        }
+    };
+    sync_stack(0, emitter.spawn_modules);
+    sync_stack(1, emitter.update_modules);
+    sync_stack(2, emitter.render_modules);
+
+    for (auto& node : emitter.expression_graph.nodes) {
+        auto pos = ne::GetNodePosition(ne::NodeId(node->node_id));
+        node->editor_x = pos.x;
+        node->editor_y = pos.y;
+        node->position_set = true;
     }
 }
 
@@ -525,6 +565,7 @@ void VfxEditorContext::draw_node_editor() {
                 for (int i = 0; i < static_cast<int>(effect_->emitters.size()); ++i) {
                     bool sel = (i == selected_emitter_);
                     if (ImGui::Selectable(effect_->emitters[i].name.c_str(), sel)) {
+                        sync_node_positions();
                         selected_emitter_ = i;
                         selected_module_stack_ = -1;
                         selected_module_index_ = -1;
@@ -541,6 +582,21 @@ void VfxEditorContext::draw_node_editor() {
                 selected_emitter_ = static_cast<int>(effect_->emitters.size()) - 1;
                 needs_initial_layout_ = true;
                 setup_preview();
+            }
+            if (selected_emitter_ >= 0 && effect_->emitters.size() > 1) {
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.4f, 0.4f, 1.0f));
+                if (ImGui::SmallButton("- Emitter")) {
+                    sync_node_positions();
+                    effect_->emitters.erase(effect_->emitters.begin() + selected_emitter_);
+                    selected_emitter_ = std::min(selected_emitter_,
+                        static_cast<int>(effect_->emitters.size()) - 1);
+                    selected_module_stack_ = -1;
+                    selected_module_index_ = -1;
+                    needs_initial_layout_ = true;
+                    setup_preview();
+                }
+                ImGui::PopStyleColor();
             }
             ImGui::SameLine();
             if (ImGui::SmallButton("Save")) {
@@ -757,6 +813,9 @@ void VfxEditorContext::draw_node_editor() {
         // Context menu (right-click on canvas)
         ne::Suspend();
         if (ne::ShowBackgroundContextMenu()) {
+            auto cpos = ne::ScreenToCanvas(ImGui::GetMousePos());
+            context_menu_canvas_x_ = cpos.x;
+            context_menu_canvas_y_ = cpos.y;
             ImGui::OpenPopup("##add_module");
         }
         draw_context_menu();
@@ -847,7 +906,10 @@ void VfxEditorContext::draw_context_menu() {
             auto& graph = emitter.expression_graph;
             auto add_expr = [&](const char* label, ExprNodeType type) {
                 if (ImGui::MenuItem(label)) {
-                    graph.add_node(type);
+                    auto* node = graph.add_node(type);
+                    node->editor_x = context_menu_canvas_x_;
+                    node->editor_y = context_menu_canvas_y_;
+                    node->position_set = true;
                 }
             };
 
@@ -1099,6 +1161,12 @@ void VfxEditorContext::draw_expression_nodes() {
         auto nid = ne::NodeId(node->node_id);
         int nid_int = static_cast<int>(node->node_id);
         auto pins = expr_node_pins(node->type);
+
+        // Apply saved position on first frame
+        if (node->position_set) {
+            ne::SetNodePosition(nid, ImVec2(node->editor_x, node->editor_y));
+            node->position_set = false; // only set once, then editor owns it
+        }
 
         ne::PushStyleVar(ne::StyleVar_NodePadding, ImVec4(10, 8, 10, 8));
 

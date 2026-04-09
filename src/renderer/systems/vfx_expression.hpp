@@ -60,6 +60,11 @@ struct ExpressionNode {
     PinValue constant_value{0.0f}; // for constant nodes
     PinValue output_cache{0.0f};
     bool evaluated{false};
+
+    // Editor position (serialized so node layout persists)
+    float editor_x{0.0f};
+    float editor_y{0.0f};
+    bool position_set{false}; // true once positioned by editor or loaded from JSON
 };
 
 struct ExpressionLink {
