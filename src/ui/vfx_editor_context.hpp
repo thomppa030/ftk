@@ -32,11 +32,16 @@ struct VfxModule;
 /// VFX-specific timeline with emitter lane bars and drag-to-offset.
 class VfxTimeline final : public TimelineWidget {
 public:
-    Delegate<void(int)> on_lane_selected; // emitter index clicked
+    Delegate<void(int)> on_lane_selected;          // emitter index clicked
+    Delegate<void(int, float)> on_lane_dragged;    // emitter index + new start_delay
 
 protected:
     void draw_lanes(float bar_x, float bar_y, float bar_width,
                     float lane_height) override;
+
+private:
+    int dragging_lane_{-1};
+    float drag_offset_{0.0f}; // mouse offset from lane start when drag began
 };
 
 struct VfxEditorDeps {

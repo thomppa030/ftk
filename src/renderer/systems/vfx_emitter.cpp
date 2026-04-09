@@ -2,6 +2,10 @@
 
 namespace fjell {
 
+float VfxEmitter::effective_duration() const {
+    return (duration > 0.0f) ? duration : lifetime_max();
+}
+
 VfxEmitter VfxEmitter::make_default() {
     VfxEmitter e;
     e.spawn_modules.push_back(std::make_unique<SpawnRateModule>());
@@ -101,6 +105,28 @@ float VfxEffect::max_lifetime() const {
         if (lt > max_lt) max_lt = lt;
     }
     return max_lt;
+}
+
+float VfxEffect::total_duration() const {
+    float total = 0.0f;
+    for (const auto& e : emitters) {
+        float end = e.start_delay + e.effective_duration();
+        if (end > total) total = end;
+    }
+    return total;
+}
+
+void VfxEffect::reset_playback() {
+    for (auto& e : emitters) {
+        e.emit_accumulator = 0.0f;
+        e.distance_accumulator = 0.0f;
+        e.burst_elapsed = 0.0f;
+        e.emitter_elapsed = 0.0f;
+        e.loops_completed = 0;
+        e.burst_fired = false;
+        e.paused = false;
+        e.finished = false;
+    }
 }
 
 } // namespace fjell

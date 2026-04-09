@@ -22,6 +22,14 @@ struct VfxEmitter {
 
     ExpressionGraph expression_graph;
 
+    // ── Timing (serialized) ───────────────────────────────────────────
+    float start_delay{0.0f};   // seconds before this emitter begins
+    float duration{0.0f};      // emitter active time (0 = infinite / use particle lifetime)
+    uint32_t loop_count{0};    // 0 = infinite, N = play N times then stop
+
+    /// Effective duration: explicit duration, or particle lifetime if 0
+    [[nodiscard]] float effective_duration() const;
+
     /// Build a default emitter with the standard module stack
     static VfxEmitter make_default();
 
@@ -37,12 +45,15 @@ struct VfxEmitter {
     /// Compute required buffer size for all modules
     [[nodiscard]] uint32_t gpu_data_size() const;
 
-    // Runtime (not serialized, managed by ParticleSystem)
+    // ── Runtime (not serialized, managed by ParticleSystem) ──────────
     float emit_accumulator{0.0f};
     float distance_accumulator{0.0f};
     float burst_elapsed{0.0f};
+    float emitter_elapsed{0.0f};   // time since emitter started (after delay)
+    uint32_t loops_completed{0};   // how many full cycles have finished
     bool burst_fired{false};
-    bool paused{false};  // suppress emission + freeze simulation
+    bool paused{false};            // suppress emission + freeze simulation
+    bool finished{false};          // emitter completed all loops
 };
 
 /// A complete VFX effect — one or more emitters that play together.
@@ -56,6 +67,12 @@ struct VfxEffect {
 
     /// Max lifetime across all emitters (for oneshot duration)
     [[nodiscard]] float max_lifetime() const;
+
+    /// Total effect duration (max of start_delay + effective_duration across emitters)
+    [[nodiscard]] float total_duration() const;
+
+    /// Reset all emitter runtime state (elapsed, burst, accumulators)
+    void reset_playback();
 };
 
 } // namespace fjell

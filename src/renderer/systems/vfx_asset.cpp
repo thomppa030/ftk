@@ -22,6 +22,9 @@ static VfxEmitter load_emitter_v2(const nlohmann::json& je) {
     emitter.name = je.value("name", "emitter");
     emitter.max_particles = je.value("max_particles", 10000u);
     emitter.blend_mode = static_cast<ParticleBlendMode>(je.value("blend_mode", 0));
+    emitter.start_delay = je.value("start_delay", 0.0f);
+    emitter.duration = je.value("duration", 0.0f);
+    emitter.loop_count = je.value("loop_count", 0u);
 
     auto load_modules = [](const nlohmann::json& arr, std::vector<std::unique_ptr<VfxModule>>& out) {
         for (const auto& jm : arr) {
@@ -117,6 +120,9 @@ static nlohmann::json save_emitter_v2(const VfxEmitter& emitter) {
     je["name"] = emitter.name;
     je["max_particles"] = emitter.max_particles;
     je["blend_mode"] = static_cast<int>(emitter.blend_mode);
+    if (emitter.start_delay > 0.0f) je["start_delay"] = emitter.start_delay;
+    if (emitter.duration > 0.0f) je["duration"] = emitter.duration;
+    if (emitter.loop_count > 0) je["loop_count"] = emitter.loop_count;
 
     auto save_modules = [](const std::vector<std::unique_ptr<VfxModule>>& mods) {
         nlohmann::json arr = nlohmann::json::array();
