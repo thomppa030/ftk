@@ -1,0 +1,184 @@
+#version 460
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+// ── DDGI Constants UBO ──────────────────────────────────────────────────
+
+layout(std140, set = 0, binding = 0) uniform DDGIConstants {
+    vec3 probe_grid_position;
+    float probe_sphere_scale;
+
+    vec3 probe_spacing;
+    float max_probe_offset;
+
+    vec3 reciprocal_spacing;
+    float self_shadow_bias;
+
+    ivec3 probe_counts;
+    uint debug_options;
+
+    int irr_tex_w;
+    int irr_tex_h;
+    int irr_side;
+    int probe_rays;
+
+    int vis_tex_w;
+    int vis_tex_h;
+    int vis_side;
+    int probe_update_offset;
+
+    int probe_update_count;
+    float hysteresis;
+    float infinite_bounces_mult;
+    float pad0;
+
+    mat4 random_rotation;
+
+    vec3 camera_position;
+    float pad1;
+
+    mat4 inv_view_proj;
+
+    vec2 resolution;
+    float pad2;
+    float pad3;
+} ddgi;
+
+// ── Bindings ────────────────────────────────────────────────────────────
+
+layout(set = 0, binding = 1) uniform sampler3D scene_sdf;
+layout(rgba16f, set = 0, binding = 2) uniform writeonly image2D radiance_out;
+layout(set = 0, binding = 3) uniform samplerCube sky_cubemap;
+
+layout(std430, set = 0, binding = 4) readonly buffer ProbeStatusSSBO {
+    uint probe_status[];
+};
+
+layout(set = 0, binding = 5) uniform sampler2D probe_offset_tex;
+
+// ── Push constants ──────────────────────────────────────────────────────
+
+layout(push_constant) uniform PushConstants {
+    vec3 light_direction;     // toward light
+    float light_intensity;
+    vec3 light_color;
+    float sdf_resolution;
+    vec3 sdf_volume_min;
+    float pad_pc0;
+    vec3 sdf_volume_max;
+    float pad_pc1;
+};
+
+#include "include/fjell_ddgi.glsl"
+
+// ── SDF sphere tracing ──────────────────────────────────────────────────
+
+const int MAX_STEPS = 64;
+const float MIN_DIST = 0.005;
+const float MAX_TRACE_DIST = 40.0;
+
+float sample_scene_sdf(vec3 world_pos) {
+    vec3 uvw = (world_pos - sdf_volume_min) / (sdf_volume_max - sdf_volume_min);
+    if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))))
+        return MAX_TRACE_DIST;
+    return texture(scene_sdf, uvw).r;
+}
+
+vec3 estimate_normal(vec3 p) {
+    float e = 0.05;
+    float d = sample_scene_sdf(p);
+    return normalize(vec3(
+        sample_scene_sdf(p + vec3(e, 0, 0)) - d,
+        sample_scene_sdf(p + vec3(0, e, 0)) - d,
+        sample_scene_sdf(p + vec3(0, 0, e)) - d
+    ));
+}
+
+// ── Main ────────────────────────────────────────────────────────────────
+
+void main() {
+    int ray_index = int(gl_GlobalInvocationID.x);
+    if (ray_index >= ddgi.probe_rays) return;
+
+    int probe_index = int(gl_GlobalInvocationID.y) + ddgi.probe_update_offset;
+    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+    if (probe_index >= total_probes) return;
+
+    // Skip inactive probes
+    uint status = probe_status[probe_index];
+    if (status == PROBE_STATUS_OFF) return;
+
+    // Probe world position
+    ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
+    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
+
+    // Ray direction: jittered spherical Fibonacci
+    vec3 direction = normalize(mat3(ddgi.random_rotation) * spherical_fibonacci(float(ray_index), float(ddgi.probe_rays)));
+
+    // Check if probe is inside geometry
+    float origin_sdf = sample_scene_sdf(ray_origin);
+    if (origin_sdf < -MIN_DIST) {
+        // Inside geometry — record negative distance for backface detection
+        imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset),
+                   vec4(0.0, 0.0, 0.0, origin_sdf));
+        return;
+    }
+
+    // Sphere trace
+    float t = max(origin_sdf, MIN_DIST);
+    bool hit = false;
+
+    for (int i = 0; i < MAX_STEPS && t < MAX_TRACE_DIST; i++) {
+        vec3 p = ray_origin + direction * t;
+        float d = sample_scene_sdf(p);
+
+        if (d < MIN_DIST) {
+            hit = true;
+            break;
+        }
+        t += max(d, MIN_DIST);
+    }
+
+    vec3 radiance;
+    float distance;
+
+    if (hit) {
+        vec3 hit_pos = ray_origin + direction * t;
+        vec3 N = estimate_normal(hit_pos);
+
+        // Direct lighting from directional light
+        float NdotL = max(dot(N, light_direction), 0.0);
+
+        // Simple SDF shadow: trace toward light
+        float shadow = 1.0;
+        if (NdotL > 0.001) {
+            float shadow_t = 0.05;
+            for (int s = 0; s < 16; s++) {
+                float sd = sample_scene_sdf(hit_pos + light_direction * shadow_t);
+                if (sd < MIN_DIST) {
+                    shadow = 0.0;
+                    break;
+                }
+                shadow_t += max(sd, 0.02);
+                if (shadow_t > 20.0) break;
+            }
+        }
+
+        // Neutral albedo (no material info in SDF path)
+        vec3 albedo = vec3(0.5);
+        radiance = albedo * light_color * light_intensity * NdotL * shadow;
+
+        // Add sky ambient
+        vec3 sky_irradiance = textureLod(sky_cubemap, N, 5.0).rgb;
+        radiance += albedo * sky_irradiance * 0.3;
+
+        distance = t;
+    } else {
+        // Miss: sky color
+        radiance = textureLod(sky_cubemap, direction, 0.0).rgb;
+        distance = MAX_TRACE_DIST;
+    }
+
+    imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset),
+               vec4(radiance, distance));
+}

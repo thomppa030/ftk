@@ -82,6 +82,12 @@ struct FrameContext {
     // Per-viewport post-process images
     PostProcessResources* pp_resources{nullptr};
 
+    // SDF + sky for DDGI probe tracing
+    VkImageView sdf_view{VK_NULL_HANDLE};
+    VkSampler sdf_sampler{VK_NULL_HANDLE};
+    VkImageView sky_cubemap_view{VK_NULL_HANDLE};
+    VkSampler sky_cubemap_sampler{VK_NULL_HANDLE};
+
     // Skip shadow pass for this viewport (e.g. camera preview uses main viewport's shadows)
     bool skip_shadows{false};
 

@@ -113,6 +113,10 @@ public:
 
         bool images_need_init{true};
 
+        // Descriptor sets — written by DdgiPass after Images::create()
+        VkDescriptorPool desc_pool{VK_NULL_HANDLE};
+        VkDescriptorSet trace_set{VK_NULL_HANDLE};
+
         void create(VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,
                      uint32_t screen_w, uint32_t screen_h);
@@ -135,10 +139,35 @@ public:
     [[nodiscard]] DdgiConfig& config() { return config_; }
     [[nodiscard]] const DdgiConfig& config() const { return config_; }
 
+    /// Push constants for the SDF trace shader.
+    struct TracePushConstants {
+        glm::vec3 light_direction;
+        float light_intensity;
+        glm::vec3 light_color;
+        float sdf_resolution;
+        glm::vec3 sdf_volume_min;
+        float pad0;
+        glm::vec3 sdf_volume_max;
+        float pad1;
+    };
+
 private:
+    void update_constants(Images& imgs, const FrameContext& ctx);
+
     Device* device_{nullptr};
+    VkDevice vk_device_{VK_NULL_HANDLE};
     DdgiConfig config_;
     uint32_t frame_counter_{0};
+
+    // SDF trace compute pipeline
+    VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout trace_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline trace_pipeline_{VK_NULL_HANDLE};
+    VkSampler linear_sampler_{VK_NULL_HANDLE};
+
+    // Per-Images descriptor sets (one per frame-in-flight, allocated from Images)
+    // For now we use a single set since DDGI images don't change per-frame
+    VkDescriptorPool trace_pool_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell

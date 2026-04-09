@@ -530,6 +530,21 @@ void VulkanContext::register_gpu_driven_passes() {
         }
     });
 
+    // DDGI probe tracing + irradiance update
+    render_pipeline_.register_pass({
+        .name = "ddgi",
+        .order = 515,
+        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+            graph.add_pass("ddgi", [this](VkCommandBuffer cb) {
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                if (local.pp_resources && local.pp_resources->ddgi()) {
+                    ddgi_pass_.record_into(local, *local.pp_resources->ddgi());
+                }
+            }, {});
+        }
+    });
+
     // Subsystem compute (particles, etc.)
     render_pipeline_.register_pass({
         .name = "subsystem_compute",
@@ -1172,6 +1187,13 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
     ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
     ctx.target_pool = &target_pool_;
+
+    // DDGI: SDF and sky cubemap views for probe tracing
+    ctx.sdf_view = scene_sdf_pass_.view();
+    ctx.sdf_sampler = scene_sdf_pass_.sampler();
+    ctx.sky_cubemap_view = sky_cubemap_pass_.cubemap_view();
+    ctx.sky_cubemap_sampler = sky_cubemap_pass_.cubemap_sampler();
+
     return ctx;
 }
 
