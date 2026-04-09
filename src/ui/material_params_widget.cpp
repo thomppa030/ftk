@@ -93,6 +93,43 @@ bool draw_material_params(const ShaderMetadata& meta,
         ImGui::PopID();
     }
 
+    // Recompute emission_color in base_params[9..11] for RT GI
+    if (changed) {
+        float emission_strength = 0.0f;
+        glm::vec3 glow_color{0.0f};
+        bool has_glow_color = false;
+
+        for (const auto& u : meta.uniforms) {
+            if (u.type == UniformType::Sampler2D) continue;
+            uint32_t fcount = uniform_float_count(u.type);
+            if (u.slot + fcount > param_count) continue;
+
+            uint32_t abs = gpu.param_offset + u.slot;
+
+            if ((u.name == "emission_strength" || u.name == "glow_strength") && fcount >= 1) {
+                emission_strength = bindless.read_param(abs);
+            } else if ((u.name == "glow_color" || u.name == "emission_color") && fcount >= 3) {
+                glow_color = {bindless.read_param(abs), bindless.read_param(abs + 1), bindless.read_param(abs + 2)};
+                has_glow_color = true;
+            }
+        }
+
+        glm::vec3 emission{0.0f};
+        if (has_glow_color && emission_strength > 0.0f) {
+            emission = glow_color * emission_strength;
+        } else if (has_glow_color) {
+            emission = glow_color;
+        } else if (emission_strength > 0.0f) {
+            emission = glm::vec3(emission_strength);
+        }
+
+        GpuMaterial updated = bindless.material_at(material.material_id());
+        updated.base_params[9] = emission.x;
+        updated.base_params[10] = emission.y;
+        updated.base_params[11] = emission.z;
+        bindless.update_material(material.material_id(), updated);
+    }
+
     return changed;
 }
 
