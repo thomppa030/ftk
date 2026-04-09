@@ -104,9 +104,9 @@ void main() {
     int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
     if (probe_index >= total_probes) return;
 
-    // Skip inactive probes
-    uint status = probe_status[probe_index];
-    if (status == PROBE_STATUS_OFF) return;
+    // Skip inactive probes (disabled until status buffer is properly initialized)
+    // uint status = probe_status[probe_index];
+    // if (status == PROBE_STATUS_OFF) return;
 
     // Probe world position
     ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);

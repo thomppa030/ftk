@@ -531,21 +531,6 @@ void VulkanContext::register_gpu_driven_passes() {
         }
     });
 
-    // DDGI probe tracing + irradiance update
-    render_pipeline_.register_pass({
-        .name = "ddgi",
-        .order = 515,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
-            graph.add_pass("ddgi", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                if (local.pp_resources && local.pp_resources->ddgi()) {
-                    ddgi_pass_.record_into(local, *local.pp_resources->ddgi());
-                }
-            }, {});
-        }
-    });
-
     // Subsystem compute (particles, etc.)
     render_pipeline_.register_pass({
         .name = "subsystem_compute",
@@ -586,6 +571,24 @@ void VulkanContext::register_gpu_driven_passes() {
 
 void VulkanContext::register_color_passes() {
     register_opaque_pass();
+
+    // DDGI: runs after opaque pass so depth + normals are available for sampling.
+    // Trace+update+sample all in one pass at order 605.
+    render_pipeline_.register_pass({
+        .name = "ddgi",
+        .order = 605,
+        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+            graph.add_pass("ddgi", [this](VkCommandBuffer cb) {
+                FrameContext local = current_ctx_;
+                local.cmd = cb;
+                if (local.pp_resources && local.pp_resources->ddgi()) {
+                    ddgi_pass_.record_into(local, *local.pp_resources->ddgi());
+                }
+            }, {{imgs.depth_id, ImageUsage::compute_read},
+                {imgs.normal_id, ImageUsage::compute_read}});
+        }
+    });
+
     register_screen_color_copy_pass();
     register_transparent_pass();
 }
@@ -2001,11 +2004,14 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         vkUpdateDescriptorSets(vk_device, 1, &sc_write, 0, nullptr);
 
         // Update binding 10 (GI indirect texture)
+        // Only use the real indirect view after DDGI has run at least once
+        // (images_need_init is cleared after first record_into writes descriptors + transitions images)
         auto* ddgi_imgs = default_pp_->ddgi();
+        bool ddgi_ready = ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE
+                       && !ddgi_imgs->images_need_init;
         VkDescriptorImageInfo gi_desc{};
         gi_desc.sampler = gpu_.gi_fallback_sampler();
-        gi_desc.imageView = (ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE)
-            ? ddgi_imgs->indirect_view : gpu_.gi_fallback_view();
+        gi_desc.imageView = ddgi_ready ? ddgi_imgs->indirect_view : gpu_.gi_fallback_view();
         gi_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet gi_write{};

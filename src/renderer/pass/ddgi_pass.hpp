@@ -15,14 +15,14 @@ namespace fjell {
 struct DdgiConfig {
     glm::ivec3 probe_counts{8, 4, 8};
     glm::vec3 probe_spacing{2.0f};
-    glm::vec3 grid_position{0.0f};
+    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // centered around origin
     float hysteresis{0.97f};
     int probe_rays{128};
     int irradiance_side_length{6};
     int visibility_side_length{6};
     float self_shadow_bias{0.3f};
     float max_probe_offset{0.5f};
-    float gi_intensity{1.0f};
+    float gi_intensity{0.3f};
     bool half_res_output{true};
 };
 
@@ -113,6 +113,13 @@ public:
 
         bool images_need_init{true};
 
+        // ImGui debug textures
+        VkDescriptorSet indirect_imgui_desc{VK_NULL_HANDLE};
+        VkDescriptorSet irradiance_imgui_desc{VK_NULL_HANDLE};
+
+        [[nodiscard]] VkDescriptorSet indirect_imgui_texture(VkSampler sampler);
+        [[nodiscard]] VkDescriptorSet irradiance_imgui_texture(VkSampler sampler);
+
         // Descriptor sets — written by DdgiPass after Images::create()
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
         VkDescriptorSet trace_set{VK_NULL_HANDLE};
@@ -140,6 +147,7 @@ public:
     void set_config(const DdgiConfig& config) { config_ = config; }
     [[nodiscard]] DdgiConfig& config() { return config_; }
     [[nodiscard]] const DdgiConfig& config() const { return config_; }
+    [[nodiscard]] VkSampler linear_sampler() const { return linear_sampler_; }
 
     /// Push constants for the SDF trace shader.
     struct TracePushConstants {

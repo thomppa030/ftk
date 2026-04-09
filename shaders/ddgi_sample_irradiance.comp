@@ -138,6 +138,7 @@ void main() {
         raw_depth = texelFetch(depth_tex, coords, 0).r;
     }
 
+
     if (raw_depth >= 1.0) {
         imageStore(indirect_out, coords, vec4(0.0, 0.0, 0.0, 1.0));
         return;

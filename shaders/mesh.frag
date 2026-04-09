@@ -194,8 +194,10 @@ void main() {
     vec3 ambient = (diffuse_ibl + specular_ibl) * ao * ibl_intensity;
 
     // DDGI indirect diffuse (gi_intensity packed in cascade_splits.w)
+    // Use viewport-relative UV so half-res indirect texture maps correctly
     float gi_intensity = ubo.cascade_splits.w;
-    vec3 gi_sample = texture(gi_indirect, gl_FragCoord.xy / vec2(textureSize(gi_indirect, 0))).rgb;
+    vec2 gi_uv = gl_FragCoord.xy / vec2(textureSize(ao_texture, 0) * 2);
+    vec3 gi_sample = texture(gi_indirect, gi_uv).rgb;
     vec3 gi_diffuse = gi_sample * kD * albedo * gi_intensity;
     ambient += gi_diffuse * ao;
 

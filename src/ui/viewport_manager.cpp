@@ -211,6 +211,14 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
         case ViewportSource::light_grid:   return ctx.light_grid_pass().imgui_texture();
         case ViewportSource::meshlet_viz:  return ctx.meshlet_viz_pass().imgui_texture();
         case ViewportSource::gpu_cull:     return ctx.cull_viz_pass().imgui_texture();
+        case ViewportSource::gi_indirect: {
+            auto* di = ctx.default_pp().ddgi();
+            return di ? di->indirect_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
+        }
+        case ViewportSource::gi_irradiance: {
+            auto* di = ctx.default_pp().ddgi();
+            return di ? di->irradiance_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
+        }
     }
     return panel->offscreen->imgui_texture();
 }
@@ -305,6 +313,14 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 case ViewportSource::light_grid:   tex = ctx.light_grid_pass().imgui_texture(); break;
                 case ViewportSource::meshlet_viz:  tex = ctx.meshlet_viz_pass().imgui_texture(); break;
                 case ViewportSource::gpu_cull:     tex = ctx.cull_viz_pass().imgui_texture(); break;
+                case ViewportSource::gi_indirect: {
+                    auto* di = ctx.default_pp().ddgi();
+                    tex = di ? di->indirect_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
+                } break;
+                case ViewportSource::gi_irradiance: {
+                    auto* di = ctx.default_pp().ddgi();
+                    tex = di ? di->irradiance_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
+                } break;
             }
         }
 

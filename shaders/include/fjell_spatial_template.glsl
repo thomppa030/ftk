@@ -236,7 +236,8 @@ void main() {
 
     // DDGI indirect diffuse
     float gi_intensity = ubo.cascade_splits.w;
-    vec3 gi_sample = texture(gi_indirect, gl_FragCoord.xy / vec2(textureSize(gi_indirect, 0))).rgb;
+    vec2 gi_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);
+    vec3 gi_sample = texture(gi_indirect, gi_uv).rgb;
     vec3 gi_diffuse = gi_sample * kD_ibl * ALBEDO * gi_intensity;
     ambient += gi_diffuse * final_ao;
 

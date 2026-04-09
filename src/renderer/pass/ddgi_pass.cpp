@@ -7,6 +7,8 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
+#include <imgui_impl_vulkan.h>
+
 #include <glm/gtc/random.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -196,6 +198,32 @@ void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
 }
 
 void DdgiPass::Images::invalidate_imgui_texture() {
+    if (indirect_imgui_desc != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(indirect_imgui_desc);
+        indirect_imgui_desc = VK_NULL_HANDLE;
+    }
+    if (irradiance_imgui_desc != VK_NULL_HANDLE) {
+        ImGui_ImplVulkan_RemoveTexture(irradiance_imgui_desc);
+        irradiance_imgui_desc = VK_NULL_HANDLE;
+    }
+}
+
+VkDescriptorSet DdgiPass::Images::indirect_imgui_texture(VkSampler sampler) {
+    if (indirect_view == VK_NULL_HANDLE || images_need_init) return VK_NULL_HANDLE;
+    if (indirect_imgui_desc == VK_NULL_HANDLE) {
+        indirect_imgui_desc = ImGui_ImplVulkan_AddTexture(
+            sampler, indirect_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+    return indirect_imgui_desc;
+}
+
+VkDescriptorSet DdgiPass::Images::irradiance_imgui_texture(VkSampler sampler) {
+    if (irradiance_view == VK_NULL_HANDLE || images_need_init) return VK_NULL_HANDLE;
+    if (irradiance_imgui_desc == VK_NULL_HANDLE) {
+        irradiance_imgui_desc = ImGui_ImplVulkan_AddTexture(
+            sampler, irradiance_view, VK_IMAGE_LAYOUT_GENERAL);
+    }
+    return irradiance_imgui_desc;
 }
 
 // ── DdgiPass ────────────────────────────────────────────────────────────
@@ -391,8 +419,21 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     sample_bindings[6] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     sample_bindings[7] = {7, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
+    // Enable UPDATE_AFTER_BIND on sampler bindings (1,2 = depth, normal) so they
+    // can be rewritten per-frame while the set is referenced by pending command buffers
+    std::array<VkDescriptorBindingFlags, 8> sample_binding_flags{};
+    sample_binding_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // depth
+    sample_binding_flags[2] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // normal
+
+    VkDescriptorSetLayoutBindingFlagsCreateInfo sample_flags_ci{};
+    sample_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+    sample_flags_ci.bindingCount = static_cast<uint32_t>(sample_binding_flags.size());
+    sample_flags_ci.pBindingFlags = sample_binding_flags.data();
+
     VkDescriptorSetLayoutCreateInfo sample_layout_ci{};
     sample_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    sample_layout_ci.pNext = &sample_flags_ci;
+    sample_layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
     sample_layout_ci.bindingCount = static_cast<uint32_t>(sample_bindings.size());
     sample_layout_ci.pBindings = sample_bindings.data();
 
@@ -559,13 +600,10 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.vis_tex_h = imgs.vis_height;
     constants.vis_side = config_.visibility_side_length;
 
-    // Temporal amortization: trace 1/4 of probes per frame
+    // Trace all probes every frame (temporal amortization disabled for debugging)
     int total = imgs.total_probes;
-    int batches = 4;
-    int batch_size = (total + batches - 1) / batches;
-    int batch_idx = static_cast<int>(frame_counter_ % batches);
-    constants.probe_update_offset = batch_idx * batch_size;
-    constants.probe_update_count = std::min(batch_size, total - constants.probe_update_offset);
+    constants.probe_update_offset = 0;
+    constants.probe_update_count = total;
 
     constants.hysteresis = config_.hysteresis;
     constants.infinite_bounces_mult = 0.0f;
@@ -599,6 +637,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         VkDescriptorPoolCreateInfo pool_ci{};
         pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
         pool_ci.maxSets = 3;
         pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
         pool_ci.pPoolSizes = pool_sizes.data();
@@ -625,6 +664,19 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     update_constants(imgs, ctx);
 
     // Write descriptors on first use or when views become available
+    if (imgs.images_need_init) {
+        if (ctx.sdf_view == VK_NULL_HANDLE) {
+            FJELL_GFX_WARN("DDGI: SDF view not available, skipping");
+            frame_counter_++;
+            return;
+        }
+        if (ctx.sky_cubemap_view == VK_NULL_HANDLE) {
+            FJELL_GFX_WARN("DDGI: Sky cubemap view not available, skipping");
+            frame_counter_++;
+            return;
+        }
+        FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
+    }
     if (imgs.images_need_init && ctx.sdf_view != VK_NULL_HANDLE && ctx.sky_cubemap_view != VK_NULL_HANDLE) {
         write_trace_descriptors(vk_device_, imgs.trace_set, imgs,
                                 ctx.sdf_view, ctx.sdf_sampler,
@@ -672,21 +724,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
 
-        // Write sample set descriptors
+        // Write sample set static descriptors (irradiance, visibility, offset, status, indirect)
+        // Depth + normal are written every frame since they change with viewport resize
         {
             VkDescriptorBufferInfo s_ubo{};
             s_ubo.buffer = imgs.constants_ubo->handle();
             s_ubo.range = sizeof(GpuDdgiConstants);
-
-            VkDescriptorImageInfo s_depth{};
-            s_depth.sampler = linear_sampler_;
-            s_depth.imageView = ctx.target->depth_view();
-            s_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-            VkDescriptorImageInfo s_normal{};
-            s_normal.sampler = linear_sampler_;
-            s_normal.imageView = ctx.target->normal_view();
-            s_normal.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkDescriptorImageInfo s_irr{};
             s_irr.sampler = linear_sampler_;
@@ -711,16 +754,14 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             s_indirect.imageView = imgs.indirect_view;
             s_indirect.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            std::array<VkWriteDescriptorSet, 8> sw{};
+            std::array<VkWriteDescriptorSet, 6> sw{};
             for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set; w.descriptorCount = 1; }
             sw[0].dstBinding = 0; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; sw[0].pBufferInfo = &s_ubo;
-            sw[1].dstBinding = 1; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_depth;
-            sw[2].dstBinding = 2; sw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[2].pImageInfo = &s_normal;
-            sw[3].dstBinding = 3; sw[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[3].pImageInfo = &s_irr;
-            sw[4].dstBinding = 4; sw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[4].pImageInfo = &s_vis;
-            sw[5].dstBinding = 5; sw[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[5].pImageInfo = &s_offset;
-            sw[6].dstBinding = 6; sw[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; sw[6].pBufferInfo = &s_status;
-            sw[7].dstBinding = 7; sw[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; sw[7].pImageInfo = &s_indirect;
+            sw[1].dstBinding = 3; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_irr;
+            sw[2].dstBinding = 4; sw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[2].pImageInfo = &s_vis;
+            sw[3].dstBinding = 5; sw[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[3].pImageInfo = &s_offset;
+            sw[4].dstBinding = 6; sw[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; sw[4].pBufferInfo = &s_status;
+            sw[5].dstBinding = 7; sw[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; sw[5].pImageInfo = &s_indirect;
 
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
         }
@@ -863,7 +904,27 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
 
-    // ── 11. Dispatch fullscreen sampling ──
+    // ── 11. Update per-frame sample set descriptors (depth + normal change with viewport) ──
+    {
+        VkDescriptorImageInfo s_depth{};
+        s_depth.sampler = linear_sampler_;
+        s_depth.imageView = ctx.target->depth_view();
+        s_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+        VkDescriptorImageInfo s_normal{};
+        s_normal.sampler = linear_sampler_;
+        s_normal.imageView = ctx.target->normal_view();
+        s_normal.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        std::array<VkWriteDescriptorSet, 2> sw{};
+        for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set; w.descriptorCount = 1; }
+        sw[0].dstBinding = 1; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[0].pImageInfo = &s_depth;
+        sw[1].dstBinding = 2; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_normal;
+
+        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
+    }
+
+    // ── 12. Dispatch fullscreen sampling ──
     uint32_t half_res_val = config_.half_res_output ? 1u : 0u;
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sample_pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -878,6 +939,11 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     barrier_image(imgs.indirect_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
+    if (is_first_frame_) {
+        FJELL_GFX_DEBUG("DDGI: First frame dispatched ({} probes, {} rays, indirect {}x{})",
+                        imgs.total_probes, config_.probe_rays,
+                        imgs.indirect_extent.width, imgs.indirect_extent.height);
+    }
     is_first_frame_ = false;
     frame_counter_++;
 }

@@ -22,6 +22,8 @@ enum class ViewportSource : uint8_t {
     meshlet_viz,
     ao,
     gpu_cull,
+    gi_indirect,
+    gi_irradiance,
 };
 
 inline const char* viewport_source_name(ViewportSource source) {
@@ -38,11 +40,13 @@ inline const char* viewport_source_name(ViewportSource source) {
         case ViewportSource::meshlet_viz:    return "Meshlet Viz";
         case ViewportSource::ao:             return "Ambient Occlusion";
         case ViewportSource::gpu_cull:       return "GPU Cull";
+        case ViewportSource::gi_indirect:    return "GI Indirect";
+        case ViewportSource::gi_irradiance:  return "GI Irradiance";
     }
     return "Unknown";
 }
 
-constexpr int VIEWPORT_SOURCE_COUNT = 12;
+constexpr int VIEWPORT_SOURCE_COUNT = 14;
 
 struct ViewportRenderRequest {
     OffscreenPass* target{nullptr};
