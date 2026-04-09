@@ -329,7 +329,69 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     if (create_compute("shaders/ddgi_probe_status.comp.spv", probe_status_pipeline_) != VK_SUCCESS)
         return make_error("Failed to create DDGI probe status pipeline");
 
-    FJELL_GFX_DEBUG("DDGI pass created (SDF trace + 4 update pipelines)");
+    // ── Sampling descriptor set layout ──
+    // binding 0: DDGIConstants UBO
+    // binding 1: depth texture (sampler2D)
+    // binding 2: normal texture (sampler2D)
+    // binding 3: irradiance atlas (sampler2D)
+    // binding 4: visibility atlas (sampler2D)
+    // binding 5: probe offset texture (sampler2D)
+    // binding 6: probe status SSBO
+    // binding 7: indirect output (storage image)
+    std::array<VkDescriptorSetLayoutBinding, 8> sample_bindings{};
+    sample_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    sample_bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    sample_bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    sample_bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    sample_bindings[4] = {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    sample_bindings[5] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    sample_bindings[6] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    sample_bindings[7] = {7, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+
+    VkDescriptorSetLayoutCreateInfo sample_layout_ci{};
+    sample_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    sample_layout_ci.bindingCount = static_cast<uint32_t>(sample_bindings.size());
+    sample_layout_ci.pBindings = sample_bindings.data();
+
+    if (vkCreateDescriptorSetLayout(vk_device_, &sample_layout_ci, nullptr, &sample_set_layout_) != VK_SUCCESS) {
+        return make_error("Failed to create DDGI sample set layout");
+    }
+
+    VkPushConstantRange sample_push{};
+    sample_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    sample_push.offset = 0;
+    sample_push.size = sizeof(uint32_t);
+
+    VkPipelineLayoutCreateInfo sample_pipe_layout_ci{};
+    sample_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    sample_pipe_layout_ci.setLayoutCount = 1;
+    sample_pipe_layout_ci.pSetLayouts = &sample_set_layout_;
+    sample_pipe_layout_ci.pushConstantRangeCount = 1;
+    sample_pipe_layout_ci.pPushConstantRanges = &sample_push;
+
+    if (vkCreatePipelineLayout(vk_device_, &sample_pipe_layout_ci, nullptr, &sample_pipeline_layout_) != VK_SUCCESS) {
+        return make_error("Failed to create DDGI sample pipeline layout");
+    }
+
+    {
+        auto sample_spirv = read_spirv(base_path::resolve("shaders/ddgi_sample_irradiance.comp.spv"));
+        VkShaderModule sample_mod = create_shader_module(vk_device_, sample_spirv);
+        VkPipelineShaderStageCreateInfo sample_stage{};
+        sample_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        sample_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        sample_stage.module = sample_mod;
+        sample_stage.pName = "main";
+        VkComputePipelineCreateInfo sample_ci{};
+        sample_ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        sample_ci.stage = sample_stage;
+        sample_ci.layout = sample_pipeline_layout_;
+        VkResult sample_result = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &sample_ci, nullptr, &sample_pipeline_);
+        vkDestroyShaderModule(vk_device_, sample_mod, nullptr);
+        if (sample_result != VK_SUCCESS)
+            return make_error("Failed to create DDGI sample irradiance pipeline");
+    }
+
+    FJELL_GFX_DEBUG("DDGI pass created (SDF trace + 4 update + sample pipelines)");
     return {};
 }
 
@@ -345,10 +407,13 @@ void DdgiPass::destroy() {
     safe_destroy(vkDestroyPipeline, visibility_update_pipeline_);
     safe_destroy(vkDestroyPipeline, probe_offset_pipeline_);
     safe_destroy(vkDestroyPipeline, probe_status_pipeline_);
+    safe_destroy(vkDestroyPipeline, sample_pipeline_);
     safe_destroy(vkDestroyPipelineLayout, trace_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, update_pipeline_layout_);
+    safe_destroy(vkDestroyPipelineLayout, sample_pipeline_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, trace_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, update_set_layout_);
+    safe_destroy(vkDestroyDescriptorSetLayout, sample_set_layout_);
     safe_destroy(vkDestroySampler, linear_sampler_);
 
     vk_device_ = VK_NULL_HANDLE;
@@ -470,7 +535,7 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.random_rotation = glm::rotate(glm::mat4(1.0f), angle, axis);
 
     constants.camera_position = ctx.camera_position;
-    constants.inv_view_proj = glm::mat4(1.0f); // filled in sampling pass
+    constants.inv_view_proj = ctx.inv_view_proj;
     constants.resolution = glm::vec2(ctx.target ? ctx.target->extent().width : 1920,
                                      ctx.target ? ctx.target->extent().height : 1080);
 
@@ -484,31 +549,32 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         std::array<VkDescriptorPoolSize, 4> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2};          // trace UBO + update UBO
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4};  // trace: SDF+sky+offset, update: radiance
-        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4};           // trace: radiance, update: irr+vis+offset
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2};          // trace: status, update: status
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3};           // trace+update+sample UBO
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 9};   // trace:3, update:1, sample:5
+        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 5};            // trace:1, update:3, sample:1
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};           // trace:1, update:1, sample:1
 
         VkDescriptorPoolCreateInfo pool_ci{};
         pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_ci.maxSets = 2;
+        pool_ci.maxSets = 3;
         pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
         pool_ci.pPoolSizes = pool_sizes.data();
 
         vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &imgs.desc_pool);
 
-        std::array layouts = {trace_set_layout_, update_set_layout_};
-        std::array<VkDescriptorSet, 2> sets{};
+        std::array layouts = {trace_set_layout_, update_set_layout_, sample_set_layout_};
+        std::array<VkDescriptorSet, 3> sets{};
 
         VkDescriptorSetAllocateInfo alloc_info{};
         alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         alloc_info.descriptorPool = imgs.desc_pool;
-        alloc_info.descriptorSetCount = 2;
+        alloc_info.descriptorSetCount = 3;
         alloc_info.pSetLayouts = layouts.data();
 
         vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
         imgs.trace_set = sets[0];
         imgs.update_set = sets[1];
+        imgs.sample_set = sets[2];
         imgs.images_need_init = true;
     }
 
@@ -562,6 +628,59 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         writes[5].dstBinding = 5; writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; writes[5].pBufferInfo = &status_info;
 
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
+
+        // Write sample set descriptors
+        {
+            VkDescriptorBufferInfo s_ubo{};
+            s_ubo.buffer = imgs.constants_ubo->handle();
+            s_ubo.range = sizeof(GpuDdgiConstants);
+
+            VkDescriptorImageInfo s_depth{};
+            s_depth.sampler = linear_sampler_;
+            s_depth.imageView = ctx.target->depth_view();
+            s_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo s_normal{};
+            s_normal.sampler = linear_sampler_;
+            s_normal.imageView = ctx.target->normal_view();
+            s_normal.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            VkDescriptorImageInfo s_irr{};
+            s_irr.sampler = linear_sampler_;
+            s_irr.imageView = imgs.irradiance_view;
+            s_irr.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkDescriptorImageInfo s_vis{};
+            s_vis.sampler = linear_sampler_;
+            s_vis.imageView = imgs.visibility_view;
+            s_vis.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkDescriptorImageInfo s_offset{};
+            s_offset.sampler = linear_sampler_;
+            s_offset.imageView = imgs.probe_offset_view;
+            s_offset.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkDescriptorBufferInfo s_status{};
+            s_status.buffer = imgs.probe_status_buffer->handle();
+            s_status.range = VK_WHOLE_SIZE;
+
+            VkDescriptorImageInfo s_indirect{};
+            s_indirect.imageView = imgs.indirect_view;
+            s_indirect.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            std::array<VkWriteDescriptorSet, 8> sw{};
+            for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set; w.descriptorCount = 1; }
+            sw[0].dstBinding = 0; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; sw[0].pBufferInfo = &s_ubo;
+            sw[1].dstBinding = 1; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_depth;
+            sw[2].dstBinding = 2; sw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[2].pImageInfo = &s_normal;
+            sw[3].dstBinding = 3; sw[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[3].pImageInfo = &s_irr;
+            sw[4].dstBinding = 4; sw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[4].pImageInfo = &s_vis;
+            sw[5].dstBinding = 5; sw[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[5].pImageInfo = &s_offset;
+            sw[6].dstBinding = 6; sw[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; sw[6].pBufferInfo = &s_status;
+            sw[7].dstBinding = 7; sw[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; sw[7].pImageInfo = &s_indirect;
+
+            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
+        }
 
         is_first_frame_ = true;
         imgs.images_need_init = false;
@@ -695,8 +814,26 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                        0, sizeof(uint32_t), &first_frame_val);
     vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
 
-    // ── 10. Final barrier: all outputs ready for sampling ──
-    barrier_memory();
+    // ── 10. Transition indirect image to GENERAL for sample output ──
+    barrier_image(imgs.indirect_image,
+                  is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_IMAGE_LAYOUT_GENERAL,
+                  VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+
+    // ── 11. Dispatch fullscreen sampling ──
+    uint32_t half_res_val = config_.half_res_output ? 1u : 0u;
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sample_pipeline_);
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                            sample_pipeline_layout_, 0, 1, &imgs.sample_set, 0, nullptr);
+    vkCmdPushConstants(ctx.cmd, sample_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(uint32_t), &half_res_val);
+    vkCmdDispatch(ctx.cmd,
+                  (imgs.indirect_extent.width + 7) / 8,
+                  (imgs.indirect_extent.height + 7) / 8, 1);
+
+    // ── 12. Barrier: indirect image → shader read for fragment sampling ──
+    barrier_image(imgs.indirect_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     is_first_frame_ = false;
     frame_counter_++;

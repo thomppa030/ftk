@@ -1188,11 +1188,14 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
     ctx.target_pool = &target_pool_;
 
-    // DDGI: SDF and sky cubemap views for probe tracing
+    // DDGI: SDF, sky cubemap, and inverse VP for probe tracing + sampling
     ctx.sdf_view = scene_sdf_pass_.view();
     ctx.sdf_sampler = scene_sdf_pass_.sampler();
     ctx.sky_cubemap_view = sky_cubemap_pass_.cubemap_view();
     ctx.sky_cubemap_sampler = sky_cubemap_pass_.cubemap_sampler();
+    // Read inv_view_proj from the already-written GlobalUbo
+    auto* ubo_data = static_cast<const GlobalUbo*>(gpu_.uniform_buffer(current_frame_).mapped());
+    ctx.inv_view_proj = ubo_data->inv_view_proj;
 
     return ctx;
 }

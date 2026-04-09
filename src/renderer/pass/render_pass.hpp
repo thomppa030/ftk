@@ -88,6 +88,9 @@ struct FrameContext {
     VkImageView sky_cubemap_view{VK_NULL_HANDLE};
     VkSampler sky_cubemap_sampler{VK_NULL_HANDLE};
 
+    // Inverse view-projection for world-space reconstruction (DDGI sampling)
+    glm::mat4 inv_view_proj{1.0f};
+
     // Skip shadow pass for this viewport (e.g. camera preview uses main viewport's shadows)
     bool skip_shadows{false};
 

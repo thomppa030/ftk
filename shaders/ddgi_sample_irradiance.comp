@@ -1,0 +1,162 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(std140, set = 0, binding = 0) uniform DDGIConstants {
+    vec3 probe_grid_position;  float probe_sphere_scale;
+    vec3 probe_spacing;        float max_probe_offset;
+    vec3 reciprocal_spacing;   float self_shadow_bias;
+    ivec3 probe_counts;        uint debug_options;
+    int irr_tex_w;  int irr_tex_h;  int irr_side;  int probe_rays;
+    int vis_tex_w;  int vis_tex_h;  int vis_side;  int probe_update_offset;
+    int probe_update_count;    float hysteresis;
+    float infinite_bounces_mult; float pad0;
+    mat4 random_rotation;
+    vec3 camera_position;      float pad1;
+    mat4 inv_view_proj;
+    vec2 resolution;           float pad2; float pad3;
+} ddgi;
+
+#include "include/fjell_ddgi.glsl"
+
+layout(set = 0, binding = 1) uniform sampler2D depth_tex;
+layout(set = 0, binding = 2) uniform sampler2D normal_tex;
+layout(set = 0, binding = 3) uniform sampler2D irradiance_tex;
+layout(set = 0, binding = 4) uniform sampler2D visibility_tex;
+layout(set = 0, binding = 5) uniform sampler2D probe_offset_tex;
+
+layout(std430, set = 0, binding = 6) readonly buffer ProbeStatusSSBO {
+    uint probe_status[];
+};
+
+layout(rgba16f, set = 0, binding = 7) uniform writeonly image2D indirect_out;
+
+layout(push_constant) uniform PushConstants {
+    uint output_resolution_half;
+};
+
+vec3 world_position_from_depth(vec2 uv, float depth) {
+    vec4 ndc = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 world = ddgi.inv_view_proj * ndc;
+    return world.xyz / world.w;
+}
+
+// ── 8-probe trilinear cage sampling ─────────────────────────────────────
+
+vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
+    vec3 Wo = normalize(ddgi.camera_position - world_pos);
+    float min_dist = 1.0;
+    vec3 bias_vector = (normal * 0.2 + Wo * 0.8) * (0.75 * min_dist) * ddgi.self_shadow_bias;
+    vec3 biased_pos = world_pos + bias_vector;
+
+    ivec3 base_grid = ddgi_world_to_grid(biased_pos);
+    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
+
+    vec3 alpha = clamp((biased_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
+
+    vec3 sum_irradiance = vec3(0.0);
+    float sum_weight = 0.0;
+
+    for (int i = 0; i < 8; ++i) {
+        ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
+        ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
+        int probe_idx = ddgi_grid_to_probe_index(probe_grid);
+
+        vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx, probe_offset_tex, true);
+
+        vec3 trilinear = mix(1.0 - alpha, alpha, offset);
+        float weight = 1.0;
+
+        // Smooth backface weight
+        vec3 dir_to_probe = normalize(probe_pos - world_pos);
+        float dir_dot_n = (dot(dir_to_probe, normal) + 1.0) * 0.5;
+        weight *= (dir_dot_n * dir_dot_n) + 0.2;
+
+        // Chebyshev visibility
+        vec3 probe_to_biased = biased_pos - probe_pos;
+        float dist_to_biased = length(probe_to_biased);
+        vec3 probe_to_biased_dir = probe_to_biased / max(dist_to_biased, 0.001);
+
+        vec2 vis_uv = get_probe_uv(probe_to_biased_dir, probe_idx, ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side);
+        vec2 visibility = textureLod(visibility_tex, vis_uv, 0).rg;
+        float mean_dist = visibility.x;
+
+        if (dist_to_biased > mean_dist) {
+            float variance = abs(mean_dist * mean_dist - visibility.y);
+            float diff = dist_to_biased - mean_dist;
+            float cheb = variance / (variance + diff * diff);
+            cheb = max(cheb * cheb * cheb, 0.0);
+            weight *= max(0.05, cheb);
+        }
+
+        weight = max(0.000001, weight);
+
+        // Crush tiny weights
+        if (weight < 0.2) {
+            weight *= (weight * weight) * (1.0 / (0.2 * 0.2));
+        }
+
+        vec2 irr_uv = get_probe_uv(normal, probe_idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
+        vec3 probe_irradiance = textureLod(irradiance_tex, irr_uv, 0).rgb;
+
+        weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
+
+        sum_irradiance += weight * probe_irradiance;
+        sum_weight += weight;
+    }
+
+    vec3 net = sum_irradiance / sum_weight;
+    return 0.5 * PI * net * 0.95;
+}
+
+// ── Main ────────────────────────────────────────────────────────────────
+
+ivec2 pixel_offsets[4] = ivec2[](ivec2(0,0), ivec2(0,1), ivec2(1,0), ivec2(1,1));
+
+void main() {
+    ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
+
+    int res_div = (output_resolution_half == 1) ? 2 : 1;
+    vec2 out_res = ddgi.resolution / float(res_div);
+
+    if (coords.x >= int(out_res.x) || coords.y >= int(out_res.y)) return;
+
+    float raw_depth = 1.0;
+    int chosen_sample = 0;
+
+    if (output_resolution_half == 1) {
+        float closer_depth = 0.0;
+        for (int j = 0; j < 4; ++j) {
+            float d = texelFetch(depth_tex, coords * 2 + pixel_offsets[j], 0).r;
+            if (d > closer_depth) {
+                closer_depth = d;
+                chosen_sample = j;
+            }
+        }
+        raw_depth = closer_depth;
+    } else {
+        raw_depth = texelFetch(depth_tex, coords, 0).r;
+    }
+
+    if (raw_depth >= 1.0) {
+        imageStore(indirect_out, coords, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+
+    // Decode normal
+    vec2 encoded_normal;
+    if (output_resolution_half == 1) {
+        encoded_normal = texelFetch(normal_tex, coords * 2 + pixel_offsets[chosen_sample], 0).rg;
+    } else {
+        encoded_normal = texelFetch(normal_tex, coords, 0).rg;
+    }
+    vec3 normal = normalize(oct_decode(encoded_normal));
+
+    // Reconstruct world position
+    vec2 screen_uv = (vec2(coords) + 0.5) / out_res;
+    vec3 world_pos = world_position_from_depth(screen_uv, raw_depth);
+
+    vec3 irradiance = sample_irradiance(world_pos, normal);
+
+    imageStore(indirect_out, coords, vec4(irradiance, 1.0));
+}

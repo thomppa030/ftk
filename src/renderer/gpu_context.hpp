@@ -119,6 +119,8 @@ public:
     [[nodiscard]] Buffer& light_ssbo(uint32_t frame_index) { return *light_ssbo_[frame_index]; }
     [[nodiscard]] Buffer& tile_light_ssbo(uint32_t frame_index) { return *tile_light_ssbo_[frame_index]; }
     [[nodiscard]] VkSampler depth_sampler() const { return depth_sampler_; }
+    [[nodiscard]] VkImageView gi_fallback_view() const { return gi_fallback_view_; }
+    [[nodiscard]] VkSampler gi_fallback_sampler() const { return gi_fallback_sampler_; }
 
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
     [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return msaa_samples_; }
@@ -182,6 +184,12 @@ private:
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> tile_light_ssbo_;
     VkSampler depth_sampler_{VK_NULL_HANDLE};
+
+    // 1x1 black fallback for GI indirect (binding 10 when DDGI disabled)
+    VkImage gi_fallback_image_{VK_NULL_HANDLE};
+    VmaAllocation gi_fallback_alloc_{VK_NULL_HANDLE};
+    VkImageView gi_fallback_view_{VK_NULL_HANDLE};
+    VkSampler gi_fallback_sampler_{VK_NULL_HANDLE};
 
     VkSampleCountFlagBits msaa_samples_{VK_SAMPLE_COUNT_1_BIT};
     bool use_mesh_shaders_{false};

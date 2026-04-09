@@ -117,6 +117,7 @@ public:
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
         VkDescriptorSet trace_set{VK_NULL_HANDLE};
         VkDescriptorSet update_set{VK_NULL_HANDLE};
+        VkDescriptorSet sample_set{VK_NULL_HANDLE};
 
         void create(VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,
@@ -171,6 +172,10 @@ private:
     VkPipeline visibility_update_pipeline_{VK_NULL_HANDLE};
     VkPipeline probe_offset_pipeline_{VK_NULL_HANDLE};
     VkPipeline probe_status_pipeline_{VK_NULL_HANDLE};
+
+    VkDescriptorSetLayout sample_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout sample_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline sample_pipeline_{VK_NULL_HANDLE};
 
     VkSampler linear_sampler_{VK_NULL_HANDLE};
     bool is_first_frame_{true};

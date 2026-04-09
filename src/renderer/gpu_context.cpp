@@ -1,4 +1,6 @@
 #include "renderer/gpu_context.hpp"
+#include "renderer/gpu/vk_utils.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/uniform_types.hpp"
@@ -194,6 +196,10 @@ GpuContext::~GpuContext() {
     if (depth_sampler_ != VK_NULL_HANDLE)
         vkDestroySampler(vk_device, depth_sampler_, nullptr);
 
+    if (gi_fallback_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk_device, gi_fallback_view_, nullptr);
+    if (gi_fallback_sampler_ != VK_NULL_HANDLE) vkDestroySampler(vk_device, gi_fallback_sampler_, nullptr);
+    destroy_vma_image(allocator_, gi_fallback_image_, gi_fallback_alloc_);
+
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
     mega_buffer_.reset();
@@ -236,7 +242,7 @@ void GpuContext::create_descriptor_resources() {
     // binding 2 = light SSBO, binding 3 = tile light index SSBO,
     // binding 4 = depth texture (light culling compute + fragment screen-space effects),
     // binding 5 = AO texture, binding 6 = sky cubemap, binding 7 = BRDF LUT
-    std::array<VkDescriptorSetLayoutBinding, 10> global_bindings{};
+    std::array<VkDescriptorSetLayoutBinding, 11> global_bindings{};
     global_bindings[0].binding = 0;
     global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_bindings[0].descriptorCount = 1;
@@ -289,6 +295,11 @@ void GpuContext::create_descriptor_resources() {
     global_bindings[9].descriptorCount = 1;
     global_bindings[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
 
+    global_bindings[10].binding = 10;
+    global_bindings[10].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    global_bindings[10].descriptorCount = 1;
+    global_bindings[10].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
     global_set_layout_ = std::make_unique<DescriptorSetLayout>(
         vk_device, std::span{global_bindings});
 
@@ -296,7 +307,7 @@ void GpuContext::create_descriptor_resources() {
     global_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     global_pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
     global_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 7; // shadow + depth + AO + sky + BRDF + screen color + SDF
+    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 8; // shadow + depth + AO + sky + BRDF + screen color + SDF + GI
     global_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     global_pool_sizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // light SSBO + tile SSBO
 
@@ -344,6 +355,66 @@ void GpuContext::create_descriptor_resources() {
         throw std::runtime_error("Failed to create depth sampler for light culling");
     }
 
+    // 1x1 black fallback for GI indirect texture (binding 10 when DDGI disabled)
+    {
+        VkImageCreateInfo gi_img_ci{};
+        gi_img_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        gi_img_ci.imageType = VK_IMAGE_TYPE_2D;
+        gi_img_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        gi_img_ci.extent = {1, 1, 1};
+        gi_img_ci.mipLevels = 1;
+        gi_img_ci.arrayLayers = 1;
+        gi_img_ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        gi_img_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        gi_img_ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        gi_img_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        create_vma_image(allocator_, &gi_img_ci, &gi_fallback_image_, &gi_fallback_alloc_);
+
+        VkImageViewCreateInfo gi_view_ci{};
+        gi_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        gi_view_ci.image = gi_fallback_image_;
+        gi_view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        gi_view_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        gi_view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCreateImageView(vk_device, &gi_view_ci, nullptr, &gi_fallback_view_);
+
+        VkSamplerCreateInfo gi_samp_ci{};
+        gi_samp_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+        gi_samp_ci.magFilter = VK_FILTER_LINEAR;
+        gi_samp_ci.minFilter = VK_FILTER_LINEAR;
+        gi_samp_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        gi_samp_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        gi_samp_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        vkCreateSampler(vk_device, &gi_samp_ci, nullptr, &gi_fallback_sampler_);
+
+        // Transition to SHADER_READ_ONLY_OPTIMAL via one-shot command buffer
+        VkCommandBufferAllocateInfo cmd_alloc{};
+        cmd_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cmd_alloc.commandPool = command_pool_;
+        cmd_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cmd_alloc.commandBufferCount = 1;
+        VkCommandBuffer init_cmd;
+        vkAllocateCommandBuffers(vk_device, &cmd_alloc, &init_cmd);
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(init_cmd, &begin);
+        vk_utils::transition_image(init_cmd, gi_fallback_image_,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+            VK_IMAGE_ASPECT_COLOR_BIT);
+        vkEndCommandBuffer(init_cmd);
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &init_cmd;
+        vkQueueSubmit(device_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
+        vkQueueWaitIdle(device_.graphics_queue());
+        vkFreeCommandBuffers(vk_device, command_pool_, 1, &init_cmd);
+    }
+
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         global_descriptor_sets_[i] = global_pool_->allocate(*global_set_layout_);
 
@@ -362,7 +433,12 @@ void GpuContext::create_descriptor_resources() {
         tile_info.offset = 0;
         tile_info.range = tile_ssbo_size;
 
-        std::array<VkWriteDescriptorSet, 3> writes{};
+        VkDescriptorImageInfo gi_fallback_info{};
+        gi_fallback_info.sampler = gi_fallback_sampler_;
+        gi_fallback_info.imageView = gi_fallback_view_;
+        gi_fallback_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        std::array<VkWriteDescriptorSet, 4> writes{};
 
         // Binding 0: UBO
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -387,6 +463,14 @@ void GpuContext::create_descriptor_resources() {
         writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[2].descriptorCount = 1;
         writes[2].pBufferInfo = &tile_info;
+
+        // Binding 10: GI indirect (fallback black texture)
+        writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[3].dstSet = global_descriptor_sets_[i];
+        writes[3].dstBinding = 10;
+        writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[3].descriptorCount = 1;
+        writes[3].pImageInfo = &gi_fallback_info;
 
         vkUpdateDescriptorSets(vk_device, static_cast<uint32_t>(writes.size()),
                                writes.data(), 0, nullptr);
