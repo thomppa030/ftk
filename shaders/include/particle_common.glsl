@@ -49,4 +49,19 @@ struct EmitterData {
     float sub_vel_inherit;    // velocity inheritance factor (child only)
 };
 
+// Sub-emitter event (64 bytes, written by sim, consumed by emit)
+struct SubEmitterEvent {
+    vec3  position;       // 12
+    float speed;          // 4
+    vec3  velocity;       // 12
+    float size;           // 4
+    vec4  color;          // 16
+    uint  parent_emitter; // 4
+    uint  event_type;     // 0=death, 1=collision
+    uint  _pad0;          // 4
+    uint  _pad1;          // 4
+};
+
+#define MAX_SUB_EVENTS_PER_EMITTER 256
+
 #endif

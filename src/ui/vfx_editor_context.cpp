@@ -93,17 +93,39 @@ void VfxTimeline::draw_lanes(float bar_x, float bar_y, float bar_width,
                               float lane_height) {
     TimelineWidget::draw_lanes(bar_x, bar_y, bar_width, lane_height);
 
+    if (lanes_.empty() || duration() <= 0.0f) return;
+    ImVec2 mouse = ImGui::GetMousePos();
+
+    // Click to select + start drag
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        ImVec2 mouse = ImGui::GetMousePos();
         for (int i = 0; i < static_cast<int>(lanes_.size()); ++i) {
             float y = bar_y + static_cast<float>(i) * lane_height;
-            if (mouse.x >= bar_x && mouse.x <= bar_x + bar_width &&
+            float x0 = bar_x + (lanes_[i].start / duration()) * bar_width;
+            float x1 = bar_x + ((lanes_[i].start + lanes_[i].duration) / duration()) * bar_width;
+            if (mouse.x >= x0 && mouse.x <= x1 &&
                 mouse.y >= y && mouse.y <= y + lane_height) {
                 selected_lane_ = i;
+                dragging_lane_ = i;
+                drag_offset_ = mouse.x - x0;
                 on_lane_selected.broadcast(i);
                 break;
             }
         }
+    }
+
+    // Drag lane to adjust start_delay
+    if (dragging_lane_ >= 0 && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        float new_x = mouse.x - drag_offset_;
+        float ratio = std::clamp((new_x - bar_x) / bar_width, 0.0f, 1.0f);
+        float new_start = ratio * duration();
+        // Clamp so lane doesn't extend past timeline
+        float max_start = duration() - lanes_[dragging_lane_].duration;
+        new_start = std::clamp(new_start, 0.0f, std::max(max_start, 0.0f));
+        on_lane_dragged.broadcast(dragging_lane_, new_start);
+    }
+
+    if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) {
+        dragging_lane_ = -1;
     }
 }
 
@@ -140,12 +162,33 @@ void VfxEditorContext::init() {
 
     timeline_connections_.push_back(timeline_.on_stop.bind([this]() {
         if (!effect_) return;
-        for (auto& em : effect_->emitters) {
-            em.burst_fired = false;
-            em.emit_accumulator = 0.0f;
-            em.paused = false;
-        }
+        effect_->reset_playback();
     }));
+
+    timeline_connections_.push_back(timeline_.on_lane_dragged.bind(
+        [this](int lane_idx, float new_start) {
+            if (!effect_ || lane_idx < 0
+                || lane_idx >= static_cast<int>(effect_->emitters.size())) return;
+            effect_->emitters[lane_idx].start_delay = new_start;
+        }));
+
+    timeline_connections_.push_back(timeline_.on_scrub.bind(
+        [this](float time) {
+            if (!effect_) return;
+            // When scrubbing, set each emitter's elapsed to match the timeline position.
+            // This lets the system restart emission from the correct point.
+            for (auto& em : effect_->emitters) {
+                em.emitter_elapsed = time;
+                em.finished = false;
+                em.loops_completed = 0;
+                // Re-evaluate burst state: if we're past delay, burst should fire
+                if (time >= em.start_delay) {
+                    em.burst_fired = false;
+                    em.burst_elapsed = 0.0f;
+                }
+                em.emit_accumulator = 0.0f;
+            }
+        }));
 
     // Create imgui-node-editor context
     ne::Config config;
@@ -216,23 +259,25 @@ void VfxEditorContext::draw(float dt) {
             auto& em = effect_->emitters[i];
             TimelineLane lane;
             lane.name = em.name;
-            lane.start = 0.0f;
-            lane.duration = em.lifetime_max();
+            lane.start = em.start_delay;
+            lane.duration = em.effective_duration();
             lane.color = lane_colors[i % 6];
             lane.selected = (i == selected_emitter_);
             lanes.push_back(lane);
         }
         timeline_.set_lanes(lanes);
+
+        // Timeline duration = total effect duration + 1s padding
+        float total_dur = effect_->total_duration();
+        timeline_.set_duration(std::max(total_dur + 1.0f, 2.0f));
     }
 
     timeline_.draw(dt * time_scale_);
 
     float cur_time = timeline_.time();
     if (effect_ && timeline_.playing() && cur_time < prev_timeline_time_) {
-        for (auto& em : effect_->emitters) {
-            em.burst_fired = false;
-            em.emit_accumulator = 0.0f;
-        }
+        // Timeline looped — reset all emitter playback state
+        effect_->reset_playback();
     }
     prev_timeline_time_ = cur_time;
 
@@ -962,6 +1007,32 @@ void VfxEditorContext::draw_module_stack() {
         if (ImGui::Combo("Blend Mode", &bm, blend_modes, 3)) {
             emitter.blend_mode = static_cast<ParticleBlendMode>(bm);
         }
+
+        // ── Timing ──
+        ImGui::SeparatorText("Timing");
+
+        ImGui::SetNextItemWidth(120.0f);
+        ImGui::DragFloat("Start Delay", &emitter.start_delay, 0.05f, 0.0f, 60.0f, "%.2fs");
+
+        ImGui::SetNextItemWidth(120.0f);
+        ImGui::DragFloat("Duration", &emitter.duration, 0.05f, 0.0f, 60.0f, "%.2fs");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("0 = use particle lifetime (%0.1fs)", emitter.lifetime_max());
+        }
+
+        int lc = static_cast<int>(emitter.loop_count);
+        ImGui::SetNextItemWidth(120.0f);
+        if (ImGui::InputInt("Loop Count", &lc, 1, 5)) {
+            emitter.loop_count = static_cast<uint32_t>(std::max(0, lc));
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("0 = infinite looping");
+        }
+
+        // Status readout
+        ImGui::TextDisabled("Elapsed: %.2fs  Loops: %u  %s",
+            emitter.emitter_elapsed, emitter.loops_completed,
+            emitter.finished ? "[finished]" : emitter.paused ? "[paused]" : "[active]");
 
         ImGui::Separator();
 

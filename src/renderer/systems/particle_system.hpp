@@ -65,8 +65,9 @@ struct ParticleComputePush {
     uint32_t random_seed;
     uint32_t emitter_count;
     uint32_t total_max_particles;
+    uint32_t sub_emit_pass; // 1 = only child emitters emit (post-sim)
 };
-static_assert(sizeof(ParticleComputePush) == 16);
+static_assert(sizeof(ParticleComputePush) == 20);
 
 class Device;
 class Scene;

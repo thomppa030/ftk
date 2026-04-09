@@ -25,6 +25,14 @@ layout(std430, set = 0, binding = 5) readonly buffer ModuleBuffer {
     uint module_data[];
 };
 
+layout(std430, set = 0, binding = 6) buffer SubEmitterEventBuf {
+    SubEmitterEvent sub_events[];
+};
+
+layout(std430, set = 0, binding = 7) buffer SubEmitterEventCounters {
+    uint sub_event_counts[];
+};
+
 #include "include/particle_modules.glsl"
 
 // Set 1 = global descriptors (for SDF + depth access)
@@ -41,7 +49,21 @@ layout(push_constant) uniform PushConstants {
     uint  random_seed;
     uint  emitter_count;
     uint  total_max_particles;
+    uint  sub_emit_pass;
 };
+
+void emit_sub_event(Particle p, EmitterData em, uint event_type) {
+    uint slot = atomicAdd(sub_event_counts[p.emitter_index], 1);
+    if (slot >= MAX_SUB_EVENTS_PER_EMITTER) return;
+    uint event_idx = em.sub_event_offset + slot;
+    sub_events[event_idx].position = p.position;
+    sub_events[event_idx].velocity = p.velocity;
+    sub_events[event_idx].speed = length(p.velocity);
+    sub_events[event_idx].size = p.size;
+    sub_events[event_idx].color = p.color;
+    sub_events[event_idx].parent_emitter = p.emitter_index;
+    sub_events[event_idx].event_type = event_type;
+}
 
 void main() {
     uint idx = gl_GlobalInvocationID.x;
@@ -52,14 +74,33 @@ void main() {
 
     EmitterData em = emitters[p.emitter_index];
 
+    // Pre-scan for sub-emitter config
+    bool has_sub_emitter = false;
+    uint sub_trigger = 0u; // 0=death, 1=collision, 2=both
+    {
+        uint smo = em.module_offset;
+        for (int sg = 0; sg < 32; ++sg) {
+            uint smtype = module_data[smo];
+            uint smsize = module_data[smo + 1];
+            if (smtype == MOD_TERMINATOR || smsize == 0) break;
+            if (smtype == MOD_SUB_EMITTER) {
+                has_sub_emitter = true;
+                sub_trigger = module_data[smo + 2];
+                break;
+            }
+            smo += smsize;
+        }
+    }
+
     p.lifetime -= dt;
     if (p.lifetime <= 0.0) {
         if ((em.flags & 1u) != 0u) {
-            // Trail emitter: keep particle alive (ring buffer overwrites old slots).
-            // Clamp lifetime to a small positive value so the strip stays connected.
-            // The age-based color/size fade handles visual disappearance.
             p.lifetime = 0.001;
         } else {
+            // Emit death event before returning
+            if (has_sub_emitter && (sub_trigger == SUB_EVENT_DEATH || sub_trigger == 2u)) {
+                emit_sub_event(p, em, SUB_EVENT_DEATH);
+            }
             particles[idx].lifetime = 0.0;
             uint local_idx = idx - em.base_offset;
             uint slot = atomicAdd(counters[em.counter_offset + 1], 1);
@@ -248,6 +289,10 @@ void main() {
                         p.velocity *= (1.0 - friction_val);
                     }
                 } else {
+                    // Collision kill — emit event before killing
+                    if (has_sub_emitter && (sub_trigger == SUB_EVENT_COLLISION || sub_trigger == 2u)) {
+                        emit_sub_event(p, em, SUB_EVENT_COLLISION);
+                    }
                     p.lifetime = 0.0;
                 }
             }

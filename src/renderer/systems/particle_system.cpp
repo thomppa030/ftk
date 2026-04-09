@@ -46,11 +46,12 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     }
     queue_ = device.graphics_queue();
 
-    // ── Compute descriptor set layout (6 bindings) ──
+    // ── Compute descriptor set layout (8 bindings) ──
     // 0=particles, 1=counters, 2=dead_list, 3=emitter_data, 4=indirect, 5=modules
+    // 6=sub_emitter_events, 7=sub_emitter_event_counters
 
-    VkDescriptorSetLayoutBinding compute_bindings[6]{};
-    for (int i = 0; i < 6; ++i) {
+    VkDescriptorSetLayoutBinding compute_bindings[8]{};
+    for (int i = 0; i < 8; ++i) {
         compute_bindings[i].binding = static_cast<uint32_t>(i);
         compute_bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         compute_bindings[i].descriptorCount = 1;
@@ -59,7 +60,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_ci.bindingCount = 6;
+    layout_ci.bindingCount = 8;
     layout_ci.pBindings = compute_bindings;
     if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &compute_set_layout_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create particle compute set layout");
@@ -708,8 +709,8 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     constexpr uint32_t RENDER_SET_COUNT = MAX_FRAMES_IN_FLIGHT;
     VkDescriptorPoolSize pool_sizes[2]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    // 6 compute + 3 per render frame + 8 mesh compute + 1 per render (instance SSBO)
-    pool_sizes[0].descriptorCount = 6 + RENDER_SET_COUNT * 4 + 8;
+    // 8 compute + 3 per render frame + 8 mesh compute + 1 per render (instance SSBO)
+    pool_sizes[0].descriptorCount = 8 + RENDER_SET_COUNT * 4 + 8;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     pool_sizes[1].descriptorCount = RENDER_SET_COUNT; // depth texture per frame
 
@@ -974,6 +975,8 @@ void ParticleSystem::destroy() {
     mega_indirect_buffer_.reset();
     emitter_data_buffer_.reset();
     module_buffer_.reset();
+    sub_event_buffer_.reset();
+    sub_event_counter_buffer_.reset();
     emitters_.clear();
 
     auto safe_destroy = [&](auto& handle, auto destroy_fn) {
@@ -1130,6 +1133,22 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     module_buffer_->map();
 
+    // Sub-emitter event buffer: 64 bytes per event, 256 events per emitter max
+    constexpr VkDeviceSize EVENT_SIZE = 64; // sizeof(SubEmitterEvent) in GLSL
+    constexpr VkDeviceSize MAX_EVENTS = 256;
+    VkDeviceSize event_buf_size = std::max(EVENT_SIZE, static_cast<VkDeviceSize>(emitter_count) * MAX_EVENTS * EVENT_SIZE);
+    sub_event_buffer_ = std::make_unique<Buffer>(
+        allocator_, event_buf_size,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VMA_MEMORY_USAGE_AUTO);
+
+    // Sub-emitter event counters: one uint32 per emitter
+    VkDeviceSize counter_buf_size = std::max(static_cast<VkDeviceSize>(4), static_cast<VkDeviceSize>(emitter_count) * sizeof(uint32_t));
+    sub_event_counter_buffer_ = std::make_unique<Buffer>(
+        allocator_, counter_buf_size,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_AUTO);
+
     // ── Allocate descriptor sets ──
 
     VkDescriptorSetAllocateInfo alloc{};
@@ -1163,9 +1182,11 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     VkDescriptorBufferInfo emitter_info{emitter_data_buffer_->handle(), 0, emitter_data_buffer_->size()};
     VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, mega_indirect_buffer_->size()};
     VkDescriptorBufferInfo module_info{module_buffer_->handle(), 0, module_buffer_->size()};
+    VkDescriptorBufferInfo sub_event_info{sub_event_buffer_->handle(), 0, sub_event_buffer_->size()};
+    VkDescriptorBufferInfo sub_counter_info{sub_event_counter_buffer_->handle(), 0, sub_event_counter_buffer_->size()};
 
-    // Compute set: 6 bindings
-    VkWriteDescriptorSet writes[6]{};
+    // Compute set: 8 bindings
+    VkWriteDescriptorSet writes[8]{};
     for (auto& w : writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 
     writes[0].dstSet = compute_set_; writes[0].dstBinding = 0;
@@ -1192,7 +1213,15 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     writes[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[5].descriptorCount = 1; writes[5].pBufferInfo = &module_info;
 
-    vkUpdateDescriptorSets(device_, 6, writes, 0, nullptr);
+    writes[6].dstSet = compute_set_; writes[6].dstBinding = 6;
+    writes[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[6].descriptorCount = 1; writes[6].pBufferInfo = &sub_event_info;
+
+    writes[7].dstSet = compute_set_; writes[7].dstBinding = 7;
+    writes[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[7].descriptorCount = 1; writes[7].pBufferInfo = &sub_counter_info;
+
+    vkUpdateDescriptorSets(device_, 8, writes, 0, nullptr);
 
     // Render sets: write particle SSBO (binding 0) to each frame's set
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -1717,7 +1746,38 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         // CPU-side emission accumulation (per sub-emitter)
         float eff_dt = sub.paused ? 0.0f : dt;
         uint32_t emit_count = 0;
-        if (!sub.paused) {
+
+        // Advance emitter elapsed time
+        if (!sub.paused && !sub.finished) {
+            sub.emitter_elapsed += dt;
+        }
+
+        // Timing gate: delay and duration
+        bool in_delay = sub.emitter_elapsed < sub.start_delay;
+        float eff_dur = sub.effective_duration();
+        float time_since_start = sub.emitter_elapsed - sub.start_delay;
+        bool past_duration = (sub.duration > 0.0f) && (time_since_start >= eff_dur);
+        bool emitting = !sub.paused && !sub.finished && !in_delay && !past_duration;
+
+        // Handle loop boundaries
+        if (past_duration && !sub.finished && !sub.paused) {
+            sub.loops_completed++;
+            bool should_loop = ec->looping
+                && (sub.loop_count == 0 || sub.loops_completed < sub.loop_count);
+            if (should_loop) {
+                sub.emitter_elapsed = sub.start_delay;
+                sub.burst_fired = false;
+                sub.burst_elapsed = 0.0f;
+                sub.emit_accumulator = 0.0f;
+                emitting = true;
+                time_since_start = 0.0f;
+            } else {
+                sub.finished = true;
+                emitting = false;
+            }
+        }
+
+        if (emitting) {
             uint32_t burst = sub.burst_count();
             if (burst > 0 && !sub.burst_fired) {
                 emit_count = burst;
@@ -1725,7 +1785,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
                 sub.burst_elapsed = 0.0f;
             }
 
-            // Looping: re-fire burst after all particles from previous burst expire
+            // Looping burst within a single emitter cycle
             if (burst > 0 && sub.burst_fired && ec->looping) {
                 sub.burst_elapsed += dt;
                 if (sub.burst_elapsed >= sub.lifetime_max()) {
@@ -1880,6 +1940,40 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         data.trail_width = trail_width;
         data.trail_width_over_life = trail_wol;
 
+        // Sub-emitter fields: detect if this emitter is a child of another
+        // sub_event_offset: where this emitter's events are stored (as parent)
+        // sub_event_source: which emitter is the parent (0xFFFFFFFF if none)
+        data.sub_event_offset = static_cast<uint32_t>(i) * 256; // MAX_SUB_EVENTS_PER_EMITTER
+        data.sub_event_source = 0xFFFFFFFF; // not a child by default
+        data.sub_burst_count = 0;
+        data.sub_vel_inherit = 0.0f;
+
+        // Check if any parent emitter has a SubEmitterModule pointing to us
+        // We match by emitter_index within the same VfxEffect (same object_id)
+        for (uint32_t pi = 0; pi < emitter_count; ++pi) {
+            if (pi == i) continue;
+            if (emitters_[pi].object_id != gpu.object_id) continue;
+            // Find the parent's VfxEmitter to check for SubEmitterModule
+            auto* parent_obj = scene.find(emitters_[pi].object_id);
+            if (!parent_obj) continue;
+            auto* parent_ec = parent_obj->components.get<EmitterComponent>();
+            if (!parent_ec || !parent_ec->effect) continue;
+            if (emitters_[pi].emitter_index >= parent_ec->effect->emitters.size()) continue;
+            auto& parent_sub = parent_ec->effect->emitters[emitters_[pi].emitter_index];
+            for (const auto& mod : parent_sub.update_modules) {
+                if (mod->enabled && mod->type() == ModuleType::sub_emitter) {
+                    auto* sem = dynamic_cast<const SubEmitterModule*>(mod.get());
+                    if (sem && sem->child_emitter_index == gpu.emitter_index) {
+                        data.sub_event_source = pi;
+                        data.sub_burst_count = sem->burst_count;
+                        data.sub_vel_inherit = sem->velocity_inherit;
+                        break;
+                    }
+                }
+            }
+            if (data.sub_event_source != 0xFFFFFFFF) break;
+        }
+
         // Evaluate expression graph (writes computed values to module members)
         evaluate_expression_graph(sub, accumulated_time_, dt);
 
@@ -1938,7 +2032,15 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         }
     };
 
-    // ── Phase 1: Emit (single dispatch) ──
+    // Clear sub-emitter event counters
+    if (sub_event_counter_buffer_) {
+        vkCmdFillBuffer(cmd, sub_event_counter_buffer_->handle(),
+                        0, sub_event_counter_buffer_->size(), 0);
+        compute_barrier();
+    }
+
+    // ── Phase 1: Emit normal emitters (sub_emit_pass=0, skip children) ──
+    push.sub_emit_pass = 0;
     if (max_emit_count > 0) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline_);
         bind_compute_sets();
@@ -1948,7 +2050,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         compute_barrier();
     }
 
-    // ── Phase 2: Simulate (single dispatch) ──
+    // ── Phase 2: Simulate (writes sub-emitter events on death/collision) ──
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sim_pipeline_);
     bind_compute_sets();
     vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1956,7 +2058,20 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     vkCmdDispatch(cmd, (total_max + 255) / 256, 1, 1);
     compute_barrier();
 
-    // ── Phase 3: Indirect prep (single dispatch) ──
+    // ── Phase 3: Emit child emitters (sub_emit_pass=1, consume events) ──
+    push.sub_emit_pass = 1;
+    {
+        uint32_t max_child_emit = 256 * 100; // MAX_SUB_EVENTS * generous max burst
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, emit_pipeline_);
+        bind_compute_sets();
+        vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(push), &push);
+        vkCmdDispatch(cmd, (max_child_emit + 255) / 256, emitter_count, 1);
+        compute_barrier();
+    }
+
+    // ── Phase 4: Indirect prep ──
+    push.sub_emit_pass = 0;
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, indirect_pipeline_);
     bind_compute_sets();
     vkCmdPushConstants(cmd, compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,

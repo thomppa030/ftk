@@ -22,6 +22,7 @@ layout(push_constant) uniform PushConstants {
     uint  random_seed;
     uint  emitter_count;
     uint  total_max_particles;
+    uint  sub_emit_pass;
 };
 
 void main() {

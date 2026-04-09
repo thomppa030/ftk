@@ -20,6 +20,14 @@ layout(std430, set = 0, binding = 3) readonly buffer EmitterBuffer {
     EmitterData emitters[];
 };
 
+layout(std430, set = 0, binding = 6) readonly buffer SubEmitterEventBuf {
+    SubEmitterEvent sub_events[];
+};
+
+layout(std430, set = 0, binding = 7) readonly buffer SubEmitterEventCounters {
+    uint sub_event_counts[];
+};
+
 layout(std430, set = 0, binding = 5) readonly buffer ModuleBuffer {
     uint module_data[];
 };
@@ -31,6 +39,7 @@ layout(push_constant) uniform PushConstants {
     uint  random_seed;
     uint  emitter_count;
     uint  total_max_particles;
+    uint  sub_emit_pass; // 1 = only child emitters emit
 };
 
 uint hash(uint x) {
@@ -57,7 +66,29 @@ void main() {
 
     uint local_emit_idx = gl_GlobalInvocationID.x;
     EmitterData em = emitters[emitter_idx];
-    if (local_emit_idx >= em.emit_count) return;
+
+    // Sub-emitter child: spawn from parent events instead of emit_count
+    bool is_sub_child = (em.sub_event_source != 0xFFFFFFFFu);
+
+    // Phase 1 (sub_emit_pass=0): skip children. Phase 4 (sub_emit_pass=1): only children.
+    if (sub_emit_pass == 0u && is_sub_child) return;
+    if (sub_emit_pass == 1u && !is_sub_child) return;
+
+    uint total_emit;
+    uint event_idx = 0u;
+    uint burst_local = 0u;
+
+    if (is_sub_child) {
+        uint event_count = min(sub_event_counts[em.sub_event_source], MAX_SUB_EVENTS_PER_EMITTER);
+        uint burst = max(em.sub_burst_count, 1u);
+        total_emit = event_count * burst;
+        if (local_emit_idx >= total_emit) return;
+        event_idx = local_emit_idx / burst;
+        burst_local = local_emit_idx % burst;
+    } else {
+        total_emit = em.emit_count;
+        if (local_emit_idx >= total_emit) return;
+    }
 
     uint global_pi;
     uint local_pi;
@@ -99,6 +130,16 @@ void main() {
     p.rotation_speed = 0.0;
     p.texture_index = 0u;
     p.flipbook_params = 0u;
+
+    // Sub-emitter child: override position/velocity from parent event
+    if (is_sub_child) {
+        uint parent_offset = emitters[em.sub_event_source].sub_event_offset;
+        SubEmitterEvent evt = sub_events[parent_offset + event_idx];
+        p.position = evt.position;
+        p.velocity = evt.velocity * em.sub_vel_inherit;
+        p.color = evt.color;
+        p.size = evt.size;
+    }
 
     // Walk spawn modules (max 32 iterations to prevent GPU hang on corrupt data)
     uint mo = em.module_offset;
