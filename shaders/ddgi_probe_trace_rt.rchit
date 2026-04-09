@@ -103,25 +103,37 @@ void main() {
     mat3 normal_matrix = mat3(gl_ObjectToWorldEXT);
     vec3 N = normalize(normal_matrix * object_normal);
 
-    // Base color from material params
-    vec3 albedo = vec3(mat.base_params[0], mat.base_params[1], mat.base_params[2]);
+    // Interpolate UV coordinates
+    vec2 uv = get_vertex_texcoord(i0) * bary.x
+            + get_vertex_texcoord(i1) * bary.y
+            + get_vertex_texcoord(i2) * bary.z;
 
-    // Sample base_color texture if available
+    // Apply UV scale from material
+    float uv_scale_x = mat.base_params[7];
+    float uv_scale_y = mat.base_params[8];
+    if (uv_scale_x > 0.0) uv.x *= uv_scale_x;
+    if (uv_scale_y > 0.0) uv.y *= uv_scale_y;
+
+    // Base color from material params + texture
+    vec3 albedo = vec3(mat.base_params[0], mat.base_params[1], mat.base_params[2]);
     uint base_color_tex = mat.texture_indices[0];
     if (base_color_tex > 0) {
-        vec2 uv0 = get_vertex_texcoord(i0);
-        vec2 uv1 = get_vertex_texcoord(i1);
-        vec2 uv2 = get_vertex_texcoord(i2);
-        vec2 uv = uv0 * bary.x + uv1 * bary.y + uv2 * bary.z;
+        albedo *= textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0).rgb;
+    }
 
-        // Apply UV scale from material
-        float uv_scale_x = mat.base_params[7];
-        float uv_scale_y = mat.base_params[8];
-        if (uv_scale_x > 0.0) uv.x *= uv_scale_x;
-        if (uv_scale_y > 0.0) uv.y *= uv_scale_y;
+    // Emission: base_params[9..11] stores pre-computed emission color/strength
+    // from FJSL metadata (emission_strength, glow_color, etc.)
+    vec3 emission_factor = vec3(mat.base_params[9], mat.base_params[10], mat.base_params[11]);
+    vec3 emission = vec3(0.0);
 
-        vec3 tex_color = textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0).rgb;
-        albedo *= tex_color;
+    uint emissive_tex = mat.texture_indices[3];
+    if (emissive_tex > 0) {
+        vec3 emissive_sample = textureLod(textures[nonuniformEXT(emissive_tex)], uv, 2.0).rgb;
+        // emission_factor acts as a multiplier (from FJSL emission_strength)
+        emission = emissive_sample * max(emission_factor, vec3(1.0));
+    } else if (length(emission_factor) > 0.0) {
+        // No emissive texture but has emission color (e.g. glow_color * glow_strength)
+        emission = emission_factor;
     }
 
     // Direct lighting from directional light
@@ -130,6 +142,9 @@ void main() {
 
     // Sky ambient
     radiance += albedo * 0.15;
+
+    // Emissive surfaces add radiance directly
+    radiance += emission;
 
     payload = vec4(radiance, hit_t);
 }

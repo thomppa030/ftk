@@ -234,6 +234,20 @@ void main() {
 
     vec3 color = ambient + Lo * mix(screen_ao, 1.0, 0.5);
 
+    // Add emission from material (base_params[9..11] = emission_color for RT GI)
+    if (material_id > 0u) {
+        GpuMaterial em_mat = materials[material_id];
+        vec3 mat_emission = vec3(em_mat.base_params[9], em_mat.base_params[10], em_mat.base_params[11]);
+
+        // Sample emissive texture if present
+        uint em_tex = em_mat.texture_indices[3];
+        if (em_tex > 0u) {
+            mat_emission *= texture(textures[nonuniformEXT(em_tex)], frag_uv).rgb;
+        }
+
+        color += mat_emission;
+    }
+
     out_color = vec4(color, alpha);
     out_metallic_roughness = vec2(mat_metallic, mat_roughness);
     out_normal = oct_encode(N);

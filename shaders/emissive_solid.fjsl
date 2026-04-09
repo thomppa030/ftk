@@ -1,0 +1,8 @@
+shader_type spatial;
+
+uniform vec3 emission_color : hint_color = vec3(1.0, 0.7, 0.2);
+uniform float emission_strength : hint_range(0.0, 20.0, 0.1) = 5.0;
+
+void fragment() {
+    EMISSION = emission_color * emission_strength;
+}

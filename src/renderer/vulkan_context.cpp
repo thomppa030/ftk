@@ -1029,7 +1029,12 @@ void VulkanContext::register_post_process_passes() {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 if (local.pp_resources && local.pp_resources->tonemap()) {
-                    tonemap_pass_.record_into(local, *local.pp_resources->tonemap(), current_ctx_.target->color_view());
+                    // Use bloom composite output if available, otherwise raw scene color
+                    VkImageView source = current_ctx_.target->color_view();
+                    if (local.pp_resources->bloom() && local.pp_resources->bloom()->output_view != VK_NULL_HANDLE) {
+                        source = local.pp_resources->bloom()->output_view;
+                    }
+                    tonemap_pass_.record_into(local, *local.pp_resources->tonemap(), source);
                 }
             }, {{imgs.color_id, ImageUsage::shader_read}});
         }

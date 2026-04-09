@@ -77,6 +77,7 @@ struct PbrParams {
     float roughness_factor{1.0f};
     bool has_normal_map{false};
     glm::vec2 uv_scale{1.0f, 1.0f};
+    glm::vec3 emission_color{0.0f};  // RT GI: emissive contribution for probe tracing
 };
 
 } // namespace fjell
