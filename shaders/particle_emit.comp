@@ -131,16 +131,6 @@ void main() {
     p.texture_index = 0u;
     p.flipbook_params = 0u;
 
-    // Sub-emitter child: override position/velocity from parent event
-    if (is_sub_child) {
-        uint parent_offset = emitters[em.sub_event_source].sub_event_offset;
-        SubEmitterEvent evt = sub_events[parent_offset + event_idx];
-        p.position = evt.position;
-        p.velocity = evt.velocity * em.sub_vel_inherit;
-        p.color = evt.color;
-        p.size = evt.size;
-    }
-
     // Walk spawn modules (max 32 iterations to prevent GPU hang on corrupt data)
     uint mo = em.module_offset;
     for (int guard = 0; guard < 32; ++guard) {
@@ -261,6 +251,16 @@ void main() {
         }
 
         mo += msize;
+    }
+
+    // Sub-emitter child: override position with event location, add inherited velocity
+    // Applied AFTER spawn modules so InitialPosition doesn't clobber the event position.
+    // Child's own InitialVelocity/Lifetime/Color/Size from modules are kept.
+    if (is_sub_child) {
+        uint parent_offset = emitters[em.sub_event_source].sub_event_offset;
+        SubEmitterEvent evt = sub_events[parent_offset + event_idx];
+        p.position = evt.position;
+        p.velocity += evt.velocity * em.sub_vel_inherit;
     }
 
     particles[global_pi] = p;
