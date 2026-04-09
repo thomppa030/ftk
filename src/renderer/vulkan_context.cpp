@@ -209,6 +209,8 @@ VulkanContext::VulkanContext(Window& window)
     PostProcessConfig default_config{};
     default_config.ssr = true;
     default_config.volumetric_fog = true;
+    // DDGI disabled by default — enable via editor stats panel toggle
+    // (enabling at init triggers resize-while-in-flight on the 256x256 placeholder)
     PostProcessResources::PassRefs refs{hiz_pass_, gtao_pass_, bloom_pass_, ssr_pass_, volumetric_fog_pass_, tonemap_pass_, ddgi_pass_};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
@@ -1997,6 +1999,23 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         sc_write.descriptorCount = 1;
         sc_write.pImageInfo = &sc_desc;
         vkUpdateDescriptorSets(vk_device, 1, &sc_write, 0, nullptr);
+
+        // Update binding 10 (GI indirect texture)
+        auto* ddgi_imgs = default_pp_->ddgi();
+        VkDescriptorImageInfo gi_desc{};
+        gi_desc.sampler = gpu_.gi_fallback_sampler();
+        gi_desc.imageView = (ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE)
+            ? ddgi_imgs->indirect_view : gpu_.gi_fallback_view();
+        gi_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet gi_write{};
+        gi_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        gi_write.dstSet = gpu_.global_descriptor_set(current_frame_);
+        gi_write.dstBinding = 10;
+        gi_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        gi_write.descriptorCount = 1;
+        gi_write.pImageInfo = &gi_desc;
+        vkUpdateDescriptorSets(vk_device, 1, &gi_write, 0, nullptr);
     }
 
     vkResetCommandBuffer(gpu_.command_buffer(current_frame_), 0);
