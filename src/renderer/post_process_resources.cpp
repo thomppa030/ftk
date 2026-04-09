@@ -170,6 +170,9 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         ddgi_images_.resize(device_, allocator_,
                             passes_->ddgi.config(),
                             width, height);
+    } else if (ddgi_images_.radiance_image != VK_NULL_HANDLE) {
+        ddgi_images_.invalidate_imgui_texture();
+        ddgi_images_.destroy(device_, allocator_);
     }
 }
 

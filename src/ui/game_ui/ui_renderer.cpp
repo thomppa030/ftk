@@ -1,6 +1,7 @@
 #include "ui/game_ui/ui_renderer.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -20,7 +21,8 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
                                       const std::string& frag_path,
                                       UiPipelineMode mode = UiPipelineMode::transparent,
                                       VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT,
-                                      VkFormat mr_format = VK_FORMAT_UNDEFINED) {
+                                      VkFormat mr_format = VK_FORMAT_UNDEFINED,
+                                      VkFormat normal_format = VK_FORMAT_UNDEFINED) {
     auto vert_mod = create_shader_module(device, read_spirv(vert_path));
     auto frag_mod = create_shader_module(device, read_spirv(frag_path));
 
@@ -98,19 +100,25 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
     VkPipelineColorBlendAttachmentState mr_blend{};
     mr_blend.colorWriteMask = 0; // no writes to M/R from UI
 
+    // Third color attachment (normal): no writes from UI
+    VkPipelineColorBlendAttachmentState normal_blend{};
+    normal_blend.colorWriteMask = 0;
+
     bool has_mr = (mr_format != VK_FORMAT_UNDEFINED);
-    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend};
+    bool has_normal = (normal_format != VK_FORMAT_UNDEFINED);
+    uint32_t attachment_count = 1 + (has_mr ? 1 : 0) + (has_normal ? 1 : 0);
+    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend};
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = has_mr ? 2 : 1;
+    color_blending.attachmentCount = attachment_count;
     color_blending.pAttachments = blend_attachments;
 
-    VkFormat color_formats[] = {color_format, mr_format};
+    VkFormat color_formats[] = {color_format, mr_format, normal_format};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = has_mr ? 2 : 1;
+    rendering_info.colorAttachmentCount = attachment_count;
     rendering_info.pColorAttachmentFormats = color_formats;
     if (use_depth) {
         rendering_info.depthAttachmentFormat = depth_format;
@@ -585,20 +593,22 @@ void UiRenderer::create_world_pipelines(Device& /*device*/, const PassResources&
     // UI doesn't write to M/R, but the pipeline must declare both.
     constexpr VkFormat mr_fmt = VK_FORMAT_R8G8_UNORM;
 
+    auto normal_fmt = OffscreenPass::NORMAL_FORMAT;
+
     world_transparent_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_quad_world.vert.spv"),
         base_path::resolve("shaders/ui_quad.frag.spv"),
-        UiPipelineMode::transparent, msaa, mr_fmt);
+        UiPipelineMode::transparent, msaa, mr_fmt, normal_fmt);
 
     world_opaque_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_quad_world.vert.spv"),
         base_path::resolve("shaders/ui_quad.frag.spv"),
-        UiPipelineMode::opaque, msaa, mr_fmt);
+        UiPipelineMode::opaque, msaa, mr_fmt, normal_fmt);
 
     world_text_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_text_world.vert.spv"),
         base_path::resolve("shaders/ui_text.frag.spv"),
-        UiPipelineMode::transparent, msaa, mr_fmt);
+        UiPipelineMode::transparent, msaa, mr_fmt, normal_fmt);
 
     FJELL_GFX_DEBUG("Worldspace UI pipelines created ({}x MSAA)", static_cast<uint32_t>(msaa));
 }

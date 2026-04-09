@@ -600,10 +600,15 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.vis_tex_h = imgs.vis_height;
     constants.vis_side = config_.visibility_side_length;
 
-    // Trace all probes every frame (temporal amortization disabled for debugging)
+    // Temporal amortization: cycle through 4 batches of probes
+    constexpr int BATCH_COUNT = 4;
     int total = imgs.total_probes;
-    constants.probe_update_offset = 0;
-    constants.probe_update_count = total;
+    int batch_index = static_cast<int>(frame_counter_ % BATCH_COUNT);
+    int probes_per_batch = (total + BATCH_COUNT - 1) / BATCH_COUNT;
+    int offset = batch_index * probes_per_batch;
+    int count = std::min(probes_per_batch, total - offset);
+    constants.probe_update_offset = offset;
+    constants.probe_update_count = count;
 
     constants.hysteresis = config_.hysteresis;
     constants.infinite_bounces_mult = 0.0f;
@@ -809,6 +814,25 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     };
 
     GpuDdgiConstants* constants = static_cast<GpuDdgiConstants*>(imgs.constants_ubo->mapped());
+
+    // ── 0. Initialize probe status buffer on first use ──
+    if (is_first_frame_) {
+        constexpr uint32_t PROBE_STATUS_ACTIVE = 4;
+        VkDeviceSize status_size = static_cast<VkDeviceSize>(imgs.total_probes) * sizeof(uint32_t);
+        vkCmdFillBuffer(ctx.cmd, imgs.probe_status_buffer->handle(), 0, status_size, PROBE_STATUS_ACTIVE);
+
+        VkMemoryBarrier2 fill_barrier{};
+        fill_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        fill_barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        fill_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        fill_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        fill_barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+        VkDependencyInfo fill_dep{};
+        fill_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        fill_dep.memoryBarrierCount = 1;
+        fill_dep.pMemoryBarriers = &fill_barrier;
+        vkCmdPipelineBarrier2(ctx.cmd, &fill_dep);
+    }
 
     // ── 1. Pre-trace barriers ──
     barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,

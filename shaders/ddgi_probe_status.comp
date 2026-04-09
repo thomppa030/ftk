@@ -38,14 +38,16 @@ void main() {
     int closest_frontface_index = -1;
     float closest_frontface_distance = 1e8;
 
-    uint flag = (first_frame == 1) ? PROBE_STATUS_UNINITIALIZED : probe_status[probe_index];
+    // Only update status for probes in the current batch
+    if (probe_index < ddgi.probe_update_offset ||
+        probe_index >= ddgi.probe_update_offset + ddgi.probe_update_count) return;
+
+    uint flag = probe_status[probe_index];
 
     vec3 outer_bounds = normalize(ddgi.probe_spacing) * (length(ddgi.probe_spacing) + 2.0 * ddgi.self_shadow_bias);
 
     for (int ray_index = 0; ray_index < ddgi.probe_rays; ++ray_index) {
         ivec2 ray_coord = ivec2(ray_index, probe_index - ddgi.probe_update_offset);
-        if (probe_index < ddgi.probe_update_offset ||
-            probe_index >= ddgi.probe_update_offset + ddgi.probe_update_count) break;
 
         float d_front = texelFetch(radiance_tex, ray_coord, 0).w;
 

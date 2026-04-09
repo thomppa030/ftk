@@ -31,6 +31,10 @@ void main() {
     int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
     if (probe_index >= total_probes) return;
 
+    // Only update offsets for probes in the current batch
+    if (probe_index < ddgi.probe_update_offset ||
+        probe_index >= ddgi.probe_update_offset + ddgi.probe_update_count) return;
+
     int closest_backface_index = -1;
     float closest_backface_distance = 1e8;
 
@@ -44,8 +48,6 @@ void main() {
 
     for (int ray_index = 0; ray_index < ddgi.probe_rays; ++ray_index) {
         ivec2 ray_coord = ivec2(ray_index, probe_index - ddgi.probe_update_offset);
-        if (probe_index < ddgi.probe_update_offset ||
-            probe_index >= ddgi.probe_update_offset + ddgi.probe_update_count) break;
 
         float ray_distance = texelFetch(radiance_tex, ray_coord, 0).w;
 

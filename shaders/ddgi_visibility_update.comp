@@ -47,16 +47,17 @@ void main() {
                    ((gl_GlobalInvocationID.y % probe_with_border_side) == probe_last_pixel);
 
     if (!border_pixel) {
+        // Skip probes not in the current batch — keep previous value
+        if (probe_index < ddgi.probe_update_offset ||
+            probe_index >= ddgi.probe_update_offset + ddgi.probe_update_count) {
+            return;
+        }
+
         vec4 result = vec4(0.0);
         float probe_max_ray_distance = length(ddgi.probe_spacing) * 1.5;
 
         for (int ray_index = 0; ray_index < ddgi.probe_rays; ++ray_index) {
             ivec2 sample_pos = ivec2(ray_index, probe_index - ddgi.probe_update_offset);
-
-            if (probe_index < ddgi.probe_update_offset ||
-                probe_index >= ddgi.probe_update_offset + ddgi.probe_update_count) {
-                break;
-            }
 
             vec3 ray_direction = normalize(mat3(ddgi.random_rotation) *
                 spherical_fibonacci(float(ray_index), float(ddgi.probe_rays)));
