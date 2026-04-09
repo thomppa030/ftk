@@ -52,11 +52,33 @@ public:
     /// Build or retrieve BLAS for a Model. Call during model load.
     void ensure_blas(const Model* model, const MegaBuffer& mega);
 
-    /// Rebuild TLAS from this frame's draw instances.
-    /// Call once per frame before DDGI RT tracing.
+    /// Build or retrieve BLAS from a raw MegaMeshEntry (for particle mesh primitives).
+    /// Uses the entry pointer as the map key.
+    void ensure_blas_entry(const void* key, const MegaMeshEntry& entry, const MegaBuffer& mega);
+
+    /// Get BLAS for a raw entry key (nullptr if not built).
+    [[nodiscard]] const Blas* find_blas(const void* key) const;
+
+    /// Info about a mesh particle emitter to extract into the TLAS.
+    struct ParticleEmitterInfo {
+        uint32_t base_offset;     // into mega particle buffer
+        uint32_t max_particles;
+        uint32_t material_id;
+        float avg_particle_size;
+        const Blas* blas;
+    };
+
+    /// Rebuild TLAS from scene draws + particle emitters.
     void build_tlas(VkCommandBuffer cmd, uint32_t frame_index,
                     const GpuDrawData* draw_data, uint32_t draw_count,
-                    const std::vector<const Model*>& draw_models);
+                    const std::vector<const Model*>& draw_models,
+                    const std::vector<ParticleEmitterInfo>& particle_emitters = {});
+
+    /// Create compute pipeline for particle → TLAS extraction (call once).
+    void create_particle_tlas_pipeline(VkPipelineCache pipeline_cache);
+
+    /// Cache the particle system's mega buffer handle for compute dispatch.
+    void set_particle_ssbo(VkBuffer buffer) { particle_ssbo_ = buffer; }
 
     [[nodiscard]] VkAccelerationStructureKHR tlas(uint32_t frame_index) const { return frames_[frame_index].tlas_handle; }
     [[nodiscard]] bool tlas_valid(uint32_t frame_index) const { return frames_[frame_index].tlas_handle != VK_NULL_HANDLE; }
@@ -77,6 +99,18 @@ private:
     VkQueue queue_;
 
     std::unordered_map<const Model*, Blas> blas_map_;
+    std::unordered_map<const void*, Blas> entry_blas_map_;
+
+    // Particle → TLAS compute pipeline
+    VkDescriptorSetLayout particle_tlas_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout particle_tlas_pipe_layout_{VK_NULL_HANDLE};
+    VkPipeline particle_tlas_pipeline_{VK_NULL_HANDLE};
+    VkDescriptorPool particle_tlas_pool_{VK_NULL_HANDLE};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> particle_tlas_sets_{};
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> particle_instance_buffers_;
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> particle_counter_buffers_;
+    uint32_t particle_instance_capacity_{0};
+    VkBuffer particle_ssbo_{VK_NULL_HANDLE};  // cached from particle system
 
     // Per-frame TLAS (triple-buffered to avoid in-flight destruction)
     struct FrameTlas {

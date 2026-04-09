@@ -153,6 +153,10 @@ public:
     /// Record into externally-provided images.
     void record_into(const FrameContext& ctx, Images& imgs);
 
+    /// Build acceleration structures before command buffer recording.
+    /// Must be called outside of command buffer recording (uses synchronous GPU submits).
+    void prepare_accel_structures(const FrameContext& ctx);
+
     void set_config(const DdgiConfig& config) { config_ = config; }
     [[nodiscard]] DdgiConfig& config() { return config_; }
     [[nodiscard]] const DdgiConfig& config() const { return config_; }
@@ -162,6 +166,7 @@ public:
     [[nodiscard]] DdgiBackend backend() const { return backend_; }
 
     void set_accel_manager(AccelStructureManager* mgr) { accel_manager_ = mgr; }
+    void set_particle_system(class ParticleSystem* ps) { particle_system_ = ps; }
 
     /// Push constants for the SDF trace shader.
     struct TracePushConstants {
@@ -214,6 +219,7 @@ private:
     // RT backend
     DdgiBackend backend_{DdgiBackend::sdf_fallback};
     AccelStructureManager* accel_manager_{nullptr};
+    class ParticleSystem* particle_system_{nullptr};
 
     VkDescriptorSetLayout rt_trace_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout rt_trace_pipeline_layout_{VK_NULL_HANDLE};

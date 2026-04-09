@@ -2,6 +2,7 @@
 #include "renderer/systems/vfx_emitter.hpp"
 #include "renderer/systems/vfx_expression.hpp"
 #include "renderer/systems/vfx_module.hpp"
+#include "renderer/resources/material.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -229,6 +230,20 @@ void resolve_vfx_textures(VfxEffect& effect, ResourceManager& resources,
             auto result = resources.load_texture(resolved);
             if (result) {
                 tex_mod->bindless_index = resources.bindless_index(*result);
+            }
+        }
+
+        // Resolve mesh particle materials to bindless material IDs
+        for (auto& mod : emitter.render_modules) {
+            if (mod->type() != ModuleType::mesh_particle) continue;
+            auto* mm = static_cast<MeshParticleModule*>(mod.get());
+            if (mm->material_path.empty() || mm->resolved_material_id != 0) continue;
+
+            auto resolved = base_path::resolve_asset(mm->material_path, project);
+            auto mat_result = resources.load_material_asset(resolved, project);
+            if (mat_result) {
+                auto* mat = resources.get(*mat_result);
+                if (mat) mm->resolved_material_id = mat->material_id();
             }
         }
     }

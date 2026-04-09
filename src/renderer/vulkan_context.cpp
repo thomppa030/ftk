@@ -159,6 +159,7 @@ VulkanContext::VulkanContext(Window& window)
         accel_manager_ = std::make_unique<AccelStructureManager>(
             gpu_.device_ref(), gpu_.allocator(),
             gpu_.command_pool(), gpu_.graphics_queue());
+        accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
         ddgi_pass_.set_accel_manager(accel_manager_.get());
     }
 
@@ -196,6 +197,7 @@ VulkanContext::VulkanContext(Window& window)
     {
         auto ps = std::make_unique<ParticleSystem>();
         particle_system_ = ps.get();
+        ddgi_pass_.set_particle_system(particle_system_);
         add_subsystem(std::move(ps));
     }
     {
@@ -1295,6 +1297,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
                                         pp, skip_shadows, flip_tonemap_y);
 
+    // Build acceleration structures before command buffer recording starts.
+    // BLAS builds use synchronous GPU submits that would conflict with in-flight recording.
+    ddgi_pass_.prepare_accel_structures(current_ctx_);
+
     // Init screen color image on first use (or after resize) so the descriptor
     // at binding 8 doesn't point to an UNDEFINED-layout image.
     if (target.screen_color_needs_init()) {
@@ -1926,6 +1932,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         sub_ctx.frame_index = current_frame_;
         for (auto& sys : render_subsystems_) sys->sync(sub_ctx);
     }
+
 
     // Update scene SDF — register mesh SDFs and check dirty transforms
     {

@@ -91,6 +91,8 @@ private:
     void record_render(const FrameContext& ctx);
     void record_render_opaque(const FrameContext& ctx);
 
+public:
+    // Public for DDGI RT TLAS integration (mesh particle emitters as proxy geometry)
     struct EmitterGpu {
         uint32_t object_id{0};
         uint32_t emitter_index{0};  // index into VfxEffect::emitters
@@ -109,6 +111,12 @@ private:
         MegaMeshEntry mesh_entry{}; // resolved mesh geometry
         uint32_t mesh_material_id{0}; // resolved material for mesh particles
     };
+    [[nodiscard]] const std::vector<EmitterGpu>& emitters() const { return emitters_; }
+    [[nodiscard]] VkBuffer particle_buffer_handle() const {
+        return mega_particle_buffer_ ? mega_particle_buffer_->handle() : VK_NULL_HANDLE;
+    }
+
+private:
 
     void rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count);
     void init_emitter_ranges();

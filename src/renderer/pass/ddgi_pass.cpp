@@ -2,6 +2,7 @@
 #include "renderer/gpu/accel_structure.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/render_queue.hpp"
+#include "renderer/systems/particle_system.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -850,6 +851,34 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     std::memcpy(imgs.constants_ubo->mapped(), &constants, sizeof(constants));
 }
 
+void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
+    if (backend_ != DdgiBackend::ray_traced || !accel_manager_ || !ctx.queue || !ctx.mega_buffer)
+        return;
+
+    const auto& cmds = ctx.queue->commands();
+
+    // Ensure BLAS for all visible scene models (synchronous GPU build on first encounter)
+    for (const auto& dc : cmds) {
+        if (dc.model) {
+            accel_manager_->ensure_blas(dc.model, *ctx.mega_buffer);
+        }
+    }
+
+    // Cache particle SSBO for compute dispatch + build particle mesh BLASes
+    if (particle_system_) {
+        VkBuffer pbuf = particle_system_->particle_buffer_handle();
+        if (pbuf != VK_NULL_HANDLE) {
+            accel_manager_->set_particle_ssbo(pbuf);
+        }
+
+        for (const auto& em : particle_system_->emitters()) {
+            if (!em.is_mesh) continue;
+            auto shape_key = reinterpret_cast<const void*>(static_cast<uintptr_t>(em.mesh_entry.first_index + 1));
+            accel_manager_->ensure_blas_entry(shape_key, em.mesh_entry, *ctx.mega_buffer);
+        }
+    }
+}
+
 void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (trace_pipeline_ == VK_NULL_HANDLE) return;
     if (imgs.radiance_image == VK_NULL_HANDLE) return;
@@ -1136,16 +1165,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     // ── 2. Build TLAS + dispatch trace (RT or SDF) ──
-    // Build TLAS if RT backend is active
+    // Build TLAS if RT backend is active (BLAS building done in prepare_accel_structures)
     if (backend_ == DdgiBackend::ray_traced && accel_manager_ && ctx.queue && ctx.mega_buffer) {
         const auto& cmds = ctx.queue->commands();
         if (!cmds.empty()) {
-            // Ensure BLAS for all visible models
-            for (const auto& dc : cmds) {
-                if (dc.model) {
-                    accel_manager_->ensure_blas(dc.model, *ctx.mega_buffer);
-                }
-            }
             // Build TLAS — collect draw data + model pointers
             std::vector<GpuDrawData> tlas_draws;
             std::vector<const Model*> tlas_models;
@@ -1153,17 +1176,35 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             tlas_models.reserve(cmds.size());
             for (const auto& dc : cmds) {
                 if (!dc.model) continue;
-                // Use LOD 0 for TLAS (matches BLAS)
                 GpuDrawData data{};
                 data.model = dc.push.model;
                 data.material_id = dc.push.material_id;
                 tlas_draws.push_back(data);
                 tlas_models.push_back(dc.model);
             }
-            if (!tlas_draws.empty()) {
+            // Collect mesh particle emitters for per-particle TLAS instances
+            std::vector<AccelStructureManager::ParticleEmitterInfo> particle_infos;
+            if (particle_system_) {
+                for (const auto& em : particle_system_->emitters()) {
+                    if (!em.is_mesh) continue;
+                    auto shape_key = reinterpret_cast<const void*>(static_cast<uintptr_t>(em.mesh_entry.first_index + 1));
+                    const auto* blas = accel_manager_->find_blas(shape_key);
+                    if (!blas) continue;
+
+                    AccelStructureManager::ParticleEmitterInfo info{};
+                    info.base_offset = em.base_offset;
+                    info.max_particles = em.max_particles;
+                    info.material_id = em.mesh_material_id;
+                    info.avg_particle_size = 1.0f;
+                    info.blas = blas;
+                    particle_infos.push_back(info);
+                }
+            }
+
+            if (!tlas_draws.empty() || !particle_infos.empty()) {
                 accel_manager_->build_tlas(ctx.cmd, ctx.frame_index, tlas_draws.data(),
                                            static_cast<uint32_t>(tlas_draws.size()),
-                                           tlas_models);
+                                           tlas_models, particle_infos);
             }
         }
     }

@@ -234,18 +234,22 @@ void main() {
 
     vec3 color = ambient + Lo * mix(screen_ao, 1.0, 0.5);
 
-    // Add emission from material (base_params[9..11] = emission_color for RT GI)
+    // Emission from material (base_params[9..11] = pre-computed emission color)
     if (material_id > 0u) {
         GpuMaterial em_mat = materials[material_id];
         vec3 mat_emission = vec3(em_mat.base_params[9], em_mat.base_params[10], em_mat.base_params[11]);
 
-        // Sample emissive texture if present
+        // Emissive texture modulates only if it has actual color (not default black)
         uint em_tex = em_mat.texture_indices[3];
         if (em_tex > 0u) {
-            mat_emission *= texture(textures[nonuniformEXT(em_tex)], frag_uv).rgb;
+            vec3 em_sample = texture(textures[nonuniformEXT(em_tex)], frag_uv).rgb;
+            if (dot(em_sample, em_sample) > 0.001)
+                mat_emission *= em_sample;
         }
 
-        color += mat_emission;
+        if (dot(mat_emission, mat_emission) > 0.0) {
+            color = mat_emission;
+        }
     }
 
     out_color = vec4(color, alpha);

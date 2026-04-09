@@ -2,6 +2,8 @@
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/resources/material.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/systems/vfx_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
@@ -1287,6 +1289,27 @@ void ParticleSystem::sync(const RenderSubsystemContext& ctx) {
     setup_vfx_watcher(ctx);
 #endif
     if (ctx.scene) sync_emitters(*ctx.scene);
+
+    // Lazy-resolve mesh particle materials that weren't resolved on load
+    if (ctx.scene && ctx.resource_manager) {
+        for (const auto& obj : ctx.scene->objects()) {
+            auto* ec = obj->components.get<EmitterComponent>();
+            if (!ec || !ec->effect) continue;
+            for (auto& sub : ec->effect->emitters) {
+                for (auto& rm : sub.render_modules) {
+                    if (rm->type() != ModuleType::mesh_particle) continue;
+                    auto* mm = static_cast<MeshParticleModule*>(rm.get());
+                    if (mm->material_path.empty() || mm->resolved_material_id != 0) continue;
+                    auto resolved = base_path::resolve_asset(mm->material_path, ctx.project);
+                    auto result = ctx.resource_manager->load_material_asset(resolved, ctx.project);
+                    if (result) {
+                        auto* mat = ctx.resource_manager->get(*result);
+                        if (mat) mm->resolved_material_id = mat->material_id();
+                    }
+                }
+            }
+        }
+    }
 }
 
 void ParticleSystem::update(const RenderSubsystemContext& ctx) {
