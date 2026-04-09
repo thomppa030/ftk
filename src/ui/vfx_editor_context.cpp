@@ -555,6 +555,8 @@ void VfxEditorContext::draw_node_editor() {
             return;
         }
 
+        ne::SetCurrentEditor(node_editor_ctx_);
+
         // Emitter selector + toolbar
         {
             // Emitter dropdown
@@ -616,7 +618,6 @@ void VfxEditorContext::draw_node_editor() {
 
         auto& emitter = effect_->emitters[selected_emitter_];
 
-        ne::SetCurrentEditor(node_editor_ctx_);
         ne::Begin("VFX Module Graph");
 
         if (needs_initial_layout_) {
