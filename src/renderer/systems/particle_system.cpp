@@ -1759,25 +1759,20 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         bool past_duration = (eff_dur > 0.0f) && (time_since_start >= eff_dur);
         bool emitting = !sub.paused && !sub.finished && !in_delay && !past_duration;
 
-        // Handle loop boundaries — wait for particle drain before restarting
+        // Handle loop boundaries — restart immediately (ring buffer overwrites dead slots)
         if (past_duration && !sub.finished && !sub.paused) {
-            float drain_time = time_since_start - eff_dur;
-            if (drain_time >= sub.lifetime_max()) {
-                // All particles from previous cycle have expired
-                sub.loops_completed++;
-                bool should_loop = ec->looping
-                    && (sub.loop_count == 0 || sub.loops_completed < sub.loop_count);
-                if (should_loop) {
-                    sub.emitter_elapsed = sub.start_delay;
-                    sub.burst_fired = false;
-                    sub.burst_elapsed = 0.0f;
-                    sub.emit_accumulator = 0.0f;
-                    emitting = true;
-                } else {
-                    sub.finished = true;
-                }
+            sub.loops_completed++;
+            bool should_loop = ec->looping
+                && (sub.loop_count == 0 || sub.loops_completed < sub.loop_count);
+            if (should_loop) {
+                sub.emitter_elapsed = sub.start_delay;
+                sub.burst_fired = false;
+                sub.burst_elapsed = 0.0f;
+                sub.emit_accumulator = 0.0f;
+                emitting = true;
+            } else {
+                sub.finished = true;
             }
-            // During drain period: don't emit, just let old particles die
         }
 
         if (emitting) {
