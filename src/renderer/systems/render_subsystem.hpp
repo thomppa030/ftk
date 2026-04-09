@@ -59,7 +59,11 @@ public:
     virtual void record_opaque(const FrameContext& ctx) { (void)ctx; }
 
     // Draw transparent geometry — called during the transparent color pass.
+    // Subsystems are sorted by transparent_order() before recording (lower = drawn first = behind).
     virtual void record_transparent(const FrameContext& ctx) { (void)ctx; }
+
+    // Sort key for transparent pass draw order. Lower values draw first (behind).
+    [[nodiscard]] virtual int transparent_order() const { return 0; }
 };
 
 } // namespace fjell

@@ -210,6 +210,12 @@ VulkanContext::VulkanContext(Window& window)
         tilemap_renderer_ = tr.get();
         add_subsystem(std::move(tr));
     }
+    // Sort subsystems by transparent draw order (lower = drawn first = behind)
+    std::sort(render_subsystems_.begin(), render_subsystems_.end(),
+              [](const auto& a, const auto& b) {
+                  return a->transparent_order() < b->transparent_order();
+              });
+
     FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.allocator());
