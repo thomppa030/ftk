@@ -32,7 +32,7 @@ public:
     [[nodiscard]] uint32_t image_count() const { return static_cast<uint32_t>(images_.size()); }
     [[nodiscard]] const std::vector<VkSemaphore>& render_finished_semaphores() const { return render_finished_; }
 
-    friend class GpuContext;
+    friend class GpuCore;
 
 private:
     void create_swapchain();

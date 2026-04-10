@@ -3,7 +3,7 @@
 #include "renderer/bindless.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/descriptor.hpp"
-#include "renderer/gpu/device.hpp"
+#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/meshlet_descriptor.hpp"
@@ -12,9 +12,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/renderer_constants.hpp"
-#include "renderer/gpu/swapchain.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
-#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #ifdef FJELL_ENABLE_TRACY
@@ -25,7 +23,6 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
 
 namespace fjell {
 
@@ -55,40 +52,41 @@ public:
     GpuContext(GpuContext&&) = delete;
     GpuContext& operator=(GpuContext&&) = delete;
 
-    // ── Window ──────────────────────────────────────────────────────────
-    [[nodiscard]] Window& window() { return window_; }
+    // ── Core (forwarded from GpuCore) ──────────────────────────────────
+    [[nodiscard]] GpuCore& core() { return core_; }
+    [[nodiscard]] const GpuCore& core() const { return core_; }
 
-    // ── Device ──────────────────────────────────────────────────────────
-    [[nodiscard]] VkDevice device() const { return device_.handle(); }
-    [[nodiscard]] VkPhysicalDevice physical_device() const { return device_.physical_device(); }
-    [[nodiscard]] VmaAllocator allocator() const { return allocator_; }
-    [[nodiscard]] VkInstance instance() const { return device_.instance(); }
-    [[nodiscard]] VkQueue graphics_queue() const { return device_.graphics_queue(); }
-    [[nodiscard]] uint32_t graphics_family() const;
-    [[nodiscard]] const std::string& gpu_name() const { return device_.gpu_name(); }
-    [[nodiscard]] Device& device_ref() { return device_; }
+    [[nodiscard]] Window& window() { return core_.window(); }
+    [[nodiscard]] VkDevice device() const { return core_.vk_device(); }
+    [[nodiscard]] VkPhysicalDevice physical_device() const { return core_.physical_device(); }
+    [[nodiscard]] VmaAllocator allocator() const { return core_.allocator(); }
+    [[nodiscard]] VkInstance instance() const { return core_.instance(); }
+    [[nodiscard]] VkQueue graphics_queue() const { return core_.graphics_queue(); }
+    [[nodiscard]] uint32_t graphics_family() const { return core_.graphics_family(); }
+    [[nodiscard]] const std::string& gpu_name() const { return core_.device().gpu_name(); }
+    [[nodiscard]] Device& device_ref() { return core_.device(); }
 
     // ── Swapchain ───────────────────────────────────────────────────────
-    [[nodiscard]] Swapchain& swapchain() { return swapchain_; }
-    [[nodiscard]] VkFormat swapchain_format() const { return swapchain_.format(); }
-    [[nodiscard]] VkExtent2D swapchain_extent() const { return swapchain_.extent(); }
-    [[nodiscard]] uint32_t image_count() const { return swapchain_.image_count(); }
+    [[nodiscard]] Swapchain& swapchain() { return core_.swapchain(); }
+    [[nodiscard]] VkFormat swapchain_format() const { return core_.swapchain_format(); }
+    [[nodiscard]] VkExtent2D swapchain_extent() const { return core_.swapchain_extent(); }
+    [[nodiscard]] uint32_t image_count() const { return core_.image_count(); }
 
     // ── Command infrastructure ──────────────────────────────────────────
-    [[nodiscard]] VkCommandPool command_pool() const { return command_pool_; }
+    [[nodiscard]] VkCommandPool command_pool() const { return core_.command_pool(); }
     [[nodiscard]] ThreadCommandPools& secondary_pools() { return secondary_pools_; }
     void ensure_secondary_pools(uint32_t thread_count);
 
     [[nodiscard]] VkCommandBuffer command_buffer(uint32_t frame_index) const {
-        return command_buffers_[frame_index];
+        return core_.command_buffer(frame_index);
     }
 
     // ── Frame sync ──────────────────────────────────────────────────────
     [[nodiscard]] VkSemaphore image_available_semaphore(uint32_t frame_index) const {
-        return image_available_[frame_index];
+        return core_.image_available_semaphore(frame_index);
     }
     [[nodiscard]] VkFence in_flight_fence(uint32_t frame_index) const {
-        return in_flight_[frame_index];
+        return core_.in_flight_fence(frame_index);
     }
 
     // ── Global descriptors ──────────────────────────────────────────────
@@ -124,10 +122,10 @@ public:
 
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
     [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return msaa_samples_; }
-    [[nodiscard]] bool mesh_shaders_available() const { return device_.mesh_shader_supported(); }
+    [[nodiscard]] bool mesh_shaders_available() const { return core_.device().mesh_shader_supported(); }
     [[nodiscard]] bool use_mesh_shaders() const { return use_mesh_shaders_; }
     void set_use_mesh_shaders(bool enable) {
-        use_mesh_shaders_ = enable && device_.mesh_shader_supported();
+        use_mesh_shaders_ = enable && core_.device().mesh_shader_supported();
     }
 
     // ── Stats ───────────────────────────────────────────────────────────
@@ -136,7 +134,7 @@ public:
     // ── PassResources helper ────────────────────────────────────────────
     [[nodiscard]] PassResources pass_resources() const;
 
-    void wait_idle();
+    void wait_idle() { core_.wait_idle(); }
 
 #ifdef FJELL_ENABLE_TRACY
     [[nodiscard]] tracy::VkCtx* tracy_ctx() { return tracy_vk_ctx_; }
@@ -144,16 +142,9 @@ public:
 
 private:
     void create_descriptor_resources();
-    void create_command_pool();
-    void create_command_buffers();
-    void create_sync_objects();
 
-    Window& window_;
-    Device device_;
-    VmaAllocator allocator_{VK_NULL_HANDLE};
-    Swapchain swapchain_;
+    GpuCore core_;
 
-    VkCommandPool command_pool_{VK_NULL_HANDLE};
     ThreadCommandPools secondary_pools_;
     bool secondary_pools_initialized_{false};
 
@@ -174,11 +165,6 @@ private:
     std::unique_ptr<MegaBuffer> mega_buffer_;
     std::unique_ptr<MeshletBuffer> meshlet_buffer_;
     MeshletDescriptor meshlet_descriptor_;
-
-    // Command buffers and sync
-    std::vector<VkCommandBuffer> command_buffers_;
-    std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
-    std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
 
     // Light data
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> light_ssbo_;

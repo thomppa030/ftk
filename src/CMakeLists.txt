@@ -50,6 +50,7 @@ add_executable(fjell
     renderer/gpu/draw_data_descriptor.cpp
     renderer/fly_camera.cpp
     renderer/gpu/device.cpp
+    renderer/gpu/gpu_core.cpp
     renderer/gpu/image.cpp
     renderer/indirect_batch.cpp
     renderer/resources/fjsl_parser.cpp
@@ -399,6 +400,7 @@ add_executable(fjell-hub
     core/window.cpp
     ui/console.cpp
     renderer/gpu/device.cpp
+    renderer/gpu/gpu_core.cpp
     renderer/gpu/swapchain.cpp
     renderer/gpu/image.cpp
     renderer/gpu/buffer.cpp

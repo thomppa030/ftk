@@ -37,11 +37,7 @@ void transition_image(VkCommandBuffer cmd, VkImage image,
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.image = image;
-    barrier.subresourceRange.aspectMask = aspect;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
+    barrier.subresourceRange = {aspect, 0, 1, 0, 1};
 
     VkDependencyInfo dep{};
     dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -51,37 +47,33 @@ void transition_image(VkCommandBuffer cmd, VkImage image,
     vkCmdPipelineBarrier2(cmd, &dep);
 }
 
-// ── Pipeline cache disk persistence ──────────────────────────────────────
-
-static std::string pipeline_cache_path() {
-    return base_path::resolve("pipeline_cache.bin");
-}
+// ── Pipeline cache persistence ──────────────────────────────────────────
 
 static VkPipelineCache load_pipeline_cache(VkDevice device) {
-    VkPipelineCacheCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-
-    std::string path = pipeline_cache_path();
+    VkPipelineCache cache = VK_NULL_HANDLE;
     std::vector<char> data;
+    auto path = base_path::resolve("pipeline_cache.bin");
     if (std::filesystem::exists(path)) {
         std::ifstream f(path, std::ios::binary | std::ios::ate);
         if (f.is_open()) {
-            auto size = f.tellg();
-            if (size > 0) {
-                data.resize(static_cast<size_t>(size));
-                f.seekg(0);
-                f.read(data.data(), size);
-                ci.initialDataSize = data.size();
-                ci.pInitialData = data.data();
-            }
+            auto file_size = static_cast<size_t>(f.tellg());
+            data.resize(file_size);
+            f.seekg(0);
+            f.read(data.data(), static_cast<std::streamsize>(file_size));
+            FJELL_GFX_INFO("Pipeline cache loaded from disk ({} bytes)", file_size);
         }
     }
 
-    VkPipelineCache cache{VK_NULL_HANDLE};
-    // If the data is stale (wrong driver/GPU), Vulkan silently ignores it
-    vkCreatePipelineCache(device, &ci, nullptr, &cache);
-    if (!data.empty()) {
-        FJELL_GFX_INFO("Pipeline cache loaded from disk ({} bytes)", data.size());
+    VkPipelineCacheCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    ci.initialDataSize = data.size();
+    ci.pInitialData = data.empty() ? nullptr : data.data();
+
+    if (vkCreatePipelineCache(device, &ci, nullptr, &cache) != VK_SUCCESS) {
+        FJELL_GFX_WARN("Failed to create pipeline cache, starting fresh");
+        ci.initialDataSize = 0;
+        ci.pInitialData = nullptr;
+        vkCreatePipelineCache(device, &ci, nullptr, &cache);
     }
     return cache;
 }
@@ -91,12 +83,10 @@ static void save_pipeline_cache(VkDevice device, VkPipelineCache cache) {
 
     size_t size = 0;
     vkGetPipelineCacheData(device, cache, &size, nullptr);
-    if (size == 0) return;
-
     std::vector<char> data(size);
     vkGetPipelineCacheData(device, cache, &size, data.data());
 
-    std::string path = pipeline_cache_path();
+    auto path = base_path::resolve("pipeline_cache.bin");
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
     if (f.is_open()) {
         f.write(data.data(), static_cast<std::streamsize>(size));
@@ -106,83 +96,75 @@ static void save_pipeline_cache(VkDevice device, VkPipelineCache cache) {
 
 // ── GpuContext ───────────────────────────────────────────────────────────
 
-static VmaAllocator create_vma_allocator(const Device& device) {
-    VmaAllocatorCreateInfo vma_ci{};
-    vma_ci.instance = device.instance();
-    vma_ci.physicalDevice = device.physical_device();
-    vma_ci.device = device.handle();
-    vma_ci.vulkanApiVersion = VK_API_VERSION_1_3;
-    if (device.ray_tracing_supported()) {
-        vma_ci.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
-    }
-    VmaAllocator allocator{VK_NULL_HANDLE};
-    if (vmaCreateAllocator(&vma_ci, &allocator) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create VMA allocator");
-    }
-    return allocator;
-}
-
 GpuContext::GpuContext(Window& window)
-    : window_{window}
-    , device_{window}
-    , allocator_{create_vma_allocator(device_)}
-    , swapchain_{device_, allocator_, window}
+    : core_{window}
     , render_stats_{std::make_unique<RenderStats>()} {
     FJELL_GFX_INFO("Initializing GPU context");
-    FJELL_GFX_INFO("VMA allocator created");
 
-    vk_pipeline_cache_ = load_pipeline_cache(device_.handle());
+    vk_pipeline_cache_ = load_pipeline_cache(core_.vk_device());
 
-    create_command_pool();
     create_descriptor_resources();
-    if (auto r = bindless_textures_.create(device_.handle(), allocator_); !r) {
+    if (auto r = bindless_textures_.create(core_.vk_device(), core_.allocator()); !r) {
         throw std::runtime_error(r.error());
     }
 
     // Multi-draw indirect setup
     mega_buffer_ = std::make_unique<MegaBuffer>(
-        device_.handle(), allocator_, command_pool_, device_.graphics_queue());
+        core_.vk_device(), core_.allocator(), core_.command_pool(), core_.graphics_queue());
 
     // Meshlet buffers + descriptor (uploaded at model load time)
-    if (device_.mesh_shader_supported()) {
+    if (core_.device().mesh_shader_supported()) {
         meshlet_buffer_ = std::make_unique<MeshletBuffer>(
-            device_.handle(), allocator_, command_pool_, device_.graphics_queue());
-        meshlet_descriptor_.create(device_.handle(), allocator_);
+            core_.vk_device(), core_.allocator(), core_.command_pool(), core_.graphics_queue());
+        meshlet_descriptor_.create(core_.vk_device(), core_.allocator());
         use_mesh_shaders_ = false;
     }
 
     // Query and clamp MSAA sample count
-    auto max_samples = device_.max_msaa_samples();
+    auto max_samples = core_.device().max_msaa_samples();
     msaa_samples_ = static_cast<VkSampleCountFlagBits>(
         std::min(static_cast<uint32_t>(VK_SAMPLE_COUNT_4_BIT),
                  static_cast<uint32_t>(max_samples)));
     FJELL_GFX_INFO("MSAA: {}x", static_cast<uint32_t>(msaa_samples_));
 
-    create_command_buffers();
-    create_sync_objects();
+#ifdef FJELL_ENABLE_TRACY
+    {
+        VkCommandBufferAllocateInfo tracy_alloc{};
+        tracy_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        tracy_alloc.commandPool = core_.command_pool();
+        tracy_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        tracy_alloc.commandBufferCount = 1;
+        VkCommandBuffer tracy_cmd;
+        vkAllocateCommandBuffers(core_.vk_device(), &tracy_alloc, &tracy_cmd);
+        tracy_vk_ctx_ = TracyVkContext(
+            core_.physical_device(), core_.vk_device(),
+            core_.graphics_queue(), tracy_cmd);
+        TracyVkContextName(tracy_vk_ctx_, "Fjell GPU", 9);
+    }
+#endif
 
     FJELL_GFX_INFO("GPU context ready");
 }
 
 void GpuContext::init_pipelines(VkDescriptorSetLayout draw_data_layout) {
-    VkFormat depth_format = device_.find_depth_format();
+    VkFormat depth_format = core_.device().find_depth_format();
     pipeline_ = std::make_unique<Pipeline>(
-        device_, OffscreenPass::COLOR_FORMAT, depth_format,
+        core_.device(), OffscreenPass::COLOR_FORMAT, depth_format,
         global_set_layout_->handle(), bindless_textures_.layout(),
         draw_data_layout, msaa_samples_,
         "shaders/mesh.vert.spv", "shaders/mesh.frag.spv",
         vk_pipeline_cache_);
 
     pipeline_cache_ = std::make_unique<PipelineCache>(
-        device_, OffscreenPass::COLOR_FORMAT, depth_format,
+        core_.device(), OffscreenPass::COLOR_FORMAT, depth_format,
         global_set_layout_->handle(), bindless_textures_.layout(),
         draw_data_layout, msaa_samples_,
-        device_.mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE,
+        core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE,
         vk_pipeline_cache_);
 }
 
 GpuContext::~GpuContext() {
-    auto vk_device = device_.handle();
+    auto vk_device = core_.vk_device();
 
     save_pipeline_cache(vk_device, vk_pipeline_cache_);
     if (vk_pipeline_cache_ != VK_NULL_HANDLE) {
@@ -201,7 +183,7 @@ GpuContext::~GpuContext() {
 
     if (gi_fallback_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk_device, gi_fallback_view_, nullptr);
     if (gi_fallback_sampler_ != VK_NULL_HANDLE) vkDestroySampler(vk_device, gi_fallback_sampler_, nullptr);
-    destroy_vma_image(allocator_, gi_fallback_image_, gi_fallback_alloc_);
+    destroy_vma_image(core_.allocator(), gi_fallback_image_, gi_fallback_alloc_);
 
     meshlet_descriptor_.destroy();
     meshlet_buffer_.reset();
@@ -213,13 +195,6 @@ GpuContext::~GpuContext() {
     pipeline_cache_.reset();
     pipeline_.reset();
 
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (image_available_[i] != VK_NULL_HANDLE)
-            vkDestroySemaphore(vk_device, image_available_[i], nullptr);
-        if (in_flight_[i] != VK_NULL_HANDLE)
-            vkDestroyFence(vk_device, in_flight_[i], nullptr);
-    }
-
 #ifdef FJELL_ENABLE_TRACY
     if (tracy_vk_ctx_) {
         TracyVkDestroy(tracy_vk_ctx_);
@@ -227,19 +202,14 @@ GpuContext::~GpuContext() {
     }
 #endif
 
-    // Release swapchain VMA images before destroying allocator.
-    swapchain_.cleanup();
-
     secondary_pools_.destroy();
-    if (command_pool_ != VK_NULL_HANDLE)
-        vkDestroyCommandPool(vk_device, command_pool_, nullptr);
 
-    if (allocator_ != VK_NULL_HANDLE)
-        vmaDestroyAllocator(allocator_);
+    // GpuCore destructor handles: sync objects, command pool, swapchain cleanup,
+    // VMA allocator, device, in the correct order.
 }
 
 void GpuContext::create_descriptor_resources() {
-    auto vk_device = device_.handle();
+    auto vk_device = core_.vk_device();
 
     // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler,
     // binding 2 = light SSBO, binding 3 = tile light index SSBO,
@@ -325,7 +295,7 @@ void GpuContext::create_descriptor_resources() {
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         uniform_buffers_[i] = std::make_unique<Buffer>(
-            allocator_, sizeof(GlobalUbo),
+            core_.allocator(), sizeof(GlobalUbo),
             VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
@@ -333,7 +303,7 @@ void GpuContext::create_descriptor_resources() {
 
         // Light SSBO (host-visible for CPU upload)
         light_ssbo_[i] = std::make_unique<Buffer>(
-            allocator_, light_ssbo_size,
+            core_.allocator(), light_ssbo_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
@@ -341,7 +311,7 @@ void GpuContext::create_descriptor_resources() {
 
         // Tile light index SSBO (device-local, compute writes, fragment reads)
         tile_light_ssbo_[i] = std::make_unique<Buffer>(
-            allocator_, tile_ssbo_size,
+            core_.allocator(), tile_ssbo_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO);
     }
@@ -372,7 +342,7 @@ void GpuContext::create_descriptor_resources() {
         gi_img_ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         gi_img_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-        create_vma_image(allocator_, &gi_img_ci, &gi_fallback_image_, &gi_fallback_alloc_);
+        create_vma_image(core_.allocator(), &gi_img_ci, &gi_fallback_image_, &gi_fallback_alloc_);
 
         VkImageViewCreateInfo gi_view_ci{};
         gi_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -394,7 +364,7 @@ void GpuContext::create_descriptor_resources() {
         // Transition to SHADER_READ_ONLY_OPTIMAL via one-shot command buffer
         VkCommandBufferAllocateInfo cmd_alloc{};
         cmd_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmd_alloc.commandPool = command_pool_;
+        cmd_alloc.commandPool = core_.command_pool();
         cmd_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         cmd_alloc.commandBufferCount = 1;
         VkCommandBuffer init_cmd;
@@ -413,9 +383,9 @@ void GpuContext::create_descriptor_resources() {
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submit.commandBufferCount = 1;
         submit.pCommandBuffers = &init_cmd;
-        vkQueueSubmit(device_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
-        vkQueueWaitIdle(device_.graphics_queue());
-        vkFreeCommandBuffers(vk_device, command_pool_, 1, &init_cmd);
+        vkQueueSubmit(core_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
+        vkQueueWaitIdle(core_.graphics_queue());
+        vkFreeCommandBuffers(vk_device, core_.command_pool(), 1, &init_cmd);
     }
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -482,75 +452,12 @@ void GpuContext::create_descriptor_resources() {
     FJELL_GFX_DEBUG("Descriptor resources created");
 }
 
-void GpuContext::create_command_pool() {
-    auto indices = device_.find_queue_families();
-
-    VkCommandPoolCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    create_info.queueFamilyIndex = indices.graphics.value();
-
-    if (vkCreateCommandPool(device_.handle(), &create_info, nullptr, &command_pool_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create command pool");
-    }
-}
-
-void GpuContext::create_command_buffers() {
-    command_buffers_.resize(MAX_FRAMES_IN_FLIGHT);
-
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = command_pool_;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = static_cast<uint32_t>(command_buffers_.size());
-
-    if (vkAllocateCommandBuffers(device_.handle(), &alloc_info, command_buffers_.data()) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate command buffers");
-    }
-
-#ifdef FJELL_ENABLE_TRACY
-    {
-        VkCommandBufferAllocateInfo tracy_alloc{};
-        tracy_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        tracy_alloc.commandPool = command_pool_;
-        tracy_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        tracy_alloc.commandBufferCount = 1;
-        VkCommandBuffer tracy_cmd;
-        vkAllocateCommandBuffers(device_.handle(), &tracy_alloc, &tracy_cmd);
-        tracy_vk_ctx_ = TracyVkContext(
-            device_.physical_device(), device_.handle(),
-            device_.graphics_queue(), tracy_cmd);
-        TracyVkContextName(tracy_vk_ctx_, "Fjell GPU", 9);
-    }
-#endif
-}
-
-void GpuContext::create_sync_objects() {
-    VkSemaphoreCreateInfo sem_info{};
-    sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    VkFenceCreateInfo fence_info{};
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        if (vkCreateSemaphore(device_.handle(), &sem_info, nullptr, &image_available_[i]) != VK_SUCCESS ||
-            vkCreateFence(device_.handle(), &fence_info, nullptr, &in_flight_[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create sync objects");
-        }
-    }
-}
-
 void GpuContext::ensure_secondary_pools(uint32_t thread_count) {
     if (!secondary_pools_initialized_ && thread_count > 0) {
-        secondary_pools_.create(device_.handle(), graphics_family(),
+        secondary_pools_.create(core_.vk_device(), core_.graphics_family(),
                                 thread_count + 1);
         secondary_pools_initialized_ = true;
     }
-}
-
-uint32_t GpuContext::graphics_family() const {
-    return device_.find_queue_families().graphics.value();
 }
 
 PassResources GpuContext::pass_resources() const {
@@ -558,17 +465,13 @@ PassResources GpuContext::pass_resources() const {
     res.global_set_layout = global_set_layout_->handle();
     res.material_set_layout = bindless_textures_.layout();
     res.draw_data_layout = VK_NULL_HANDLE; // set by caller if needed
-    res.meshlet_layout = device_.mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
-    res.depth_format = device_.find_depth_format();
+    res.meshlet_layout = core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
+    res.depth_format = core_.device().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = msaa_samples_;
-    res.allocator = allocator_;
+    res.allocator = core_.allocator();
     res.pipeline_cache = vk_pipeline_cache_;
     return res;
-}
-
-void GpuContext::wait_idle() {
-    vkDeviceWaitIdle(device_.handle());
 }
 
 } // namespace fjell

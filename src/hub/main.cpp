@@ -1,16 +1,14 @@
 #include "hub/hub_ui.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
-#include "renderer/gpu/device.hpp"
-#include "renderer/gpu/swapchain.hpp"
+#include "renderer/gpu/gpu_core.hpp"
+#include "renderer/gpu/vk_utils.hpp"
 #include "ui/imgui_layer.hpp"
 
-#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include "platform/platform.hpp"
 
-#include <array>
 #include <cstdlib>
 #include <filesystem>
 #include <string>
@@ -26,29 +24,15 @@ static void launch_editor(const std::string& project_path) {
     FJELL_CORE_ERROR("Failed to launch editor: {}", result.error());
 }
 
-static void transition_image(VkCommandBuffer cmd, VkImage image,
-                              VkImageLayout old_layout, VkImageLayout new_layout,
-                              VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                              VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = src_stage;
-    barrier.srcAccessMask = src_access;
-    barrier.dstStageMask = dst_stage;
-    barrier.dstAccessMask = dst_access;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-
-    vkCmdPipelineBarrier2(cmd, &dep);
+static std::string resolve_font_dir() {
+    auto exe_dir = fjell::platform::executable_path().parent_path();
+    for (int i = 0; i < 3; ++i) {
+        if (std::filesystem::is_directory(exe_dir / "engine_assets" / "fonts")) {
+            return (exe_dir / "engine_assets" / "fonts").string();
+        }
+        exe_dir = exe_dir.parent_path();
+    }
+    return {};
 }
 
 int main() {
@@ -57,73 +41,16 @@ int main() {
 
     try {
         fjell::Window window{"Fjell", HUB_WIDTH, HUB_HEIGHT};
-        fjell::Device device{window};
-
-        VmaAllocatorCreateInfo vma_ci{};
-        vma_ci.instance = device.instance();
-        vma_ci.physicalDevice = device.physical_device();
-        vma_ci.device = device.handle();
-        vma_ci.vulkanApiVersion = VK_API_VERSION_1_3;
-        VmaAllocator allocator{VK_NULL_HANDLE};
-        vmaCreateAllocator(&vma_ci, &allocator);
-
-        fjell::Swapchain swapchain{device, allocator, window};
-
-        // Resolve font dir from executable location
-        std::string font_dir;
-        {
-            auto exe_dir = fjell::platform::executable_path().parent_path();
-            for (int i = 0; i < 3; ++i) {
-                if (std::filesystem::is_directory(exe_dir / "engine_assets" / "fonts")) {
-                    font_dir = (exe_dir / "engine_assets" / "fonts").string();
-                    break;
-                }
-                exe_dir = exe_dir.parent_path();
-            }
-        }
+        fjell::GpuCore gpu{window};
 
         auto imgui_layer = fjell::ImGuiLayer(
-            window.handle(), device.instance(),
-            device.physical_device(), device.handle(),
-            device.find_queue_families().graphics.value(),
-            device.graphics_queue(),
-            swapchain.format(), swapchain.image_count(),
-            font_dir);
+            window.handle(), gpu.instance(),
+            gpu.physical_device(), gpu.vk_device(),
+            gpu.graphics_family(), gpu.graphics_queue(),
+            gpu.swapchain_format(), gpu.image_count(),
+            resolve_font_dir());
 
-        // Command pool + buffers
-        VkCommandPool cmd_pool;
-        {
-            VkCommandPoolCreateInfo ci{};
-            ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-            ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-            ci.queueFamilyIndex = device.find_queue_families().graphics.value();
-            vkCreateCommandPool(device.handle(), &ci, nullptr, &cmd_pool);
-        }
-
-        constexpr uint32_t MAX_FRAMES = 2;
-        std::array<VkCommandBuffer, MAX_FRAMES> cmd_bufs{};
-        {
-            VkCommandBufferAllocateInfo ai{};
-            ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-            ai.commandPool = cmd_pool;
-            ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-            ai.commandBufferCount = MAX_FRAMES;
-            vkAllocateCommandBuffers(device.handle(), &ai, cmd_bufs.data());
-        }
-
-        std::array<VkFence, MAX_FRAMES> fences{};
-        std::array<VkSemaphore, MAX_FRAMES> image_ready{};
-        for (uint32_t i = 0; i < MAX_FRAMES; ++i) {
-            VkFenceCreateInfo fi{};
-            fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-            vkCreateFence(device.handle(), &fi, nullptr, &fences[i]);
-
-            VkSemaphoreCreateInfo si{};
-            si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-            vkCreateSemaphore(device.handle(), &si, nullptr, &image_ready[i]);
-        }
-        auto& render_done = swapchain.render_finished_semaphores();
+        const auto& render_done = gpu.swapchain().render_finished_semaphores();
 
         fjell::hub::HubUI hub_ui;
         uint32_t frame = 0;
@@ -137,33 +64,30 @@ int main() {
             last_time = now;
             hub_ui.update_splash(dt);
 
-            vkWaitForFences(device.handle(), 1, &fences[frame], VK_TRUE, UINT64_MAX);
-            vkResetFences(device.handle(), 1, &fences[frame]);
+            VkFence fence = gpu.in_flight_fence(frame);
+            vkWaitForFences(gpu.vk_device(), 1, &fence, VK_TRUE, UINT64_MAX);
+            vkResetFences(gpu.vk_device(), 1, &fence);
 
             uint32_t img_idx = 0;
             auto result = vkAcquireNextImageKHR(
-                device.handle(), swapchain.handle(), UINT64_MAX,
-                image_ready[frame], VK_NULL_HANDLE, &img_idx);
+                gpu.vk_device(), gpu.swapchain().handle(), UINT64_MAX,
+                gpu.image_available_semaphore(frame), VK_NULL_HANDLE, &img_idx);
             if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-                swapchain.recreate();
+                gpu.swapchain().recreate();
                 continue;
             }
 
-            vkResetCommandBuffer(cmd_bufs[frame], 0);
+            auto cmd = gpu.command_buffer(frame);
+            vkResetCommandBuffer(cmd, 0);
             VkCommandBufferBeginInfo begin{};
             begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-            vkBeginCommandBuffer(cmd_bufs[frame], &begin);
+            vkBeginCommandBuffer(cmd, &begin);
 
-            // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
-            transition_image(cmd_bufs[frame], swapchain.image(img_idx),
-                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+            fjell::vk_utils::prepare_color_attachment(cmd, gpu.swapchain().image(img_idx));
 
             VkRenderingAttachmentInfo color_attachment{};
             color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-            color_attachment.imageView = swapchain.image_view(img_idx);
+            color_attachment.imageView = gpu.swapchain().image_view(img_idx);
             color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
             color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -171,56 +95,57 @@ int main() {
 
             VkRenderingInfo rendering_info{};
             rendering_info.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-            rendering_info.renderArea.extent = swapchain.extent();
+            rendering_info.renderArea.extent = gpu.swapchain_extent();
             rendering_info.layerCount = 1;
             rendering_info.colorAttachmentCount = 1;
             rendering_info.pColorAttachments = &color_attachment;
 
-            vkCmdBeginRendering(cmd_bufs[frame], &rendering_info);
+            vkCmdBeginRendering(cmd, &rendering_info);
 
             imgui_layer.begin_frame();
             auto launch = hub_ui.draw(
-                static_cast<float>(swapchain.extent().width),
-                static_cast<float>(swapchain.extent().height));
+                static_cast<float>(gpu.swapchain_extent().width),
+                static_cast<float>(gpu.swapchain_extent().height));
             imgui_layer.end_frame();
-            imgui_layer.render(cmd_bufs[frame]);
+            imgui_layer.render(cmd);
 
-            vkCmdEndRendering(cmd_bufs[frame]);
+            vkCmdEndRendering(cmd);
 
-            // Transition swapchain image: COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
-            transition_image(cmd_bufs[frame], swapchain.image(img_idx),
+            fjell::vk_utils::transition_image(cmd, gpu.swapchain().image(img_idx),
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                 VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                 VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, 0);
 
-            vkEndCommandBuffer(cmd_bufs[frame]);
+            vkEndCommandBuffer(cmd);
 
             VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            VkSemaphore wait_sem = gpu.image_available_semaphore(frame);
+            VkSemaphore signal_sem = render_done[img_idx];
 
             VkSubmitInfo submit{};
             submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
             submit.waitSemaphoreCount = 1;
-            submit.pWaitSemaphores = &image_ready[frame];
+            submit.pWaitSemaphores = &wait_sem;
             submit.pWaitDstStageMask = &wait_stage;
             submit.commandBufferCount = 1;
-            submit.pCommandBuffers = &cmd_bufs[frame];
+            submit.pCommandBuffers = &cmd;
             submit.signalSemaphoreCount = 1;
-            submit.pSignalSemaphores = &render_done[img_idx];
+            submit.pSignalSemaphores = &signal_sem;
 
-            vkQueueSubmit(device.graphics_queue(), 1, &submit, fences[frame]);
+            vkQueueSubmit(gpu.graphics_queue(), 1, &submit, fence);
 
-            VkSwapchainKHR sc = swapchain.handle();
+            VkSwapchainKHR sc = gpu.swapchain().handle();
             VkPresentInfoKHR present{};
             present.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
             present.waitSemaphoreCount = 1;
-            present.pWaitSemaphores = &render_done[img_idx];
+            present.pWaitSemaphores = &signal_sem;
             present.swapchainCount = 1;
             present.pSwapchains = &sc;
             present.pImageIndices = &img_idx;
-            vkQueuePresentKHR(device.graphics_queue(), &present);
+            vkQueuePresentKHR(gpu.graphics_queue(), &present);
 
-            frame = (frame + 1) % MAX_FRAMES;
+            frame = (frame + 1) % fjell::MAX_FRAMES_IN_FLIGHT;
 
             if (!launch.empty()) {
                 pending_launch = launch;
@@ -228,14 +153,7 @@ int main() {
             }
         }
 
-        vkDeviceWaitIdle(device.handle());
-
-        for (uint32_t i = 0; i < MAX_FRAMES; ++i) {
-            vkDestroySemaphore(device.handle(), image_ready[i], nullptr);
-            vkDestroyFence(device.handle(), fences[i], nullptr);
-        }
-        vkDestroyCommandPool(device.handle(), cmd_pool, nullptr);
-        vmaDestroyAllocator(allocator);
+        gpu.wait_idle();
 
     } catch (const std::exception& e) {
         FJELL_CORE_CRITICAL("Fatal: {}", e.what());
