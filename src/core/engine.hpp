@@ -13,6 +13,7 @@
 #include "renderer/uniform_types.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "scene/scene.hpp"
+#include "import/import_dialog.hpp"
 #include "ui/content_browser.hpp"
 #include "ui/context_registry.hpp"
 #include "ui/icon_cache.hpp"
@@ -201,6 +202,9 @@ private:
 
     // Menu bar (owns file browsers, popup state, emits delegates)
     MenuBar menu_bar_;
+
+    // In-engine mesh importer
+    ImportDialog import_dialog_;
 };
 
 } // namespace fjell

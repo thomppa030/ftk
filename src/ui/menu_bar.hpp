@@ -45,6 +45,7 @@ public:
     Delegate<void()> on_build_game;
     Delegate<void(const std::string&)> on_save_layout;
     Delegate<void(const std::string&)> on_load_layout;
+    Delegate<void()> on_import_model;
 
 private:
     void draw_file_menu();

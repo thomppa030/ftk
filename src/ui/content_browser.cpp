@@ -694,6 +694,11 @@ void ContentBrowser::draw_context_menu() {
                         on_add_model.broadcast(rel.string());
                         ImGui::CloseCurrentPopup();
                     }
+                    if (ImGui::MenuItem("Import...")) {
+                        auto rel = std::filesystem::relative(entry.path, root_);
+                        on_import_model.broadcast(rel.string());
+                        ImGui::CloseCurrentPopup();
+                    }
                     break;
 
                 case FileType::texture:

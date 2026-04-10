@@ -53,7 +53,6 @@ private:
         bool is_directory;
     };
 
-    void refresh_current_dir();
     void navigate_to(const std::filesystem::path& dir);
     void draw_directory_tree();
     void draw_directory_tree_node(const std::filesystem::path& dir);
@@ -114,6 +113,8 @@ private:
 
 
 public:
+    void refresh_current_dir();
+
     Delegate<void(const std::string&)> on_add_model;
     Delegate<void(const std::string&)> on_load_scene;
     // Hook for opening asset-specific editor contexts (path, file type string)
@@ -122,6 +123,8 @@ public:
     Delegate<void(const std::string&)> on_instantiate_preset;
     // Preset: create from hierarchy node drop (node_id, target directory)
     Delegate<void(uint32_t, const std::string&)> on_create_preset;
+    // Import model via in-engine importer
+    Delegate<void(const std::string&)> on_import_model;
 };
 
 } // namespace fjell

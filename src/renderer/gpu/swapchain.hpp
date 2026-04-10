@@ -14,6 +14,8 @@ class Window;
 class Swapchain {
 public:
     Swapchain(Device& device, VmaAllocator allocator, Window& window);
+    /// Construct with an explicit surface (for secondary windows sharing a Device).
+    Swapchain(Device& device, VmaAllocator allocator, Window& window, VkSurfaceKHR surface);
     ~Swapchain();
 
     Swapchain(const Swapchain&) = delete;
@@ -48,9 +50,12 @@ private:
     [[nodiscard]] VkExtent2D choose_extent(
         const VkSurfaceCapabilitiesKHR& capabilities) const;
 
+    [[nodiscard]] VkSurfaceKHR active_surface() const;
+
     Device& device_;
     VmaAllocator allocator_{VK_NULL_HANDLE};
     Window& window_;
+    VkSurfaceKHR surface_override_{VK_NULL_HANDLE};
 
     VkSwapchainKHR swapchain_{VK_NULL_HANDLE};
     std::vector<VkImage> images_;

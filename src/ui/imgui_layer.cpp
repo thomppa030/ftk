@@ -38,7 +38,9 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   }
 
   IMGUI_CHECKVERSION();
-  ImGui::CreateContext();
+  auto* prev_ctx = ImGui::GetCurrentContext();
+  context_ = ImGui::CreateContext();
+  ImGui::SetCurrentContext(context_);
 
   ImGuiIO &io = ImGui::GetIO();
   io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -65,25 +67,51 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 
   ImGui_ImplVulkan_Init(&init_info);
+
+  // Restore the previously active context so creating a second ImGuiLayer
+  // (e.g. for the import dialog) doesn't hijack the editor's context.
+  // If there was no previous context (first ImGuiLayer), keep ours active.
+  if (prev_ctx) {
+    ImGui::SetCurrentContext(prev_ctx);
+  }
 }
 
 ImGuiLayer::~ImGuiLayer() {
+  auto* prev = ImGui::GetCurrentContext();
+  if (prev == context_) prev = nullptr; // don't restore ourselves
+
+  ImGui::SetCurrentContext(context_);
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplGlfw_Shutdown();
-  ImGui::DestroyContext();
+  ImGui::DestroyContext(context_);
+  context_ = nullptr;
+
+  // Restore the previous context so the editor keeps working
+  ImGui::SetCurrentContext(prev);
 
   if (descriptor_pool_ != VK_NULL_HANDLE) {
     vkDestroyDescriptorPool(device_, descriptor_pool_, nullptr);
   }
 }
 
+void ImGuiLayer::activate() {
+  prev_context_ = ImGui::GetCurrentContext();
+  ImGui::SetCurrentContext(context_);
+}
+
+void ImGuiLayer::deactivate() {
+  ImGui::SetCurrentContext(prev_context_);
+  prev_context_ = nullptr;
+}
+
 void ImGuiLayer::begin_frame() {
   FJELL_PROFILE_SCOPE_N("imgui_begin_frame");
-  if (ImGui::GetCurrentContext() == nullptr) {
+  if (!context_) {
     FJELL_CORE_ERROR("ImGuiLayer::begin_frame() called with no ImGui context");
     return;
   }
 
+  ImGui::SetCurrentContext(context_);
   ImGui_ImplVulkan_NewFrame();
   ImGui_ImplGlfw_NewFrame();
   ImGui::NewFrame();

@@ -26,4 +26,28 @@ Result<> exec_replace(const std::vector<std::string>& args);
 /// (xdg-open on Linux, ShellExecuteA on Windows)
 Result<> open_path(const std::filesystem::path& path);
 
+// ── Subprocess with stdout pipe ─────────────────────────────────────────
+
+/// Handle for a child process whose stdout is captured via a pipe.
+struct SubprocessHandle {
+    int pid{-1};
+    int stdout_fd{-1};
+    bool finished{false};
+    int exit_code{-1};
+};
+
+/// Spawn a child process with its stdout connected to a readable pipe.
+/// args[0] is the executable path. The pipe fd is set to non-blocking.
+[[nodiscard]] Result<SubprocessHandle> spawn_with_pipe(const std::vector<std::string>& args);
+
+/// Read available complete lines from the subprocess stdout (non-blocking).
+/// Partial lines are buffered internally until a newline arrives.
+[[nodiscard]] std::vector<std::string> read_lines(SubprocessHandle& handle, std::string& line_buffer);
+
+/// Check if the subprocess has exited. Updates handle.finished and handle.exit_code.
+bool poll_exit(SubprocessHandle& handle);
+
+/// Kill the subprocess (SIGKILL) if still running, close the pipe fd, reap.
+void close_subprocess(SubprocessHandle& handle);
+
 } // namespace fjell::platform

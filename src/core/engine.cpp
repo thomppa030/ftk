@@ -48,6 +48,7 @@ extern "C" void fjell_input_clear_connections();
 #include <GLFW/glfw3.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -85,6 +86,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     : window_{title, width, height}
     , vulkan_context_{std::make_unique<VulkanContext>(window_)}
 {
+    import_dialog_.set_gpu(&vulkan_context_->gpu().core());
     init_subsystems();
     init_project(project_path);
     init_ui();
@@ -352,6 +354,40 @@ void Engine::init_content_browser() {
                 scene_context_->set_selected_id(root_id);
             }
         }));
+    // Import model from content browser right-click
+    connections_.push_back(content_browser_.on_import_model.bind(
+        [this](const std::string& path) {
+            auto abs = base_path::resolve_asset(path, project_mgr_.active());
+            auto output_dir = project_mgr_.active()
+                ? project_mgr_.active()->root() / "models"
+                : std::filesystem::path{};
+            import_dialog_.open(abs, output_dir);
+        }));
+
+    // Import completion — refresh content browser
+    connections_.push_back(import_dialog_.on_import_complete.bind(
+        [this](bool success, const std::vector<std::string>& /*files*/) {
+            if (success) {
+                content_browser_.refresh_current_dir();
+            }
+        }));
+
+    // Drag-and-drop files onto the editor window
+    connections_.push_back(window_.on_files_dropped.bind(
+        [this](const std::vector<std::string>& paths) {
+            for (const auto& p : paths) {
+                auto ext = std::filesystem::path(p).extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                if (ext == ".glb" || ext == ".gltf" || ext == ".fbx") {
+                    auto output_dir = project_mgr_.active()
+                        ? project_mgr_.active()->root() / "models"
+                        : std::filesystem::path{};
+                    import_dialog_.open(p, output_dir);
+                    return; // one dialog at a time
+                }
+            }
+        }));
+
     if (project_mgr_.active()) {
         content_browser_.set_root(project_mgr_.active()->root());
     }
@@ -1026,6 +1062,12 @@ void Engine::bind_menu_bar() {
         [this](const std::string& name) { save_layout(name); }));
     connections_.push_back(menu_bar_.on_load_layout.bind(
         [this](const std::string& name) { load_layout(name); }));
+    connections_.push_back(menu_bar_.on_import_model.bind(
+        []() {
+            // TODO: add file selection mode to FileBrowser, then open import dialog
+            // For now, use drag-and-drop or content browser right-click to import
+            FJELL_CORE_INFO("Use drag-and-drop or right-click a model in the Content Browser to import");
+        }));
 
     // React to project open/close from any source
     connections_.push_back(project_mgr_.on_opened.bind(
@@ -1400,6 +1442,9 @@ void Engine::run() {
         input_.update();
         input_action_map_.update(input_);
         window_.poll_events();
+        if (import_dialog_.is_open()) {
+            import_dialog_.tick();
+        }
         clock_.tick();
 
 #ifndef NDEBUG

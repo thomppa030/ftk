@@ -43,6 +43,8 @@ add_executable(fjell
     core/thread_pool.cpp
     core/log.cpp
     core/window.cpp
+    import/import_job.cpp
+    import/import_dialog.cpp
     renderer/gpu/buffer.cpp
     renderer/camera.cpp
     renderer/debug_draw.cpp

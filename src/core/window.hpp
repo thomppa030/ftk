@@ -3,8 +3,12 @@
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 
+#include "core/delegate.hpp"
+
 #include <cstdint>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace fjell {
 
@@ -36,8 +40,12 @@ public:
 
     [[nodiscard]] VkSurfaceKHR create_surface(VkInstance instance) const;
 
+    /// Fired when files are dragged and dropped onto this window.
+    Delegate<void(const std::vector<std::string>&)> on_files_dropped;
+
 private:
     static void framebuffer_resize_callback(GLFWwindow* window, int width, int height);
+    static void drop_callback(GLFWwindow* window, int count, const char** paths);
 
     GLFWwindow* window_{nullptr};
     Input* input_{nullptr};

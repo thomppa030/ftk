@@ -22,6 +22,14 @@ Swapchain::Swapchain(Device& device, VmaAllocator allocator, Window& window)
     create_render_finished_semaphores();
 }
 
+Swapchain::Swapchain(Device& device, VmaAllocator allocator, Window& window, VkSurfaceKHR surface)
+    : device_{device}, allocator_{allocator}, window_{window}, surface_override_{surface} {
+    create_swapchain();
+    create_image_views();
+    create_depth_resources();
+    create_render_finished_semaphores();
+}
+
 Swapchain::~Swapchain() {
     auto vk_device = device_.handle();
 
@@ -74,7 +82,8 @@ void Swapchain::recreate() {
 }
 
 void Swapchain::create_swapchain() {
-    auto support = device_.query_swapchain_support();
+    auto surface = active_surface();
+    auto support = device_.query_swapchain_support(surface);
     auto format = choose_surface_format(support.formats);
     auto mode = choose_present_mode(support.present_modes);
     auto extent = choose_extent(support.capabilities);
@@ -87,7 +96,7 @@ void Swapchain::create_swapchain() {
 
     VkSwapchainCreateInfoKHR create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    create_info.surface = device_.surface();
+    create_info.surface = surface;
     create_info.minImageCount = image_count;
     create_info.imageFormat = format.format;
     create_info.imageColorSpace = format.colorSpace;
@@ -233,6 +242,10 @@ VkExtent2D Swapchain::choose_extent(
     extent.height = std::clamp(extent.height,
         capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
     return extent;
+}
+
+VkSurfaceKHR Swapchain::active_surface() const {
+    return surface_override_ != VK_NULL_HANDLE ? surface_override_ : device_.surface();
 }
 
 } // namespace fjell

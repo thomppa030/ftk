@@ -35,6 +35,10 @@ void MenuBar::draw_file_menu() {
     if (ImGui::MenuItem("Load Scene") && scene_path_ && !scene_path_->empty()) {
         on_load_scene.broadcast();
     }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Import Model...")) {
+        on_import_model.broadcast();
+    }
     ImGui::EndMenu();
 }
 

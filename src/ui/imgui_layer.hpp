@@ -5,6 +5,7 @@
 #include <string>
 
 struct GLFWwindow;
+struct ImGuiContext;
 
 namespace fjell {
 
@@ -26,12 +27,21 @@ public:
     void end_frame();
     void render(VkCommandBuffer cmd);
 
+    /// Make this layer's ImGui context the current one. Required when
+    /// multiple ImGui contexts coexist (e.g. editor + import dialog).
+    void activate();
+
+    /// Restore the previously active ImGui context.
+    void deactivate();
+
 private:
     void setup_style();
 
     VkDevice device_;
     VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
     std::string font_dir_;
+    ImGuiContext* context_{nullptr};
+    ImGuiContext* prev_context_{nullptr}; // saved by activate(), restored by deactivate()
 };
 
 } // namespace fjell

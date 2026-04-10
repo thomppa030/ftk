@@ -33,9 +33,78 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+// ── Import settings (configurable via --settings JSON) ──────────────────
+
+struct ImportSettings {
+    bool generate_lods{true};
+    uint32_t lod_count{3};
+    float lod_thresholds[8]{1.0f, 0.3f, 0.1f};
+    float lod_target_ratios[8]{1.0f, 0.5f, 0.25f};
+    float lod_target_error{0.02f};
+    bool generate_sdf{true};
+    uint32_t sdf_resolution{32};
+    bool import_animations{true};
+};
+
+// Progress callback: (phase, percent 0-100, message)
+using ProgressFn = std::function<void(const char* phase, int percent, const char* message)>;
+
+static ImportSettings load_settings(const std::string& path) {
+    ImportSettings s;
+    std::ifstream f(path);
+    if (!f.is_open()) return s;
+    auto j = nlohmann::json::parse(f, nullptr, false);
+    if (j.is_discarded()) return s;
+
+    if (j.contains("generate_lods")) s.generate_lods = j["generate_lods"].get<bool>();
+    if (j.contains("lod_count")) s.lod_count = std::min(j["lod_count"].get<uint32_t>(), 8u);
+    if (j.contains("lod_thresholds")) {
+        auto& arr = j["lod_thresholds"];
+        for (size_t i = 0; i < arr.size() && i < 8; ++i) s.lod_thresholds[i] = arr[i].get<float>();
+    }
+    if (j.contains("lod_target_ratios")) {
+        auto& arr = j["lod_target_ratios"];
+        for (size_t i = 0; i < arr.size() && i < 8; ++i) s.lod_target_ratios[i] = arr[i].get<float>();
+    }
+    if (j.contains("lod_target_error")) s.lod_target_error = j["lod_target_error"].get<float>();
+    if (j.contains("generate_sdf")) s.generate_sdf = j["generate_sdf"].get<bool>();
+    if (j.contains("sdf_resolution")) s.sdf_resolution = j["sdf_resolution"].get<uint32_t>();
+    if (j.contains("import_animations")) s.import_animations = j["import_animations"].get<bool>();
+    return s;
+}
+
+// Default progress: print to stderr (same as original behavior)
+static void stderr_progress(const char* /*phase*/, int /*percent*/, const char* message) {
+    std::fprintf(stderr, "  %s\n", message);
+}
+
+// JSON progress: newline-delimited JSON to stdout
+static void json_progress(const char* phase, int percent, const char* message) {
+    std::printf("{\"phase\":\"%s\",\"percent\":%d,\"message\":\"%s\"}\n", phase, percent, message);
+    std::fflush(stdout);
+}
+
+static void json_done(const std::vector<std::string>& output_files) {
+    std::string files_json = "[";
+    for (size_t i = 0; i < output_files.size(); ++i) {
+        if (i > 0) files_json += ",";
+        files_json += "\"" + output_files[i] + "\"";
+    }
+    files_json += "]";
+    std::printf("{\"phase\":\"done\",\"percent\":100,\"message\":\"Import complete\",\"output_files\":%s}\n",
+                files_json.c_str());
+    std::fflush(stdout);
+}
+
+static void json_error(const char* message) {
+    std::printf("{\"phase\":\"error\",\"percent\":0,\"message\":\"%s\"}\n", message);
+    std::fflush(stdout);
+}
 
 // Layout validation — must match what the engine runtime expects
 static_assert(sizeof(fjell::Vertex) == 60, "Vertex layout changed — .fjmesh format incompatible");
@@ -130,13 +199,8 @@ static void append_submesh(ImportResult& result,
     result.submeshes.push_back(submesh);
 }
 
-// LOD thresholds: fraction of screen height the bounding sphere should cover
-// to select this LOD. LOD 0 = full detail (threshold 1.0 = always eligible).
-static constexpr float LOD_THRESHOLDS[] = {1.0f, 0.3f, 0.1f};
-static constexpr float LOD_TARGET_RATIOS[] = {1.0f, 0.5f, 0.25f};
-static constexpr float LOD_TARGET_ERROR = 0.02f;
-
-static bool import_mesh(const std::string& input_path, ImportResult& result) {
+static bool import_mesh(const std::string& input_path, ImportResult& result,
+                        const ImportSettings& settings, const ProgressFn& progress) {
     Assimp::Importer importer;
 
     constexpr unsigned int flags =
@@ -150,6 +214,8 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
                      input_path.c_str(), importer.GetErrorString());
         return false;
     }
+
+    progress("mesh", 10, "Extracting mesh data...");
 
     // First pass: extract source mesh data
     std::vector<SourceMesh> source_meshes;
@@ -217,12 +283,16 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
     }
 
     // Generate LOD levels: LOD 0 uses original indices, LOD 1+ use meshopt_simplify
-    uint32_t num_lods = static_cast<uint32_t>(std::size(LOD_THRESHOLDS));
+    uint32_t num_lods = settings.generate_lods ? settings.lod_count : 1;
 
     for (uint32_t lod = 0; lod < num_lods; ++lod) {
+        char msg[128];
+        std::snprintf(msg, sizeof(msg), "Generating LOD %u/%u", lod + 1, num_lods);
+        progress("lod", static_cast<int>(25 + 40 * lod / num_lods), msg);
+
         fjell::FjMeshLodLevel level{};
         level.first_submesh = static_cast<uint32_t>(result.submeshes.size());
-        level.max_screen_size = LOD_THRESHOLDS[lod];
+        level.max_screen_size = settings.lod_thresholds[lod];
 
         uint32_t lod_submeshes = 0;
 
@@ -236,7 +306,7 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
             } else {
                 // Simplified LOD
                 size_t target_count = static_cast<size_t>(
-                    static_cast<float>(src.local_indices.size()) * LOD_TARGET_RATIOS[lod]);
+                    static_cast<float>(src.local_indices.size()) * settings.lod_target_ratios[lod]);
                 // Round down to multiple of 3
                 target_count = (target_count / 3) * 3;
                 if (target_count < 3) target_count = 3;
@@ -251,7 +321,7 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
                     src.vertices.size(),
                     sizeof(fjell::Vertex),
                     target_count,
-                    LOD_TARGET_ERROR,
+                    settings.lod_target_error,
                     0, // options
                     &result_error);
 
@@ -276,20 +346,23 @@ static bool import_mesh(const std::string& input_path, ImportResult& result) {
     }
 
     // Generate per-mesh SDF from collision geometry
-    if (!result.collision_vertices.empty() && !result.collision_indices.empty()) {
+    if (settings.generate_sdf &&
+        !result.collision_vertices.empty() && !result.collision_indices.empty()) {
+        char msg[128];
+        std::snprintf(msg, sizeof(msg), "Generating SDF (%ux%ux%u)",
+                      settings.sdf_resolution, settings.sdf_resolution, settings.sdf_resolution);
+        progress("sdf", 75, msg);
+
         auto sdf = fjell::generate_sdf(
             result.collision_vertices.data(),
             static_cast<uint32_t>(result.collision_vertices.size()),
             result.collision_indices.data(),
             static_cast<uint32_t>(result.collision_indices.size()),
-            result.aabb.min, result.aabb.max, 32);
+            result.aabb.min, result.aabb.max, settings.sdf_resolution);
         result.sdf_data = std::move(sdf.data);
         result.sdf_resolution = sdf.resolution;
         result.sdf_min = sdf.sdf_min;
         result.sdf_max = sdf.sdf_max;
-        std::fprintf(stderr, "  SDF: %ux%ux%u grid (%zu KB)\n",
-                     sdf.resolution, sdf.resolution, sdf.resolution,
-                     result.sdf_data.size() * 2 / 1024);
     }
 
     return true;
@@ -1052,7 +1125,9 @@ static bool export_animation(const std::string& output_path,
 // ════════════════════════════════════════════════════════════════════════
 
 static void print_usage(const char* prog) {
-    std::fprintf(stderr, "usage: %s <input.glb|gltf|fbx> [-o output.fjmesh]\n", prog);
+    std::fprintf(stderr,
+        "usage: %s <input.glb|gltf|fbx> [-o output.fjmesh] [--settings path.json] [--json-progress]\n",
+        prog);
 }
 
 int main(int argc, char* argv[]) {
@@ -1065,10 +1140,16 @@ int main(int argc, char* argv[]) {
 
     std::string input_path;
     std::string output_path;
+    std::string settings_path;
+    bool use_json_progress = false;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--settings") == 0 && i + 1 < argc) {
+            settings_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--json-progress") == 0) {
+            use_json_progress = true;
         } else if (argv[i][0] != '-') {
             input_path = argv[i];
         } else {
@@ -1085,8 +1166,17 @@ int main(int argc, char* argv[]) {
 
     if (!fs::exists(input_path)) {
         std::fprintf(stderr, "error: file not found: %s\n", input_path.c_str());
+        if (use_json_progress) json_error("File not found");
         return 1;
     }
+
+    // Load settings (defaults if no --settings provided)
+    ImportSettings settings;
+    if (!settings_path.empty()) {
+        settings = load_settings(settings_path);
+    }
+
+    ProgressFn progress = use_json_progress ? json_progress : stderr_progress;
 
     // Default output: same directory, .fjmesh extension
     if (output_path.empty()) {
@@ -1095,7 +1185,11 @@ int main(int argc, char* argv[]) {
         output_path = p.string();
     }
 
-    std::printf("importing %s ...\n", input_path.c_str());
+    if (!use_json_progress) {
+        std::printf("importing %s ...\n", input_path.c_str());
+    }
+
+    progress("loading", 0, "Loading scene with Assimp...");
 
     // Load via Assimp first to detect skinned vs static
     Assimp::Importer importer;
@@ -1107,6 +1201,7 @@ int main(int argc, char* argv[]) {
     if (!scene || (scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene->mRootNode) {
         std::fprintf(stderr, "error: Assimp failed to load '%s': %s\n",
                      input_path.c_str(), importer.GetErrorString());
+        if (use_json_progress) json_error("Assimp failed to load file");
         return 1;
     }
 
@@ -1116,18 +1211,27 @@ int main(int argc, char* argv[]) {
         if (scene->mMeshes[m]->HasBones()) { has_skin = true; break; }
     }
 
+    // Track output files for JSON progress
+    std::vector<std::string> output_files;
+
     if (has_skin) {
         // ── Skinned mesh path ──
+        progress("mesh", 10, "Extracting skinned mesh data...");
+
         SkinnedImportResult skinned_result;
         if (!import_skinned_mesh(scene, skinned_result)) {
             std::fprintf(stderr, "error: skinned import failed\n");
+            if (use_json_progress) json_error("Skinned import failed");
             return 1;
         }
 
         if (skinned_result.vertices.empty()) {
             std::fprintf(stderr, "error: no skinned mesh data found\n");
+            if (use_json_progress) json_error("No skinned mesh data found");
             return 1;
         }
+
+        progress("skeleton", 40, "Building skeleton...");
 
         // Build runtime skeleton
         std::unordered_map<std::string, bool> bone_names;
@@ -1146,44 +1250,62 @@ int main(int argc, char* argv[]) {
         auto runtime_skel = skel_builder(raw_skel);
 
         // Write .fjskel (mesh + skeleton combined)
+        progress("write", 60, "Writing .fjskel...");
         fs::path skel_path = fs::path(output_path).replace_extension(".fjskel");
         if (!write_fjskel(skel_path.string(), skinned_result, *runtime_skel)) {
+            if (use_json_progress) json_error("Failed to write .fjskel");
             return 1;
         }
+        output_files.push_back(skel_path.string());
 
         // Export animations
-        fs::path stem = fs::path(output_path).stem();
-        fs::path out_dir = fs::path(output_path).parent_path();
-        uint32_t exported = 0;
-        for (unsigned int a = 0; a < scene->mNumAnimations; ++a) {
-            const aiAnimation* anim = scene->mAnimations[a];
-            std::string clip_name = anim->mName.C_Str();
-            // Sanitize clip name for filename
-            for (char& c : clip_name) {
-                if (c == '/' || c == '\\' || c == ':' || c == ' ') c = '_';
+        if (settings.import_animations && scene->mNumAnimations > 0) {
+            progress("animation", 70, "Exporting animations...");
+            fs::path stem = fs::path(output_path).stem();
+            fs::path out_dir = fs::path(output_path).parent_path();
+            uint32_t exported = 0;
+            for (unsigned int a = 0; a < scene->mNumAnimations; ++a) {
+                const aiAnimation* anim = scene->mAnimations[a];
+                std::string clip_name = anim->mName.C_Str();
+                // Sanitize clip name for filename
+                for (char& c : clip_name) {
+                    if (c == '/' || c == '\\' || c == ':' || c == ' ') c = '_';
+                }
+                fs::path anim_path = out_dir / (stem.string() + "_" + clip_name + ".fjanim");
+                if (export_animation(anim_path.string(), anim, *runtime_skel,
+                                     skinned_result.joint_map)) {
+                    output_files.push_back(anim_path.string());
+                    exported++;
+                }
             }
-            fs::path anim_path = out_dir / (stem.string() + "_" + clip_name + ".fjanim");
-            if (export_animation(anim_path.string(), anim, *runtime_skel,
-                                 skinned_result.joint_map)) {
-                exported++;
+            if (!use_json_progress) {
+                std::printf("exported %u/%u animation clips\n", exported, scene->mNumAnimations);
             }
         }
-        std::printf("exported %u/%u animation clips\n", exported, scene->mNumAnimations);
     } else {
-        // ── Static mesh path (unchanged) ──
+        // ── Static mesh path ──
         ImportResult result;
-        if (!import_mesh(input_path, result)) {
+        if (!import_mesh(input_path, result, settings, progress)) {
+            if (use_json_progress) json_error("Mesh import failed");
             return 1;
         }
 
         if (result.vertices.empty()) {
             std::fprintf(stderr, "error: no mesh data found in '%s'\n", input_path.c_str());
+            if (use_json_progress) json_error("No mesh data found");
             return 1;
         }
 
+        progress("write", 90, "Writing .fjmesh...");
         if (!write_fjmesh(output_path, result)) {
+            if (use_json_progress) json_error("Failed to write .fjmesh");
             return 1;
         }
+        output_files.push_back(output_path);
+    }
+
+    if (use_json_progress) {
+        json_done(output_files);
     }
 
     fjell::log::shutdown();
