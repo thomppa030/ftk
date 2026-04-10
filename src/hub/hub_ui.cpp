@@ -15,6 +15,37 @@ namespace fjell::hub {
 
 HubUI::HubUI() = default;
 
+void HubUI::set_gpu(fjell::GpuCore* gpu) {
+    open_browser_.set_gpu(gpu);
+    new_browser_.set_gpu(gpu);
+
+    browser_connections_.push_back(
+        open_browser_.on_selected.bind([this](const std::string& path) {
+            // Try to read project name from manifest
+            std::string name;
+            auto manifest = std::filesystem::path(path) / "project.fjell";
+            if (std::filesystem::exists(manifest)) {
+                std::ifstream f(manifest);
+                nlohmann::json j;
+                try { j = nlohmann::json::parse(f); name = j.value("name", ""); }
+                catch (const std::exception& e) { FJELL_CORE_WARN("Failed to parse project manifest: {}", e.what()); }
+            }
+            if (name.empty()) {
+                name = std::filesystem::path(path).filename().string();
+            }
+            launch_project(path, name);
+        }));
+    browser_connections_.push_back(
+        new_browser_.on_location_selected.bind([this](const std::string& path, const std::string& name) {
+            launch_project(path, name);
+        }));
+}
+
+void HubUI::tick_browsers() {
+    if (open_browser_.is_open()) open_browser_.tick();
+    if (new_browser_.is_open()) new_browser_.tick();
+}
+
 void HubUI::setup_style() {
     fjell::theme::apply(ImGui::GetStyle());
 }
@@ -157,36 +188,14 @@ void HubUI::draw_hub(float window_w, float window_h) {
     ImGui::SetCursorPos({pad, window_h - button_area});
 
     if (ImGui::Button("New Project", {button_w, button_h})) {
-        new_browser_.open("New Project");
+        new_browser_.open("New Project", FileBrowser::Mode::select_location);
     }
     ImGui::SameLine();
     if (ImGui::Button("Open Project", {button_w, 36.0f})) {
-        open_browser_.open("Open Project");
+        open_browser_.open("Open Project", FileBrowser::Mode::select_directory);
     }
 
     ImGui::End();
-
-    // File browser popups
-    if (new_browser_.draw()) {
-        launch_project(new_browser_.selected_path(), new_browser_.project_name());
-    }
-
-    if (open_browser_.draw()) {
-        auto path = open_browser_.selected_path();
-        // Try to read project name from manifest
-        std::string name;
-        auto manifest = std::filesystem::path(path) / "project.fjell";
-        if (std::filesystem::exists(manifest)) {
-            std::ifstream f(manifest);
-            nlohmann::json j;
-            try { j = nlohmann::json::parse(f); name = j.value("name", ""); }
-            catch (const std::exception& e) { FJELL_CORE_WARN("Failed to parse project manifest: {}", e.what()); }
-        }
-        if (name.empty()) {
-            name = std::filesystem::path(path).filename().string();
-        }
-        launch_project(path, name);
-    }
 }
 
 void HubUI::launch_project(const std::string& path, const std::string& name) {

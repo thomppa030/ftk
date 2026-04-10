@@ -53,11 +53,13 @@ int main() {
         const auto& render_done = gpu.swapchain().render_finished_semaphores();
 
         fjell::hub::HubUI hub_ui;
+        hub_ui.set_gpu(&gpu);
         uint32_t frame = 0;
         float last_time = static_cast<float>(glfwGetTime());
 
         while (!window.should_close()) {
             window.poll_events();
+            hub_ui.tick_browsers();
 
             float now = static_cast<float>(glfwGetTime());
             float dt = now - last_time;

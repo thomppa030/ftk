@@ -86,7 +86,38 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     : window_{title, width, height}
     , vulkan_context_{std::make_unique<VulkanContext>(window_)}
 {
-    import_dialog_.set_gpu(&vulkan_context_->gpu().core());
+    auto* gpu_core = &vulkan_context_->gpu().core();
+    import_dialog_.set_gpu(gpu_core);
+    menu_bar_.set_gpu(gpu_core);
+    import_file_browser_.set_gpu(gpu_core);
+
+    // Icon provider for standalone file browsers (uses IconCache from the editor's context)
+    auto icon_provider = [](const FileBrowser::Entry& entry) -> ImTextureID {
+        auto* icons = IconCache::instance();
+        if (!icons) return 0;
+        const char* name = "node";
+        if (entry.is_directory) {
+            name = "folder";
+        } else {
+            auto ext = std::filesystem::path(entry.name).extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".glb" || ext == ".gltf" || ext == ".fbx" || ext == ".fjmesh" || ext == ".fjskel")
+                name = "mesh";
+            else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp")
+                name = "texture";
+            else if (ext == ".fjsl" || ext == ".vert" || ext == ".frag" || ext == ".comp" || ext == ".glsl")
+                name = "shader";
+            else if (ext == ".fjmat")
+                name = "material";
+            else if (ext == ".cpp" || ext == ".cc" || ext == ".cxx")
+                name = "cpp";
+            else if (ext == ".hpp" || ext == ".h" || ext == ".hxx")
+                name = "header";
+        }
+        return icons->icon_for_current_context(name);
+    };
+    import_file_browser_.set_icon_provider(icon_provider);
+
     init_subsystems();
     init_project(project_path);
     init_ui();
@@ -1063,10 +1094,16 @@ void Engine::bind_menu_bar() {
     connections_.push_back(menu_bar_.on_load_layout.bind(
         [this](const std::string& name) { load_layout(name); }));
     connections_.push_back(menu_bar_.on_import_model.bind(
-        []() {
-            // TODO: add file selection mode to FileBrowser, then open import dialog
-            // For now, use drag-and-drop or content browser right-click to import
-            FJELL_CORE_INFO("Use drag-and-drop or right-click a model in the Content Browser to import");
+        [this]() {
+            import_file_browser_.open("Import Model", FileBrowser::Mode::select_file,
+                                      {".glb", ".gltf", ".fbx"});
+        }));
+    connections_.push_back(import_file_browser_.on_selected.bind(
+        [this](const std::string& path) {
+            auto output_dir = project_mgr_.active()
+                ? project_mgr_.active()->root() / "models"
+                : std::filesystem::path{};
+            import_dialog_.open(path, output_dir);
         }));
 
     // React to project open/close from any source
@@ -1442,9 +1479,9 @@ void Engine::run() {
         input_.update();
         input_action_map_.update(input_);
         window_.poll_events();
-        if (import_dialog_.is_open()) {
-            import_dialog_.tick();
-        }
+        if (import_dialog_.is_open()) import_dialog_.tick();
+        if (import_file_browser_.is_open()) import_file_browser_.tick();
+        menu_bar_.tick_browsers();
         clock_.tick();
 
 #ifndef NDEBUG

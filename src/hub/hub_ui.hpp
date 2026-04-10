@@ -5,14 +5,24 @@
 
 #include <string>
 
+namespace fjell {
+class GpuCore;
+}
+
 namespace fjell::hub {
 
 class HubUI {
 public:
     HubUI();
 
+    /// Set the GpuCore for standalone file browser windows.
+    void set_gpu(fjell::GpuCore* gpu);
+
     // Draw the current frame. Returns a project path to launch, or empty.
     [[nodiscard]] std::string draw(float window_w, float window_h);
+
+    /// Tick standalone file browser windows.
+    void tick_browsers();
 
     [[nodiscard]] bool is_splash_active() const { return splash_active_; }
     [[nodiscard]] float splash_elapsed() const { return splash_timer_; }
@@ -36,9 +46,10 @@ private:
     std::string launch_path_;
     std::string launch_name_;
 
-    // File browsers
-    FileBrowser open_browser_{FileBrowser::Mode::select_directory};
-    FileBrowser new_browser_{FileBrowser::Mode::select_location};
+    // File browsers (standalone windows)
+    FileBrowser open_browser_;
+    FileBrowser new_browser_;
+    std::vector<Connection> browser_connections_;
 
     bool style_set_{false};
 };

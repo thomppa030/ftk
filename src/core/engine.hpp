@@ -205,6 +205,7 @@ private:
 
     // In-engine mesh importer
     ImportDialog import_dialog_;
+    FileBrowser import_file_browser_;
 };
 
 } // namespace fjell

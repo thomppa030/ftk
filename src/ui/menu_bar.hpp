@@ -10,6 +10,7 @@
 
 namespace fjell {
 
+class GpuCore;
 class Project;
 class Scene;
 class VulkanContext;
@@ -28,6 +29,10 @@ public:
     void set_scene_path(const std::string& p) { scene_path_ = &p; }
     void set_vulkan_context(VulkanContext* vk) { vk_ = vk; }
     void set_viewport_manager(ViewportManager* vm) { viewports_ = vm; }
+    void set_gpu(GpuCore* gpu);
+
+    /// Tick standalone file browser windows. Call from the main loop.
+    void tick_browsers();
 
     [[nodiscard]] const std::string& active_layout() const { return active_layout_name_; }
     void set_active_layout(const std::string& name) { active_layout_name_ = name; }
@@ -65,8 +70,9 @@ private:
     bool building_{false};
 
     // Owned state
-    FileBrowser open_browser_{FileBrowser::Mode::select_directory};
-    FileBrowser new_browser_{FileBrowser::Mode::select_location};
+    FileBrowser open_browser_;
+    FileBrowser new_browser_;
+    std::vector<Connection> browser_connections_;
     bool show_new_script_popup_{false};
     char new_script_name_[128]{};
     bool show_save_layout_popup_{false};

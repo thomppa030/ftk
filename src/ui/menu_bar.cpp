@@ -2,11 +2,14 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "core/project.hpp"
+#include "renderer/gpu/gpu_core.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/viewport_manager.hpp"
 
 #include <imgui.h>
+
+#include <filesystem>
 
 #include <cstring>
 #include <filesystem>
@@ -46,10 +49,10 @@ void MenuBar::draw_project_menu() {
     if (!ImGui::BeginMenu("Project")) return;
 
     if (ImGui::MenuItem("New Project...")) {
-        new_browser_.open("New Project");
+        new_browser_.open("New Project", FileBrowser::Mode::select_location);
     }
     if (ImGui::MenuItem("Open Project...")) {
-        open_browser_.open("Open Project");
+        open_browser_.open("Open Project", FileBrowser::Mode::select_directory);
     }
     if (project_ && ImGui::MenuItem("Close Project")) {
         on_close_project.broadcast();
@@ -202,14 +205,25 @@ void MenuBar::draw_popups() {
         ImGui::EndPopup();
     }
 
-    // File browser popups
-    if (open_browser_.draw()) {
-        on_open_project.broadcast(open_browser_.selected_path());
-    }
+}
 
-    if (new_browser_.draw()) {
-        on_create_project.broadcast(new_browser_.selected_path(), new_browser_.project_name());
-    }
+void MenuBar::set_gpu(GpuCore* gpu) {
+    open_browser_.set_gpu(gpu);
+    new_browser_.set_gpu(gpu);
+
+    browser_connections_.push_back(
+        open_browser_.on_selected.bind([this](const std::string& path) {
+            on_open_project.broadcast(std::filesystem::path(path));
+        }));
+    browser_connections_.push_back(
+        new_browser_.on_location_selected.bind([this](const std::string& path, const std::string& name) {
+            on_create_project.broadcast(std::filesystem::path(path), name);
+        }));
+}
+
+void MenuBar::tick_browsers() {
+    if (open_browser_.is_open()) open_browser_.tick();
+    if (new_browser_.is_open()) new_browser_.tick();
 }
 
 } // namespace fjell

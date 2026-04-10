@@ -32,7 +32,13 @@ public:
     IconCache& operator=(IconCache&&) = delete;
 
     /// Returns the ImGui descriptor set for a named icon (e.g. "folder", "mesh").
+    /// The descriptor is for the editor's ImGui context (created at load time).
     [[nodiscard]] VkDescriptorSet icon(const std::string& name) const;
+
+    /// Returns an ImGui texture ID for a named icon, registered in the
+    /// *current* ImGui context. Use this from secondary windows (file browser,
+    /// import dialog) that have their own ImGui context.
+    [[nodiscard]] ImTextureID icon_for_current_context(const std::string& name);
 
     /// Draw a small icon inline (for panel headers). Call right after ImGui::Begin().
     inline void draw_panel_icon(const char* icon_name) const {
@@ -86,6 +92,20 @@ private:
 
     std::unordered_map<std::string, IconEntry> icons_;
     std::unordered_map<std::string, IconEntry> thumbnails_;
+
+    // Per-context icon descriptors for secondary ImGui contexts.
+    // Key: (ImGuiContext*, icon_name) → VkDescriptorSet
+    struct ContextKey {
+        void* context;
+        std::string name;
+        bool operator==(const ContextKey& o) const { return context == o.context && name == o.name; }
+    };
+    struct ContextKeyHash {
+        size_t operator()(const ContextKey& k) const {
+            return std::hash<void*>{}(k.context) ^ (std::hash<std::string>{}(k.name) << 1);
+        }
+    };
+    std::unordered_map<ContextKey, VkDescriptorSet, ContextKeyHash> context_descriptors_;
 
     // Async thumbnail pipeline: background threads decode pixels, main thread uploads
     struct PendingThumbnail {

@@ -80,6 +80,26 @@ VkDescriptorSet IconCache::icon(const std::string& name) const {
     return it != icons_.end() ? it->second.descriptor : VK_NULL_HANDLE;
 }
 
+ImTextureID IconCache::icon_for_current_context(const std::string& name) {
+    auto* ctx = ImGui::GetCurrentContext();
+    ContextKey key{ctx, name};
+    auto it = context_descriptors_.find(key);
+    if (it != context_descriptors_.end()) {
+        return reinterpret_cast<ImTextureID>(it->second);
+    }
+
+    // Find the icon's Vulkan resources
+    auto icon_it = icons_.find(name);
+    if (icon_it == icons_.end()) return 0;
+
+    // Register with the current ImGui context
+    auto desc = ImGui_ImplVulkan_AddTexture(
+        icon_it->second.sampler, icon_it->second.view,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    context_descriptors_[key] = desc;
+    return reinterpret_cast<ImTextureID>(desc);
+}
+
 // ── Shared upload ───────────────────────────────────────────────────────
 
 IconCache::IconEntry IconCache::upload_rgba(const uint8_t* pixels, int w, int h) {
