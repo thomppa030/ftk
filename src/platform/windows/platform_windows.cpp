@@ -122,4 +122,20 @@ Result<> open_path(const std::filesystem::path& path) {
     return {};
 }
 
+// ── Subprocess with stdout pipe (stubs — not yet implemented) ───────────
+
+Result<SubprocessHandle> spawn_with_pipe(const std::vector<std::string>& /*args*/) {
+    return make_error("spawn_with_pipe: not implemented on Windows yet");
+}
+
+std::vector<std::string> read_lines(SubprocessHandle& /*handle*/, std::string& /*line_buffer*/) {
+    return {};
+}
+
+bool poll_exit(SubprocessHandle& /*handle*/) {
+    return true;
+}
+
+void close_subprocess(SubprocessHandle& /*handle*/) {}
+
 } // namespace fjell::platform

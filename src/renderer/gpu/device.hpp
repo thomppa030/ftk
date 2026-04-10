@@ -49,6 +49,7 @@ public:
 
     [[nodiscard]] QueueFamilyIndices find_queue_families() const;
     [[nodiscard]] SwapchainSupport query_swapchain_support() const;
+    [[nodiscard]] SwapchainSupport query_swapchain_support(VkSurfaceKHR surface) const;
     [[nodiscard]] VkFormat find_depth_format() const;
     [[nodiscard]] VkSampleCountFlagBits max_msaa_samples() const;
     [[nodiscard]] bool mesh_shader_supported() const { return mesh_shader_supported_; }
@@ -88,7 +89,7 @@ private:
     [[nodiscard]] QueueFamilyIndices find_queue_families(VkPhysicalDevice device) const;
     [[nodiscard]] bool is_device_suitable(VkPhysicalDevice device) const;
     [[nodiscard]] bool check_device_extension_support(VkPhysicalDevice device) const;
-    [[nodiscard]] SwapchainSupport query_swapchain_support(VkPhysicalDevice device) const;
+    [[nodiscard]] SwapchainSupport query_swapchain_support(VkPhysicalDevice device, VkSurfaceKHR surface) const;
 
     Window& window_;
 

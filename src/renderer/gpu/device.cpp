@@ -423,25 +423,29 @@ QueueFamilyIndices Device::find_queue_families(VkPhysicalDevice device) const {
 }
 
 SwapchainSupport Device::query_swapchain_support() const {
-    return query_swapchain_support(physical_device_);
+    return query_swapchain_support(physical_device_, surface_);
 }
 
-SwapchainSupport Device::query_swapchain_support(VkPhysicalDevice device) const {
+SwapchainSupport Device::query_swapchain_support(VkSurfaceKHR surface) const {
+    return query_swapchain_support(physical_device_, surface);
+}
+
+SwapchainSupport Device::query_swapchain_support(VkPhysicalDevice device, VkSurfaceKHR surface) const {
     SwapchainSupport support;
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface_, &support.capabilities);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &support.capabilities);
 
     uint32_t format_count = 0;
-    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface_, &format_count, nullptr);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, nullptr);
     if (format_count > 0) {
         support.formats.resize(format_count);
-        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface_, &format_count, support.formats.data());
+        vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &format_count, support.formats.data());
     }
 
     uint32_t mode_count = 0;
-    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface_, &mode_count, nullptr);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &mode_count, nullptr);
     if (mode_count > 0) {
         support.present_modes.resize(mode_count);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface_, &mode_count, support.present_modes.data());
+        vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &mode_count, support.present_modes.data());
     }
 
     return support;
@@ -453,7 +457,7 @@ bool Device::is_device_suitable(VkPhysicalDevice device) const {
 
     bool swapchain_ok = false;
     if (extensions_ok) {
-        auto support = query_swapchain_support(device);
+        auto support = query_swapchain_support(device, surface_);
         swapchain_ok = !support.formats.empty() && !support.present_modes.empty();
     }
 
