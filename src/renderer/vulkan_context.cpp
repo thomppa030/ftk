@@ -41,6 +41,10 @@ VulkanContext::VulkanContext(Window& window)
     , target_pool_{gpu_.device(), gpu_.allocator()} {
     FJELL_GFX_INFO("Initializing Vulkan context");
 
+    // Finalize global descriptor layout/pool/sets (builtins already declared
+    // by GpuContext constructor; additional bindings could be declared here)
+    gpu_.finalize_descriptors();
+
     // Scene gathering: indirect batches + draw data descriptors
     gatherer_.init(gpu_);
 
@@ -124,35 +128,18 @@ VulkanContext::VulkanContext(Window& window)
         vkFreeCommandBuffers(gpu_.device(), gpu_.command_pool(), 1, &init_cmd);
     }
 
-    // Write sky cubemap (binding 6) and BRDF LUT (binding 7) into global descriptors
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDescriptorImageInfo cubemap_info{};
-        cubemap_info.sampler = sky_cubemap_pass().cubemap_sampler();
-        cubemap_info.imageView = sky_cubemap_pass().cubemap_view();
-        cubemap_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkDescriptorImageInfo brdf_info{};
-        brdf_info.sampler = sky_cubemap_pass().brdf_lut_sampler();
-        brdf_info.imageView = sky_cubemap_pass().brdf_lut_view();
-        brdf_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        std::array<VkWriteDescriptorSet, 2> writes{};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = gpu_.global_descriptor_set(i);
-        writes[0].dstBinding = 6;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[0].descriptorCount = 1;
-        writes[0].pImageInfo = &cubemap_info;
-
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = gpu_.global_descriptor_set(i);
-        writes[1].dstBinding = 7;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo = &brdf_info;
-
-        vkUpdateDescriptorSets(gpu_.device(), static_cast<uint32_t>(writes.size()),
-                               writes.data(), 0, nullptr);
+    // Write sky cubemap and BRDF LUT into global descriptors
+    {
+        auto& gb = gpu_.global_bindings();
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            gb.write_image(i, "sky_cubemap",
+                sky_cubemap_pass().cubemap_view(), sky_cubemap_pass().cubemap_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image(i, "brdf_lut",
+                sky_cubemap_pass().brdf_lut_view(), sky_cubemap_pass().brdf_lut_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.flush_writes();
+        }
     }
 
     add_pass("transparent", std::make_unique<TransparentPass>());
@@ -190,21 +177,15 @@ VulkanContext::VulkanContext(Window& window)
                    pass_resources.pipeline_cache);
     }
 
-    // Write scene SDF (binding 9) into global descriptors — must be after pass creation
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDescriptorImageInfo sdf_info{};
-        sdf_info.sampler = scene_sdf_pass().sampler();
-        sdf_info.imageView = scene_sdf_pass().view();
-        sdf_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet sdf_write{};
-        sdf_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        sdf_write.dstSet = gpu_.global_descriptor_set(i);
-        sdf_write.dstBinding = 9;
-        sdf_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        sdf_write.descriptorCount = 1;
-        sdf_write.pImageInfo = &sdf_info;
-        vkUpdateDescriptorSets(gpu_.device(), 1, &sdf_write, 0, nullptr);
+    // Write scene SDF into global descriptors — must be after pass creation
+    {
+        auto& gb = gpu_.global_bindings();
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            gb.write_image(i, "scene_sdf",
+                scene_sdf_pass().view(), scene_sdf_pass().sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.flush_writes();
+        }
     }
 
     // Create render subsystems
@@ -1584,62 +1565,22 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
 
     // Update global descriptor bindings that may be stale after apply_resize
     {
-        VkDescriptorImageInfo depth_desc{};
-        depth_desc.sampler = gpu_.depth_sampler();
-        depth_desc.imageView = req.target->depth_view();
-        depth_desc.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-        VkDescriptorImageInfo ao_desc{};
-        ao_desc.sampler = gtao_pass().ao_sampler();
-        ao_desc.imageView = gtao_imgs ? gtao_imgs->ao_view : gtao_pass().ao_view();
-        ao_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        std::array<VkWriteDescriptorSet, 2> writes{};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = gpu_.global_descriptor_set(current_frame_);
-        writes[0].dstBinding = 4;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[0].descriptorCount = 1;
-        writes[0].pImageInfo = &depth_desc;
-
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = gpu_.global_descriptor_set(current_frame_);
-        writes[1].dstBinding = 5;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo = &ao_desc;
-
-        VkDescriptorImageInfo sc_desc{};
-        sc_desc.sampler = tonemap_pass().output_sampler();
-        sc_desc.imageView = req.target->screen_color_view();
-        sc_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet sc_write{};
-        sc_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        sc_write.dstSet = gpu_.global_descriptor_set(current_frame_);
-        sc_write.dstBinding = 8;
-        sc_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        sc_write.descriptorCount = 1;
-        sc_write.pImageInfo = &sc_desc;
-
-        // Binding 10: GI indirect — use fallback for preview viewports
-        // (the previous record_frame may have set this to a now-destroyed view after resize)
-        VkDescriptorImageInfo gi_desc{};
-        gi_desc.sampler = gpu_.gi_fallback_sampler();
-        gi_desc.imageView = gpu_.gi_fallback_view();
-        gi_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet gi_write{};
-        gi_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        gi_write.dstSet = gpu_.global_descriptor_set(current_frame_);
-        gi_write.dstBinding = 10;
-        gi_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        gi_write.descriptorCount = 1;
-        gi_write.pImageInfo = &gi_desc;
-
-        vkUpdateDescriptorSets(vk, 2, writes.data(), 0, nullptr);
-        vkUpdateDescriptorSets(vk, 1, &sc_write, 0, nullptr);
-        vkUpdateDescriptorSets(vk, 1, &gi_write, 0, nullptr);
+        auto& gb = gpu_.global_bindings();
+        gb.write_image(current_frame_, "depth_texture",
+            req.target->depth_view(), gpu_.depth_sampler(),
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        VkImageView ao_view = gtao_imgs ? gtao_imgs->ao_view : gtao_pass().ao_view();
+        gb.write_image(current_frame_, "ao_texture",
+            ao_view, gtao_pass().ao_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.write_image(current_frame_, "screen_color",
+            req.target->screen_color_view(), tonemap_pass().output_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        // GI indirect: use fallback for preview viewports
+        gb.write_image(current_frame_, "gi_indirect",
+            gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.flush_writes();
     }
 
     update_uniform_buffer(current_frame_, req.view, req.projection,
@@ -2138,7 +2079,6 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                                  uint32_t selected_id, ThreadPool& pool,
                                  bool playing) {
     FJELL_PROFILE_SCOPE_N("record_frame");
-    auto vk_device = gpu_.device();
     elapsed_time_ += dt;
 
     gpu_.render_stats().reset();
@@ -2204,72 +2144,33 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         }
     }
 
-    // Update binding 4 (depth texture for light culling) before recording
-    // Must happen before command buffer starts to avoid invalidating in-flight descriptors
+    // Update per-frame global bindings before recording
     if (!viewports.empty() && viewports[0].target) {
-        VkDescriptorImageInfo depth_desc{};
-        depth_desc.sampler = gpu_.depth_sampler();
-        depth_desc.imageView = viewports[0].target->depth_view();
-        depth_desc.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        auto& gb = gpu_.global_bindings();
 
-        VkWriteDescriptorSet depth_write{};
-        depth_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        depth_write.dstSet = gpu_.global_descriptor_set(current_frame_);
-        depth_write.dstBinding = 4;
-        depth_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        depth_write.descriptorCount = 1;
-        depth_write.pImageInfo = &depth_desc;
-        vkUpdateDescriptorSets(vk_device, 1, &depth_write, 0, nullptr);
+        gb.write_image(current_frame_, "depth_texture",
+            viewports[0].target->depth_view(), gpu_.depth_sampler(),
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
 
-        // Update binding 5 (AO texture for ambient occlusion)
-        VkDescriptorImageInfo ao_desc{};
-        ao_desc.sampler = gtao_pass().ao_sampler();
-        ao_desc.imageView = default_pp_->gtao() ? default_pp_->gtao()->ao_view : gtao_pass().ao_view();
-        ao_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkImageView ao_view = default_pp_->gtao() ? default_pp_->gtao()->ao_view : gtao_pass().ao_view();
+        gb.write_image(current_frame_, "ao_texture",
+            ao_view, gtao_pass().ao_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-        VkWriteDescriptorSet ao_write{};
-        ao_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        ao_write.dstSet = gpu_.global_descriptor_set(current_frame_);
-        ao_write.dstBinding = 5;
-        ao_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        ao_write.descriptorCount = 1;
-        ao_write.pImageInfo = &ao_desc;
-        vkUpdateDescriptorSets(vk_device, 1, &ao_write, 0, nullptr);
+        gb.write_image(current_frame_, "screen_color",
+            viewports[0].target->screen_color_view(), tonemap_pass().output_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-        // Update binding 8 (screen color for SCREEN_TEXTURE in transparent shaders)
-        VkDescriptorImageInfo sc_desc{};
-        sc_desc.sampler = tonemap_pass().output_sampler();
-        sc_desc.imageView = viewports[0].target->screen_color_view();
-        sc_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet sc_write{};
-        sc_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        sc_write.dstSet = gpu_.global_descriptor_set(current_frame_);
-        sc_write.dstBinding = 8;
-        sc_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        sc_write.descriptorCount = 1;
-        sc_write.pImageInfo = &sc_desc;
-        vkUpdateDescriptorSets(vk_device, 1, &sc_write, 0, nullptr);
-
-        // Update binding 10 (GI indirect texture)
-        // Only use the real indirect view after DDGI has run at least once
-        // (images_need_init is cleared after first record_into writes descriptors + transitions images)
+        // GI indirect: use real view only after DDGI has run at least once
         auto* ddgi_imgs = default_pp_->ddgi();
         bool ddgi_ready = ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE
                        && !ddgi_imgs->images_need_init;
-        VkDescriptorImageInfo gi_desc{};
-        gi_desc.sampler = gpu_.gi_fallback_sampler();
-        gi_desc.imageView = ddgi_ready ? ddgi_imgs->indirect_view : gpu_.gi_fallback_view();
-        gi_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        gb.write_image(current_frame_, "gi_indirect",
+            ddgi_ready ? ddgi_imgs->indirect_view : gpu_.gi_fallback_view(),
+            gpu_.gi_fallback_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-        VkWriteDescriptorSet gi_write{};
-        gi_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        gi_write.dstSet = gpu_.global_descriptor_set(current_frame_);
-        gi_write.dstBinding = 10;
-        gi_write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        gi_write.descriptorCount = 1;
-        gi_write.pImageInfo = &gi_desc;
-        vkUpdateDescriptorSets(vk_device, 1, &gi_write, 0, nullptr);
+        gb.flush_writes();
     }
 
     vkResetCommandBuffer(gpu_.command_buffer(current_frame_), 0);
@@ -2361,22 +2262,12 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
 }
 
 void VulkanContext::update_shadow_descriptors() {
+    auto& gb = gpu_.global_bindings();
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        VkDescriptorImageInfo shadow_info{};
-        shadow_info.sampler = shadow_pass().sampler();
-        shadow_info.imageView = shadow_pass().array_view();
-        shadow_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = gpu_.global_descriptor_set(i);
-        write.dstBinding = 1;
-        write.dstArrayElement = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &shadow_info;
-
-        vkUpdateDescriptorSets(gpu_.device(), 1, &write, 0, nullptr);
+        gb.write_image(i, "shadow_map",
+            shadow_pass().array_view(), shadow_pass().sampler(),
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        gb.flush_writes();
     }
 }
 

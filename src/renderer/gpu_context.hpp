@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/bindless.hpp"
+#include "renderer/global_bindings.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/gpu/gpu_core.hpp"
@@ -90,15 +91,22 @@ public:
     }
 
     // ── Global descriptors ──────────────────────────────────────────────
+    [[nodiscard]] GlobalBindings& global_bindings() { return global_bindings_; }
+    [[nodiscard]] const GlobalBindings& global_bindings() const { return global_bindings_; }
     [[nodiscard]] VkDescriptorSetLayout global_set_layout() const {
-        return global_set_layout_->handle();
+        return global_bindings_.layout();
     }
     [[nodiscard]] VkDescriptorSet global_descriptor_set(uint32_t frame_index) const {
-        return global_descriptor_sets_[frame_index];
+        return global_bindings_.descriptor_set(frame_index);
     }
     [[nodiscard]] Buffer& uniform_buffer(uint32_t frame_index) {
         return *uniform_buffers_[frame_index];
     }
+
+    /// Finalize global descriptor layout, pool, and initial writes.
+    /// Must be called after any additional global_bindings().declare() calls
+    /// and before init_pipelines().
+    void finalize_descriptors();
 
     // ── Bindless ────────────────────────────────────────────────────────
     [[nodiscard]] BindlessTextures& bindless_textures() { return bindless_textures_; }
@@ -149,9 +157,7 @@ private:
     bool secondary_pools_initialized_{false};
 
     // Descriptors
-    std::unique_ptr<DescriptorSetLayout> global_set_layout_;
-    std::unique_ptr<DescriptorPool> global_pool_;
-    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> global_descriptor_sets_{};
+    GlobalBindings global_bindings_;
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> uniform_buffers_;
 
     BindlessTextures bindless_textures_;

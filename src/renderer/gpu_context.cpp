@@ -150,14 +150,14 @@ void GpuContext::init_pipelines(VkDescriptorSetLayout draw_data_layout) {
     VkFormat depth_format = core_.device().find_depth_format();
     pipeline_ = std::make_unique<Pipeline>(
         core_.device(), OffscreenPass::COLOR_FORMAT, depth_format,
-        global_set_layout_->handle(), bindless_textures_.layout(),
+        global_bindings_.layout(), bindless_textures_.layout(),
         draw_data_layout, msaa_samples_,
         "shaders/mesh.vert.spv", "shaders/mesh.frag.spv",
         vk_pipeline_cache_);
 
     pipeline_cache_ = std::make_unique<PipelineCache>(
         core_.device(), OffscreenPass::COLOR_FORMAT, depth_format,
-        global_set_layout_->handle(), bindless_textures_.layout(),
+        global_bindings_.layout(), bindless_textures_.layout(),
         draw_data_layout, msaa_samples_,
         core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE,
         vk_pipeline_cache_);
@@ -189,8 +189,7 @@ GpuContext::~GpuContext() {
     meshlet_buffer_.reset();
     mega_buffer_.reset();
 
-    global_pool_.reset();
-    global_set_layout_.reset();
+    global_bindings_.destroy();
     bindless_textures_.destroy();
     pipeline_cache_.reset();
     pipeline_.reset();
@@ -211,81 +210,10 @@ GpuContext::~GpuContext() {
 void GpuContext::create_descriptor_resources() {
     auto vk_device = core_.vk_device();
 
-    // Global set layout: binding 0 = UBO, binding 1 = shadow map sampler,
-    // binding 2 = light SSBO, binding 3 = tile light index SSBO,
-    // binding 4 = depth texture (light culling compute + fragment screen-space effects),
-    // binding 5 = AO texture, binding 6 = sky cubemap, binding 7 = BRDF LUT
-    std::array<VkDescriptorSetLayoutBinding, 11> global_bindings{};
-    global_bindings[0].binding = 0;
-    global_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    global_bindings[0].descriptorCount = 1;
-    global_bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                                     VK_SHADER_STAGE_COMPUTE_BIT |
-                                     VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
-
-    global_bindings[1].binding = 1;
-    global_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[1].descriptorCount = 1;
-    global_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[2].binding = 2;
-    global_bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    global_bindings[2].descriptorCount = 1;
-    global_bindings[2].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[3].binding = 3;
-    global_bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    global_bindings[3].descriptorCount = 1;
-    global_bindings[3].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[4].binding = 4;
-    global_bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[4].descriptorCount = 1;
-    global_bindings[4].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[5].binding = 5;
-    global_bindings[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[5].descriptorCount = 1;
-    global_bindings[5].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    global_bindings[6].binding = 6;
-    global_bindings[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[6].descriptorCount = 1;
-    global_bindings[6].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    global_bindings[7].binding = 7;
-    global_bindings[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[7].descriptorCount = 1;
-    global_bindings[7].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    global_bindings[8].binding = 8;
-    global_bindings[8].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[8].descriptorCount = 1;
-    global_bindings[8].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    global_bindings[9].binding = 9;
-    global_bindings[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[9].descriptorCount = 1;
-    global_bindings[9].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-
-    global_bindings[10].binding = 10;
-    global_bindings[10].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_bindings[10].descriptorCount = 1;
-    global_bindings[10].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    global_set_layout_ = std::make_unique<DescriptorSetLayout>(
-        vk_device, std::span{global_bindings});
-
-    std::array<VkDescriptorPoolSize, 3> global_pool_sizes{};
-    global_pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    global_pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT;
-    global_pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    global_pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT * 8; // shadow + depth + AO + sky + BRDF + screen color + SDF + GI
-    global_pool_sizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-    global_pool_sizes[2].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2; // light SSBO + tile SSBO
-
-    global_pool_ = std::make_unique<DescriptorPool>(
-        vk_device, std::span{global_pool_sizes}, MAX_FRAMES_IN_FLIGHT);
+    // GlobalBindings constructor already registered the 11 builtin bindings.
+    // Buffers, samplers, and fallback images are created here.
+    // Layout/pool/set creation happens in finalize_descriptors() to allow
+    // additional bindings to be declared before the layout is locked.
 
     // Light SSBO: 1024 point + 1024 spot lights (~48 KB)
     constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
@@ -328,7 +256,7 @@ void GpuContext::create_descriptor_resources() {
         throw std::runtime_error("Failed to create depth sampler for light culling");
     }
 
-    // 1x1 black fallback for GI indirect texture (binding 10 when DDGI disabled)
+    // 1x1 black fallback for GI indirect texture (when DDGI disabled)
     {
         VkImageCreateInfo gi_img_ci{};
         gi_img_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -388,68 +316,34 @@ void GpuContext::create_descriptor_resources() {
         vkFreeCommandBuffers(vk_device, core_.command_pool(), 1, &init_cmd);
     }
 
+    FJELL_GFX_DEBUG("Descriptor resources created (layout pending finalize)");
+}
+
+void GpuContext::finalize_descriptors() {
+    auto vk_device = core_.vk_device();
+
+    // Build layout, pool, and per-frame descriptor sets from registered bindings
+    global_bindings_.finalize(vk_device, MAX_FRAMES_IN_FLIGHT);
+
+    // Write initial descriptor values for static bindings
+    constexpr VkDeviceSize light_ssbo_size = 1024 * sizeof(GpuPointLight) + 1024 * sizeof(GpuSpotLight);
+    constexpr VkDeviceSize tile_ssbo_size = MAX_TILES * sizeof(uint32_t) +
+                                             MAX_TILES * MAX_LIGHTS_PER_TILE * sizeof(uint32_t);
+
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        global_descriptor_sets_[i] = global_pool_->allocate(*global_set_layout_);
-
-        VkDescriptorBufferInfo buffer_info{};
-        buffer_info.buffer = uniform_buffers_[i]->handle();
-        buffer_info.offset = 0;
-        buffer_info.range = sizeof(GlobalUbo);
-
-        VkDescriptorBufferInfo light_info{};
-        light_info.buffer = light_ssbo_[i]->handle();
-        light_info.offset = 0;
-        light_info.range = light_ssbo_size;
-
-        VkDescriptorBufferInfo tile_info{};
-        tile_info.buffer = tile_light_ssbo_[i]->handle();
-        tile_info.offset = 0;
-        tile_info.range = tile_ssbo_size;
-
-        VkDescriptorImageInfo gi_fallback_info{};
-        gi_fallback_info.sampler = gi_fallback_sampler_;
-        gi_fallback_info.imageView = gi_fallback_view_;
-        gi_fallback_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        std::array<VkWriteDescriptorSet, 4> writes{};
-
-        // Binding 0: UBO
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = global_descriptor_sets_[i];
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo = &buffer_info;
-
-        // Binding 2: Light SSBO
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = global_descriptor_sets_[i];
-        writes[1].dstBinding = 2;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[1].descriptorCount = 1;
-        writes[1].pBufferInfo = &light_info;
-
-        // Binding 3: Tile light index SSBO
-        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[2].dstSet = global_descriptor_sets_[i];
-        writes[2].dstBinding = 3;
-        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        writes[2].descriptorCount = 1;
-        writes[2].pBufferInfo = &tile_info;
-
-        // Binding 10: GI indirect (fallback black texture)
-        writes[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[3].dstSet = global_descriptor_sets_[i];
-        writes[3].dstBinding = 10;
-        writes[3].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[3].descriptorCount = 1;
-        writes[3].pImageInfo = &gi_fallback_info;
-
-        vkUpdateDescriptorSets(vk_device, static_cast<uint32_t>(writes.size()),
-                               writes.data(), 0, nullptr);
+        global_bindings_.write_buffer(i, "global_ubo",
+            uniform_buffers_[i]->handle(), 0, sizeof(GlobalUbo));
+        global_bindings_.write_buffer(i, "light_ssbo",
+            light_ssbo_[i]->handle(), 0, light_ssbo_size);
+        global_bindings_.write_buffer(i, "tile_light_ssbo",
+            tile_light_ssbo_[i]->handle(), 0, tile_ssbo_size);
+        global_bindings_.write_image(i, "gi_indirect",
+            gi_fallback_view_, gi_fallback_sampler_,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        global_bindings_.flush_writes();
     }
 
-    FJELL_GFX_DEBUG("Descriptor resources created");
+    FJELL_GFX_DEBUG("Global descriptors finalized");
 }
 
 void GpuContext::ensure_secondary_pools(uint32_t thread_count) {
@@ -462,7 +356,7 @@ void GpuContext::ensure_secondary_pools(uint32_t thread_count) {
 
 PassResources GpuContext::pass_resources() const {
     PassResources res{};
-    res.global_set_layout = global_set_layout_->handle();
+    res.global_set_layout = global_bindings_.layout();
     res.material_set_layout = bindless_textures_.layout();
     res.draw_data_layout = VK_NULL_HANDLE; // set by caller if needed
     res.meshlet_layout = core_.device().mesh_shader_supported() ? meshlet_descriptor_.layout() : VK_NULL_HANDLE;
