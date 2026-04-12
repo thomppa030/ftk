@@ -29,6 +29,8 @@ public:
     UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui,
                  ScriptManager& script_manager);
 
+    void set_resource_manager(ResourceManager* rm) { resource_manager_ = rm; }
+
     [[nodiscard]] std::string_view name() const override { return "GameUI"; }
     [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
 
@@ -69,6 +71,7 @@ private:
     VulkanContext& vulkan_context_;
     GameUi& editor_game_ui_;
     ScriptManager* script_manager_{nullptr};
+    ResourceManager* resource_manager_{nullptr};
     std::vector<UiInstance> instances_;
     std::vector<WorldUiRecord> world_records_;
 

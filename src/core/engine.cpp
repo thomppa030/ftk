@@ -265,6 +265,7 @@ void Engine::init_resources() {
     default_texture_ = resource_manager_->load_texture(
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     sprite_anim_subsystem_->set_resource_manager(resource_manager_.get());
+    ui_subsystem_->set_resource_manager(resource_manager_.get());
 
     auto& ss = script_services();
     ss.input = &input_;

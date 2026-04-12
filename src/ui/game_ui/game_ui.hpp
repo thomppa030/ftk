@@ -92,6 +92,7 @@ public:
                       VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push);
 
     void set_resource_manager(ResourceManager* rm);
+    void set_project(const class Project* project) { project_ = project; }
 
     [[nodiscard]] UiContext& context() { return context_; }
     [[nodiscard]] const UiContext& context() const { return context_; }
@@ -126,6 +127,7 @@ private:
     uint32_t redraw_countdown_{0}; // force N frames of redraw after a change
 
     ResourceManager* resource_manager_{nullptr};
+    const class Project* project_{nullptr};
     BindlessTextures* bindless_{nullptr};
 
 #ifndef NDEBUG

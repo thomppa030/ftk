@@ -74,6 +74,9 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
                 vulkan_context_.swapchain_format());
         }
 
+        game_ui->set_project(ctx.project);
+        if (resource_manager_) game_ui->set_resource_manager(resource_manager_);
+
         // Deep-clone the markup tree (each instance needs its own mutable copy)
         auto tree_clone = UiDataBind::clone_node(*widget_asset.markup_root, nullptr);
         auto base_dir = std::filesystem::path(widget_resolved).parent_path().string();

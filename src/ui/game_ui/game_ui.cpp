@@ -8,6 +8,7 @@
 #include "core/input.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "core/project.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -278,9 +279,27 @@ void GameUi::resolve_textures(UiNode& node) {
     }
 
     // Resolve material="name" → material SSBO index
+    // Try by name first (engine-created materials like "default"),
+    // then as a .fjmat asset path.
     auto mat_it = node.attributes.find("material");
     if (mat_it != node.attributes.end() && !mat_it->second.empty()) {
         auto mat_handle = resource_manager_->find_material(mat_it->second);
+        if (!mat_handle.valid()) {
+            // Try loading as .fjmat asset — resolve via project if available
+            std::string mat_path = mat_it->second;
+            if (!mat_path.ends_with(".fjmat")) {
+                mat_path = "assets/materials/" + mat_path + ".fjmat";
+            }
+            if (project_) {
+                mat_path = project_->resolve(mat_path);
+            } else {
+                mat_path = base_path::resolve(mat_path);
+            }
+            if (std::filesystem::exists(mat_path)) {
+                auto result = resource_manager_->load_material_asset(mat_path, project_);
+                if (result) mat_handle = *result;
+            }
+        }
         if (mat_handle.valid()) {
             auto* mat = resource_manager_->get(mat_handle);
             if (mat) {

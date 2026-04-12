@@ -480,6 +480,10 @@ void UiRenderer::collect_quads(const UiNode& node, std::vector<GpuUiQuad>& quads
                           s.gradient.from.b, s.gradient.from.a};
             quad.gradient_to = {s.gradient.to.r, s.gradient.to.g,
                                 s.gradient.to.b, s.gradient.to.a};
+        } else if (s.gradient.active() && has_material) {
+            // Material + gradient: use gradient start as base tint for the material
+            quad.color = {s.gradient.from.r, s.gradient.from.g,
+                          s.gradient.from.b, s.gradient.from.a};
         }
         quad.viewport_size = {viewport_width, viewport_height};
         quad.texture_id = node.resolved_texture_id;

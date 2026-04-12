@@ -31,8 +31,28 @@ layout(std430, set = 2, binding = 0) readonly buffer UiQuadBuffer {
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
 
+layout(set = 0, binding = 0) uniform GlobalUBO {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+    mat4 inv_view_proj;
+    mat4 prev_view_proj;
+    float time;
+} ubo;
+
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
+};
+
+layout(set = 1, binding = 2) readonly buffer CustomParamBuffer {
+    float custom_params[];
 };
 
 layout(location = 0) in vec2 frag_uv;
@@ -97,6 +117,41 @@ void main() {
         // If base_color_factor is zero (unset), treat as white
         if (base_color_factor == vec4(0.0)) base_color_factor = vec4(1.0);
         fill_color = q.color * tex_sample * base_color_factor;
+
+        // Animated caustic overlay from custom params.
+        // param[0] = caustic_speed, param[1] = caustic_intensity, param[2] = caustic_scale
+        float TIME = ubo.time;
+        if (mat.param_count > 0) {
+            float c_speed     = custom_params[mat.param_offset + 0];
+            float c_intensity = mat.param_count > 1 ? custom_params[mat.param_offset + 1] : 0.3;
+            float c_scale     = mat.param_count > 2 ? custom_params[mat.param_offset + 2] : 1.0;
+
+            // Caustic in screen-space: bar is a window into a large caustic field
+            vec2 pixel_pos_norm = (q.rect.xy + frag_uv * q.rect.zw) / q.viewport_size;
+            vec2 c_uv   = pixel_pos_norm * c_scale * 4.0 + vec2(TIME * c_speed * 0.3, TIME * c_speed * 0.1);
+            vec2 c_n    = vec2(0.0);
+            vec2 c_sum  = vec2(0.0);
+            float c_freq = 10.0;
+            float c_time = TIME * c_speed;
+            float c_cs   = cos(1.0);
+            float c_sn   = sin(1.0);
+
+            for (int i = 0; i < 8; i++) {
+                c_uv = vec2(c_uv.x * c_cs - c_uv.y * c_sn,
+                            c_uv.x * c_sn + c_uv.y * c_cs);
+                c_n  = vec2(c_n.x * c_cs - c_n.y * c_sn,
+                            c_n.x * c_sn + c_n.y * c_cs);
+                vec2 cq = c_uv * c_freq + float(i) + c_n + c_time;
+                c_n   += sin(cq);
+                c_sum += cos(cq) / c_freq;
+                c_freq *= 1.2;
+            }
+
+            // Soft caustic — no pow highlight, just the raw pattern
+            float caustic = clamp(c_sum.x + c_sum.y + 0.5, 0.0, 1.0);
+            vec3 caustic_tint = vec3(1.0, 0.9, 0.5); // warm yellow
+            fill_color.rgb += caustic_tint * caustic * c_intensity;
+        }
     } else if (flags > 2.5) {
         // Raw texture mode (flags == 3): sample bindless texture, multiply with fill color
         vec4 tex_sample = texture(textures[nonuniformEXT(q.texture_id)], frag_uv);
