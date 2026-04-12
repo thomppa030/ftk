@@ -2,6 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -92,6 +93,10 @@ void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         gb.flush_writes();
     }
+}
+
+void SkyCubemapPass::register_resources(ResourceRegistry& registry) {
+    registry.register_image("sky_cubemap", {0, cubemap_view_, cubemap_sampler_});
 }
 
 void SkyCubemapPass::destroy() {

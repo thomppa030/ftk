@@ -349,17 +349,10 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         gpu_.tile_light_ssbo(current_frame_).handle(),
         gpu_.tile_light_ssbo(current_frame_).size());
 
-    // Execute the render pipeline (passes registered in register_passes())
-    // Use the target's actual sample count (not the global default) so that
-    // viewports with different MSAA levels (e.g. 1x preview) work correctly.
-    // Populate persistent resources into the registry
+    // Populate resource registry — passes self-register their outputs,
+    // then non-pass resources (meshlet bounds) are added manually.
     resource_registry_.clear();
-    resource_registry_.register_image("scene_sdf", {
-        0, scene_sdf_pass().view(), scene_sdf_pass().sampler()});
-    resource_registry_.register_image("sky_cubemap", {
-        0, sky_cubemap_pass().cubemap_view(), sky_cubemap_pass().cubemap_sampler()});
-    resource_registry_.register_image("prev_frame_color", {
-        0, ssr_pass().prev_frame_view()});
+    passes_.register_resources_all(resource_registry_);
     if (gpu_.meshlet_buffer()) {
         resource_registry_.register_buffer("meshlet_bounds", {
             gpu_.meshlet_buffer()->bounds_buffer(),

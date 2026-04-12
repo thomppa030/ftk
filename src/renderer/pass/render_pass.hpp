@@ -171,6 +171,11 @@ public:
         (void)gpu; (void)passes;
     }
 
+    /// Register persistent resources (images, buffers) into the registry.
+    /// Called each frame after registry clear, before pipeline execution.
+    /// Override in passes that produce resources consumed by other passes.
+    virtual void register_resources(ResourceRegistry& /*registry*/) {}
+
     // Record draw commands into the command buffer.
     virtual void record(const FrameContext& ctx) = 0;
 

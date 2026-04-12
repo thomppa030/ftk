@@ -65,6 +65,13 @@ public:
         }
     }
 
+    /// Let all passes register their persistent resources.
+    void register_resources_all(ResourceRegistry& registry) {
+        for (const auto& name : order_) {
+            passes_[name]->register_resources(registry);
+        }
+    }
+
     /// Register all passes with a RenderPipeline. Iterates passes, calls
     /// setup() for name/phase/ordering, and registers a build callback
     /// that delegates to the pass's build() method.

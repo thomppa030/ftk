@@ -676,6 +676,10 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
 }
 
+void SsrPass::register_resources(ResourceRegistry& registry) {
+    registry.register_image("prev_frame_color", {0, prev_frame_view_});
+}
+
 PassSetup SsrPass::setup() const {
     return {
         .name = "ssr",

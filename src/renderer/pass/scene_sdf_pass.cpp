@@ -4,6 +4,7 @@
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/renderer_constants.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
@@ -32,6 +33,10 @@ void SceneSdfPass::create(Device& device, VkDescriptorSetLayout /*global_set_lay
 
     FJELL_GFX_DEBUG("SceneSdfPass created ({}³ R16_SFLOAT, {:.1f}MB)",
                     resolution_, float(resolution_ * resolution_ * resolution_ * 2) / (1024.0f * 1024.0f));
+}
+
+void SceneSdfPass::register_resources(ResourceRegistry& registry) {
+    registry.register_image("scene_sdf", {0, sdf_view_, sdf_sampler_});
 }
 
 void SceneSdfPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
