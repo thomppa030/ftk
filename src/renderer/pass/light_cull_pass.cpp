@@ -2,6 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/renderer_constants.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -81,6 +82,50 @@ void LightCullPass::record(const FrameContext& ctx) {
     uint32_t groups_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     uint32_t groups_y = (extent.height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
+}
+
+PassSetup LightCullPass::setup() const {
+    return {
+        .name = "light_cull",
+        .phase = RenderPhase::GpuDriven,
+        .sub_order = 110,
+        .reads = {{"depth", ImageUsage::compute_read}},
+        .writes = {},
+    };
+}
+
+void LightCullPass::build(FrameGraph& graph, ResourceRegistry& registry,
+                           const FrameContext& ctx) {
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    if (auto* img = registry.find_image("depth")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
+    }
+
+    graph.add_pass("light_cull", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        record(local);
+
+        // Register the tile light SSBO so downstream passes can find it
+        if (output_buffer_ != VK_NULL_HANDLE) {
+            local.registry->register_buffer("tile_light_ssbo", {
+                output_buffer_, output_buffer_size_});
+        }
+
+        // Barrier: compute write -> fragment read
+        VkMemoryBarrier2 mem_barrier{};
+        mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        mem_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        mem_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        mem_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        mem_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &mem_barrier;
+        vkCmdPipelineBarrier2(cb, &dep);
+    }, std::move(uses));
 }
 
 } // namespace fjell

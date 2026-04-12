@@ -5,6 +5,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/shader_utils.hpp"
+#include "renderer/viewport_source.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -364,6 +365,27 @@ void MeshletVizPass::record(const FrameContext& ctx) {
     vkCmdPipelineBarrier2(cmd, &final_dep);
 
     rendered_once_ = true;
+}
+
+PassSetup MeshletVizPass::setup() const {
+    return {
+        .name = "meshlet_viz",
+        .phase = RenderPhase::Debug,
+        .sub_order = 50,
+        .reads = {},
+        .writes = {},
+    };
+}
+
+void MeshletVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                            const FrameContext& ctx) {
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) return;
+
+    graph.add_pass("meshlet_viz", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        record(local);
+    }, {});
 }
 
 } // namespace fjell

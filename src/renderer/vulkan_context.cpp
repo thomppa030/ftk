@@ -326,13 +326,8 @@ void VulkanContext::register_environment_passes() {
     render_pipeline_.register_pass({
         .name = "sky_cubemap",
         .order = PassEntry::make_order(RenderPhase::Environment, 50),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            graph.add_pass("sky_cubemap", [this](VkCommandBuffer cb) {
-                sky_cubemap_pass().set_colors(sky_pass().top_color(), sky_pass().bottom_color());
-                if (sky_cubemap_pass().dirty()) {
-                    sky_cubemap_pass().generate(cb);
-                }
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            sky_cubemap_pass().build(graph, registry, current_ctx_);
         }
     });
 
@@ -425,20 +420,7 @@ void VulkanContext::register_depth_passes() {
         .name = "hiz_build",
         .order = PassEntry::make_order(RenderPhase::DepthPrepass, 100),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("hiz_build", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Hi-Z Build");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                auto* hiz_imgs = local.pp_resources ? local.pp_resources->hiz() : nullptr;
-                if (hiz_imgs) {
-                    hiz_pass().record_into(local, *hiz_imgs);
-                    resource_registry_.register_image("hiz", {
-                        0, hiz_imgs->hiz_sampled_view,
-                        hiz_pass().sampler(), hiz_imgs->hiz_mip_count});
-                }
-            }, {{registry.image_id("depth"), ImageUsage::compute_read}});
+            hiz_pass().build(graph, registry, current_ctx_);
         }
     });
 }
@@ -507,31 +489,7 @@ void VulkanContext::register_gpu_driven_passes() {
         .name = "light_cull",
         .order = PassEntry::make_order(RenderPhase::GpuDriven, 110),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("light_cull", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Light Cull");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                light_cull_pass().record(local);
-
-                resource_registry_.register_buffer("tile_light_ssbo", {
-                    gpu_.tile_light_ssbo(current_frame_).handle(),
-                    gpu_.tile_light_ssbo(current_frame_).size()});
-
-                VkMemoryBarrier2 mem_barrier{};
-                mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-                mem_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-                mem_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-                mem_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-                mem_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-
-                VkDependencyInfo dep{};
-                dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-                dep.memoryBarrierCount = 1;
-                dep.pMemoryBarriers = &mem_barrier;
-                vkCmdPipelineBarrier2(cb, &dep);
-            }, {{registry.image_id("depth"), ImageUsage::compute_read}});
+            light_cull_pass().build(graph, registry, current_ctx_);
         }
     });
 
@@ -1179,111 +1137,65 @@ void VulkanContext::register_debug_passes() {
         .name = "depth_viz",
         .order = PassEntry::make_order(RenderPhase::Debug, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::depth)))) return;
-            graph.add_pass("depth_viz", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                depth_viz_pass().record(local);
-            }, {{registry.image_id("depth"), ImageUsage::shader_read}});
+            depth_viz_pass().build(graph, registry, current_ctx_);
         }
     });
 
     render_pipeline_.register_pass({
         .name = "wireframe",
         .order = PassEntry::make_order(RenderPhase::Debug, 10),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::wireframe)))) return;
-            graph.add_pass("wireframe", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                wireframe_pass().record(local);
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            wireframe_pass().build(graph, registry, current_ctx_);
         }
     });
 
     render_pipeline_.register_pass({
         .name = "normals",
         .order = PassEntry::make_order(RenderPhase::Debug, 20),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::normals)))) return;
-            graph.add_pass("normals", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                normal_pass().record(local);
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            normal_pass().build(graph, registry, current_ctx_);
         }
     });
 
     render_pipeline_.register_pass({
         .name = "overdraw",
         .order = PassEntry::make_order(RenderPhase::Debug, 30),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::overdraw)))) return;
-            graph.add_pass("overdraw", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                overdraw_pass().record(local);
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            overdraw_pass().build(graph, registry, current_ctx_);
         }
     });
 
     render_pipeline_.register_pass({
         .name = "uv_viz",
         .order = PassEntry::make_order(RenderPhase::Debug, 40),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::uv)))) return;
-            graph.add_pass("uv_viz", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                uv_viz_pass().record(local);
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            uv_viz_pass().build(graph, registry, current_ctx_);
         }
     });
 
     render_pipeline_.register_pass({
         .name = "light_heatmap",
         .order = PassEntry::make_order(RenderPhase::Debug, 50),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_heatmap)))) return;
-            graph.add_pass("light_heatmap", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                auto* tile_buf = resource_registry_.find_buffer("tile_light_ssbo");
-                if (tile_buf) {
-                    light_heatmap_pass().set_tile_ssbo(tile_buf->buffer, tile_buf->size);
-                }
-                light_heatmap_pass().record(local);
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            light_heatmap_pass().build(graph, registry, current_ctx_);
         }
     });
 
     render_pipeline_.register_pass({
         .name = "light_grid",
         .order = PassEntry::make_order(RenderPhase::Debug, 60),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_grid)))) return;
-            graph.add_pass("light_grid", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                auto* tile_buf = resource_registry_.find_buffer("tile_light_ssbo");
-                if (tile_buf) {
-                    light_grid_pass().set_tile_ssbo(tile_buf->buffer, tile_buf->size);
-                }
-                light_grid_pass().record(local);
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            light_grid_pass().build(graph, registry, current_ctx_);
         }
     });
 
     render_pipeline_.register_pass({
         .name = "meshlet_viz",
         .order = PassEntry::make_order(RenderPhase::Debug, 70),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) return;
-            graph.add_pass("meshlet_viz", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                meshlet_viz_pass()->record(local);
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            if (auto* mv = meshlet_viz_pass()) {
+                mv->build(graph, registry, current_ctx_);
+            }
         }
     });
 }
@@ -1451,6 +1363,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         target.mark_screen_color_initialized();
     }
+
+    // Update per-frame pass state before pipeline execution
+    light_cull_pass().set_output_buffer(
+        gpu_.tile_light_ssbo(current_frame_).handle(),
+        gpu_.tile_light_ssbo(current_frame_).size());
 
     // Execute the render pipeline (passes registered in register_passes())
     // Use the target's actual sample count (not the global default) so that

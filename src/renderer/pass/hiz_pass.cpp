@@ -2,6 +2,8 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/post_process_resources.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
@@ -346,6 +348,36 @@ void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
         src_w = dst_w;
         src_h = dst_h;
     }
+}
+
+PassSetup HizPass::setup() const {
+    return {
+        .name = "hiz_build",
+        .phase = RenderPhase::DepthPrepass,
+        .sub_order = 100,
+        .reads = {{"depth", ImageUsage::compute_read}},
+        .writes = {},
+    };
+}
+
+void HizPass::build(FrameGraph& graph, ResourceRegistry& registry,
+                     const FrameContext& ctx) {
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    if (auto* img = registry.find_image("depth")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
+    }
+
+    graph.add_pass("hiz_build", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        auto* hiz_imgs = local.pp_resources ? local.pp_resources->hiz() : nullptr;
+        if (hiz_imgs) {
+            record_into(local, *hiz_imgs);
+            local.registry->register_image("hiz", {
+                0, hiz_imgs->hiz_sampled_view,
+                sampler(), hiz_imgs->hiz_mip_count});
+        }
+    }, std::move(uses));
 }
 
 } // namespace fjell

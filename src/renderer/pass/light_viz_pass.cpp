@@ -2,7 +2,9 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
+#include "renderer/viewport_source.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -335,6 +337,36 @@ void LightVizPass::record(const FrameContext& ctx) {
 
     // Transition output to shader-readable
     vk_utils::finish_color_attachment(ctx.cmd, image_);
+}
+
+PassSetup LightVizPass::setup() const {
+    return {
+        .name = (mode_ == 0) ? "light_heatmap" : "light_grid",
+        .phase = RenderPhase::Debug,
+        .sub_order = (mode_ == 0) ? 60u : 70u,
+        .reads = {},
+        .writes = {},
+    };
+}
+
+void LightVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                          const FrameContext& ctx) {
+    auto source = (mode_ == 0) ? ViewportSource::light_heatmap : ViewportSource::light_grid;
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(source)))) return;
+
+    auto name = (mode_ == 0) ? "light_heatmap" : "light_grid";
+
+    graph.add_pass(name, [this, ctx](VkCommandBuffer cb) {
+        if (ctx.registry) {
+            auto* tile_buf = ctx.registry->find_buffer("tile_light_ssbo");
+            if (tile_buf) {
+                set_tile_ssbo(tile_buf->buffer, tile_buf->size);
+            }
+        }
+        FrameContext local = ctx;
+        local.cmd = cb;
+        record(local);
+    }, {});
 }
 
 } // namespace fjell

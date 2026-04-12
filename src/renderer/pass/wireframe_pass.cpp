@@ -7,6 +7,7 @@
 #include "renderer/render_queue.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/resources/vertex.hpp"
+#include "renderer/viewport_source.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -224,6 +225,27 @@ void WireframePass::record(const FrameContext& ctx) {
     // Transition to shader-readable
     vk_utils::finish_color_attachment(ctx.cmd, viz_image_.image());
     viz_image_.mark_rendered();
+}
+
+PassSetup WireframePass::setup() const {
+    return {
+        .name = "wireframe",
+        .phase = RenderPhase::Debug,
+        .sub_order = 10,
+        .reads = {{"depth", ImageUsage::depth_attachment_read}},
+        .writes = {},
+    };
+}
+
+void WireframePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                           const FrameContext& ctx) {
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::wireframe)))) return;
+
+    graph.add_pass("wireframe", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        record(local);
+    }, {});
 }
 
 } // namespace fjell

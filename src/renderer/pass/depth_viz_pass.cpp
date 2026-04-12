@@ -2,7 +2,9 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
+#include "renderer/viewport_source.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -345,6 +347,32 @@ void DepthVizPass::record(const FrameContext& ctx) {
     // Transition output to shader-readable
     vk_utils::finish_color_attachment(ctx.cmd, image_);
     has_rendered_ = true;
+}
+
+PassSetup DepthVizPass::setup() const {
+    return {
+        .name = "depth_viz",
+        .phase = RenderPhase::Debug,
+        .sub_order = 0,
+        .reads = {{"depth", ImageUsage::shader_read}},
+        .writes = {},
+    };
+}
+
+void DepthVizPass::build(FrameGraph& graph, ResourceRegistry& registry,
+                          const FrameContext& ctx) {
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::depth)))) return;
+
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    if (auto* img = registry.find_image("depth")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::shader_read);
+    }
+
+    graph.add_pass("depth_viz", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        record(local);
+    }, std::move(uses));
 }
 
 } // namespace fjell

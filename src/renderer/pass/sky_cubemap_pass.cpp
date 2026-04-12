@@ -1,6 +1,8 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "renderer/pass/sky_pass.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
@@ -623,6 +625,29 @@ void SkyCubemapPass::generate_brdf_lut() {
     vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
 
     FJELL_GFX_DEBUG("BRDF LUT generated ({}x{})", BRDF_LUT_SIZE, BRDF_LUT_SIZE);
+}
+
+PassSetup SkyCubemapPass::setup() const {
+    return {
+        .name = "sky_cubemap",
+        .phase = RenderPhase::Environment,
+        .sub_order = 50,
+        .reads = {},
+        .writes = {},
+    };
+}
+
+void SkyCubemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                            const FrameContext& ctx) {
+    graph.add_pass("sky_cubemap", [this, passes = ctx.passes](VkCommandBuffer cb) {
+        if (passes) {
+            auto& sky = passes->get<SkyPass>("sky");
+            set_colors(sky.top_color(), sky.bottom_color());
+        }
+        if (dirty()) {
+            generate(cb);
+        }
+    }, {});
 }
 
 } // namespace fjell

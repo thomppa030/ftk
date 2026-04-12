@@ -13,12 +13,24 @@ public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
+    [[nodiscard]] PassSetup setup() const override;
+    void build(FrameGraph& graph, ResourceRegistry& registry,
+               const FrameContext& ctx) override;
+
+    /// Set the tile light SSBO that build() registers in the ResourceRegistry.
+    void set_output_buffer(VkBuffer buffer, VkDeviceSize size) {
+        output_buffer_ = buffer;
+        output_buffer_size_ = size;
+    }
 
 private:
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+
+    VkBuffer output_buffer_{VK_NULL_HANDLE};
+    VkDeviceSize output_buffer_size_{0};
 };
 
 } // namespace fjell
