@@ -139,6 +139,7 @@ add_executable(fjell
     renderer/viz_image.cpp
     renderer/gpu_context.cpp
     renderer/global_bindings.cpp
+    renderer/pass_registry.cpp
     renderer/render_pipeline.cpp
     renderer/scene_gatherer.cpp
     renderer/vulkan_context.cpp
