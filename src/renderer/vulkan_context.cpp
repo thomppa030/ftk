@@ -453,8 +453,12 @@ void VulkanContext::register_depth_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                if (local.pp_resources && local.pp_resources->hiz()) {
-                    hiz_pass_.record_into(local, *local.pp_resources->hiz());
+                auto* hiz_imgs = local.pp_resources ? local.pp_resources->hiz() : nullptr;
+                if (hiz_imgs) {
+                    hiz_pass_.record_into(local, *hiz_imgs);
+                    resource_registry_.register_image("hiz", {
+                        0, hiz_imgs->hiz_sampled_view,
+                        hiz_pass_.sampler(), hiz_imgs->hiz_mip_count});
                 }
             }, {{registry.image_id("depth"), ImageUsage::compute_read}});
         }
@@ -541,6 +545,10 @@ void VulkanContext::register_gpu_driven_passes() {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 light_cull_pass_.record(local);
+
+                resource_registry_.register_buffer("tile_light_ssbo", {
+                    gpu_.tile_light_ssbo(current_frame_).handle(),
+                    gpu_.tile_light_ssbo(current_frame_).size()});
 
                 VkMemoryBarrier2 mem_barrier{};
                 mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -1178,14 +1186,6 @@ void VulkanContext::register_post_process_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                // Hi-Z is lazily created during pipeline execution (order 300),
-                // so we must read it here, not from the pre-built FrameContext.
-                auto* hiz_imgs = local.pp_resources ? local.pp_resources->hiz() : nullptr;
-                if (hiz_imgs && hiz_imgs->ready()) {
-                    local.hiz_view = hiz_imgs->hiz_sampled_view;
-                    local.hiz_sampler = hiz_pass_.sampler();
-                    local.hiz_mip_count = hiz_imgs->hiz_mip_count;
-                }
                 if (local.pp_resources && local.pp_resources->ssr()) {
                     ssr_pass_.record_into(local, *local.pp_resources->ssr());
                 }
@@ -1331,8 +1331,10 @@ void VulkanContext::register_debug_passes() {
             graph.add_pass("light_heatmap", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                light_heatmap_pass_.set_tile_ssbo(current_ctx_.tile_light_ssbo,
-                                                   current_ctx_.tile_light_ssbo_size);
+                auto* tile_buf = resource_registry_.find_buffer("tile_light_ssbo");
+                if (tile_buf) {
+                    light_heatmap_pass_.set_tile_ssbo(tile_buf->buffer, tile_buf->size);
+                }
                 light_heatmap_pass_.record(local);
             }, {});
         }
@@ -1346,8 +1348,10 @@ void VulkanContext::register_debug_passes() {
             graph.add_pass("light_grid", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                light_grid_pass_.set_tile_ssbo(current_ctx_.tile_light_ssbo,
-                                                current_ctx_.tile_light_ssbo_size);
+                auto* tile_buf = resource_registry_.find_buffer("tile_light_ssbo");
+                if (tile_buf) {
+                    light_grid_pass_.set_tile_ssbo(tile_buf->buffer, tile_buf->size);
+                }
                 light_grid_pass_.record(local);
             }, {});
         }
@@ -1409,25 +1413,12 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
         ctx.gpu_driven_indirect = meshlet_instance_pass_.indirect_buffer(current_frame_);
         ctx.gpu_driven_segment_size = meshlet_instance_pass_.segment_size(current_frame_);
     }
-    ctx.mr_view = target.mr_view();
-    ctx.prev_frame_color_view = ssr_pass_.prev_frame_view();
     ctx.pp_resources = pp;
+    ctx.registry = &resource_registry_;
     ctx.skip_shadows = skip_shadows;
     ctx.flip_tonemap_y = flip_tonemap_y;
-    if (pp && pp->hiz() && pp->hiz()->ready()) {
-        ctx.hiz_view = pp->hiz()->hiz_sampled_view;
-        ctx.hiz_sampler = hiz_pass_.sampler();
-        ctx.hiz_mip_count = pp->hiz()->hiz_mip_count;
-    }
-    ctx.tile_light_ssbo = gpu_.tile_light_ssbo(current_frame_).handle();
-    ctx.tile_light_ssbo_size = gpu_.tile_light_ssbo(current_frame_).size();
     ctx.target_pool = &target_pool_;
 
-    // DDGI: SDF, sky cubemap, and inverse VP for probe tracing + sampling
-    ctx.sdf_view = scene_sdf_pass_.view();
-    ctx.sdf_sampler = scene_sdf_pass_.sampler();
-    ctx.sky_cubemap_view = sky_cubemap_pass_.cubemap_view();
-    ctx.sky_cubemap_sampler = sky_cubemap_pass_.cubemap_sampler();
     // Read inv_view_proj from the already-written GlobalUbo
     auto* ubo_data = static_cast<const GlobalUbo*>(gpu_.uniform_buffer(current_frame_).mapped());
     ctx.inv_view_proj = ubo_data->inv_view_proj;
@@ -1530,8 +1521,18 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Execute the render pipeline (passes registered in register_passes())
     // Use the target's actual sample count (not the global default) so that
     // viewports with different MSAA levels (e.g. 1x preview) work correctly.
+    // Populate persistent resources into the registry
+    resource_registry_.clear();
+    resource_registry_.register_image("scene_sdf", {
+        0, scene_sdf_pass_.view(), scene_sdf_pass_.sampler()});
+    resource_registry_.register_image("sky_cubemap", {
+        0, sky_cubemap_pass_.cubemap_view(), sky_cubemap_pass_.cubemap_sampler()});
+    resource_registry_.register_image("prev_frame_color", {
+        0, ssr_pass_.prev_frame_view()});
+
     render_pipeline_.execute(cmd, target, target.sample_count(), active_sources_,
-                              pool, gpu_.secondary_pools(), current_frame_);
+                              pool, gpu_.secondary_pools(), current_frame_,
+                              resource_registry_);
 
     // Copy scene color to prev_frame_color for next frame's SSR
     if (needs_ssr_buffer) {

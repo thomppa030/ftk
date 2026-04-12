@@ -2,6 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
@@ -520,8 +521,14 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     uint32_t height = target_extent.height;
 
     if (imgs.ssr_image == VK_NULL_HANDLE) return;
-    if (ctx.prev_frame_color_view == VK_NULL_HANDLE) return;
-    if (ctx.hiz_view == VK_NULL_HANDLE || ctx.hiz_mip_count == 0) return;
+    if (ctx.registry == nullptr) return;
+
+    auto* hiz_res = ctx.registry->find_image("hiz");
+    auto* prev_color_res = ctx.registry->find_image("prev_frame_color");
+    auto mr_view = ctx.registry->image_view("mr");
+
+    if (prev_color_res == nullptr || prev_color_res->view == VK_NULL_HANDLE) return;
+    if (hiz_res == nullptr || hiz_res->view == VK_NULL_HANDLE || hiz_res->mip_count == 0) return;
 
     auto cmd = ctx.cmd;
     auto global_set = ctx.global_descriptor_set;
@@ -547,12 +554,12 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     uint32_t groups_y = (height + TILE_SIZE - 1) / TILE_SIZE;
 
     // Update per-frame descriptors (lazy)
-    if (ctx.hiz_view != imgs.last_hiz_view) {
-        imgs.last_hiz_view = ctx.hiz_view;
+    if (hiz_res->view != imgs.last_hiz_view) {
+        imgs.last_hiz_view = hiz_res->view;
 
         VkDescriptorImageInfo info{};
-        info.sampler = ctx.hiz_sampler;
-        info.imageView = ctx.hiz_view;
+        info.sampler = hiz_res->sampler;
+        info.imageView = hiz_res->view;
         info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet write{};
@@ -565,12 +572,12 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
     }
 
-    if (ctx.prev_frame_color_view != imgs.last_prev_color_view) {
-        imgs.last_prev_color_view = ctx.prev_frame_color_view;
+    if (prev_color_res->view != imgs.last_prev_color_view) {
+        imgs.last_prev_color_view = prev_color_res->view;
 
         VkDescriptorImageInfo info{};
         info.sampler = linear_sampler_;
-        info.imageView = ctx.prev_frame_color_view;
+        info.imageView = prev_color_res->view;
         info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet write{};
@@ -601,12 +608,12 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
     }
 
-    if (ctx.mr_view != VK_NULL_HANDLE && ctx.mr_view != imgs.last_mr_view) {
-        imgs.last_mr_view = ctx.mr_view;
+    if (mr_view != VK_NULL_HANDLE && mr_view != imgs.last_mr_view) {
+        imgs.last_mr_view = mr_view;
 
         VkDescriptorImageInfo info{};
         info.sampler = nearest_sampler_;
-        info.imageView = ctx.mr_view;
+        info.imageView = mr_view;
         info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet write{};
@@ -635,7 +642,7 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     SsrTracePushConstants trace_push{};
     trace_push.viewport_width = width;
     trace_push.viewport_height = height;
-    trace_push.hiz_mip_count = ctx.hiz_mip_count;
+    trace_push.hiz_mip_count = hiz_res->mip_count;
     trace_push.max_steps = max_steps_;
     trace_push.max_distance = max_distance_;
     trace_push.thickness = thickness_;

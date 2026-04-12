@@ -50,7 +50,7 @@ public:
     void execute(VkCommandBuffer cmd, OffscreenPass& target,
                  VkSampleCountFlagBits msaa, uint32_t active_sources,
                  ThreadPool& pool, ThreadCommandPools& secondary_pools,
-                 uint32_t frame_index);
+                 uint32_t frame_index, ResourceRegistry& registry);
 
 private:
     struct PassState {

@@ -64,7 +64,7 @@ const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& na
 void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               VkSampleCountFlagBits msaa, uint32_t /*active_sources*/,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
-                              uint32_t frame_index) {
+                              uint32_t frame_index, ResourceRegistry& registry) {
     FJELL_PROFILE_SCOPE_N("render_pipeline_execute");
 
     // Topological sort by resource dependencies, order as tiebreaker
@@ -128,9 +128,8 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         sorted_ = true;
     }
 
-    // Register images with the frame graph and resource registry
+    // Register images with the frame graph and populate the resource registry
     FrameGraph graph;
-    ResourceRegistry registry;
     bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
 
     auto color_id = graph.register_image(target.color_image());

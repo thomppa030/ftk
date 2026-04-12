@@ -262,6 +262,7 @@ private:
   // ── GPU infrastructure ────────────────────────────────────────────────
   GpuContext gpu_;
   RenderPipeline render_pipeline_;
+  ResourceRegistry resource_registry_;
   RenderTargetPool target_pool_;
   FrameContext current_ctx_{};
 

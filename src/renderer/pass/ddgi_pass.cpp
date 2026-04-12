@@ -1,6 +1,7 @@
 #include "renderer/pass/ddgi_pass.hpp"
 #include "renderer/gpu/accel_structure.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/systems/particle_system.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -882,6 +883,14 @@ void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
 void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (trace_pipeline_ == VK_NULL_HANDLE) return;
     if (imgs.radiance_image == VK_NULL_HANDLE) return;
+    if (ctx.registry == nullptr) return;
+
+    const auto* sdf_res = ctx.registry->find_image("scene_sdf");
+    const auto* sky_res = ctx.registry->find_image("sky_cubemap");
+    auto sdf_view = sdf_res != nullptr ? sdf_res->view : VK_NULL_HANDLE;
+    auto sdf_sampler = sdf_res != nullptr ? sdf_res->sampler : VK_NULL_HANDLE;
+    auto sky_cubemap_view = sky_res != nullptr ? sky_res->view : VK_NULL_HANDLE;
+    auto sky_cubemap_sampler = sky_res != nullptr ? sky_res->sampler : VK_NULL_HANDLE;
 
     // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
@@ -943,22 +952,22 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // Write descriptors on first use or when views become available
     if (imgs.images_need_init) {
-        if (ctx.sdf_view == VK_NULL_HANDLE) {
+        if (sdf_view == VK_NULL_HANDLE) {
             FJELL_GFX_WARN("DDGI: SDF view not available, skipping");
             frame_counter_++;
             return;
         }
-        if (ctx.sky_cubemap_view == VK_NULL_HANDLE) {
+        if (sky_cubemap_view == VK_NULL_HANDLE) {
             FJELL_GFX_WARN("DDGI: Sky cubemap view not available, skipping");
             frame_counter_++;
             return;
         }
         FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
     }
-    if (imgs.images_need_init && ctx.sdf_view != VK_NULL_HANDLE && ctx.sky_cubemap_view != VK_NULL_HANDLE) {
+    if (imgs.images_need_init && sdf_view != VK_NULL_HANDLE && sky_cubemap_view != VK_NULL_HANDLE) {
         write_trace_descriptors(vk_device_, imgs.trace_set, imgs,
-                                ctx.sdf_view, ctx.sdf_sampler,
-                                ctx.sky_cubemap_view, ctx.sky_cubemap_sampler,
+                                sdf_view, sdf_sampler,
+                                sky_cubemap_view, sky_cubemap_sampler,
                                 linear_sampler_);
 
         // Write update set descriptors
@@ -1055,8 +1064,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rt_radiance.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
             VkDescriptorImageInfo rt_sky{};
-            rt_sky.sampler = ctx.sky_cubemap_sampler;
-            rt_sky.imageView = ctx.sky_cubemap_view;
+            rt_sky.sampler = sky_cubemap_sampler;
+            rt_sky.imageView = sky_cubemap_view;
             rt_sky.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
             VkDescriptorBufferInfo rt_status{};
@@ -1097,7 +1106,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     }
 
     // SDF backend requires the SDF view
-    if (backend_ == DdgiBackend::sdf_fallback && ctx.sdf_view == VK_NULL_HANDLE) {
+    if (backend_ == DdgiBackend::sdf_fallback && sdf_view == VK_NULL_HANDLE) {
         frame_counter_++;
         return;
     }

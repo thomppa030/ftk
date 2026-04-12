@@ -16,6 +16,7 @@ class DebugDraw;
 class OffscreenPass;
 class RenderQueue;
 class RenderTargetPool;
+class ResourceRegistry;
 class Scene;
 
 // Shared descriptor set layouts needed by passes at pipeline creation time.
@@ -61,32 +62,14 @@ struct FrameContext {
     VkBuffer gpu_driven_indirect{VK_NULL_HANDLE}; // meshlet_instance_pass indirect cmds
     uint32_t gpu_driven_segment_size{0};           // instances per pipeline bin
 
-    // Metallic/roughness G-buffer (resolved) for SSR material-aware blending
-    VkImageView mr_view{VK_NULL_HANDLE};
-
-    // SSR: previous frame color for reflection tracing
-    VkImageView prev_frame_color_view{VK_NULL_HANDLE};
-
-    // Hi-Z pyramid (shared, built by HizPass)
-    VkImageView hiz_view{VK_NULL_HANDLE};
-    VkSampler hiz_sampler{VK_NULL_HANDLE};
-    uint32_t hiz_mip_count{0};
-
-    // Forward+ light culling: tile light index SSBO for viz passes
-    VkBuffer tile_light_ssbo{VK_NULL_HANDLE};
-    VkDeviceSize tile_light_ssbo_size{0};
-
     // Transient render target pool
     RenderTargetPool* target_pool{nullptr};
 
     // Per-viewport post-process images
     PostProcessResources* pp_resources{nullptr};
 
-    // SDF + sky for DDGI probe tracing
-    VkImageView sdf_view{VK_NULL_HANDLE};
-    VkSampler sdf_sampler{VK_NULL_HANDLE};
-    VkImageView sky_cubemap_view{VK_NULL_HANDLE};
-    VkSampler sky_cubemap_sampler{VK_NULL_HANDLE};
+    // Named resource registry (pass-to-pass data flow)
+    ResourceRegistry* registry{nullptr};
 
     // Inverse view-projection for world-space reconstruction (DDGI sampling)
     glm::mat4 inv_view_proj{1.0f};
