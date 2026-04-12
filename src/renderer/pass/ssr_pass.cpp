@@ -2,6 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -673,6 +674,40 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdPushConstants(cmd, composite_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(comp_push), &comp_push);
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
+}
+
+PassSetup SsrPass::setup() const {
+    return {
+        .name = "ssr",
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 0,
+        .reads = {{"depth", ImageUsage::compute_read},
+                  {"scene_color", ImageUsage::compute_write},
+                  {"metallic_roughness", ImageUsage::compute_read}},
+        .writes = {},
+    };
+}
+
+void SsrPass::build(FrameGraph& graph, ResourceRegistry& registry,
+                     const FrameContext& ctx) {
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    if (auto* img = registry.find_image("depth")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
+    }
+    if (auto* img = registry.find_image("color")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_write);
+    }
+    if (auto* img = registry.find_image("mr")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
+    }
+
+    graph.add_pass("ssr", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        if (local.pp_resources && local.pp_resources->ssr()) {
+            record_into(local, *local.pp_resources->ssr());
+        }
+    }, std::move(uses));
 }
 
 } // namespace fjell

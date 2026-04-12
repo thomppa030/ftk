@@ -1,6 +1,8 @@
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/post_process_resources.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
@@ -774,6 +776,35 @@ void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
     // Flip ping-pong for next frame
     imgs.ping_pong = prev;
     ++imgs.frame_counter;
+}
+
+PassSetup VolumetricFogPass::setup() const {
+    return {
+        .name = "volumetric_fog",
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 100,
+        .reads = {{"depth", ImageUsage::compute_read}},
+        .writes = {{"scene_color", ImageUsage::compute_write}},
+    };
+}
+
+void VolumetricFogPass::build(FrameGraph& graph, ResourceRegistry& registry,
+                               const FrameContext& ctx) {
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    if (auto* img = registry.find_image("depth")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
+    }
+    if (auto* img = registry.find_image("color")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_write);
+    }
+
+    graph.add_pass("volumetric_fog", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        if (local.pp_resources && local.pp_resources->volumetric_fog()) {
+            record_into(local, *local.pp_resources->volumetric_fog());
+        }
+    }, std::move(uses));
 }
 
 } // namespace fjell

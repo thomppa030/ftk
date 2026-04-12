@@ -2,6 +2,8 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/post_process_resources.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -630,6 +632,32 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
     final_dep.imageMemoryBarrierCount = 1;
     final_dep.pImageMemoryBarriers = &ao_final;
     vkCmdPipelineBarrier2(cmd, &final_dep);
+}
+
+PassSetup GtaoPass::setup() const {
+    return {
+        .name = "gtao",
+        .phase = RenderPhase::GpuDriven,
+        .sub_order = 100,
+        .reads = {{"depth", ImageUsage::compute_read}},
+        .writes = {{"ao", ImageUsage::compute_write}},
+    };
+}
+
+void GtaoPass::build(FrameGraph& graph, ResourceRegistry& registry,
+                      const FrameContext& ctx) {
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    if (auto* img = registry.find_image("depth")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
+    }
+
+    graph.add_pass("gtao", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        if (local.pp_resources && local.pp_resources->gtao()) {
+            record_into(local, *local.pp_resources->gtao());
+        }
+    }, std::move(uses));
 }
 
 } // namespace fjell

@@ -493,21 +493,12 @@ void VulkanContext::register_gpu_driven_passes() {
         }
     });
 
-    // GTAO
+    // GTAO — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "gtao",
         .order = PassEntry::make_order(RenderPhase::GpuDriven, 100),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("gtao", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "GTAO");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                if (local.pp_resources && local.pp_resources->gtao()) {
-                    gtao_pass().record_into(local, *local.pp_resources->gtao());
-                }
-            }, {{registry.image_id("depth"), ImageUsage::compute_read}});
+            gtao_pass().build(graph, registry, current_ctx_);
         }
     });
 
@@ -585,20 +576,12 @@ void VulkanContext::register_gpu_driven_passes() {
 void VulkanContext::register_color_passes() {
     register_opaque_pass();
 
-    // DDGI: runs after opaque pass so depth + normals are available for sampling.
-    // Trace+update+sample all in one pass at order 605.
+    // DDGI — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "ddgi",
         .order = PassEntry::make_order(RenderPhase::Color, 5),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("ddgi", [this](VkCommandBuffer cb) {
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                if (local.pp_resources && local.pp_resources->ddgi()) {
-                    ddgi_pass().record_into(local, *local.pp_resources->ddgi());
-                }
-            }, {{registry.image_id("depth"), ImageUsage::compute_read},
-                {registry.image_id("normal"), ImageUsage::compute_read}});
+            ddgi_pass().build(graph, registry, current_ctx_);
         }
     });
 
@@ -1154,41 +1137,21 @@ void VulkanContext::register_transparent_pass() {
 }
 
 void VulkanContext::register_post_process_passes() {
+    // SSR — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "ssr",
         .order = PassEntry::make_order(RenderPhase::PostProcess, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("ssr", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "SSR");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                if (local.pp_resources && local.pp_resources->ssr()) {
-                    ssr_pass().record_into(local, *local.pp_resources->ssr());
-                }
-            }, {{registry.image_id("depth"), ImageUsage::compute_read},
-                {registry.image_id("color"), ImageUsage::compute_write},
-                {registry.image_id("mr"), ImageUsage::compute_read}});
+            ssr_pass().build(graph, registry, current_ctx_);
         }
     });
 
-    // Volumetric fog
+    // Volumetric fog — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "volumetric_fog",
         .order = PassEntry::make_order(RenderPhase::PostProcess, 100),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("volumetric_fog", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Volumetric Fog");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                if (local.pp_resources && local.pp_resources->volumetric_fog()) {
-                    volumetric_fog_pass().record_into(local, *local.pp_resources->volumetric_fog());
-                }
-            }, {{registry.image_id("depth"), ImageUsage::compute_read},
-                {registry.image_id("color"), ImageUsage::compute_write}});
+            volumetric_fog_pass().build(graph, registry, current_ctx_);
         }
     });
 
@@ -1201,27 +1164,12 @@ void VulkanContext::register_post_process_passes() {
         }
     });
 
-    // Tonemap
+    // Tonemap — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "tonemap",
         .order = PassEntry::make_order(RenderPhase::PostProcess, 300),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("tonemap", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Tonemap");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                if (local.pp_resources && local.pp_resources->tonemap()) {
-                    VkImageView bloom_view = VK_NULL_HANDLE;
-                    if (bloom_pass().enabled() && local.pp_resources->bloom()) {
-                        bloom_view = local.pp_resources->bloom()->mips[0].view;
-                    }
-                    tonemap_pass().record_into(local, *local.pp_resources->tonemap(),
-                                              current_ctx_.target->color_view(),
-                                              bloom_view);
-                }
-            }, {{registry.image_id("color"), ImageUsage::shader_read}});
+            tonemap_pass().build(graph, registry, current_ctx_);
         }
     });
 }

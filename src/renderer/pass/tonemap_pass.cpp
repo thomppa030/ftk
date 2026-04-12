@@ -1,7 +1,11 @@
 #include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/bloom_pass.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_registry.hpp"
+#include "renderer/post_process_resources.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "core/base_path.hpp"
@@ -268,6 +272,40 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
 
     // Transition to readable
     vk_utils::finish_color_attachment(cmd, imgs.image);
+}
+
+PassSetup TonemapPass::setup() const {
+    return {
+        .name = "tonemap",
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 300,
+        .reads = {{"scene_color", ImageUsage::shader_read}},
+        .writes = {{"tonemapped", ImageUsage::shader_read}},
+    };
+}
+
+void TonemapPass::build(FrameGraph& graph, ResourceRegistry& registry,
+                         const FrameContext& ctx) {
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    if (auto* img = registry.find_image("color")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::shader_read);
+    }
+
+    graph.add_pass("tonemap", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        if (local.pp_resources && local.pp_resources->tonemap()) {
+            VkImageView bloom_view = VK_NULL_HANDLE;
+            if (local.passes) {
+                auto* bloom = local.passes->try_get<BloomPass>("bloom");
+                if (bloom && bloom->enabled() && local.pp_resources->bloom()) {
+                    bloom_view = local.pp_resources->bloom()->mips[0].view;
+                }
+            }
+            record_into(local, *local.pp_resources->tonemap(),
+                        local.target->color_view(), bloom_view);
+        }
+    }, std::move(uses));
 }
 
 } // namespace fjell
