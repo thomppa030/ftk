@@ -30,7 +30,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 9
+#define FJELL_API_VERSION 10
 
 // ── Field types for inspector / serialization reflection ────────────────
 
@@ -84,6 +84,20 @@ typedef struct FjellActionDesc {
     FjellActionTrigger trigger;     // when to fire
     void*              trampoline;  // function pointer (cast to appropriate signature)
 } FjellActionDesc;
+
+// ── UI widget action descriptors (for on:click validation) ─────────────
+
+typedef enum FjellUiActionParam {
+    FJELL_UI_ACTION_NONE = 0,
+    FJELL_UI_ACTION_INT,
+    FJELL_UI_ACTION_FLOAT,
+    FJELL_UI_ACTION_VEC2,
+} FjellUiActionParam;
+
+typedef struct FjellUiActionDesc {
+    const char*        name;        // action name
+    FjellUiActionParam param_type;  // parameter type
+} FjellUiActionDesc;
 
 // ── Key codes (match GLFW values) ────────────────────────────────────
 

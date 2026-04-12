@@ -52,10 +52,16 @@ struct OwnedScriptType {
     bool loaded{true};
 };
 
+struct OwnedUiActionDesc {
+    std::string name;
+    uint8_t param_type{0}; // 0=none, 1=int, 2=float, 3=vec2
+};
+
 struct OwnedUiWidgetType {
     std::string name;
     UiWidget* (*create)();
     std::vector<OwnedFieldDesc> fields;
+    std::vector<OwnedUiActionDesc> actions;
     void (*trace)(void* instance, void* visitor){nullptr};
     bool loaded{true};
 };

@@ -261,12 +261,19 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                                     auto name = t["name"].get<std::string>();
                                     auto fields_sym = t["fields_symbol"].get<std::string>();
                                     auto count = t["field_count"].get<uint32_t>();
+                                    auto action_count = t.value("action_count", 0u);
                                     reg << "    {\"" << name << "\", "
                                         << fields_sym << ", " << count << ", ";
                                     if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
                                         reg << t["trace_symbol"].get<std::string>();
                                     } else {
                                         reg << "nullptr";
+                                    }
+                                    reg << ", ";
+                                    if (action_count > 0) {
+                                        reg << "fjreflect_" << name << "_ui_actions, " << action_count;
+                                    } else {
+                                        reg << "nullptr, 0";
                                     }
                                     reg << "},\n";
                                 }

@@ -101,6 +101,23 @@ static void write_generated_cpp(const ComponentInfo& comp,
 
         out << "extern \"C\" const uint32_t fjreflect_" << comp.class_name
             << "_action_count = " << comp.actions.size() << ";\n\n";
+
+        // UI action descriptor table for runtime validation
+        out << "extern \"C\" const FjellUiActionDesc fjreflect_" << comp.class_name
+            << "_ui_actions[] = {\n";
+        for (const auto& action : comp.actions) {
+            out << "    {\"" << action.name << "\", ";
+            switch (action.param) {
+                case ActionParamType::none:        out << "FJELL_UI_ACTION_NONE"; break;
+                case ActionParamType::int_param:   out << "FJELL_UI_ACTION_INT"; break;
+                case ActionParamType::float_param: out << "FJELL_UI_ACTION_FLOAT"; break;
+                case ActionParamType::vec2_param:  out << "FJELL_UI_ACTION_VEC2"; break;
+            }
+            out << "},\n";
+        }
+        out << "};\n";
+        out << "extern \"C\" const uint32_t fjreflect_" << comp.class_name
+            << "_ui_action_count = " << comp.actions.size() << ";\n\n";
     }
 
     // (ScriptComponent action trampolines removed — scripts now use InputAPI::bind() in begin_play)
@@ -161,7 +178,22 @@ static void write_manifest(const std::vector<ComponentInfo>& components,
         } else {
             out << "      \"trace_symbol\": null,\n";
         }
-        out << "      \"action_count\": " << comp.actions.size() << "\n";
+        out << "      \"action_count\": " << comp.actions.size() << ",\n";
+        // Action details for runtime table generation
+        out << "      \"actions\": [";
+        for (size_t a = 0; a < comp.actions.size(); ++a) {
+            const auto& action = comp.actions[a];
+            int param_type = 0;
+            switch (action.param) {
+                case ActionParamType::none:        param_type = 0; break;
+                case ActionParamType::int_param:   param_type = 1; break;
+                case ActionParamType::float_param: param_type = 2; break;
+                case ActionParamType::vec2_param:  param_type = 3; break;
+            }
+            out << "{\"name\":\"" << action.name << "\",\"param\":" << param_type << "}";
+            if (a + 1 < comp.actions.size()) out << ",";
+        }
+        out << "]\n";
         out << "    }";
         if (i + 1 < components.size()) out << ",";
         out << "\n";

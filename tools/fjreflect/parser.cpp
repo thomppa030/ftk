@@ -551,7 +551,10 @@ bool query_offsets(std::vector<ComponentInfo>& components,
                "    FJELL_FIELD_SHARED_REF, FJELL_FIELD_WIDGET_PTR };\n";
         out << "struct FjellFieldDesc { const char* name; FjellFieldType type;\n"
                "    uint32_t offset; uint32_t size; const char* ref_target;\n"
-               "    float min; float max; float step; const char* const* enum_names; };\n\n";
+               "    float min; float max; float step; const char* const* enum_names; };\n";
+        out << "enum FjellUiActionParam { FJELL_UI_ACTION_NONE=0, FJELL_UI_ACTION_INT,\n"
+               "    FJELL_UI_ACTION_FLOAT, FJELL_UI_ACTION_VEC2 };\n";
+        out << "struct FjellUiActionDesc { const char* name; FjellUiActionParam param_type; };\n\n";
 
         // Stub engine extern "C" symbols that registration macros reference.
         // Headers only declare classes + fields, no engine method bodies.

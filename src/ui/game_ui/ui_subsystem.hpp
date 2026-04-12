@@ -64,6 +64,7 @@ private:
     void collect_widgets(UiNode& node, UiInstance& instance);
     void sync_bind_fields(WidgetInstance& wi);
     void resolve_widget_bindings(Scene& scene);
+    void validate_widget_actions(const UiNode& node, const OwnedUiWidgetType* type);
 
     VulkanContext& vulkan_context_;
     GameUi& editor_game_ui_;

@@ -1,6 +1,7 @@
 // fjell_ui_registry.hpp — Type registration for UiWidget game .so files
 #pragma once
 
+#include "fjell/api.h"
 #include "fjell/ui_widget.hpp"
 #include "fjell/registry.hpp"
 
@@ -14,6 +15,8 @@ struct FjellUiWidgetTypeOOP {
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);
+    const FjellUiActionDesc* actions;
+    uint32_t action_count;
 };
 
 // Backward compat alias
@@ -26,6 +29,8 @@ struct FjellUiGeneratedInfo {
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);
+    const FjellUiActionDesc* actions;
+    uint32_t action_count;
 };
 
 // ── Engine exports ───────────────────────────────────────────────────────
@@ -50,6 +55,8 @@ void register_ui_widget(FjellTypeRegistry* reg) {
         desc.fields = gen->fields;
         desc.field_count = gen->field_count;
         desc.trace = gen->trace;
+        desc.actions = gen->actions;
+        desc.action_count = gen->action_count;
     }
 
     fjell_reg_ui_component(reg, &desc);

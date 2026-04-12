@@ -2,7 +2,9 @@
 
 #include "core/delegate.hpp"
 
+#include <charconv>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -36,14 +38,20 @@ public:
     }
 
     void set_float(const std::string& key, float value) {
-        set(key, std::to_string(value));
+        typed_floats_[key] = value;
+        // Compact string: "72" not "72.000000"
+        char buf[32];
+        auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), value);
+        set(key, std::string(buf, ptr));
     }
 
     void set_int(const std::string& key, int value) {
+        typed_ints_[key] = value;
         set(key, std::to_string(value));
     }
 
     void set_bool(const std::string& key, bool value) {
+        typed_bools_[key] = value;
         set(key, value ? "1" : "0");
     }
 
@@ -54,6 +62,27 @@ public:
         if (it != values_.end()) return it->second;
         if (parent_) return parent_->get(key);
         return "";
+    }
+
+    [[nodiscard]] std::optional<float> get_float(const std::string& key) const {
+        auto it = typed_floats_.find(key);
+        if (it != typed_floats_.end()) return it->second;
+        if (parent_) return parent_->get_float(key);
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<int> get_int(const std::string& key) const {
+        auto it = typed_ints_.find(key);
+        if (it != typed_ints_.end()) return it->second;
+        if (parent_) return parent_->get_int(key);
+        return std::nullopt;
+    }
+
+    [[nodiscard]] std::optional<bool> get_bool(const std::string& key) const {
+        auto it = typed_bools_.find(key);
+        if (it != typed_bools_.end()) return it->second;
+        if (parent_) return parent_->get_bool(key);
+        return std::nullopt;
     }
 
     template <typename F>
@@ -125,6 +154,9 @@ public:
 
     void clear() {
         values_.clear();
+        typed_floats_.clear();
+        typed_ints_.clear();
+        typed_bools_.clear();
         actions_.clear();
         param_actions_.clear();
         lists_.clear();
@@ -134,6 +166,9 @@ private:
     UiContext* parent_{nullptr};
     uint64_t generation_{0};
     std::unordered_map<std::string, std::string> values_;
+    std::unordered_map<std::string, float> typed_floats_;
+    std::unordered_map<std::string, int> typed_ints_;
+    std::unordered_map<std::string, bool> typed_bools_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void()>>> actions_;
     std::unordered_map<std::string, std::unique_ptr<Delegate<void(const std::vector<std::string>&)>>> param_actions_;
     std::unordered_map<std::string, std::vector<UiContext>> lists_;

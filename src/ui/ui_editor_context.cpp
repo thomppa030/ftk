@@ -1,6 +1,7 @@
 #include "ui/ui_editor_context.hpp"
 #include "ui/dockspace_layout.hpp"
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "scripting/script_manager.hpp"
@@ -110,14 +111,16 @@ void UiEditorContext::apply_resize(VulkanContext& /*vk*/) {
 void UiEditorContext::open_ui(const std::string& path) {
     auto abs_path = base_path::resolve_asset(path, deps_.project_mgr->active());
 
-    // If opening a .fjwidget, read the manifest to get .fjui/.fjss paths
-    if (path.ends_with(".fjwidget")) {
+    // Determine if this is a .fjwidget (markup format) or a legacy .fjui
+    bool is_widget_file = path.ends_with(".fjwidget");
+    if (is_widget_file) {
         auto result = load_widget_asset(abs_path);
         if (result) {
-            fjui_path_ = result->fjui_path;
-            abs_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
-            if (!result->fjss_path.empty()) {
-                fjss_path_ = base_path::resolve_asset(result->fjss_path, deps_.project_mgr->active());
+            loaded_widget_ = std::move(*result);
+            fjui_path_ = path; // track the .fjwidget path as the asset path
+            if (!loaded_widget_.fjss_path.empty()) {
+                // Resolve .fjss relative to the widget file's directory
+                fjss_path_ = (fs::path(abs_path).parent_path() / loaded_widget_.fjss_path).string();
             } else {
                 auto fjss = fs::path(abs_path);
                 fjss.replace_extension(".fjss");
@@ -174,8 +177,14 @@ void UiEditorContext::open_ui(const std::string& path) {
             });
     }
 
-    // Load the .fjui + .fjss
-    preview_ui_->load(abs_path, fjss_path_);
+    // Load the UI — either from inline markup tree or from .fjui file
+    if (is_widget_file && loaded_widget_.markup_root) {
+        auto tree_clone = UiDataBind::clone_node(*loaded_widget_.markup_root, nullptr);
+        auto base_dir = fs::path(abs_path).parent_path().string();
+        preview_ui_->load_from_tree(std::move(tree_clone), fjss_path_, base_dir);
+    } else {
+        preview_ui_->load(abs_path, fjss_path_);
+    }
 
     // Apply mock data
     for (const auto& [key, value] : mock_entries_) {
@@ -240,9 +249,27 @@ void UiEditorContext::open_ui(const std::string& path) {
         }
     }
 
-    // Detect widget isolation mode (file is in a widgets/ directory)
-    is_widget_file_ = (fjui_path_.find("/widgets/") != std::string::npos ||
-                       fjui_path_.find("\\widgets\\") != std::string::npos);
+    // Detect widget isolation mode
+    is_widget_file_ = is_widget_file ||
+                      fjui_path_.find("/widgets/") != std::string::npos ||
+                      fjui_path_.find("\\widgets\\") != std::string::npos;
+
+    // Populate mock entries from declared props (with defaults)
+    if (!loaded_widget_.props.empty()) {
+        for (const auto& prop : loaded_widget_.props) {
+            // Only add if not already present in mock_entries_
+            bool exists = false;
+            for (const auto& [k, v] : mock_entries_) {
+                if (k == prop.name) { exists = true; break; }
+            }
+            if (!exists) {
+                std::string val = prop.default_value.empty() ? "" : prop.default_value;
+                mock_entries_.emplace_back(prop.name, val);
+                preview_ui_->context().set(prop.name, val);
+            }
+        }
+        preview_ui_->mark_dirty();
+    }
 
     // Auto-discover {key} prop templates in the widget
     discovered_props_.clear();
@@ -861,7 +888,11 @@ void UiEditorContext::draw_mock_data() {
 
         if (is_widget_file_) {
             ImGui::TextColored({0.6f, 0.45f, 0.8f, 1.0f}, "Widget isolation mode");
-            ImGui::TextDisabled("Props auto-discovered from {key} templates");
+            if (!loaded_widget_.props.empty()) {
+                ImGui::TextDisabled("Props from <prop> declarations");
+            } else {
+                ImGui::TextDisabled("Props auto-discovered from {key} templates");
+            }
         } else {
             ImGui::TextDisabled("Key/value pairs for {key} data binding");
         }
@@ -878,13 +909,49 @@ void UiEditorContext::draw_mock_data() {
             ImGui::Text("%s", key.c_str());
             ImGui::SameLine(150);
 
-            // Editable value
-            char buf[256];
-            std::snprintf(buf, sizeof(buf), "%s", value.c_str());
+            // Find prop type if declared
+            std::string prop_type;
+            for (const auto& prop : loaded_widget_.props) {
+                if (prop.name == key) { prop_type = prop.type; break; }
+            }
+
             ImGui::SetNextItemWidth(-40);
-            if (ImGui::InputText("##val", buf, sizeof(buf))) {
-                value = buf;
-                preview_ui_->context().set(key, value);
+            bool changed = false;
+
+            if (prop_type == "float") {
+                float f = 0.0f;
+                try { f = std::stof(value); } catch (...) {}
+                if (ImGui::DragFloat("##val", &f, 0.1f)) {
+                    value = std::to_string(f);
+                    preview_ui_->context().set_float(key, f);
+                    changed = true;
+                }
+            } else if (prop_type == "int") {
+                int iv = 0;
+                try { iv = std::stoi(value); } catch (...) {}
+                if (ImGui::DragInt("##val", &iv)) {
+                    value = std::to_string(iv);
+                    preview_ui_->context().set_int(key, iv);
+                    changed = true;
+                }
+            } else if (prop_type == "bool") {
+                bool bv = (value != "0" && value != "false");
+                if (ImGui::Checkbox("##val", &bv)) {
+                    value = bv ? "1" : "0";
+                    preview_ui_->context().set_bool(key, bv);
+                    changed = true;
+                }
+            } else {
+                char buf[256];
+                std::snprintf(buf, sizeof(buf), "%s", value.c_str());
+                if (ImGui::InputText("##val", buf, sizeof(buf))) {
+                    value = buf;
+                    preview_ui_->context().set(key, value);
+                    changed = true;
+                }
+            }
+
+            if (changed) {
                 preview_ui_->mark_dirty();
             }
 

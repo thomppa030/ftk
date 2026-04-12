@@ -234,6 +234,12 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_ui_component(FjellTypeRegistry* reg, 
     for (uint32_t i = 0; i < desc->field_count; ++i) {
         owned.fields.push_back(fjell::copy_field(desc->fields[i]));
     }
+    for (uint32_t i = 0; i < desc->action_count; ++i) {
+        fjell::OwnedUiActionDesc a;
+        a.name = desc->actions[i].name;
+        a.param_type = static_cast<uint8_t>(desc->actions[i].param_type);
+        owned.actions.push_back(std::move(a));
+    }
     reg->ui_components.push_back(std::move(owned));
 }
 

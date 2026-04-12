@@ -3,8 +3,18 @@
 #include "core/profiler.hpp"
 
 #include <algorithm>
+#include <optional>
 
 namespace fjell {
+
+/// If the string is exactly "{key}" (a single binding), return the key.
+/// Returns nullopt for compound expressions like "{a} / {b}" or plain text.
+static std::optional<std::string> extract_single_key(const std::string& s) {
+    if (s.size() < 3 || s.front() != '{' || s.back() != '}') return std::nullopt;
+    // Check no inner braces (would indicate compound expression)
+    if (s.find('{', 1) != std::string::npos) return std::nullopt;
+    return s.substr(1, s.size() - 2);
+}
 
 DataBindResult UiDataBind::resolve(UiNode& root, UiContext& context) {
     FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
@@ -25,8 +35,9 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
 
     // Sync props: resolve outer expressions against parent context,
     // write results into the widget's scoped context.
-    // Skip if a controller manages this widget (controller owns the data).
-    if (node.is_widget && node.scoped_context && !node.has_controller) {
+    // Always resolve — even when a controller exists, parent props are inputs.
+    // The controller's [[fj::bind]] fields can override specific keys via sync_bind_fields.
+    if (node.is_widget && node.scoped_context && !node.prop_map.empty()) {
         for (const auto& [inner_key, outer_expr] : node.prop_map) {
             auto resolved = resolve_template(outer_expr, context);
             node.scoped_context->set(inner_key, resolved);
@@ -91,12 +102,24 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
         auto val_it = node.attributes.find("value");
         auto max_it = node.attributes.find("max");
         if (val_it != node.attributes.end() && max_it != node.attributes.end()) {
-            auto val_str = resolve_template(val_it->second, ctx);
-            auto max_str = resolve_template(max_it->second, ctx);
             float val = 0.0f;
             float max = 1.0f;
-            try { val = std::stof(val_str); } catch (...) {}
-            try { max = std::stof(max_str); } catch (...) {}
+
+            // Try typed path for simple {key} references (common case)
+            if (auto key = extract_single_key(val_it->second)) {
+                if (auto f = ctx.get_float(*key)) val = *f;
+                else { try { val = std::stof(ctx.get(*key)); } catch (...) {} }
+            } else {
+                try { val = std::stof(resolve_template(val_it->second, ctx)); } catch (...) {}
+            }
+
+            if (auto key = extract_single_key(max_it->second)) {
+                if (auto f = ctx.get_float(*key)) max = *f;
+                else { try { max = std::stof(ctx.get(*key)); } catch (...) {} }
+            } else {
+                try { max = std::stof(resolve_template(max_it->second, ctx)); } catch (...) {}
+            }
+
             if (max <= 0.0f) max = 1.0f;
             float pct = val / max;
             if (pct < 0.0f) pct = 0.0f;

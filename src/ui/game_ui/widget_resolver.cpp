@@ -1,6 +1,7 @@
 #include "ui/game_ui/widget_resolver.hpp"
 #include "ui/game_ui/fjui_parser.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/game_ui/ui_data_bind.hpp"
 #include "core/log.hpp"
 
 #include <algorithm>
@@ -59,13 +60,10 @@ void WidgetResolver::resolve(UiNode& root, const std::string& base_dir,
 void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
                                    Stylesheet& stylesheet, UiContext& parent_context,
                                    std::unordered_set<std::string>& resolution_stack) {
-    // Process children first (bottom-up so nested widgets resolve correctly)
-    // Iterate by index since we're modifying children in place
     for (size_t i = 0; i < node.children.size(); ++i) {
         auto& child = *node.children[i];
 
         if (child.type != UiNodeType::element || is_builtin_tag(child.tag)) {
-            // Recurse into builtin tags
             resolve_node(child, base_dir, stylesheet, parent_context, resolution_stack);
             continue;
         }
@@ -80,99 +78,132 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
 
         auto filename = tag_to_filename(tag);
         auto widget_dir = base_dir + "/widgets";
-        auto fjui_path = widget_dir + "/" + filename + ".fjui";
+        auto widget_path = widget_dir + "/" + filename + ".fjwidget";
 
-        if (!std::filesystem::exists(fjui_path)) {
-            // Not a widget — leave as-is (might be an unknown HTML-like tag)
+        if (!std::filesystem::exists(widget_path)) {
             resolve_node(child, base_dir, stylesheet, parent_context, resolution_stack);
             continue;
         }
 
-        // Parse widget .fjui
-        std::ifstream fjui_file(fjui_path);
-        std::ostringstream fjui_ss;
-        fjui_ss << fjui_file.rdbuf();
-        auto widget_root = FjuiParser::parse(fjui_ss.str());
-        if (!widget_root) {
-            FJELL_CORE_WARN("WidgetResolver: failed to parse widget {}", fjui_path);
+        // Load (or get cached) widget asset
+        WidgetAsset* widget_asset = nullptr;
+        auto cache_it = widget_cache_.find(widget_path);
+        if (cache_it != widget_cache_.end()) {
+            widget_asset = &cache_it->second;
+        } else {
+            auto result = load_widget_asset(widget_path);
+            if (!result) {
+                FJELL_CORE_WARN("WidgetResolver: {}", result.error());
+                continue;
+            }
+            auto [it, _] = widget_cache_.emplace(widget_path, std::move(*result));
+            widget_asset = &it->second;
+        }
+
+        if (!widget_asset->markup_root) {
+            FJELL_CORE_WARN("WidgetResolver: widget has no markup: {}", widget_path);
             continue;
         }
 
-        // Parse widget .fjss (if exists)
-        auto fjss_path = widget_dir + "/" + filename + ".fjss";
+        // Clone the widget's markup tree (each use needs its own copy)
+        auto widget_root = UiDataBind::clone_node(*widget_asset->markup_root, nullptr);
 
-        // Generate unique scope class
+        // Parse widget .fjss (if exists)
+        std::string fjss_path;
+        if (!widget_asset->fjss_path.empty()) {
+            fjss_path = widget_dir + "/" + std::filesystem::path(widget_asset->fjss_path).filename().string();
+        }
+
         auto scope_class = "__w_" + filename + "_" + std::to_string(scope_counter_++);
 
-        if (std::filesystem::exists(fjss_path)) {
+        if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
             std::ifstream fjss_file(fjss_path);
             std::ostringstream fjss_ss;
             fjss_ss << fjss_file.rdbuf();
             auto widget_sheet = FjssParser::parse(fjss_ss.str());
 
-            // Prefix all widget selectors with scope class as ancestor constraint
             for (auto& rule : widget_sheet.rules) {
                 rule.selector.parent = scope_class;
             }
-
-            // Merge into main stylesheet
             stylesheet.rules.insert(stylesheet.rules.end(),
                                     widget_sheet.rules.begin(),
                                     widget_sheet.rules.end());
         }
 
-        // Mark the node as a widget
         child.is_widget = true;
         child.widget_tag = tag;
         child.classes.push_back(scope_class);
 
-        // Create scoped context for this widget
+        // Store prop declarations on the node for typed sync
+        child.widget_props = widget_asset->props;
+
         child.scoped_context = std::make_unique<UiContext>(&parent_context);
 
-        // Extract props from widget tag attributes
-        // Attributes like hp="{hp}" or max="100" become prop mappings
+        // Set prop defaults in the scoped context
+        for (const auto& prop : widget_asset->props) {
+            if (!prop.default_value.empty()) {
+                if (prop.type == "float") {
+                    try { child.scoped_context->set_float(prop.name, std::stof(prop.default_value)); }
+                    catch (...) { child.scoped_context->set(prop.name, prop.default_value); }
+                } else if (prop.type == "int") {
+                    try { child.scoped_context->set_int(prop.name, std::stoi(prop.default_value)); }
+                    catch (...) { child.scoped_context->set(prop.name, prop.default_value); }
+                } else if (prop.type == "bool") {
+                    child.scoped_context->set_bool(prop.name,
+                        prop.default_value != "0" && prop.default_value != "false");
+                } else {
+                    child.scoped_context->set(prop.name, prop.default_value);
+                }
+            }
+        }
+
+        // Build prop_map and validate against declared props
         for (const auto& [attr, value] : child.attributes) {
-            // Skip special attributes
             if (attr == "id" || attr == "class" || attr == "if" ||
                 attr.starts_with("on:") || attr.starts_with("class:") ||
                 attr.starts_with("style-")) {
                 continue;
             }
             child.prop_map[attr] = value;
+
+            // Validate: check that this attribute matches a declared prop
+            if (!widget_asset->props.empty()) {
+                bool found = false;
+                for (const auto& prop : widget_asset->props) {
+                    if (prop.name == attr) { found = true; break; }
+                }
+                if (!found) {
+                    FJELL_CORE_WARN("WidgetResolver: <{}> has no prop '{}' (provided by parent)",
+                                    tag, attr);
+                }
+            }
         }
 
         // Extract event mappings from on:* attributes
         for (const auto& [attr, value] : child.attributes) {
             if (attr.starts_with("on:")) {
-                auto event_name = attr.substr(3); // "on:activate" → "activate"
-                child.event_map[event_name] = value;
+                child.event_map[attr.substr(3)] = value;
             }
         }
 
-        // Save original children for <slot/> content projection
-        std::vector<std::unique_ptr<UiNode>> caller_children;
-        caller_children = std::move(child.children);
+        // Content projection: save caller's children, replace with widget subtree
+        auto caller_children = std::move(child.children);
         child.children.clear();
 
-        // Replace children: the widget's parsed subtree becomes this node's children
         if (widget_root->type == UiNodeType::root) {
-            // Root node is a wrapper — take its children
             for (auto& wc : widget_root->children) {
                 wc->parent = &child;
                 child.children.push_back(std::move(wc));
             }
         } else {
-            // Single element — use directly
             widget_root->parent = &child;
             child.children.push_back(std::move(widget_root));
         }
 
-        // Replace <slot/> nodes with the caller's original children
         if (!caller_children.empty()) {
             replace_slots(child, caller_children);
         }
 
-        // Guard against circular references and recurse into widget subtree
         resolution_stack.insert(tag);
         resolve_node(child, base_dir, stylesheet, *child.scoped_context, resolution_stack);
         resolution_stack.erase(tag);

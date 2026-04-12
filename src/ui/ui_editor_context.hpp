@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/editor_context.hpp"
+#include "ui/game_ui/widget_asset.hpp"
 #include "core/delegate.hpp"
 
 #include <cstdint>
@@ -80,6 +81,7 @@ private:
     // Asset being edited
     std::string fjui_path_;
     std::string fjss_path_;
+    WidgetAsset loaded_widget_; // populated when opening a .fjwidget file
 
     // Dedicated GameUi instance for isolated preview
     std::unique_ptr<GameUi> preview_ui_;

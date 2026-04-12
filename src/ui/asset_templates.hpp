@@ -35,7 +35,10 @@ inline constexpr std::array kAssetTemplates = {
     AssetTemplate{"UI Stylesheet (.fjss)", "new_style", ".fjss",
                   "#root {\n    flex-direction: column;\n    padding: 8;\n}\n"},
     AssetTemplate{"Widget (.fjwidget)", "new_widget", ".fjwidget",
-                  R"({"class":"","ui":"","style":""})"},
+                  "<widget style=\"new_widget.fjss\">\n"
+                  "    <panel id=\"root\">\n"
+                  "    </panel>\n"
+                  "</widget>\n"},
     AssetTemplate{nullptr, {}, {}, {}},
     // ── Animation ──
     AssetTemplate{"Animation Set (.fjanimset)", "new_animset", ".fjanimset",

@@ -111,6 +111,34 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     FJELL_CORE_INFO("GameUi: loaded {} ({} style rules)", fjui_path, stylesheet_.rules.size());
 }
 
+void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjss_path,
+                             const std::string& base_dir) {
+    root_ = std::move(root);
+    if (!root_) return;
+
+    stylesheet_ = {};
+    if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
+        std::ifstream fjss_file(fjss_path);
+        std::ostringstream fjss_ss;
+        fjss_ss << fjss_file.rdbuf();
+        stylesheet_ = FjssParser::parse(fjss_ss.str());
+    }
+
+    widget_resolver_.resolve(*root_, base_dir, stylesheet_, context_);
+    init_text_templates(*root_);
+
+    if (resource_manager_) {
+        resolve_textures(*root_);
+    }
+
+    dirty_ = true;
+
+    // Note: no file watcher for tree-loaded widgets — hot-reload is handled
+    // by the widget file watcher at a higher level if needed.
+
+    FJELL_CORE_INFO("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
+}
+
 void GameUi::update(float viewport_width, float viewport_height,
                     uint32_t frame_index, float dt, const Input* input,
                     glm::vec2 viewport_offset) {

@@ -67,6 +67,12 @@ public:
     /// Load a .fjui + .fjss pair from disk.
     void load(const std::string& fjui_path, const std::string& fjss_path);
 
+    /// Load from an already-parsed tree (used by .fjwidget inline markup).
+    /// Takes ownership of the tree. fjss_path is resolved on disk.
+    /// base_dir is used for widget tag resolution (widgets/<tag>.fjwidget).
+    void load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjss_path,
+                        const std::string& base_dir);
+
     /// Re-resolve styles, compute layout, shape text, process input.
     /// viewport_offset is the top-left of the viewport in window pixels (for input mapping).
     void update(float viewport_width, float viewport_height,

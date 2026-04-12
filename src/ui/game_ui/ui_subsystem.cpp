@@ -8,12 +8,14 @@
 #include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scripting/fjell/api.h"
+#include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "scripting/script_manager.hpp"
 
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <algorithm>
 #include <filesystem>
 
 namespace fjell {
@@ -44,34 +46,20 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
             FJELL_CORE_WARN("UiSubsystem: {}", widget_result.error());
             continue;
         }
-        const auto& widget_asset = *widget_result;
+        auto& widget_asset = *widget_result;
 
-        // Resolve .fjui path
-        std::string fjui_path;
-        if (ctx.project) {
-            fjui_path = ctx.project->resolve(widget_asset.fjui_path);
-        } else {
-            fjui_path = base_path::resolve(widget_asset.fjui_path);
-        }
-
-        if (!std::filesystem::exists(fjui_path)) {
-            FJELL_CORE_WARN("UiSubsystem: .fjui not found: {}", fjui_path);
+        if (!widget_asset.markup_root) {
+            FJELL_CORE_WARN("UiSubsystem: widget has no markup: {}", wc->widget_path);
             continue;
         }
 
-        // Resolve .fjss path
+        // Resolve .fjss path relative to the widget file's directory
         std::string fjss_path;
         if (!widget_asset.fjss_path.empty()) {
-            if (ctx.project) {
-                fjss_path = ctx.project->resolve(widget_asset.fjss_path);
-            } else {
-                fjss_path = base_path::resolve(widget_asset.fjss_path);
-            }
-        } else {
-            // Default: same name as .fjui with .fjss extension
-            fjss_path = std::filesystem::path(fjui_path).replace_extension(".fjss").string();
+            auto widget_dir = std::filesystem::path(widget_resolved).parent_path();
+            fjss_path = (widget_dir / widget_asset.fjss_path).string();
         }
-        if (!std::filesystem::exists(fjss_path)) {
+        if (!fjss_path.empty() && !std::filesystem::exists(fjss_path)) {
             fjss_path.clear();
         }
 
@@ -86,7 +74,10 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
                 vulkan_context_.swapchain_format());
         }
 
-        game_ui->load(fjui_path, fjss_path);
+        // Deep-clone the markup tree (each instance needs its own mutable copy)
+        auto tree_clone = UiDataBind::clone_node(*widget_asset.markup_root, nullptr);
+        auto base_dir = std::filesystem::path(widget_resolved).parent_path().string();
+        game_ui->load_from_tree(std::move(tree_clone), fjss_path, base_dir);
         game_ui->mark_dirty();
 
         UiInstance inst;
@@ -98,6 +89,10 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
             // Create the top-level widget from .fjwidget class name
             if (!widget_asset.class_name.empty()) {
                 auto* wt = script_manager_->find_ui_widget_type(widget_asset.class_name);
+                if (!wt) {
+                    FJELL_CORE_WARN("UiSubsystem: widget class '{}' not found in script types",
+                                    widget_asset.class_name);
+                }
                 if (wt && wt->create) {
                     WidgetInstance wi;
                     wi.type = wt;
@@ -105,9 +100,6 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
                     wi.widget.reset(wt->create());
                     wi.widget->ui_context_.ctx_ = wi.widget_context;
                     inst.widgets.push_back(std::move(wi));
-                    // Set connections pointer after push_back (vector may reallocate)
-                    inst.widgets.back().widget->ui_context_.connections_ =
-                        &inst.widgets.back().connections;
                     FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
                 }
             }
@@ -117,6 +109,21 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
             if (root) {
                 collect_widgets(*root, inst);
             }
+        }
+
+        // Validate on:click targets against declared actions
+        for (auto& wi : inst.widgets) {
+            if (wi.type && !wi.type->actions.empty()) {
+                auto* ui_root = inst.game_ui->root();
+                if (ui_root) {
+                    validate_widget_actions(*ui_root, wi.type);
+                }
+            }
+        }
+
+        // Set connections pointers now that the vector is done growing
+        for (auto& wi : inst.widgets) {
+            wi.widget->ui_context_.connections_ = &wi.connections;
         }
 
         for (auto& wi : inst.widgets) {
@@ -178,7 +185,10 @@ void UiSubsystem::resolve_widget_bindings(Scene& scene) {
 
 void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
     if (node.is_widget && node.scoped_context && !node.widget_tag.empty()) {
-        auto* ui_type = script_manager_->find_ui_widget_type(node.widget_tag);
+        // Normalize tag name: health-bar → health_bar (matches C++ type registration)
+        std::string type_name = node.widget_tag;
+        std::replace(type_name.begin(), type_name.end(), '-', '_');
+        auto* ui_type = script_manager_->find_ui_widget_type(type_name);
         if (ui_type && ui_type->create) {
             WidgetInstance wi;
             wi.type = ui_type;
@@ -192,8 +202,6 @@ void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
                             ui_type->name, node.widget_tag);
 
             instance.widgets.push_back(std::move(wi));
-            instance.widgets.back().widget->ui_context_.connections_ =
-                &instance.widgets.back().connections;
         }
     }
 
@@ -317,6 +325,28 @@ void UiSubsystem::on_play_stop(const TickContext& /*ctx*/) {
         inst.game_ui->destroy();
     }
     instances_.clear();
+}
+
+void UiSubsystem::validate_widget_actions(const UiNode& node, const OwnedUiWidgetType* type) {
+    auto click_it = node.attributes.find("on:click");
+    if (click_it != node.attributes.end()) {
+        const auto& expr = click_it->second;
+        // Extract action name (strip parenthesized args)
+        auto action_name = expr.substr(0, expr.find('('));
+
+        bool found = false;
+        for (const auto& action : type->actions) {
+            if (action.name == action_name) { found = true; break; }
+        }
+        if (!found) {
+            FJELL_CORE_WARN("Widget '{}': on:click target '{}' not found in declared actions",
+                            type->name, action_name);
+        }
+    }
+
+    for (const auto& child : node.children) {
+        validate_widget_actions(*child, type);
+    }
 }
 
 } // namespace fjell

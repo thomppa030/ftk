@@ -27,10 +27,14 @@ public:
     /// Resolve {key} placeholders in a template string against a context.
     static std::string resolve_template(const std::string& tmpl, const UiContext& context);
 
+    /// Deep-clone a UiNode subtree. Copies structural data (tag, attributes,
+    /// classes, text, widget state) but not runtime pointers (yg_node,
+    /// foreach_context, scoped_context).
+    static std::unique_ptr<UiNode> clone_node(const UiNode& source, UiNode* new_parent);
+
 private:
     void resolve_node(UiNode& node, UiContext& context, DataBindResult& result);
     void resolve_foreach(UiNode& parent, UiContext& context, DataBindResult& result);
-    static std::unique_ptr<UiNode> clone_node(const UiNode& source, UiNode* new_parent);
     uint64_t last_generation_{0};
 };
 
