@@ -187,11 +187,15 @@ void UiSubsystem::resolve_widget_bindings(Scene& scene) {
 }
 
 void UiSubsystem::collect_widgets(UiNode& node, UiInstance& instance) {
-    if (node.is_widget && node.scoped_context && !node.widget_tag.empty()) {
-        // Normalize tag name: health-bar → health_bar (matches C++ type registration)
-        std::string type_name = node.widget_tag;
-        std::replace(type_name.begin(), type_name.end(), '-', '_');
-        auto* ui_type = script_manager_->find_ui_widget_type(type_name);
+    if (node.is_widget && node.scoped_context) {
+        // Use widget_class from .fjwidget if available, else normalize tag name
+        std::string type_name = node.widget_class;
+        if (type_name.empty()) {
+            type_name = node.widget_tag;
+            std::replace(type_name.begin(), type_name.end(), '-', '_');
+        }
+        if (type_name.empty()) { /* no class, view-only widget */ }
+        auto* ui_type = type_name.empty() ? nullptr : script_manager_->find_ui_widget_type(type_name);
         if (ui_type && ui_type->create) {
             WidgetInstance wi;
             wi.type = ui_type;
@@ -251,6 +255,11 @@ void UiSubsystem::tick(const TickContext& ctx) {
             if (!wi.widget) continue;
             wi.widget->tick(ctx.dt);
             sync_bind_fields(wi);
+        }
+        // Bump root context generation so data_bind doesn't short-circuit
+        // when widget scoped contexts have been updated by sync_bind_fields
+        if (inst.game_ui && !inst.widgets.empty()) {
+            inst.game_ui->context().set("__tick", "1");
         }
     }
 

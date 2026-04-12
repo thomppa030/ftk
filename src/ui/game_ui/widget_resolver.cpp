@@ -132,6 +132,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
 
         child.is_widget = true;
         child.widget_tag = tag;
+        child.widget_class = widget_asset->class_name; // from <widget class="...">
         child.classes.push_back(scope_class);
 
         // Store prop declarations on the node for typed sync

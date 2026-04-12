@@ -1,5 +1,6 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/fjui_parser.hpp"
+#include "ui/game_ui/ui_data_bind.hpp"
 #include "renderer/bindless.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/resources/material.hpp"
@@ -128,14 +129,17 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
     widget_resolver_.resolve(*root_, base_dir, stylesheet_, context_);
     init_text_templates(*root_);
 
+    // Run an initial data_bind pass to sync prop_map values into scoped contexts
+    // before resolve_textures (material attributes may reference {prop} bindings).
+    // Bump generation to ensure the first resolve isn't skipped.
+    context_.set("__init", "1");
+    data_bind_.resolve(*root_, context_);
+
     if (resource_manager_) {
         resolve_textures(*root_);
     }
 
     dirty_ = true;
-
-    // Note: no file watcher for tree-loaded widgets — hot-reload is handled
-    // by the widget file watcher at a higher level if needed.
 
     FJELL_CORE_INFO("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
 }
@@ -283,10 +287,22 @@ void GameUi::resolve_textures(UiNode& node) {
     // then as a .fjmat asset path.
     auto mat_it = node.attributes.find("material");
     if (mat_it != node.attributes.end() && !mat_it->second.empty()) {
-        auto mat_handle = resource_manager_->find_material(mat_it->second);
+        // Resolve {key} templates if the material name is a binding
+        std::string mat_name = mat_it->second;
+        if (mat_name.find('{') != std::string::npos) {
+            // Walk up to find a scoped context for this node
+            UiContext* ctx = nullptr;
+            for (auto* n = &node; n; n = n->parent) {
+                if (n->scoped_context) { ctx = n->scoped_context.get(); break; }
+            }
+            if (ctx) {
+                mat_name = UiDataBind::resolve_template(mat_name, *ctx);
+            }
+        }
+        auto mat_handle = resource_manager_->find_material(mat_name);
         if (!mat_handle.valid()) {
             // Try loading as .fjmat asset — resolve via project if available
-            std::string mat_path = mat_it->second;
+            std::string mat_path = mat_name;
             if (!mat_path.ends_with(".fjmat")) {
                 mat_path = "assets/materials/" + mat_path + ".fjmat";
             }

@@ -53,6 +53,7 @@ struct UiNode {
     bool is_widget{false};
     bool has_controller{false}; // true when a UiComponent controller manages this widget
     std::string widget_tag;   // original tag name before resolution (e.g., "health-bar")
+    std::string widget_class; // C++ controller class name from .fjwidget (e.g., "health_bar_controller")
     std::unique_ptr<UiContext> scoped_context; // widget's local context (nullptr for non-widgets)
     std::unordered_map<std::string, std::string> prop_map; // inner key → outer expression
     std::unordered_map<std::string, std::string> event_map; // child event → parent action

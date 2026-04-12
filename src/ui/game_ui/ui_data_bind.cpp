@@ -154,6 +154,8 @@ std::unique_ptr<UiNode> UiDataBind::clone_node(const UiNode& source, UiNode* new
     // Copy widget state
     clone->is_widget = source.is_widget;
     clone->widget_tag = source.widget_tag;
+    clone->widget_class = source.widget_class;
+    clone->widget_props = source.widget_props;
     clone->prop_map = source.prop_map;
     clone->event_map = source.event_map;
 

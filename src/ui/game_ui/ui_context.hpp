@@ -39,7 +39,8 @@ public:
 
     void set_float(const std::string& key, float value) {
         typed_floats_[key] = value;
-        // Compact string: "72" not "72.000000"
+        typed_ints_.erase(key);
+        typed_bools_.erase(key);
         char buf[32];
         auto [ptr, ec] = std::to_chars(buf, buf + sizeof(buf), value);
         set(key, std::string(buf, ptr));
@@ -47,11 +48,15 @@ public:
 
     void set_int(const std::string& key, int value) {
         typed_ints_[key] = value;
+        typed_floats_.erase(key);
+        typed_bools_.erase(key);
         set(key, std::to_string(value));
     }
 
     void set_bool(const std::string& key, bool value) {
         typed_bools_[key] = value;
+        typed_floats_.erase(key);
+        typed_ints_.erase(key);
         set(key, value ? "1" : "0");
     }
 
@@ -67,6 +72,9 @@ public:
     [[nodiscard]] std::optional<float> get_float(const std::string& key) const {
         auto it = typed_floats_.find(key);
         if (it != typed_floats_.end()) return it->second;
+        // Fall back to int (controllers often use [[fj::bind]] int for values)
+        auto iit = typed_ints_.find(key);
+        if (iit != typed_ints_.end()) return static_cast<float>(iit->second);
         if (parent_) return parent_->get_float(key);
         return std::nullopt;
     }

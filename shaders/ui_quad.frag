@@ -125,6 +125,10 @@ void main() {
             float c_speed     = custom_params[mat.param_offset + 0];
             float c_intensity = mat.param_count > 1 ? custom_params[mat.param_offset + 1] : 0.3;
             float c_scale     = mat.param_count > 2 ? custom_params[mat.param_offset + 2] : 1.0;
+            vec3 c_tint       = mat.param_count > 5 ? vec3(custom_params[mat.param_offset + 3],
+                                                           custom_params[mat.param_offset + 4],
+                                                           custom_params[mat.param_offset + 5])
+                                                    : vec3(1.0, 0.9, 0.5);
 
             // Caustic in screen-space: bar is a window into a large caustic field
             vec2 pixel_pos_norm = (q.rect.xy + frag_uv * q.rect.zw) / q.viewport_size;
@@ -149,8 +153,7 @@ void main() {
 
             // Soft caustic — no pow highlight, just the raw pattern
             float caustic = clamp(c_sum.x + c_sum.y + 0.5, 0.0, 1.0);
-            vec3 caustic_tint = vec3(1.0, 0.9, 0.5); // warm yellow
-            fill_color.rgb += caustic_tint * caustic * c_intensity;
+            fill_color.rgb += c_tint * caustic * c_intensity;
         }
     } else if (flags > 2.5) {
         // Raw texture mode (flags == 3): sample bindless texture, multiply with fill color
