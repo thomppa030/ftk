@@ -216,6 +216,12 @@ VulkanContext::VulkanContext(Window& window)
                   return a->transparent_order() < b->transparent_order();
               });
 
+    // Cache raw pointers for FrameContext
+    subsystem_ptrs_.reserve(render_subsystems_.size());
+    for (auto& s : render_subsystems_) {
+        subsystem_ptrs_.push_back(s.get());
+    }
+
     FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.allocator());
@@ -1394,6 +1400,22 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     // Read inv_view_proj from the already-written GlobalUbo
     auto* ubo_data = static_cast<const GlobalUbo*>(gpu_.uniform_buffer(current_frame_).mapped());
     ctx.inv_view_proj = ubo_data->inv_view_proj;
+
+    // Extended context for self-registering passes
+    ctx.render_stats = &gpu_.render_stats();
+#ifdef FJELL_ENABLE_TRACY
+    ctx.tracy_ctx = gpu_.tracy_ctx();
+#endif
+    if (gpu_.use_mesh_shaders()) {
+        ctx.draw_mesh_tasks_indirect_fn = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
+    }
+    ctx.subsystems = subsystem_ptrs_.data();
+    ctx.subsystem_count = static_cast<uint32_t>(subsystem_ptrs_.size());
+    ctx.active_sources = active_sources_;
+    ctx.passes = &passes_;
+    ctx.playing = playing_;
+    ctx.world_ui_callback = world_ui_callback_;
+    ctx.game_ui_callback = game_ui_callback_;
 
     return ctx;
 }

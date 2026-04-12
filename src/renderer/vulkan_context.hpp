@@ -291,6 +291,7 @@ private:
   // Particles / sprites
   // Rendering subsystems (particles, sprites, tilemaps, etc.)
   std::vector<std::unique_ptr<RenderSubsystem>> render_subsystems_;
+  std::vector<RenderSubsystem*> subsystem_ptrs_; // cached raw pointers for FrameContext
   ParticleSystem* particle_system_{};
   SpriteRenderer* sprite_renderer_{};
   TilemapRenderer* tilemap_renderer_{};

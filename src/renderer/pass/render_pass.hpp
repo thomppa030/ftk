@@ -3,6 +3,7 @@
 #include "core/result.hpp"
 
 #include <array>
+#include <functional>
 #include <vector>
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -11,10 +12,13 @@
 namespace fjell {
 
 struct DrawCommand;
+struct RenderStats;
 class Device;
 class DebugDraw;
 class OffscreenPass;
+class PassRegistry;
 class RenderQueue;
+class RenderSubsystem;
 class RenderTargetPool;
 class ResourceRegistry;
 class Scene;
@@ -80,6 +84,37 @@ struct FrameContext {
     // Flip tonemap output vertically so render-to-texture viewports produce
     // images with V=0 at bottom (standard texture convention).
     bool flip_tonemap_y{false};
+
+    // ── Extended context (for self-registering passes) ─────────────────
+
+    // Render statistics (draw calls, triangles, etc.)
+    RenderStats* render_stats{nullptr};
+
+    // Tracy GPU profiling context (void* to avoid header dependency)
+    void* tracy_ctx{nullptr};
+
+    // Mesh shader indirect dispatch function pointer (null if unsupported)
+    PFN_vkCmdDrawMeshTasksIndirectEXT draw_mesh_tasks_indirect_fn{nullptr};
+
+    // Render subsystems (particles, sprites, tilemaps).
+    // Points into VulkanContext's cached raw-pointer vector.
+    RenderSubsystem* const* subsystems{nullptr};
+    uint32_t subsystem_count{0};
+
+    // Debug viewport bitfield (which viz passes are active)
+    uint32_t active_sources{0};
+
+    // Pass registry for cross-pass record calls (e.g. sky/grid/debug from color_opaque)
+    PassRegistry* passes{nullptr};
+
+    // Game state for UI rendering
+    bool playing{false};
+
+    // UI rendering callbacks (set by game layer, used by transparent pass)
+    using UiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
+                                          VkDescriptorSet, VkExtent2D, uint32_t)>;
+    UiCallback world_ui_callback;
+    UiCallback game_ui_callback;
 
     // Per-cascade shadow batches (indexed by cascade index)
     static constexpr uint32_t MAX_SHADOW_CASCADES = 3;
