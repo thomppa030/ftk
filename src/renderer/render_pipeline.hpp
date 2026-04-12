@@ -1,7 +1,7 @@
 #pragma once
 
-#include "renderer/frame_images.hpp"
 #include "renderer/frame_graph.hpp"
+#include "renderer/resource_registry.hpp"
 
 #include <functional>
 #include <string>
@@ -21,7 +21,7 @@ struct PassEntry {
     uint32_t order{0};
 
     /// Called during execute(). Must call graph.add_pass() with its image deps.
-    using BuildFunc = std::function<void(FrameGraph& graph, const FrameImages& images)>;
+    using BuildFunc = std::function<void(FrameGraph& graph, ResourceRegistry& registry)>;
     BuildFunc build;
 };
 

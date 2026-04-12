@@ -49,6 +49,7 @@ private:
     // Pipeline
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
+    bool has_rendered_{false};
 };
 
 } // namespace fjell

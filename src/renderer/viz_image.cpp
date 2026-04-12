@@ -73,9 +73,11 @@ void VizImage::resize(uint32_t width, uint32_t height) {
     invalidate_imgui_texture();
     destroy_image();
     create(width, height);
+    has_rendered_ = false;
 }
 
 VkDescriptorSet VizImage::imgui_texture() {
+    if (!has_rendered_) return VK_NULL_HANDLE;
     if (imgui_descriptor_ == VK_NULL_HANDLE && view_ != VK_NULL_HANDLE) {
         imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
             sampler_, view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);

@@ -270,9 +270,11 @@ void DepthVizPass::resize(uint32_t width, uint32_t height) {
     invalidate_imgui_texture();
     destroy_image();
     create_image(width, height);
+    has_rendered_ = false;
 }
 
 VkDescriptorSet DepthVizPass::imgui_texture() {
+    if (!has_rendered_) return VK_NULL_HANDLE;
     if (imgui_descriptor_ == VK_NULL_HANDLE && view_ != VK_NULL_HANDLE) {
         imgui_descriptor_ = ImGui_ImplVulkan_AddTexture(
             sampler_, view_, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -342,6 +344,7 @@ void DepthVizPass::record(const FrameContext& ctx) {
 
     // Transition output to shader-readable
     vk_utils::finish_color_attachment(ctx.cmd, image_);
+    has_rendered_ = true;
 }
 
 } // namespace fjell

@@ -349,7 +349,7 @@ void VulkanContext::register_environment_passes() {
     render_pipeline_.register_pass({
         .name = "sky_cubemap",
         .order = 50,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("sky_cubemap", [this](VkCommandBuffer cb) {
                 sky_cubemap_pass_.set_colors(sky_pass_.top_color(), sky_pass_.bottom_color());
                 if (sky_cubemap_pass_.dirty()) {
@@ -363,7 +363,7 @@ void VulkanContext::register_environment_passes() {
     render_pipeline_.register_pass({
         .name = "shadow",
         .order = 100,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("shadow", [this](VkCommandBuffer cb) {
                 if (current_ctx_.skip_shadows) return;
 #ifdef FJELL_ENABLE_TRACY
@@ -387,12 +387,13 @@ void VulkanContext::register_depth_passes() {
     render_pipeline_.register_pass({
         .name = "depth_prepass",
         .order = 200,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             auto& depth_pass = gpu_.use_mesh_shaders()
                 ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
                 : static_cast<RenderPass&>(depth_prepass_);
 
-            if (imgs.has_msaa) {
+            bool has_msaa = current_ctx_.target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
+            if (has_msaa) {
                 graph.add_pass("depth_prepass", [this, &depth_pass](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                     TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
@@ -402,7 +403,7 @@ void VulkanContext::register_depth_passes() {
                     local.gpu_driven_indirect = VK_NULL_HANDLE;
                     local.gpu_driven_segment_size = 0;
                     depth_pass.record(local);
-                }, {{imgs.msaa_depth_id, ImageUsage::depth_attachment}}, 1);
+                }, {{registry.image_id("msaa_depth"), ImageUsage::depth_attachment}}, 1);
 
                 graph.add_pass("depth_resolve", [this](VkCommandBuffer cb) {
                     auto* target = current_ctx_.target;
@@ -424,8 +425,8 @@ void VulkanContext::register_depth_passes() {
 
                     vkCmdBeginRendering(cb, &ri);
                     vkCmdEndRendering(cb);
-                }, {{imgs.msaa_depth_id, ImageUsage::depth_attachment_read},
-                    {imgs.depth_id, ImageUsage::depth_attachment}});
+                }, {{registry.image_id("msaa_depth"), ImageUsage::depth_attachment_read},
+                    {registry.image_id("depth"), ImageUsage::depth_attachment}});
             } else {
                 graph.add_pass("depth_prepass", [this, &depth_pass](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -436,7 +437,7 @@ void VulkanContext::register_depth_passes() {
                     local.gpu_driven_indirect = VK_NULL_HANDLE;
                     local.gpu_driven_segment_size = 0;
                     depth_pass.record(local);
-                }, {{imgs.depth_id, ImageUsage::depth_attachment}}, 1);
+                }, {{registry.image_id("depth"), ImageUsage::depth_attachment}}, 1);
             }
         }
     });
@@ -445,7 +446,7 @@ void VulkanContext::register_depth_passes() {
     render_pipeline_.register_pass({
         .name = "hiz_build",
         .order = 300,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("hiz_build", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Hi-Z Build");
@@ -455,7 +456,7 @@ void VulkanContext::register_depth_passes() {
                 if (local.pp_resources && local.pp_resources->hiz()) {
                     hiz_pass_.record_into(local, *local.pp_resources->hiz());
                 }
-            }, {{imgs.depth_id, ImageUsage::compute_read}});
+            }, {{registry.image_id("depth"), ImageUsage::compute_read}});
         }
     });
 }
@@ -464,7 +465,7 @@ void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "meshlet_cull",
         .order = 400,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("meshlet_expand_cull", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Meshlet Expand+Cull");
@@ -514,7 +515,7 @@ void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "gtao",
         .order = 500,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("gtao", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "GTAO");
@@ -524,7 +525,7 @@ void VulkanContext::register_gpu_driven_passes() {
                 if (local.pp_resources && local.pp_resources->gtao()) {
                     gtao_pass_.record_into(local, *local.pp_resources->gtao());
                 }
-            }, {{imgs.depth_id, ImageUsage::compute_read}});
+            }, {{registry.image_id("depth"), ImageUsage::compute_read}});
         }
     });
 
@@ -532,7 +533,7 @@ void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "light_cull",
         .order = 510,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("light_cull", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Light Cull");
@@ -553,7 +554,7 @@ void VulkanContext::register_gpu_driven_passes() {
                 dep.memoryBarrierCount = 1;
                 dep.pMemoryBarriers = &mem_barrier;
                 vkCmdPipelineBarrier2(cb, &dep);
-            }, {{imgs.depth_id, ImageUsage::compute_read}});
+            }, {{registry.image_id("depth"), ImageUsage::compute_read}});
         }
     });
 
@@ -561,7 +562,7 @@ void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "subsystem_compute",
         .order = 520,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("subsystem_compute", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Subsystem Compute");
@@ -577,7 +578,7 @@ void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "cull_viz",
         .order = 530,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
             graph.add_pass("cull_viz", [this](VkCommandBuffer cb) {
                 if (gpu_.use_mesh_shaders() && cull_pass_.enabled()) {
@@ -603,15 +604,15 @@ void VulkanContext::register_color_passes() {
     render_pipeline_.register_pass({
         .name = "ddgi",
         .order = 605,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("ddgi", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 if (local.pp_resources && local.pp_resources->ddgi()) {
                     ddgi_pass_.record_into(local, *local.pp_resources->ddgi());
                 }
-            }, {{imgs.depth_id, ImageUsage::compute_read},
-                {imgs.normal_id, ImageUsage::compute_read}});
+            }, {{registry.image_id("depth"), ImageUsage::compute_read},
+                {registry.image_id("normal"), ImageUsage::compute_read}});
         }
     });
 
@@ -624,7 +625,7 @@ void VulkanContext::register_opaque_pass() {
     render_pipeline_.register_pass({
         .name = "color_opaque",
         .order = 600,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("color_opaque", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Color Opaque");
@@ -817,14 +818,14 @@ void VulkanContext::register_opaque_pass() {
                 draw_outline(cb, local);
 
                 vkCmdEndRendering(cb);
-            }, {{imgs.msaa_color_id, ImageUsage::color_attachment},
-                {imgs.color_id, ImageUsage::color_attachment},
-                {imgs.msaa_mr_id, ImageUsage::color_attachment},
-                {imgs.mr_id, ImageUsage::color_attachment},
-                {imgs.msaa_normal_id, ImageUsage::color_attachment},
-                {imgs.normal_id, ImageUsage::color_attachment},
-                {imgs.msaa_depth_id, ImageUsage::depth_attachment},
-                {imgs.depth_id, ImageUsage::depth_attachment}});
+            }, {{registry.image_id("msaa_color"), ImageUsage::color_attachment},
+                {registry.image_id("color"), ImageUsage::color_attachment},
+                {registry.image_id("msaa_mr"), ImageUsage::color_attachment},
+                {registry.image_id("mr"), ImageUsage::color_attachment},
+                {registry.image_id("msaa_normal"), ImageUsage::color_attachment},
+                {registry.image_id("normal"), ImageUsage::color_attachment},
+                {registry.image_id("msaa_depth"), ImageUsage::depth_attachment},
+                {registry.image_id("depth"), ImageUsage::depth_attachment}});
         }
     });
 }
@@ -833,7 +834,7 @@ void VulkanContext::register_screen_color_copy_pass() {
     render_pipeline_.register_pass({
         .name = "screen_color_copy",
         .order = 625,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("screen_color_copy", [this](VkCommandBuffer cb) {
                 auto* target = current_ctx_.target;
                 VkExtent2D ext = target->extent();
@@ -847,8 +848,8 @@ void VulkanContext::register_screen_color_copy_pass() {
                     target->color_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                     target->screen_color_image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                     1, &region);
-            }, {{imgs.color_id, ImageUsage::transfer_src},
-                {imgs.screen_color_id, ImageUsage::transfer_dst}});
+            }, {{registry.image_id("color"), ImageUsage::transfer_src},
+                {registry.image_id("screen_color"), ImageUsage::transfer_dst}});
         }
     });
 }
@@ -933,7 +934,7 @@ void VulkanContext::register_distortion_passes() {
     render_pipeline_.register_pass({
         .name = "distortion_render",
         .order = 640,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("distortion_render", [this](VkCommandBuffer cb) {
                 auto* target = current_ctx_.target;
 
@@ -967,8 +968,8 @@ void VulkanContext::register_distortion_passes() {
                 for (auto& sys : render_subsystems_) sys->record_distortion(local);
 
                 vkCmdEndRendering(cb);
-            }, {{imgs.distortion_id, ImageUsage::color_attachment},
-                {imgs.depth_id, ImageUsage::shader_read}});
+            }, {{registry.image_id("distortion"), ImageUsage::color_attachment},
+                {registry.image_id("depth"), ImageUsage::shader_read}});
         }
     });
 
@@ -976,7 +977,7 @@ void VulkanContext::register_distortion_passes() {
     render_pipeline_.register_pass({
         .name = "distortion_apply",
         .order = 645,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("distortion_apply", [this](VkCommandBuffer cb) {
                 auto* target = current_ctx_.target;
 
@@ -1043,9 +1044,9 @@ void VulkanContext::register_distortion_passes() {
                 vkCmdDraw(cb, 3, 1, 0, 0);
 
                 vkCmdEndRendering(cb);
-            }, {{imgs.distortion_id, ImageUsage::shader_read},
-                {imgs.screen_color_id, ImageUsage::shader_read},
-                {imgs.msaa_color_id, ImageUsage::color_attachment}});
+            }, {{registry.image_id("distortion"), ImageUsage::shader_read},
+                {registry.image_id("screen_color"), ImageUsage::shader_read},
+                {registry.image_id("msaa_color"), ImageUsage::color_attachment}});
         }
     });
 }
@@ -1054,7 +1055,7 @@ void VulkanContext::register_transparent_pass() {
     render_pipeline_.register_pass({
         .name = "color_transparent",
         .order = 650,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("color_transparent", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Color Transparent");
@@ -1153,15 +1154,15 @@ void VulkanContext::register_transparent_pass() {
                 for (auto& sys : render_subsystems_) sys->record_transparent(local);
 
                 vkCmdEndRendering(cb);
-            }, {{imgs.msaa_color_id, ImageUsage::color_attachment},
-                {imgs.color_id, ImageUsage::color_attachment},
-                {imgs.msaa_mr_id, ImageUsage::color_attachment},
-                {imgs.mr_id, ImageUsage::color_attachment},
-                {imgs.msaa_normal_id, ImageUsage::color_attachment},
-                {imgs.normal_id, ImageUsage::color_attachment},
-                {imgs.msaa_depth_id, ImageUsage::shader_read},
-                {imgs.depth_id, ImageUsage::shader_read},
-                {imgs.screen_color_id, ImageUsage::shader_read}});
+            }, {{registry.image_id("msaa_color"), ImageUsage::color_attachment},
+                {registry.image_id("color"), ImageUsage::color_attachment},
+                {registry.image_id("msaa_mr"), ImageUsage::color_attachment},
+                {registry.image_id("mr"), ImageUsage::color_attachment},
+                {registry.image_id("msaa_normal"), ImageUsage::color_attachment},
+                {registry.image_id("normal"), ImageUsage::color_attachment},
+                {registry.image_id("msaa_depth"), ImageUsage::shader_read},
+                {registry.image_id("depth"), ImageUsage::shader_read},
+                {registry.image_id("screen_color"), ImageUsage::shader_read}});
         }
     });
 }
@@ -1170,7 +1171,7 @@ void VulkanContext::register_post_process_passes() {
     render_pipeline_.register_pass({
         .name = "ssr",
         .order = 700,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("ssr", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "SSR");
@@ -1188,9 +1189,9 @@ void VulkanContext::register_post_process_passes() {
                 if (local.pp_resources && local.pp_resources->ssr()) {
                     ssr_pass_.record_into(local, *local.pp_resources->ssr());
                 }
-            }, {{imgs.depth_id, ImageUsage::compute_read},
-                {imgs.color_id, ImageUsage::compute_write},
-                {imgs.mr_id, ImageUsage::compute_read}});
+            }, {{registry.image_id("depth"), ImageUsage::compute_read},
+                {registry.image_id("color"), ImageUsage::compute_write},
+                {registry.image_id("mr"), ImageUsage::compute_read}});
         }
     });
 
@@ -1198,7 +1199,7 @@ void VulkanContext::register_post_process_passes() {
     render_pipeline_.register_pass({
         .name = "volumetric_fog",
         .order = 800,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("volumetric_fog", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Volumetric Fog");
@@ -1208,8 +1209,8 @@ void VulkanContext::register_post_process_passes() {
                 if (local.pp_resources && local.pp_resources->volumetric_fog()) {
                     volumetric_fog_pass_.record_into(local, *local.pp_resources->volumetric_fog());
                 }
-            }, {{imgs.depth_id, ImageUsage::compute_read},
-                {imgs.color_id, ImageUsage::compute_write}});
+            }, {{registry.image_id("depth"), ImageUsage::compute_read},
+                {registry.image_id("color"), ImageUsage::compute_write}});
         }
     });
 
@@ -1217,7 +1218,7 @@ void VulkanContext::register_post_process_passes() {
     render_pipeline_.register_pass({
         .name = "bloom",
         .order = 900,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("bloom", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Bloom");
@@ -1227,7 +1228,7 @@ void VulkanContext::register_post_process_passes() {
                 if (local.pp_resources && local.pp_resources->bloom()) {
                     bloom_pass_.record_into(local, *local.pp_resources->bloom());
                 }
-            }, {{imgs.color_id, ImageUsage::shader_read}});
+            }, {{registry.image_id("color"), ImageUsage::shader_read}});
         }
     });
 
@@ -1235,7 +1236,7 @@ void VulkanContext::register_post_process_passes() {
     render_pipeline_.register_pass({
         .name = "tonemap",
         .order = 1000,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("tonemap", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
                 TracyVkZone(gpu_.tracy_ctx(), cb, "Tonemap");
@@ -1251,7 +1252,7 @@ void VulkanContext::register_post_process_passes() {
                                               current_ctx_.target->color_view(),
                                               bloom_view);
                 }
-            }, {{imgs.color_id, ImageUsage::shader_read}});
+            }, {{registry.image_id("color"), ImageUsage::shader_read}});
         }
     });
 }
@@ -1260,20 +1261,20 @@ void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "depth_viz",
         .order = 1100,
-        .build = [this](FrameGraph& graph, const FrameImages& imgs) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::depth)))) return;
             graph.add_pass("depth_viz", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 depth_viz_pass_.record(local);
-            }, {{imgs.depth_id, ImageUsage::shader_read}});
+            }, {{registry.image_id("depth"), ImageUsage::shader_read}});
         }
     });
 
     render_pipeline_.register_pass({
         .name = "wireframe",
         .order = 1110,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::wireframe)))) return;
             graph.add_pass("wireframe", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
@@ -1286,7 +1287,7 @@ void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "normals",
         .order = 1120,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::normals)))) return;
             graph.add_pass("normals", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
@@ -1299,7 +1300,7 @@ void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "overdraw",
         .order = 1130,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::overdraw)))) return;
             graph.add_pass("overdraw", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
@@ -1312,7 +1313,7 @@ void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "uv_viz",
         .order = 1140,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::uv)))) return;
             graph.add_pass("uv_viz", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
@@ -1325,7 +1326,7 @@ void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "light_heatmap",
         .order = 1150,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_heatmap)))) return;
             graph.add_pass("light_heatmap", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
@@ -1340,7 +1341,7 @@ void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "light_grid",
         .order = 1160,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_grid)))) return;
             graph.add_pass("light_grid", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
@@ -1355,7 +1356,7 @@ void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "meshlet_viz",
         .order = 1170,
-        .build = [this](FrameGraph& graph, const FrameImages& /*imgs*/) {
+        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) return;
             graph.add_pass("meshlet_viz", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;

@@ -128,38 +128,56 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         sorted_ = true;
     }
 
-    // Register images with the frame graph
+    // Register images with the frame graph and resource registry
     FrameGraph graph;
-    FrameImages images;
-    images.color_id = graph.register_image(target.color_image());
-    images.msaa_color_id = images.color_id;
-    images.has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
-    if (images.has_msaa) {
-        images.msaa_color_id = graph.register_image(target.msaa_color_image());
+    ResourceRegistry registry;
+    bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
+
+    auto color_id = graph.register_image(target.color_image());
+    auto msaa_color_id = color_id;
+    if (has_msaa) {
+        msaa_color_id = graph.register_image(target.msaa_color_image());
     }
-    images.depth_id = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
-    images.msaa_depth_id = images.depth_id;
-    if (images.has_msaa) {
-        images.msaa_depth_id = graph.register_image(target.msaa_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    auto depth_id = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto msaa_depth_id = depth_id;
+    if (has_msaa) {
+        msaa_depth_id = graph.register_image(target.msaa_depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
     }
-    images.mr_id = graph.register_image(target.mr_image());
-    images.msaa_mr_id = images.mr_id;
-    if (images.has_msaa) {
-        images.msaa_mr_id = graph.register_image(target.msaa_mr_image());
+
+    auto mr_id = graph.register_image(target.mr_image());
+    auto msaa_mr_id = mr_id;
+    if (has_msaa) {
+        msaa_mr_id = graph.register_image(target.msaa_mr_image());
     }
-    images.normal_id = graph.register_image(target.normal_image());
-    images.msaa_normal_id = images.normal_id;
-    if (images.has_msaa) {
-        images.msaa_normal_id = graph.register_image(target.msaa_normal_image());
+
+    auto normal_id = graph.register_image(target.normal_image());
+    auto msaa_normal_id = normal_id;
+    if (has_msaa) {
+        msaa_normal_id = graph.register_image(target.msaa_normal_image());
     }
-    images.screen_color_id = graph.register_image(target.screen_color_image());
-    images.distortion_id = graph.register_image(target.distortion_image());
+
+    auto screen_color_id = graph.register_image(target.screen_color_image());
+    auto distortion_id = graph.register_image(target.distortion_image());
+
     graph.begin_frame();
+
+    // Populate resource registry (bridge string names to FrameGraph IDs + views)
+    registry.register_image("color", {color_id, target.color_view()});
+    registry.register_image("msaa_color", {msaa_color_id, target.msaa_color_view()});
+    registry.register_image("depth", {depth_id, target.depth_view()});
+    registry.register_image("msaa_depth", {msaa_depth_id, target.msaa_depth_view()});
+    registry.register_image("mr", {mr_id, target.mr_view()});
+    registry.register_image("msaa_mr", {msaa_mr_id, target.msaa_mr_view()});
+    registry.register_image("normal", {normal_id, target.normal_view()});
+    registry.register_image("msaa_normal", {msaa_normal_id, target.msaa_normal_view()});
+    registry.register_image("screen_color", {screen_color_id, target.screen_color_view()});
+    registry.register_image("distortion", {distortion_id, target.distortion_view()});
 
     // Each enabled entry adds itself to the graph with its image dependencies
     for (auto& entry : entries_) {
         if (!state_for(entry.name).enabled) continue;
-        entry.build(graph, images);
+        entry.build(graph, registry);
     }
 
     graph.execute(cmd, &pool, &secondary_pools, frame_index);

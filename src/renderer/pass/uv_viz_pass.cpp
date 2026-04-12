@@ -198,6 +198,7 @@ void UvVizPass::record(const FrameContext& ctx) {
     vkCmdEndRendering(cmd);
 
     vk_utils::finish_color_attachment(cmd, viz_image_.image());
+    viz_image_.mark_rendered();
 }
 
 } // namespace fjell

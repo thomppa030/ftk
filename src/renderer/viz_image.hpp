@@ -31,6 +31,9 @@ public:
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
 
+    /// Mark that the image has been rendered into (layout is now SHADER_READ_ONLY).
+    void mark_rendered() { has_rendered_ = true; }
+
     [[nodiscard]] VkImageView view() const { return view_; }
     [[nodiscard]] VkImage image() const { return image_; }
     [[nodiscard]] VkSampler sampler() const { return sampler_; }
@@ -50,6 +53,7 @@ private:
     VkImageView view_{VK_NULL_HANDLE};
     VkExtent2D extent_{};
     VkDescriptorSet imgui_descriptor_{VK_NULL_HANDLE};
+    bool has_rendered_{false};
 };
 
 } // namespace fjell
