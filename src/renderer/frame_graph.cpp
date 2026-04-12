@@ -39,6 +39,17 @@ void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandB
     passes_.push_back(std::move(pass));
 }
 
+void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
+                           std::vector<std::pair<uint32_t, ImageUsage>> uses,
+                           uint32_t parallel_group) {
+    PassDecl pass;
+    pass.name = name;
+    pass.execute = std::move(execute);
+    pass.image_uses = std::move(uses);
+    pass.parallel_group = parallel_group;
+    passes_.push_back(std::move(pass));
+}
+
 VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect) {
     switch (usage) {
         case ImageUsage::color_attachment:

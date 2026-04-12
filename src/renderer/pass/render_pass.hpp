@@ -1,9 +1,12 @@
 #pragma once
 
 #include "core/result.hpp"
+#include "renderer/frame_graph.hpp"
+#include "renderer/render_pipeline.hpp"
 
 #include <array>
 #include <functional>
+#include <string>
 #include <vector>
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -123,6 +126,23 @@ struct FrameContext {
     std::array<const std::vector<DrawCommand>*, MAX_SHADOW_CASCADES> shadow_cascade_commands{};
 };
 
+/// A named resource dependency with its intended usage.
+struct ResourceUse {
+    std::string name;
+    ImageUsage usage;
+};
+
+/// Everything the pipeline needs to wire a pass: name, phase, ordering,
+/// and resource reads/writes (used for both dependency sorting and
+/// automatic FrameGraph barrier insertion).
+struct PassSetup {
+    std::string name;
+    RenderPhase phase{RenderPhase::Color};
+    uint32_t sub_order{0};
+    std::vector<ResourceUse> reads;
+    std::vector<ResourceUse> writes;
+};
+
 // Base class for a render pass. Each pass owns its pipeline(s) and
 // knows how to record its commands into a command buffer.
 class RenderPass {
@@ -143,6 +163,18 @@ public:
 
     // Record draw commands into the command buffer.
     virtual void record(const FrameContext& ctx) = 0;
+
+    /// Declare pass metadata: name, phase, resource reads/writes.
+    /// The pipeline uses this for ordering, dependency resolution, and
+    /// automatic FrameGraph barrier insertion.
+    [[nodiscard]] virtual PassSetup setup() const { return {}; }
+
+    /// Build this pass into the FrameGraph. Default implementation resolves
+    /// setup() resource names to image IDs via the ResourceRegistry, then
+    /// calls graph.add_pass() with record() as the execute callback.
+    /// Complex passes override this with custom logic.
+    virtual void build(FrameGraph& graph, ResourceRegistry& registry,
+                       const FrameContext& ctx);
 
     [[nodiscard]] Result<> recreate(Device& device, const PassResources& resources) {
         destroy();

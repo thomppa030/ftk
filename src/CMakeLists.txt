@@ -87,6 +87,7 @@ add_executable(fjell
     renderer/systems/sprite_sheet.cpp
     renderer/systems/sprite_anim_subsystem.cpp
     renderer/systems/tilemap_renderer.cpp
+    renderer/pass/render_pass.cpp
     renderer/pass/bloom_pass.cpp
     renderer/pass/cull_pass.cpp
     renderer/pass/ddgi_pass.cpp
