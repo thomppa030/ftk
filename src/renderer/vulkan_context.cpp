@@ -143,6 +143,10 @@ VulkanContext::VulkanContext(Window& window)
     }
 
     add_pass("transparent", std::make_unique<TransparentPass>());
+    add_pass("opaque", std::make_unique<OpaquePass>());
+    add_pass("screen_color_copy", std::make_unique<ScreenColorCopyPass>());
+    add_pass("distortion", std::make_unique<DistortionPass>());
+    add_pass("subsystem_compute", std::make_unique<SubsystemComputePass>());
     add_pass("tonemap", std::make_unique<TonemapPass>());
     add_pass("gtao", std::make_unique<GtaoPass>());
     add_pass("ssr", std::make_unique<SsrPass>());
@@ -248,14 +252,6 @@ VulkanContext::~VulkanContext() {
     sprite_renderer_ = nullptr;
     tilemap_renderer_ = nullptr;
     accel_manager_.reset();
-
-    // Distortion apply resources (not in PassRegistry)
-    auto vk_dev = gpu_.device();
-    if (distortion_apply_pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(vk_dev, distortion_apply_pipeline_, nullptr);
-    if (distortion_apply_layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(vk_dev, distortion_apply_layout_, nullptr);
-    if (distortion_apply_pool_ != VK_NULL_HANDLE) vkDestroyDescriptorPool(vk_dev, distortion_apply_pool_, nullptr);
-    if (distortion_apply_set_layout_ != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(vk_dev, distortion_apply_set_layout_, nullptr);
-    if (distortion_sampler_ != VK_NULL_HANDLE) vkDestroySampler(vk_dev, distortion_sampler_, nullptr);
 
     passes_.destroy_all();
 }
@@ -389,19 +385,12 @@ void VulkanContext::register_gpu_driven_passes() {
         }
     });
 
-    // Subsystem compute (particles, etc.)
+    // Subsystem compute (particles, etc.) — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "subsystem_compute",
         .order = PassEntry::make_order(RenderPhase::GpuDriven, 120),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            graph.add_pass("subsystem_compute", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Subsystem Compute");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                for (auto& sys : render_subsystems_) sys->record_compute(local);
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            subsystem_compute_pass().build(graph, registry, current_ctx_);
         }
     });
 
@@ -418,7 +407,14 @@ void VulkanContext::register_gpu_driven_passes() {
 }
 
 void VulkanContext::register_color_passes() {
-    register_opaque_pass();
+    // Opaque — delegates to pass's own build()
+    render_pipeline_.register_pass({
+        .name = "color_opaque",
+        .order = PassEntry::make_order(RenderPhase::Color, 0),
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            opaque_pass().build(graph, registry, current_ctx_);
+        }
+    });
 
     // DDGI — delegates to pass's own build()
     render_pipeline_.register_pass({
@@ -429,553 +425,30 @@ void VulkanContext::register_color_passes() {
         }
     });
 
-    register_screen_color_copy_pass();
-    register_distortion_passes();
-    register_transparent_pass();
-}
-
-void VulkanContext::register_opaque_pass() {
-    render_pipeline_.register_pass({
-        .name = "color_opaque",
-        .order = PassEntry::make_order(RenderPhase::Color, 0),
-        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("color_opaque", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Color Opaque");
-#endif
-                auto* target = current_ctx_.target;
-
-                VkRenderingAttachmentInfo color_attachment{};
-                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                color_attachment.imageView = target->msaa_color_view();
-                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                color_attachment.clearValue.color = {{0.1f, 0.1f, 0.12f, 1.0f}};
-
-                bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
-                if (msaa) {
-                    color_attachment.resolveImageView = target->color_view();
-                    color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                    color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                }
-
-                VkRenderingAttachmentInfo mr_attachment{};
-                mr_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                mr_attachment.imageView = target->msaa_mr_view();
-                mr_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                mr_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                mr_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                mr_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-                if (msaa) {
-                    mr_attachment.resolveImageView = target->mr_view();
-                    mr_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                    mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                }
-
-                VkRenderingAttachmentInfo normal_attachment{};
-                normal_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                normal_attachment.imageView = target->msaa_normal_view();
-                normal_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                normal_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                normal_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                normal_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-                if (msaa) {
-                    normal_attachment.resolveImageView = target->normal_view();
-                    normal_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                    normal_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                }
-
-                std::array<VkRenderingAttachmentInfo, 3> color_attachments = {color_attachment, mr_attachment, normal_attachment};
-
-                VkRenderingAttachmentInfo depth_attachment{};
-                depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                depth_attachment.imageView = target->msaa_depth_view();
-                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-                depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-                if (msaa) {
-                    depth_attachment.resolveImageView = target->depth_view();
-                    depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-                    depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-                }
-
-                VkRenderingInfo ri{};
-                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                ri.renderArea.extent = target->extent();
-                ri.layerCount = 1;
-                ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
-                ri.pColorAttachments = color_attachments.data();
-                ri.pDepthAttachment = &depth_attachment;
-
-                vkCmdBeginRendering(cb, &ri);
-
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-
-                VkViewport vp{};
-                vp.width = static_cast<float>(target->extent().width);
-                vp.height = static_cast<float>(target->extent().height);
-                vp.maxDepth = 1.0f;
-                vkCmdSetViewport(cb, 0, 1, &vp);
-
-                VkRect2D sc{};
-                sc.extent = target->extent();
-                vkCmdSetScissor(cb, 0, 1, &sc);
-
-                std::array descriptor_sets = {
-                    gpu_.global_descriptor_set(current_frame_),
-                    gpu_.bindless_textures().descriptor_set(),
-                    gatherer_.draw_data_descriptor().descriptor_set(current_frame_)};
-
-                if (current_ctx_.scene) {
-#ifdef FJELL_ENABLE_TRACY
-                    { TracyVkZone(gpu_.tracy_ctx(), cb, "Opaques");
-#endif
-                    if (gpu_.use_mesh_shaders() && gpu_.pipeline_cache()->has_mesh_shaders()) {
-                        std::array mesh_descriptor_sets = {
-                            gpu_.global_descriptor_set(current_frame_),
-                            gpu_.bindless_textures().descriptor_set(),
-                            gatherer_.draw_data_descriptor().descriptor_set(current_frame_),
-                            gpu_.meshlet_descriptor().descriptor_set(current_frame_)};
-
-                        const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
-                        auto indirect_buf = meshlet_instance_pass()->indirect_buffer(current_frame_);
-
-                        if (indirect_buf && !ranges.empty()) {
-                            auto draw_indirect = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
-                            uint32_t seg_size = meshlet_instance_pass()->segment_size(current_frame_);
-
-                            for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
-                                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                  gpu_.pipeline_cache()->gpu_driven_pipeline(ranges[bin].pipeline_id));
-                                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                        gpu_.pipeline_cache()->gpu_driven_layout(),
-                                                        0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
-                                                        mesh_descriptor_sets.data(), 0, nullptr);
-
-                                uint32_t bin_offset = bin * seg_size;
-                                vkCmdPushConstants(cb, gpu_.pipeline_cache()->gpu_driven_layout(),
-                                                  VK_SHADER_STAGE_TASK_BIT_EXT,
-                                                  0, sizeof(uint32_t), &bin_offset);
-
-                                VkDeviceSize cmd_offset = bin * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-                                draw_indirect(cb, indirect_buf, cmd_offset, 1,
-                                              sizeof(VkDrawMeshTasksIndirectCommandEXT));
-                            }
-                        }
-
-                        gpu_.render_stats().meshlets_dispatched +=
-                            gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
-                        gpu_.render_stats().gpu_cull_active = true;
-                    } else {
-                        gpu_.mega_buffer()->bind(cb);
-
-                        const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
-                        for (const auto& range : ranges) {
-                            auto pipeline = range.skinned
-                                ? gpu_.pipeline_cache()->skinned_opaque_pipeline(range.pipeline_id)
-                                : gpu_.pipeline_cache()->opaque_pipeline(range.pipeline_id);
-                            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                    gpu_.pipeline_cache()->layout(),
-                                                    0, static_cast<uint32_t>(descriptor_sets.size()),
-                                                    descriptor_sets.data(), 0, nullptr);
-
-                            VkDeviceSize offset = range.first_draw * sizeof(VkDrawIndexedIndirectCommand);
-                            vkCmdDrawIndexedIndirect(cb,
-                                                     gatherer_.indirect_batch()->indirect_buffer(current_frame_),
-                                                     offset, range.draw_count,
-                                                     sizeof(VkDrawIndexedIndirectCommand));
-                            gpu_.render_stats().indirect_draws++;
-                        }
-                    }
-                    gpu_.render_stats().draw_calls += gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
-                    gpu_.render_stats().triangle_count += gatherer_.indirect_batch()->total_triangles(current_frame_);
-
-                    // Draw skinned meshes (per-model VBO, not in indirect batch)
-                    {
-                        const auto& skinned_indices = gatherer_.indirect_batch()->skinned_draw_indices(current_frame_);
-                        uint32_t skinned_cmd_idx = 0;
-                        for (const auto& dc : gatherer_.render_queue().commands()) {
-                            if (!dc.skinned || !dc.skeletal_model) continue;
-                            if (skinned_cmd_idx >= skinned_indices.size()) break;
-
-                            auto pipeline = gpu_.pipeline_cache()->skinned_opaque_pipeline(dc.pipeline_id);
-                            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-                            vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                                    gpu_.pipeline_cache()->layout(),
-                                                    0, static_cast<uint32_t>(descriptor_sets.size()),
-                                                    descriptor_sets.data(), 0, nullptr);
-
-                            dc.skeletal_model->bind(cb);
-                            uint32_t draw_data_idx = skinned_indices[skinned_cmd_idx];
-                            vkCmdDrawIndexed(cb, dc.skeletal_model->index_count(), 1, 0, 0, draw_data_idx);
-                            gpu_.render_stats().draw_calls++;
-                            skinned_cmd_idx++;
-                        }
-                    }
-#ifdef FJELL_ENABLE_TRACY
-                    }
-#endif
-                }
-
-                for (auto& sys : render_subsystems_) sys->record_opaque(local);
-
-                sky_pass().record(local);
-                grid_pass().record(local);
-                debug_pass().record(local);
-                draw_outline(cb, local);
-
-                vkCmdEndRendering(cb);
-            }, {{registry.image_id("msaa_color"), ImageUsage::color_attachment},
-                {registry.image_id("color"), ImageUsage::color_attachment},
-                {registry.image_id("msaa_mr"), ImageUsage::color_attachment},
-                {registry.image_id("mr"), ImageUsage::color_attachment},
-                {registry.image_id("msaa_normal"), ImageUsage::color_attachment},
-                {registry.image_id("normal"), ImageUsage::color_attachment},
-                {registry.image_id("msaa_depth"), ImageUsage::depth_attachment},
-                {registry.image_id("depth"), ImageUsage::depth_attachment}});
-        }
-    });
-}
-
-void VulkanContext::register_screen_color_copy_pass() {
+    // Screen color copy — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "screen_color_copy",
         .order = PassEntry::make_order(RenderPhase::Color, 25),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("screen_color_copy", [this](VkCommandBuffer cb) {
-                auto* target = current_ctx_.target;
-                VkExtent2D ext = target->extent();
-
-                VkImageCopy region{};
-                region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-                region.extent = {ext.width, ext.height, 1};
-
-                vkCmdCopyImage(cb,
-                    target->color_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                    target->screen_color_image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                    1, &region);
-            }, {{registry.image_id("color"), ImageUsage::transfer_src},
-                {registry.image_id("screen_color"), ImageUsage::transfer_dst}});
+            screen_color_copy_pass().build(graph, registry, current_ctx_);
         }
     });
-}
 
-void VulkanContext::register_distortion_passes() {
-    // Create distortion apply resources (once)
-    if (distortion_apply_pipeline_ == VK_NULL_HANDLE) {
-        auto vk = gpu_.device();
-
-        // Sampler
-        VkSamplerCreateInfo samp_ci{};
-        samp_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        samp_ci.magFilter = VK_FILTER_LINEAR;
-        samp_ci.minFilter = VK_FILTER_LINEAR;
-        samp_ci.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samp_ci.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samp_ci.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        vkCreateSampler(vk, &samp_ci, nullptr, &distortion_sampler_);
-
-        // Descriptor set layout: binding 0 = screen_color, binding 1 = distortion_buffer
-        VkDescriptorSetLayoutBinding bindings[2]{};
-        bindings[0].binding = 0;
-        bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[0].descriptorCount = 1;
-        bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        bindings[1].binding = 1;
-        bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[1].descriptorCount = 1;
-        bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-        VkDescriptorSetLayoutCreateInfo layout_ci{};
-        layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        layout_ci.bindingCount = 2;
-        layout_ci.pBindings = bindings;
-        vkCreateDescriptorSetLayout(vk, &layout_ci, nullptr, &distortion_apply_set_layout_);
-
-        // Pipeline layout
-        VkPipelineLayoutCreateInfo pipe_layout_ci{};
-        pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipe_layout_ci.setLayoutCount = 1;
-        pipe_layout_ci.pSetLayouts = &distortion_apply_set_layout_;
-        vkCreatePipelineLayout(vk, &pipe_layout_ci, nullptr, &distortion_apply_layout_);
-
-        // Descriptor pool + per-frame sets
-        VkDescriptorPoolSize pool_size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 2 * MAX_FRAMES_IN_FLIGHT};
-        VkDescriptorPoolCreateInfo pool_ci{};
-        pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
-        pool_ci.poolSizeCount = 1;
-        pool_ci.pPoolSizes = &pool_size;
-        vkCreateDescriptorPool(vk, &pool_ci, nullptr, &distortion_apply_pool_);
-
-        std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts;
-        layouts.fill(distortion_apply_set_layout_);
-        VkDescriptorSetAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc_info.descriptorPool = distortion_apply_pool_;
-        alloc_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-        alloc_info.pSetLayouts = layouts.data();
-        vkAllocateDescriptorSets(vk, &alloc_info, distortion_apply_sets_.data());
-
-        // Pipeline
-        auto vert_mod = create_shader_module(vk, read_spirv(base_path::resolve("shaders/depth_viz.vert.spv")));
-        auto frag_mod = create_shader_module(vk, read_spirv(base_path::resolve("shaders/distortion_apply.frag.spv")));
-
-        distortion_apply_pipeline_ = vk_utils::create_fullscreen_pipeline({
-            .device = vk,
-            .layout = distortion_apply_layout_,
-            .vert_module = vert_mod,
-            .frag_module = frag_mod,
-            .color_format = OffscreenPass::COLOR_FORMAT,
-            .samples = gpu_.msaa_samples(),
-            .blend_enable = true,
-            .pipeline_cache = gpu_.vk_pipeline_cache(),
-        });
-
-        vkDestroyShaderModule(vk, vert_mod, nullptr);
-        vkDestroyShaderModule(vk, frag_mod, nullptr);
-    }
-
-    // Pass 1: Render distortion particles into distortion buffer (order 640)
+    // Distortion render + apply — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "distortion_render",
         .order = PassEntry::make_order(RenderPhase::Color, 40),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("distortion_render", [this](VkCommandBuffer cb) {
-                auto* target = current_ctx_.target;
-
-                VkRenderingAttachmentInfo color_attachment{};
-                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                color_attachment.imageView = target->distortion_view();
-                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                color_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
-
-                VkRenderingAttachmentInfo depth_attachment{};
-                depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                depth_attachment.imageView = target->depth_view();
-                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-                depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
-
-                VkRenderingInfo ri{};
-                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                ri.renderArea.extent = target->extent();
-                ri.layerCount = 1;
-                ri.colorAttachmentCount = 1;
-                ri.pColorAttachments = &color_attachment;
-                ri.pDepthAttachment = &depth_attachment;
-
-                vkCmdBeginRendering(cb, &ri);
-
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                for (auto& sys : render_subsystems_) sys->record_distortion(local);
-
-                vkCmdEndRendering(cb);
-            }, {{registry.image_id("distortion"), ImageUsage::color_attachment},
-                {registry.image_id("depth"), ImageUsage::shader_read}});
+            distortion_pass().build(graph, registry, current_ctx_);
         }
     });
 
-    // Pass 2: Apply distortion offsets to screen color (order 645, before transparent)
-    render_pipeline_.register_pass({
-        .name = "distortion_apply",
-        .order = PassEntry::make_order(RenderPhase::Color, 45),
-        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("distortion_apply", [this](VkCommandBuffer cb) {
-                auto* target = current_ctx_.target;
-
-                // Update descriptor set with current frame's images
-                VkDescriptorImageInfo sc_info{};
-                sc_info.sampler = distortion_sampler_;
-                sc_info.imageView = target->screen_color_view();
-                sc_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                VkDescriptorImageInfo dist_info{};
-                dist_info.sampler = distortion_sampler_;
-                dist_info.imageView = target->distortion_view();
-                dist_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                VkDescriptorSet frame_set = distortion_apply_sets_[current_frame_];
-
-                VkWriteDescriptorSet writes[2]{};
-                writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                writes[0].dstSet = frame_set;
-                writes[0].dstBinding = 0;
-                writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                writes[0].descriptorCount = 1;
-                writes[0].pImageInfo = &sc_info;
-                writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                writes[1].dstSet = frame_set;
-                writes[1].dstBinding = 1;
-                writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                writes[1].descriptorCount = 1;
-                writes[1].pImageInfo = &dist_info;
-                vkUpdateDescriptorSets(gpu_.device(), 2, writes, 0, nullptr);
-
-                // Render fullscreen triangle into MSAA color (so transparent pass composites on top)
-                VkRenderingAttachmentInfo color_attachment{};
-                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                color_attachment.imageView = target->msaa_color_view();
-                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-                VkRenderingInfo ri{};
-                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                ri.renderArea.extent = target->extent();
-                ri.layerCount = 1;
-                ri.colorAttachmentCount = 1;
-                ri.pColorAttachments = &color_attachment;
-
-                vkCmdBeginRendering(cb, &ri);
-
-                vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, distortion_apply_pipeline_);
-
-                VkViewport vp{};
-                vp.width = static_cast<float>(target->extent().width);
-                vp.height = static_cast<float>(target->extent().height);
-                vp.maxDepth = 1.0f;
-                vkCmdSetViewport(cb, 0, 1, &vp);
-
-                VkRect2D sc{};
-                sc.extent = target->extent();
-                vkCmdSetScissor(cb, 0, 1, &sc);
-
-                vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        distortion_apply_layout_, 0, 1,
-                                        &frame_set, 0, nullptr);
-                vkCmdDraw(cb, 3, 1, 0, 0);
-
-                vkCmdEndRendering(cb);
-            }, {{registry.image_id("distortion"), ImageUsage::shader_read},
-                {registry.image_id("screen_color"), ImageUsage::shader_read},
-                {registry.image_id("msaa_color"), ImageUsage::color_attachment}});
-        }
-    });
-}
-
-void VulkanContext::register_transparent_pass() {
+    // Transparent — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "color_transparent",
         .order = PassEntry::make_order(RenderPhase::Color, 50),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("color_transparent", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Color Transparent");
-#endif
-                auto* target = current_ctx_.target;
-
-                VkRenderingAttachmentInfo color_attachment{};
-                color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                color_attachment.imageView = target->msaa_color_view();
-                color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-                bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
-                if (msaa) {
-                    color_attachment.resolveImageView = target->color_view();
-                    color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                    color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                }
-
-                // MR not needed for transparent objects (they don't write MR)
-                VkRenderingAttachmentInfo mr_attachment{};
-                mr_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                mr_attachment.imageView = target->msaa_mr_view();
-                mr_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                mr_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                mr_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-                if (msaa) {
-                    mr_attachment.resolveImageView = target->mr_view();
-                    mr_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                    mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                }
-
-                // Normal attachment — transparent objects don't write normals (colorWriteMask=0 in pipeline)
-                VkRenderingAttachmentInfo normal_attachment{};
-                normal_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                normal_attachment.imageView = target->msaa_normal_view();
-                normal_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                normal_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                normal_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-                if (msaa) {
-                    normal_attachment.resolveImageView = target->normal_view();
-                    normal_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                    normal_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-                }
-
-                std::array<VkRenderingAttachmentInfo, 3> color_attachments = {color_attachment, mr_attachment, normal_attachment};
-
-                VkRenderingAttachmentInfo depth_attachment{};
-                depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                depth_attachment.imageView = target->msaa_depth_view();
-                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-                depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
-
-                if (msaa) {
-                    depth_attachment.resolveImageView = VK_NULL_HANDLE;
-                    depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
-                }
-
-                VkRenderingInfo ri{};
-                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                ri.renderArea.extent = target->extent();
-                ri.layerCount = 1;
-                ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
-                ri.pColorAttachments = color_attachments.data();
-                ri.pDepthAttachment = &depth_attachment;
-
-                vkCmdBeginRendering(cb, &ri);
-
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-
-                VkViewport vp{};
-                vp.width = static_cast<float>(target->extent().width);
-                vp.height = static_cast<float>(target->extent().height);
-                vp.maxDepth = 1.0f;
-                vkCmdSetViewport(cb, 0, 1, &vp);
-
-                VkRect2D sc{};
-                sc.extent = target->extent();
-                vkCmdSetScissor(cb, 0, 1, &sc);
-
-                transparent_pass().record(local);
-
-                // Worldspace UI: renders after transparent objects, before particles
-                if (world_ui_callback_ && playing_) {
-                    world_ui_callback_(cb,
-                        gpu_.global_descriptor_set(current_frame_),
-                        gpu_.bindless_textures().descriptor_set(),
-                        target->extent(), current_frame_);
-                }
-
-                for (auto& sys : render_subsystems_) sys->record_transparent(local);
-
-                vkCmdEndRendering(cb);
-            }, {{registry.image_id("msaa_color"), ImageUsage::color_attachment},
-                {registry.image_id("color"), ImageUsage::color_attachment},
-                {registry.image_id("msaa_mr"), ImageUsage::color_attachment},
-                {registry.image_id("mr"), ImageUsage::color_attachment},
-                {registry.image_id("msaa_normal"), ImageUsage::color_attachment},
-                {registry.image_id("normal"), ImageUsage::color_attachment},
-                {registry.image_id("msaa_depth"), ImageUsage::shader_read},
-                {registry.image_id("depth"), ImageUsage::shader_read},
-                {registry.image_id("screen_color"), ImageUsage::shader_read}});
+            transparent_pass().build(graph, registry, current_ctx_);
         }
     });
 }
@@ -1974,68 +1447,6 @@ void VulkanContext::release_imgui_textures() {
     if (auto* cv = passes_.try_get<CullVizPass>("cull_viz")) cv->invalidate_imgui_texture();
     light_heatmap_pass().invalidate_imgui_texture();
     light_grid_pass().invalidate_imgui_texture();
-}
-
-void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
-    if (ctx.selected_id == 0 || !ctx.scene) return;
-
-    const auto* obj = ctx.scene->find(ctx.selected_id);
-    if (!obj) return;
-    const auto* spatial = obj->as_spatial();
-    if (!spatial) return;
-    const auto* mesh = obj->components.get<MeshComponent>();
-    if (!mesh || !mesh->model || !mesh->material) return;
-
-    auto* cache = gpu_.pipeline_cache();
-    uint32_t pid = mesh->material->pipeline_id();
-    auto pipeline = cache->outline_pipeline(pid);
-    auto layout = cache->outline_layout();
-
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-
-    // Bind all 3 descriptor sets (global + material + draw_data)
-    std::array descriptor_sets = {ctx.global_descriptor_set,
-                                   gpu_.bindless_textures().descriptor_set(),
-                                   gatherer_.draw_data_descriptor().descriptor_set(current_frame_)};
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
-                            0, static_cast<uint32_t>(descriptor_sets.size()),
-                            descriptor_sets.data(), 0, nullptr);
-
-    VkViewport vp{};
-    vp.width = static_cast<float>(ctx.target->extent().width);
-    vp.height = static_cast<float>(ctx.target->extent().height);
-    vp.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &vp);
-
-    VkRect2D sc{};
-    sc.extent = ctx.target->extent();
-    vkCmdSetScissor(cmd, 0, 1, &sc);
-
-    // Push: outline_color vec4 + thickness float
-    struct {
-        glm::vec4 color;
-        float thickness;
-    } push{};
-    push.color = {1.0f, 0.6f, 0.15f, 0.7f};
-    push.thickness = 0.003f;
-
-    vkCmdPushConstants(cmd, layout,
-                       VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
-                       0, sizeof(push), &push);
-
-    // Find the draw index for this object in the draw data SSBO
-    const auto& queue = gatherer_.render_queue();
-    uint32_t draw_index = 0;
-    bool found = false;
-    for (const auto& dc : queue.commands()) {
-        if (dc.node_id == ctx.selected_id) { found = true; break; }
-        draw_index++;
-    }
-    if (!found) return;
-
-    // Draw with firstInstance = draw_index so gl_BaseInstance reads the right DrawData
-    gpu_.mega_buffer()->bind(cmd);
-    mesh->model->draw(cmd, draw_index);
 }
 
 void VulkanContext::update_shadow_descriptors() {

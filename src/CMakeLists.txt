@@ -115,6 +115,10 @@ add_executable(fjell
     renderer/pass/uv_viz_pass.cpp
     renderer/pass/wireframe_pass.cpp
     renderer/pass/scene_sdf_pass.cpp
+    renderer/pass/opaque_pass.cpp
+    renderer/pass/screen_color_copy_pass.cpp
+    renderer/pass/distortion_pass.cpp
+    renderer/pass/subsystem_compute_pass.cpp
     renderer/components/arrow_component_meta.cpp
     renderer/components/mesh_component_meta.cpp
     renderer/components/skeletal_mesh_component_meta.cpp

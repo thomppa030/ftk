@@ -34,6 +34,10 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/transparent_pass.hpp"
+#include "renderer/pass/opaque_pass.hpp"
+#include "renderer/pass/screen_color_copy_pass.hpp"
+#include "renderer/pass/distortion_pass.hpp"
+#include "renderer/pass/subsystem_compute_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -151,6 +155,10 @@ public:
   [[nodiscard]] CullVizPass *cull_viz_pass() { return passes_.try_get<CullVizPass>("cull_viz"); }
   [[nodiscard]] CullPass *cull_pass() { return passes_.try_get<CullPass>("cull"); }
   [[nodiscard]] GridPass &grid_pass() { return passes_.get<GridPass>("grid"); }
+  [[nodiscard]] OpaquePass &opaque_pass() { return passes_.get<OpaquePass>("opaque"); }
+  [[nodiscard]] ScreenColorCopyPass &screen_color_copy_pass() { return passes_.get<ScreenColorCopyPass>("screen_color_copy"); }
+  [[nodiscard]] DistortionPass &distortion_pass() { return passes_.get<DistortionPass>("distortion"); }
+  [[nodiscard]] SubsystemComputePass &subsystem_compute_pass() { return passes_.get<SubsystemComputePass>("subsystem_compute"); }
   [[nodiscard]] DebugDraw &debug_draw() { return *debug_draw_; }
 
   using OverlayCallback = std::function<void(VkCommandBuffer)>;
@@ -257,10 +265,6 @@ private:
   void register_depth_passes();
   void register_gpu_driven_passes();
   void register_color_passes();
-  void register_opaque_pass();
-  void register_screen_color_copy_pass();
-  void register_distortion_passes();
-  void register_transparent_pass();
 
   FrameContext build_frame_context(VkCommandBuffer cmd, OffscreenPass &target,
                                    Scene *scene, float dt, uint32_t selected_id,
@@ -279,14 +283,6 @@ private:
 
   // ── Passes (owned by registry) ─────────────────────────────────────
   PassRegistry passes_;
-
-  // Distortion apply (fullscreen pass: sample distortion buffer + screen color)
-  VkPipelineLayout distortion_apply_layout_{VK_NULL_HANDLE};
-  VkPipeline distortion_apply_pipeline_{VK_NULL_HANDLE};
-  VkDescriptorSetLayout distortion_apply_set_layout_{VK_NULL_HANDLE};
-  VkDescriptorPool distortion_apply_pool_{VK_NULL_HANDLE};
-  std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> distortion_apply_sets_{};
-  VkSampler distortion_sampler_{VK_NULL_HANDLE};
 
   // Particles / sprites
   // Rendering subsystems (particles, sprites, tilemaps, etc.)
@@ -309,9 +305,6 @@ private:
   uint32_t pending_image_index_{0};
   bool has_recorded_frame_{false};
 
-
-  // ── Selection outline ─────────────────────────────────────────────────
-  void draw_outline(VkCommandBuffer cmd, const FrameContext &ctx);
 
   // ── Editor / game state ───────────────────────────────────────────────
   std::unique_ptr<DebugDraw> debug_draw_;
