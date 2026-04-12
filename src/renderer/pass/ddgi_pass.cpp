@@ -853,6 +853,13 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     std::memcpy(imgs.constants_ubo->mapped(), &constants, sizeof(constants));
 }
 
+void DdgiPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    // Only build accel structures when DDGI is enabled for this viewport
+    if (ctx.pp_resources && ctx.pp_resources->ddgi()) {
+        prepare_accel_structures(ctx);
+    }
+}
+
 void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
     if (backend_ != DdgiBackend::ray_traced || !accel_manager_ || !ctx.queue || !ctx.mega_buffer)
         return;

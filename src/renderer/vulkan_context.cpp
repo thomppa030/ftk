@@ -257,16 +257,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     bool skip_shadows, bool flip_tonemap_y) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
 
-    // Lazily create / resize previous-frame color buffer for SSR.
-    // Skip for viewports that don't use SSR (e.g. camera preview) to avoid
-    // vkDeviceWaitIdle mid-command-buffer when the extent differs.
-    bool needs_ssr_buffer = pp && pp->ssr();
-    if (needs_ssr_buffer) {
-        auto ext = target.extent();
-        ssr_pass().ensure_prev_frame(gpu_.device(), gpu_.allocator(),
-                                     gpu_.command_pool(), gpu_.graphics_queue(),
-                                     ext.width, ext.height);
-    }
     // Gather scene: frustum cull, build render queue and indirect batches
     {
         GatherInput gi{};
@@ -285,25 +275,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Flush any pending bindless texture/material updates
     gpu_.bindless_textures().update_descriptors();
     gpu_.bindless_textures().update_material_buffer();
-    // Upload world-space AABBs for GPU frustum culling
-    bool has_meshlet_passes = passes_.has("meshlet_instance");
-    if (gpu_.use_mesh_shaders() && has_meshlet_passes && cull_pass()->enabled()) {
-        uint32_t opaque_count = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
-        const auto* aabbs = gatherer_.indirect_batch()->aabb_data(current_frame_);
-        if (opaque_count > 0 && aabbs) {
-            cull_pass()->upload_aabbs(aabbs, opaque_count, current_frame_);
-        }
-    }
-
-    // Ensure meshlet instance buffers are large enough
-    if (gpu_.use_mesh_shaders() && has_meshlet_passes) {
-        uint32_t total_mi = gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
-        if (total_mi > 0) {
-            meshlet_instance_pass()->ensure_capacity(current_frame_, total_mi);
-        }
-    }
-
     // Update meshlet descriptor (set 3) if mesh shaders are available
+    bool has_meshlet_passes = passes_.has("meshlet_instance");
     if (has_meshlet_passes && gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
         gpu_.meshlet_descriptor().update(*gpu_.meshlet_buffer(), *gpu_.mega_buffer(), current_frame_,
                                     meshlet_instance_pass()->visible_buffer(current_frame_),
@@ -327,13 +300,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
                                         pp, skip_shadows, flip_tonemap_y);
 
-    // Build acceleration structures before command buffer recording starts.
-    // BLAS builds use synchronous GPU submits that would conflict with in-flight recording.
-    // Only needed when DDGI is enabled for this viewport — preview viewports skip this.
-    if (pp && pp->ddgi()) {
-        ddgi_pass().prepare_accel_structures(current_ctx_);
-    }
-
     // Init screen color image on first use (or after resize) so the descriptor
     // at binding 8 doesn't point to an UNDEFINED-layout image.
     if (target.screen_color_needs_init()) {
@@ -344,10 +310,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         target.mark_screen_color_initialized();
     }
 
-    // Update per-frame pass state before pipeline execution
-    light_cull_pass().set_output_buffer(
-        gpu_.tile_light_ssbo(current_frame_).handle(),
-        gpu_.tile_light_ssbo(current_frame_).size());
+    // Per-frame pass setup (buffer resize, data upload, etc.)
+    passes_.pre_record_all(current_ctx_, gpu_);
 
     // Populate resource registry — passes self-register their outputs,
     // then non-pass resources (meshlet bounds) are added manually.
@@ -363,10 +327,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                               pool, gpu_.secondary_pools(), current_frame_,
                               resource_registry_);
 
-    // Copy scene color to prev_frame_color for next frame's SSR
-    if (needs_ssr_buffer) {
-        ssr_pass().copy_prev_frame(cmd, target.color_image(), target.extent());
-    }
+    // Post-pipeline cleanup (SSR history copy, etc.)
+    passes_.post_record_all(current_ctx_);
 }
 
 void VulkanContext::render_preview(const ViewportRenderRequest& req,

@@ -676,6 +676,23 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
 }
 
+void SsrPass::pre_record(const FrameContext& ctx, GpuContext& gpu) {
+    bool needs_buffer = ctx.pp_resources && ctx.pp_resources->ssr();
+    if (needs_buffer && ctx.target) {
+        auto ext = ctx.target->extent();
+        ensure_prev_frame(gpu.device(), gpu.allocator(),
+                          gpu.command_pool(), gpu.graphics_queue(),
+                          ext.width, ext.height);
+    }
+}
+
+void SsrPass::post_record(const FrameContext& ctx) {
+    bool needs_copy = ctx.pp_resources && ctx.pp_resources->ssr();
+    if (needs_copy && ctx.target) {
+        copy_prev_frame(ctx.cmd, ctx.target->color_image(), ctx.target->extent());
+    }
+}
+
 void SsrPass::register_resources(ResourceRegistry& registry) {
     registry.register_image("prev_frame_color", {0, prev_frame_view_});
 }

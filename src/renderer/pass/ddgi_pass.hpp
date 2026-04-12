@@ -152,6 +152,7 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
+    void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
 
     /// Record into externally-provided images.
     void record_into(const FrameContext& ctx, Images& imgs);

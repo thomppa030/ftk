@@ -176,6 +176,14 @@ public:
     /// Override in passes that produce resources consumed by other passes.
     virtual void register_resources(ResourceRegistry& /*registry*/) {}
 
+    /// Per-frame setup before pipeline execution. Passes pull what they
+    /// need from the context (resize buffers, upload data, build accel
+    /// structures). Called after FrameContext is built, before execute().
+    virtual void pre_record(const FrameContext& /*ctx*/, GpuContext& /*gpu*/) {}
+
+    /// Per-frame cleanup after pipeline execution (e.g. copy history buffers).
+    virtual void post_record(const FrameContext& /*ctx*/) {}
+
     // Record draw commands into the command buffer.
     virtual void record(const FrameContext& ctx) = 0;
 

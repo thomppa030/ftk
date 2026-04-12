@@ -65,6 +65,20 @@ public:
         }
     }
 
+    /// Run pre_record() on all passes in insertion order.
+    void pre_record_all(const FrameContext& ctx, GpuContext& gpu) {
+        for (const auto& name : order_) {
+            passes_[name]->pre_record(ctx, gpu);
+        }
+    }
+
+    /// Run post_record() on all passes in insertion order.
+    void post_record_all(const FrameContext& ctx) {
+        for (const auto& name : order_) {
+            passes_[name]->post_record(ctx);
+        }
+    }
+
     /// Let all passes register their persistent resources.
     void register_resources_all(ResourceRegistry& registry) {
         for (const auto& name : order_) {

@@ -16,12 +16,7 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
-
-    /// Set the tile light SSBO that build() registers in the ResourceRegistry.
-    void set_output_buffer(VkBuffer buffer, VkDeviceSize size) {
-        output_buffer_ = buffer;
-        output_buffer_size_ = size;
-    }
+    void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
 
 private:
     VkDevice device_{VK_NULL_HANDLE};

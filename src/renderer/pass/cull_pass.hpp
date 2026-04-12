@@ -26,6 +26,7 @@ public:
     [[nodiscard]] Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext&) override {}
+    void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
 
     // Legacy create — forwards to standard create
     [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator,

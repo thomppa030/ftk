@@ -1,5 +1,6 @@
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resource_registry.hpp"
@@ -66,6 +67,12 @@ void LightCullPass::destroy() {
         vkDestroyPipelineLayout(device_, layout_, nullptr);
         layout_ = VK_NULL_HANDLE;
     }
+}
+
+void LightCullPass::pre_record(const FrameContext& ctx, GpuContext& gpu) {
+    auto& buf = gpu.tile_light_ssbo(ctx.frame_index);
+    output_buffer_ = buf.handle();
+    output_buffer_size_ = buf.size();
 }
 
 void LightCullPass::record(const FrameContext& ctx) {

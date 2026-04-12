@@ -214,6 +214,14 @@ void MeshletInstancePass::destroy() {
     cull_set_layout_.reset();
 }
 
+void MeshletInstancePass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    if (!ctx.use_mesh_shaders || !ctx.indirect_batch) return;
+    uint32_t total_mi = ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
+    if (total_mi > 0) {
+        ensure_capacity(ctx.frame_index, total_mi);
+    }
+}
+
 void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_instances) {
     if (max_instances <= capacities_[frame_index]) return;
 

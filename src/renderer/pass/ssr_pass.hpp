@@ -53,6 +53,8 @@ public:
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
     void register_resources(ResourceRegistry& registry) override;
+    void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
+    void post_record(const FrameContext& ctx) override;
 
     // Record into externally-provided images.
     void record_into(const FrameContext& ctx, Images& imgs);
