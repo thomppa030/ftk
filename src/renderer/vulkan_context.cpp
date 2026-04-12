@@ -348,7 +348,7 @@ void VulkanContext::register_passes() {
 void VulkanContext::register_environment_passes() {
     render_pipeline_.register_pass({
         .name = "sky_cubemap",
-        .order = 50,
+        .order = PassEntry::make_order(RenderPhase::Environment, 50),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("sky_cubemap", [this](VkCommandBuffer cb) {
                 sky_cubemap_pass_.set_colors(sky_pass_.top_color(), sky_pass_.bottom_color());
@@ -362,7 +362,7 @@ void VulkanContext::register_environment_passes() {
     // Shadow pass — uses its own batch with per-cascade culled objects
     render_pipeline_.register_pass({
         .name = "shadow",
-        .order = 100,
+        .order = PassEntry::make_order(RenderPhase::Environment, 100),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("shadow", [this](VkCommandBuffer cb) {
                 if (current_ctx_.skip_shadows) return;
@@ -386,7 +386,7 @@ void VulkanContext::register_environment_passes() {
 void VulkanContext::register_depth_passes() {
     render_pipeline_.register_pass({
         .name = "depth_prepass",
-        .order = 200,
+        .order = PassEntry::make_order(RenderPhase::DepthPrepass, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             auto& depth_pass = gpu_.use_mesh_shaders()
                 ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
@@ -445,7 +445,7 @@ void VulkanContext::register_depth_passes() {
     // Hi-Z pyramid build
     render_pipeline_.register_pass({
         .name = "hiz_build",
-        .order = 300,
+        .order = PassEntry::make_order(RenderPhase::DepthPrepass, 100),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("hiz_build", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -468,7 +468,7 @@ void VulkanContext::register_depth_passes() {
 void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "meshlet_cull",
-        .order = 400,
+        .order = PassEntry::make_order(RenderPhase::GpuDriven, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("meshlet_expand_cull", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -518,7 +518,7 @@ void VulkanContext::register_gpu_driven_passes() {
     // GTAO
     render_pipeline_.register_pass({
         .name = "gtao",
-        .order = 500,
+        .order = PassEntry::make_order(RenderPhase::GpuDriven, 100),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("gtao", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -536,7 +536,7 @@ void VulkanContext::register_gpu_driven_passes() {
     // Light culling
     render_pipeline_.register_pass({
         .name = "light_cull",
-        .order = 510,
+        .order = PassEntry::make_order(RenderPhase::GpuDriven, 110),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("light_cull", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -569,7 +569,7 @@ void VulkanContext::register_gpu_driven_passes() {
     // Subsystem compute (particles, etc.)
     render_pipeline_.register_pass({
         .name = "subsystem_compute",
-        .order = 520,
+        .order = PassEntry::make_order(RenderPhase::GpuDriven, 120),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("subsystem_compute", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -585,7 +585,7 @@ void VulkanContext::register_gpu_driven_passes() {
     // Cull visualization
     render_pipeline_.register_pass({
         .name = "cull_viz",
-        .order = 530,
+        .order = PassEntry::make_order(RenderPhase::GpuDriven, 130),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
             graph.add_pass("cull_viz", [this](VkCommandBuffer cb) {
@@ -611,7 +611,7 @@ void VulkanContext::register_color_passes() {
     // Trace+update+sample all in one pass at order 605.
     render_pipeline_.register_pass({
         .name = "ddgi",
-        .order = 605,
+        .order = PassEntry::make_order(RenderPhase::Color, 5),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("ddgi", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
@@ -632,7 +632,7 @@ void VulkanContext::register_color_passes() {
 void VulkanContext::register_opaque_pass() {
     render_pipeline_.register_pass({
         .name = "color_opaque",
-        .order = 600,
+        .order = PassEntry::make_order(RenderPhase::Color, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("color_opaque", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -841,7 +841,7 @@ void VulkanContext::register_opaque_pass() {
 void VulkanContext::register_screen_color_copy_pass() {
     render_pipeline_.register_pass({
         .name = "screen_color_copy",
-        .order = 625,
+        .order = PassEntry::make_order(RenderPhase::Color, 25),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("screen_color_copy", [this](VkCommandBuffer cb) {
                 auto* target = current_ctx_.target;
@@ -941,7 +941,7 @@ void VulkanContext::register_distortion_passes() {
     // Pass 1: Render distortion particles into distortion buffer (order 640)
     render_pipeline_.register_pass({
         .name = "distortion_render",
-        .order = 640,
+        .order = PassEntry::make_order(RenderPhase::Color, 40),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("distortion_render", [this](VkCommandBuffer cb) {
                 auto* target = current_ctx_.target;
@@ -984,7 +984,7 @@ void VulkanContext::register_distortion_passes() {
     // Pass 2: Apply distortion offsets to screen color (order 645, before transparent)
     render_pipeline_.register_pass({
         .name = "distortion_apply",
-        .order = 645,
+        .order = PassEntry::make_order(RenderPhase::Color, 45),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("distortion_apply", [this](VkCommandBuffer cb) {
                 auto* target = current_ctx_.target;
@@ -1062,7 +1062,7 @@ void VulkanContext::register_distortion_passes() {
 void VulkanContext::register_transparent_pass() {
     render_pipeline_.register_pass({
         .name = "color_transparent",
-        .order = 650,
+        .order = PassEntry::make_order(RenderPhase::Color, 50),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("color_transparent", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -1178,7 +1178,7 @@ void VulkanContext::register_transparent_pass() {
 void VulkanContext::register_post_process_passes() {
     render_pipeline_.register_pass({
         .name = "ssr",
-        .order = 700,
+        .order = PassEntry::make_order(RenderPhase::PostProcess, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("ssr", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -1198,7 +1198,7 @@ void VulkanContext::register_post_process_passes() {
     // Volumetric fog
     render_pipeline_.register_pass({
         .name = "volumetric_fog",
-        .order = 800,
+        .order = PassEntry::make_order(RenderPhase::PostProcess, 100),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("volumetric_fog", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -1217,7 +1217,7 @@ void VulkanContext::register_post_process_passes() {
     // Bloom
     render_pipeline_.register_pass({
         .name = "bloom",
-        .order = 900,
+        .order = PassEntry::make_order(RenderPhase::PostProcess, 200),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("bloom", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -1235,7 +1235,7 @@ void VulkanContext::register_post_process_passes() {
     // Tonemap
     render_pipeline_.register_pass({
         .name = "tonemap",
-        .order = 1000,
+        .order = PassEntry::make_order(RenderPhase::PostProcess, 300),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             graph.add_pass("tonemap", [this](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
@@ -1260,7 +1260,7 @@ void VulkanContext::register_post_process_passes() {
 void VulkanContext::register_debug_passes() {
     render_pipeline_.register_pass({
         .name = "depth_viz",
-        .order = 1100,
+        .order = PassEntry::make_order(RenderPhase::Debug, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::depth)))) return;
             graph.add_pass("depth_viz", [this](VkCommandBuffer cb) {
@@ -1273,7 +1273,7 @@ void VulkanContext::register_debug_passes() {
 
     render_pipeline_.register_pass({
         .name = "wireframe",
-        .order = 1110,
+        .order = PassEntry::make_order(RenderPhase::Debug, 10),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::wireframe)))) return;
             graph.add_pass("wireframe", [this](VkCommandBuffer cb) {
@@ -1286,7 +1286,7 @@ void VulkanContext::register_debug_passes() {
 
     render_pipeline_.register_pass({
         .name = "normals",
-        .order = 1120,
+        .order = PassEntry::make_order(RenderPhase::Debug, 20),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::normals)))) return;
             graph.add_pass("normals", [this](VkCommandBuffer cb) {
@@ -1299,7 +1299,7 @@ void VulkanContext::register_debug_passes() {
 
     render_pipeline_.register_pass({
         .name = "overdraw",
-        .order = 1130,
+        .order = PassEntry::make_order(RenderPhase::Debug, 30),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::overdraw)))) return;
             graph.add_pass("overdraw", [this](VkCommandBuffer cb) {
@@ -1312,7 +1312,7 @@ void VulkanContext::register_debug_passes() {
 
     render_pipeline_.register_pass({
         .name = "uv_viz",
-        .order = 1140,
+        .order = PassEntry::make_order(RenderPhase::Debug, 40),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::uv)))) return;
             graph.add_pass("uv_viz", [this](VkCommandBuffer cb) {
@@ -1325,7 +1325,7 @@ void VulkanContext::register_debug_passes() {
 
     render_pipeline_.register_pass({
         .name = "light_heatmap",
-        .order = 1150,
+        .order = PassEntry::make_order(RenderPhase::Debug, 50),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_heatmap)))) return;
             graph.add_pass("light_heatmap", [this](VkCommandBuffer cb) {
@@ -1342,7 +1342,7 @@ void VulkanContext::register_debug_passes() {
 
     render_pipeline_.register_pass({
         .name = "light_grid",
-        .order = 1160,
+        .order = PassEntry::make_order(RenderPhase::Debug, 60),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::light_grid)))) return;
             graph.add_pass("light_grid", [this](VkCommandBuffer cb) {
@@ -1359,7 +1359,7 @@ void VulkanContext::register_debug_passes() {
 
     render_pipeline_.register_pass({
         .name = "meshlet_viz",
-        .order = 1170,
+        .order = PassEntry::make_order(RenderPhase::Debug, 70),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) return;
             graph.add_pass("meshlet_viz", [this](VkCommandBuffer cb) {

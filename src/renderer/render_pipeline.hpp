@@ -14,8 +14,19 @@ class OffscreenPass;
 class ThreadPool;
 class ThreadCommandPools;
 
-/// A self-declaring pass registration: name, execution order, and a build
-/// callback that adds the pass to the FrameGraph with its image dependencies.
+/// Execution phases for render passes. Each phase has a base order value;
+/// passes within a phase are ordered by sub_order (0-99).
+enum class RenderPhase : uint32_t {
+    Environment  = 0,     // sky cubemap, shadows
+    DepthPrepass = 200,   // depth rendering, hi-z build
+    GpuDriven    = 400,   // meshlet cull, GTAO, light cull, subsystem compute
+    Color        = 600,   // opaque, DDGI, screen color copy, distortion, transparent
+    PostProcess  = 700,   // SSR, volumetric fog, bloom, tonemap
+    Debug        = 1100,  // debug visualization passes
+};
+
+/// A self-declaring pass registration: name, execution phase + sub-order,
+/// and a build callback that adds the pass to the FrameGraph.
 struct PassEntry {
     std::string name;
     uint32_t order{0};
@@ -23,6 +34,11 @@ struct PassEntry {
     /// Called during execute(). Must call graph.add_pass() with its image deps.
     using BuildFunc = std::function<void(FrameGraph& graph, ResourceRegistry& registry)>;
     BuildFunc build;
+
+    /// Construct order from phase + sub_order within that phase.
+    static constexpr uint32_t make_order(RenderPhase phase, uint32_t sub_order = 0) {
+        return static_cast<uint32_t>(phase) + sub_order;
+    }
 };
 
 /// Pass registry + frame graph execution. Passes register themselves with
