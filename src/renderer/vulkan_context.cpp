@@ -1192,21 +1192,12 @@ void VulkanContext::register_post_process_passes() {
         }
     });
 
-    // Bloom
+    // Bloom — delegates to pass's own build()
     render_pipeline_.register_pass({
         .name = "bloom",
         .order = PassEntry::make_order(RenderPhase::PostProcess, 200),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            graph.add_pass("bloom", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Bloom");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                if (local.pp_resources && local.pp_resources->bloom()) {
-                    bloom_pass().record_into(local, *local.pp_resources->bloom());
-                }
-            }, {{registry.image_id("color"), ImageUsage::shader_read}});
+            bloom_pass().build(graph, registry, current_ctx_);
         }
     });
 

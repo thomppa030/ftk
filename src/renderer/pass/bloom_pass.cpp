@@ -2,6 +2,8 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/post_process_resources.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -612,6 +614,32 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+}
+
+PassSetup BloomPass::setup() const {
+    return {
+        .name = "bloom",
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 200,
+        .reads = {{"scene_color", ImageUsage::shader_read}},
+        .writes = {{"scene_color", ImageUsage::shader_read}},
+    };
+}
+
+void BloomPass::build(FrameGraph& graph, ResourceRegistry& registry,
+                      const FrameContext& ctx) {
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    if (auto* img = registry.find_image("color")) {
+        uses.emplace_back(img->frame_graph_id, ImageUsage::shader_read);
+    }
+
+    graph.add_pass("bloom", [this, ctx](VkCommandBuffer cb) {
+        FrameContext local = ctx;
+        local.cmd = cb;
+        if (local.pp_resources && local.pp_resources->bloom()) {
+            record_into(local, *local.pp_resources->bloom());
+        }
+    }, std::move(uses));
 }
 
 } // namespace fjell
