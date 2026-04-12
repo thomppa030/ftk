@@ -148,8 +148,8 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             if (active(ViewportSource::uv))            ctx.uv_viz_pass().resize(vp_w, vp_h);
             if (active(ViewportSource::light_heatmap)) ctx.light_heatmap_pass().resize(vp_w, vp_h);
             if (active(ViewportSource::light_grid))    ctx.light_grid_pass().resize(vp_w, vp_h);
-            if (active(ViewportSource::meshlet_viz))   ctx.meshlet_viz_pass().resize(vp_w, vp_h);
-            if (active(ViewportSource::gpu_cull))      ctx.cull_viz_pass().resize(vp_w, vp_h);
+            if (active(ViewportSource::meshlet_viz))   ctx.meshlet_viz_pass()->resize(vp_w, vp_h);
+            if (active(ViewportSource::gpu_cull))      ctx.cull_viz_pass()->resize(vp_w, vp_h);
         }
     }
 }
@@ -209,8 +209,8 @@ VkDescriptorSet ViewportManager::active_texture(VulkanContext& ctx) {
         case ViewportSource::uv:           return ctx.uv_viz_pass().imgui_texture();
         case ViewportSource::light_heatmap:return ctx.light_heatmap_pass().imgui_texture();
         case ViewportSource::light_grid:   return ctx.light_grid_pass().imgui_texture();
-        case ViewportSource::meshlet_viz:  return ctx.meshlet_viz_pass().imgui_texture();
-        case ViewportSource::gpu_cull:     return ctx.cull_viz_pass().imgui_texture();
+        case ViewportSource::meshlet_viz:  return ctx.meshlet_viz_pass()->imgui_texture();
+        case ViewportSource::gpu_cull:     return ctx.cull_viz_pass()->imgui_texture();
         case ViewportSource::gi_indirect: {
             auto* di = ctx.default_pp().ddgi();
             return di ? di->indirect_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;
@@ -311,8 +311,8 @@ void ViewportManager::draw_viewport_panel(ViewportPanel& panel, VulkanContext& c
                 case ViewportSource::uv:           tex = ctx.uv_viz_pass().imgui_texture(); break;
                 case ViewportSource::light_heatmap:tex = ctx.light_heatmap_pass().imgui_texture(); break;
                 case ViewportSource::light_grid:   tex = ctx.light_grid_pass().imgui_texture(); break;
-                case ViewportSource::meshlet_viz:  tex = ctx.meshlet_viz_pass().imgui_texture(); break;
-                case ViewportSource::gpu_cull:     tex = ctx.cull_viz_pass().imgui_texture(); break;
+                case ViewportSource::meshlet_viz:  tex = ctx.meshlet_viz_pass()->imgui_texture(); break;
+                case ViewportSource::gpu_cull:     tex = ctx.cull_viz_pass()->imgui_texture(); break;
                 case ViewportSource::gi_indirect: {
                     auto* di = ctx.default_pp().ddgi();
                     tex = di ? di->indirect_imgui_texture(ctx.ddgi_pass().linear_sampler()) : VK_NULL_HANDLE;

@@ -51,42 +51,50 @@ VulkanContext::VulkanContext(Window& window)
     PassResources pass_resources = gpu_.pass_resources();
     pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
 
-    // Helper: pass creation is init-time — propagate Result failures as throws
-    auto check_pass = [](Result<>&& r) {
+    // Helper: create, register, and initialize a pass in one call
+    auto add_pass = [&](const std::string& name, auto pass) -> auto& {
+        using T = std::remove_reference_t<decltype(*pass)>;
+        auto& ref = passes_.add<T>(name, std::move(pass));
+        auto r = ref.create(gpu_.device_ref(), pass_resources);
         if (!r) throw std::runtime_error(r.error());
+        return ref;
     };
 
-    check_pass(depth_prepass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(hiz_pass_.create(gpu_.device_ref(), pass_resources));
+    add_pass("depth_prepass", std::make_unique<DepthPrePass>());
+    add_pass("hiz", std::make_unique<HizPass>());
     if (gpu_.use_mesh_shaders()) {
-        meshlet_instance_pass_.create(gpu_.device(), gpu_.allocator(),
-                                       gpu_.global_set_layout(), pass_resources.pipeline_cache);
-        check_pass(mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources));
-        check_pass(meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources));
-        check_pass(cull_pass_.create(gpu_.device(), gpu_.allocator(),
-                                     gpu_.global_set_layout(), pass_resources.pipeline_cache));
-        check_pass(cull_viz_pass_.create(gpu_.device_ref(), pass_resources));
+        auto& mi = passes_.add<MeshletInstancePass>("meshlet_instance", std::make_unique<MeshletInstancePass>());
+        mi.create(gpu_.device(), gpu_.allocator(), gpu_.global_set_layout(), pass_resources.pipeline_cache);
+        add_pass("mesh_shader_depth", std::make_unique<MeshShaderDepthPass>());
+        add_pass("meshlet_viz", std::make_unique<MeshletVizPass>());
+        auto& cp = passes_.add<CullPass>("cull", std::make_unique<CullPass>());
+        auto r = cp.create(gpu_.device(), gpu_.allocator(), gpu_.global_set_layout(), pass_resources.pipeline_cache);
+        if (!r) throw std::runtime_error(r.error());
+        add_pass("cull_viz", std::make_unique<CullVizPass>());
         meshlet_passes_created_ = true;
     }
-    check_pass(shadow_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(depth_viz_pass_.create(gpu_.device_ref(), pass_resources));
+    add_pass("shadow", std::make_unique<ShadowPass>());
+    add_pass("depth_viz", std::make_unique<DepthVizPass>());
 
     update_shadow_descriptors();
 
-    check_pass(debug_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(grid_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(wireframe_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(normal_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(overdraw_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(uv_viz_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(bloom_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(sky_pass_.create(gpu_.device_ref(), pass_resources));
+    add_pass("debug", std::make_unique<DebugPass>());
+    add_pass("grid", std::make_unique<GridPass>());
+    add_pass("wireframe", std::make_unique<WireframePass>());
+    add_pass("normals", std::make_unique<NormalPass>());
+    add_pass("overdraw", std::make_unique<OverdrawPass>());
+    add_pass("uv_viz", std::make_unique<UvVizPass>());
+    add_pass("bloom", std::make_unique<BloomPass>());
+    add_pass("sky", std::make_unique<SkyPass>());
 
     // Sky cubemap for IBL (creates cubemap + BRDF LUT)
-    sky_cubemap_pass_.create(gpu_.device(), gpu_.allocator(),
-                              gpu_.command_pool(), gpu_.graphics_queue(),
-                              pass_resources.pipeline_cache);
-    sky_cubemap_pass_.set_colors(sky_pass_.top_color(), sky_pass_.bottom_color());
+    {
+        auto& scp = passes_.add<SkyCubemapPass>("sky_cubemap", std::make_unique<SkyCubemapPass>());
+        scp.create(gpu_.device(), gpu_.allocator(),
+                   gpu_.command_pool(), gpu_.graphics_queue(),
+                   pass_resources.pipeline_cache);
+        scp.set_colors(sky_pass().top_color(), sky_pass().bottom_color());
+    }
 
     // Generate cubemap (one-shot at startup)
     {
@@ -103,7 +111,7 @@ VulkanContext::VulkanContext(Window& window)
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(init_cmd, &begin);
 
-        sky_cubemap_pass_.generate(init_cmd);
+        sky_cubemap_pass().generate(init_cmd);
 
         vkEndCommandBuffer(init_cmd);
 
@@ -119,13 +127,13 @@ VulkanContext::VulkanContext(Window& window)
     // Write sky cubemap (binding 6) and BRDF LUT (binding 7) into global descriptors
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkDescriptorImageInfo cubemap_info{};
-        cubemap_info.sampler = sky_cubemap_pass_.cubemap_sampler();
-        cubemap_info.imageView = sky_cubemap_pass_.cubemap_view();
+        cubemap_info.sampler = sky_cubemap_pass().cubemap_sampler();
+        cubemap_info.imageView = sky_cubemap_pass().cubemap_view();
         cubemap_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkDescriptorImageInfo brdf_info{};
-        brdf_info.sampler = sky_cubemap_pass_.brdf_lut_sampler();
-        brdf_info.imageView = sky_cubemap_pass_.brdf_lut_view();
+        brdf_info.sampler = sky_cubemap_pass().brdf_lut_sampler();
+        brdf_info.imageView = sky_cubemap_pass().brdf_lut_view();
         brdf_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         std::array<VkWriteDescriptorSet, 2> writes{};
@@ -147,12 +155,12 @@ VulkanContext::VulkanContext(Window& window)
                                writes.data(), 0, nullptr);
     }
 
-    check_pass(transparent_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(tonemap_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(gtao_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(ssr_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(volumetric_fog_pass_.create(gpu_.device_ref(), pass_resources));
-    check_pass(ddgi_pass_.create(gpu_.device_ref(), pass_resources));
+    add_pass("transparent", std::make_unique<TransparentPass>());
+    add_pass("tonemap", std::make_unique<TonemapPass>());
+    add_pass("gtao", std::make_unique<GtaoPass>());
+    add_pass("ssr", std::make_unique<SsrPass>());
+    add_pass("volumetric_fog", std::make_unique<VolumetricFogPass>());
+    add_pass("ddgi", std::make_unique<DdgiPass>());
 
     // Create acceleration structure manager for DDGI RT backend
     if (gpu_.device_ref().ray_tracing_supported()) {
@@ -160,22 +168,33 @@ VulkanContext::VulkanContext(Window& window)
             gpu_.device_ref(), gpu_.allocator(),
             gpu_.command_pool(), gpu_.graphics_queue());
         accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
-        ddgi_pass_.set_accel_manager(accel_manager_.get());
+        ddgi_pass().set_accel_manager(accel_manager_.get());
     }
 
-    check_pass(light_cull_pass_.create(gpu_.device_ref(), pass_resources));
-    light_heatmap_pass_.set_mode(0);
-    check_pass(light_heatmap_pass_.create(gpu_.device_ref(), pass_resources));
-    light_grid_pass_.set_mode(1);
-    check_pass(light_grid_pass_.create(gpu_.device_ref(), pass_resources));
-    scene_sdf_pass_.create(gpu_.device_ref(), pass_resources.global_set_layout, pass_resources.allocator,
-                            pass_resources.pipeline_cache);
+    add_pass("light_cull", std::make_unique<LightCullPass>());
+    {
+        auto& hm = passes_.add<LightVizPass>("light_heatmap", std::make_unique<LightVizPass>());
+        hm.set_mode(0);
+        auto r1 = hm.create(gpu_.device_ref(), pass_resources);
+        if (!r1) throw std::runtime_error(r1.error());
+    }
+    {
+        auto& lg = passes_.add<LightVizPass>("light_grid", std::make_unique<LightVizPass>());
+        lg.set_mode(1);
+        auto r2 = lg.create(gpu_.device_ref(), pass_resources);
+        if (!r2) throw std::runtime_error(r2.error());
+    }
+    {
+        auto& sdf = passes_.add<SceneSdfPass>("scene_sdf", std::make_unique<SceneSdfPass>());
+        sdf.create(gpu_.device_ref(), pass_resources.global_set_layout, pass_resources.allocator,
+                   pass_resources.pipeline_cache);
+    }
 
     // Write scene SDF (binding 9) into global descriptors — must be after pass creation
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkDescriptorImageInfo sdf_info{};
-        sdf_info.sampler = scene_sdf_pass_.sampler();
-        sdf_info.imageView = scene_sdf_pass_.view();
+        sdf_info.sampler = scene_sdf_pass().sampler();
+        sdf_info.imageView = scene_sdf_pass().view();
         sdf_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet sdf_write{};
@@ -197,7 +216,7 @@ VulkanContext::VulkanContext(Window& window)
     {
         auto ps = std::make_unique<ParticleSystem>();
         particle_system_ = ps.get();
-        ddgi_pass_.set_particle_system(particle_system_);
+        ddgi_pass().set_particle_system(particle_system_);
         add_subsystem(std::move(ps));
     }
     {
@@ -227,7 +246,7 @@ VulkanContext::VulkanContext(Window& window)
     default_config.ssr = true;
     default_config.volumetric_fog = true;
     default_config.ddgi = true;
-    PostProcessResources::PassRefs refs{hiz_pass_, gtao_pass_, bloom_pass_, ssr_pass_, volumetric_fog_pass_, tonemap_pass_, ddgi_pass_};
+    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), bloom_pass(), ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass()};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
@@ -241,49 +260,17 @@ VulkanContext::~VulkanContext() {
     particle_system_ = nullptr;
     sprite_renderer_ = nullptr;
     tilemap_renderer_ = nullptr;
-    scene_sdf_pass_.destroy();
-    light_grid_pass_.destroy();
-    light_heatmap_pass_.destroy();
-    gtao_pass_.destroy();
-    ssr_pass_.destroy();
-    volumetric_fog_pass_.destroy();
-    ddgi_pass_.destroy();
     accel_manager_.reset();
 
-    light_cull_pass_.destroy();
-    sky_cubemap_pass_.destroy();
-    sky_pass_.destroy();
-    transparent_pass_.destroy();
-    tonemap_pass_.destroy();
-
-    // Distortion apply resources
+    // Distortion apply resources (not in PassRegistry)
     auto vk_dev = gpu_.device();
     if (distortion_apply_pipeline_ != VK_NULL_HANDLE) vkDestroyPipeline(vk_dev, distortion_apply_pipeline_, nullptr);
     if (distortion_apply_layout_ != VK_NULL_HANDLE) vkDestroyPipelineLayout(vk_dev, distortion_apply_layout_, nullptr);
     if (distortion_apply_pool_ != VK_NULL_HANDLE) vkDestroyDescriptorPool(vk_dev, distortion_apply_pool_, nullptr);
     if (distortion_apply_set_layout_ != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(vk_dev, distortion_apply_set_layout_, nullptr);
     if (distortion_sampler_ != VK_NULL_HANDLE) vkDestroySampler(vk_dev, distortion_sampler_, nullptr);
-    bloom_pass_.destroy();
-    uv_viz_pass_.destroy();
-    overdraw_pass_.destroy();
-    normal_pass_.destroy();
-    wireframe_pass_.destroy();
-    grid_pass_.destroy();
-    debug_pass_.destroy();
-    depth_viz_pass_.destroy();
-    shadow_pass_.destroy();
-    depth_prepass_.destroy();
-    mesh_shader_depth_pass_.destroy();
-    meshlet_viz_pass_.destroy();
-    cull_viz_pass_.destroy();
-    cull_pass_.destroy();
-    meshlet_instance_pass_.destroy();
-    hiz_pass_.destroy();
 
-    // SceneGatherer (gatherer_) destroyed automatically — owns its
-    // indirect batches and draw data descriptors.
-    // GpuContext (gpu_) destroyed automatically — owns device, swapchain,
-    // command pools, descriptors, sync objects, mega_buffer, pipelines, etc.
+    passes_.destroy_all();
 }
 
 void VulkanContext::set_use_mesh_shaders(bool enable) {
@@ -294,13 +281,16 @@ void VulkanContext::set_use_mesh_shaders(bool enable) {
         PassResources pass_resources = gpu_.pass_resources();
         pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
 
-        meshlet_instance_pass_.create(gpu_.device(), gpu_.allocator(),
-                                       gpu_.global_set_layout(), pass_resources.pipeline_cache);
-        auto r1 = mesh_shader_depth_pass_.create(gpu_.device_ref(), pass_resources);
-        auto r2 = meshlet_viz_pass_.create(gpu_.device_ref(), pass_resources);
-        auto r3 = cull_pass_.create(gpu_.device(), gpu_.allocator(),
-                                     gpu_.global_set_layout(), pass_resources.pipeline_cache);
-        auto r4 = cull_viz_pass_.create(gpu_.device_ref(), pass_resources);
+        auto& mi = passes_.add<MeshletInstancePass>("meshlet_instance", std::make_unique<MeshletInstancePass>());
+        mi.create(gpu_.device(), gpu_.allocator(), gpu_.global_set_layout(), pass_resources.pipeline_cache);
+        auto& msd = passes_.add<MeshShaderDepthPass>("mesh_shader_depth", std::make_unique<MeshShaderDepthPass>());
+        auto r1 = msd.create(gpu_.device_ref(), pass_resources);
+        auto& mv = passes_.add<MeshletVizPass>("meshlet_viz", std::make_unique<MeshletVizPass>());
+        auto r2 = mv.create(gpu_.device_ref(), pass_resources);
+        auto& cp = passes_.add<CullPass>("cull", std::make_unique<CullPass>());
+        auto r3 = cp.create(gpu_.device(), gpu_.allocator(), gpu_.global_set_layout(), pass_resources.pipeline_cache);
+        auto& cv = passes_.add<CullVizPass>("cull_viz", std::make_unique<CullVizPass>());
+        auto r4 = cv.create(gpu_.device_ref(), pass_resources);
         if (!r1 || !r2 || !r3 || !r4) {
             FJELL_GFX_ERROR("Failed to create meshlet passes — disabling mesh shaders");
             gpu_.set_use_mesh_shaders(false);
@@ -316,7 +306,7 @@ void VulkanContext::set_use_mesh_shaders(bool enable) {
                 if (!pc->has_custom_vertex(id)) continue;
                 const auto& depth_mesh = pc->depth_mesh_spv(id);
                 if (!depth_mesh.empty()) {
-                    mesh_shader_depth_pass_.register_custom_depth(id, depth_mesh);
+                    mesh_shader_depth_pass()->register_custom_depth(id, depth_mesh);
                 }
             }
         }
@@ -351,9 +341,9 @@ void VulkanContext::register_environment_passes() {
         .order = PassEntry::make_order(RenderPhase::Environment, 50),
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             graph.add_pass("sky_cubemap", [this](VkCommandBuffer cb) {
-                sky_cubemap_pass_.set_colors(sky_pass_.top_color(), sky_pass_.bottom_color());
-                if (sky_cubemap_pass_.dirty()) {
-                    sky_cubemap_pass_.generate(cb);
+                sky_cubemap_pass().set_colors(sky_pass().top_color(), sky_pass().bottom_color());
+                if (sky_cubemap_pass().dirty()) {
+                    sky_cubemap_pass().generate(cb);
                 }
             }, {});
         }
@@ -377,7 +367,7 @@ void VulkanContext::register_environment_passes() {
                         gatherer_.shadow_draw_data(c).descriptor_set(current_frame_);
                     local.shadow_cascade_commands[c] = &gatherer_.shadow_cmds(c);
                 }
-                shadow_pass_.record(local);
+                shadow_pass().record(local);
             }, {}, 1);
         }
     });
@@ -388,9 +378,10 @@ void VulkanContext::register_depth_passes() {
         .name = "depth_prepass",
         .order = PassEntry::make_order(RenderPhase::DepthPrepass, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            auto& depth_pass = gpu_.use_mesh_shaders()
-                ? static_cast<RenderPass&>(mesh_shader_depth_pass_)
-                : static_cast<RenderPass&>(depth_prepass_);
+            auto* msd = mesh_shader_depth_pass();
+            auto& depth_pass = (gpu_.use_mesh_shaders() && msd)
+                ? static_cast<RenderPass&>(*msd)
+                : static_cast<RenderPass&>(depth_prepass());
 
             bool has_msaa = current_ctx_.target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
             if (has_msaa) {
@@ -455,10 +446,10 @@ void VulkanContext::register_depth_passes() {
                 local.cmd = cb;
                 auto* hiz_imgs = local.pp_resources ? local.pp_resources->hiz() : nullptr;
                 if (hiz_imgs) {
-                    hiz_pass_.record_into(local, *hiz_imgs);
+                    hiz_pass().record_into(local, *hiz_imgs);
                     resource_registry_.register_image("hiz", {
                         0, hiz_imgs->hiz_sampled_view,
-                        hiz_pass_.sampler(), hiz_imgs->hiz_mip_count});
+                        hiz_pass().sampler(), hiz_imgs->hiz_mip_count});
                 }
             }, {{registry.image_id("depth"), ImageUsage::compute_read}});
         }
@@ -478,12 +469,12 @@ void VulkanContext::register_gpu_driven_passes() {
                     uint32_t total_draws = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
                     uint32_t total_mi = gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
                     if (total_draws > 0 && total_mi > 0) {
-                        meshlet_instance_pass_.dispatch_expand(
+                        meshlet_instance_pass()->dispatch_expand(
                             cb,
                             gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
                             gatherer_.indirect_batch()->draw_data_size(current_frame_),
                             total_draws, current_frame_);
-                        meshlet_instance_pass_.insert_expand_barrier(cb);
+                        meshlet_instance_pass()->insert_expand_barrier(cb);
 
                         auto& ranges_ref = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
                         auto extent = current_ctx_.target->extent();
@@ -491,7 +482,7 @@ void VulkanContext::register_gpu_driven_passes() {
                         auto* hiz_imgs = current_ctx_.pp_resources ? current_ctx_.pp_resources->hiz() : nullptr;
                         bool hiz_ready = hiz_imgs && hiz_imgs->ready();
 
-                        meshlet_instance_pass_.dispatch_cull_first(
+                        meshlet_instance_pass()->dispatch_cull_first(
                             cb,
                             gpu_.global_descriptor_set(current_frame_),
                             gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
@@ -503,11 +494,11 @@ void VulkanContext::register_gpu_driven_passes() {
                             static_cast<uint32_t>(ranges_ref.size()),
                             current_frame_,
                             hiz_ready ? hiz_imgs->hiz_sampled_view : VK_NULL_HANDLE,
-                            hiz_ready ? hiz_pass_.sampler() : VK_NULL_HANDLE,
+                            hiz_ready ? hiz_pass().sampler() : VK_NULL_HANDLE,
                             extent.width, extent.height,
                             hiz_ready ? hiz_imgs->hiz_mip_count : 0);
 
-                        meshlet_instance_pass_.insert_cull_barrier(cb);
+                        meshlet_instance_pass()->insert_cull_barrier(cb);
                         gpu_.render_stats().two_pass_occlusion = hiz_ready;
                     }
                 }
@@ -527,7 +518,7 @@ void VulkanContext::register_gpu_driven_passes() {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 if (local.pp_resources && local.pp_resources->gtao()) {
-                    gtao_pass_.record_into(local, *local.pp_resources->gtao());
+                    gtao_pass().record_into(local, *local.pp_resources->gtao());
                 }
             }, {{registry.image_id("depth"), ImageUsage::compute_read}});
         }
@@ -544,7 +535,7 @@ void VulkanContext::register_gpu_driven_passes() {
 #endif
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                light_cull_pass_.record(local);
+                light_cull_pass().record(local);
 
                 resource_registry_.register_buffer("tile_light_ssbo", {
                     gpu_.tile_light_ssbo(current_frame_).handle(),
@@ -589,14 +580,14 @@ void VulkanContext::register_gpu_driven_passes() {
         .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
             if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
             graph.add_pass("cull_viz", [this](VkCommandBuffer cb) {
-                if (gpu_.use_mesh_shaders() && cull_pass_.enabled()) {
+                if (gpu_.use_mesh_shaders() && cull_pass()->enabled()) {
                     FrameContext local = current_ctx_;
                     local.cmd = cb;
                     uint32_t opaque_count = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
                     if (opaque_count > 0) {
-                        cull_viz_pass_.record(local,
-                            cull_pass_.visibility_buffer(current_frame_),
-                            cull_pass_.visibility_buffer_size(current_frame_));
+                        cull_viz_pass()->record(local,
+                            cull_pass()->visibility_buffer(current_frame_),
+                            cull_pass()->visibility_buffer_size(current_frame_));
                     }
                 }
             }, {});
@@ -617,7 +608,7 @@ void VulkanContext::register_color_passes() {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 if (local.pp_resources && local.pp_resources->ddgi()) {
-                    ddgi_pass_.record_into(local, *local.pp_resources->ddgi());
+                    ddgi_pass().record_into(local, *local.pp_resources->ddgi());
                 }
             }, {{registry.image_id("depth"), ImageUsage::compute_read},
                 {registry.image_id("normal"), ImageUsage::compute_read}});
@@ -738,11 +729,11 @@ void VulkanContext::register_opaque_pass() {
                             gpu_.meshlet_descriptor().descriptor_set(current_frame_)};
 
                         const auto& ranges = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
-                        auto indirect_buf = meshlet_instance_pass_.indirect_buffer(current_frame_);
+                        auto indirect_buf = meshlet_instance_pass()->indirect_buffer(current_frame_);
 
                         if (indirect_buf && !ranges.empty()) {
                             auto draw_indirect = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
-                            uint32_t seg_size = meshlet_instance_pass_.segment_size(current_frame_);
+                            uint32_t seg_size = meshlet_instance_pass()->segment_size(current_frame_);
 
                             for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
                                 vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -820,9 +811,9 @@ void VulkanContext::register_opaque_pass() {
 
                 for (auto& sys : render_subsystems_) sys->record_opaque(local);
 
-                sky_pass_.record(local);
-                grid_pass_.record(local);
-                debug_pass_.record(local);
+                sky_pass().record(local);
+                grid_pass().record(local);
+                debug_pass().record(local);
                 draw_outline(cb, local);
 
                 vkCmdEndRendering(cb);
@@ -1149,7 +1140,7 @@ void VulkanContext::register_transparent_pass() {
                 sc.extent = target->extent();
                 vkCmdSetScissor(cb, 0, 1, &sc);
 
-                transparent_pass_.record(local);
+                transparent_pass().record(local);
 
                 // Worldspace UI: renders after transparent objects, before particles
                 if (world_ui_callback_ && playing_) {
@@ -1187,7 +1178,7 @@ void VulkanContext::register_post_process_passes() {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 if (local.pp_resources && local.pp_resources->ssr()) {
-                    ssr_pass_.record_into(local, *local.pp_resources->ssr());
+                    ssr_pass().record_into(local, *local.pp_resources->ssr());
                 }
             }, {{registry.image_id("depth"), ImageUsage::compute_read},
                 {registry.image_id("color"), ImageUsage::compute_write},
@@ -1207,7 +1198,7 @@ void VulkanContext::register_post_process_passes() {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 if (local.pp_resources && local.pp_resources->volumetric_fog()) {
-                    volumetric_fog_pass_.record_into(local, *local.pp_resources->volumetric_fog());
+                    volumetric_fog_pass().record_into(local, *local.pp_resources->volumetric_fog());
                 }
             }, {{registry.image_id("depth"), ImageUsage::compute_read},
                 {registry.image_id("color"), ImageUsage::compute_write}});
@@ -1226,7 +1217,7 @@ void VulkanContext::register_post_process_passes() {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
                 if (local.pp_resources && local.pp_resources->bloom()) {
-                    bloom_pass_.record_into(local, *local.pp_resources->bloom());
+                    bloom_pass().record_into(local, *local.pp_resources->bloom());
                 }
             }, {{registry.image_id("color"), ImageUsage::shader_read}});
         }
@@ -1245,10 +1236,10 @@ void VulkanContext::register_post_process_passes() {
                 local.cmd = cb;
                 if (local.pp_resources && local.pp_resources->tonemap()) {
                     VkImageView bloom_view = VK_NULL_HANDLE;
-                    if (bloom_pass_.enabled() && local.pp_resources->bloom()) {
+                    if (bloom_pass().enabled() && local.pp_resources->bloom()) {
                         bloom_view = local.pp_resources->bloom()->mips[0].view;
                     }
-                    tonemap_pass_.record_into(local, *local.pp_resources->tonemap(),
+                    tonemap_pass().record_into(local, *local.pp_resources->tonemap(),
                                               current_ctx_.target->color_view(),
                                               bloom_view);
                 }
@@ -1266,7 +1257,7 @@ void VulkanContext::register_debug_passes() {
             graph.add_pass("depth_viz", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                depth_viz_pass_.record(local);
+                depth_viz_pass().record(local);
             }, {{registry.image_id("depth"), ImageUsage::shader_read}});
         }
     });
@@ -1279,7 +1270,7 @@ void VulkanContext::register_debug_passes() {
             graph.add_pass("wireframe", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                wireframe_pass_.record(local);
+                wireframe_pass().record(local);
             }, {});
         }
     });
@@ -1292,7 +1283,7 @@ void VulkanContext::register_debug_passes() {
             graph.add_pass("normals", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                normal_pass_.record(local);
+                normal_pass().record(local);
             }, {});
         }
     });
@@ -1305,7 +1296,7 @@ void VulkanContext::register_debug_passes() {
             graph.add_pass("overdraw", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                overdraw_pass_.record(local);
+                overdraw_pass().record(local);
             }, {});
         }
     });
@@ -1318,7 +1309,7 @@ void VulkanContext::register_debug_passes() {
             graph.add_pass("uv_viz", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                uv_viz_pass_.record(local);
+                uv_viz_pass().record(local);
             }, {});
         }
     });
@@ -1333,9 +1324,9 @@ void VulkanContext::register_debug_passes() {
                 local.cmd = cb;
                 auto* tile_buf = resource_registry_.find_buffer("tile_light_ssbo");
                 if (tile_buf) {
-                    light_heatmap_pass_.set_tile_ssbo(tile_buf->buffer, tile_buf->size);
+                    light_heatmap_pass().set_tile_ssbo(tile_buf->buffer, tile_buf->size);
                 }
-                light_heatmap_pass_.record(local);
+                light_heatmap_pass().record(local);
             }, {});
         }
     });
@@ -1350,9 +1341,9 @@ void VulkanContext::register_debug_passes() {
                 local.cmd = cb;
                 auto* tile_buf = resource_registry_.find_buffer("tile_light_ssbo");
                 if (tile_buf) {
-                    light_grid_pass_.set_tile_ssbo(tile_buf->buffer, tile_buf->size);
+                    light_grid_pass().set_tile_ssbo(tile_buf->buffer, tile_buf->size);
                 }
-                light_grid_pass_.record(local);
+                light_grid_pass().record(local);
             }, {});
         }
     });
@@ -1365,7 +1356,7 @@ void VulkanContext::register_debug_passes() {
             graph.add_pass("meshlet_viz", [this](VkCommandBuffer cb) {
                 FrameContext local = current_ctx_;
                 local.cmd = cb;
-                meshlet_viz_pass_.record(local);
+                meshlet_viz_pass()->record(local);
             }, {});
         }
     });
@@ -1408,10 +1399,10 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.mega_buffer = gpu_.mega_buffer();
     ctx.use_mesh_shaders = gpu_.use_mesh_shaders();
     ctx.pipeline_cache = gpu_.pipeline_cache();
-    if (gpu_.use_mesh_shaders()) {
+    if (gpu_.use_mesh_shaders() && passes_.has("meshlet_instance")) {
         ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
-        ctx.gpu_driven_indirect = meshlet_instance_pass_.indirect_buffer(current_frame_);
-        ctx.gpu_driven_segment_size = meshlet_instance_pass_.segment_size(current_frame_);
+        ctx.gpu_driven_indirect = meshlet_instance_pass()->indirect_buffer(current_frame_);
+        ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
     }
     ctx.pp_resources = pp;
     ctx.registry = &resource_registry_;
@@ -1438,7 +1429,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     bool needs_ssr_buffer = pp && pp->ssr();
     if (needs_ssr_buffer) {
         auto ext = target.extent();
-        ssr_pass_.ensure_prev_frame(gpu_.device(), gpu_.allocator(),
+        ssr_pass().ensure_prev_frame(gpu_.device(), gpu_.allocator(),
                                      gpu_.command_pool(), gpu_.graphics_queue(),
                                      ext.width, ext.height);
     }
@@ -1450,7 +1441,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         gi.projection = gatherer_.projection_matrix();
         gi.camera_position = gatherer_.camera_position();
         gi.frame_index = current_frame_;
-        gi.shadow_pass = &shadow_pass_;
+        gi.shadow_pass = &shadow_pass();
         gi.pool = &pool;
         gi.stats = &gpu_.render_stats();
         gi.animation_system = animation_system_;
@@ -1461,27 +1452,28 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     gpu_.bindless_textures().update_descriptors();
     gpu_.bindless_textures().update_material_buffer();
     // Upload world-space AABBs for GPU frustum culling
-    if (gpu_.use_mesh_shaders() && cull_pass_.enabled()) {
+    bool has_meshlet_passes = passes_.has("meshlet_instance");
+    if (gpu_.use_mesh_shaders() && has_meshlet_passes && cull_pass()->enabled()) {
         uint32_t opaque_count = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
         const auto* aabbs = gatherer_.indirect_batch()->aabb_data(current_frame_);
         if (opaque_count > 0 && aabbs) {
-            cull_pass_.upload_aabbs(aabbs, opaque_count, current_frame_);
+            cull_pass()->upload_aabbs(aabbs, opaque_count, current_frame_);
         }
     }
 
     // Ensure meshlet instance buffers are large enough
-    if (gpu_.use_mesh_shaders()) {
+    if (gpu_.use_mesh_shaders() && has_meshlet_passes) {
         uint32_t total_mi = gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
         if (total_mi > 0) {
-            meshlet_instance_pass_.ensure_capacity(current_frame_, total_mi);
+            meshlet_instance_pass()->ensure_capacity(current_frame_, total_mi);
         }
     }
 
     // Update meshlet descriptor (set 3) if mesh shaders are available
-    if (gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
+    if (has_meshlet_passes && gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
         gpu_.meshlet_descriptor().update(*gpu_.meshlet_buffer(), *gpu_.mega_buffer(), current_frame_,
-                                    meshlet_instance_pass_.visible_buffer(current_frame_),
-                                    meshlet_instance_pass_.visible_buffer_size(current_frame_));
+                                    meshlet_instance_pass()->visible_buffer(current_frame_),
+                                    meshlet_instance_pass()->visible_buffer_size(current_frame_));
     }
 
     // Update render subsystems (gather data, upload SSBOs)
@@ -1505,7 +1497,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // BLAS builds use synchronous GPU submits that would conflict with in-flight recording.
     // Only needed when DDGI is enabled for this viewport — preview viewports skip this.
     if (pp && pp->ddgi()) {
-        ddgi_pass_.prepare_accel_structures(current_ctx_);
+        ddgi_pass().prepare_accel_structures(current_ctx_);
     }
 
     // Init screen color image on first use (or after resize) so the descriptor
@@ -1524,11 +1516,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Populate persistent resources into the registry
     resource_registry_.clear();
     resource_registry_.register_image("scene_sdf", {
-        0, scene_sdf_pass_.view(), scene_sdf_pass_.sampler()});
+        0, scene_sdf_pass().view(), scene_sdf_pass().sampler()});
     resource_registry_.register_image("sky_cubemap", {
-        0, sky_cubemap_pass_.cubemap_view(), sky_cubemap_pass_.cubemap_sampler()});
+        0, sky_cubemap_pass().cubemap_view(), sky_cubemap_pass().cubemap_sampler()});
     resource_registry_.register_image("prev_frame_color", {
-        0, ssr_pass_.prev_frame_view()});
+        0, ssr_pass().prev_frame_view()});
 
     render_pipeline_.execute(cmd, target, target.sample_count(), active_sources_,
                               pool, gpu_.secondary_pools(), current_frame_,
@@ -1536,7 +1528,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Copy scene color to prev_frame_color for next frame's SSR
     if (needs_ssr_buffer) {
-        ssr_pass_.copy_prev_frame(cmd, target.color_image(), target.extent());
+        ssr_pass().copy_prev_frame(cmd, target.color_image(), target.extent());
     }
 }
 
@@ -1598,8 +1590,8 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         depth_desc.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
         VkDescriptorImageInfo ao_desc{};
-        ao_desc.sampler = gtao_pass_.ao_sampler();
-        ao_desc.imageView = gtao_imgs ? gtao_imgs->ao_view : gtao_pass_.ao_view();
+        ao_desc.sampler = gtao_pass().ao_sampler();
+        ao_desc.imageView = gtao_imgs ? gtao_imgs->ao_view : gtao_pass().ao_view();
         ao_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         std::array<VkWriteDescriptorSet, 2> writes{};
@@ -1618,7 +1610,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         writes[1].pImageInfo = &ao_desc;
 
         VkDescriptorImageInfo sc_desc{};
-        sc_desc.sampler = tonemap_pass_.output_sampler();
+        sc_desc.sampler = tonemap_pass().output_sampler();
         sc_desc.imageView = req.target->screen_color_view();
         sc_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -1685,7 +1677,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 
     // Dispatch pending SDF compositing (recorded into the main command buffer, no stall)
     if (!pending_sdf_instances_.empty()) {
-        scene_sdf_pass_.composite(cmd, pending_sdf_instances_);
+        scene_sdf_pass().composite(cmd, pending_sdf_instances_);
         pending_sdf_instances_.clear();
     }
 
@@ -1703,24 +1695,24 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         }
     }
     if (!viewports.empty() && viewports[0].target) {
-        shadow_pass_.update(viewports[0].view, viewports[0].projection,
+        shadow_pass().update(viewports[0].view, viewports[0].projection,
                             shadow_light, 0.1f, 1000.0f);
     }
 
     // Scan for volumetric fog node once per frame (before viewports)
-    volumetric_fog_pass_.enabled_ = false;
+    volumetric_fog_pass().enabled_ = false;
     if (scene) {
         for (const auto& obj : scene->objects()) {
             if (auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
-                volumetric_fog_pass_.enabled_ = true;
-                volumetric_fog_pass_.density_ = fog->density;
-                volumetric_fog_pass_.height_ = glm::vec3(fog->world_matrix_[3]).y;
-                volumetric_fog_pass_.height_falloff_ = fog->height_falloff;
-                volumetric_fog_pass_.scattering_ = fog->scattering;
-                volumetric_fog_pass_.anisotropy_ = fog->anisotropy;
-                volumetric_fog_pass_.max_distance_ = fog->max_distance;
-                volumetric_fog_pass_.temporal_blend_ = fog->temporal_blend;
-                volumetric_fog_pass_.fog_color_ = fog->fog_color;
+                volumetric_fog_pass().enabled_ = true;
+                volumetric_fog_pass().density_ = fog->density;
+                volumetric_fog_pass().height_ = glm::vec3(fog->world_matrix_[3]).y;
+                volumetric_fog_pass().height_falloff_ = fog->height_falloff;
+                volumetric_fog_pass().scattering_ = fog->scattering;
+                volumetric_fog_pass().anisotropy_ = fog->anisotropy;
+                volumetric_fog_pass().max_distance_ = fog->max_distance;
+                volumetric_fog_pass().temporal_blend_ = fog->temporal_blend;
+                volumetric_fog_pass().fog_color_ = fog->fog_color;
                 break;
             }
         }
@@ -1730,9 +1722,9 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     if (scene) {
         for (const auto& obj : scene->objects()) {
             if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
-                sky_pass_.set_top_color(env->sky_top_color);
-                sky_pass_.set_bottom_color(env->sky_bottom_color);
-                sky_cubemap_pass_.set_colors(env->sky_top_color, env->sky_bottom_color);
+                sky_pass().set_top_color(env->sky_top_color);
+                sky_pass().set_bottom_color(env->sky_bottom_color);
+                sky_cubemap_pass().set_colors(env->sky_top_color, env->sky_bottom_color);
                 ibl_intensity_ = env->ibl_intensity;
                 break;
             }
@@ -1852,12 +1844,12 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.camera_position = glm::vec4(camera_position, 0.0f);
     ubo.ambient_color = glm::vec4(dir_light.ambient_color, dir_light.ambient_intensity * ibl_intensity_);
 
-    const auto& matrices = shadow_pass_.light_matrices();
-    const auto& splits = shadow_pass_.cascade_splits();
+    const auto& matrices = shadow_pass().light_matrices();
+    const auto& splits = shadow_pass().cascade_splits();
     for (uint32_t i = 0; i < ShadowPass::CASCADE_COUNT; ++i) {
         ubo.cascade_vp[i] = matrices[i];
     }
-    float gi_int = (default_pp_ && default_pp_->config().ddgi) ? ddgi_pass_.config().gi_intensity : 0.0f;
+    float gi_int = (default_pp_ && default_pp_->config().ddgi) ? ddgi_pass().config().gi_intensity : 0.0f;
     ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], gi_int);
 
     // Forward+ tile info
@@ -2180,13 +2172,13 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                 auto* model = mesh_comp->model;
                 if (!model->has_sdf()) continue;
 
-                scene_sdf_pass_.register_model_sdf(*model, reinterpret_cast<uintptr_t>(model));
+                scene_sdf_pass().register_model_sdf(*model, reinterpret_cast<uintptr_t>(model));
 
                 if (spatial->world_dirty_) {
-                    scene_sdf_pass_.mark_dirty();
+                    scene_sdf_pass().mark_dirty();
                 }
 
-                auto it = scene_sdf_pass_.model_entry(reinterpret_cast<uintptr_t>(model));
+                auto it = scene_sdf_pass().model_entry(reinterpret_cast<uintptr_t>(model));
                 if (it) {
                     GpuSdfInstance inst{};
                     inst.world_to_sdf = glm::inverse(spatial->world_matrix_);
@@ -2207,7 +2199,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             gather_sdf(*active_render_scene_);
         }
 
-        if (scene_sdf_pass_.dirty() && !sdf_instances.empty()) {
+        if (scene_sdf_pass().dirty() && !sdf_instances.empty()) {
             pending_sdf_instances_ = std::move(sdf_instances);
         }
     }
@@ -2231,8 +2223,8 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
         // Update binding 5 (AO texture for ambient occlusion)
         VkDescriptorImageInfo ao_desc{};
-        ao_desc.sampler = gtao_pass_.ao_sampler();
-        ao_desc.imageView = default_pp_->gtao() ? default_pp_->gtao()->ao_view : gtao_pass_.ao_view();
+        ao_desc.sampler = gtao_pass().ao_sampler();
+        ao_desc.imageView = default_pp_->gtao() ? default_pp_->gtao()->ao_view : gtao_pass().ao_view();
         ao_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet ao_write{};
@@ -2246,7 +2238,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
         // Update binding 8 (screen color for SCREEN_TEXTURE in transparent shaders)
         VkDescriptorImageInfo sc_desc{};
-        sc_desc.sampler = tonemap_pass_.output_sampler();
+        sc_desc.sampler = tonemap_pass().output_sampler();
         sc_desc.imageView = viewports[0].target->screen_color_view();
         sc_desc.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -2295,15 +2287,15 @@ void VulkanContext::wait_idle() {
 
 void VulkanContext::release_imgui_textures() {
     default_pp_->invalidate_imgui_textures();
-    depth_viz_pass_.invalidate_imgui_texture();
-    wireframe_pass_.invalidate_imgui_texture();
-    normal_pass_.invalidate_imgui_texture();
-    overdraw_pass_.invalidate_imgui_texture();
-    uv_viz_pass_.invalidate_imgui_texture();
-    meshlet_viz_pass_.invalidate_imgui_texture();
-    cull_viz_pass_.invalidate_imgui_texture();
-    light_heatmap_pass_.invalidate_imgui_texture();
-    light_grid_pass_.invalidate_imgui_texture();
+    depth_viz_pass().invalidate_imgui_texture();
+    wireframe_pass().invalidate_imgui_texture();
+    normal_pass().invalidate_imgui_texture();
+    overdraw_pass().invalidate_imgui_texture();
+    uv_viz_pass().invalidate_imgui_texture();
+    if (auto* mv = passes_.try_get<MeshletVizPass>("meshlet_viz")) mv->invalidate_imgui_texture();
+    if (auto* cv = passes_.try_get<CullVizPass>("cull_viz")) cv->invalidate_imgui_texture();
+    light_heatmap_pass().invalidate_imgui_texture();
+    light_grid_pass().invalidate_imgui_texture();
 }
 
 void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
@@ -2371,8 +2363,8 @@ void VulkanContext::draw_outline(VkCommandBuffer cmd, const FrameContext& ctx) {
 void VulkanContext::update_shadow_descriptors() {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkDescriptorImageInfo shadow_info{};
-        shadow_info.sampler = shadow_pass_.sampler();
-        shadow_info.imageView = shadow_pass_.array_view();
+        shadow_info.sampler = shadow_pass().sampler();
+        shadow_info.imageView = shadow_pass().array_view();
         shadow_info.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
         VkWriteDescriptorSet write{};
@@ -2396,14 +2388,14 @@ void VulkanContext::draw_sdf_debug_window() {
         ImGui::Combo("Axis", &sdf_debug_axis_, axes, 3);
         ImGui::SliderFloat("Slice", &sdf_debug_slice_, 0.0f, 1.0f);
 
-        glm::vec3 vol_min = scene_sdf_pass_.volume_min();
-        glm::vec3 vol_max = scene_sdf_pass_.volume_max();
+        glm::vec3 vol_min = scene_sdf_pass().volume_min();
+        glm::vec3 vol_max = scene_sdf_pass().volume_max();
         bool bounds_changed = false;
         if (ImGui::DragFloat3("Vol Min", &vol_min.x, 0.5f)) bounds_changed = true;
         if (ImGui::DragFloat3("Vol Max", &vol_max.x, 0.5f)) bounds_changed = true;
-        if (bounds_changed) scene_sdf_pass_.set_bounds(vol_min, vol_max);
+        if (bounds_changed) scene_sdf_pass().set_bounds(vol_min, vol_max);
 
-        ImGui::Text("Resolution: %u", scene_sdf_pass_.resolution());
+        ImGui::Text("Resolution: %u", scene_sdf_pass().resolution());
 
         // Dispatch slice render
         VkCommandBuffer cmd{};
@@ -2419,7 +2411,7 @@ void VulkanContext::draw_sdf_debug_window() {
         begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         vkBeginCommandBuffer(cmd, &begin);
 
-        scene_sdf_pass_.render_slice(cmd, static_cast<uint32_t>(sdf_debug_axis_), sdf_debug_slice_);
+        scene_sdf_pass().render_slice(cmd, static_cast<uint32_t>(sdf_debug_axis_), sdf_debug_slice_);
 
         vkEndCommandBuffer(cmd);
         VkSubmitInfo submit{};
@@ -2431,7 +2423,7 @@ void VulkanContext::draw_sdf_debug_window() {
         vkFreeCommandBuffers(gpu_.device(), gpu_.command_pool(), 1, &cmd);
 
         // Display slice image
-        auto imgui_set = scene_sdf_pass_.slice_imgui_set();
+        auto imgui_set = scene_sdf_pass().slice_imgui_set();
         if (imgui_set) {
             float avail = ImGui::GetContentRegionAvail().x;
             float size = std::min(avail, 256.0f);
@@ -2481,20 +2473,21 @@ void VulkanContext::sync_custom_depth_pipelines() {
         if (!pc->has_custom_vertex(id)) continue;
 
         if (gpu_.mesh_shaders_available()) {
+            auto* msd = passes_.try_get<MeshShaderDepthPass>("mesh_shader_depth");
             const auto& depth_mesh = pc->depth_mesh_spv(id);
-            if (!depth_mesh.empty()) {
-                mesh_shader_depth_pass_.register_custom_depth(id, depth_mesh);
+            if (msd && !depth_mesh.empty()) {
+                msd->register_custom_depth(id, depth_mesh);
             }
         }
 
         const auto& depth_vert = pc->depth_vert_spv(id);
         if (!depth_vert.empty()) {
-            depth_prepass_.register_custom_depth(id, depth_vert);
+            depth_prepass().register_custom_depth(id, depth_vert);
         }
 
         const auto& shadow_vert = pc->shadow_vert_spv(id);
         if (!shadow_vert.empty()) {
-            shadow_pass_.register_custom_shadow(id, shadow_vert);
+            shadow_pass().register_custom_shadow(id, shadow_vert);
         }
     }
 }
@@ -2505,8 +2498,8 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
     uint32_t bindless_idx = gpu_.bindless_textures().reserve_index();
 
     PostProcessResources::PassRefs refs{
-        hiz_pass_, gtao_pass_, bloom_pass_,
-        ssr_pass_, volumetric_fog_pass_, tonemap_pass_, ddgi_pass_};
+        hiz_pass(), gtao_pass(), bloom_pass(),
+        ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass()};
 
     auto viewport = std::make_unique<SceneViewport>(
         gpu_.device_ref(), gpu_.device(), gpu_.allocator(),

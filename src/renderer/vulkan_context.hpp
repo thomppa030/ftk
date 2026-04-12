@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/gpu_context.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/render_pipeline.hpp"
 #include "renderer/scene_gatherer.hpp"
 #include "renderer/debug_draw.hpp"
@@ -119,27 +120,37 @@ public:
   [[nodiscard]] MeshletBuffer *meshlet_buffer() { return gpu_.meshlet_buffer(); }
   [[nodiscard]] PipelineCache *pipeline_cache() { return gpu_.pipeline_cache(); }
 
-  // ── Pass accessors (still owned by VulkanContext) ─────────────────────
-  [[nodiscard]] DepthVizPass &depth_viz_pass() { return depth_viz_pass_; }
-  [[nodiscard]] WireframePass &wireframe_pass() { return wireframe_pass_; }
-  [[nodiscard]] NormalPass &normal_pass() { return normal_pass_; }
-  [[nodiscard]] OverdrawPass &overdraw_pass() { return overdraw_pass_; }
-  [[nodiscard]] UvVizPass &uv_viz_pass() { return uv_viz_pass_; }
-  [[nodiscard]] HizPass &hiz_pass() { return hiz_pass_; }
-  [[nodiscard]] BloomPass &bloom_pass() { return bloom_pass_; }
-  [[nodiscard]] GtaoPass &gtao_pass() { return gtao_pass_; }
-  [[nodiscard]] SsrPass &ssr_pass() { return ssr_pass_; }
-  [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return volumetric_fog_pass_; }
-  [[nodiscard]] DdgiPass &ddgi_pass() { return ddgi_pass_; }
+  // ── Pass accessors (passes owned by PassRegistry) ──────────────────
+  [[nodiscard]] DepthPrePass &depth_prepass() { return passes_.get<DepthPrePass>("depth_prepass"); }
+  [[nodiscard]] ShadowPass &shadow_pass() { return passes_.get<ShadowPass>("shadow"); }
+  [[nodiscard]] DebugPass &debug_pass() { return passes_.get<DebugPass>("debug"); }
+  [[nodiscard]] SkyPass &sky_pass() { return passes_.get<SkyPass>("sky"); }
+  [[nodiscard]] SkyCubemapPass &sky_cubemap_pass() { return passes_.get<SkyCubemapPass>("sky_cubemap"); }
+  [[nodiscard]] TransparentPass &transparent_pass() { return passes_.get<TransparentPass>("transparent"); }
+  [[nodiscard]] MeshShaderDepthPass *mesh_shader_depth_pass() { return passes_.try_get<MeshShaderDepthPass>("mesh_shader_depth"); }
+  [[nodiscard]] MeshletInstancePass *meshlet_instance_pass() { return passes_.try_get<MeshletInstancePass>("meshlet_instance"); }
+  [[nodiscard]] LightCullPass &light_cull_pass() { return passes_.get<LightCullPass>("light_cull"); }
+  [[nodiscard]] SceneSdfPass &scene_sdf_pass() { return passes_.get<SceneSdfPass>("scene_sdf"); }
+  [[nodiscard]] DepthVizPass &depth_viz_pass() { return passes_.get<DepthVizPass>("depth_viz"); }
+  [[nodiscard]] WireframePass &wireframe_pass() { return passes_.get<WireframePass>("wireframe"); }
+  [[nodiscard]] NormalPass &normal_pass() { return passes_.get<NormalPass>("normals"); }
+  [[nodiscard]] OverdrawPass &overdraw_pass() { return passes_.get<OverdrawPass>("overdraw"); }
+  [[nodiscard]] UvVizPass &uv_viz_pass() { return passes_.get<UvVizPass>("uv_viz"); }
+  [[nodiscard]] HizPass &hiz_pass() { return passes_.get<HizPass>("hiz"); }
+  [[nodiscard]] BloomPass &bloom_pass() { return passes_.get<BloomPass>("bloom"); }
+  [[nodiscard]] GtaoPass &gtao_pass() { return passes_.get<GtaoPass>("gtao"); }
+  [[nodiscard]] SsrPass &ssr_pass() { return passes_.get<SsrPass>("ssr"); }
+  [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return passes_.get<VolumetricFogPass>("volumetric_fog"); }
+  [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }
   void set_ddgi_enabled(bool enabled) { pending_ddgi_toggle_ = enabled; has_pending_ddgi_toggle_ = true; }
   void apply_pending_ddgi_toggle();
-  [[nodiscard]] TonemapPass &tonemap_pass() { return tonemap_pass_; }
-  [[nodiscard]] LightVizPass &light_heatmap_pass() { return light_heatmap_pass_; }
-  [[nodiscard]] LightVizPass &light_grid_pass() { return light_grid_pass_; }
-  [[nodiscard]] MeshletVizPass &meshlet_viz_pass() { return meshlet_viz_pass_; }
-  [[nodiscard]] CullVizPass &cull_viz_pass() { return cull_viz_pass_; }
-  [[nodiscard]] CullPass &cull_pass() { return cull_pass_; }
-  [[nodiscard]] GridPass &grid_pass() { return grid_pass_; }
+  [[nodiscard]] TonemapPass &tonemap_pass() { return passes_.get<TonemapPass>("tonemap"); }
+  [[nodiscard]] LightVizPass &light_heatmap_pass() { return passes_.get<LightVizPass>("light_heatmap"); }
+  [[nodiscard]] LightVizPass &light_grid_pass() { return passes_.get<LightVizPass>("light_grid"); }
+  [[nodiscard]] MeshletVizPass *meshlet_viz_pass() { return passes_.try_get<MeshletVizPass>("meshlet_viz"); }
+  [[nodiscard]] CullVizPass *cull_viz_pass() { return passes_.try_get<CullVizPass>("cull_viz"); }
+  [[nodiscard]] CullPass *cull_pass() { return passes_.try_get<CullPass>("cull"); }
+  [[nodiscard]] GridPass &grid_pass() { return passes_.get<GridPass>("grid"); }
   [[nodiscard]] DebugDraw &debug_draw() { return *debug_draw_; }
 
   using OverlayCallback = std::function<void(VkCommandBuffer)>;
@@ -266,21 +277,8 @@ private:
   RenderTargetPool target_pool_;
   FrameContext current_ctx_{};
 
-  // ── Passes ────────────────────────────────────────────────────────────
-  DepthPrePass depth_prepass_;
-  ShadowPass shadow_pass_;
-  DebugPass debug_pass_;
-  GridPass grid_pass_;
-  DepthVizPass depth_viz_pass_;
-  WireframePass wireframe_pass_;
-  NormalPass normal_pass_;
-  OverdrawPass overdraw_pass_;
-  UvVizPass uv_viz_pass_;
-  BloomPass bloom_pass_;
-  SkyPass sky_pass_;
-  SkyCubemapPass sky_cubemap_pass_;
-  TransparentPass transparent_pass_;
-  TonemapPass tonemap_pass_;
+  // ── Passes (owned by registry) ─────────────────────────────────────
+  PassRegistry passes_;
 
   // Distortion apply (fullscreen pass: sample distortion buffer + screen color)
   VkPipelineLayout distortion_apply_layout_{VK_NULL_HANDLE};
@@ -289,28 +287,6 @@ private:
   VkDescriptorPool distortion_apply_pool_{VK_NULL_HANDLE};
   std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> distortion_apply_sets_{};
   VkSampler distortion_sampler_{VK_NULL_HANDLE};
-
-  // Meshlet passes
-  MeshShaderDepthPass mesh_shader_depth_pass_;
-  MeshletVizPass meshlet_viz_pass_;
-  CullPass cull_pass_;
-  CullVizPass cull_viz_pass_;
-  MeshletInstancePass meshlet_instance_pass_;
-  HizPass hiz_pass_;
-
-  // Post-process compute
-  GtaoPass gtao_pass_;
-  SsrPass ssr_pass_;
-  VolumetricFogPass volumetric_fog_pass_;
-  DdgiPass ddgi_pass_;
-
-  // Forward+ light culling + visualization
-  LightCullPass light_cull_pass_;
-  LightVizPass light_heatmap_pass_;
-  LightVizPass light_grid_pass_;
-
-  // Scene SDF
-  SceneSdfPass scene_sdf_pass_;
 
   // Particles / sprites
   // Rendering subsystems (particles, sprites, tilemaps, etc.)
