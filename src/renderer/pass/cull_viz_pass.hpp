@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -17,10 +18,11 @@ class Device;
 struct PassResources;
 struct FrameContext;
 
-class CullVizPass {
+class CullVizPass : public RenderPass {
 public:
-    Result<> create(Device& device, const PassResources& resources);
-    void destroy();
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext&) override {}
 
     // Record the viz: renders all draws, colored green/red by visibility
     void record(const FrameContext& ctx, VkBuffer visibility_buffer,

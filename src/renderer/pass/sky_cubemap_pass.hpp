@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
+
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -10,13 +12,16 @@ namespace fjell {
 
 /// Generates a sky gradient cubemap (64x64 per face, mipmapped) and a
 /// split-sum BRDF integration LUT (512x512 RG16F) for IBL.
-/// Not a RenderPass — called directly as a utility.
-class SkyCubemapPass {
+class SkyCubemapPass : public RenderPass {
 public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext&) override {}
+
+    // Legacy create — forwards to standard create (needs command pool + queue)
     void create(VkDevice device, VmaAllocator allocator,
                 VkCommandPool command_pool, VkQueue queue,
                 VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
-    void destroy();
 
     /// Set sky gradient colors. Marks dirty so next generate() re-renders.
     void set_colors(const glm::vec3& top, const glm::vec3& bottom);

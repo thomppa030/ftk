@@ -1,10 +1,16 @@
 #include "renderer/pass/cull_pass.hpp"
+#include "renderer/gpu/device.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <array>
 namespace fjell {
+
+Result<> CullPass::create(Device& device, const PassResources& resources) {
+    return create(device.handle(), resources.allocator,
+                  resources.global_set_layout, resources.pipeline_cache);
+}
 
 Result<> CullPass::create(VkDevice device, VmaAllocator allocator,
                           VkDescriptorSetLayout global_set_layout,

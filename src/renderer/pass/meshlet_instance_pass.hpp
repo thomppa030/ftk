@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -19,12 +20,16 @@ struct GpuMeshletInstance {
 };
 static_assert(sizeof(GpuMeshletInstance) == 8);
 
-class MeshletInstancePass {
+class MeshletInstancePass : public RenderPass {
 public:
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext&) override {}
+
+    // Legacy create — forwards to standard create
     void create(VkDevice device, VmaAllocator allocator,
                 VkDescriptorSetLayout global_set_layout,
                 VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
-    void destroy();
 
     // Resize buffers if total meshlet instance count grew
     void ensure_capacity(uint32_t frame_index, uint32_t max_instances);

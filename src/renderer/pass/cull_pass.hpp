@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/result.hpp"
+#include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/descriptor.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -21,12 +21,16 @@ struct GpuDrawAABB {
 
 static_assert(sizeof(GpuDrawAABB) == 32, "GpuDrawAABB must be 32 bytes for std430");
 
-class CullPass {
+class CullPass : public RenderPass {
 public:
+    [[nodiscard]] Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext&) override {}
+
+    // Legacy create — forwards to standard create
     [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator,
                                   VkDescriptorSetLayout global_set_layout,
                                   VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
-    void destroy();
 
     // Upload AABBs for this frame (called from IndirectBatch::build or vulkan_context)
     void upload_aabbs(const GpuDrawAABB* data, uint32_t count, uint32_t frame_index);

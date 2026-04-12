@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 
 #include <glm/glm.hpp>
@@ -29,14 +30,18 @@ struct GpuSdfInstance {
 };
 static_assert(sizeof(GpuSdfInstance) == 112);
 
-class SceneSdfPass {
+class SceneSdfPass : public RenderPass {
 public:
     static constexpr uint32_t DEFAULT_RESOLUTION = 128;
     static constexpr VkFormat SDF_FORMAT = VK_FORMAT_R16_SFLOAT;
 
+    Result<> create(Device& device, const PassResources& resources) override;
+    void destroy() override;
+    void record(const FrameContext&) override {}
+
+    // Legacy create — forwards to standard create
     void create(Device& device, VkDescriptorSetLayout global_set_layout, VmaAllocator allocator,
                 VkPipelineCache pipeline_cache = VK_NULL_HANDLE);
-    void destroy();
 
     // Register a model's per-mesh SDF data. Returns true if data was uploaded.
     bool register_model_sdf(const Model& model, uintptr_t model_id);

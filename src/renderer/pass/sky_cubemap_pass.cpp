@@ -1,4 +1,5 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
+#include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
@@ -11,6 +12,12 @@
 #include <stdexcept>
 
 namespace fjell {
+
+Result<> SkyCubemapPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+    // SkyCubemapPass requires command_pool + queue — use the legacy create() overload.
+    assert(false && "SkyCubemapPass: use create(VkDevice, VmaAllocator, VkCommandPool, VkQueue)");
+    return {};
+}
 
 void SkyCubemapPass::create(VkDevice device, VmaAllocator allocator,
                             VkCommandPool command_pool, VkQueue queue,

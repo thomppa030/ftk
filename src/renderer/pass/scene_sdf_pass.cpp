@@ -14,6 +14,11 @@
 
 namespace fjell {
 
+Result<> SceneSdfPass::create(Device& device, const PassResources& resources) {
+    create(device, resources.global_set_layout, resources.allocator, resources.pipeline_cache);
+    return {};
+}
+
 void SceneSdfPass::create(Device& device, VkDescriptorSetLayout /*global_set_layout*/, VmaAllocator allocator,
                           VkPipelineCache pipeline_cache) {
     device_ = device.handle();

@@ -1,4 +1,5 @@
 #include "renderer/pass/meshlet_instance_pass.hpp"
+#include "renderer/gpu/device.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
@@ -9,6 +10,12 @@
 #include <stdexcept>
 
 namespace fjell {
+
+Result<> MeshletInstancePass::create(Device& device, const PassResources& resources) {
+    create(device.handle(), resources.allocator,
+           resources.global_set_layout, resources.pipeline_cache);
+    return {};
+}
 
 void MeshletInstancePass::create(VkDevice device, VmaAllocator allocator,
                                   VkDescriptorSetLayout global_set_layout,
