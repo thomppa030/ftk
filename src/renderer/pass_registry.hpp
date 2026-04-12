@@ -58,12 +58,24 @@ public:
         return passes_.contains(name);
     }
 
+    /// Run post_create() on all passes in insertion order.
+    void post_create_all(GpuContext& gpu) {
+        for (const auto& name : order_) {
+            passes_[name]->post_create(gpu, *this);
+        }
+    }
+
     /// Register all passes with a RenderPipeline. Iterates passes, calls
     /// setup() for name/phase/ordering, and registers a build callback
     /// that delegates to the pass's build() method.
     /// The FrameContext pointer is captured by reference — must remain
     /// valid for the lifetime of the pipeline entries.
     void register_with_pipeline(RenderPipeline& pipeline, FrameContext& ctx);
+
+    /// Register a single pass (by registry name) with the pipeline.
+    /// Used for passes created after initial registration (e.g. lazy meshlet init).
+    void register_pass_with_pipeline(const std::string& name,
+                                     RenderPipeline& pipeline, FrameContext& ctx);
 
 private:
     std::unordered_map<std::string, std::unique_ptr<RenderPass>> passes_;

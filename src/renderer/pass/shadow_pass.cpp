@@ -1,8 +1,10 @@
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu_context.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/indirect_batch.hpp"
+#include "renderer/renderer_constants.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -417,6 +419,16 @@ Result<> ShadowPass::create(Device& device, const PassResources& resources) {
     vkDestroyShaderModule(device_, frag_module, nullptr);
     FJELL_GFX_DEBUG("Shadow pass pipelines created (standard + skinned)");
     return {};
+}
+
+void ShadowPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
+    auto& gb = gpu.global_bindings();
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        gb.write_image(i, "shadow_map",
+            array_view_, sampler_,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+        gb.flush_writes();
+    }
 }
 
 void ShadowPass::register_custom_shadow(uint32_t pipeline_id,

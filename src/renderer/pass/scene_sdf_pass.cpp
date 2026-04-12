@@ -2,6 +2,8 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/vk_check.hpp"
+#include "renderer/gpu_context.hpp"
+#include "renderer/renderer_constants.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
@@ -30,6 +32,16 @@ void SceneSdfPass::create(Device& device, VkDescriptorSetLayout /*global_set_lay
 
     FJELL_GFX_DEBUG("SceneSdfPass created ({}³ R16_SFLOAT, {:.1f}MB)",
                     resolution_, float(resolution_ * resolution_ * resolution_ * 2) / (1024.0f * 1024.0f));
+}
+
+void SceneSdfPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
+    auto& gb = gpu.global_bindings();
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        gb.write_image(i, "scene_sdf",
+            sdf_view_, sdf_sampler_,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.flush_writes();
+    }
 }
 
 void SceneSdfPass::destroy() {

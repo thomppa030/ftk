@@ -365,6 +365,8 @@ PassResources GpuContext::pass_resources() const {
     res.sample_count = msaa_samples_;
     res.allocator = core_.allocator();
     res.pipeline_cache = vk_pipeline_cache_;
+    res.command_pool = core_.command_pool();
+    res.graphics_queue = core_.graphics_queue();
     return res;
 }
 

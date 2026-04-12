@@ -20,6 +20,7 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
     // Legacy create — forwards to standard create (needs command pool + queue)
     void create(VkDevice device, VmaAllocator allocator,

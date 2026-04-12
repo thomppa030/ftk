@@ -1,8 +1,10 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "renderer/gpu_context.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pass_registry.hpp"
+#include "renderer/renderer_constants.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
@@ -15,9 +17,20 @@
 
 namespace fjell {
 
-Result<> SkyCubemapPass::create(Device& /*device*/, const PassResources& /*resources*/) {
-    // SkyCubemapPass requires command_pool + queue — use the legacy create() overload.
-    assert(false && "SkyCubemapPass: use create(VkDevice, VmaAllocator, VkCommandPool, VkQueue)");
+Result<> SkyCubemapPass::create(Device& device, const PassResources& resources) {
+    device_ = device.handle();
+    vk_pipeline_cache_ = resources.pipeline_cache;
+    allocator_ = resources.allocator;
+    command_pool_ = resources.command_pool;
+    queue_ = resources.graphics_queue;
+
+    create_cubemap();
+    create_cubemap_pipeline();
+    create_brdf_lut();
+    create_brdf_pipeline();
+    generate_brdf_lut();
+
+    FJELL_GFX_DEBUG("Sky cubemap pass created");
     return {};
 }
 
@@ -37,6 +50,48 @@ void SkyCubemapPass::create(VkDevice device, VmaAllocator allocator,
     generate_brdf_lut();
 
     FJELL_GFX_DEBUG("Sky cubemap pass created");
+}
+
+void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
+    // Copy initial sky colors from the sky gradient pass
+    auto& sky = passes.get<SkyPass>("sky");
+    set_colors(sky.top_color(), sky.bottom_color());
+
+    // One-shot cubemap generation
+    VkCommandBuffer cmd{};
+    VkCommandBufferAllocateInfo cmd_ai{};
+    cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmd_ai.commandPool = command_pool_;
+    cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmd_ai.commandBufferCount = 1;
+    vkAllocateCommandBuffers(device_, &cmd_ai, &cmd);
+
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &begin);
+    generate(cmd);
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(queue_);
+    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
+
+    // Write cubemap and BRDF LUT into global descriptors
+    auto& gb = gpu.global_bindings();
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        gb.write_image(i, "sky_cubemap",
+            cubemap_view_, cubemap_sampler_,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.write_image(i, "brdf_lut",
+            brdf_lut_view_, brdf_lut_sampler_,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.flush_writes();
+    }
 }
 
 void SkyCubemapPass::destroy() {

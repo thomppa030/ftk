@@ -243,7 +243,6 @@ public:
                       float dt, uint32_t selected_id, ThreadPool& pool);
 
 private:
-  void update_shadow_descriptors();
   void
   record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                         const std::vector<ViewportRenderRequest> &viewports,

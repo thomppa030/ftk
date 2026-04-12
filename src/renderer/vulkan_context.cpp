@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "renderer/pass_setup.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "animation/animation_system.hpp"
@@ -55,103 +56,9 @@ VulkanContext::VulkanContext(Window& window)
     PassResources pass_resources = gpu_.pass_resources();
     pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
 
-    // Helper: create, register, and initialize a pass in one call
-    auto add_pass = [&](const std::string& name, auto pass) -> auto& {
-        using T = std::remove_reference_t<decltype(*pass)>;
-        auto& ref = passes_.add<T>(name, std::move(pass));
-        auto r = ref.create(gpu_.device_ref(), pass_resources);
-        if (!r) throw std::runtime_error(r.error());
-        return ref;
-    };
-
-    add_pass("depth_prepass", std::make_unique<DepthPrePass>());
-    add_pass("hiz", std::make_unique<HizPass>());
-    if (gpu_.use_mesh_shaders()) {
-        auto& mi = passes_.add<MeshletInstancePass>("meshlet_instance", std::make_unique<MeshletInstancePass>());
-        mi.create(gpu_.device(), gpu_.allocator(), gpu_.global_set_layout(), pass_resources.pipeline_cache);
-        add_pass("mesh_shader_depth", std::make_unique<MeshShaderDepthPass>());
-        add_pass("meshlet_viz", std::make_unique<MeshletVizPass>());
-        auto& cp = passes_.add<CullPass>("cull", std::make_unique<CullPass>());
-        auto r = cp.create(gpu_.device(), gpu_.allocator(), gpu_.global_set_layout(), pass_resources.pipeline_cache);
-        if (!r) throw std::runtime_error(r.error());
-        add_pass("cull_viz", std::make_unique<CullVizPass>());
-        meshlet_passes_created_ = true;
-    }
-    add_pass("shadow", std::make_unique<ShadowPass>());
-    add_pass("depth_viz", std::make_unique<DepthVizPass>());
-
-    update_shadow_descriptors();
-
-    add_pass("debug", std::make_unique<DebugPass>());
-    add_pass("grid", std::make_unique<GridPass>());
-    add_pass("wireframe", std::make_unique<WireframePass>());
-    add_pass("normals", std::make_unique<NormalPass>());
-    add_pass("overdraw", std::make_unique<OverdrawPass>());
-    add_pass("uv_viz", std::make_unique<UvVizPass>());
-    add_pass("bloom", std::make_unique<BloomPass>());
-    add_pass("sky", std::make_unique<SkyPass>());
-
-    // Sky cubemap for IBL (creates cubemap + BRDF LUT)
-    {
-        auto& scp = passes_.add<SkyCubemapPass>("sky_cubemap", std::make_unique<SkyCubemapPass>());
-        scp.create(gpu_.device(), gpu_.allocator(),
-                   gpu_.command_pool(), gpu_.graphics_queue(),
-                   pass_resources.pipeline_cache);
-        scp.set_colors(sky_pass().top_color(), sky_pass().bottom_color());
-    }
-
-    // Generate cubemap (one-shot at startup)
-    {
-        VkCommandBuffer init_cmd;
-        VkCommandBufferAllocateInfo cmd_ai{};
-        cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        cmd_ai.commandPool = gpu_.command_pool();
-        cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmd_ai.commandBufferCount = 1;
-        vkAllocateCommandBuffers(gpu_.device(), &cmd_ai, &init_cmd);
-
-        VkCommandBufferBeginInfo begin{};
-        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(init_cmd, &begin);
-
-        sky_cubemap_pass().generate(init_cmd);
-
-        vkEndCommandBuffer(init_cmd);
-
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &init_cmd;
-        vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
-        vkQueueWaitIdle(gpu_.graphics_queue());
-        vkFreeCommandBuffers(gpu_.device(), gpu_.command_pool(), 1, &init_cmd);
-    }
-
-    // Write sky cubemap and BRDF LUT into global descriptors
-    {
-        auto& gb = gpu_.global_bindings();
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            gb.write_image(i, "sky_cubemap",
-                sky_cubemap_pass().cubemap_view(), sky_cubemap_pass().cubemap_sampler(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.write_image(i, "brdf_lut",
-                sky_cubemap_pass().brdf_lut_view(), sky_cubemap_pass().brdf_lut_sampler(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.flush_writes();
-        }
-    }
-
-    add_pass("transparent", std::make_unique<TransparentPass>());
-    add_pass("opaque", std::make_unique<OpaquePass>());
-    add_pass("screen_color_copy", std::make_unique<ScreenColorCopyPass>());
-    add_pass("distortion", std::make_unique<DistortionPass>());
-    add_pass("subsystem_compute", std::make_unique<SubsystemComputePass>());
-    add_pass("tonemap", std::make_unique<TonemapPass>());
-    add_pass("gtao", std::make_unique<GtaoPass>());
-    add_pass("ssr", std::make_unique<SsrPass>());
-    add_pass("volumetric_fog", std::make_unique<VolumetricFogPass>());
-    add_pass("ddgi", std::make_unique<DdgiPass>());
+    // Create all render passes (centralized in pass_setup.cpp)
+    create_all_passes(passes_, gpu_, pass_resources);
+    meshlet_passes_created_ = passes_.has("meshlet_instance");
 
     // Create acceleration structure manager for DDGI RT backend
     if (gpu_.device_ref().ray_tracing_supported()) {
@@ -160,36 +67,6 @@ VulkanContext::VulkanContext(Window& window)
             gpu_.command_pool(), gpu_.graphics_queue());
         accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
         ddgi_pass().set_accel_manager(accel_manager_.get());
-    }
-
-    add_pass("light_cull", std::make_unique<LightCullPass>());
-    {
-        auto& hm = passes_.add<LightVizPass>("light_heatmap", std::make_unique<LightVizPass>());
-        hm.set_mode(0);
-        auto r1 = hm.create(gpu_.device_ref(), pass_resources);
-        if (!r1) throw std::runtime_error(r1.error());
-    }
-    {
-        auto& lg = passes_.add<LightVizPass>("light_grid", std::make_unique<LightVizPass>());
-        lg.set_mode(1);
-        auto r2 = lg.create(gpu_.device_ref(), pass_resources);
-        if (!r2) throw std::runtime_error(r2.error());
-    }
-    {
-        auto& sdf = passes_.add<SceneSdfPass>("scene_sdf", std::make_unique<SceneSdfPass>());
-        sdf.create(gpu_.device_ref(), pass_resources.global_set_layout, pass_resources.allocator,
-                   pass_resources.pipeline_cache);
-    }
-
-    // Write scene SDF into global descriptors — must be after pass creation
-    {
-        auto& gb = gpu_.global_bindings();
-        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            gb.write_image(i, "scene_sdf",
-                scene_sdf_pass().view(), scene_sdf_pass().sampler(),
-                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-            gb.flush_writes();
-        }
     }
 
     // Create render subsystems
@@ -264,22 +141,18 @@ void VulkanContext::set_use_mesh_shaders(bool enable) {
         PassResources pass_resources = gpu_.pass_resources();
         pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
 
-        auto& mi = passes_.add<MeshletInstancePass>("meshlet_instance", std::make_unique<MeshletInstancePass>());
-        mi.create(gpu_.device(), gpu_.allocator(), gpu_.global_set_layout(), pass_resources.pipeline_cache);
-        auto& msd = passes_.add<MeshShaderDepthPass>("mesh_shader_depth", std::make_unique<MeshShaderDepthPass>());
-        auto r1 = msd.create(gpu_.device_ref(), pass_resources);
-        auto& mv = passes_.add<MeshletVizPass>("meshlet_viz", std::make_unique<MeshletVizPass>());
-        auto r2 = mv.create(gpu_.device_ref(), pass_resources);
-        auto& cp = passes_.add<CullPass>("cull", std::make_unique<CullPass>());
-        auto r3 = cp.create(gpu_.device(), gpu_.allocator(), gpu_.global_set_layout(), pass_resources.pipeline_cache);
-        auto& cv = passes_.add<CullVizPass>("cull_viz", std::make_unique<CullVizPass>());
-        auto r4 = cv.create(gpu_.device_ref(), pass_resources);
-        if (!r1 || !r2 || !r3 || !r4) {
+        if (!create_meshlet_passes(passes_, gpu_, pass_resources)) {
             FJELL_GFX_ERROR("Failed to create meshlet passes — disabling mesh shaders");
             gpu_.set_use_mesh_shaders(false);
             return;
         }
         meshlet_passes_created_ = true;
+
+        // Register new passes with the render pipeline
+        for (const auto& name : {"meshlet_instance", "mesh_shader_depth",
+                                  "meshlet_viz", "cull", "cull_viz"}) {
+            passes_.register_pass_with_pipeline(name, render_pipeline_, current_ctx_);
+        }
 
         // Register custom vertex displacement depth pipelines for the newly
         // created mesh shader depth pass (vertex prepass + shadow already have theirs).
@@ -1187,16 +1060,6 @@ void VulkanContext::release_imgui_textures() {
     if (auto* cv = passes_.try_get<CullVizPass>("cull_viz")) cv->invalidate_imgui_texture();
     light_heatmap_pass().invalidate_imgui_texture();
     light_grid_pass().invalidate_imgui_texture();
-}
-
-void VulkanContext::update_shadow_descriptors() {
-    auto& gb = gpu_.global_bindings();
-    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-        gb.write_image(i, "shadow_map",
-            shadow_pass().array_view(), shadow_pass().sampler(),
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-        gb.flush_writes();
-    }
 }
 
 void VulkanContext::draw_sdf_debug_window() {

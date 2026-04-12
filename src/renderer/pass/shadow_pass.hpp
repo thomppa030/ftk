@@ -29,6 +29,7 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
     // Compute cascade splits and light-space matrices for this frame.
     // Call before record().

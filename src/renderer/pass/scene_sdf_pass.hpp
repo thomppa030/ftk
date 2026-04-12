@@ -38,6 +38,7 @@ public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext&) override {}
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
 
     // Legacy create — forwards to standard create
     void create(Device& device, VkDescriptorSetLayout global_set_layout, VmaAllocator allocator,

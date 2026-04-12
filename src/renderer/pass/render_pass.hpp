@@ -18,6 +18,7 @@ struct DrawCommand;
 struct RenderStats;
 class Device;
 class DebugDraw;
+class GpuContext;
 class OffscreenPass;
 class PassRegistry;
 class RenderQueue;
@@ -37,6 +38,8 @@ struct PassResources {
     VkSampleCountFlagBits sample_count{VK_SAMPLE_COUNT_1_BIT};
     VmaAllocator allocator{VK_NULL_HANDLE};
     VkPipelineCache pipeline_cache{VK_NULL_HANDLE};
+    VkCommandPool command_pool{VK_NULL_HANDLE};
+    VkQueue graphics_queue{VK_NULL_HANDLE};
 };
 
 class IndirectBatch;
@@ -160,6 +163,13 @@ public:
 
     // Destroy GPU resources.
     virtual void destroy() = 0;
+
+    /// Post-creation hook called after all passes are created.
+    /// Override to perform one-shot GPU work (cubemap generation),
+    /// write global descriptors, or link to sibling passes.
+    virtual void post_create(GpuContext& gpu, PassRegistry& passes) {
+        (void)gpu; (void)passes;
+    }
 
     // Record draw commands into the command buffer.
     virtual void record(const FrameContext& ctx) = 0;
