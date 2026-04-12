@@ -60,6 +60,9 @@ public:
     void add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
                   std::initializer_list<std::pair<uint32_t, ImageUsage>> uses,
                   uint32_t parallel_group = 0);
+    void add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
+                  std::vector<std::pair<uint32_t, ImageUsage>> uses,
+                  uint32_t parallel_group = 0);
 
     // Execute all passes, inserting barriers between them.
     // Passes with the same parallel_group > 0 are recorded in parallel on
