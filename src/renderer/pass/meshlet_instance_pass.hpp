@@ -25,6 +25,9 @@ public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext&) override {}
+    [[nodiscard]] PassSetup setup() const override;
+    void build(FrameGraph& graph, ResourceRegistry& registry,
+               const FrameContext& ctx) override;
 
     // Legacy create — forwards to standard create
     void create(VkDevice device, VmaAllocator allocator,

@@ -1,10 +1,13 @@
 #include "renderer/pass/cull_viz_pass.hpp"
+#include "renderer/pass/cull_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
+#include "renderer/viewport_source.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -382,6 +385,35 @@ void CullVizPass::record(const FrameContext& ctx, VkBuffer visibility_buffer,
     vkCmdPipelineBarrier2(ctx.cmd, &final_dep);
 
     rendered_once_ = true;
+}
+
+PassSetup CullVizPass::setup() const {
+    return {
+        .name = "cull_viz",
+        .phase = RenderPhase::GpuDriven,
+        .sub_order = 130,
+        .reads = {},
+        .writes = {},
+    };
+}
+
+void CullVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                          const FrameContext& ctx) {
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
+    graph.add_pass("cull_viz", [this, ctx](VkCommandBuffer cb) {
+        if (!ctx.use_mesh_shaders || !ctx.passes) return;
+        auto* cull = ctx.passes->try_get<CullPass>("cull");
+        if (!cull || !cull->enabled()) return;
+
+        FrameContext local = ctx;
+        local.cmd = cb;
+        uint32_t opaque_count = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
+        if (opaque_count > 0) {
+            record(local,
+                cull->visibility_buffer(ctx.frame_index),
+                cull->visibility_buffer_size(ctx.frame_index));
+        }
+    }, {});
 }
 
 } // namespace fjell

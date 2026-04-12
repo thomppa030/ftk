@@ -14,6 +14,10 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
+#ifdef FJELL_ENABLE_TRACY
+#include <tracy/TracyVulkan.hpp>
+#endif
+
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
@@ -620,6 +624,29 @@ void ShadowPass::record(const FrameContext& ctx) {
     dep.imageMemoryBarrierCount = 1;
     dep.pImageMemoryBarriers = &barrier;
     vkCmdPipelineBarrier2(ctx.cmd, &dep);
+}
+
+PassSetup ShadowPass::setup() const {
+    return {
+        .name = "shadow",
+        .phase = RenderPhase::Environment,
+        .sub_order = 100,
+        .reads = {},
+        .writes = {},
+    };
+}
+
+void ShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                        const FrameContext& ctx) {
+    graph.add_pass("shadow", [this, ctx](VkCommandBuffer cb) {
+        if (ctx.skip_shadows) return;
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Shadow Pass");
+#endif
+        FrameContext local = ctx;
+        local.cmd = cb;
+        record(local);
+    }, {}, 1);
 }
 
 } // namespace fjell

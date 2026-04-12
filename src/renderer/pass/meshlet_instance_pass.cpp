@@ -1,9 +1,20 @@
 #include "renderer/pass/meshlet_instance_pass.hpp"
+#include "renderer/pass/hiz_pass.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/indirect_batch.hpp"
+#include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_registry.hpp"
+#include "renderer/post_process_resources.hpp"
+#include "renderer/render_stats.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+
+#ifdef FJELL_ENABLE_TRACY
+#include <tracy/TracyVulkan.hpp>
+#endif
 
 #include <algorithm>
 #include <array>
@@ -517,6 +528,79 @@ void MeshletInstancePass::insert_cull_barrier(VkCommandBuffer cmd) {
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &barrier;
     vkCmdPipelineBarrier2(cmd, &dep);
+}
+
+PassSetup MeshletInstancePass::setup() const {
+    return {
+        .name = "meshlet_cull",
+        .phase = RenderPhase::GpuDriven,
+        .sub_order = 0,
+        .reads = {},
+        .writes = {},
+    };
+}
+
+void MeshletInstancePass::build(FrameGraph& graph, ResourceRegistry& registry,
+                                 const FrameContext& ctx) {
+    graph.add_pass("meshlet_expand_cull", [this, ctx, &registry](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+        TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Meshlet Expand+Cull");
+#endif
+        if (!ctx.use_mesh_shaders) return;
+
+        uint32_t total_draws = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
+        uint32_t total_mi = ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
+        if (total_draws == 0 || total_mi == 0) return;
+
+        dispatch_expand(
+            cb,
+            ctx.indirect_batch->draw_data_buffer(ctx.frame_index),
+            ctx.indirect_batch->draw_data_size(ctx.frame_index),
+            total_draws, ctx.frame_index);
+        insert_expand_barrier(cb);
+
+        auto& ranges_ref = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
+        auto extent = ctx.target->extent();
+
+        auto* hiz_imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
+        bool hiz_ready = hiz_imgs && hiz_imgs->ready();
+
+        // Look up meshlet bounds buffer from registry
+        VkBuffer bounds_buf = VK_NULL_HANDLE;
+        VkDeviceSize bounds_size = 0;
+        if (auto* bounds = registry.find_buffer("meshlet_bounds")) {
+            bounds_buf = bounds->buffer;
+            bounds_size = bounds->size;
+        }
+
+        // Get Hi-Z sampler from HizPass via pass registry
+        VkSampler hiz_sampler = VK_NULL_HANDLE;
+        if (hiz_ready && ctx.passes) {
+            if (auto* hiz = ctx.passes->try_get<HizPass>("hiz")) {
+                hiz_sampler = hiz->sampler();
+            }
+        }
+
+        dispatch_cull_first(
+            cb,
+            ctx.global_descriptor_set,
+            ctx.indirect_batch->draw_data_buffer(ctx.frame_index),
+            ctx.indirect_batch->draw_data_size(ctx.frame_index),
+            bounds_buf, bounds_size,
+            ctx.indirect_batch->pipeline_bin_buffer(ctx.frame_index),
+            ctx.indirect_batch->pipeline_bin_size(ctx.frame_index),
+            static_cast<uint32_t>(ranges_ref.size()),
+            ctx.frame_index,
+            hiz_ready ? hiz_imgs->hiz_sampled_view : VK_NULL_HANDLE,
+            hiz_sampler,
+            extent.width, extent.height,
+            hiz_ready ? hiz_imgs->hiz_mip_count : 0);
+
+        insert_cull_barrier(cb);
+        if (ctx.render_stats) {
+            ctx.render_stats->two_pass_occlusion = hiz_ready;
+        }
+    }, {});
 }
 
 } // namespace fjell

@@ -1,14 +1,21 @@
 #include "renderer/pass/depth_prepass.hpp"
+#include "renderer/pass/mesh_shader_depth_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/render_queue.hpp"
+#include "renderer/resource_registry.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/resources/vertex.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+
+#ifdef FJELL_ENABLE_TRACY
+#include <tracy/TracyVulkan.hpp>
+#endif
 
 #include <glm/glm.hpp>
 
@@ -275,6 +282,72 @@ void DepthPrePass::record(const FrameContext& ctx) {
     }
 
     vkCmdEndRendering(ctx.cmd);
+}
+
+PassSetup DepthPrePass::setup() const {
+    return {
+        .name = "depth_prepass",
+        .phase = RenderPhase::DepthPrepass,
+        .sub_order = 0,
+        .reads = {},
+        .writes = {{"depth", ImageUsage::depth_attachment}},
+    };
+}
+
+void DepthPrePass::build(FrameGraph& graph, ResourceRegistry& registry,
+                          const FrameContext& ctx) {
+    auto* msd = ctx.passes ? ctx.passes->try_get<MeshShaderDepthPass>("mesh_shader_depth") : nullptr;
+    RenderPass& depth_pass = (ctx.use_mesh_shaders && msd)
+        ? static_cast<RenderPass&>(*msd)
+        : static_cast<RenderPass&>(*this);
+
+    bool has_msaa = ctx.target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
+    if (has_msaa) {
+        graph.add_pass("depth_prepass", [&depth_pass, ctx](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+            TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Depth Prepass");
+#endif
+            FrameContext local = ctx;
+            local.cmd = cb;
+            local.gpu_driven_indirect = VK_NULL_HANDLE;
+            local.gpu_driven_segment_size = 0;
+            depth_pass.record(local);
+        }, {{registry.image_id("msaa_depth"), ImageUsage::depth_attachment}}, 1);
+
+        graph.add_pass("depth_resolve", [ctx](VkCommandBuffer cb) {
+            auto* target = ctx.target;
+            VkRenderingAttachmentInfo depth_attachment{};
+            depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+            depth_attachment.imageView = target->msaa_depth_view();
+            depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+            depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depth_attachment.resolveImageView = target->depth_view();
+            depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
+
+            VkRenderingInfo ri{};
+            ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+            ri.renderArea.extent = target->extent();
+            ri.layerCount = 1;
+            ri.pDepthAttachment = &depth_attachment;
+
+            vkCmdBeginRendering(cb, &ri);
+            vkCmdEndRendering(cb);
+        }, {{registry.image_id("msaa_depth"), ImageUsage::depth_attachment_read},
+            {registry.image_id("depth"), ImageUsage::depth_attachment}});
+    } else {
+        graph.add_pass("depth_prepass", [&depth_pass, ctx](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+            TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Depth Prepass");
+#endif
+            FrameContext local = ctx;
+            local.cmd = cb;
+            local.gpu_driven_indirect = VK_NULL_HANDLE;
+            local.gpu_driven_segment_size = 0;
+            depth_pass.record(local);
+        }, {{registry.image_id("depth"), ImageUsage::depth_attachment}}, 1);
+    }
 }
 
 } // namespace fjell

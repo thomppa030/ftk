@@ -23,6 +23,9 @@ public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext&) override {}
+    [[nodiscard]] PassSetup setup() const override;
+    void build(FrameGraph& graph, ResourceRegistry& registry,
+               const FrameContext& ctx) override;
 
     // Record the viz: renders all draws, colored green/red by visibility
     void record(const FrameContext& ctx, VkBuffer visibility_buffer,

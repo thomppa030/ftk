@@ -335,22 +335,8 @@ void VulkanContext::register_environment_passes() {
     render_pipeline_.register_pass({
         .name = "shadow",
         .order = PassEntry::make_order(RenderPhase::Environment, 100),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            graph.add_pass("shadow", [this](VkCommandBuffer cb) {
-                if (current_ctx_.skip_shadows) return;
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Shadow Pass");
-#endif
-                FrameContext local = current_ctx_;
-                local.cmd = cb;
-                for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
-                    local.shadow_cascade_batches[c] = gatherer_.shadow_batch(c);
-                    local.shadow_cascade_draw_data[c] =
-                        gatherer_.shadow_draw_data(c).descriptor_set(current_frame_);
-                    local.shadow_cascade_commands[c] = &gatherer_.shadow_cmds(c);
-                }
-                shadow_pass().record(local);
-            }, {}, 1);
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            shadow_pass().build(graph, registry, current_ctx_);
         }
     });
 }
@@ -360,58 +346,7 @@ void VulkanContext::register_depth_passes() {
         .name = "depth_prepass",
         .order = PassEntry::make_order(RenderPhase::DepthPrepass, 0),
         .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
-            auto* msd = mesh_shader_depth_pass();
-            auto& depth_pass = (gpu_.use_mesh_shaders() && msd)
-                ? static_cast<RenderPass&>(*msd)
-                : static_cast<RenderPass&>(depth_prepass());
-
-            bool has_msaa = current_ctx_.target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
-            if (has_msaa) {
-                graph.add_pass("depth_prepass", [this, &depth_pass](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                    TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
-#endif
-                    FrameContext local = current_ctx_;
-                    local.cmd = cb;
-                    local.gpu_driven_indirect = VK_NULL_HANDLE;
-                    local.gpu_driven_segment_size = 0;
-                    depth_pass.record(local);
-                }, {{registry.image_id("msaa_depth"), ImageUsage::depth_attachment}}, 1);
-
-                graph.add_pass("depth_resolve", [this](VkCommandBuffer cb) {
-                    auto* target = current_ctx_.target;
-                    VkRenderingAttachmentInfo depth_attachment{};
-                    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                    depth_attachment.imageView = target->msaa_depth_view();
-                    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-                    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                    depth_attachment.resolveImageView = target->depth_view();
-                    depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-                    depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-
-                    VkRenderingInfo ri{};
-                    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                    ri.renderArea.extent = target->extent();
-                    ri.layerCount = 1;
-                    ri.pDepthAttachment = &depth_attachment;
-
-                    vkCmdBeginRendering(cb, &ri);
-                    vkCmdEndRendering(cb);
-                }, {{registry.image_id("msaa_depth"), ImageUsage::depth_attachment_read},
-                    {registry.image_id("depth"), ImageUsage::depth_attachment}});
-            } else {
-                graph.add_pass("depth_prepass", [this, &depth_pass](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                    TracyVkZone(gpu_.tracy_ctx(), cb, "Depth Prepass");
-#endif
-                    FrameContext local = current_ctx_;
-                    local.cmd = cb;
-                    local.gpu_driven_indirect = VK_NULL_HANDLE;
-                    local.gpu_driven_segment_size = 0;
-                    depth_pass.record(local);
-                }, {{registry.image_id("depth"), ImageUsage::depth_attachment}}, 1);
-            }
+            depth_prepass().build(graph, registry, current_ctx_);
         }
     });
 
@@ -429,49 +364,10 @@ void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "meshlet_cull",
         .order = PassEntry::make_order(RenderPhase::GpuDriven, 0),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            graph.add_pass("meshlet_expand_cull", [this](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(gpu_.tracy_ctx(), cb, "Meshlet Expand+Cull");
-#endif
-                if (gpu_.use_mesh_shaders()) {
-                    uint32_t total_draws = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
-                    uint32_t total_mi = gatherer_.indirect_batch()->total_meshlet_instances(current_frame_);
-                    if (total_draws > 0 && total_mi > 0) {
-                        meshlet_instance_pass()->dispatch_expand(
-                            cb,
-                            gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
-                            gatherer_.indirect_batch()->draw_data_size(current_frame_),
-                            total_draws, current_frame_);
-                        meshlet_instance_pass()->insert_expand_barrier(cb);
-
-                        auto& ranges_ref = gatherer_.indirect_batch()->pipeline_ranges(current_frame_);
-                        auto extent = current_ctx_.target->extent();
-
-                        auto* hiz_imgs = current_ctx_.pp_resources ? current_ctx_.pp_resources->hiz() : nullptr;
-                        bool hiz_ready = hiz_imgs && hiz_imgs->ready();
-
-                        meshlet_instance_pass()->dispatch_cull_first(
-                            cb,
-                            gpu_.global_descriptor_set(current_frame_),
-                            gatherer_.indirect_batch()->draw_data_buffer(current_frame_),
-                            gatherer_.indirect_batch()->draw_data_size(current_frame_),
-                            gpu_.meshlet_buffer() ? gpu_.meshlet_buffer()->bounds_buffer() : VK_NULL_HANDLE,
-                            gpu_.meshlet_buffer() ? gpu_.meshlet_buffer()->bounds_buffer_size() : 0,
-                            gatherer_.indirect_batch()->pipeline_bin_buffer(current_frame_),
-                            gatherer_.indirect_batch()->pipeline_bin_size(current_frame_),
-                            static_cast<uint32_t>(ranges_ref.size()),
-                            current_frame_,
-                            hiz_ready ? hiz_imgs->hiz_sampled_view : VK_NULL_HANDLE,
-                            hiz_ready ? hiz_pass().sampler() : VK_NULL_HANDLE,
-                            extent.width, extent.height,
-                            hiz_ready ? hiz_imgs->hiz_mip_count : 0);
-
-                        meshlet_instance_pass()->insert_cull_barrier(cb);
-                        gpu_.render_stats().two_pass_occlusion = hiz_ready;
-                    }
-                }
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            if (auto* mip = meshlet_instance_pass()) {
+                mip->build(graph, registry, current_ctx_);
+            }
         }
     });
 
@@ -513,20 +409,10 @@ void VulkanContext::register_gpu_driven_passes() {
     render_pipeline_.register_pass({
         .name = "cull_viz",
         .order = PassEntry::make_order(RenderPhase::GpuDriven, 130),
-        .build = [this](FrameGraph& graph, ResourceRegistry& /*registry*/) {
-            if (!(active_sources_ & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
-            graph.add_pass("cull_viz", [this](VkCommandBuffer cb) {
-                if (gpu_.use_mesh_shaders() && cull_pass()->enabled()) {
-                    FrameContext local = current_ctx_;
-                    local.cmd = cb;
-                    uint32_t opaque_count = gatherer_.indirect_batch()->opaque_draw_count(current_frame_);
-                    if (opaque_count > 0) {
-                        cull_viz_pass()->record(local,
-                            cull_pass()->visibility_buffer(current_frame_),
-                            cull_pass()->visibility_buffer_size(current_frame_));
-                    }
-                }
-            }, {});
+        .build = [this](FrameGraph& graph, ResourceRegistry& registry) {
+            if (auto* cvp = cull_viz_pass()) {
+                cvp->build(graph, registry, current_ctx_);
+            }
         }
     });
 }
@@ -1268,6 +1154,14 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.world_ui_callback = world_ui_callback_;
     ctx.game_ui_callback = game_ui_callback_;
 
+    // Shadow cascade batches (filled from gatherer, consumed by ShadowPass::build)
+    for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+        ctx.shadow_cascade_batches[c] = gatherer_.shadow_batch(c);
+        ctx.shadow_cascade_draw_data[c] =
+            gatherer_.shadow_draw_data(c).descriptor_set(current_frame_);
+        ctx.shadow_cascade_commands[c] = &gatherer_.shadow_cmds(c);
+    }
+
     return ctx;
 }
 
@@ -1380,6 +1274,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         0, sky_cubemap_pass().cubemap_view(), sky_cubemap_pass().cubemap_sampler()});
     resource_registry_.register_image("prev_frame_color", {
         0, ssr_pass().prev_frame_view()});
+    if (gpu_.meshlet_buffer()) {
+        resource_registry_.register_buffer("meshlet_bounds", {
+            gpu_.meshlet_buffer()->bounds_buffer(),
+            gpu_.meshlet_buffer()->bounds_buffer_size()});
+    }
 
     render_pipeline_.execute(cmd, target, target.sample_count(), active_sources_,
                               pool, gpu_.secondary_pools(), current_frame_,
