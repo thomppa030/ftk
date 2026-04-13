@@ -79,16 +79,7 @@ public:
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
 
-    // Parameters (public for direct ImGui access)
-    bool enabled_{false};
-    float density_{0.003f};
-    float height_{0.0f};
-    float height_falloff_{0.5f};
-    float scattering_{0.5f};
-    float anisotropy_{0.7f};
-    float max_distance_{130.0f};
-    float temporal_blend_{0.9f};
-    glm::vec3 fog_color_{0.8f, 0.85f, 0.9f};
+    [[nodiscard]] bool enabled() const { return enabled_; }
 
     // Expose layouts/sampler so external Images can be created
     [[nodiscard]] VkDescriptorSetLayout inject_set_layout() const { return inject_set_layout_; }
@@ -101,6 +92,17 @@ private:
     static VolumeImage create_volume_image(VkDevice device, VmaAllocator allocator,
                                             uint32_t w, uint32_t h, uint32_t d);
     static void destroy_volume_image(VkDevice device, VmaAllocator allocator, VolumeImage& img);
+
+    // Scene-driven fog parameters (set by prepare_frame)
+    bool enabled_{false};
+    float density_{0.003f};
+    float height_{0.0f};
+    float height_falloff_{0.5f};
+    float scattering_{0.5f};
+    float anisotropy_{0.7f};
+    float max_distance_{130.0f};
+    float temporal_blend_{0.9f};
+    glm::vec3 fog_color_{0.8f, 0.85f, 0.9f};
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
