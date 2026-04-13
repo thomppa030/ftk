@@ -20,6 +20,8 @@ struct GlobalUbo {
     alignas(16) glm::mat4 prev_view_proj;   // previous frame's projection * view
     float time{0.0f};                       // engine elapsed time (seconds)
     float gi_intensity{0.0f};               // DDGI indirect diffuse multiplier
+    float jitter_x{0.0f};                   // TAA sub-pixel jitter in UV space
+    float jitter_y{0.0f};
 };
 
 struct DirectionalLight {

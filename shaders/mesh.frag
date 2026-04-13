@@ -26,6 +26,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 prev_view_proj;
     float time;
     float gi_intensity;
+    float jitter_x;
+    float jitter_y;
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;

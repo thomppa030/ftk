@@ -323,6 +323,9 @@ private:
   float ibl_intensity_{1.0f};
   float elapsed_time_{0.0f};
 
+  // ── TAA jitter state ─────────────────────────────────────────────────
+  uint32_t taa_frame_count_{0};
+
   // ── Scene viewports (render-to-texture for materials) ─────────────────
   std::unordered_map<std::string, std::unique_ptr<SceneViewport>> scene_viewports_;
 };

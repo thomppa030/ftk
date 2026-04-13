@@ -24,6 +24,7 @@ struct PostProcessConfig {
     bool volumetric_fog{false};
     bool tonemap{true};
     bool ddgi{false};
+    bool taa{false};
 };
 
 /// Owns all per-viewport post-processing image state.

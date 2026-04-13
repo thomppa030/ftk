@@ -550,6 +550,18 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     }
 }
 
+static float halton(int index, int base) {
+    float f = 1.0f;
+    float r = 0.0f;
+    int i = index;
+    while (i > 0) {
+        f /= static_cast<float>(base);
+        r += f * static_cast<float>(i % base);
+        i /= base;
+    }
+    return r;
+}
+
 void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::mat4& view,
                                           const glm::mat4& projection,
@@ -557,10 +569,27 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const DirectionalLight& light,
                                           Scene* scene, VkExtent2D extent) {
     FJELL_PROFILE_SCOPE_N("update_uniform_buffer");
-    gatherer_.set_camera_state(camera_position, view, projection);
+
+    // TAA sub-pixel jitter: offset the projection matrix by ±0.5 pixels
+    bool taa_enabled = default_pp_ && default_pp_->config().taa;
+    glm::mat4 jittered_projection = projection;
+    float jx = 0.0f;
+    float jy = 0.0f;
+    if (taa_enabled && extent.width > 0 && extent.height > 0) {
+        int idx = static_cast<int>((taa_frame_count_++) % 16) + 1; // 1-based, 16-sample cycle
+        jx = (halton(idx, 2) - 0.5f) / static_cast<float>(extent.width);
+        jy = (halton(idx, 3) - 0.5f) / static_cast<float>(extent.height);
+        // Apply jitter as a translation in clip space (NDC offset)
+        jittered_projection[2][0] += jx * 2.0f;
+        jittered_projection[2][1] += jy * 2.0f;
+    }
+
+    gatherer_.set_camera_state(camera_position, view, jittered_projection);
     GlobalUbo ubo{};
     ubo.view = view;
-    ubo.projection = projection;
+    ubo.projection = jittered_projection;
+    ubo.jitter_x = jx;
+    ubo.jitter_y = jy;
     // Find directional light from scene nodes, fall back to passed-in light
     DirectionalLight dir_light = light;
     uint32_t point_count = 0;
@@ -609,8 +638,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     uint32_t tiles_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     uint32_t tiles_y = (extent.height + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
     ubo.tile_info = glm::uvec4(tiles_x, tiles_y, point_count, spot_count);
-    ubo.inv_projection = glm::inverse(projection);
-    ubo.inv_view_proj = glm::inverse(projection * view);
+    ubo.inv_projection = glm::inverse(jittered_projection);
+    ubo.inv_view_proj = glm::inverse(jittered_projection * view);
     ubo.prev_view_proj = gatherer_.prev_view_proj();
     ubo.time = elapsed_time_;
 
