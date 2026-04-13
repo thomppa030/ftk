@@ -206,11 +206,15 @@ void TonemapPass::invalidate_imgui_texture() {
 }
 
 void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
-    if (!auto_exposure_) return;
     if (!ctx.passes) return;
 
+    // Enable/disable histogram pass based on auto-exposure toggle
     auto* exposure_pass = ctx.passes->try_get<ExposurePass>("exposure");
-    if (!exposure_pass || !exposure_pass->enabled()) return;
+    if (exposure_pass) {
+        exposure_pass->set_enabled(auto_exposure_);
+    }
+
+    if (!auto_exposure_ || !exposure_pass || !exposure_pass->enabled()) return;
 
     // Read average luminance from the previous frame's buffer
     uint32_t prev_frame = (ctx.frame_index + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT;

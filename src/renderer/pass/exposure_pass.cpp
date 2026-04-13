@@ -91,13 +91,8 @@ Result<> ExposurePass::create(Device& device, const PassResources& resources) {
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         buffers_[i] = std::make_unique<Buffer>(
             allocator_, buf_size,
-            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-            VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT);
-        buffers_[i]->map();
-
-        // Zero-initialize
-        std::memset(buffers_[i]->mapped(), 0, buf_size);
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY);
     }
 
     // Descriptor pool + per-frame sets
@@ -121,6 +116,18 @@ Result<> ExposurePass::create(Device& device, const PassResources& resources) {
     alloc_info.pSetLayouts = layouts.data();
     vkAllocateDescriptorSets(device_, &alloc_info, sets_.data());
 
+    // Small host-visible readback buffers (1 float per frame)
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        readback_buffers_[i] = std::make_unique<Buffer>(
+            allocator_, sizeof(float),
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT);
+        readback_buffers_[i]->map();
+        float init = 0.18f;
+        std::memcpy(readback_buffers_[i]->mapped(), &init, sizeof(float));
+    }
+
     // Write SSBO descriptors (stable handles, don't change per frame)
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VkDescriptorBufferInfo buf_info{};
@@ -143,6 +150,7 @@ Result<> ExposurePass::create(Device& device, const PassResources& resources) {
 }
 
 void ExposurePass::destroy() {
+    for (auto& buf : readback_buffers_) buf.reset();
     for (auto& buf : buffers_) buf.reset();
     if (pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, pipeline_, nullptr); pipeline_ = VK_NULL_HANDLE; }
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
@@ -224,13 +232,35 @@ void ExposurePass::record(const FrameContext& ctx) {
 
         vkCmdDispatch(cmd, 1, 1, 1);
     }
+
+    // Copy avg_luminance float from device-local SSBO to host-visible readback
+    {
+        VkMemoryBarrier2 copy_barrier{};
+        copy_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        copy_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        copy_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        copy_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        copy_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
+
+        VkDependencyInfo copy_dep{};
+        copy_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        copy_dep.memoryBarrierCount = 1;
+        copy_dep.pMemoryBarriers = &copy_barrier;
+        vkCmdPipelineBarrier2(cmd, &copy_dep);
+
+        VkBufferCopy region{};
+        region.srcOffset = 256 * sizeof(uint32_t);  // avg_luminance offset
+        region.dstOffset = 0;
+        region.size = sizeof(float);
+        vkCmdCopyBuffer(cmd, buffers_[ctx.frame_index]->handle(),
+                        readback_buffers_[ctx.frame_index]->handle(), 1, &region);
+    }
 }
 
 float ExposurePass::average_luminance(uint32_t frame_index) const {
-    if (!buffers_[frame_index]) return 0.18f;
-    auto* data = static_cast<const uint8_t*>(buffers_[frame_index]->mapped());
+    if (!readback_buffers_[frame_index]) return 0.18f;
     float avg = 0.18f;
-    std::memcpy(&avg, data + 256 * sizeof(uint32_t), sizeof(float));
+    std::memcpy(&avg, readback_buffers_[frame_index]->mapped(), sizeof(float));
     return avg;
 }
 

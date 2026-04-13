@@ -48,10 +48,12 @@ private:
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> sets_{};
     VkSampler sampler_{VK_NULL_HANDLE};
 
-    // Per-frame histogram SSBO (256 uint bins + 1 float avg_luminance)
+    // Per-frame histogram SSBO (256 uint bins + 1 float avg_luminance) — device-local
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> buffers_;
+    // Small host-visible readback buffer (1 float per frame)
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> readback_buffers_;
 
-    bool enabled_{true};
+    bool enabled_{false};
     float min_log_lum_{-10.0f};
     float max_log_lum_{4.0f};
 };
