@@ -247,23 +247,38 @@ void HizPass::record(const FrameContext& ctx) {
     record_into(ctx, default_images_);
 }
 
+void HizPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    auto* imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
+    active_images_ = imgs;
+    if (!imgs || !ctx.target) return;
+
+    auto extent = ctx.target->extent();
+    if (extent.width == 0 || extent.height == 0) return;
+
+    uint32_t needed_w = std::max(extent.width / 2, 1u);
+    uint32_t needed_h = std::max(extent.height / 2, 1u);
+    if (needed_w != imgs->hiz_width || needed_h != imgs->hiz_height) {
+        imgs->destroy(device_, allocator_);
+        imgs->create(device_, allocator_, set_layout_, sampler_, extent.width, extent.height);
+    }
+}
+
+void HizPass::register_resources(ResourceRegistry& registry) {
+    if (active_images_ && active_images_->ready()) {
+        registry.register_image("hiz", {
+            0, active_images_->hiz_sampled_view,
+            sampler_, active_images_->hiz_mip_count});
+    }
+}
+
 void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
     auto extent = ctx.target->extent();
     uint32_t depth_width = extent.width;
     uint32_t depth_height = extent.height;
     if (depth_width == 0 || depth_height == 0) return;
-
-    VkImageView depth_view = ctx.target->depth_view();
-
-    // Lazy create / resize
-    uint32_t needed_w = std::max(depth_width / 2, 1u);
-    uint32_t needed_h = std::max(depth_height / 2, 1u);
-    if (needed_w != imgs.hiz_width || needed_h != imgs.hiz_height) {
-        imgs.destroy(device_, allocator_);
-        imgs.create(device_, allocator_, set_layout_, sampler_, depth_width, depth_height);
-    }
     if (imgs.hiz_mip_count == 0) return;
 
+    VkImageView depth_view = ctx.target->depth_view();
     auto cmd = ctx.cmd;
 
     // Transition all Hi-Z mips to GENERAL for storage writes
@@ -371,11 +386,8 @@ void HizPass::build(FrameGraph& graph, ResourceRegistry& registry,
         FrameContext local = ctx;
         local.cmd = cb;
         auto* hiz_imgs = local.pp_resources ? local.pp_resources->hiz() : nullptr;
-        if (hiz_imgs) {
+        if (hiz_imgs && hiz_imgs->ready()) {
             record_into(local, *hiz_imgs);
-            local.registry->register_image("hiz", {
-                0, hiz_imgs->hiz_sampled_view,
-                sampler(), hiz_imgs->hiz_mip_count});
         }
     }, std::move(uses));
 }
