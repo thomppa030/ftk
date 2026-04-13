@@ -18,6 +18,7 @@
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
+#include "renderer/pass/meshlet_cull_pass2.hpp"
 #include "renderer/pass/meshlet_instance_pass.hpp"
 #include "renderer/pass/meshlet_viz_pass.hpp"
 #include "renderer/pass/normal_pass.hpp"
@@ -133,8 +134,16 @@ bool create_meshlet_passes(PassRegistry& passes, GpuContext& gpu,
         return static_cast<bool>(ref.create(device, resources));
     };
 
-    return add("meshlet_instance", std::make_unique<MeshletInstancePass>())
-        && add("mesh_shader_depth", std::make_unique<MeshShaderDepthPass>())
+    if (!add("meshlet_instance", std::make_unique<MeshletInstancePass>()))
+        return false;
+
+    // Cull pass 2: retests rejected meshlets against freshly-built Hi-Z
+    auto pass2 = std::make_unique<MeshletCullPass2>();
+    pass2->set_instance_pass(&passes.get<MeshletInstancePass>("meshlet_instance"));
+    if (!add("meshlet_cull_pass2", std::move(pass2)))
+        return false;
+
+    return add("mesh_shader_depth", std::make_unique<MeshShaderDepthPass>())
         && add("meshlet_viz", std::make_unique<MeshletVizPass>())
         && add("cull", std::make_unique<CullPass>())
         && add("cull_viz", std::make_unique<CullVizPass>());

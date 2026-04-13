@@ -288,7 +288,7 @@ PassSetup DepthPrePass::setup() const {
     return {
         .name = "depth_prepass",
         .phase = RenderPhase::DepthPrepass,
-        .sub_order = 0,
+        .sub_order = 50,
         .reads = {},
         .writes = {{"depth", ImageUsage::depth_attachment}},
     };
@@ -309,8 +309,6 @@ void DepthPrePass::build(FrameGraph& graph, ResourceRegistry& registry,
 #endif
             FrameContext local = ctx;
             local.cmd = cb;
-            local.gpu_driven_indirect = VK_NULL_HANDLE;
-            local.gpu_driven_segment_size = 0;
             depth_pass.record(local);
         }, {{registry.image_id("msaa_depth"), ImageUsage::depth_attachment}}, 1);
 
@@ -343,8 +341,6 @@ void DepthPrePass::build(FrameGraph& graph, ResourceRegistry& registry,
 #endif
             FrameContext local = ctx;
             local.cmd = cb;
-            local.gpu_driven_indirect = VK_NULL_HANDLE;
-            local.gpu_driven_segment_size = 0;
             depth_pass.record(local);
         }, {{registry.image_id("depth"), ImageUsage::depth_attachment}}, 1);
     }

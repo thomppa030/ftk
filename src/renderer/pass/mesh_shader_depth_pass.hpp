@@ -26,6 +26,10 @@ private:
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
 
+    // GPU-driven depth: dispatches from cull-pass visible buffer
+    VkPipelineLayout gpu_driven_layout_{VK_NULL_HANDLE};
+    VkPipeline gpu_driven_pipeline_{VK_NULL_HANDLE};
+
     // Per-pipeline-id custom depth pipelines (for vertex displacement)
     std::unordered_map<uint32_t, VkPipeline> custom_depth_pipelines_;
 

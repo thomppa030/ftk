@@ -149,8 +149,8 @@ void VulkanContext::set_use_mesh_shaders(bool enable) {
         meshlet_passes_created_ = true;
 
         // Register new passes with the render pipeline
-        for (const auto& name : {"meshlet_instance", "mesh_shader_depth",
-                                  "meshlet_viz", "cull", "cull_viz"}) {
+        for (const auto& name : {"meshlet_instance", "meshlet_cull_pass2",
+                                  "mesh_shader_depth", "meshlet_viz", "cull", "cull_viz"}) {
             passes_.register_pass_with_pipeline(name, render_pipeline_, current_ctx_);
         }
 
@@ -275,13 +275,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Flush any pending bindless texture/material updates
     gpu_.bindless_textures().update_descriptors();
     gpu_.bindless_textures().update_material_buffer();
-    // Update meshlet descriptor (set 3) if mesh shaders are available
-    bool has_meshlet_passes = passes_.has("meshlet_instance");
-    if (has_meshlet_passes && gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
-        gpu_.meshlet_descriptor().update(*gpu_.meshlet_buffer(), *gpu_.mega_buffer(), current_frame_,
-                                    meshlet_instance_pass()->visible_buffer(current_frame_),
-                                    meshlet_instance_pass()->visible_buffer_size(current_frame_));
-    }
 
     // Update render subsystems (gather data, upload SSBOs)
     {
@@ -297,6 +290,30 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         for (auto& sys : render_subsystems_) sys->update(sub_ctx);
     }
 
+    // Per-frame pass setup (buffer resize, data upload, etc.)
+    // Must run before build_frame_context since ensure_capacity may
+    // reallocate buffers whose handles are captured into FrameContext.
+    {
+        // Build a minimal context for pre_record (only needs frame_index,
+        // indirect_batch, pp_resources, use_mesh_shaders, target)
+        FrameContext pre_ctx{};
+        pre_ctx.frame_index = current_frame_;
+        pre_ctx.indirect_batch = gatherer_.indirect_batch();
+        pre_ctx.use_mesh_shaders = gpu_.use_mesh_shaders();
+        pre_ctx.pp_resources = pp;
+        pre_ctx.target = &target;
+        passes_.pre_record_all(pre_ctx, gpu_);
+    }
+
+    // Update meshlet descriptor (set 3) — must be after pre_record (ensure_capacity)
+    // so buffer handles are stable.
+    bool has_meshlet_passes = passes_.has("meshlet_instance");
+    if (has_meshlet_passes && gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
+        gpu_.meshlet_descriptor().update(*gpu_.meshlet_buffer(), *gpu_.mega_buffer(), current_frame_,
+                                    meshlet_instance_pass()->visible_buffer(current_frame_),
+                                    meshlet_instance_pass()->visible_buffer_size(current_frame_));
+    }
+
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
                                         pp, skip_shadows, flip_tonemap_y);
 
@@ -309,9 +326,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         target.mark_screen_color_initialized();
     }
-
-    // Per-frame pass setup (buffer resize, data upload, etc.)
-    passes_.pre_record_all(current_ctx_, gpu_);
 
     // Populate resource registry — passes self-register their outputs,
     // then non-pass resources (meshlet bounds) are added manually.

@@ -134,15 +134,18 @@ void MeshletInstancePass::create(VkDevice device, VmaAllocator allocator,
         cull_set_layout_ = std::make_unique<DescriptorSetLayout>(
             device_, std::span{bindings}, &flags_ci);
 
+        // 2x sets: separate sets for pass 1 and pass 2 per frame
+        constexpr uint32_t SETS_PER_FRAME = 2;
         std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9 * MAX_FRAMES_IN_FLIGHT};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES_IN_FLIGHT};
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 9 * MAX_FRAMES_IN_FLIGHT * SETS_PER_FRAME};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_FRAMES_IN_FLIGHT * SETS_PER_FRAME};
 
         cull_pool_ = std::make_unique<DescriptorPool>(
-            device_, std::span{pool_sizes}, MAX_FRAMES_IN_FLIGHT);
+            device_, std::span{pool_sizes}, MAX_FRAMES_IN_FLIGHT * SETS_PER_FRAME);
 
         for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             cull_sets_[i] = cull_pool_->allocate(*cull_set_layout_);
+            cull_sets_pass2_[i] = cull_pool_->allocate(*cull_set_layout_);
         }
     }
 
@@ -465,11 +468,15 @@ void MeshletInstancePass::dispatch_cull_internal(VkCommandBuffer cmd,
                         culled_buffers_[frame_index]->size()};
     buffer_infos[9] = {culled_counters_[frame_index]->handle(), 0, sizeof(uint32_t)};
 
+    VkDescriptorSet active_set = is_second_pass == 0
+        ? cull_sets_[frame_index]
+        : cull_sets_pass2_[frame_index];
+
     std::array<VkWriteDescriptorSet, 10> writes{};
     for (uint32_t i = 0; i < 10; ++i) {
         if (i == 7) continue; // image binding, handled separately
         writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[i].dstSet = cull_sets_[frame_index];
+        writes[i].dstSet = active_set;
         writes[i].dstBinding = i;
         writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[i].descriptorCount = 1;
@@ -484,7 +491,7 @@ void MeshletInstancePass::dispatch_cull_internal(VkCommandBuffer cmd,
         hiz_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         writes[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[7].dstSet = cull_sets_[frame_index];
+        writes[7].dstSet = active_set;
         writes[7].dstBinding = 7;
         writes[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         writes[7].descriptorCount = 1;
@@ -508,7 +515,7 @@ void MeshletInstancePass::dispatch_cull_internal(VkCommandBuffer cmd,
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_pipeline_);
 
-    std::array desc_sets = {global_set, cull_sets_[frame_index]};
+    std::array desc_sets = {global_set, active_set};
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_layout_,
                             0, static_cast<uint32_t>(desc_sets.size()),
                             desc_sets.data(), 0, nullptr);
@@ -541,7 +548,7 @@ void MeshletInstancePass::insert_cull_barrier(VkCommandBuffer cmd) {
 PassSetup MeshletInstancePass::setup() const {
     return {
         .name = "meshlet_cull",
-        .phase = RenderPhase::GpuDriven,
+        .phase = RenderPhase::DepthPrepass,
         .sub_order = 0,
         .reads = {},
         .writes = {},
@@ -570,9 +577,6 @@ void MeshletInstancePass::build(FrameGraph& graph, ResourceRegistry& registry,
         auto& ranges_ref = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
         auto extent = ctx.target->extent();
 
-        auto* hiz_imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
-        bool hiz_ready = hiz_imgs && hiz_imgs->ready();
-
         // Look up meshlet bounds buffer from registry
         VkBuffer bounds_buf = VK_NULL_HANDLE;
         VkDeviceSize bounds_size = 0;
@@ -580,6 +584,9 @@ void MeshletInstancePass::build(FrameGraph& graph, ResourceRegistry& registry,
             bounds_buf = bounds->buffer;
             bounds_size = bounds->size;
         }
+
+        auto* hiz_imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
+        bool hiz_ready = hiz_imgs && hiz_imgs->ready();
 
         // Get Hi-Z sampler from HizPass via pass registry
         VkSampler hiz_sampler = VK_NULL_HANDLE;

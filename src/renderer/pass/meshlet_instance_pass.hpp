@@ -101,12 +101,14 @@ private:
     std::unique_ptr<DescriptorPool> expand_pool_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> expand_sets_{};
 
-    // Cull pass
+    // Cull pass (separate descriptor sets for pass 1 and pass 2 to avoid
+    // binding conflicts when pass 2 reads from pass 1's output buffer)
     VkPipelineLayout cull_layout_{VK_NULL_HANDLE};
     VkPipeline cull_pipeline_{VK_NULL_HANDLE};
     std::unique_ptr<DescriptorSetLayout> cull_set_layout_;
     std::unique_ptr<DescriptorPool> cull_pool_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> cull_sets_{};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> cull_sets_pass2_{};
 
     void dispatch_cull_internal(VkCommandBuffer cmd, VkDescriptorSet global_set,
                                 VkBuffer draw_data_buffer, VkDeviceSize draw_data_size,

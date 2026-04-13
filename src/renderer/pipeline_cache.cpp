@@ -148,6 +148,7 @@ void PipelineCache::create_layout() {
             throw std::runtime_error("Failed to create outline pipeline layout");
         }
     }
+
 }
 
 uint32_t PipelineCache::register_shader(const std::string& fjsl_path) {

@@ -135,6 +135,53 @@ Result<> MeshShaderDepthPass::create(Device& device, const PassResources& resour
     vkDestroyShaderModule(device_, task_module, nullptr);
     vkDestroyShaderModule(device_, mesh_module, nullptr);
 
+    // GPU-driven depth pipeline: same state as above but uses the GPU-driven
+    // task/mesh shaders that read from the cull-pass visible instances buffer.
+    {
+        auto gpu_task_code = read_spirv(base_path::resolve("shaders/mesh_gpu_driven.task.spv"));
+        auto gpu_mesh_code = read_spirv(base_path::resolve("shaders/depth_gpu_driven.mesh.spv"));
+
+        auto gpu_task_mod = create_shader_module(device_, gpu_task_code);
+        auto gpu_mesh_mod = create_shader_module(device_, gpu_mesh_code);
+
+        stages[0].module = gpu_task_mod;
+        stages[1].module = gpu_mesh_mod;
+        // stages[2] still has frag_module (depth_only.frag)
+
+        // Layout: same sets, but push constant only in task stage
+        VkPushConstantRange gpu_push{};
+        gpu_push.stageFlags = VK_SHADER_STAGE_TASK_BIT_EXT;
+        gpu_push.offset = 0;
+        gpu_push.size = sizeof(uint32_t);
+
+        VkPipelineLayoutCreateInfo gpu_layout_info{};
+        gpu_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        gpu_layout_info.setLayoutCount = static_cast<uint32_t>(set_layouts.size());
+        gpu_layout_info.pSetLayouts = set_layouts.data();
+        gpu_layout_info.pushConstantRangeCount = 1;
+        gpu_layout_info.pPushConstantRanges = &gpu_push;
+
+        if (vkCreatePipelineLayout(device_, &gpu_layout_info, nullptr, &gpu_driven_layout_) != VK_SUCCESS) {
+            vkDestroyShaderModule(device_, gpu_task_mod, nullptr);
+            vkDestroyShaderModule(device_, gpu_mesh_mod, nullptr);
+            vkDestroyShaderModule(device_, frag_module, nullptr);
+            return make_error("Failed to create GPU-driven depth pipeline layout");
+        }
+
+        pipeline_info.layout = gpu_driven_layout_;
+
+        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &pipeline_info,
+                                       nullptr, &gpu_driven_pipeline_) != VK_SUCCESS) {
+            vkDestroyShaderModule(device_, gpu_task_mod, nullptr);
+            vkDestroyShaderModule(device_, gpu_mesh_mod, nullptr);
+            vkDestroyShaderModule(device_, frag_module, nullptr);
+            return make_error("Failed to create GPU-driven depth pipeline");
+        }
+
+        vkDestroyShaderModule(device_, gpu_task_mod, nullptr);
+        vkDestroyShaderModule(device_, gpu_mesh_mod, nullptr);
+    }
+
     // Skinned depth pipeline (vertex shader fallback for skeletal meshes)
     auto skinned_vert_code = read_spirv(base_path::resolve("shaders/skinned_depth.vert.spv"));
     auto skinned_vert_module = create_shader_module(device_, skinned_vert_code);
@@ -283,6 +330,14 @@ void MeshShaderDepthPass::destroy() {
         vkDestroyPipeline(device_, pipeline_, nullptr);
         pipeline_ = VK_NULL_HANDLE;
     }
+    if (gpu_driven_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device_, gpu_driven_pipeline_, nullptr);
+        gpu_driven_pipeline_ = VK_NULL_HANDLE;
+    }
+    if (gpu_driven_layout_ != VK_NULL_HANDLE) {
+        vkDestroyPipelineLayout(device_, gpu_driven_layout_, nullptr);
+        gpu_driven_layout_ = VK_NULL_HANDLE;
+    }
     if (skinned_pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(device_, skinned_pipeline_, nullptr);
         skinned_pipeline_ = VK_NULL_HANDLE;
@@ -336,36 +391,72 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
                             0, static_cast<uint32_t>(descriptor_sets.size()),
                             descriptor_sets.data(), 0, nullptr);
 
-    // Indirect count dispatch: one task workgroup per draw, GPU reads command buffer
-    if (ctx.indirect_batch && draw_mesh_tasks_indirect_count_) {
-        VkPipeline bound_pipeline = pipeline_;
+    if (ctx.indirect_batch) {
         const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-        for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
-            // Bind custom depth pipeline if this shader has vertex displacement
-            auto cit = custom_depth_pipelines_.find(ranges[r].pipeline_id);
-            VkPipeline needed = (cit != custom_depth_pipelines_.end()) ? cit->second : pipeline_;
-            if (needed != bound_pipeline) {
-                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, needed);
-                bound_pipeline = needed;
+        bool has_gpu_driven = ctx.gpu_driven_indirect != VK_NULL_HANDLE &&
+                              gpu_driven_pipeline_ != VK_NULL_HANDLE &&
+                              ctx.draw_mesh_tasks_indirect_fn;
+
+        // GPU-driven depth: dispatch standard bins from cull-pass visible buffer
+        if (has_gpu_driven) {
+            vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gpu_driven_pipeline_);
+            vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gpu_driven_layout_,
+                                    0, static_cast<uint32_t>(descriptor_sets.size()),
+                                    descriptor_sets.data(), 0, nullptr);
+
+            uint32_t seg_size = ctx.gpu_driven_segment_size;
+            for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
+                // Skip bins with custom vertex displacement — handled below
+                if (custom_depth_pipelines_.contains(ranges[bin].pipeline_id)) continue;
+
+                uint32_t bin_offset = bin * seg_size;
+                vkCmdPushConstants(ctx.cmd, gpu_driven_layout_,
+                                  VK_SHADER_STAGE_TASK_BIT_EXT,
+                                  0, sizeof(uint32_t), &bin_offset);
+
+                VkDeviceSize cmd_offset = bin * sizeof(VkDrawMeshTasksIndirectCommandEXT);
+                ctx.draw_mesh_tasks_indirect_fn(
+                    ctx.cmd, ctx.gpu_driven_indirect, cmd_offset, 1,
+                    sizeof(VkDrawMeshTasksIndirectCommandEXT));
             }
+        }
 
-            uint32_t first_draw = ranges[r].first_draw;
-            vkCmdPushConstants(ctx.cmd, layout_,
-                               VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
-                               0, sizeof(uint32_t), &first_draw);
+        // CPU-driven: all bins when no GPU-driven, or only custom bins as fallback
+        if (draw_mesh_tasks_indirect_count_) {
+            VkPipeline bound_pipeline = VK_NULL_HANDLE;
+            for (uint32_t r = 0; r < static_cast<uint32_t>(ranges.size()); ++r) {
+                // In GPU-driven mode, only render bins with custom vertex displacement
+                if (has_gpu_driven && !custom_depth_pipelines_.contains(ranges[r].pipeline_id))
+                    continue;
 
-            VkDeviceSize cmd_offset = first_draw *
-                                      sizeof(VkDrawMeshTasksIndirectCommandEXT);
-            VkDeviceSize count_offset = r * sizeof(uint32_t);
+                auto cit = custom_depth_pipelines_.find(ranges[r].pipeline_id);
+                VkPipeline needed = (cit != custom_depth_pipelines_.end()) ? cit->second : pipeline_;
+                if (needed != bound_pipeline) {
+                    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, needed);
+                    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
+                                            0, static_cast<uint32_t>(descriptor_sets.size()),
+                                            descriptor_sets.data(), 0, nullptr);
+                    bound_pipeline = needed;
+                }
 
-            draw_mesh_tasks_indirect_count_(
-                ctx.cmd,
-                ctx.indirect_batch->mesh_indirect_buffer(ctx.frame_index),
-                cmd_offset,
-                ctx.indirect_batch->mesh_count_buffer(ctx.frame_index),
-                count_offset,
-                ranges[r].draw_count,
-                sizeof(VkDrawMeshTasksIndirectCommandEXT));
+                uint32_t first_draw = ranges[r].first_draw;
+                vkCmdPushConstants(ctx.cmd, layout_,
+                                   VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT,
+                                   0, sizeof(uint32_t), &first_draw);
+
+                VkDeviceSize cmd_offset = first_draw *
+                                          sizeof(VkDrawMeshTasksIndirectCommandEXT);
+                VkDeviceSize count_offset = r * sizeof(uint32_t);
+
+                draw_mesh_tasks_indirect_count_(
+                    ctx.cmd,
+                    ctx.indirect_batch->mesh_indirect_buffer(ctx.frame_index),
+                    cmd_offset,
+                    ctx.indirect_batch->mesh_count_buffer(ctx.frame_index),
+                    count_offset,
+                    ranges[r].draw_count,
+                    sizeof(VkDrawMeshTasksIndirectCommandEXT));
+            }
         }
     }
 
