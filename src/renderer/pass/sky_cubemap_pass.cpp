@@ -8,6 +8,7 @@
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
+#include "scene/light_node.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -126,6 +127,17 @@ void SkyCubemapPass::destroy() {
     destroy_vma_image(allocator_, cubemap_image_, cubemap_memory_);
 
     device_ = VK_NULL_HANDLE;
+}
+
+void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    if (!ctx.scene) return;
+
+    for (const auto& obj : ctx.scene->objects()) {
+        if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
+            set_colors(env->sky_top_color, env->sky_bottom_color);
+            break;
+        }
+    }
 }
 
 void SkyCubemapPass::set_colors(const glm::vec3& top, const glm::vec3& bottom) {

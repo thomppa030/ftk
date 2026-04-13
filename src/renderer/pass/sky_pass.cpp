@@ -2,11 +2,24 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
+#include "scene/light_node.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <array>
 namespace fjell {
+
+void SkyPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    if (!ctx.scene) return;
+
+    for (const auto& obj : ctx.scene->objects()) {
+        if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
+            top_color_ = env->sky_top_color;
+            bottom_color_ = env->sky_bottom_color;
+            break;
+        }
+    }
+}
 
 Result<> SkyPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();

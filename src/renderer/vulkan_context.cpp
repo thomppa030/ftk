@@ -454,50 +454,24 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         pending_sdf_instances_.clear();
     }
 
-    // Update shadow cascades from the first viewport's camera
-    // Use scene-node light if available, matching update_uniform_buffer behavior
-    DirectionalLight shadow_light = light;
-    if (scene) {
-        for (const auto& obj : scene->objects()) {
-            if (auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
-                shadow_light.direction = dl->direction;
-                shadow_light.color = dl->color;
-                shadow_light.intensity = dl->intensity;
-                break;
-            }
+    // Once-per-frame pass preparation: each pass scans the scene for the
+    // nodes it needs (shadow cascades, fog params, sky colors, etc.)
+    {
+        FrameContext prep_ctx{};
+        prep_ctx.scene = scene;
+        prep_ctx.frame_index = current_frame_;
+        if (!viewports.empty() && viewports[0].target) {
+            prep_ctx.view = viewports[0].view;
+            prep_ctx.projection = viewports[0].projection;
+            prep_ctx.camera_position = viewports[0].camera_position;
         }
-    }
-    if (!viewports.empty() && viewports[0].target) {
-        shadow_pass().update(viewports[0].view, viewports[0].projection,
-                            shadow_light, 0.1f, 1000.0f);
+        passes_.prepare_frame_all(prep_ctx, gpu_);
     }
 
-    // Scan for volumetric fog node once per frame (before viewports)
-    volumetric_fog_pass().enabled_ = false;
+    // IBL intensity from world environment (consumed by update_uniform_buffer)
     if (scene) {
         for (const auto& obj : scene->objects()) {
-            if (auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
-                volumetric_fog_pass().enabled_ = true;
-                volumetric_fog_pass().density_ = fog->density;
-                volumetric_fog_pass().height_ = glm::vec3(fog->world_matrix_[3]).y;
-                volumetric_fog_pass().height_falloff_ = fog->height_falloff;
-                volumetric_fog_pass().scattering_ = fog->scattering;
-                volumetric_fog_pass().anisotropy_ = fog->anisotropy;
-                volumetric_fog_pass().max_distance_ = fog->max_distance;
-                volumetric_fog_pass().temporal_blend_ = fog->temporal_blend;
-                volumetric_fog_pass().fog_color_ = fog->fog_color;
-                break;
-            }
-        }
-    }
-
-    // Scan for world environment node once per frame
-    if (scene) {
-        for (const auto& obj : scene->objects()) {
-            if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
-                sky_pass().set_top_color(env->sky_top_color);
-                sky_pass().set_bottom_color(env->sky_bottom_color);
-                sky_cubemap_pass().set_colors(env->sky_top_color, env->sky_bottom_color);
+            if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
                 ibl_intensity_ = env->ibl_intensity;
                 break;
             }

@@ -5,6 +5,7 @@
 #include "renderer/resource_registry.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
+#include "scene/light_node.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -776,6 +777,26 @@ void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
     // Flip ping-pong for next frame
     imgs.ping_pong = prev;
     ++imgs.frame_counter;
+}
+
+void VolumetricFogPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    enabled_ = false;
+    if (!ctx.scene) return;
+
+    for (const auto& obj : ctx.scene->objects()) {
+        if (const auto* fog = dynamic_cast<const VolumetricFogNode*>(obj.get())) {
+            enabled_ = true;
+            density_ = fog->density;
+            height_ = glm::vec3(fog->world_matrix_[3]).y;
+            height_falloff_ = fog->height_falloff;
+            scattering_ = fog->scattering;
+            anisotropy_ = fog->anisotropy;
+            max_distance_ = fog->max_distance;
+            temporal_blend_ = fog->temporal_blend;
+            fog_color_ = fog->fog_color;
+            break;
+        }
+    }
 }
 
 PassSetup VolumetricFogPass::setup() const {

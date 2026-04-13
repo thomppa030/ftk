@@ -65,6 +65,13 @@ public:
         }
     }
 
+    /// Run prepare_frame() on all passes (once per frame, before any viewport).
+    void prepare_frame_all(const FrameContext& ctx, GpuContext& gpu) {
+        for (const auto& name : order_) {
+            passes_[name]->prepare_frame(ctx, gpu);
+        }
+    }
+
     /// Run pre_record() on all passes in insertion order.
     void pre_record_all(const FrameContext& ctx, GpuContext& gpu) {
         for (const auto& name : order_) {

@@ -14,7 +14,6 @@
 
 namespace fjell {
 
-struct DirectionalLight;
 class Camera;
 
 class ShadowPass : public RenderPass {
@@ -30,11 +29,7 @@ public:
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
-
-    // Compute cascade splits and light-space matrices for this frame.
-    // Call before record().
-    void update(const glm::mat4& view, const glm::mat4& projection,
-                const DirectionalLight& light, float near, float far);
+    void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     /// Create a custom shadow pipeline for a specific shader pipeline ID
     /// using a custom vertex shader SPV.
@@ -51,6 +46,9 @@ public:
     }
 
 private:
+    // Compute cascade splits and light-space matrices for this frame.
+    void update_cascades(const glm::mat4& view, const glm::mat4& projection,
+                         const glm::vec3& light_direction, float near, float far);
     void create_images();
     void destroy_images();
 

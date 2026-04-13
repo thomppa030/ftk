@@ -15,9 +15,8 @@ public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
+    void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
-    void set_top_color(const glm::vec3& c) { top_color_ = c; }
-    void set_bottom_color(const glm::vec3& c) { bottom_color_ = c; }
     [[nodiscard]] const glm::vec3& top_color() const { return top_color_; }
     [[nodiscard]] const glm::vec3& bottom_color() const { return bottom_color_; }
 

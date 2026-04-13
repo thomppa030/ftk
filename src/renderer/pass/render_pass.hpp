@@ -55,6 +55,8 @@ struct FrameContext {
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};
     VkDescriptorSet bindless_set{VK_NULL_HANDLE};
     VkDescriptorSet draw_data_set{VK_NULL_HANDLE};
+    glm::mat4 view{1.0f};
+    glm::mat4 projection{1.0f};
     glm::vec3 camera_position{0.0f};
     DebugDraw* debug_draw{nullptr};
     const Scene* scene{nullptr};
@@ -171,14 +173,22 @@ public:
         (void)gpu; (void)passes;
     }
 
+    /// Once-per-frame hook called before any viewport is rendered.
+    /// Passes that need scene-driven state (environment nodes, light
+    /// direction, fog params) override this to scan the scene graph
+    /// and configure themselves. Runs before gather(), so shadow
+    /// cascade matrices are available for frustum culling.
+    virtual void prepare_frame(const FrameContext& /*ctx*/, GpuContext& /*gpu*/) {}
+
     /// Register persistent resources (images, buffers) into the registry.
     /// Called each frame after registry clear, before pipeline execution.
     /// Override in passes that produce resources consumed by other passes.
     virtual void register_resources(ResourceRegistry& /*registry*/) {}
 
-    /// Per-frame setup before pipeline execution. Passes pull what they
-    /// need from the context (resize buffers, upload data, build accel
-    /// structures). Called after FrameContext is built, before execute().
+    /// Per-viewport setup before pipeline execution. Passes pull what
+    /// they need from the context (resize buffers, upload data, build
+    /// accel structures). Called after FrameContext is built, before
+    /// execute().
     virtual void pre_record(const FrameContext& /*ctx*/, GpuContext& /*gpu*/) {}
 
     /// Per-frame cleanup after pipeline execution (e.g. copy history buffers).

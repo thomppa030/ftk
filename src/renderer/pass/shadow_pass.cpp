@@ -13,6 +13,7 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "renderer/resources/vertex.hpp"
+#include "scene/light_node.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -135,8 +136,23 @@ static glm::mat4 compute_light_matrix(const glm::mat4& inv_view_proj,
     return shadow_matrix;
 }
 
-void ShadowPass::update(const glm::mat4& view, const glm::mat4& projection,
-                         const DirectionalLight& light, float near, float far) {
+void ShadowPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    if (!ctx.scene) return;
+
+    // Find directional light direction from scene
+    glm::vec3 light_dir{-0.3f, -1.0f, -0.5f};
+    for (const auto& obj : ctx.scene->objects()) {
+        if (const auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
+            light_dir = dl->direction;
+            break;
+        }
+    }
+
+    update_cascades(ctx.view, ctx.projection, light_dir, 0.1f, 1000.0f);
+}
+
+void ShadowPass::update_cascades(const glm::mat4& view, const glm::mat4& projection,
+                                  const glm::vec3& light_direction, float near, float far) {
     cascade_splits_ = compute_cascade_splits(near, far);
 
     glm::mat4 inv_vp = glm::inverse(projection * view);
@@ -145,7 +161,7 @@ void ShadowPass::update(const glm::mat4& view, const glm::mat4& projection,
     for (uint32_t i = 0; i < CASCADE_COUNT; ++i) {
         float split = cascade_splits_[i] / far; // normalize to [0,1]
         light_matrices_[i] = compute_light_matrix(
-            inv_vp, prev_split, split, light.direction);
+            inv_vp, prev_split, split, light_direction);
         prev_split = split;
     }
 }

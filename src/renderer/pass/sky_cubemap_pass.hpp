@@ -22,6 +22,7 @@ public:
                const FrameContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void register_resources(ResourceRegistry& registry) override;
+    void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     // Legacy create — forwards to standard create (needs command pool + queue)
     void create(VkDevice device, VmaAllocator allocator,
