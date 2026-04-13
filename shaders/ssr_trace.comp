@@ -215,12 +215,7 @@ void main() {
     }
 
     if (!hit) {
-        // Fallback: sample sky cubemap along reflection direction
-        mat3 inv_view_rot = transpose(mat3(ubo.view));
-        vec3 world_reflect = inv_view_rot * reflect_dir;
-        vec3 env_color = textureLod(sky_cubemap, world_reflect, 4.0).rgb;
-        float facing = 1.0 - max(dot(view_dir, reflect_dir), 0.0);
-        imageStore(ssr_output, coord, vec4(env_color, 0.3 * facing));
+        imageStore(ssr_output, coord, vec4(0.0));
         return;
     }
 
