@@ -437,11 +437,12 @@ void Scene::compute_world_matrices(ThreadPool* pool) {
 
     auto n = objects_.size();
 
-    // Detect dirty transforms — skip non-spatial nodes (folders)
+    // Snapshot previous world matrices for motion vectors, then detect dirty transforms
     auto detect_dirty = [&](uint32_t /*chunk*/, uint32_t begin, uint32_t end) {
         for (uint32_t i = begin; i < end; ++i) {
             auto* spatial = objects_[i]->as_spatial();
             if (!spatial) continue;
+            spatial->prev_world_matrix_ = spatial->world_matrix_;
             if (spatial->transform_dirty_ ||
                 spatial->transform.position != spatial->prev_transform_.position ||
                 spatial->transform.rotation != spatial->prev_transform_.rotation ||

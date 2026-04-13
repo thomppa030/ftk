@@ -85,6 +85,12 @@ void OffscreenPass::cleanup_images() {
     if (resolve_normal_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, resolve_normal_view_, nullptr);
     destroy_vma_image(allocator_, resolve_normal_image_, resolve_normal_allocation_);
 
+    if (velocity_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, velocity_view_, nullptr);
+    destroy_vma_image(allocator_, velocity_image_, velocity_allocation_);
+
+    if (resolve_velocity_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, resolve_velocity_view_, nullptr);
+    destroy_vma_image(allocator_, resolve_velocity_image_, resolve_velocity_allocation_);
+
     if (screen_color_view_ != VK_NULL_HANDLE) vkDestroyImageView(vk, screen_color_view_, nullptr);
     destroy_vma_image(allocator_, screen_color_image_, screen_color_allocation_);
 
@@ -115,6 +121,12 @@ void OffscreenPass::cleanup_images() {
     resolve_normal_view_ = VK_NULL_HANDLE;
     resolve_normal_image_ = VK_NULL_HANDLE;
     resolve_normal_allocation_ = VK_NULL_HANDLE;
+    velocity_view_ = VK_NULL_HANDLE;
+    velocity_image_ = VK_NULL_HANDLE;
+    velocity_allocation_ = VK_NULL_HANDLE;
+    resolve_velocity_view_ = VK_NULL_HANDLE;
+    resolve_velocity_image_ = VK_NULL_HANDLE;
+    resolve_velocity_allocation_ = VK_NULL_HANDLE;
     screen_color_view_ = VK_NULL_HANDLE;
     screen_color_image_ = VK_NULL_HANDLE;
     screen_color_allocation_ = VK_NULL_HANDLE;
@@ -371,6 +383,66 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
 
         if (vkCreateImageView(vk, &resolve_normal_view_info, nullptr, &resolve_normal_view_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve normal view");
+        }
+    }
+
+    // -- Velocity buffer (screen-space motion vectors, MSAA when enabled) --
+    VkImageCreateInfo vel_info{};
+    vel_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    vel_info.imageType = VK_IMAGE_TYPE_2D;
+    vel_info.format = VELOCITY_FORMAT;
+    vel_info.extent = {width, height, 1};
+    vel_info.mipLevels = 1;
+    vel_info.arrayLayers = 1;
+    vel_info.samples = msaa_samples_;
+    vel_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    vel_info.usage = msaa
+        ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+        : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    vel_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    if (create_vma_image(allocator_, &vel_info, &velocity_image_, &velocity_allocation_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create velocity image");
+    }
+
+    VkImageViewCreateInfo vel_view_info{};
+    vel_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    vel_view_info.image = velocity_image_;
+    vel_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vel_view_info.format = VELOCITY_FORMAT;
+    vel_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+    if (vkCreateImageView(vk, &vel_view_info, nullptr, &velocity_view_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create velocity view");
+    }
+
+    // -- Resolve velocity image (single-sample, only when MSAA) --
+    if (msaa) {
+        VkImageCreateInfo resolve_vel_info{};
+        resolve_vel_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        resolve_vel_info.imageType = VK_IMAGE_TYPE_2D;
+        resolve_vel_info.format = VELOCITY_FORMAT;
+        resolve_vel_info.extent = {width, height, 1};
+        resolve_vel_info.mipLevels = 1;
+        resolve_vel_info.arrayLayers = 1;
+        resolve_vel_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        resolve_vel_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        resolve_vel_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        resolve_vel_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        if (create_vma_image(allocator_, &resolve_vel_info, &resolve_velocity_image_, &resolve_velocity_allocation_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create resolve velocity image");
+        }
+
+        VkImageViewCreateInfo resolve_vel_view_info{};
+        resolve_vel_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        resolve_vel_view_info.image = resolve_velocity_image_;
+        resolve_vel_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        resolve_vel_view_info.format = VELOCITY_FORMAT;
+        resolve_vel_view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        if (vkCreateImageView(vk, &resolve_vel_view_info, nullptr, &resolve_velocity_view_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create resolve velocity view");
         }
     }
 

@@ -156,6 +156,12 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         msaa_normal_id = graph.register_image(target.msaa_normal_image());
     }
 
+    auto velocity_id = graph.register_image(target.velocity_image());
+    auto msaa_velocity_id = velocity_id;
+    if (has_msaa) {
+        msaa_velocity_id = graph.register_image(target.msaa_velocity_image());
+    }
+
     auto screen_color_id = graph.register_image(target.screen_color_image());
     auto distortion_id = graph.register_image(target.distortion_image());
 
@@ -170,6 +176,8 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     registry.register_image("msaa_mr", {msaa_mr_id, target.msaa_mr_view()});
     registry.register_image("normal", {normal_id, target.normal_view()});
     registry.register_image("msaa_normal", {msaa_normal_id, target.msaa_normal_view()});
+    registry.register_image("velocity", {velocity_id, target.velocity_view()});
+    registry.register_image("msaa_velocity", {msaa_velocity_id, target.msaa_velocity_view()});
     registry.register_image("screen_color", {screen_color_id, target.screen_color_view()});
     registry.register_image("distortion", {distortion_id, target.distortion_view()});
 

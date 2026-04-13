@@ -3,6 +3,7 @@
 
 struct DrawData {
     mat4 model;
+    mat4 prev_model;      // previous frame's world matrix (for motion vectors)
     uint material_id;
     uint meshlet_offset;
     uint meshlet_count;

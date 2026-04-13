@@ -367,7 +367,7 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    std::array<VkFormat, 3> color_formats = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT};
+    std::array<VkFormat, 4> color_formats = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
@@ -414,7 +414,11 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     opaque_normal_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
     opaque_normal_blend.blendEnable = VK_FALSE;
 
-    std::array<VkPipelineColorBlendAttachmentState, 3> opaque_blend_attachments = {opaque_blend, opaque_mr_blend, opaque_normal_blend};
+    VkPipelineColorBlendAttachmentState opaque_velocity_blend{};
+    opaque_velocity_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+    opaque_velocity_blend.blendEnable = VK_FALSE;
+
+    std::array<VkPipelineColorBlendAttachmentState, 4> opaque_blend_attachments = {opaque_blend, opaque_mr_blend, opaque_normal_blend, opaque_velocity_blend};
 
     VkPipelineColorBlendStateCreateInfo opaque_blending{};
     opaque_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -484,7 +488,11 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     trans_normal_blend.colorWriteMask = 0;
     trans_normal_blend.blendEnable = VK_FALSE;
 
-    std::array<VkPipelineColorBlendAttachmentState, 3> trans_blend_attachments = {trans_blend, trans_mr_blend, trans_normal_blend};
+    VkPipelineColorBlendAttachmentState trans_velocity_blend{};
+    trans_velocity_blend.colorWriteMask = 0;
+    trans_velocity_blend.blendEnable = VK_FALSE;
+
+    std::array<VkPipelineColorBlendAttachmentState, 4> trans_blend_attachments = {trans_blend, trans_mr_blend, trans_normal_blend, trans_velocity_blend};
 
     VkPipelineColorBlendStateCreateInfo trans_blending{};
     trans_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -648,7 +656,11 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
         outline_normal.colorWriteMask = 0;
         outline_normal.blendEnable = VK_FALSE;
 
-        std::array outline_blend_attachments = {outline_blend, outline_mr, outline_normal};
+        VkPipelineColorBlendAttachmentState outline_velocity{};
+        outline_velocity.colorWriteMask = 0;
+        outline_velocity.blendEnable = VK_FALSE;
+
+        std::array outline_blend_attachments = {outline_blend, outline_mr, outline_normal, outline_velocity};
 
         VkPipelineColorBlendStateCreateInfo outline_blending{};
         outline_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;

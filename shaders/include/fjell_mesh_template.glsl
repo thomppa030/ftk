@@ -117,6 +117,8 @@ layout(location = 4) out vec3 frag_TBN_T[];
 layout(location = 5) out vec3 frag_TBN_B[];
 layout(location = 6) out vec3 frag_TBN_N[];
 layout(location = 7) flat out uint frag_draw_index[];
+layout(location = 8) out vec4 frag_clip_pos[];
+layout(location = 9) out vec4 frag_prev_clip_pos[];
 
 void main() {
     uint meshlet_idx = payload.meshlet_index;
@@ -124,6 +126,7 @@ void main() {
 
     DrawData dd = draws[payload.draw_index];
     mat4 model = dd.model;
+    mat4 prev_model = dd.prev_model;
     uint material_id = dd.material_id;
     GpuMaterial mat = materials[material_id];
     mat3 normal_matrix = transpose(inverse(mat3(model)));
@@ -151,7 +154,12 @@ void main() {
         }
 
         vec4 world_pos = model * vec4(VERTEX, 1.0);
-        gl_MeshVerticesEXT[tid].gl_Position = ubo.projection * ubo.view * world_pos;
+        vec4 clip_pos = ubo.projection * ubo.view * world_pos;
+        gl_MeshVerticesEXT[tid].gl_Position = clip_pos;
+
+        frag_clip_pos[tid] = clip_pos;
+        vec4 prev_world_pos = prev_model * vec4(VERTEX, 1.0);
+        frag_prev_clip_pos[tid] = ubo.prev_view_proj * prev_world_pos;
 
         frag_color[tid] = fetch_color(global_vertex);
         frag_tex_coord[tid] = UV;

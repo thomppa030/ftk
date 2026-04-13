@@ -44,6 +44,8 @@ PassSetup OpaquePass::setup() const {
                    {"mr", ImageUsage::color_attachment},
                    {"msaa_normal", ImageUsage::color_attachment},
                    {"normal", ImageUsage::color_attachment},
+                   {"msaa_velocity", ImageUsage::color_attachment},
+                   {"velocity", ImageUsage::color_attachment},
                    {"msaa_depth", ImageUsage::depth_attachment},
                    {"depth", ImageUsage::depth_attachment}},
     };
@@ -63,6 +65,8 @@ void OpaquePass::build(FrameGraph& graph, ResourceRegistry& registry,
     add_use("mr", ImageUsage::color_attachment);
     add_use("msaa_normal", ImageUsage::color_attachment);
     add_use("normal", ImageUsage::color_attachment);
+    add_use("msaa_velocity", ImageUsage::color_attachment);
+    add_use("velocity", ImageUsage::color_attachment);
     add_use("msaa_depth", ImageUsage::depth_attachment);
     add_use("depth", ImageUsage::depth_attachment);
 
@@ -122,8 +126,22 @@ void OpaquePass::record(const FrameContext& ctx) {
         normal_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
     }
 
-    std::array<VkRenderingAttachmentInfo, 3> color_attachments = {
-        color_attachment, mr_attachment, normal_attachment};
+    VkRenderingAttachmentInfo velocity_attachment{};
+    velocity_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    velocity_attachment.imageView = target->msaa_velocity_view();
+    velocity_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    velocity_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    velocity_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    velocity_attachment.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+
+    if (msaa) {
+        velocity_attachment.resolveImageView = target->velocity_view();
+        velocity_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        velocity_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+    }
+
+    std::array<VkRenderingAttachmentInfo, 4> color_attachments = {
+        color_attachment, mr_attachment, normal_attachment, velocity_attachment};
 
     VkRenderingAttachmentInfo depth_attachment{};
     depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;

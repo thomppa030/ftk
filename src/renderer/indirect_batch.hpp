@@ -21,6 +21,7 @@ class Model;
 
 struct GpuDrawData {
     glm::mat4 model;
+    glm::mat4 prev_model;           // previous frame's world matrix (for motion vectors)
     uint32_t material_id;
     uint32_t meshlet_offset;
     uint32_t meshlet_count;
@@ -30,7 +31,7 @@ struct GpuDrawData {
     uint32_t pad_[2]{};
 };
 
-static_assert(sizeof(GpuDrawData) == 96, "GpuDrawData must be 96 bytes for std430");
+static_assert(sizeof(GpuDrawData) == 160, "GpuDrawData must be 160 bytes for std430");
 
 // A contiguous range of indirect draw commands sharing the same pipeline.
 struct PipelineDrawRange {

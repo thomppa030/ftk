@@ -18,6 +18,7 @@ struct RenderStats;
 struct DrawCommand {
     uint64_t sort_key{0};
     glm::mat4 world_matrix{1.0f};
+    glm::mat4 prev_world_matrix{1.0f}; // previous frame (for motion vectors)
     PbrPushConstants push{};
     Model* model{nullptr};
     SkeletalModel* skeletal_model{nullptr};

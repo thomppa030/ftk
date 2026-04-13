@@ -126,16 +126,20 @@ void TilemapRenderer::create(Device& device, const PassResources& resources) {
     VkPipelineColorBlendAttachmentState normal_blend{};
     normal_blend.colorWriteMask = 0;
     normal_blend.blendEnable = VK_FALSE;
-    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend};
+
+    VkPipelineColorBlendAttachmentState velocity_blend{};
+    velocity_blend.colorWriteMask = 0;
+    velocity_blend.blendEnable = VK_FALSE;
+    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend, velocity_blend};
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 3;
+    color_blending.attachmentCount = 4;
     color_blending.pAttachments = blend_attachments;
 
-    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT};
+    VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT};
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = 3;
+    rendering_info.colorAttachmentCount = 4;
     rendering_info.pColorAttachmentFormats = color_formats;
     rendering_info.depthAttachmentFormat = depth_format_;
 

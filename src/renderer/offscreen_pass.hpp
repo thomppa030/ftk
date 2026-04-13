@@ -49,6 +49,7 @@ public:
     static constexpr VkFormat COLOR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
     static constexpr VkFormat MR_FORMAT = VK_FORMAT_R8G8_UNORM;
     static constexpr VkFormat NORMAL_FORMAT = VK_FORMAT_R16G16_SFLOAT;
+    static constexpr VkFormat VELOCITY_FORMAT = VK_FORMAT_R16G16_SFLOAT;
     static constexpr VkFormat DISTORTION_FORMAT = VK_FORMAT_R16G16_SFLOAT;
 
     // Returns the single-sample metallic/roughness view (resolve target when MSAA, direct when 1x).
@@ -68,6 +69,15 @@ public:
 
     [[nodiscard]] VkImage normal_image() const { return resolve_normal_image_ ? resolve_normal_image_ : normal_image_; }
     [[nodiscard]] VkImage msaa_normal_image() const { return normal_image_; }
+
+    // Returns the single-sample velocity view (resolve target when MSAA, direct when 1x).
+    [[nodiscard]] VkImageView velocity_view() const { return resolve_velocity_view_ ? resolve_velocity_view_ : velocity_view_; }
+
+    // Returns the MSAA velocity view for rendering into (same as velocity_view when 1x).
+    [[nodiscard]] VkImageView msaa_velocity_view() const { return velocity_view_; }
+
+    [[nodiscard]] VkImage velocity_image() const { return resolve_velocity_image_ ? resolve_velocity_image_ : velocity_image_; }
+    [[nodiscard]] VkImage msaa_velocity_image() const { return velocity_image_; }
 
     // Screen color copy — snapshot of resolved color after opaques, before transparents.
     [[nodiscard]] VkImage screen_color_image() const { return screen_color_image_; }
@@ -129,6 +139,16 @@ private:
     VkImage resolve_normal_image_{VK_NULL_HANDLE};
     VmaAllocation resolve_normal_allocation_{VK_NULL_HANDLE};
     VkImageView resolve_normal_view_{VK_NULL_HANDLE};
+
+    // Velocity render target — screen-space motion vectors (MSAA when samples > 1)
+    VkImage velocity_image_{VK_NULL_HANDLE};
+    VmaAllocation velocity_allocation_{VK_NULL_HANDLE};
+    VkImageView velocity_view_{VK_NULL_HANDLE};
+
+    // Velocity resolve target (single-sample, only created when MSAA)
+    VkImage resolve_velocity_image_{VK_NULL_HANDLE};
+    VmaAllocation resolve_velocity_allocation_{VK_NULL_HANDLE};
+    VkImageView resolve_velocity_view_{VK_NULL_HANDLE};
 
     // Screen color copy (single-sample, for SCREEN_TEXTURE in transparent shaders)
     VkImage screen_color_image_{VK_NULL_HANDLE};

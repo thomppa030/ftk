@@ -85,10 +85,13 @@ layout(location = 2) in vec3 frag_world_pos;
 layout(location = 3) in vec3 frag_world_normal;
 layout(location = 4) in mat3 frag_TBN;
 layout(location = 7) flat in uint frag_draw_index;
+layout(location = 8) in vec4 frag_clip_pos;
+layout(location = 9) in vec4 frag_prev_clip_pos;
 
 layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec2 out_metallic_roughness;
 layout(location = 2) out vec2 out_normal;
+layout(location = 3) out vec2 out_velocity;
 
 #include "fjell_pbr.glsl"
 #include "fjell_shadow.glsl"
@@ -182,6 +185,9 @@ void main() {
         out_color = vec4(ALBEDO, ALPHA);
         out_metallic_roughness = vec2(0.0);
         out_normal = vec2(0.0);
+        vec2 cn = frag_clip_pos.xy / frag_clip_pos.w;
+        vec2 pn = frag_prev_clip_pos.xy / frag_prev_clip_pos.w;
+        out_velocity = (cn - pn) * 0.5;
         return;
     }
 
@@ -247,4 +253,9 @@ void main() {
     out_color = vec4(color, ALPHA);
     out_metallic_roughness = vec2(METALLIC, ROUGHNESS);
     out_normal = oct_encode(N);
+
+    // Screen-space velocity (current NDC - previous NDC, in UV space)
+    vec2 cur_ndc = frag_clip_pos.xy / frag_clip_pos.w;
+    vec2 prev_ndc = frag_prev_clip_pos.xy / frag_prev_clip_pos.w;
+    out_velocity = (cur_ndc - prev_ndc) * 0.5;
 }

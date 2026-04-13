@@ -50,12 +50,15 @@ layout(location = 2) out vec3 frag_world_pos;
 layout(location = 3) out vec3 frag_world_normal;
 layout(location = 4) out mat3 frag_TBN;
 layout(location = 7) flat out uint frag_draw_index;
+layout(location = 8) out vec4 frag_clip_pos;
+layout(location = 9) out vec4 frag_prev_clip_pos;
 
 invariant gl_Position;
 
 void main() {
     uint draw_index = gl_BaseInstance;
     mat4 model = draws[draw_index].model;
+    mat4 prev_model = draws[draw_index].prev_model;
     uint material_id = draws[draw_index].material_id;
     GpuMaterial mat = materials[material_id];
 
@@ -73,6 +76,10 @@ void main() {
 
     vec4 world_pos = model * vec4(VERTEX, 1.0);
     gl_Position = ubo.projection * ubo.view * world_pos;
+
+    frag_clip_pos = gl_Position;
+    vec4 prev_world_pos = prev_model * vec4(VERTEX, 1.0);
+    frag_prev_clip_pos = ubo.prev_view_proj * prev_world_pos;
 
     frag_color = in_color;
     frag_tex_coord = UV;

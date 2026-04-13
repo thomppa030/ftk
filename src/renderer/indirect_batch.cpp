@@ -182,6 +182,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
 
             GpuDrawData& data = draw_data[draw_index];
             data.model = dc.push.model;
+            data.prev_model = dc.prev_world_matrix;
             data.material_id = dc.push.material_id;
             data.meshlet_offset = entry.meshlet_offset;
             data.meshlet_count = entry.meshlet_count;
@@ -224,6 +225,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         if (!dc.skinned) continue;
         GpuDrawData& data = draw_data[draw_index];
         data.model = dc.push.model;
+        data.prev_model = dc.prev_world_matrix;
         data.material_id = dc.push.material_id;
         data.meshlet_offset = 0;
         data.meshlet_count = 0;
@@ -249,6 +251,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     for (const auto& dc : transparent_commands) {
         GpuDrawData& data = draw_data[draw_index];
         data.model = dc.push.model;
+        data.prev_model = dc.prev_world_matrix;
         data.material_id = dc.push.material_id;
         data.meshlet_offset = 0;
         data.meshlet_count = 0;

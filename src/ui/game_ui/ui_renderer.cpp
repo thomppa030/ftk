@@ -22,7 +22,8 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
                                       UiPipelineMode mode = UiPipelineMode::transparent,
                                       VkSampleCountFlagBits msaa = VK_SAMPLE_COUNT_1_BIT,
                                       VkFormat mr_format = VK_FORMAT_UNDEFINED,
-                                      VkFormat normal_format = VK_FORMAT_UNDEFINED) {
+                                      VkFormat normal_format = VK_FORMAT_UNDEFINED,
+                                      VkFormat velocity_format = VK_FORMAT_UNDEFINED) {
     auto vert_mod = create_shader_module(device, read_spirv(vert_path));
     auto frag_mod = create_shader_module(device, read_spirv(frag_path));
 
@@ -104,17 +105,22 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
     VkPipelineColorBlendAttachmentState normal_blend{};
     normal_blend.colorWriteMask = 0;
 
+    // Fourth color attachment (velocity): no writes from UI
+    VkPipelineColorBlendAttachmentState vel_blend{};
+    vel_blend.colorWriteMask = 0;
+
     bool has_mr = (mr_format != VK_FORMAT_UNDEFINED);
     bool has_normal = (normal_format != VK_FORMAT_UNDEFINED);
-    uint32_t attachment_count = 1 + (has_mr ? 1 : 0) + (has_normal ? 1 : 0);
-    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend};
+    bool has_velocity = (velocity_format != VK_FORMAT_UNDEFINED);
+    uint32_t attachment_count = 1 + (has_mr ? 1 : 0) + (has_normal ? 1 : 0) + (has_velocity ? 1 : 0);
+    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend, vel_blend};
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
     color_blending.attachmentCount = attachment_count;
     color_blending.pAttachments = blend_attachments;
 
-    VkFormat color_formats[] = {color_format, mr_format, normal_format};
+    VkFormat color_formats[] = {color_format, mr_format, normal_format, velocity_format};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
@@ -598,21 +604,22 @@ void UiRenderer::create_world_pipelines(Device& /*device*/, const PassResources&
     constexpr VkFormat mr_fmt = VK_FORMAT_R8G8_UNORM;
 
     auto normal_fmt = OffscreenPass::NORMAL_FORMAT;
+    auto vel_fmt = OffscreenPass::VELOCITY_FORMAT;
 
     world_transparent_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_quad_world.vert.spv"),
         base_path::resolve("shaders/ui_quad.frag.spv"),
-        UiPipelineMode::transparent, msaa, mr_fmt, normal_fmt);
+        UiPipelineMode::transparent, msaa, mr_fmt, normal_fmt, vel_fmt);
 
     world_opaque_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_quad_world.vert.spv"),
         base_path::resolve("shaders/ui_quad.frag.spv"),
-        UiPipelineMode::opaque, msaa, mr_fmt, normal_fmt);
+        UiPipelineMode::opaque, msaa, mr_fmt, normal_fmt, vel_fmt);
 
     world_text_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_text_world.vert.spv"),
         base_path::resolve("shaders/ui_text.frag.spv"),
-        UiPipelineMode::transparent, msaa, mr_fmt, normal_fmt);
+        UiPipelineMode::transparent, msaa, mr_fmt, normal_fmt, vel_fmt);
 
     FJELL_GFX_DEBUG("Worldspace UI pipelines created ({}x MSAA)", static_cast<uint32_t>(msaa));
 }

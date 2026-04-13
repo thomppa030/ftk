@@ -66,6 +66,7 @@ protected:
 struct Node3D : public Node {
     Transform transform;
     glm::mat4 world_matrix_{1.0f};
+    glm::mat4 prev_world_matrix_{1.0f}; // previous frame's world matrix (for motion vectors)
 
     // Cached local matrix — recomputed only when transform changes
     glm::mat4 local_matrix_{1.0f};

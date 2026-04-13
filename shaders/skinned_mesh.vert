@@ -11,6 +11,10 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 cascade_splits;
     uvec4 tile_info;
     mat4 inv_projection;
+    mat4 inv_view_proj;
+    mat4 prev_view_proj;
+    float time;
+    float gi_intensity;
 } ubo;
 
 #include "fjell_draw_data.glsl"
@@ -37,6 +41,8 @@ layout(location = 2) out vec3 frag_world_pos;
 layout(location = 3) out vec3 frag_world_normal;
 layout(location = 4) out mat3 frag_TBN;
 layout(location = 7) flat out uint frag_draw_index;
+layout(location = 8) out vec4 frag_clip_pos;
+layout(location = 9) out vec4 frag_prev_clip_pos;
 
 invariant gl_Position;
 
@@ -53,6 +59,11 @@ void main() {
     vec4 skinned_pos = skin * vec4(in_position, 1.0);
     vec4 world_pos = dd.model * skinned_pos;
     gl_Position = ubo.projection * ubo.view * world_pos;
+
+    frag_clip_pos = gl_Position;
+    // Use current skin with previous model matrix (no prev bone double-buffer yet)
+    vec4 prev_world_pos = dd.prev_model * skinned_pos;
+    frag_prev_clip_pos = ubo.prev_view_proj * prev_world_pos;
 
     frag_color = in_color;
     frag_tex_coord = in_tex_coord;

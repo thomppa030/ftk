@@ -81,6 +81,7 @@ void SceneGatherer::gather(const GatherInput& input) {
 
                         DrawCommand dc{};
                         dc.world_matrix = spatial->world_matrix_;
+                        dc.prev_world_matrix = spatial->prev_world_matrix_;
                         dc.push.model = spatial->world_matrix_;
                         dc.skeletal_model = skel->skeletal_model;
                         dc.skinned = true;
@@ -124,6 +125,7 @@ void SceneGatherer::gather(const GatherInput& input) {
 
                     DrawCommand dc{};
                     dc.world_matrix = spatial->world_matrix_;
+                    dc.prev_world_matrix = spatial->prev_world_matrix_;
                     dc.push.model = spatial->world_matrix_;
                     if (mesh->material) {
                         dc.push.material_id = mesh->material->material_id();
