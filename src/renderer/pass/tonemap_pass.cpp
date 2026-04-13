@@ -147,7 +147,7 @@ Result<> TonemapPass::create(Device& device, const PassResources& resources) {
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     push_range.offset = 0;
-    push_range.size = 2 * sizeof(float);
+    push_range.size = 3 * sizeof(float);
 
     VkPipelineLayoutCreateInfo pipe_layout_ci{};
     pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -202,11 +202,12 @@ void TonemapPass::invalidate_imgui_texture() {
 }
 
 void TonemapPass::record(const FrameContext& ctx) {
-    record_into(ctx, default_images_, source_view_);
+    record_into(ctx, default_images_, source_view_, VK_NULL_HANDLE, 0.3f, exposure_);
 }
 
 void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
-                              VkImageView bloom_view, float bloom_intensity) {
+                              VkImageView bloom_view, float bloom_intensity,
+                              float exposure) {
     if (imgs.view == VK_NULL_HANDLE || source == VK_NULL_HANDLE) return;
 
     auto cmd = ctx.cmd;
@@ -263,7 +264,7 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &imgs.input_sets[ctx.frame_index], 0, nullptr);
 
-    struct { float intensity; float active; } push{bloom_intensity, has_bloom};
+    struct { float intensity; float active; float ev; } push{bloom_intensity, has_bloom, exposure};
     vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
@@ -303,7 +304,7 @@ void TonemapPass::build(FrameGraph& graph, ResourceRegistry& registry,
                 }
             }
             record_into(local, *local.pp_resources->tonemap(),
-                        local.target->color_view(), bloom_view);
+                        local.target->color_view(), bloom_view, 0.3f, exposure_);
         }
     }, std::move(uses));
 }

@@ -114,6 +114,11 @@ void StatsPanel::draw(float dt, const char* title) {
 
             auto& ddgi_cfg = ctx_->ddgi_pass().config();
             ImGui::SliderFloat("GI Intensity", &ddgi_cfg.gi_intensity, 0.0f, 2.0f);
+
+            auto& tonemap = ctx_->tonemap_pass();
+            float ev = tonemap.exposure();
+            if (ImGui::SliderFloat("Exposure (EV)", &ev, -5.0f, 5.0f, "%.1f"))
+                tonemap.set_exposure(ev);
         }
     }
     ImGui::End();

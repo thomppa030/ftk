@@ -45,7 +45,11 @@ public:
 
     // Record into externally-provided images.
     void record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
-                     VkImageView bloom_view = VK_NULL_HANDLE, float bloom_intensity = 0.3f);
+                     VkImageView bloom_view = VK_NULL_HANDLE, float bloom_intensity = 0.3f,
+                     float exposure = 0.0f);
+
+    void set_exposure(float ev) { exposure_ = ev; }
+    [[nodiscard]] float exposure() const { return exposure_; }
 
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
@@ -76,6 +80,7 @@ private:
     VkPipeline pipeline_{VK_NULL_HANDLE};
 
     VkImageView source_view_{VK_NULL_HANDLE};
+    float exposure_{0.0f};
 
     // Default per-viewport images (backward compat — used by record()/resize())
     Images default_images_;

@@ -6,6 +6,7 @@ layout(set = 0, binding = 1) uniform sampler2D bloom_tex;
 layout(push_constant) uniform PushConstants {
     float bloom_intensity;
     float has_bloom;  // > 0.5 = bloom is bound
+    float exposure;   // EV offset (0 = neutral, +1 = 2x brighter)
 };
 
 layout(location = 0) out vec4 out_color;
@@ -64,6 +65,9 @@ void main() {
         vec3 bloom = texture(bloom_tex, uv).rgb;
         color += bloom * bloom_intensity;
     }
+
+    // Exposure compensation (EV units: +1 = 2x brighter)
+    color *= exp2(exposure);
 
     // sRGB linear → Rec.2020 linear
     color = LINEAR_SRGB_TO_LINEAR_REC2020 * color;
