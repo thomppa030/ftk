@@ -119,6 +119,7 @@ add_executable(fjell
     renderer/pass/opaque_pass.cpp
     renderer/pass/screen_color_copy_pass.cpp
     renderer/pass/distortion_pass.cpp
+    renderer/pass/exposure_pass.cpp
     renderer/pass/subsystem_compute_pass.cpp
     renderer/components/arrow_component_meta.cpp
     renderer/components/mesh_component_meta.cpp

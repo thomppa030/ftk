@@ -12,6 +12,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
 #include "renderer/pass/distortion_pass.hpp"
+#include "renderer/pass/exposure_pass.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
@@ -91,6 +92,7 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("screen_color_copy", std::make_unique<ScreenColorCopyPass>());
     add("distortion", std::make_unique<DistortionPass>());
     add("subsystem_compute", std::make_unique<SubsystemComputePass>());
+    add("exposure", std::make_unique<ExposurePass>());
     add("tonemap", std::make_unique<TonemapPass>());
 
     // ── Screen-space effects ───────────────────────────────────────────
