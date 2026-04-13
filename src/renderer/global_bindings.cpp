@@ -29,7 +29,7 @@ void GlobalBindings::register_builtins() {
     declare({"tile_light_ssbo",  3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         1, FRAG | COMP});
     declare({"depth_texture",    4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
     declare({"ao_texture",       5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
-    declare({"sky_cubemap",      6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
+    declare({"sky_cubemap",      6, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
     declare({"brdf_lut",         7, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
     declare({"screen_color",     8, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
     declare({"scene_sdf",        9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
