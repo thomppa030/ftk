@@ -101,6 +101,13 @@ PassSetup LightCullPass::setup() const {
     };
 }
 
+void LightCullPass::register_resources(ResourceRegistry& registry) {
+    if (output_buffer_ != VK_NULL_HANDLE) {
+        registry.register_buffer("tile_light_ssbo", {
+            output_buffer_, output_buffer_size_});
+    }
+}
+
 void LightCullPass::build(FrameGraph& graph, ResourceRegistry& registry,
                            const FrameContext& ctx) {
     std::vector<std::pair<uint32_t, ImageUsage>> uses;
@@ -112,12 +119,6 @@ void LightCullPass::build(FrameGraph& graph, ResourceRegistry& registry,
         FrameContext local = ctx;
         local.cmd = cb;
         record(local);
-
-        // Register the tile light SSBO so downstream passes can find it
-        if (output_buffer_ != VK_NULL_HANDLE) {
-            local.registry->register_buffer("tile_light_ssbo", {
-                output_buffer_, output_buffer_size_});
-        }
 
         // Barrier: compute write -> fragment read
         VkMemoryBarrier2 mem_barrier{};
