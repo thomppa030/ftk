@@ -93,8 +93,8 @@ Result<> ExposurePass::create(Device& device, const PassResources& resources) {
             allocator_, buf_size,
             VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO,
-            VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT |
-            VMA_ALLOCATION_CREATE_MAPPED_BIT);
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT);
+        buffers_[i]->map();
 
         // Zero-initialize
         std::memset(buffers_[i]->mapped(), 0, buf_size);
