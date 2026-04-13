@@ -10,6 +10,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/pass/scene_sdf_pass.hpp"
+#include "scene/light_node.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
@@ -853,6 +854,19 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     std::memcpy(imgs.constants_ubo->mapped(), &constants, sizeof(constants));
 }
 
+void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    if (!ctx.scene) return;
+
+    for (const auto& obj : ctx.scene->objects()) {
+        if (const auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
+            light_direction_ = glm::normalize(-dl->direction);
+            light_intensity_ = dl->intensity;
+            light_color_ = dl->color;
+            break;
+        }
+    }
+}
+
 void DdgiPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
     // Only build accel structures when DDGI is enabled for this viewport
     if (ctx.pp_resources && ctx.pp_resources->ddgi()) {
@@ -1272,9 +1286,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                                 0, nullptr);
 
         RtTracePushConstants rt_push{};
-        rt_push.light_direction = glm::vec3(0.5f, 0.8f, 0.3f);
-        rt_push.light_intensity = 1.0f;
-        rt_push.light_color = glm::vec3(1.0f);
+        rt_push.light_direction = light_direction_;
+        rt_push.light_intensity = light_intensity_;
+        rt_push.light_color = light_color_;
         rt_push.max_trace_dist = 40.0f;
         rt_push.emissive_gi_boost = config_.emissive_gi_boost;
 
@@ -1294,9 +1308,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                                 trace_pipeline_layout_, 0, 1, &imgs.trace_set, 0, nullptr);
 
         TracePushConstants push{};
-        push.light_direction = glm::vec3(0.5f, 0.8f, 0.3f);
-        push.light_intensity = 1.0f;
-        push.light_color = glm::vec3(1.0f);
+        push.light_direction = light_direction_;
+        push.light_intensity = light_intensity_;
+        push.light_color = light_color_;
         push.sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION);
         push.sdf_volume_min = glm::vec3(-10.0f);
         push.sdf_volume_max = glm::vec3(10.0f);

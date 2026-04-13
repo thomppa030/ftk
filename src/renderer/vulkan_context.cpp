@@ -294,14 +294,14 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     // Must run before build_frame_context since ensure_capacity may
     // reallocate buffers whose handles are captured into FrameContext.
     {
-        // Build a minimal context for pre_record (only needs frame_index,
-        // indirect_batch, pp_resources, use_mesh_shaders, target)
         FrameContext pre_ctx{};
         pre_ctx.frame_index = current_frame_;
         pre_ctx.indirect_batch = gatherer_.indirect_batch();
         pre_ctx.use_mesh_shaders = gpu_.use_mesh_shaders();
         pre_ctx.pp_resources = pp;
         pre_ctx.target = &target;
+        pre_ctx.queue = &gatherer_.render_queue();
+        pre_ctx.mega_buffer = gpu_.mega_buffer();
         passes_.pre_record_all(pre_ctx, gpu_);
     }
 

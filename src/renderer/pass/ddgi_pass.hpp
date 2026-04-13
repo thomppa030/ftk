@@ -153,6 +153,7 @@ public:
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
+    void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     /// Record into externally-provided images.
     void record_into(const FrameContext& ctx, Images& imgs);
@@ -200,6 +201,11 @@ private:
     VkDevice vk_device_{VK_NULL_HANDLE};
     DdgiConfig config_;
     uint32_t frame_counter_{0};
+
+    // Scene light state (set by prepare_frame)
+    glm::vec3 light_direction_{-0.3f, -1.0f, -0.5f};
+    float light_intensity_{1.5f};
+    glm::vec3 light_color_{1.0f, 1.0f, 0.95f};
 
     // Compute pipelines
     VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
