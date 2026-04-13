@@ -42,6 +42,7 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
+    void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 
     // Record into externally-provided images.
     void record_into(const FrameContext& ctx, Images& imgs, VkImageView source,
@@ -50,6 +51,14 @@ public:
 
     void set_exposure(float ev) { exposure_ = ev; }
     [[nodiscard]] float exposure() const { return exposure_; }
+
+    void set_auto_exposure(bool on) { auto_exposure_ = on; }
+    [[nodiscard]] bool auto_exposure() const { return auto_exposure_; }
+
+    void set_adaptation_speed(float s) { adaptation_speed_ = s; }
+    [[nodiscard]] float adaptation_speed() const { return adaptation_speed_; }
+
+    void set_exposure_range(float min_ev, float max_ev) { min_ev_ = min_ev; max_ev_ = max_ev; }
 
     [[nodiscard]] VkDescriptorSet imgui_texture();
     void invalidate_imgui_texture();
@@ -81,6 +90,10 @@ private:
 
     VkImageView source_view_{VK_NULL_HANDLE};
     float exposure_{0.0f};
+    bool auto_exposure_{false};
+    float adaptation_speed_{1.5f};
+    float min_ev_{-5.0f};
+    float max_ev_{5.0f};
 
     // Default per-viewport images (backward compat — used by record()/resize())
     Images default_images_;

@@ -1,5 +1,9 @@
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/bloom_pass.hpp"
+#include "renderer/pass/exposure_pass.hpp"
+
+#include <algorithm>
+#include <cmath>
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -199,6 +203,29 @@ VkDescriptorSet TonemapPass::imgui_texture() {
 
 void TonemapPass::invalidate_imgui_texture() {
     default_images_.invalidate_imgui_texture();
+}
+
+void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    if (!auto_exposure_) return;
+    if (!ctx.passes) return;
+
+    auto* exposure_pass = ctx.passes->try_get<ExposurePass>("exposure");
+    if (!exposure_pass || !exposure_pass->enabled()) return;
+
+    // Read average luminance from the previous frame's buffer
+    uint32_t prev_frame = (ctx.frame_index + MAX_FRAMES_IN_FLIGHT - 1) % MAX_FRAMES_IN_FLIGHT;
+    float avg_lum = exposure_pass->average_luminance(prev_frame);
+
+    // EV100 from average luminance (ISO 100 standard)
+    // EV100 = log2(avg_luminance / 0.125)  (where 0.125 = 12.5% middle grey)
+    float target_ev = -std::log2(std::max(avg_lum, 1e-5f) / 0.125f);
+
+    // Clamp to allowed range
+    target_ev = std::clamp(target_ev, min_ev_, max_ev_);
+
+    // Temporal adaptation: lerp toward target
+    float speed = adaptation_speed_ * ctx.delta_time;
+    exposure_ += (target_ev - exposure_) * std::min(speed, 1.0f);
 }
 
 void TonemapPass::record(const FrameContext& ctx) {

@@ -116,9 +116,19 @@ void StatsPanel::draw(float dt, const char* title) {
             ImGui::SliderFloat("GI Intensity", &ddgi_cfg.gi_intensity, 0.0f, 2.0f);
 
             auto& tonemap = ctx_->tonemap_pass();
-            float ev = tonemap.exposure();
-            if (ImGui::SliderFloat("Exposure (EV)", &ev, -5.0f, 5.0f, "%.1f"))
-                tonemap.set_exposure(ev);
+            bool auto_exp = tonemap.auto_exposure();
+            if (ImGui::Checkbox("Auto Exposure", &auto_exp))
+                tonemap.set_auto_exposure(auto_exp);
+            if (!auto_exp) {
+                float ev = tonemap.exposure();
+                if (ImGui::SliderFloat("Exposure (EV)", &ev, -5.0f, 5.0f, "%.1f"))
+                    tonemap.set_exposure(ev);
+            } else {
+                ImGui::Text("EV: %.2f", tonemap.exposure());
+                float speed = tonemap.adaptation_speed();
+                if (ImGui::SliderFloat("Adaptation Speed", &speed, 0.1f, 5.0f))
+                    tonemap.set_adaptation_speed(speed);
+            }
         }
     }
     ImGui::End();
