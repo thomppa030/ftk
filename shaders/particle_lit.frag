@@ -29,6 +29,7 @@ layout(set = 0, binding = 7) uniform sampler2D brdf_lut;
 struct GpuPointLight {
     vec4 position_radius;
     vec4 color_intensity;
+    ivec4 shadow_info;      // x = atlas_x, y = atlas_y, z = tile_size, w = flags (0 = no shadow)
 };
 
 struct GpuSpotLight {
@@ -36,7 +37,10 @@ struct GpuSpotLight {
     vec4 direction_inner_cos;
     vec4 color_intensity;
     float outer_cos;
-    float pad0, pad1, pad2;
+    int shadow_atlas_x;
+    int shadow_atlas_y;
+    int shadow_tile_size;       // 0 = no shadow
+    mat4 shadow_vp;             // light-space view-projection
 };
 
 layout(set = 0, binding = 2) readonly buffer LightBuffer {

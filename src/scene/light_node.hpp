@@ -31,6 +31,8 @@ struct PointLightNode : Node3D {
     glm::vec3 color{1.0f};
     float intensity{1.0f};
     float radius{10.0f};
+    bool cast_shadows{false};
+    float shadow_bias{0.005f};
 
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<PointLightNode>();
@@ -38,6 +40,8 @@ struct PointLightNode : Node3D {
         copy->color = color;
         copy->intensity = intensity;
         copy->radius = radius;
+        copy->cast_shadows = cast_shadows;
+        copy->shadow_bias = shadow_bias;
         return copy;
     }
 };
@@ -49,6 +53,8 @@ struct SpotLightNode : Node3D {
     float radius{10.0f};
     float inner_angle{20.0f};
     float outer_angle{30.0f};
+    bool cast_shadows{false};
+    float shadow_bias{0.002f};
 
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<SpotLightNode>();
@@ -59,6 +65,8 @@ struct SpotLightNode : Node3D {
         copy->radius = radius;
         copy->inner_angle = inner_angle;
         copy->outer_angle = outer_angle;
+        copy->cast_shadows = cast_shadows;
+        copy->shadow_bias = shadow_bias;
         return copy;
     }
 };

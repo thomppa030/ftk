@@ -41,6 +41,7 @@ layout(set = 0, binding = 10) uniform sampler2D gi_indirect;
 struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
     vec4 color_intensity;   // xyz = color, w = intensity
+    ivec4 shadow_info;      // x = atlas_x, y = atlas_y, z = tile_size, w = flags (0 = no shadow)
 };
 
 struct GpuSpotLight {
@@ -48,9 +49,10 @@ struct GpuSpotLight {
     vec4 direction_inner_cos;   // xyz = dir, w = cos(inner_angle)
     vec4 color_intensity;       // xyz = color, w = intensity
     float outer_cos;
-    float pad0;
-    float pad1;
-    float pad2;
+    int shadow_atlas_x;
+    int shadow_atlas_y;
+    int shadow_tile_size;       // 0 = no shadow
+    mat4 shadow_vp;             // light-space view-projection
 };
 
 layout(set = 0, binding = 2) readonly buffer LightBuffer {
