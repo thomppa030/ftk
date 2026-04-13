@@ -13,6 +13,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 inv_projection;
     mat4 inv_view_proj;
     mat4 prev_view_proj;
+    mat4 unjittered_vp;
+    mat4 prev_unjittered_vp;
     float time;
 } ubo;
 
@@ -77,9 +79,9 @@ void main() {
     vec4 world_pos = model * vec4(VERTEX, 1.0);
     gl_Position = ubo.projection * ubo.view * world_pos;
 
-    frag_clip_pos = gl_Position;
+    frag_clip_pos = ubo.unjittered_vp * world_pos;
     vec4 prev_world_pos = prev_model * vec4(VERTEX, 1.0);
-    frag_prev_clip_pos = ubo.prev_view_proj * prev_world_pos;
+    frag_prev_clip_pos = ubo.prev_unjittered_vp * prev_world_pos;
 
     frag_color = in_color;
     frag_tex_coord = UV;

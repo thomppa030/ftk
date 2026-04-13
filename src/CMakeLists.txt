@@ -109,6 +109,7 @@ add_executable(fjell
     renderer/pass/shadow_pass.cpp
     renderer/pass/sky_pass.cpp
     renderer/pass/sky_cubemap_pass.cpp
+    renderer/pass/taa_resolve_pass.cpp
     renderer/pass/tonemap_pass.cpp
     renderer/pass/transparent_pass.cpp
     renderer/pass/normal_pass.cpp

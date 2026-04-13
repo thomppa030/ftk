@@ -5,6 +5,7 @@
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
+#include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
 
@@ -42,6 +43,7 @@ public:
         VolumetricFogPass& fog;
         TonemapPass& tonemap;
         DdgiPass& ddgi;
+        TaaResolvePass& taa;
     };
 
     PostProcessResources(VkDevice device, VmaAllocator allocator,
@@ -65,6 +67,7 @@ public:
     [[nodiscard]] VolumetricFogPass::Images* volumetric_fog() { return config_.volumetric_fog ? &fog_images_ : nullptr; }
     [[nodiscard]] TonemapPass::Images* tonemap() { return config_.tonemap ? &tonemap_images_ : nullptr; }
     [[nodiscard]] DdgiPass::Images* ddgi() { return config_.ddgi ? &ddgi_images_ : nullptr; }
+    [[nodiscard]] TaaResolvePass::Images* taa() { return config_.taa ? &taa_images_ : nullptr; }
 
     [[nodiscard]] const PostProcessConfig& config() const { return config_; }
 
@@ -87,6 +90,7 @@ private:
     VolumetricFogPass::Images fog_images_;
     TonemapPass::Images tonemap_images_;
     DdgiPass::Images ddgi_images_;
+    TaaResolvePass::Images taa_images_;
 };
 
 } // namespace fjell

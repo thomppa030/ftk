@@ -1,0 +1,72 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D current_color;
+layout(set = 0, binding = 1) uniform sampler2D history_color;
+layout(set = 0, binding = 2) uniform sampler2D velocity_tex;
+layout(set = 0, binding = 3, rgba16f) writeonly uniform image2D resolve_output;
+
+layout(push_constant) uniform TaaPush {
+    vec2 texel_size;
+    float blend_factor;
+    float pad;
+};
+
+// Tonemap/inverse for neighborhood clamping in perceptual space
+// Prevents bright HDR values from dominating the AABB
+vec3 tonemap_reinhard(vec3 c) { return c / (1.0 + c); }
+vec3 inverse_reinhard(vec3 c) { return c / (1.0 - c); }
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = textureSize(current_color, 0);
+    if (pixel.x >= size.x || pixel.y >= size.y) return;
+
+    vec2 uv = (vec2(pixel) + 0.5) * texel_size;
+
+    // Read velocity and reproject
+    vec2 velocity = texture(velocity_tex, uv).rg;
+    vec2 history_uv = uv - velocity;
+
+    // Current frame color (tonemapped for stable clamping)
+    vec3 current_hdr = texture(current_color, uv).rgb;
+    vec3 current = tonemap_reinhard(current_hdr);
+
+    // Neighborhood min/max for variance clipping
+    vec3 m1 = vec3(0.0);
+    vec3 m2 = vec3(0.0);
+
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            vec2 sample_uv = uv + vec2(dx, dy) * texel_size;
+            vec3 s = tonemap_reinhard(texture(current_color, sample_uv).rgb);
+            m1 += s;
+            m2 += s * s;
+        }
+    }
+
+    // Variance clipping AABB
+    m1 /= 9.0;
+    m2 /= 9.0;
+    vec3 sigma = sqrt(max(m2 - m1 * m1, vec3(0.0)));
+    vec3 aabb_min = m1 - 1.25 * sigma;
+    vec3 aabb_max = m1 + 1.25 * sigma;
+
+    // Sample and clamp history
+    vec3 history_hdr = texture(history_color, history_uv).rgb;
+    vec3 history = tonemap_reinhard(history_hdr);
+    history = clamp(history, aabb_min, aabb_max);
+
+    // Reject history if reprojected UV is off-screen
+    bool oob = history_uv.x < 0.0 || history_uv.x > 1.0 ||
+               history_uv.y < 0.0 || history_uv.y > 1.0;
+
+    float alpha = oob ? 1.0 : blend_factor;
+
+    // Blend in tonemapped space, convert back to HDR
+    vec3 resolved = mix(history, current, alpha);
+    resolved = inverse_reinhard(resolved);
+
+    imageStore(resolve_output, pixel, vec4(resolved, 1.0));
+}

@@ -16,6 +16,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 inv_projection;
     mat4 inv_view_proj;
     mat4 prev_view_proj;
+    mat4 unjittered_vp;
+    mat4 prev_unjittered_vp;
     float time;
 } ubo;
 

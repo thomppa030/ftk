@@ -114,7 +114,8 @@ VulkanContext::VulkanContext(Window& window)
     default_config.ssr = true;
     default_config.volumetric_fog = true;
     default_config.ddgi = true;
-    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), bloom_pass(), ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass()};
+    default_config.taa = true;
+    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), bloom_pass(), ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), taa_resolve_pass()};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
@@ -588,6 +589,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     GlobalUbo ubo{};
     ubo.view = view;
     ubo.projection = jittered_projection;
+    ubo.unjittered_vp = projection * view;
+    ubo.prev_unjittered_vp = prev_unjittered_vp_;
     ubo.jitter_x = jx;
     ubo.jitter_y = jy;
     // Find directional light from scene nodes, fall back to passed-in light
@@ -646,6 +649,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     gpu_.uniform_buffer(frame_index).write(&ubo, sizeof(ubo));
 
     gatherer_.update_prev_view_proj();
+    prev_unjittered_vp_ = projection * view;
 }
 
 void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
@@ -1159,7 +1163,7 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
 
     PostProcessResources::PassRefs refs{
         hiz_pass(), gtao_pass(), bloom_pass(),
-        ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass()};
+        ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), taa_resolve_pass()};
 
     auto viewport = std::make_unique<SceneViewport>(
         gpu_.device_ref(), gpu_.device(), gpu_.allocator(),

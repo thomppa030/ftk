@@ -32,6 +32,7 @@
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/subsystem_compute_pass.hpp"
+#include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
@@ -92,6 +93,7 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("screen_color_copy", std::make_unique<ScreenColorCopyPass>());
     add("distortion", std::make_unique<DistortionPass>());
     add("subsystem_compute", std::make_unique<SubsystemComputePass>());
+    add("taa_resolve", std::make_unique<TaaResolvePass>());
     add("exposure", std::make_unique<ExposurePass>());
     add("tonemap", std::make_unique<TonemapPass>());
 

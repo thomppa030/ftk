@@ -17,10 +17,12 @@ struct GlobalUbo {
     alignas(16) glm::uvec4 tile_info;       // x = tiles_x, y = tiles_y, z = point_count, w = spot_count
     alignas(16) glm::mat4 inv_projection;
     alignas(16) glm::mat4 inv_view_proj;    // inverse(projection * view)
-    alignas(16) glm::mat4 prev_view_proj;   // previous frame's projection * view
+    alignas(16) glm::mat4 prev_view_proj;   // previous frame's projection * view (jittered)
+    alignas(16) glm::mat4 unjittered_vp;   // current frame's unjittered view-projection
+    alignas(16) glm::mat4 prev_unjittered_vp; // previous frame's unjittered view-projection
     float time{0.0f};                       // engine elapsed time (seconds)
     float gi_intensity{0.0f};               // DDGI indirect diffuse multiplier
-    float jitter_x{0.0f};                   // TAA sub-pixel jitter in UV space
+    float jitter_x{0.0f};                   // TAA sub-pixel jitter (halton / resolution)
     float jitter_y{0.0f};
 };
 

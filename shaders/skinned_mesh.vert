@@ -13,6 +13,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 inv_projection;
     mat4 inv_view_proj;
     mat4 prev_view_proj;
+    mat4 unjittered_vp;
+    mat4 prev_unjittered_vp;
     float time;
     float gi_intensity;
     float jitter_x;
@@ -62,10 +64,10 @@ void main() {
     vec4 world_pos = dd.model * skinned_pos;
     gl_Position = ubo.projection * ubo.view * world_pos;
 
-    frag_clip_pos = gl_Position;
+    frag_clip_pos = ubo.unjittered_vp * world_pos;
     // Use current skin with previous model matrix (no prev bone double-buffer yet)
     vec4 prev_world_pos = dd.prev_model * skinned_pos;
-    frag_prev_clip_pos = ubo.prev_view_proj * prev_world_pos;
+    frag_prev_clip_pos = ubo.prev_unjittered_vp * prev_world_pos;
 
     frag_color = in_color;
     frag_tex_coord = in_tex_coord;

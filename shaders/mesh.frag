@@ -24,6 +24,8 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 inv_projection;
     mat4 inv_view_proj;
     mat4 prev_view_proj;
+    mat4 unjittered_vp;
+    mat4 prev_unjittered_vp;
     float time;
     float gi_intensity;
     float jitter_x;
@@ -220,8 +222,8 @@ void main() {
     out_metallic_roughness = vec2(metallic, roughness);
     out_normal = oct_encode(N);
 
-    // Screen-space velocity (current NDC - previous NDC, in UV space)
+    // Screen-space velocity (unjittered clip positions, in UV space)
     vec2 cur_ndc = frag_clip_pos.xy / frag_clip_pos.w;
     vec2 prev_ndc = frag_prev_clip_pos.xy / frag_prev_clip_pos.w;
-    out_velocity = (cur_ndc - prev_ndc) * 0.5; // NDC [-1,1] → UV [0,1] scale
+    out_velocity = (cur_ndc - prev_ndc) * 0.5;
 }

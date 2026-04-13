@@ -20,6 +20,7 @@
 #include "renderer/pass/grid_pass.hpp"
 #include "renderer/gpu/accel_structure.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
+#include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
@@ -146,6 +147,7 @@ public:
   [[nodiscard]] SsrPass &ssr_pass() { return passes_.get<SsrPass>("ssr"); }
   [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return passes_.get<VolumetricFogPass>("volumetric_fog"); }
   [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }
+  [[nodiscard]] TaaResolvePass &taa_resolve_pass() { return passes_.get<TaaResolvePass>("taa_resolve"); }
   void set_ddgi_enabled(bool enabled) { pending_ddgi_toggle_ = enabled; has_pending_ddgi_toggle_ = true; }
   void apply_pending_ddgi_toggle();
   [[nodiscard]] TonemapPass &tonemap_pass() { return passes_.get<TonemapPass>("tonemap"); }
@@ -325,6 +327,7 @@ private:
 
   // ── TAA jitter state ─────────────────────────────────────────────────
   uint32_t taa_frame_count_{0};
+  glm::mat4 prev_unjittered_vp_{1.0f};
 
   // ── Scene viewports (render-to-texture for materials) ─────────────────
   std::unordered_map<std::string, std::unique_ptr<SceneViewport>> scene_viewports_;

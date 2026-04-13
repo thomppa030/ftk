@@ -1,6 +1,7 @@
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/exposure_pass.hpp"
+#include "renderer/pass/taa_resolve_pass.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -334,8 +335,18 @@ void TonemapPass::build(FrameGraph& graph, ResourceRegistry& registry,
                     bloom_view = local.pp_resources->bloom()->mips[0].view;
                 }
             }
+            // Use TAA-resolved color when available, otherwise raw scene color
+            VkImageView color_source = local.target->color_view();
+            if (auto* taa_imgs = local.pp_resources->taa()) {
+                // After TAA record_into() flips write_index, the just-written
+                // output is at [1 - write_index] (the old write target).
+                uint32_t output_idx = 1 - taa_imgs->write_index;
+                if (taa_imgs->history_view[output_idx] != VK_NULL_HANDLE) {
+                    color_source = taa_imgs->history_view[output_idx];
+                }
+            }
             record_into(local, *local.pp_resources->tonemap(),
-                        local.target->color_view(), bloom_view, 0.3f, exposure_);
+                        color_source, bloom_view, 0.3f, exposure_);
         }
     }, std::move(uses));
 }
