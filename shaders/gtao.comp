@@ -151,6 +151,14 @@ void main() {
 
             if (horizonDist < 1e-4 || horizonDist > radius) continue;
 
+            // Thickness rejection: ignore samples much further away than
+            // the AO radius — they're behind the surface, not occluders.
+            // Thickness rejection: ignore samples much further from camera
+            // than the current pixel (they're behind the surface).
+            // In view space, Z is negative; more negative = further away.
+            float depthDiff = samplePos.z - viewPos.z;
+            if (depthDiff < -thickness) continue;
+
             float horizonCos = dot(horizonVec / horizonDist, viewNormal);
 
             // Distance falloff — attenuate samples near the radius edge
@@ -176,6 +184,12 @@ void main() {
             float horizonDist = length(horizonVec);
 
             if (horizonDist < 1e-4 || horizonDist > radius) continue;
+
+            // Thickness rejection: ignore samples much further from camera
+            // than the current pixel (they're behind the surface).
+            // In view space, Z is negative; more negative = further away.
+            float depthDiff = samplePos.z - viewPos.z;
+            if (depthDiff < -thickness) continue;
 
             float horizonCos = dot(horizonVec / horizonDist, viewNormal);
 
