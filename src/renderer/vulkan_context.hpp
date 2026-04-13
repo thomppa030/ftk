@@ -222,7 +222,7 @@ public:
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
   void set_resource_manager(ResourceManager* rm) { resource_manager_ = rm; }
-  void set_project(const Project* p) { project_ = p; }
+  void set_project(const Project* p) { project_ = p; sky_cubemap_pass().set_project(p); }
 
   // ── Scene Viewports (render-to-texture for materials) ─────────────────
   /// Create a named scene viewport. Returns the bindless index of its output.

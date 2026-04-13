@@ -94,6 +94,7 @@ struct WorldEnvironmentNode : Node3D {
     glm::vec3 sky_top_color{0.15f, 0.25f, 0.45f};
     glm::vec3 sky_bottom_color{0.8f, 0.4f, 0.1f};
     float ibl_intensity{1.0f};
+    std::string hdri_path;
 
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<WorldEnvironmentNode>();
@@ -101,6 +102,7 @@ struct WorldEnvironmentNode : Node3D {
         copy->sky_top_color = sky_top_color;
         copy->sky_bottom_color = sky_bottom_color;
         copy->ibl_intensity = ibl_intensity;
+        copy->hdri_path = hdri_path;
         return copy;
     }
 };

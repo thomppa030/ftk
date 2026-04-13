@@ -136,6 +136,9 @@ nlohmann::json serialize_node(const Node& node) {
             {"sky_bottom_color", {env->sky_bottom_color.x, env->sky_bottom_color.y, env->sky_bottom_color.z}},
             {"ibl_intensity", env->ibl_intensity}
         };
+        if (!env->hdri_path.empty()) {
+            j["sky"]["hdri_path"] = env->hdri_path;
+        }
     }
 
     return j;
@@ -326,6 +329,9 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                     env->sky_bottom_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
                 }
                 env->ibl_intensity = js.value("ibl_intensity", 1.0f);
+                if (js.contains("hdri_path")) {
+                    env->hdri_path = js["hdri_path"].get<std::string>();
+                }
             }
             node = std::move(env);
         } else if (node_type == "game_ui") {

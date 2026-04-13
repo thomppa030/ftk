@@ -9,8 +9,11 @@
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "scene/light_node.hpp"
+#include "core/project.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
+
+#include <stb_image.h>
 
 #include <algorithm>
 #include <array>
@@ -97,7 +100,7 @@ void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
 }
 
 void SkyCubemapPass::register_resources(ResourceRegistry& registry) {
-    registry.register_image("sky_cubemap", {0, cubemap_view_, cubemap_sampler_});
+    registry.register_image("sky_cubemap", {0, cubemap_view(), cubemap_sampler()});
 }
 
 void SkyCubemapPass::destroy() {
@@ -126,15 +129,33 @@ void SkyCubemapPass::destroy() {
     if (cubemap_view_ != VK_NULL_HANDLE) vkDestroyImageView(device_, cubemap_view_, nullptr);
     destroy_vma_image(allocator_, cubemap_image_, cubemap_memory_);
 
+    destroy_hdri();
+
     device_ = VK_NULL_HANDLE;
 }
 
-void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
+void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     if (!ctx.scene) return;
 
     for (const auto& obj : ctx.scene->objects()) {
         if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
             set_colors(env->sky_top_color, env->sky_bottom_color);
+
+            // Load HDRI if path changed
+            if (!env->hdri_path.empty() && env->hdri_path != loaded_hdri_path_) {
+                auto resolved = base_path::resolve_asset(env->hdri_path, project_);
+                load_hdri(resolved);
+                loaded_hdri_path_ = env->hdri_path;
+
+                // Update global descriptor binding to point to HDRI cubemap
+                auto& gb = gpu.global_bindings();
+                for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+                    gb.write_image(i, "sky_cubemap",
+                        hdri_cubemap_view_, hdri_cubemap_sampler_,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    gb.flush_writes();
+                }
+            }
             break;
         }
     }
@@ -720,6 +741,538 @@ void SkyCubemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
             generate(cb);
         }
     }, {});
+}
+
+// ── HDRI environment map support ─────────────────────────────────────────
+
+void SkyCubemapPass::create_hdri_pipelines() {
+    if (hdri_pipelines_created_) return;
+
+    // ── Equirect-to-cube pipeline ─────────────────────────────────────
+    // Layout: binding 0 = equirect sampler, binding 1 = cubemap storage
+    VkDescriptorSetLayoutBinding eq_bindings[2]{};
+    eq_bindings[0].binding = 0;
+    eq_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    eq_bindings[0].descriptorCount = 1;
+    eq_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    eq_bindings[1].binding = 1;
+    eq_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    eq_bindings[1].descriptorCount = 1;
+    eq_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo eq_layout_ci{};
+    eq_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    eq_layout_ci.bindingCount = 2;
+    eq_layout_ci.pBindings = eq_bindings;
+    vkCreateDescriptorSetLayout(device_, &eq_layout_ci, nullptr, &equirect_set_layout_);
+
+    VkPushConstantRange eq_push{};
+    eq_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    eq_push.size = sizeof(uint32_t);
+
+    VkPipelineLayoutCreateInfo eq_pipe_ci{};
+    eq_pipe_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    eq_pipe_ci.setLayoutCount = 1;
+    eq_pipe_ci.pSetLayouts = &equirect_set_layout_;
+    eq_pipe_ci.pushConstantRangeCount = 1;
+    eq_pipe_ci.pPushConstantRanges = &eq_push;
+    vkCreatePipelineLayout(device_, &eq_pipe_ci, nullptr, &equirect_pipeline_layout_);
+
+    auto eq_code = read_spirv(base_path::resolve("shaders/equirect_to_cube.comp.spv"));
+    auto eq_mod = create_shader_module(device_, eq_code);
+    VkPipelineShaderStageCreateInfo eq_stage{};
+    eq_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    eq_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    eq_stage.module = eq_mod;
+    eq_stage.pName = "main";
+    VkComputePipelineCreateInfo eq_pipe{};
+    eq_pipe.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    eq_pipe.stage = eq_stage;
+    eq_pipe.layout = equirect_pipeline_layout_;
+    vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &eq_pipe, nullptr, &equirect_pipeline_);
+    vkDestroyShaderModule(device_, eq_mod, nullptr);
+
+    // Descriptor pool for equirect (1 set: 1 sampler + 1 storage)
+    VkDescriptorPoolSize eq_pool_sizes[2]{};
+    eq_pool_sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1};
+    eq_pool_sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1};
+    VkDescriptorPoolCreateInfo eq_pool_ci{};
+    eq_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    eq_pool_ci.maxSets = 1;
+    eq_pool_ci.poolSizeCount = 2;
+    eq_pool_ci.pPoolSizes = eq_pool_sizes;
+    vkCreateDescriptorPool(device_, &eq_pool_ci, nullptr, &equirect_pool_);
+
+    VkDescriptorSetAllocateInfo eq_alloc{};
+    eq_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    eq_alloc.descriptorPool = equirect_pool_;
+    eq_alloc.descriptorSetCount = 1;
+    eq_alloc.pSetLayouts = &equirect_set_layout_;
+    vkAllocateDescriptorSets(device_, &eq_alloc, &equirect_set_);
+
+    // ── Prefilter pipeline ───────────────────────────────────────────
+    // Layout: binding 0 = source cubemap sampler, binding 1 = output storage
+    VkDescriptorSetLayoutBinding pf_bindings[2]{};
+    pf_bindings[0].binding = 0;
+    pf_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pf_bindings[0].descriptorCount = 1;
+    pf_bindings[0].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pf_bindings[1].binding = 1;
+    pf_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    pf_bindings[1].descriptorCount = 1;
+    pf_bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    VkDescriptorSetLayoutCreateInfo pf_layout_ci{};
+    pf_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    pf_layout_ci.bindingCount = 2;
+    pf_layout_ci.pBindings = pf_bindings;
+    vkCreateDescriptorSetLayout(device_, &pf_layout_ci, nullptr, &prefilter_set_layout_);
+
+    struct PrefilterPush { uint32_t face_size; float roughness; uint32_t sample_count; };
+    VkPushConstantRange pf_push{};
+    pf_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pf_push.size = sizeof(PrefilterPush);
+
+    VkPipelineLayoutCreateInfo pf_pipe_ci{};
+    pf_pipe_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pf_pipe_ci.setLayoutCount = 1;
+    pf_pipe_ci.pSetLayouts = &prefilter_set_layout_;
+    pf_pipe_ci.pushConstantRangeCount = 1;
+    pf_pipe_ci.pPushConstantRanges = &pf_push;
+    vkCreatePipelineLayout(device_, &pf_pipe_ci, nullptr, &prefilter_pipeline_layout_);
+
+    auto pf_code = read_spirv(base_path::resolve("shaders/prefilter_envmap.comp.spv"));
+    auto pf_mod = create_shader_module(device_, pf_code);
+    VkPipelineShaderStageCreateInfo pf_stage{};
+    pf_stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    pf_stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pf_stage.module = pf_mod;
+    pf_stage.pName = "main";
+    VkComputePipelineCreateInfo pf_pipe{};
+    pf_pipe.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+    pf_pipe.stage = pf_stage;
+    pf_pipe.layout = prefilter_pipeline_layout_;
+    vkCreateComputePipelines(device_, vk_pipeline_cache_, 1, &pf_pipe, nullptr, &prefilter_pipeline_);
+    vkDestroyShaderModule(device_, pf_mod, nullptr);
+
+    // Descriptor pool for prefilter (HDRI_MIP_LEVELS sets: each has 1 sampler + 1 storage)
+    VkDescriptorPoolSize pf_pool_sizes[2]{};
+    pf_pool_sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, HDRI_MIP_LEVELS};
+    pf_pool_sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, HDRI_MIP_LEVELS};
+    VkDescriptorPoolCreateInfo pf_pool_ci{};
+    pf_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pf_pool_ci.maxSets = HDRI_MIP_LEVELS;
+    pf_pool_ci.poolSizeCount = 2;
+    pf_pool_ci.pPoolSizes = pf_pool_sizes;
+    vkCreateDescriptorPool(device_, &pf_pool_ci, nullptr, &prefilter_pool_);
+
+    std::array<VkDescriptorSetLayout, HDRI_MIP_LEVELS> pf_layouts;
+    pf_layouts.fill(prefilter_set_layout_);
+    VkDescriptorSetAllocateInfo pf_alloc{};
+    pf_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    pf_alloc.descriptorPool = prefilter_pool_;
+    pf_alloc.descriptorSetCount = HDRI_MIP_LEVELS;
+    pf_alloc.pSetLayouts = pf_layouts.data();
+    vkAllocateDescriptorSets(device_, &pf_alloc, prefilter_sets_.data());
+
+    hdri_pipelines_created_ = true;
+    FJELL_GFX_DEBUG("HDRI pipelines created");
+}
+
+void SkyCubemapPass::destroy_hdri() {
+    // Per-mip views
+    for (auto& v : hdri_mip_views_) {
+        if (v != VK_NULL_HANDLE) { vkDestroyImageView(device_, v, nullptr); v = VK_NULL_HANDLE; }
+    }
+
+    // HDRI cubemap
+    if (hdri_cubemap_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, hdri_cubemap_sampler_, nullptr); hdri_cubemap_sampler_ = VK_NULL_HANDLE; }
+    if (hdri_storage_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdri_storage_view_, nullptr); hdri_storage_view_ = VK_NULL_HANDLE; }
+    if (hdri_cubemap_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, hdri_cubemap_view_, nullptr); hdri_cubemap_view_ = VK_NULL_HANDLE; }
+    if (hdri_cubemap_image_ != VK_NULL_HANDLE) { destroy_vma_image(allocator_, hdri_cubemap_image_, hdri_cubemap_memory_); hdri_cubemap_image_ = VK_NULL_HANDLE; }
+
+    // Equirect source
+    if (equirect_sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, equirect_sampler_, nullptr); equirect_sampler_ = VK_NULL_HANDLE; }
+    if (equirect_view_ != VK_NULL_HANDLE) { vkDestroyImageView(device_, equirect_view_, nullptr); equirect_view_ = VK_NULL_HANDLE; }
+    if (equirect_image_ != VK_NULL_HANDLE) { destroy_vma_image(allocator_, equirect_image_, equirect_memory_); equirect_image_ = VK_NULL_HANDLE; }
+
+    // Pipelines (keep for reuse)
+    // Pools/sets freed with pool
+
+    if (equirect_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, equirect_pipeline_, nullptr); equirect_pipeline_ = VK_NULL_HANDLE; }
+    if (equirect_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, equirect_pipeline_layout_, nullptr); equirect_pipeline_layout_ = VK_NULL_HANDLE; }
+    if (equirect_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, equirect_pool_, nullptr); equirect_pool_ = VK_NULL_HANDLE; }
+    if (equirect_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, equirect_set_layout_, nullptr); equirect_set_layout_ = VK_NULL_HANDLE; }
+
+    if (prefilter_pipeline_ != VK_NULL_HANDLE) { vkDestroyPipeline(device_, prefilter_pipeline_, nullptr); prefilter_pipeline_ = VK_NULL_HANDLE; }
+    if (prefilter_pipeline_layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, prefilter_pipeline_layout_, nullptr); prefilter_pipeline_layout_ = VK_NULL_HANDLE; }
+    if (prefilter_pool_ != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device_, prefilter_pool_, nullptr); prefilter_pool_ = VK_NULL_HANDLE; }
+    if (prefilter_set_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, prefilter_set_layout_, nullptr); prefilter_set_layout_ = VK_NULL_HANDLE; }
+
+    hdri_pipelines_created_ = false;
+    loaded_hdri_path_.clear();
+}
+
+void SkyCubemapPass::load_hdri(const std::string& path) {
+    if (path == loaded_hdri_path_ && hdri_cubemap_view_ != VK_NULL_HANDLE) return;
+
+    vkDeviceWaitIdle(device_);
+    destroy_hdri();
+    create_hdri_pipelines();
+
+    // ── 1. Load equirectangular HDR via stb ────────────────────────────
+    int width = 0, height = 0, channels = 0;
+    float* pixels = stbi_loadf(path.c_str(), &width, &height, &channels, 4);
+    if (!pixels) {
+        FJELL_GFX_ERROR("Failed to load HDRI: {}", path);
+        return;
+    }
+    FJELL_GFX_INFO("Loaded HDRI: {}x{} from {}", width, height, path);
+
+    VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * 4 * sizeof(float);
+
+    // Staging buffer
+    VkBufferCreateInfo staging_ci{};
+    staging_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    staging_ci.size = image_size;
+    staging_ci.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    VmaAllocationCreateInfo staging_alloc_ci{};
+    staging_alloc_ci.usage = VMA_MEMORY_USAGE_AUTO;
+    staging_alloc_ci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+    VkBuffer staging_buf = VK_NULL_HANDLE;
+    VmaAllocation staging_mem = VK_NULL_HANDLE;
+    vmaCreateBuffer(allocator_, &staging_ci, &staging_alloc_ci, &staging_buf, &staging_mem, nullptr);
+
+    void* mapped = nullptr;
+    vmaMapMemory(allocator_, staging_mem, &mapped);
+    std::memcpy(mapped, pixels, image_size);
+    vmaUnmapMemory(allocator_, staging_mem);
+    stbi_image_free(pixels);
+
+    // Create equirect image (R32G32B32A32_SFLOAT, 2D)
+    VkImageCreateInfo eq_ci{};
+    eq_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    eq_ci.imageType = VK_IMAGE_TYPE_2D;
+    eq_ci.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    eq_ci.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    eq_ci.mipLevels = 1;
+    eq_ci.arrayLayers = 1;
+    eq_ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    eq_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    eq_ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    eq_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    vk_check(create_vma_image(allocator_, &eq_ci, &equirect_image_, &equirect_memory_),
+             "Failed to create equirect image");
+
+    VkImageViewCreateInfo eq_vi{};
+    eq_vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    eq_vi.image = equirect_image_;
+    eq_vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    eq_vi.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    eq_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCreateImageView(device_, &eq_vi, nullptr, &equirect_view_);
+
+    VkSamplerCreateInfo eq_samp{};
+    eq_samp.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    eq_samp.magFilter = VK_FILTER_LINEAR;
+    eq_samp.minFilter = VK_FILTER_LINEAR;
+    eq_samp.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    eq_samp.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    eq_samp.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    vkCreateSampler(device_, &eq_samp, nullptr, &equirect_sampler_);
+
+    // ── 2. Create HDRI cubemap (512x512, 10 mips) ─────────────────────
+    VkImageCreateInfo cube_ci{};
+    cube_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    cube_ci.imageType = VK_IMAGE_TYPE_2D;
+    cube_ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    cube_ci.extent = {HDRI_CUBEMAP_SIZE, HDRI_CUBEMAP_SIZE, 1};
+    cube_ci.mipLevels = HDRI_MIP_LEVELS;
+    cube_ci.arrayLayers = 6;
+    cube_ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    cube_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    cube_ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                    VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    cube_ci.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    cube_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    vk_check(create_vma_image(allocator_, &cube_ci, &hdri_cubemap_image_, &hdri_cubemap_memory_),
+             "Failed to create HDRI cubemap");
+
+    // Cube view (all mips, for sampling)
+    VkImageViewCreateInfo cube_vi{};
+    cube_vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    cube_vi.image = hdri_cubemap_image_;
+    cube_vi.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+    cube_vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    cube_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, HDRI_MIP_LEVELS, 0, 6};
+    vkCreateImageView(device_, &cube_vi, nullptr, &hdri_cubemap_view_);
+
+    // 2D array view for mip 0 (equirect conversion output)
+    VkImageViewCreateInfo storage_vi{};
+    storage_vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    storage_vi.image = hdri_cubemap_image_;
+    storage_vi.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+    storage_vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    storage_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
+    vkCreateImageView(device_, &storage_vi, nullptr, &hdri_storage_view_);
+
+    // Per-mip 2D array views for prefilter output
+    for (uint32_t mip = 0; mip < HDRI_MIP_LEVELS; ++mip) {
+        VkImageViewCreateInfo mip_vi{};
+        mip_vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        mip_vi.image = hdri_cubemap_image_;
+        mip_vi.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+        mip_vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        mip_vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip, 1, 0, 6};
+        vkCreateImageView(device_, &mip_vi, nullptr, &hdri_mip_views_[mip]);
+    }
+
+    // Sampler (trilinear for prefiltered mip sampling)
+    VkSamplerCreateInfo cube_samp{};
+    cube_samp.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    cube_samp.magFilter = VK_FILTER_LINEAR;
+    cube_samp.minFilter = VK_FILTER_LINEAR;
+    cube_samp.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    cube_samp.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    cube_samp.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    cube_samp.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    cube_samp.maxLod = static_cast<float>(HDRI_MIP_LEVELS);
+    vkCreateSampler(device_, &cube_samp, nullptr, &hdri_cubemap_sampler_);
+
+    // ── 3. GPU work: upload + convert + prefilter ─────────────────────
+    VkCommandBuffer cmd{};
+    VkCommandBufferAllocateInfo cmd_ai{};
+    cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    cmd_ai.commandPool = command_pool_;
+    cmd_ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cmd_ai.commandBufferCount = 1;
+    vkAllocateCommandBuffers(device_, &cmd_ai, &cmd);
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &begin);
+
+    // Upload equirect: transition + copy
+    {
+        VkImageMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        b.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        b.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = equirect_image_;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }
+
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    vkCmdCopyBufferToImage(cmd, staging_buf, equirect_image_,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    // Transition equirect to SHADER_READ_ONLY
+    {
+        VkImageMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        b.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = equirect_image_;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }
+
+    // Transition cubemap mip 0 to GENERAL for compute write
+    {
+        VkImageMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = hdri_cubemap_image_;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, HDRI_MIP_LEVELS, 0, 6};
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }
+
+    // Write equirect descriptor set
+    {
+        VkDescriptorImageInfo eq_info{};
+        eq_info.sampler = equirect_sampler_;
+        eq_info.imageView = equirect_view_;
+        eq_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        VkDescriptorImageInfo cube_info{};
+        cube_info.imageView = hdri_storage_view_;
+        cube_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        VkWriteDescriptorSet writes[2]{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = equirect_set_;
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo = &eq_info;
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = equirect_set_;
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &cube_info;
+        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+    }
+
+    // Dispatch equirect-to-cube conversion
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, equirect_pipeline_);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, equirect_pipeline_layout_,
+                            0, 1, &equirect_set_, 0, nullptr);
+    uint32_t face_size = HDRI_CUBEMAP_SIZE;
+    vkCmdPushConstants(cmd, equirect_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(uint32_t), &face_size);
+    uint32_t groups = (HDRI_CUBEMAP_SIZE + 7) / 8;
+    vkCmdDispatch(cmd, groups, groups, 6);
+
+    // Barrier: equirect conversion done → prefilter reads
+    {
+        VkMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+        b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.memoryBarrierCount = 1;
+        dep.pMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }
+
+    // Transition mip 0 to SHADER_READ_ONLY so the prefilter can sample the unfiltered cubemap
+    // while writing to higher mips (which stay GENERAL).
+    // Actually — the prefilter samples via samplerCube which needs SHADER_READ_ONLY,
+    // but writes to per-mip storage views which need GENERAL. Since all mips are already
+    // GENERAL, and the cubemap sampler reads from mip 0 while writing to other mips,
+    // we can keep everything in GENERAL — the driver handles coherency via the barrier above.
+
+    // Write prefilter descriptor sets (one per mip level)
+    for (uint32_t mip = 0; mip < HDRI_MIP_LEVELS; ++mip) {
+        VkDescriptorImageInfo src_info{};
+        src_info.sampler = hdri_cubemap_sampler_;
+        src_info.imageView = hdri_cubemap_view_;
+        src_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        VkDescriptorImageInfo dst_info{};
+        dst_info.imageView = hdri_mip_views_[mip];
+        dst_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        VkWriteDescriptorSet writes[2]{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = prefilter_sets_[mip];
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writes[0].descriptorCount = 1;
+        writes[0].pImageInfo = &src_info;
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = prefilter_sets_[mip];
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        writes[1].descriptorCount = 1;
+        writes[1].pImageInfo = &dst_info;
+        vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+    }
+
+    // Dispatch prefilter for each mip level
+    struct PrefilterPush { uint32_t face_size; float roughness; uint32_t sample_count; };
+
+    // Skip mip 0 — equirect conversion already wrote unfiltered data there.
+    // Prefiltering mip 0 would read+write the same subresource (undefined behavior).
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prefilter_pipeline_);
+    for (uint32_t mip = 1; mip < HDRI_MIP_LEVELS; ++mip) {
+        uint32_t mip_size = std::max(HDRI_CUBEMAP_SIZE >> mip, 1u);
+        float roughness = static_cast<float>(mip) / static_cast<float>(HDRI_MIP_LEVELS - 1);
+        uint32_t samples = std::min(1024u, 64u * mip);
+
+        PrefilterPush push{mip_size, roughness, samples};
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prefilter_pipeline_layout_,
+                                0, 1, &prefilter_sets_[mip], 0, nullptr);
+        vkCmdPushConstants(cmd, prefilter_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(push), &push);
+
+        uint32_t g = (mip_size + 7) / 8;
+        vkCmdDispatch(cmd, g, g, 6);
+
+        // Barrier between mip levels
+        if (mip + 1 < HDRI_MIP_LEVELS) {
+            VkMemoryBarrier2 b{};
+            b.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+            b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+            VkDependencyInfo dep{};
+            dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dep.memoryBarrierCount = 1;
+            dep.pMemoryBarriers = &b;
+            vkCmdPipelineBarrier2(cmd, &dep);
+        }
+    }
+
+    // Final transition: all mips to SHADER_READ_ONLY_OPTIMAL
+    {
+        VkImageMemoryBarrier2 b{};
+        b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+        b.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        b.image = hdri_cubemap_image_;
+        b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, HDRI_MIP_LEVELS, 0, 6};
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &b;
+        vkCmdPipelineBarrier2(cmd, &dep);
+    }
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(queue_);
+    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
+
+    // Clean up staging
+    vmaDestroyBuffer(allocator_, staging_buf, staging_mem);
+
+    FJELL_GFX_INFO("HDRI cubemap created: {}x{}, {} mips, prefiltered", HDRI_CUBEMAP_SIZE, HDRI_CUBEMAP_SIZE, HDRI_MIP_LEVELS);
 }
 
 } // namespace fjell

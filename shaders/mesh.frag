@@ -190,7 +190,7 @@ void main() {
 
     // IBL specular
     vec3 R = reflect(-V, N);
-    vec3 prefiltered = textureLod(sky_cubemap, R, roughness * 6.0).rgb;
+    vec3 prefiltered = textureLod(sky_cubemap, R, roughness * 9.0).rgb;
     vec2 env_brdf = texture(brdf_lut, vec2(NdotV, roughness)).rg;
     vec3 specular_ibl = prefiltered * (F_ibl * env_brdf.x + env_brdf.y);
 
