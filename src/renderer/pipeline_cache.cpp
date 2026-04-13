@@ -538,6 +538,10 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
     pipeline_ci.pInputAssemblyState = &input_assembly;
     pipeline_ci.layout = layout_;
 
+    // Disable backface culling for skinned meshes — bone transforms at
+    // joints can flip triangle winding, causing holes in the mesh.
+    rasterizer.cullMode = VK_CULL_MODE_NONE;
+
     if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.skinned_opaque) != VK_SUCCESS) {
         vkDestroyShaderModule(vk, skinned_vert_module, nullptr);
         vkDestroyShaderModule(vk, vert_module, nullptr);
