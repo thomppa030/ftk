@@ -128,7 +128,7 @@ void main() {
     vec4 mr_sample = texture(textures[nonuniformEXT(metallic_roughness_idx)], uv);
     float metallic = mr_sample.b * metallic_factor;
     float roughness = mr_sample.g * roughness_factor;
-    roughness = clamp(roughness, 0.04, 1.0);
+    roughness = clamp(roughness, 0.089, 1.0);
 
     // Normal
     float normal_len = length(frag_world_normal);
@@ -150,6 +150,9 @@ void main() {
     } else {
         N = normalize(frag_world_normal);
     }
+
+    // Specular antialiasing
+    roughness = specular_aa_roughness(N, frag_world_pos, roughness);
 
     // Emissive
     vec3 emissive = texture(textures[nonuniformEXT(emissive_idx)], uv).rgb;

@@ -182,6 +182,9 @@ void main() {
 /*FJSL_USER_CODE*/
     }
 
+    // Specular antialiasing: widen roughness where normals vary across the pixel
+    ROUGHNESS = specular_aa_roughness(NORMAL, WORLD_POS, max(ROUGHNESS, 0.089));
+
     // ── PBR lighting (same as mesh.frag) ──
     float normal_len = length(frag_world_normal);
     if (normal_len < 0.001) {
