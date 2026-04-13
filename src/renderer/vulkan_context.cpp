@@ -583,8 +583,14 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
         point_count += static_cast<uint32_t>(scene->point_lights().size());
         spot_count += static_cast<uint32_t>(scene->spot_lights().size());
     }
-    point_count = std::min(point_count, 1024u);
-    spot_count = std::min(spot_count, 1024u);
+    if (point_count > 1024) {
+        FJELL_GFX_WARN("Point light overflow: {} lights, max 1024 — extras ignored", point_count);
+        point_count = 1024;
+    }
+    if (spot_count > 1024) {
+        FJELL_GFX_WARN("Spot light overflow: {} lights, max 1024 — extras ignored", spot_count);
+        spot_count = 1024;
+    }
 
     ubo.light_direction = glm::vec4(glm::normalize(-dir_light.direction), dir_light.intensity);
     ubo.light_color = glm::vec4(dir_light.color, 0.0f);
@@ -596,8 +602,8 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     for (uint32_t i = 0; i < ShadowPass::CASCADE_COUNT; ++i) {
         ubo.cascade_vp[i] = matrices[i];
     }
-    float gi_int = (default_pp_ && default_pp_->config().ddgi) ? ddgi_pass().config().gi_intensity : 0.0f;
-    ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], gi_int);
+    ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], 0.0f);
+    ubo.gi_intensity = (default_pp_ && default_pp_->config().ddgi) ? ddgi_pass().config().gi_intensity : 0.0f;
 
     // Forward+ tile info
     uint32_t tiles_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;

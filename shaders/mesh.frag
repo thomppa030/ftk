@@ -22,6 +22,10 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     vec4 cascade_splits;     // xyz = split distances
     uvec4 tile_info;         // x = tiles_x, y = tiles_y, z = point_count, w = spot_count
     mat4 inv_projection;
+    mat4 inv_view_proj;
+    mat4 prev_view_proj;
+    float time;
+    float gi_intensity;
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
@@ -193,9 +197,9 @@ void main() {
     float ibl_intensity = ubo.ambient_color.w; // reuse ambient_intensity for IBL strength
     vec3 ambient = (diffuse_ibl + specular_ibl) * ao * ibl_intensity;
 
-    // DDGI indirect diffuse (gi_intensity packed in cascade_splits.w)
+    // DDGI indirect diffuse
     // Use viewport-relative UV so half-res indirect texture maps correctly
-    float gi_intensity = ubo.cascade_splits.w;
+    float gi_intensity = ubo.gi_intensity;
     vec2 gi_uv = gl_FragCoord.xy / vec2(textureSize(ao_texture, 0) * 2);
     vec3 gi_sample = texture(gi_indirect, gi_uv).rgb;
     vec3 gi_diffuse = gi_sample * kD * albedo * gi_intensity;

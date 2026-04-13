@@ -25,6 +25,7 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     mat4 inv_view_proj;
     mat4 prev_view_proj;
     float time;
+    float gi_intensity;
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
@@ -235,7 +236,7 @@ void main() {
     vec3 ambient = (diffuse_ibl + specular_ibl) * final_ao * ibl_intensity;
 
     // DDGI indirect diffuse
-    float gi_intensity = ubo.cascade_splits.w;
+    float gi_intensity = ubo.gi_intensity;
     vec2 gi_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);
     vec3 gi_sample = texture(gi_indirect, gi_uv).rgb;
     vec3 gi_diffuse = gi_sample * kD_ibl * ALBEDO * gi_intensity;
