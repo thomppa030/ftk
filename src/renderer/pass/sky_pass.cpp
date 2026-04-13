@@ -16,6 +16,7 @@ void SkyPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
             top_color_ = env->sky_top_color;
             bottom_color_ = env->sky_bottom_color;
+            use_hdri_ = !env->hdri_path.empty();
             break;
         }
     }
@@ -169,13 +170,15 @@ void SkyPass::record(const FrameContext& ctx) {
         glm::vec4 bottom;
         float viewport_width;
         float viewport_height;
-        float pad1, pad2;
+        float use_hdri;
+        float pad2;
     } push{
         glm::vec4(top_color_, 1.0f),
         glm::vec4(bottom_color_, 1.0f),
         static_cast<float>(ctx.target->extent().width),
         static_cast<float>(ctx.target->extent().height),
-        0.0f, 0.0f
+        use_hdri_ ? 1.0f : 0.0f,
+        0.0f
     };
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);

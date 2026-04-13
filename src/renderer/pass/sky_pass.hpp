@@ -28,6 +28,7 @@ private:
 
     glm::vec3 top_color_{0.15f, 0.25f, 0.45f};
     glm::vec3 bottom_color_{0.8f, 0.4f, 0.1f};
+    bool use_hdri_{false};
 };
 
 } // namespace fjell
