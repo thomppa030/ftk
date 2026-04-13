@@ -95,6 +95,18 @@ void DistortionPass::destroy() {
     if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
 }
 
+PassSetup DistortionPass::setup() const {
+    return {
+        .name = "distortion",
+        .phase = RenderPhase::Color,
+        .sub_order = 30,
+        .reads = {{"screen_color", ImageUsage::shader_read},
+                  {"depth", ImageUsage::shader_read}},
+        .writes = {{"distortion", ImageUsage::color_attachment},
+                   {"msaa_color", ImageUsage::color_attachment}},
+    };
+}
+
 void DistortionPass::build(FrameGraph& graph, ResourceRegistry& registry,
                            const FrameContext& ctx) {
     // Pass 1: Render distortion particles into distortion buffer
