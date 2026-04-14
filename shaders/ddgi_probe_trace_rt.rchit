@@ -83,8 +83,6 @@ void main() {
     GpuMaterial mat = materials[inst.material_id];
 
     // Fetch triangle indices from global index buffer
-    // first_index is the offset into the global index buffer for this geometry
-    // vertex_offset is added to index values to get global vertex indices
     uint prim = gl_PrimitiveID;
     uint idx_base = inst.first_index + prim * 3;
     uint i0 = index_data[idx_base + 0] + inst.vertex_offset;

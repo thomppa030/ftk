@@ -19,18 +19,25 @@ enum class DdgiBackend : uint8_t {
     ray_traced,
 };
 
+/// DDGI probe grid configuration.
+/// The grid is auto-fitted to the scene SDF bounds once on first frame, then
+/// frozen. Changing grid_position or probe_spacing at runtime invalidates all
+/// accumulated irradiance (probes shift to new world positions). For streaming
+/// or procedural worlds, set bounds before the first frame or use a scrolling
+/// grid (not yet implemented).
 struct DdgiConfig {
-    glm::ivec3 probe_counts{8, 4, 8};
+    glm::ivec3 probe_counts{16, 8, 16};
     glm::vec3 probe_spacing{2.0f};
-    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // centered around origin
-    float hysteresis{0.97f};
+    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // auto-fitted on first frame
+    float hysteresis{0.95f};
     int probe_rays{128};
     int irradiance_side_length{6};
     int visibility_side_length{6};
     float self_shadow_bias{0.3f};
     float max_probe_offset{0.5f};
     float gi_intensity{1.0f};
-    float emissive_gi_boost{1.0f};
+    float emissive_gi_boost{4.0f};
+    float infinite_bounces_mult{0.8f};
     bool half_res_output{true};
 };
 

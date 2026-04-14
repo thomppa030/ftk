@@ -85,16 +85,11 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
             float variance = abs(mean_dist * mean_dist - visibility.y);
             float diff = dist_to_biased - mean_dist;
             float cheb = variance / (variance + diff * diff);
-            cheb = max(cheb * cheb * cheb, 0.0);
+            cheb = max(cheb * cheb, 0.0);
             weight *= max(0.05, cheb);
         }
 
         weight = max(0.000001, weight);
-
-        // Crush tiny weights
-        if (weight < 0.2) {
-            weight *= (weight * weight) * (1.0 / (0.2 * 0.2));
-        }
 
         vec2 irr_uv = get_probe_uv(normal, probe_idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
         vec3 probe_irradiance = textureLod(irradiance_tex, irr_uv, 0).rgb;

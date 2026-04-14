@@ -497,7 +497,9 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         // binding 6: vertex buffer SSBO (for closest-hit normal computation)
         // binding 7: index buffer SSBO (for closest-hit triangle lookup)
         // binding 8: per-instance data SSBO (material_id, first_index, vertex_offset)
-        std::array<VkDescriptorSetLayoutBinding, 9> rt_bindings{};
+        // binding 9:  irradiance atlas (for multi-bounce GI in closest-hit)
+        // binding 10: visibility atlas (for multi-bounce GI in closest-hit)
+        std::array<VkDescriptorSetLayoutBinding, 11> rt_bindings{};
         rt_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
                           VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, nullptr};
         rt_bindings[1] = {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1,
@@ -509,16 +511,20 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         rt_bindings[4] = {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                           VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
         rt_bindings[5] = {5, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
-                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
+                          VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
         rt_bindings[6] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                           VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
         rt_bindings[7] = {7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                           VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
         rt_bindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                           VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+        rt_bindings[9] = {9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+        rt_bindings[10] = {10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                           VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
 
         // Enable UPDATE_AFTER_BIND on bindings updated every frame
-        std::array<VkDescriptorBindingFlags, 9> rt_bind_flags{};
+        std::array<VkDescriptorBindingFlags, 11> rt_bind_flags{};
         rt_bind_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
         rt_bind_flags[8] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // per-instance data
 
@@ -826,18 +832,13 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.vis_tex_h = imgs.vis_height;
     constants.vis_side = config_.visibility_side_length;
 
-    // Temporal amortization: cycle through 4 batches of probes
-    constexpr int BATCH_COUNT = 4;
+    // Update all probes every frame (no temporal batching)
     int total = imgs.total_probes;
-    int batch_index = static_cast<int>(frame_counter_ % BATCH_COUNT);
-    int probes_per_batch = (total + BATCH_COUNT - 1) / BATCH_COUNT;
-    int offset = batch_index * probes_per_batch;
-    int count = std::min(probes_per_batch, total - offset);
-    constants.probe_update_offset = offset;
-    constants.probe_update_count = count;
+    constants.probe_update_offset = 0;
+    constants.probe_update_count = total;
 
     constants.hysteresis = config_.hysteresis;
-    constants.infinite_bounces_mult = 0.0f;
+    constants.infinite_bounces_mult = config_.infinite_bounces_mult;
 
     // Random rotation for ray jitter
     static std::mt19937 rng{42};
@@ -921,7 +922,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
         pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 4u : 3u};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 11u : 9u};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 13u : 9u};
         pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 6u : 5u};
         pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 7u : 3u};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? 1u : 0u};
@@ -1109,8 +1110,19 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                 rt_indices.range = VK_WHOLE_SIZE;
             }
 
-            // Write bindings 0, 2-7 (skip binding 1 = TLAS, updated per-frame)
-            std::array<VkWriteDescriptorSet, 7> rtw{};
+            // Irradiance + visibility atlases for multi-bounce GI in closest-hit
+            VkDescriptorImageInfo rt_irradiance{};
+            rt_irradiance.sampler = linear_sampler_;
+            rt_irradiance.imageView = imgs.irradiance_view;
+            rt_irradiance.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            VkDescriptorImageInfo rt_visibility{};
+            rt_visibility.sampler = linear_sampler_;
+            rt_visibility.imageView = imgs.visibility_view;
+            rt_visibility.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+            // Write bindings 0, 2-10 (skip binding 1 = TLAS, updated per-frame)
+            std::array<VkWriteDescriptorSet, 9> rtw{};
             for (auto& w : rtw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.rt_trace_set; w.descriptorCount = 1; }
             rtw[0].dstBinding = 0; rtw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; rtw[0].pBufferInfo = &rt_ubo;
             rtw[1].dstBinding = 2; rtw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; rtw[1].pImageInfo = &rt_radiance;
@@ -1119,6 +1131,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rtw[4].dstBinding = 5; rtw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[4].pImageInfo = &rt_offset;
             rtw[5].dstBinding = 6; rtw[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[5].pBufferInfo = &rt_verts;
             rtw[6].dstBinding = 7; rtw[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[6].pBufferInfo = &rt_indices;
+            rtw[7].dstBinding = 9; rtw[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[7].pImageInfo = &rt_irradiance;
+            rtw[8].dstBinding = 10; rtw[8].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[8].pImageInfo = &rt_visibility;
 
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rtw.size()), rtw.data(), 0, nullptr);
         }
@@ -1194,6 +1208,14 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+
+    // Irradiance + visibility must be in GENERAL before the trace reads them (multi-bounce)
+    if (is_first_frame_) {
+        barrier_image(imgs.irradiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                      0, VK_ACCESS_2_SHADER_READ_BIT);
+        barrier_image(imgs.visibility_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+                      0, VK_ACCESS_2_SHADER_READ_BIT);
+    }
 
     // ── 2. Build TLAS + dispatch trace (RT or SDF) ──
     // Build TLAS if RT backend is active (BLAS building done in prepare_accel_structures)
@@ -1301,8 +1323,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         device_->cmd_trace_rays_fn()(ctx.cmd,
                                      &sbt_raygen_, &sbt_miss_, &sbt_hit_, &sbt_callable_,
                                      width, height, 1);
-    } else {
-        // SDF fallback trace
+    } else if (backend_ == DdgiBackend::sdf_fallback) {
+        // SDF fallback trace (only when explicitly configured for SDF)
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                                 trace_pipeline_layout_, 0, 1, &imgs.trace_set, 0, nullptr);
@@ -1312,8 +1334,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         push.light_intensity = light_intensity_;
         push.light_color = light_color_;
         push.sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION);
-        push.sdf_volume_min = glm::vec3(-10.0f);
-        push.sdf_volume_max = glm::vec3(10.0f);
+        push.sdf_volume_min = config_.grid_position;
+        push.sdf_volume_max = config_.grid_position + glm::vec3(config_.probe_counts - glm::ivec3(1)) * config_.probe_spacing;
 
         vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,
                            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
@@ -1321,6 +1343,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         uint32_t groups_x = (static_cast<uint32_t>(config_.probe_rays) + 31) / 32;
         uint32_t groups_y = static_cast<uint32_t>(constants->probe_update_count);
         vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
+    } else {
+        // RT backend but TLAS not ready — skip trace this frame, keep previous radiance
+        frame_counter_++;
+        return;
     }
 
     // ── 3. Barrier: radiance write → read ──
@@ -1407,8 +1433,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
 
-    // ── 11. Update per-frame sample set descriptors (depth + normal change with viewport) ──
-    {
+    // ── 11. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
+    if (!is_first_frame_) {
+        // Update per-frame sample set descriptors (depth + normal change with viewport)
         VkDescriptorImageInfo s_depth{};
         s_depth.sampler = linear_sampler_;
         s_depth.imageView = ctx.target->depth_view();
@@ -1425,18 +1452,17 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         sw[1].dstBinding = 2; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_normal;
 
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
-    }
 
-    // ── 12. Dispatch fullscreen sampling ──
-    uint32_t half_res_val = config_.half_res_output ? 1u : 0u;
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sample_pipeline_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            sample_pipeline_layout_, 0, 1, &imgs.sample_set, 0, nullptr);
-    vkCmdPushConstants(ctx.cmd, sample_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(uint32_t), &half_res_val);
-    vkCmdDispatch(ctx.cmd,
-                  (imgs.indirect_extent.width + 7) / 8,
-                  (imgs.indirect_extent.height + 7) / 8, 1);
+        uint32_t half_res_val = config_.half_res_output ? 1u : 0u;
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sample_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                sample_pipeline_layout_, 0, 1, &imgs.sample_set, 0, nullptr);
+        vkCmdPushConstants(ctx.cmd, sample_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(uint32_t), &half_res_val);
+        vkCmdDispatch(ctx.cmd,
+                      (imgs.indirect_extent.width + 7) / 8,
+                      (imgs.indirect_extent.height + 7) / 8, 1);
+    }
 
     // ── 12. Barrier: indirect image → shader read for fragment sampling ──
     barrier_image(imgs.indirect_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
