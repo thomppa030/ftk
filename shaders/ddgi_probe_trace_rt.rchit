@@ -122,19 +122,6 @@ void main() {
         albedo *= textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0).rgb;
     }
 
-    // Emission: base_params[9..11] stores pre-computed emission color/strength
-    vec3 emission_factor = vec3(mat.base_params[9], mat.base_params[10], mat.base_params[11]);
-    vec3 emission = emission_factor;
-
-    // If there's an emissive texture AND emission factor, modulate
-    uint emissive_tex = mat.texture_indices[3];
-    if (emissive_tex > 0 && length(emission_factor) > 0.0) {
-        vec3 emissive_sample = textureLod(textures[nonuniformEXT(emissive_tex)], uv, 2.0).rgb;
-        if (length(emissive_sample) > 0.01) {
-            emission = emissive_sample * emission_factor;
-        }
-    }
-
     // Direct lighting from directional light
     float NdotL = max(dot(N, light_direction), 0.0);
     vec3 radiance = albedo * light_color * light_intensity * NdotL;
@@ -142,12 +129,7 @@ void main() {
     // Sky ambient
     radiance += albedo * 0.15;
 
-    // Emissive surfaces: emission replaces PBR for probe radiance.
-    // Boosted to compensate for small solid angle in probe hemisphere.
-    if (length(emission) > 0.0) {
-        radiance = emission * emissive_gi_boost;
-    }
-
+    // Emissive GI is handled exclusively by the SS-GI pass.
 
     payload = vec4(radiance, hit_t);
 }

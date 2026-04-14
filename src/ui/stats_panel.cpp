@@ -113,9 +113,15 @@ void StatsPanel::draw(float dt, const char* title) {
             if (ImGui::Checkbox("Bloom", &bloom_on)) bloom.set_enabled(bloom_on);
 
             auto& ddgi_cfg = ctx_->ddgi_pass().config();
-            ImGui::SliderFloat("GI Intensity", &ddgi_cfg.gi_intensity, 0.0f, 2.0f);
-            ImGui::SliderFloat("Emissive GI Boost", &ddgi_cfg.emissive_gi_boost, 1.0f, 30.0f);
-            ImGui::SliderFloat("GI Bounces", &ddgi_cfg.infinite_bounces_mult, 0.0f, 3.0f);
+            bool ddgi_on = ddgi_cfg.gi_intensity > 0.0f;
+            if (ImGui::Checkbox("DDGI", &ddgi_on)) {
+                ddgi_cfg.gi_intensity = ddgi_on ? 1.0f : 0.0f;
+            }
+            if (ddgi_on) {
+                ImGui::SliderFloat("GI Intensity", &ddgi_cfg.gi_intensity, 0.01f, 2.0f);
+                ImGui::SliderFloat("Emissive GI Boost", &ddgi_cfg.emissive_gi_boost, 1.0f, 30.0f);
+                ImGui::SliderFloat("GI Bounces", &ddgi_cfg.infinite_bounces_mult, 0.0f, 3.0f);
+            }
 
             auto& ss_gi_cfg = ctx_->ss_gi_pass().config();
             bool ss_gi_on = ss_gi_cfg.enabled;
