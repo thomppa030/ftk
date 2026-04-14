@@ -13,4 +13,10 @@ static constexpr uint32_t MAX_TILES = 16384;
 static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
 static constexpr uint32_t MAX_PIPELINE_BINS = 16;
 
+// Local light shadow atlas
+static constexpr uint32_t LOCAL_SHADOW_ATLAS_SIZE = 8192;
+static constexpr uint32_t LOCAL_SHADOW_TILE_SIZE = 1024;
+static constexpr uint32_t MAX_SHADOWED_SPOT_LIGHTS = 8;
+static constexpr uint32_t MAX_SHADOWED_POINT_LIGHTS = 4;
+
 } // namespace fjell

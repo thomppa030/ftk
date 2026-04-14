@@ -262,6 +262,12 @@ void PropertiesPanel::draw() {
                     ImGui::Text("Radius");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::DragFloat("##PLRadius", &pl->radius, 0.5f, 0.1f, 500.0f);
+                    ImGui::Checkbox("Cast Shadows##PL", &pl->cast_shadows);
+                    if (pl->cast_shadows) {
+                        ImGui::Text("Shadow Bias");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::DragFloat("##PLShadowBias", &pl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f");
+                    }
                 }
             }
             if (auto* sl = dynamic_cast<SpotLightNode*>(obj)) {
@@ -285,6 +291,12 @@ void PropertiesPanel::draw() {
                     ImGui::Text("Outer Angle");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::DragFloat("##SLOuter", &sl->outer_angle, 0.5f, 0.0f, 90.0f);
+                    ImGui::Checkbox("Cast Shadows##SL", &sl->cast_shadows);
+                    if (sl->cast_shadows) {
+                        ImGui::Text("Shadow Bias");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::DragFloat("##SLShadowBias", &sl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f");
+                    }
                 }
             }
 

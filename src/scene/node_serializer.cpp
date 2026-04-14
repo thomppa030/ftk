@@ -106,7 +106,9 @@ nlohmann::json serialize_node(const Node& node) {
         j["light"] = {
             {"color", {pl->color.x, pl->color.y, pl->color.z}},
             {"intensity", pl->intensity},
-            {"radius", pl->radius}
+            {"radius", pl->radius},
+            {"cast_shadows", pl->cast_shadows},
+            {"shadow_bias", pl->shadow_bias}
         };
     } else if (auto* sl = dynamic_cast<const SpotLightNode*>(&node)) {
         j["node_type"] = "spot_light";
@@ -116,7 +118,9 @@ nlohmann::json serialize_node(const Node& node) {
             {"intensity", sl->intensity},
             {"radius", sl->radius},
             {"inner_angle", sl->inner_angle},
-            {"outer_angle", sl->outer_angle}
+            {"outer_angle", sl->outer_angle},
+            {"cast_shadows", sl->cast_shadows},
+            {"shadow_bias", sl->shadow_bias}
         };
     } else if (auto* vf = dynamic_cast<const VolumetricFogNode*>(&node)) {
         j["node_type"] = "volumetric_fog";
@@ -280,6 +284,8 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 }
                 pl->intensity = jl.value("intensity", 1.0f);
                 pl->radius = jl.value("radius", 10.0f);
+                pl->cast_shadows = jl.value("cast_shadows", false);
+                pl->shadow_bias = jl.value("shadow_bias", 0.005f);
             }
             node = std::move(pl);
         } else if (node_type == "spot_light") {
@@ -298,6 +304,8 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 sl->radius = jl.value("radius", 10.0f);
                 sl->inner_angle = jl.value("inner_angle", 20.0f);
                 sl->outer_angle = jl.value("outer_angle", 30.0f);
+                sl->cast_shadows = jl.value("cast_shadows", false);
+                sl->shadow_bias = jl.value("shadow_bias", 0.002f);
             }
             node = std::move(sl);
         } else if (node_type == "volumetric_fog") {

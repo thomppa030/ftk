@@ -675,11 +675,17 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     FJELL_PROFILE_SCOPE_N("update_light_ssbo");
     if (!scene) return;
 
-    // Build lookup from spot light index → shadow tile
+    // Build lookup from light index → shadow tile/block
     const auto& spot_tiles = local_shadow_pass().spot_tiles();
     std::unordered_map<uint32_t, const ShadowTile*> spot_shadow_map;
     for (const auto& tile : spot_tiles) {
         spot_shadow_map[tile.light_index] = &tile;
+    }
+
+    const auto& point_blocks = local_shadow_pass().point_blocks();
+    std::unordered_map<uint32_t, const LocalShadowPass::PointShadowBlock*> point_shadow_map;
+    for (const auto& block : point_blocks) {
+        point_shadow_map[block.light_index] = &block;
     }
 
     auto* dst = static_cast<uint8_t*>(gpu_.light_ssbo(frame_index).mapped());
@@ -694,7 +700,18 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
             glm::vec3 pos = glm::vec3(pl->world_matrix_[3]);
             gpu.position_radius = glm::vec4(pos, pl->radius);
             gpu.color_intensity = glm::vec4(pl->color, pl->intensity);
-            gpu.shadow_info = glm::ivec4(0); // filled by LocalShadowPass if cast_shadows
+            // Fill shadow block data if this point light has shadows assigned
+            auto pit = point_shadow_map.find(point_count);
+            if (pit != point_shadow_map.end()) {
+                const auto* blk = pit->second;
+                gpu.shadow_info = glm::ivec4(
+                    static_cast<int>(blk->x),
+                    static_cast<int>(blk->y),
+                    static_cast<int>(blk->tile_size),
+                    1); // flags: 1 = has shadow
+            } else {
+                gpu.shadow_info = glm::ivec4(0);
+            }
             std::memcpy(dst + point_count * sizeof(GpuPointLight), &gpu, sizeof(GpuPointLight));
             ++point_count;
         } else if (auto* sl = dynamic_cast<const SpotLightNode*>(obj.get())) {
@@ -702,7 +719,9 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
             GpuSpotLight gpu{};
             glm::vec3 pos = glm::vec3(sl->world_matrix_[3]);
             gpu.position_radius = glm::vec4(pos, sl->radius);
-            gpu.direction_inner_cos = glm::vec4(glm::normalize(sl->direction),
+            // Transform direction by world rotation so parenting/rotation works
+            glm::vec3 world_dir = glm::normalize(glm::mat3(sl->world_matrix_) * sl->direction);
+            gpu.direction_inner_cos = glm::vec4(world_dir,
                                                  std::cos(glm::radians(sl->inner_angle)));
             gpu.color_intensity = glm::vec4(sl->color, sl->intensity);
             gpu.outer_cos = std::cos(glm::radians(sl->outer_angle));

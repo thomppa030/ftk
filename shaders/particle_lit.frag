@@ -25,6 +25,7 @@ layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 layout(set = 0, binding = 5) uniform sampler2D ao_texture;
 layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
 layout(set = 0, binding = 7) uniform sampler2D brdf_lut;
+layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
 
 struct GpuPointLight {
     vec4 position_radius;
