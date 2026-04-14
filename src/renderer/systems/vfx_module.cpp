@@ -748,10 +748,9 @@ uint32_t CollisionModule::write_gpu_data(uint8_t* buffer) const {
     write_uint(buffer, 12, static_cast<uint32_t>(source));
     write_float(buffer, 16, restitution);
     write_float(buffer, 20, friction);
-    // SDF volume bounds (hardcoded to match SceneSdfPass defaults for now)
-    write_vec3(buffer, 24, glm::vec3(-10.0f));
+    write_vec3(buffer, 24, sdf_volume_min);
     write_float(buffer, 36, 0.0f);
-    write_vec3(buffer, 40, glm::vec3(10.0f));
+    write_vec3(buffer, 40, sdf_volume_max);
     write_float(buffer, 52, 0.0f);
     return total;
 }

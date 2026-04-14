@@ -373,6 +373,10 @@ struct CollisionModule final : VfxModule {
     float restitution{0.5f};     // bounciness (0-1)
     float friction{0.2f};        // tangential damping (0-1)
 
+    // Set by particle system each frame from SceneSdfPass bounds
+    glm::vec3 sdf_volume_min{-10.0f};
+    glm::vec3 sdf_volume_max{10.0f};
+
     [[nodiscard]] ModuleType type() const override { return ModuleType::collision; }
     [[nodiscard]] const char* name() const override { return "Collision"; }
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;

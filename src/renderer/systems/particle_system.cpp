@@ -2013,6 +2013,15 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
                             byte_offset, module_buf_capacity);
             continue;
         }
+        // Inject current SDF volume bounds into collision modules
+        for (auto& mod : sub.update_modules) {
+            if (mod->type() == ModuleType::collision) {
+                auto& col = static_cast<CollisionModule&>(*mod);
+                col.sdf_volume_min = sdf_volume_min_;
+                col.sdf_volume_max = sdf_volume_max_;
+            }
+        }
+
         uint32_t bytes = sub.write_gpu_modules(module_ptr + byte_offset);
         module_word_offset += bytes / 4;
     }

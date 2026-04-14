@@ -126,6 +126,11 @@ public:
         return mega_particle_buffer_ ? mega_particle_buffer_->handle() : VK_NULL_HANDLE;
     }
 
+    void set_sdf_bounds(const glm::vec3& vol_min, const glm::vec3& vol_max) {
+        sdf_volume_min_ = vol_min;
+        sdf_volume_max_ = vol_max;
+    }
+
 private:
 
     void rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count);
@@ -244,6 +249,9 @@ private:
     float accumulated_time_{0.0f};
     glm::vec3 camera_pos_{0.0f};
     glm::mat4 cached_view_projection_{1.0f};
+
+    glm::vec3 sdf_volume_min_{-10.0f};
+    glm::vec3 sdf_volume_max_{10.0f};
 
 #ifndef NDEBUG
     platform::FileWatcher vfx_watcher_;
