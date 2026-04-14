@@ -91,7 +91,7 @@ void main() {
     vec3 emission = vec3(mat.base_params[9], mat.base_params[10], mat.base_params[11]);
     uint emissive_tex = mat.texture_indices[3];
     if (emissive_tex > 0 && length(emission) > 0.0) {
-        vec3 emissive_sample = textureLod(textures[nonuniformEXT(emissive_tex)], uv, 2.0).rgb;
+        vec3 emissive_sample = textureLod(textures[nonuniformEXT(emissive_tex)], uv, 1.0).rgb;
         if (length(emissive_sample) > 0.01) {
             emission = emissive_sample * emission;
         }

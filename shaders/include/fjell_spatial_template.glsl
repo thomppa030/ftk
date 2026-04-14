@@ -259,9 +259,10 @@ void main() {
     vec3 gi_diffuse = gi_sample * kD_ibl * ALBEDO * ubo.gi_intensity;
     ambient += gi_diffuse * final_ao;
 
-    // SS-GI emissive indirect (emissive color bleeding)
+    // SS-GI emissive indirect (emissive color bleeding — no AO, emissive
+    // sources are local lights that shouldn't be dampened by ambient occlusion)
     vec3 ss_gi_sample = texture(ss_gi_emissive, gi_uv).rgb;
-    ambient += ss_gi_sample * kD_ibl * ALBEDO * ubo.ss_gi_intensity * final_ao;
+    ambient += ss_gi_sample * kD_ibl * ALBEDO * ubo.ss_gi_intensity;
 
     vec3 color = ambient + Lo * mix(final_ao, 1.0, 0.5) + EMISSION;
 

@@ -60,10 +60,16 @@ uint hash_probe(uint x) {
     return x;
 }
 
-vec3 cosine_hemisphere(vec2 xi) {
-    float r = sqrt(xi.x);
+// Extended hemisphere: z ranges from Z_MIN to 1.0
+// Z_MIN < 0 lets rays reach slightly below the surface horizon,
+// catching emissive objects at the same height as the probe.
+const float Z_MIN = -0.3;
+
+vec3 extended_hemisphere(vec2 xi) {
+    float z = mix(Z_MIN, 1.0, xi.x);
+    float r = sqrt(max(0.0, 1.0 - z * z));
     float theta = 2.0 * PI * xi.y;
-    return vec3(r * cos(theta), r * sin(theta), sqrt(max(0.0, 1.0 - xi.x)));
+    return vec3(r * cos(theta), r * sin(theta), z);
 }
 
 mat3 build_tbn(vec3 N) {
@@ -109,15 +115,14 @@ void main() {
 
     mat3 tbn = build_tbn(normal);
 
-    // Fixed decorrelated Halton directions per probe. The hash ensures
-    // nearby probes trace different hemisphere patterns. No per-frame
-    // rotation — with 64 rays the coverage is sufficient, and fixed
-    // directions let temporal accumulation converge without flicker.
+    // Extended hemisphere around the surface normal. Z_MIN = -0.3 lets
+    // rays reach ~17° below the horizon, catching emissive objects at
+    // the same height as the probe without tracing deep into the surface.
     uint probe_id = probe_x + probe_y * probe_count.x;
     uint hashed = hash_probe(probe_id);
     uint seq_index = (hashed + ray_index) & 0xFFFFu;
     vec2 xi = vec2(halton(seq_index + 1u, 2u), halton(seq_index + 1u, 3u));
-    vec3 local_dir = cosine_hemisphere(xi);
+    vec3 local_dir = extended_hemisphere(xi);
     vec3 ray_dir = normalize(tbn * local_dir);
 
     vec3 ray_origin = world_pos + normal * 0.05;
@@ -132,7 +137,7 @@ void main() {
     // that trace more toward geometry to have brighter averages.
     vec3 radiance = vec3(0.0);
     if (payload.w > 0.0) {
-        radiance = min(payload.rgb, vec3(5.0));
+        radiance = min(payload.rgb, vec3(20.0));
     }
 
     imageStore(radiance_out, out_coord, vec4(radiance, 1.0));

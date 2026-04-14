@@ -35,9 +35,9 @@ void main() {
         sum += texelFetch(raw_radiance, texel, 0).rgb;
     }
 
-    // Cosine-weighted hemisphere irradiance: E = π * (1/N) Σ L_i
-    // Scale by π/2 to match DDGI output level.
-    vec3 current = (sum / float(rays_per_probe)) * (PI * 0.5);
+    // Uniform hemisphere irradiance: average radiance scaled by 2π
+    // (uniform hemisphere solid angle) to convert to irradiance.
+    vec3 current = (sum / float(rays_per_probe)) * (2.0 * PI);
 
     // Temporal accumulation: blend with history
     vec3 prev = texelFetch(history, probe_id, 0).rgb;

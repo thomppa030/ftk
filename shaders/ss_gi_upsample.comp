@@ -2,9 +2,9 @@
 
 // ── Screen-Space GI: Bilateral Upsample ───────────────────────────────
 // Upsamples from probe resolution to half-res indirect. Applies a
-// bilateral Gaussian blur across a 5x5 probe neighborhood to smooth
-// probe-to-probe variance, then uses hardware bilinear for sub-probe
-// interpolation. Depth/normal weights prevent bleeding across edges.
+// bilateral Gaussian blur (sigma=3, 11x11 kernel) across the probe grid
+// to smooth probe-to-probe variance. Depth and normal weights prevent
+// bleeding across geometric edges.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -22,8 +22,13 @@ layout(push_constant) uniform PushConstants {
 
 #include "include/fjell_common.glsl"
 
+// Gaussian sigma = 3.0 probes — smooth falloff over the kernel
+const float GAUSSIAN_SIGMA = 3.0;
+const int KERNEL_RADIUS = 5;
+
 float spatial_weight(int dx, int dy) {
-    return 1.0;
+    float d2 = float(dx * dx + dy * dy);
+    return exp(-d2 / (2.0 * GAUSSIAN_SIGMA * GAUSSIAN_SIGMA));
 }
 
 void main() {
@@ -49,12 +54,12 @@ void main() {
     vec2 probe_coord = full_pixel / spacing;
     ivec2 center_probe = ivec2(round(probe_coord - 0.5));
 
-    // 7x7 bilateral box blur across probe grid
+    // 11x11 bilateral Gaussian blur across probe grid
     vec3 sum = vec3(0.0);
     float total_weight = 0.0;
 
-    for (int dy = -3; dy <= 3; dy++) {
-        for (int dx = -3; dx <= 3; dx++) {
+    for (int dy = -KERNEL_RADIUS; dy <= KERNEL_RADIUS; dy++) {
+        for (int dx = -KERNEL_RADIUS; dx <= KERNEL_RADIUS; dx++) {
             ivec2 probe_id = center_probe + ivec2(dx, dy);
             if (probe_id.x < 0 || probe_id.y < 0 ||
                 probe_id.x >= int(probe_count.x) || probe_id.y >= int(probe_count.y))

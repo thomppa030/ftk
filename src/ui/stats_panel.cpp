@@ -127,8 +127,8 @@ void StatsPanel::draw(float dt, const char* title) {
             bool ss_gi_on = ss_gi_cfg.enabled;
             if (ImGui::Checkbox("SS-GI", &ss_gi_on)) ss_gi_cfg.enabled = ss_gi_on;
             if (ss_gi_on) {
-                ImGui::SliderFloat("SS-GI Intensity", &ss_gi_cfg.intensity, 0.0f, 3.0f);
-                ImGui::SliderFloat("Max Trace Dist", &ss_gi_cfg.max_trace_dist, 1.0f, 50.0f);
+                ImGui::SliderFloat("SS-GI Intensity", &ss_gi_cfg.intensity, 0.0f, 10.0f);
+                ImGui::SliderFloat("Max Trace Dist", &ss_gi_cfg.max_trace_dist, 1.0f, 100.0f);
                 ImGui::SliderFloat("Hysteresis", &ss_gi_cfg.hysteresis, 0.0f, 1.0f);
             }
 

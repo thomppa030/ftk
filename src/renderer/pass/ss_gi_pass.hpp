@@ -17,7 +17,7 @@ class AccelStructureManager;
 struct SsGiConfig {
     uint32_t probe_spacing{8};    // pixels per probe
     uint32_t rays_per_probe{64};  // hemisphere rays per probe per frame
-    float max_trace_dist{20.0f};  // meters
+    float max_trace_dist{50.0f};  // meters
     float hysteresis{0.90f};      // temporal blend factor (0.9 = 10% new, ~10 frame convergence)
     float intensity{1.0f};
     bool enabled{true};
