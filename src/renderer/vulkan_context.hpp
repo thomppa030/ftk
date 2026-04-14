@@ -20,8 +20,10 @@
 #include "renderer/pass/grid_pass.hpp"
 #include "renderer/gpu/accel_structure.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
+#include "renderer/pass/local_shadow_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
+#include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
@@ -147,7 +149,9 @@ public:
   [[nodiscard]] SsrPass &ssr_pass() { return passes_.get<SsrPass>("ssr"); }
   [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return passes_.get<VolumetricFogPass>("volumetric_fog"); }
   [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }
+  [[nodiscard]] SsGiPass &ss_gi_pass() { return passes_.get<SsGiPass>("ss_gi"); }
   [[nodiscard]] TaaResolvePass &taa_resolve_pass() { return passes_.get<TaaResolvePass>("taa_resolve"); }
+  [[nodiscard]] LocalShadowPass &local_shadow_pass() { return passes_.get<LocalShadowPass>("local_shadows"); }
   void set_ddgi_enabled(bool enabled) { pending_ddgi_toggle_ = enabled; has_pending_ddgi_toggle_ = true; }
   void apply_pending_ddgi_toggle();
   [[nodiscard]] TonemapPass &tonemap_pass() { return passes_.get<TonemapPass>("tonemap"); }

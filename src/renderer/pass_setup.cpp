@@ -8,6 +8,7 @@
 #include "renderer/pass/cull_pass.hpp"
 #include "renderer/pass/cull_viz_pass.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
+#include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
@@ -17,6 +18,7 @@
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
+#include "renderer/pass/local_shadow_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
 #include "renderer/pass/meshlet_cull_pass2.hpp"
@@ -70,6 +72,7 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
 
     // ── Shadow ─────────────────────────────────────────────────────────
     add("shadow", std::make_unique<ShadowPass>());
+    add("local_shadows", std::make_unique<LocalShadowPass>());
 
     // ── Debug / visualization passes ───────────────────────────────────
     add("depth_viz", std::make_unique<DepthVizPass>());
@@ -102,6 +105,7 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("ssr", std::make_unique<SsrPass>());
     add("volumetric_fog", std::make_unique<VolumetricFogPass>());
     add("ddgi", std::make_unique<DdgiPass>());
+    add("ss_gi", std::make_unique<SsGiPass>());
 
     // ── Forward+ lighting ──────────────────────────────────────────────
     add("light_cull", std::make_unique<LightCullPass>());

@@ -30,6 +30,7 @@ layout(set = 0, binding = 0) uniform GlobalUbo {
     float gi_intensity;
     float jitter_x;
     float jitter_y;
+    float ss_gi_intensity;
 } ubo;
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
@@ -40,6 +41,8 @@ layout(set = 0, binding = 4) uniform sampler2D depth_texture;
 layout(set = 0, binding = 8) uniform sampler2D screen_color_texture;
 layout(set = 0, binding = 9) uniform sampler3D scene_sdf;
 layout(set = 0, binding = 10) uniform sampler2D gi_indirect;
+layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
+layout(set = 0, binding = 12) uniform sampler2D ss_gi_emissive;
 
 struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
@@ -250,12 +253,15 @@ void main() {
     float ibl_intensity = ubo.ambient_color.w; // reuse ambient_intensity for IBL strength
     vec3 ambient = (diffuse_ibl + specular_ibl) * final_ao * ibl_intensity;
 
-    // DDGI indirect diffuse
-    float gi_intensity = ubo.gi_intensity;
+    // DDGI indirect diffuse (sun bounce)
     vec2 gi_uv = gl_FragCoord.xy / (vec2(textureSize(ao_texture, 0)) * 2.0);
     vec3 gi_sample = texture(gi_indirect, gi_uv).rgb;
-    vec3 gi_diffuse = gi_sample * kD_ibl * ALBEDO * gi_intensity;
+    vec3 gi_diffuse = gi_sample * kD_ibl * ALBEDO * ubo.gi_intensity;
     ambient += gi_diffuse * final_ao;
+
+    // SS-GI emissive indirect (emissive color bleeding)
+    vec3 ss_gi_sample = texture(ss_gi_emissive, gi_uv).rgb;
+    ambient += ss_gi_sample * kD_ibl * ALBEDO * ubo.ss_gi_intensity * final_ao;
 
     vec3 color = ambient + Lo * mix(final_ao, 1.0, 0.5) + EMISSION;
 

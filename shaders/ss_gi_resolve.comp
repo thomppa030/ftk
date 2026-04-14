@@ -1,0 +1,59 @@
+#version 460
+
+// ── Screen-Space GI: Resolve + Temporal Accumulation ───────────────────
+// Averages per-probe ray radiance, blends with temporal history.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D raw_radiance;    // probe_count.x × (probe_count.y * rays_per_probe)
+layout(set = 0, binding = 1) uniform sampler2D history;         // probe_count.x × probe_count.y (prev frame resolved)
+layout(set = 0, binding = 2) uniform sampler2D depth_tex;
+layout(set = 0, binding = 3) uniform sampler2D normal_tex;
+layout(set = 0, binding = 4) uniform sampler2D prev_depth_tex;
+layout(rgba16f, set = 0, binding = 5) uniform writeonly image2D resolved_out;
+
+layout(push_constant) uniform PushConstants {
+    uvec2 probe_count;
+    uint rays_per_probe;
+    uint frame_index;
+    vec2 resolution;
+    uint probe_spacing;
+    float hysteresis;         // 0.9 = blend 10% new data
+};
+
+#include "include/fjell_common.glsl"
+
+void main() {
+    ivec2 probe_id = ivec2(gl_GlobalInvocationID.xy);
+    if (probe_id.x >= int(probe_count.x) || probe_id.y >= int(probe_count.y)) return;
+
+    // Average all rays for this probe. Every ray contributes — misses
+    // are stored as zero radiance (no indirect from sky/void).
+    vec3 sum = vec3(0.0);
+    for (uint r = 0u; r < rays_per_probe; ++r) {
+        ivec2 texel = ivec2(probe_id.x, probe_id.y * int(rays_per_probe) + int(r));
+        sum += texelFetch(raw_radiance, texel, 0).rgb;
+    }
+
+    // Cosine-weighted hemisphere irradiance: E = π * (1/N) Σ L_i
+    // Scale by π/2 to match DDGI output level.
+    vec3 current = (sum / float(rays_per_probe)) * (PI * 0.5);
+
+    // Temporal accumulation: blend with history
+    vec3 prev = texelFetch(history, probe_id, 0).rgb;
+
+    // Depth-based rejection: disocclusion or startup
+    vec2 probe_uv = (vec2(probe_id) + 0.5) * float(probe_spacing) / resolution;
+    float curr_depth = textureLod(depth_tex, probe_uv, 0).r;
+    float prev_depth_val = textureLod(prev_depth_tex, probe_uv, 0).r;
+
+    float depth_diff = abs(curr_depth - prev_depth_val);
+    float blend = hysteresis;
+    if (depth_diff > 0.01 || frame_index < 2u) {
+        blend = 0.0;
+    }
+
+    vec3 result = mix(current, prev, blend);
+
+    imageStore(resolved_out, probe_id, vec4(result, 1.0));
+}

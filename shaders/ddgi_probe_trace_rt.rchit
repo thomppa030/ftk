@@ -2,6 +2,23 @@
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_nonuniform_qualifier : require
 
+// ── DDGI Constants UBO ─────────────────────────────────────────────────
+
+layout(std140, set = 0, binding = 0) uniform DDGIConstants {
+    vec3 probe_grid_position;  float probe_sphere_scale;
+    vec3 probe_spacing;        float max_probe_offset;
+    vec3 reciprocal_spacing;   float self_shadow_bias;
+    ivec3 probe_counts;        uint debug_options;
+    int irr_tex_w;  int irr_tex_h;  int irr_side;  int probe_rays;
+    int vis_tex_w;  int vis_tex_h;  int vis_side;  int probe_update_offset;
+    int probe_update_count;    float hysteresis;
+    float infinite_bounces_mult; float pad0;
+    mat4 random_rotation;
+    vec3 camera_position;      float pad1;
+    mat4 inv_view_proj;
+    vec2 resolution;           float pad2; float pad3;
+} ddgi;
+
 // ── Push constants (same as rgen) ───────────────────────────────────────
 
 layout(push_constant) uniform PushConstants {
@@ -30,8 +47,6 @@ layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
 
 // ── Vertex + index + instance access (set 0, bindings 6-8) ─────────────
 
-// Vertex layout: position(vec3), color(vec3), tex_coord(vec2), normal(vec3), tangent(vec4)
-// Total: 15 floats = 60 bytes per vertex
 layout(set = 0, binding = 6) readonly buffer VertexBuffer {
     float vertex_data[];
 };
@@ -50,6 +65,14 @@ struct RtInstanceData {
 layout(set = 0, binding = 8) readonly buffer InstanceDataBuffer {
     RtInstanceData rt_instances[];
 };
+
+// ── Probe atlas access for multi-bounce GI (set 0, bindings 5, 9, 10) ──
+
+layout(set = 0, binding = 5) uniform sampler2D probe_offset_tex;
+layout(set = 0, binding = 9) uniform sampler2D irradiance_tex;
+layout(set = 0, binding = 10) uniform sampler2D visibility_tex;
+
+#include "include/fjell_ddgi.glsl"
 
 // ── Closest-hit attributes ──────────────────────────────────────────────
 
@@ -73,6 +96,64 @@ vec3 get_vertex_position(uint vertex_index) {
 vec2 get_vertex_texcoord(uint vertex_index) {
     uint base = vertex_index * FLOATS_PER_VERTEX + TEXCOORD_OFFSET;
     return vec2(vertex_data[base], vertex_data[base + 1]);
+}
+
+// ── Simplified irradiance sampling for multi-bounce ─────────────────────
+
+vec3 sample_probe_irradiance(vec3 world_pos, vec3 normal) {
+    ivec3 base_grid = clamp(
+        ivec3((world_pos - ddgi.probe_grid_position) * ddgi.reciprocal_spacing),
+        ivec3(0), ddgi.probe_counts - ivec3(1));
+    vec3 base_world = vec3(base_grid) * ddgi.probe_spacing + ddgi.probe_grid_position;
+    vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
+
+    vec3 sum_irradiance = vec3(0.0);
+    float sum_weight = 0.0;
+
+    for (int i = 0; i < 8; ++i) {
+        ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
+        ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
+        int probe_idx = probe_grid.x + probe_grid.y * ddgi.probe_counts.x
+                      + probe_grid.z * ddgi.probe_counts.x * ddgi.probe_counts.y;
+
+        vec3 probe_pos = vec3(probe_grid) * ddgi.probe_spacing + ddgi.probe_grid_position;
+        // Apply probe offset
+        int pxy = ddgi.probe_counts.x * ddgi.probe_counts.y;
+        ivec2 offset_coord = ivec2(probe_idx % pxy, probe_idx / pxy);
+        probe_pos += texelFetch(probe_offset_tex, offset_coord, 0).rgb;
+
+        vec3 trilinear = mix(1.0 - alpha, alpha, offset);
+        float weight = trilinear.x * trilinear.y * trilinear.z + 0.001;
+
+        // Backface weight
+        vec3 dir_to_probe = normalize(probe_pos - world_pos);
+        float backface = (dot(dir_to_probe, normal) + 1.0) * 0.5;
+        weight *= backface * backface + 0.2;
+
+        // Chebyshev visibility
+        vec3 probe_to_surface = world_pos - probe_pos;
+        float dist = length(probe_to_surface);
+        vec3 dir = probe_to_surface / max(dist, 0.001);
+
+        vec2 vis_uv = get_probe_uv(dir, probe_idx, ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side);
+        vec2 visibility = textureLod(visibility_tex, vis_uv, 0).rg;
+
+        if (dist > visibility.x) {
+            float variance = abs(visibility.x * visibility.x - visibility.y);
+            float diff = dist - visibility.x;
+            float cheb = variance / (variance + diff * diff);
+            weight *= max(0.05, cheb * cheb * cheb);
+        }
+
+        vec2 irr_uv = get_probe_uv(normal, probe_idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
+        vec3 probe_irradiance = textureLod(irradiance_tex, irr_uv, 0).rgb;
+
+        sum_irradiance += weight * probe_irradiance;
+        sum_weight += weight;
+    }
+
+    if (sum_weight < 0.0001) return vec3(0.0);
+    return 0.5 * PI * (sum_irradiance / sum_weight) * 0.95;
 }
 
 void main() {
@@ -142,12 +223,15 @@ void main() {
     // Sky ambient
     radiance += albedo * 0.15;
 
-    // Emissive surfaces: emission replaces PBR for probe radiance.
-    // Boosted to compensate for small solid angle in probe hemisphere.
-    if (length(emission) > 0.0) {
-        radiance = emission * emissive_gi_boost;
+    // Multi-bounce GI: sample previous frame's irradiance at hit point
+    if (ddgi.infinite_bounces_mult > 0.0) {
+        vec3 hit_pos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * hit_t;
+        vec3 indirect = sample_probe_irradiance(hit_pos, N);
+        radiance += albedo * indirect * ddgi.infinite_bounces_mult;
     }
 
+    // Emissive GI is handled by the SS-GI pass which provides smooth,
+    // per-pixel emissive color bleeding without probe grid stepping.
 
     payload = vec4(radiance, hit_t);
 }

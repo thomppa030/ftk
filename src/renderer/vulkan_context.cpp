@@ -67,6 +67,7 @@ VulkanContext::VulkanContext(Window& window)
             gpu_.command_pool(), gpu_.graphics_queue());
         accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
         ddgi_pass().set_accel_manager(accel_manager_.get());
+        ss_gi_pass().set_accel_manager(accel_manager_.get());
     }
 
     // Create render subsystems
@@ -114,8 +115,9 @@ VulkanContext::VulkanContext(Window& window)
     default_config.ssr = true;
     default_config.volumetric_fog = true;
     default_config.ddgi = true;
+    default_config.ss_gi = true;
     default_config.taa = true;
-    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), bloom_pass(), ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), taa_resolve_pass()};
+    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), bloom_pass(), ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass()};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
@@ -413,6 +415,9 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         gb.write_image(current_frame_, "gi_indirect",
             gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.write_image(current_frame_, "ss_gi_emissive",
+            gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         gb.flush_writes();
     }
 
@@ -629,13 +634,27 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.camera_position = glm::vec4(camera_position, 0.0f);
     ubo.ambient_color = glm::vec4(dir_light.ambient_color, dir_light.ambient_intensity * ibl_intensity_);
 
+    // Forward sun data to SS-GI pass for closest-hit direct lighting
+    ss_gi_pass().set_sun_light(dir_light.direction, dir_light.color, dir_light.intensity);
+
     const auto& matrices = shadow_pass().light_matrices();
     const auto& splits = shadow_pass().cascade_splits();
     for (uint32_t i = 0; i < ShadowPass::CASCADE_COUNT; ++i) {
         ubo.cascade_vp[i] = matrices[i];
     }
     ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], 0.0f);
-    ubo.gi_intensity = (default_pp_ && default_pp_->config().ddgi) ? ddgi_pass().config().gi_intensity : 0.0f;
+    // DDGI: sun bounce indirect
+    if (default_pp_ && default_pp_->config().ddgi) {
+        ubo.gi_intensity = ddgi_pass().config().gi_intensity;
+    } else {
+        ubo.gi_intensity = 0.0f;
+    }
+    // SS-GI: emissive color bleeding (supplements DDGI)
+    if (default_pp_ && default_pp_->config().ss_gi && default_pp_->ss_gi() && !default_pp_->ss_gi()->first_frame) {
+        ubo.ss_gi_intensity = ss_gi_pass().config().intensity;
+    } else {
+        ubo.ss_gi_intensity = 0.0f;
+    }
 
     // Forward+ tile info
     uint32_t tiles_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;
@@ -655,6 +674,13 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
 void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
     FJELL_PROFILE_SCOPE_N("update_light_ssbo");
     if (!scene) return;
+
+    // Build lookup from spot light index → shadow tile
+    const auto& spot_tiles = local_shadow_pass().spot_tiles();
+    std::unordered_map<uint32_t, const ShadowTile*> spot_shadow_map;
+    for (const auto& tile : spot_tiles) {
+        spot_shadow_map[tile.light_index] = &tile;
+    }
 
     auto* dst = static_cast<uint8_t*>(gpu_.light_ssbo(frame_index).mapped());
     uint32_t point_count = 0;
@@ -680,10 +706,20 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
                                                  std::cos(glm::radians(sl->inner_angle)));
             gpu.color_intensity = glm::vec4(sl->color, sl->intensity);
             gpu.outer_cos = std::cos(glm::radians(sl->outer_angle));
-            gpu.shadow_atlas_x = 0;
-            gpu.shadow_atlas_y = 0;
-            gpu.shadow_tile_size = 0; // filled by LocalShadowPass if cast_shadows
-            gpu.shadow_vp = glm::mat4(1.0f);
+            // Fill shadow tile data if this spot light has shadows assigned
+            auto it = spot_shadow_map.find(spot_count);
+            if (it != spot_shadow_map.end()) {
+                const auto* tile = it->second;
+                gpu.shadow_atlas_x = static_cast<int>(tile->x);
+                gpu.shadow_atlas_y = static_cast<int>(tile->y);
+                gpu.shadow_tile_size = static_cast<int>(tile->size);
+                gpu.shadow_vp = tile->light_vp;
+            } else {
+                gpu.shadow_atlas_x = 0;
+                gpu.shadow_atlas_y = 0;
+                gpu.shadow_tile_size = 0;
+                gpu.shadow_vp = glm::mat4(1.0f);
+            }
             auto* spot_dst = dst + 1024 * sizeof(GpuPointLight);
             std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
             ++spot_count;
@@ -949,9 +985,11 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     }
 
 
-    // Update scene SDF — register mesh SDFs and check dirty transforms
+    // Update scene SDF — register mesh SDFs, auto-fit volume, check dirty transforms
     {
         std::vector<GpuSdfInstance> sdf_instances;
+        AABB scene_bounds;
+
         auto gather_sdf = [&](Scene& s) {
             for (const auto& obj : s.objects()) {
                 auto* spatial = obj->as_spatial();
@@ -960,6 +998,12 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                 if (!mesh_comp || !mesh_comp->model) continue;
 
                 auto* model = mesh_comp->model;
+
+                // Expand scene bounds from all mesh objects (not just SDF ones)
+                auto world_aabb = model->local_aabb().transform(spatial->world_matrix_);
+                scene_bounds.expand(world_aabb.min);
+                scene_bounds.expand(world_aabb.max);
+
                 if (!model->has_sdf()) continue;
 
                 scene_sdf_pass().register_model_sdf(*model, reinterpret_cast<uintptr_t>(model));
@@ -989,6 +1033,37 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             gather_sdf(*active_render_scene_);
         }
 
+        // Auto-fit SDF volume and DDGI probe grid to scene bounds.
+        // Snap to integers to avoid per-frame floating-point jitter.
+        if (scene_bounds.valid()) {
+            constexpr float SDF_PADDING = 3.0f;
+            glm::vec3 padded_min = glm::floor(scene_bounds.min - glm::vec3(SDF_PADDING));
+            glm::vec3 padded_max = glm::ceil(scene_bounds.max + glm::vec3(SDF_PADDING));
+
+            // Enforce minimum volume size so sparse scenes still work
+            glm::vec3 extent = padded_max - padded_min;
+            glm::vec3 min_extent(10.0f);
+            if (glm::any(glm::lessThan(extent, min_extent))) {
+                glm::vec3 center = (padded_min + padded_max) * 0.5f;
+                extent = glm::max(extent, min_extent);
+                padded_min = center - extent * 0.5f;
+                padded_max = center + extent * 0.5f;
+            }
+
+            scene_sdf_pass().set_bounds(padded_min, padded_max);
+
+            // Update particle collision SDF bounds
+            if (particle_system_) {
+                particle_system_->set_sdf_bounds(padded_min, padded_max);
+            }
+
+            // Fit DDGI probe grid to the same volume
+            auto& ddgi_cfg = ddgi_pass().config();
+            glm::vec3 spacing = extent / glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1));
+            ddgi_cfg.grid_position = padded_min;
+            ddgi_cfg.probe_spacing = spacing;
+        }
+
         if (scene_sdf_pass().dirty() && !sdf_instances.empty()) {
             pending_sdf_instances_ = std::move(sdf_instances);
         }
@@ -1011,13 +1086,24 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             viewports[0].target->screen_color_view(), tonemap_pass().output_sampler(),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-        // GI indirect: use real view only after DDGI has run at least once
+        // GI indirect: DDGI handles sun bounce indirect
+        VkImageView gi_view = gpu_.gi_fallback_view();
         auto* ddgi_imgs = default_pp_->ddgi();
-        bool ddgi_ready = ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE
-                       && !ddgi_imgs->images_need_init;
+        if (ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE && !ddgi_imgs->images_need_init) {
+            gi_view = ddgi_imgs->indirect_view;
+        }
         gb.write_image(current_frame_, "gi_indirect",
-            ddgi_ready ? ddgi_imgs->indirect_view : gpu_.gi_fallback_view(),
-            gpu_.gi_fallback_sampler(),
+            gi_view, gpu_.gi_fallback_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        // SS-GI emissive: screen-space emissive color bleeding (supplements DDGI)
+        VkImageView ss_gi_view = gpu_.gi_fallback_view();
+        auto* ss_gi_imgs = default_pp_->ss_gi();
+        if (ss_gi_imgs && ss_gi_imgs->indirect_view != VK_NULL_HANDLE && !ss_gi_imgs->first_frame) {
+            ss_gi_view = ss_gi_imgs->indirect_view;
+        }
+        gb.write_image(current_frame_, "ss_gi_emissive",
+            ss_gi_view, gpu_.gi_fallback_sampler(),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         gb.flush_writes();
@@ -1168,7 +1254,7 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
 
     PostProcessResources::PassRefs refs{
         hiz_pass(), gtao_pass(), bloom_pass(),
-        ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), taa_resolve_pass()};
+        ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass()};
 
     auto viewport = std::make_unique<SceneViewport>(
         gpu_.device_ref(), gpu_.device(), gpu_.allocator(),

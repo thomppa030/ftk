@@ -74,6 +74,7 @@ PostProcessResources::~PostProcessResources() {
     fog_images_.destroy(device_, allocator_);
     tonemap_images_.destroy(device_, allocator_);
     ddgi_images_.destroy(device_, allocator_);
+    ss_gi_images_.destroy(device_, allocator_);
     taa_images_.destroy(device_, allocator_);
 }
 
@@ -85,6 +86,7 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
     , bloom_images_(other.bloom_images_), ssr_images_(other.ssr_images_)
     , fog_images_(other.fog_images_), tonemap_images_(other.tonemap_images_)
     , ddgi_images_(std::move(other.ddgi_images_))
+    , ss_gi_images_(std::move(other.ss_gi_images_))
     , taa_images_(other.taa_images_) {
     passes_ = passes_storage_.get();
     other.device_ = VK_NULL_HANDLE;
@@ -95,6 +97,7 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
     other.fog_images_ = {};
     other.tonemap_images_ = {};
     other.ddgi_images_ = {};
+    other.ss_gi_images_ = {};
     other.taa_images_ = {};
 }
 
@@ -108,6 +111,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
             fog_images_.destroy(device_, allocator_);
             tonemap_images_.destroy(device_, allocator_);
             ddgi_images_.destroy(device_, allocator_);
+            ss_gi_images_.destroy(device_, allocator_);
             taa_images_.destroy(device_, allocator_);
         }
         device_ = other.device_;
@@ -122,6 +126,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         fog_images_ = other.fog_images_;
         tonemap_images_ = other.tonemap_images_;
         ddgi_images_ = std::move(other.ddgi_images_);
+        ss_gi_images_ = std::move(other.ss_gi_images_);
         taa_images_ = other.taa_images_;
         other.device_ = VK_NULL_HANDLE;
         other.hiz_images_ = {};
@@ -131,6 +136,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         other.fog_images_ = {};
         other.tonemap_images_ = {};
         other.ddgi_images_ = {};
+        other.ss_gi_images_ = {};
         other.taa_images_ = {};
     }
     return *this;
@@ -190,6 +196,15 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         ddgi_images_.invalidate_imgui_texture();
         ddgi_images_.destroy(device_, allocator_);
     }
+    // SS-GI: deferred creation like DDGI
+    if (config_.ss_gi) {
+        if (ss_gi_images_.indirect_image == VK_NULL_HANDLE) {
+            ss_gi_images_.create(device_, allocator_, passes_->ss_gi.config(), width, height);
+        }
+    } else if (ss_gi_images_.indirect_image != VK_NULL_HANDLE) {
+        ss_gi_images_.invalidate_imgui_texture();
+        ss_gi_images_.destroy(device_, allocator_);
+    }
 }
 
 void PostProcessResources::invalidate_imgui_textures() {
@@ -199,6 +214,7 @@ void PostProcessResources::invalidate_imgui_textures() {
     fog_images_.invalidate_imgui_texture();
     tonemap_images_.invalidate_imgui_texture();
     ddgi_images_.invalidate_imgui_texture();
+    ss_gi_images_.invalidate_imgui_texture();
 }
 
 } // namespace fjell

@@ -340,6 +340,9 @@ void GpuContext::finalize_descriptors() {
         global_bindings_.write_image(i, "gi_indirect",
             gi_fallback_view_, gi_fallback_sampler_,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        global_bindings_.write_image(i, "ss_gi_emissive",
+            gi_fallback_view_, gi_fallback_sampler_,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         global_bindings_.flush_writes();
     }
 

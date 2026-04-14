@@ -114,6 +114,17 @@ void StatsPanel::draw(float dt, const char* title) {
 
             auto& ddgi_cfg = ctx_->ddgi_pass().config();
             ImGui::SliderFloat("GI Intensity", &ddgi_cfg.gi_intensity, 0.0f, 2.0f);
+            ImGui::SliderFloat("Emissive GI Boost", &ddgi_cfg.emissive_gi_boost, 1.0f, 30.0f);
+            ImGui::SliderFloat("GI Bounces", &ddgi_cfg.infinite_bounces_mult, 0.0f, 3.0f);
+
+            auto& ss_gi_cfg = ctx_->ss_gi_pass().config();
+            bool ss_gi_on = ss_gi_cfg.enabled;
+            if (ImGui::Checkbox("SS-GI", &ss_gi_on)) ss_gi_cfg.enabled = ss_gi_on;
+            if (ss_gi_on) {
+                ImGui::SliderFloat("SS-GI Intensity", &ss_gi_cfg.intensity, 0.0f, 3.0f);
+                ImGui::SliderFloat("Max Trace Dist", &ss_gi_cfg.max_trace_dist, 1.0f, 50.0f);
+                ImGui::SliderFloat("Hysteresis", &ss_gi_cfg.hysteresis, 0.0f, 1.0f);
+            }
 
             auto& tonemap = ctx_->tonemap_pass();
             bool auto_exp = tonemap.auto_exposure();

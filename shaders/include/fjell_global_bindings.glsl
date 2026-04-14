@@ -19,6 +19,8 @@
 //   8  screen_color        COMBINED_IMAGE_SAMPLER
 //   9  scene_sdf           COMBINED_IMAGE_SAMPLER
 //   10 gi_indirect         COMBINED_IMAGE_SAMPLER
+//   11 local_shadow_atlas  COMBINED_IMAGE_SAMPLER
+//   12 ss_gi_emissive      COMBINED_IMAGE_SAMPLER
 //
 // To add a new binding:
 //   1. Call gpu_.global_bindings().declare({...}) in C++ before finalize

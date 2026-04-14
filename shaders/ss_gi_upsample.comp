@@ -1,0 +1,90 @@
+#version 460
+
+// ── Screen-Space GI: Bilateral Upsample ───────────────────────────────
+// Upsamples from probe resolution to half-res indirect. Applies a
+// bilateral Gaussian blur across a 5x5 probe neighborhood to smooth
+// probe-to-probe variance, then uses hardware bilinear for sub-probe
+// interpolation. Depth/normal weights prevent bleeding across edges.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D resolved_probes; // probe_count.x × probe_count.y
+layout(set = 0, binding = 1) uniform sampler2D depth_tex;
+layout(set = 0, binding = 2) uniform sampler2D normal_tex;
+layout(rgba16f, set = 0, binding = 3) uniform writeonly image2D indirect_out;
+
+layout(push_constant) uniform PushConstants {
+    uvec2 output_size;       // half-res output dimensions
+    uvec2 probe_count;
+    uint probe_spacing;
+    float pad0;
+};
+
+#include "include/fjell_common.glsl"
+
+float spatial_weight(int dx, int dy) {
+    return 1.0;
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(output_size.x) || pixel.y >= int(output_size.y)) return;
+
+    // Map half-res pixel to full-res
+    vec2 full_pixel = vec2(pixel) * 2.0 + 1.0;
+    vec2 screen_uv = full_pixel / vec2(output_size * 2u);
+
+    // Skip sky
+    float center_depth = textureLod(depth_tex, screen_uv, 0).r;
+    if (center_depth >= 1.0) {
+        imageStore(indirect_out, pixel, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+
+    vec2 center_normal_enc = textureLod(normal_tex, screen_uv, 0).rg;
+    vec3 center_normal = oct_decode(center_normal_enc);
+
+    // Find which probe this pixel is nearest to
+    float spacing = float(probe_spacing);
+    vec2 probe_coord = full_pixel / spacing;
+    ivec2 center_probe = ivec2(round(probe_coord - 0.5));
+
+    // 7x7 bilateral box blur across probe grid
+    vec3 sum = vec3(0.0);
+    float total_weight = 0.0;
+
+    for (int dy = -3; dy <= 3; dy++) {
+        for (int dx = -3; dx <= 3; dx++) {
+            ivec2 probe_id = center_probe + ivec2(dx, dy);
+            if (probe_id.x < 0 || probe_id.y < 0 ||
+                probe_id.x >= int(probe_count.x) || probe_id.y >= int(probe_count.y))
+                continue;
+
+            float g = spatial_weight(dx, dy);
+
+            // Probe center in screen space for bilateral check
+            vec2 probe_pixel = (vec2(probe_id) + 0.5) * spacing;
+            vec2 probe_uv = probe_pixel / vec2(output_size * 2u);
+
+            // Depth similarity
+            float probe_depth = textureLod(depth_tex, probe_uv, 0).r;
+            float depth_diff = abs(center_depth - probe_depth);
+            float depth_threshold = max(0.01, center_depth * 0.05);
+            float depth_w = exp(-depth_diff * depth_diff / (depth_threshold * depth_threshold));
+
+            // Normal similarity
+            vec2 pn_enc = textureLod(normal_tex, probe_uv, 0).rg;
+            vec3 pn = oct_decode(pn_enc);
+            float normal_w = max(0.0, dot(center_normal, pn));
+
+            float w = g * depth_w * normal_w;
+
+            sum += texelFetch(resolved_probes, probe_id, 0).rgb * w;
+            total_weight += w;
+        }
+    }
+
+    vec3 gi = (total_weight > 1e-5) ? sum / total_weight : vec3(0.0);
+
+    imageStore(indirect_out, pixel, vec4(gi, 1.0));
+}

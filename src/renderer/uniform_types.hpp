@@ -24,6 +24,8 @@ struct GlobalUbo {
     float gi_intensity{0.0f};               // DDGI indirect diffuse multiplier
     float jitter_x{0.0f};                   // TAA sub-pixel jitter (halton / resolution)
     float jitter_y{0.0f};
+    float ss_gi_intensity{0.0f};            // SS-GI emissive indirect multiplier
+    float ubo_pad[3]{};                     // pad to 16-byte alignment
 };
 
 struct DirectionalLight {
