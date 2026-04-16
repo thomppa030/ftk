@@ -7,6 +7,7 @@
 #include "renderer/uniform_types.hpp"
 #include "audio/audio_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
+#include "scene/preset_asset.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -89,6 +90,10 @@ public:
     // Input action assets (.fjaction)
     Result<InputActionHandle> load_input_action(const std::string& path);
 
+    // Preset assets (.fjp)
+    Result<PresetAssetHandle> load_preset_asset(const std::string& path);
+
+
     // Generic asset loading by ref_type_name (for inspector picker)
     // Returns raw handle id (0 on failure). Caller must cast to the right Handle type.
     Result<uint32_t> load_asset_by_type(const std::string& type_name, const std::string& path);
@@ -98,6 +103,7 @@ public:
     [[nodiscard]] std::string asset_path_of(AudioAssetHandle handle) const;
     [[nodiscard]] std::string asset_path_of(MaterialHandle handle) const;
     [[nodiscard]] std::string asset_path_of(InputActionHandle handle) const;
+    [[nodiscard]] std::string asset_path_of(PresetAssetHandle handle) const;
 
     [[nodiscard]] Model* get(ModelHandle handle) const;
     [[nodiscard]] SkeletalModel* get(SkeletalModelHandle handle) const;
@@ -106,6 +112,7 @@ public:
     [[nodiscard]] VfxEffect* get(VfxAssetHandle handle) const;
     [[nodiscard]] AudioAsset* get(AudioAssetHandle handle) const;
     [[nodiscard]] InputActionDef* get(InputActionHandle handle) const;
+    [[nodiscard]] struct PresetAsset* get(PresetAssetHandle handle) const;
 
     [[nodiscard]] MaterialHandle find_material(const std::string& name) const;
 
@@ -171,6 +178,7 @@ private:
     Pool<VfxEffect, VfxAssetHandle> vfx_assets_;
     Pool<AudioAsset, AudioAssetHandle> audio_assets_;
     Pool<InputActionDef, InputActionHandle> input_actions_;
+    Pool<PresetAsset, PresetAssetHandle> preset_assets_;
 
     // Maps texture pool slot index → bindless texture index
     std::unordered_map<uint32_t, uint32_t> texture_to_bindless_;

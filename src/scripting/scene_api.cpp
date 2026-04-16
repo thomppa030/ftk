@@ -1,6 +1,8 @@
 #include "fjell/api.h"
 #include "scripting/script_globals.hpp"
 #include "scripting/script_manager.hpp"
+#include "renderer/resources/resource_manager.hpp"
+#include "scene/preset_asset.hpp"
 #include "scene/scene.hpp"
 #include "scene/component_registry.hpp"
 
@@ -91,4 +93,18 @@ extern "C" FJELL_SDK_EXPORT void* fjell_scene_add_component(uint32_t node_id,
     if (!scripts.empty() && scripts.back().instance)
         return scripts.back().instance.get();
     return nullptr;
+}
+
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_preset(uint32_t handle_id,
+                                                              float x, float y, float z,
+                                                              int32_t parent_id) {
+    auto& s = fjell::script_services();
+    if (!s.scene || !s.resources) return 0;
+
+    auto* asset = s.resources->get(fjell::PresetAssetHandle{handle_id});
+    if (!asset) return 0;
+
+    fjell::Transform offset;
+    offset.position = {x, y, z};
+    return asset->preset.instantiate(*s.scene, parent_id, offset);
 }

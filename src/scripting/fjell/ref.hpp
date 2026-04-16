@@ -23,7 +23,8 @@ class Ref {
 public:
     Ref() = default;
 
-    explicit operator bool() const { return data_.handle_id != 0; }
+    [[nodiscard]] bool valid() const { return data_.handle_id != 0; }
+    explicit operator bool() const { return valid(); }
 
     [[nodiscard]] T* get() const {
         if (data_.handle_id == 0) return nullptr;

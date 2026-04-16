@@ -1,6 +1,7 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "core/log.hpp"
 #include "renderer/bindless.hpp"
+#include "scene/preset_asset.hpp"
 #include "scripting/asset_type_registry.hpp"
 
 #include <nlohmann/json.hpp>
@@ -688,6 +689,32 @@ std::string ResourceManager::asset_path_of(MaterialHandle handle) const {
 
 std::string ResourceManager::asset_path_of(InputActionHandle handle) const {
     return input_actions_.path_of(handle);
+}
+
+// ── Preset assets ────────────────────────────────────────────────────────
+
+Result<PresetAssetHandle> ResourceManager::load_preset_asset(const std::string& path) {
+    auto it = preset_assets_.name_to_handle.find(path);
+    if (it != preset_assets_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    auto result = Preset::load(path, *this);
+    if (!result) {
+        return make_error(result.error());
+    }
+
+    auto asset = std::make_unique<PresetAsset>();
+    asset->preset = std::move(*result);
+    return preset_assets_.insert(path, std::move(asset));
+}
+
+PresetAsset* ResourceManager::get(PresetAssetHandle handle) const {
+    return preset_assets_.get(handle);
+}
+
+std::string ResourceManager::asset_path_of(PresetAssetHandle handle) const {
+    return preset_assets_.path_of(handle);
 }
 
 } // namespace fjell

@@ -1,5 +1,6 @@
 #include "scripting/asset_type_registry.hpp"
 #include "renderer/resources/resource_manager.hpp"
+#include "scene/preset_asset.hpp"
 #include "core/base_path.hpp"
 #include "core/project.hpp"
 #include "ui/icon_cache.hpp"
@@ -110,6 +111,26 @@ static const bool reg_input_action = [] {
         },
         .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
             auto r = rm.load_input_action(path);
+            if (!r) return fjell::make_error(r.error());
+            return r->id;
+        },
+    });
+    return true;
+}();
+
+static const bool reg_preset = [] {
+    AssetTypeRegistry::instance().register_type({
+        .type_name = "PresetAsset",
+        .extension = ".fjp",
+        .label     = "Preset",
+        .resolve   = [](ResourceManager& rm, uint32_t id) -> void* {
+            return rm.get(fjell::PresetAssetHandle{id});
+        },
+        .path_of   = [](const ResourceManager& rm, uint32_t id) -> std::string {
+            return rm.asset_path_of(fjell::PresetAssetHandle{id});
+        },
+        .load      = [](ResourceManager& rm, const std::string& path) -> fjell::Result<uint32_t> {
+            auto r = rm.load_preset_asset(path);
             if (!r) return fjell::make_error(r.error());
             return r->id;
         },

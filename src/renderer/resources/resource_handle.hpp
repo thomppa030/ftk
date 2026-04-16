@@ -31,6 +31,7 @@ using AnimationClipHandle = Handle<struct AnimationClipTag>;
 using VfxAssetHandle      = Handle<struct VfxAssetTag>;
 using AudioAssetHandle    = Handle<struct AudioAssetTag>;
 using InputActionHandle   = Handle<struct InputActionTag>;
+using PresetAssetHandle   = Handle<struct PresetAssetTag>;
 
 enum class LoadState : uint8_t {
     Loading,

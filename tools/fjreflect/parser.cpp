@@ -575,7 +575,7 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         out << "extern \"C\" void* fjell_resolve_weak_ref(unsigned, unsigned) { return nullptr; }\n";
         out << "extern \"C\" void fjell_ref_acquire(unsigned) {}\n";
         out << "extern \"C\" void fjell_ref_release(unsigned) {}\n";
-        out << "extern \"C\" void* fjell_ref_resolve(unsigned) { return nullptr; }\n";
+        out << "extern \"C\" void* fjell_ref_resolve(unsigned, unsigned char) { return nullptr; }\n";
         out << "extern \"C\" void fjell_shared_ref_acquire(unsigned) {}\n";
         out << "extern \"C\" void fjell_shared_ref_release(unsigned) {}\n";
         out << "extern \"C\" void* fjell_shared_ref_resolve(unsigned) { return nullptr; }\n";
