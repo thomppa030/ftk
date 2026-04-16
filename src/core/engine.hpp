@@ -41,6 +41,7 @@ class AnimationEditorContext;
 class AnimationSubsystem;
 class AssetLoader;
 class AudioSubsystem;
+class DebugDrawQueue;
 class EditorContext;
 class PhysicsSubsystem;
 class ResourceManager;
@@ -140,6 +141,7 @@ private:
     SpriteAnimSubsystem* sprite_anim_subsystem_{};
     CameraSubsystem*    camera_subsystem_{};
     UiSubsystem*        ui_subsystem_{};
+    std::unique_ptr<DebugDrawQueue> debug_draw_queue_;
 
     // Phase groups (non-owning, built once in constructor)
     std::vector<Subsystem*> play_phase_0_;   // scripts

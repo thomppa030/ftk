@@ -3,6 +3,7 @@
 #include "renderer/gpu/buffer.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/uniform_types.hpp"
+#include "scripting/debug_draw_queue.hpp"
 #include "core/profiler.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/scene.hpp"
@@ -143,7 +144,7 @@ void DebugDraw::generate_frustum(const CameraNode& cam, float aspect) {
 // ── Update ──────────────────────────────────────────────────────────────
 
 void DebugDraw::update(const Scene& scene, uint32_t selected_id,
-                       bool show_colliders) {
+                       bool show_colliders, DebugDrawQueue* script_queue) {
     FJELL_PROFILE_SCOPE_N("debug_draw_update");
     vertices_.clear();
     draw_commands_.clear();
@@ -249,6 +250,47 @@ void DebugDraw::update(const Scene& scene, uint32_t selected_id,
                         {cam->world_matrix_, first, count, {0.9f, 0.8f, 0.3f, 1.0f}});
                 }
             }
+        }
+    }
+
+    // Script-submitted debug primitives
+    if (script_queue) {
+        constexpr float POINT_SIZE = 0.05f;
+
+        for (const auto& p : script_queue->primitives()) {
+            uint32_t first = static_cast<uint32_t>(vertices_.size());
+
+            switch (p.type) {
+                case DebugPrimitive::Type::Line:
+                    add_line(p.a, p.b);
+                    break;
+
+                case DebugPrimitive::Type::Box:
+                    generate_box(p.b); // b = half_extents
+                    break;
+
+                case DebugPrimitive::Type::Sphere:
+                    generate_sphere(p.radius);
+                    break;
+
+                case DebugPrimitive::Type::Point:
+                    // Small 3-axis cross
+                    add_line({-POINT_SIZE, 0, 0}, {POINT_SIZE, 0, 0});
+                    add_line({0, -POINT_SIZE, 0}, {0, POINT_SIZE, 0});
+                    add_line({0, 0, -POINT_SIZE}, {0, 0, POINT_SIZE});
+                    break;
+            }
+
+            uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
+            if (count == 0) continue;
+
+            // For line, model is identity positioned at origin (vertices are world-space).
+            // For box/sphere/point, model translates to center position.
+            glm::mat4 model = glm::translate(glm::mat4(1.0f), p.a);
+            if (p.type == DebugPrimitive::Type::Line) {
+                model = glm::mat4(1.0f); // line vertices are already world-space
+            }
+            draw_commands_.push_back({model, first, count, p.color});
         }
     }
 

@@ -268,10 +268,11 @@ void ScriptManager::unload(Scene& scene) {
 
     serialize_all(scene);
 
-    // Clear input bindings before destroying instances — the lambdas capture
-    // function pointers into the .so and `this` pointers to script instances,
-    // both of which become dangling after unload.
+    // Clear input bindings and timers before destroying instances — the lambdas
+    // capture function pointers into the .so and `this` pointers to script
+    // instances, both of which become dangling after unload.
     fjell_input_clear_connections();
+    timers_.clear();
 
     for (auto& obj : scene.objects()) {
         for (auto& comp : obj->scripts) {
@@ -402,8 +403,8 @@ void ScriptManager::populate_world(const Input& input, const Clock& clock,
                                    PhysicsWorld* physics) {
     world_.input_ = &input;
     world_.physics_ = physics;
-    world_.delta_time = clock.delta_time();
-    world_.elapsed_time = clock.elapsed();
+    world_.delta_time = clock.game_delta_time();
+    world_.elapsed_time = clock.game_elapsed();
 }
 
 // ── Prepare / Update ────────────────────────────────────────────────────
@@ -424,7 +425,7 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
     s_services.manager = this;
     populate_world(input, clock, physics);
 
-    float dt = clock.delta_time();
+    float dt = clock.game_delta_time();
 
     for (auto& obj : scene.objects()) {
         for (auto& comp : obj->scripts) {
@@ -441,6 +442,11 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
                 }
             }
         }
+    }
+
+    // Tick timers only when unpaused (timers freeze during pause)
+    if (dt > 0.0f) {
+        timers_.tick(dt);
     }
 }
 
@@ -483,6 +489,7 @@ void ScriptManager::call_end_play(Scene& scene) {
             }
         }
     }
+    timers_.clear();
 }
 
 // ── GC trace — null WeakRefs pointing at doomed nodes ───────────────────

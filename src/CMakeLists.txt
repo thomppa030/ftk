@@ -187,6 +187,11 @@ add_executable(fjell
     scripting/sprite_anim_api.cpp
     scripting/vfx_api.cpp
     scripting/viewport_api.cpp
+    scripting/timer_manager.cpp
+    scripting/timer_api.cpp
+    scripting/time_api.cpp
+    scripting/debug_draw_queue.cpp
+    scripting/debug_api.cpp
     scripting/scene_api.cpp
     ui/asset_ref_widget.cpp
     ui/console.cpp

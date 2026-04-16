@@ -16,6 +16,7 @@ extern "C" void fjell_input_clear_connections();
 #include "renderer/systems/vfx_subsystem.hpp"
 #include "scripting/script_globals.hpp"
 #include "scripting/script_subsystem.hpp"
+#include "scripting/debug_draw_queue.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
 #include "platform/platform.hpp"
 #include "platform/shared_library.hpp"
@@ -279,6 +280,11 @@ void Engine::init_resources() {
     ss.camera = camera_subsystem_;
     ss.vulkan = vulkan_context_.get();
     ss.input_actions = &input_action_map_;
+    ss.timers = &script_subsystem_->manager().timers();
+    ss.clock = &clock_;
+    debug_draw_queue_ = std::make_unique<DebugDrawQueue>();
+    ss.debug_queue = debug_draw_queue_.get();
+    vulkan_context_->set_debug_draw_queue(debug_draw_queue_.get());
 
     vulkan_context_->set_resource_manager(resource_manager_.get());
     vulkan_context_->set_project(project_mgr_.active());
@@ -1332,7 +1338,7 @@ TickContext Engine::make_frame_context() {
         .scene = scene_,
         .input = input_,
         .clock = clock_,
-        .dt = clock_.delta_time(),
+        .dt = clock_.game_delta_time(),
         .physics = physics_subsystem_->world(),
         .project = project_mgr_.active(),
     };
@@ -1438,6 +1444,10 @@ void Engine::stop_play() {
         .physics = physics_subsystem_->world(),
         .project = project_mgr_.active(),
     };
+
+    // Reset time state before notifying subsystems
+    clock_.set_time_scale(1.0f);
+    clock_.set_paused(false);
 
     fjell_input_clear_connections();
     ui_subsystem_->notify_play_stop(ctx);
@@ -1604,19 +1614,19 @@ void Engine::run() {
         vulkan_context_->set_viewport_offset(scene_context_->viewport_manager().active_viewport_pos());
 
         // Render scene viewports (render-to-texture, must complete before main frame)
-        vulkan_context_->render_scene_viewports(render_scene, clock_.delta_time(),
+        vulkan_context_->render_scene_viewports(render_scene, clock_.game_delta_time(),
                                                  scene_context_->selected_id(),
                                                  light_, thread_pool_);
 
         // Render auxiliary viewports (camera preview) in separate command buffers
         active_context().render_previews(*vulkan_context_, render_scene,
-                                          clock_.delta_time(), light_, thread_pool_);
+                                          clock_.game_delta_time(), light_, thread_pool_);
 
         // Set active editor's render scene for SDF gathering
         vulkan_context_->set_active_render_scene(active_context().render_scene());
 
         // Phase 4: Record commands
-        vulkan_context_->record_frame(requests, light_, render_scene, clock_.delta_time(),
+        vulkan_context_->record_frame(requests, light_, render_scene, clock_.game_delta_time(),
                                        scene_context_->selected_id(), thread_pool_,
                                        active_context().is_playing());
     }

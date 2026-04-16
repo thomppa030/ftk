@@ -2,6 +2,7 @@
 #include "renderer/pass_setup.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vma_image.hpp"
+#include "scripting/debug_draw_queue.hpp"
 #include "animation/animation_system.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
@@ -987,8 +988,12 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     elapsed_time_ += dt;
 
     gpu_.render_stats().reset();
-    if (scene && (show_colliders_ || selected_id != 0)) {
-        debug_draw_->update(*scene, selected_id, show_colliders_);
+    bool has_script_draws = debug_draw_queue_ && !debug_draw_queue_->primitives().empty();
+    if (scene && (show_colliders_ || selected_id != 0 || has_script_draws)) {
+        debug_draw_->update(*scene, selected_id, show_colliders_, debug_draw_queue_);
+    }
+    if (debug_draw_queue_) {
+        debug_draw_queue_->tick(dt);
     }
 
     // Sync render subsystems — may rebuild GPU buffers.

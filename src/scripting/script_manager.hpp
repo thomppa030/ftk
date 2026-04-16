@@ -4,6 +4,7 @@
 #include "scripting/fjell/api.h"
 #include "scripting/fjell/registry.hpp"
 #include "scripting/fjell/world.hpp"
+#include "scripting/timer_manager.hpp"
 #include "platform/shared_library.hpp"
 
 #ifndef NDEBUG
@@ -111,6 +112,8 @@ public:
     [[nodiscard]] bool is_loaded() const { return library_.is_loaded(); }
     [[nodiscard]] static uint32_t hash_type_name(const std::string& name);
 
+    [[nodiscard]] TimerManager& timers() { return timers_; }
+
 #ifndef NDEBUG
     Result<> poll_reload(Scene& scene);
     void watch(const std::filesystem::path& so_path);
@@ -135,6 +138,7 @@ private:
     std::vector<OwnedUiComponentType> ui_type_list_;
 
     World world_{};
+    TimerManager timers_;
 
 #ifndef NDEBUG
     platform::FileWatcher watcher_;

@@ -6,12 +6,15 @@ namespace fjell {
 
 class AudioSubsystem;
 class CameraSubsystem;
+class Clock;
+class DebugDrawQueue;
 class Input;
 class InputActionMap;
 class Project;
 class ResourceManager;
 class Scene;
 class ScriptManager;
+class TimerManager;
 class VfxSubsystem;
 class VulkanContext;
 
@@ -24,6 +27,9 @@ struct ScriptServices {
     CameraSubsystem* camera{};
     VulkanContext* vulkan{};
     InputActionMap* input_actions{};
+    TimerManager* timers{};
+    Clock* clock{};
+    DebugDrawQueue* debug_queue{};
 
     // Per-frame (set by ScriptManager::prepare/update)
     Scene* scene{};

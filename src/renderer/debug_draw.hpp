@@ -11,6 +11,7 @@
 namespace fjell {
 
 class Buffer;
+class DebugDrawQueue;
 class Scene;
 struct CameraNode;
 
@@ -19,7 +20,7 @@ public:
     DebugDraw(VkDevice device, VmaAllocator allocator);
 
     void update(const Scene& scene, uint32_t selected_id = 0,
-                bool show_colliders = true);
+                bool show_colliders = true, DebugDrawQueue* script_queue = nullptr);
     void draw(VkCommandBuffer cmd, VkPipelineLayout layout) const;
 
     [[nodiscard]] bool empty() const { return draw_commands_.empty(); }

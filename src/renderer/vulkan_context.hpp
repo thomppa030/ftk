@@ -229,6 +229,7 @@ public:
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
   void set_resource_manager(ResourceManager* rm) { resource_manager_ = rm; }
   void set_project(const Project* p) { project_ = p; sky_cubemap_pass().set_project(p); }
+  void set_debug_draw_queue(class DebugDrawQueue* q) { debug_draw_queue_ = q; }
 
   // ── Scene Viewports (render-to-texture for materials) ─────────────────
   /// Create a named scene viewport. Returns the bindless index of its output.
@@ -306,6 +307,7 @@ private:
 
   // ── Editor / game state ───────────────────────────────────────────────
   std::unique_ptr<DebugDraw> debug_draw_;
+  DebugDrawQueue* debug_draw_queue_{nullptr};
   OverlayCallback overlay_callback_;
   GameUiCallback game_ui_callback_;
   WorldUiCallback world_ui_callback_;
