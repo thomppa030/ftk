@@ -1,7 +1,7 @@
 #include "scene/component_registry.hpp"
 #include "audio/audio_component.hpp"
 #include "scene/node.hpp"
-#include "ui/inspector_widgets.hpp"
+#include "ui/asset_ref_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -14,10 +14,14 @@ static const bool registered = [] {
         .json_key = "audio",
         .color = {0.55f, 0.70f, 0.85f, 1.0f},
 
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& /*ctx*/) -> bool {
+        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
             auto* au = static_cast<AudioSourceComponent*>(ptr);
             bool changed = false;
-            if (asset_path_field("Clip", "##AudioClip", au->clip_path)) { au->sound_loaded = false; changed = true; }
+            static const std::string audio_exts[] = {".wav", ".ogg", ".mp3", ".fjaudio"};
+            if (asset_ref_field({.label = "Clip", .id = "##AudioClip",
+                                 .extensions = audio_exts, .ctx = &ctx}, au->clip_path)) {
+                au->sound_loaded = false; changed = true;
+            }
             ImGui::Text("Volume"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragFloat("##AudioVolume", &au->volume, 0.01f, 0.0f, 2.0f)) changed = true;
             ImGui::Text("Pitch"); ImGui::SetNextItemWidth(-1);
@@ -61,6 +65,8 @@ static const bool registered = [] {
             au.spatial = j.value("spatial", true);
             au.play_on_start = j.value("play_on_start", false);
         },
+
+        .script_type_name = {},
     });
     return true;
 }();

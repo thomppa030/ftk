@@ -1,5 +1,7 @@
 #include "scripting/script_manager.hpp"
 #include "scripting/script_globals.hpp"
+#include "scripting/asset_type_registry.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "scripting/fjell/component.hpp"
 #include "fjell/api.h"
 #include "animation/anim_notify_registry.hpp"
@@ -7,9 +9,7 @@
 #include "scripting/fjell/ui_registry.hpp"
 #include "scripting/fjell/weak_ref.hpp"
 #include "scripting/fjell/ref.hpp"
-#include "scripting/fjell/shared_ref.hpp"
 #include "scripting/gc_visitor.hpp"
-#include "scripting/ref_count_table.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
 #include "core/string_utils.hpp"
@@ -39,28 +39,6 @@ struct FjellTypeRegistry {
     std::vector<fjell::NotifyTypeInfo> notifies;
 };
 
-// ── Asset type registry (maps ref_type_name → file extension) ───────────
-
-struct AssetTypeInfo {
-    const char* type_name;
-    const char* extension;
-    const char* label;
-};
-
-static constexpr AssetTypeInfo s_asset_types[] = {
-    {"VfxAsset",   ".fjvfx",   "VFX Effect"},
-    {"AudioAsset", ".fjaudio", "Audio Clip"},
-    {"Material",     ".fjmat",     "Material"},
-    {"InputAction",  ".fjaction",  "Input Action"},
-};
-
-static const AssetTypeInfo* find_asset_type(const std::string& ref_type_name) {
-    for (const auto& t : s_asset_types) {
-        if (ref_type_name == t.type_name) return &t;
-    }
-    return nullptr;
-}
-
 // ── Convenience aliases for shared script services ─────────────────────
 
 static auto& s_services = fjell::script_services();
@@ -71,40 +49,22 @@ extern "C" FJELL_SDK_EXPORT void* fjell_resolve_weak_ref(uint32_t id, uint32_t g
     return s_services.scene->find_spatial(id);
 }
 
-// ── Ref<T> resolution and ref counting (called from game .so) ───────────
+// ── Ref<T> resolution (called from game .so) ───────────────────────────
 
-static fjell::RefCountTable s_ref_table;
-
-extern "C" FJELL_SDK_EXPORT void fjell_ref_acquire(uint32_t ref_token) {
-    s_ref_table.acquire(ref_token);
+extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t handle_id, uint8_t asset_type_id) {
+    if (handle_id == 0 || asset_type_id == 0) return nullptr;
+    auto* rm = s_services.resources;
+    if (!rm) return nullptr;
+    auto* entry = fjell::AssetTypeRegistry::instance().find_by_id(asset_type_id);
+    if (!entry || !entry->resolve) return nullptr;
+    return entry->resolve(*rm, handle_id);
 }
 
-extern "C" FJELL_SDK_EXPORT void fjell_ref_release(uint32_t ref_token) {
-    s_ref_table.release(ref_token);
-    // TODO: when count hits zero, queue resource for deferred cleanup
-}
+// ── Legacy stubs (kept so old .so files don't crash on dlopen) ──────────
 
-extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t /*handle_id*/) {
-    // TODO: resolve handle_id through ResourceManager
-    return nullptr;
-}
-
-// ── SharedRef<T> (called from game .so) ─────────────────────────────────
-
-static fjell::RefCountTable s_shared_ref_table;
-
-extern "C" FJELL_SDK_EXPORT void fjell_shared_ref_acquire(uint32_t ref_token) {
-    s_shared_ref_table.acquire(ref_token);
-}
-
-extern "C" FJELL_SDK_EXPORT void fjell_shared_ref_release(uint32_t ref_token) {
-    s_shared_ref_table.release(ref_token);
-}
-
-extern "C" FJELL_SDK_EXPORT void* fjell_shared_ref_resolve(uint32_t /*ref_token*/) {
-    // TODO: resolve through shared object pool
-    return nullptr;
-}
+extern "C" FJELL_SDK_EXPORT void fjell_shared_ref_acquire(uint32_t) {}
+extern "C" FJELL_SDK_EXPORT void fjell_shared_ref_release(uint32_t) {}
+extern "C" FJELL_SDK_EXPORT void* fjell_shared_ref_resolve(uint32_t) { return nullptr; }
 
 // ── GC trace bridge functions (called from generated code in game .so) ──
 
@@ -116,17 +76,8 @@ extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_weak(void* /*visitor*/, void* we
     }
 }
 
-extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_ref(void* /*visitor*/, void* ref_data) {
-    if (s_active_visitor && ref_data) {
-        s_active_visitor->trace_ref(*static_cast<fjell::RefData*>(ref_data));
-    }
-}
-
-extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_shared(void* /*visitor*/, void* shared_ref_data) {
-    if (s_active_visitor && shared_ref_data) {
-        s_active_visitor->trace_shared(*static_cast<fjell::SharedRefData*>(shared_ref_data));
-    }
-}
+extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_ref(void*, void*) {}
+extern "C" FJELL_SDK_EXPORT void fjell_gc_trace_shared(void*, void*) {}
 
 namespace fjell {
 
@@ -651,22 +602,12 @@ void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fie
                 const auto* ref = static_cast<const RefData*>(ptr);
                 std::string path;
                 if (ref->handle_id != 0 && s_services.resources) {
-                    if (f.ref_type_name == "VfxAsset") {
-                        path = s_services.resources->asset_path_of(VfxAssetHandle{ref->handle_id});
-                    } else if (f.ref_type_name == "AudioAsset") {
-                        path = s_services.resources->asset_path_of(AudioAssetHandle{ref->handle_id});
-                    } else if (f.ref_type_name == "Material") {
-                        path = s_services.resources->asset_path_of(MaterialHandle{ref->handle_id});
-                    } else if (f.ref_type_name == "InputAction") {
-                        path = s_services.resources->asset_path_of(InputActionHandle{ref->handle_id});
+                    const auto* entry = AssetTypeRegistry::instance().find_by_name(f.ref_type_name);
+                    if (entry && entry->path_of) {
+                        path = entry->path_of(*s_services.resources, ref->handle_id);
                     }
                 }
                 out[f.name] = {{"asset_path", path}};
-                break;
-            }
-            case FJELL_FIELD_SHARED_REF: {
-                const auto* ref = static_cast<const SharedRefData*>(ptr);
-                out[f.name] = {{"ref_token", ref->ref_token}};
                 break;
             }
             case FJELL_FIELD_WIDGET_PTR:
@@ -745,18 +686,9 @@ void ScriptManager::auto_deserialize_fields(const std::vector<OwnedFieldDesc>& f
                             f.ref_type_name, path);
                         if (result) {
                             ref->handle_id = *result;
+                            auto* at = AssetTypeRegistry::instance().find_by_name(f.ref_type_name);
+                            ref->asset_type_id = at ? at->type_id : 0;
                         }
-                    }
-                }
-                break;
-            }
-            case FJELL_FIELD_SHARED_REF: {
-                auto* ref = static_cast<SharedRefData*>(ptr);
-                auto& j = in[f.name];
-                if (j.is_object()) {
-                    ref->ref_token = j.value("ref_token", uint32_t{0});
-                    if (ref->ref_token != 0) {
-                        s_shared_ref_table.acquire(ref->ref_token);
                     }
                 }
                 break;
@@ -882,66 +814,39 @@ static void draw_fields_inspector(const std::vector<OwnedFieldDesc>& fields, voi
             }
             case FJELL_FIELD_REF: {
                 auto* ref = static_cast<RefData*>(ptr);
-                const auto* asset_type = find_asset_type(f.ref_type_name);
+                const auto* asset_entry = AssetTypeRegistry::instance().find_by_name(f.ref_type_name);
 
-                if (asset_type && s_services.resources) {
+                if (asset_entry && s_services.resources) {
                     // Reverse lookup current path
                     std::string current_path;
-                    if (ref->handle_id != 0) {
-                        if (f.ref_type_name == "VfxAsset") {
-                            current_path = s_services.resources->asset_path_of(VfxAssetHandle{ref->handle_id});
-                        } else if (f.ref_type_name == "AudioAsset") {
-                            current_path = s_services.resources->asset_path_of(AudioAssetHandle{ref->handle_id});
-                        } else if (f.ref_type_name == "Material") {
-                            current_path = s_services.resources->asset_path_of(MaterialHandle{ref->handle_id});
-                        } else if (f.ref_type_name == "InputAction") {
-                            current_path = s_services.resources->asset_path_of(InputActionHandle{ref->handle_id});
-                        }
+                    if (ref->handle_id != 0 && asset_entry->path_of) {
+                        current_path = asset_entry->path_of(*s_services.resources, ref->handle_id);
                     }
 
-                    auto display = current_path.empty()
-                        ? std::string("(none)")
-                        : std::filesystem::path(current_path).filename().string();
-
-                    ImGui::Text("%s", lbl);
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::InputText("##ref_display", display.data(), display.size(),
-                                     ImGuiInputTextFlags_ReadOnly);
-
-                    // Drag-and-drop target (same as AudioSourceComponent clip_path)
-                    if (ImGui::BeginDragDropTarget()) {
-                        if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                            std::string dropped(static_cast<const char*>(payload->Data));
-                            // Only accept files matching the asset type extension
-                            if (dropped.ends_with(asset_type->extension)) {
-                                auto resolved = base_path::resolve_asset(
-                                    dropped, s_services.project);
-                                auto result = s_services.resources->load_asset_by_type(
-                                    f.ref_type_name, resolved);
-                                if (result) {
-                                    ref->handle_id = *result;
-                                } else {
-                                    FJELL_CORE_ERROR("Asset ref: {}", result.error());
-                                }
-                            }
-                        }
-                        ImGui::EndDragDropTarget();
-                    }
-
-                    if (ref->handle_id != 0) {
-                        ImGui::SameLine();
-                        if (ImGui::SmallButton("x")) {
+                    const std::string exts[] = {asset_entry->extension};
+                    InspectorContext sctx{.resource_manager = s_services.resources};
+                    if (asset_ref_field({.label = lbl, .id = "##ref_field",
+                                         .extensions = exts, .ctx = &sctx,
+                                         .asset_type = asset_entry}, current_path)) {
+                        // Path changed — load the asset
+                        if (current_path.empty()) {
                             *ref = {};
+                        } else {
+                            auto resolved = base_path::resolve_asset(
+                                current_path, s_services.project);
+                            auto result = s_services.resources->load_asset_by_type(
+                                f.ref_type_name, resolved);
+                            if (result) {
+                                ref->handle_id = *result;
+                                ref->asset_type_id = asset_entry->type_id;
+                            } else {
+                                FJELL_CORE_ERROR("Asset ref: {}", result.error());
+                            }
                         }
                     }
                 } else {
                     ImGui::Text("%s: handle %u", lbl, ref->handle_id);
                 }
-                break;
-            }
-            case FJELL_FIELD_SHARED_REF: {
-                auto* ref = static_cast<SharedRefData*>(ptr);
-                ImGui::Text("%s: token %u", lbl, ref->ref_token);
                 break;
             }
             case FJELL_FIELD_WIDGET_PTR: {

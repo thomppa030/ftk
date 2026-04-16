@@ -45,6 +45,8 @@ static const bool registered = [] {
                 arr.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
             }
         },
+
+        .script_type_name = {},
     });
     return true;
 }();

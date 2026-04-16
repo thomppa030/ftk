@@ -31,6 +31,13 @@ public:
         return nullptr;
     }
 
+    [[nodiscard]] const ComponentMeta* find_by_script_name(std::string_view name) const {
+        for (const auto& e : entries_) {
+            if (e.meta.script_type_name == name) return &e.meta;
+        }
+        return nullptr;
+    }
+
     template <typename Fn>
     void for_each(const Fn& fn) const {
         for (const auto& e : entries_) {

@@ -1,7 +1,7 @@
 #include "scene/component_registry.hpp"
 #include "renderer/components/sprite_anim_component.hpp"
 #include "scene/node.hpp"
-#include "ui/inspector_widgets.hpp"
+#include "ui/asset_ref_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -17,15 +17,17 @@ static const bool registered = [] {
         .json_key = "sprite_anim",
         .color = {0.40f, 0.75f, 0.60f, 1.0f},
 
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& /*ctx*/) -> bool {
+        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
             auto* sa = static_cast<SpriteAnimComponent*>(ptr);
             bool changed = false;
-            if (asset_path_field("Animset", "##SpriteAnimset", sa->animset_path)) { sa->loaded = false; changed = true; }
+            static const std::string animset_exts[] = {".fjanimset"};
+            static const std::string clip_exts[] = {".fjanim"};
+            if (asset_ref_field({.label = "Animset", .id = "##SpriteAnimset", .extensions = animset_exts, .ctx = &ctx}, sa->animset_path)) { sa->loaded = false; changed = true; }
             ImGui::Separator();
             ImGui::Text("Legacy Animations");
             for (auto& [name, path] : sa->animations) {
                 std::string label = "##SpriteAnim_" + name;
-                if (asset_path_field(name.c_str(), label.c_str(), path)) { sa->loaded = false; changed = true; }
+                if (asset_ref_field({.label = name.c_str(), .id = label.c_str(), .extensions = clip_exts, .ctx = &ctx}, path)) { sa->loaded = false; changed = true; }
             }
             static char new_anim_name[64] = "";
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.4f);
@@ -69,6 +71,10 @@ static const bool registered = [] {
             sa.default_animation = j.value("default", "");
             sa.playback_speed = j.value("playback_speed", 1.0f);
         },
+
+        .script_type_name = "SpriteAnimComponent",
+        .script_get = [](Node& node) -> void* { return node.components.get<SpriteAnimComponent>(); },
+        .script_add = [](Node& node) -> void* { return &node.components.add<SpriteAnimComponent>(); },
     });
     return true;
 }();

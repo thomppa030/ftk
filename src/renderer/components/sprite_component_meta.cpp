@@ -1,7 +1,7 @@
 #include "scene/component_registry.hpp"
 #include "renderer/components/sprite_desc.hpp"
 #include "scene/node.hpp"
-#include "ui/inspector_widgets.hpp"
+#include "ui/asset_ref_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -14,10 +14,11 @@ static const bool registered = [] {
         .json_key = "sprite",
         .color = {0.40f, 0.75f, 0.40f, 1.0f},
 
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& /*ctx*/) -> bool {
+        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
             auto* sp = static_cast<SpriteComponent*>(ptr);
             bool changed = false;
-            if (asset_path_field("Texture", "##SpriteTexture", sp->texture_path)) { sp->texture_loaded = false; changed = true; }
+            static const std::string exts[] = {".png", ".jpg", ".jpeg"};
+            if (asset_ref_field({.label = "Texture", .id = "##SpriteTexture", .extensions = exts, .ctx = &ctx}, sp->texture_path)) { sp->texture_loaded = false; changed = true; }
             ImGui::Text("Tint"); ImGui::SetNextItemWidth(-1);
             if (ImGui::ColorEdit4("##SpriteTint", &sp->tint.r)) changed = true;
             ImGui::Text("Opacity"); ImGui::SetNextItemWidth(-1);
@@ -71,6 +72,10 @@ static const bool registered = [] {
             sp.sort_layer = j.value("sort_layer", 0);
             sp.sort_order = j.value("sort_order", 0);
         },
+
+        .script_type_name = "SpriteComponent",
+        .script_get = [](Node& node) -> void* { return node.components.get<SpriteComponent>(); },
+        .script_add = [](Node& node) -> void* { return &node.components.add<SpriteComponent>(); },
     });
     return true;
 }();

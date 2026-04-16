@@ -1,7 +1,7 @@
 #include "scene/component_registry.hpp"
 #include "core/input_component.hpp"
 #include "scene/node.hpp"
-#include "ui/inspector_widgets.hpp"
+#include "ui/asset_ref_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -15,16 +15,17 @@ static const bool registered = [] {
         .json_key = "input",
         .color = {0.4f, 0.9f, 0.5f, 1.0f},
 
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& /*ctx*/) -> bool {
+        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
             auto* ic = static_cast<InputComponent*>(ptr);
             bool changed = false;
-            if (asset_path_field("Actions Dir", "##InputActionsDir", ic->actions_dir)) changed = true;
+            static const std::string ctx_exts[] = {".fjinput"};
+            if (asset_ref_field({.label = "Actions Dir", .id = "##InputActionsDir", .extensions = {}, .ctx = &ctx}, ic->actions_dir)) changed = true;
             ImGui::Text("Contexts");
             int remove_idx = -1;
             for (int ci = 0; ci < static_cast<int>(ic->context_paths.size()); ++ci) {
                 ImGui::PushID(ci);
                 auto label = "##ctx" + std::to_string(ci);
-                if (asset_path_field("", label.c_str(), ic->context_paths[ci])) changed = true;
+                if (asset_ref_field({.label = "", .id = label.c_str(), .extensions = ctx_exts, .ctx = &ctx}, ic->context_paths[ci])) changed = true;
                 ImGui::SameLine();
                 if (ImGui::SmallButton("X")) remove_idx = ci;
                 ImGui::PopID();
@@ -51,6 +52,8 @@ static const bool registered = [] {
             }
             ic.actions_dir = j.value("actions_dir", "");
         },
+
+        .script_type_name = {},
     });
     return true;
 }();

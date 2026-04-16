@@ -1,6 +1,7 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "core/log.hpp"
 #include "renderer/bindless.hpp"
+#include "scripting/asset_type_registry.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -666,27 +667,11 @@ InputActionDef* ResourceManager::get(InputActionHandle handle) const {
 
 Result<uint32_t> ResourceManager::load_asset_by_type(const std::string& type_name,
                                                       const std::string& path) {
-    if (type_name == "VfxAsset") {
-        auto r = load_vfx_asset(path);
-        if (!r) return make_error(r.error());
-        return r->id;
+    auto* entry = AssetTypeRegistry::instance().find_by_name(type_name);
+    if (!entry || !entry->load) {
+        return make_error("Unknown asset type: " + type_name);
     }
-    if (type_name == "AudioAsset") {
-        auto r = load_audio_asset(path);
-        if (!r) return make_error(r.error());
-        return r->id;
-    }
-    if (type_name == "Material") {
-        auto r = load_material_asset(path);
-        if (!r) return make_error(r.error());
-        return r->id;
-    }
-    if (type_name == "InputAction") {
-        auto r = load_input_action(path);
-        if (!r) return make_error(r.error());
-        return r->id;
-    }
-    return make_error("Unknown asset type: " + type_name);
+    return entry->load(*this, path);
 }
 
 std::string ResourceManager::asset_path_of(VfxAssetHandle handle) const {

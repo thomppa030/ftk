@@ -1,7 +1,7 @@
 #include "scene/component_registry.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "scene/node.hpp"
-#include "ui/inspector_widgets.hpp"
+#include "ui/asset_ref_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -14,10 +14,11 @@ static const bool registered = [] {
         .json_key = "ui_widget",
         .color = {0.3f, 0.85f, 0.75f, 1.0f},
 
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& /*ctx*/) -> bool {
+        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
             auto* wc = static_cast<UiWidgetComponent*>(ptr);
             bool changed = false;
-            if (asset_path_field("Widget", "##UiWidgetPath", wc->widget_path)) changed = true;
+            static const std::string exts[] = {".fjwidget"};
+            if (asset_ref_field({.label = "Widget", .id = "##UiWidgetPath", .extensions = exts, .ctx = &ctx}, wc->widget_path)) changed = true;
             int mode = static_cast<int>(wc->render_mode);
             const char* modes[] = {"Screen Space", "World Space"};
             if (ImGui::Combo("Render Mode", &mode, modes, 2)) { wc->render_mode = static_cast<UiWidgetComponent::RenderMode>(mode); changed = true; }
@@ -60,6 +61,8 @@ static const bool registered = [] {
             if (j.contains("virtual_viewport")) { auto& vv = j["virtual_viewport"]; wc.virtual_viewport = {vv[0].get<float>(), vv[1].get<float>()}; }
             if (j.contains("offset")) { auto& off = j["offset"]; wc.offset = {off[0].get<float>(), off[1].get<float>(), off[2].get<float>()}; }
         },
+
+        .script_type_name = {},
     });
     return true;
 }();

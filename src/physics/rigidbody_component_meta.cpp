@@ -63,6 +63,10 @@ static const bool registered = [] {
             rb.angular_damping = j.value("angular_damping", 0.05f);
             rb.gravity_enabled = j.value("gravity_enabled", true);
         },
+
+        .script_type_name = "RigidbodyComponent",
+        .script_get = [](Node& node) -> void* { return node.components.get<RigidbodyComponent>(); },
+        .script_add = [](Node& node) -> void* { return &node.components.add<RigidbodyComponent>(); },
     });
     return true;
 }();

@@ -1,4 +1,4 @@
-// fjell_ref.hpp — Ref<T> for owning references to engine resources
+// fjell_ref.hpp — Ref<T> for safe access to engine-owned assets
 // Shipped to game projects alongside fjell_api.h.
 
 #pragma once
@@ -6,17 +6,16 @@
 #include "fjell/api.h"
 
 #include <cstdint>
-#include <utility>
 
-extern "C" FJELL_SDK_EXPORT void fjell_ref_acquire(uint32_t ref_token);
-extern "C" FJELL_SDK_EXPORT void fjell_ref_release(uint32_t ref_token);
-extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t handle_id);
+extern "C" FJELL_SDK_EXPORT void* fjell_ref_resolve(uint32_t handle_id, uint8_t asset_type_id);
+extern "C" FJELL_SDK_EXPORT void  fjell_log_error(const char* msg);
 
 namespace fjell {
 
 struct RefData {
     uint32_t handle_id{0};
-    uint32_t ref_token{0};
+    uint8_t  asset_type_id{0};   // set by engine at deserialization/inspector time
+    uint8_t  reserved_[3]{};     // future use, keeps sizeof(RefData) == 8
 };
 
 template <typename T>
@@ -24,48 +23,30 @@ class Ref {
 public:
     Ref() = default;
 
-    ~Ref() {
-        if (data_.ref_token != 0) fjell_ref_release(data_.ref_token);
-    }
-
-    Ref(const Ref& other) : data_(other.data_) {
-        if (data_.ref_token != 0) fjell_ref_acquire(data_.ref_token);
-    }
-
-    Ref& operator=(const Ref& other) {
-        if (this != &other) {
-            if (data_.ref_token != 0) fjell_ref_release(data_.ref_token);
-            data_ = other.data_;
-            if (data_.ref_token != 0) fjell_ref_acquire(data_.ref_token);
-        }
-        return *this;
-    }
-
-    Ref(Ref&& other) noexcept : data_(other.data_) {
-        other.data_ = {};
-    }
-
-    Ref& operator=(Ref&& other) noexcept {
-        if (this != &other) {
-            if (data_.ref_token != 0) fjell_ref_release(data_.ref_token);
-            data_ = other.data_;
-            other.data_ = {};
-        }
-        return *this;
-    }
-
-    explicit operator bool() const { return get() != nullptr; }
+    explicit operator bool() const { return data_.handle_id != 0; }
 
     [[nodiscard]] T* get() const {
         if (data_.handle_id == 0) return nullptr;
-        return static_cast<T*>(fjell_ref_resolve(data_.handle_id));
+        return static_cast<T*>(fjell_ref_resolve(data_.handle_id, data_.asset_type_id));
     }
 
-    T* operator->() const { return get(); }
-    T& operator*() const { return *get(); }
+    T* operator->() const {
+        T* ptr = get();
+        if (!ptr) {
+            fjell_log_error("Ref::operator-> on null ref — assign it in the inspector");
+        }
+        return ptr;
+    }
+
+    T& operator*() const {
+        T* ptr = get();
+        if (!ptr) {
+            fjell_log_error("Ref::operator* on null ref — assign it in the inspector");
+        }
+        return *ptr;
+    }
 
     [[nodiscard]] uint32_t handle_id() const { return data_.handle_id; }
-    [[nodiscard]] uint32_t ref_token() const { return data_.ref_token; }
 
     RefData data_;
 };

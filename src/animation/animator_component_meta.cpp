@@ -1,7 +1,7 @@
 #include "scene/component_registry.hpp"
 #include "animation/animator_component.hpp"
 #include "scene/node.hpp"
-#include "ui/inspector_widgets.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "animation/animation_clip.hpp"
@@ -36,7 +36,9 @@ static const bool registered = [] {
             } else {
                 ImGui::TextDisabled("Skeleton: (no Skeletal Mesh component)");
             }
-            if (asset_path_field("Animation Set", "##AnimAnimset", anim->animset_path)) {
+            static const std::string animset_exts[] = {".fjanimset"};
+            static const std::string clip_exts[] = {".fjanim"};
+            if (asset_ref_field({.label = "Animation Set", .id = "##AnimAnimset", .extensions = animset_exts, .ctx = &ctx}, anim->animset_path)) {
                 if (!anim->animset_path.empty() && ctx.project_mgr) {
                     auto resolved = base_path::resolve_asset(anim->animset_path, ctx.project_mgr->active());
                     if (auto r = anim->load_state_machine(resolved); !r) {
@@ -56,7 +58,7 @@ static const bool registered = [] {
                 ImGui::PushID(static_cast<int>(i));
                 char label[32];
                 std::snprintf(label, sizeof(label), "Clip %zu", i);
-                if (asset_path_field(label, "##ClipPath", anim->clip_paths[i])) {
+                if (asset_ref_field({.label = label, .id = "##ClipPath", .extensions = clip_exts, .ctx = &ctx}, anim->clip_paths[i])) {
                     if (ctx.project_mgr && !anim->clip_paths[i].empty()) {
                         auto resolved = base_path::resolve_asset(anim->clip_paths[i], ctx.project_mgr->active());
                         auto result = AnimationClip::load(resolved);
@@ -131,6 +133,8 @@ static const bool registered = [] {
                 anim.resolve_blend_spaces(base_dir);
             }
         },
+
+        .script_type_name = {},
     });
     return true;
 }();

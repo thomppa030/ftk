@@ -2,12 +2,7 @@
 #include "scripting/script_globals.hpp"
 #include "scripting/script_manager.hpp"
 #include "scene/scene.hpp"
-#include "physics/physics_types.hpp"
-#include "renderer/components/mesh_component.hpp"
-#include "renderer/components/sprite_anim_component.hpp"
-#include "renderer/components/sprite_desc.hpp"
-
-#include <string_view>
+#include "scene/component_registry.hpp"
 
 extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node(const char* name) {
     auto* scene = fjell::script_services().scene;
@@ -50,20 +45,11 @@ extern "C" FJELL_SDK_EXPORT void* fjell_scene_get_component(uint32_t node_id, co
     auto* node = scene->find(node_id);
     if (!node) return nullptr;
 
-    // Engine components
-    std::string_view tn{type_name};
-    if (tn == "RigidbodyComponent")
-        return node->components.get<fjell::RigidbodyComponent>();
-    if (tn == "ColliderComponent")
-        return node->components.get<fjell::ColliderComponent>();
-    if (tn == "CharacterComponent")
-        return node->components.get<fjell::CharacterComponent>();
-    if (tn == "MeshComponent")
-        return node->components.get<fjell::MeshComponent>();
-    if (tn == "SpriteComponent")
-        return node->components.get<fjell::SpriteComponent>();
-    if (tn == "SpriteAnimComponent")
-        return node->components.get<fjell::SpriteAnimComponent>();
+    // Engine components — registry dispatch
+    auto* meta = fjell::ComponentRegistry::instance().find_by_script_name(type_name);
+    if (meta && meta->script_get) {
+        return meta->script_get(*node);
+    }
 
     // Script components
     for (auto& entry : node->scripts) {
@@ -89,16 +75,11 @@ extern "C" FJELL_SDK_EXPORT void* fjell_scene_add_component(uint32_t node_id,
     auto* node = scene->find(node_id);
     if (!node) return nullptr;
 
-    // Engine components
-    std::string_view tn{type_name};
-    if (tn == "RigidbodyComponent")
-        return &node->components.add<fjell::RigidbodyComponent>();
-    if (tn == "ColliderComponent")
-        return &node->components.add<fjell::ColliderComponent>();
-    if (tn == "CharacterComponent")
-        return &node->components.add<fjell::CharacterComponent>();
-    if (tn == "MeshComponent")
-        return &node->components.add<fjell::MeshComponent>();
+    // Engine components — registry dispatch
+    auto* meta = fjell::ComponentRegistry::instance().find_by_script_name(type_name);
+    if (meta && meta->script_add) {
+        return meta->script_add(*node);
+    }
 
     // Script components
     auto* mgr = fjell::script_services().manager;

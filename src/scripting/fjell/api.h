@@ -30,7 +30,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 10
+#define FJELL_API_VERSION 11
 
 // ── Field types for inspector / serialization reflection ────────────────
 
@@ -47,7 +47,6 @@ typedef enum FjellFieldType {
     FJELL_FIELD_ENUM,
     FJELL_FIELD_WEAK_REF,
     FJELL_FIELD_REF,
-    FJELL_FIELD_SHARED_REF,
     FJELL_FIELD_WIDGET_PTR     // [[fj::bind]] WidgetType* — resolved by UiSubsystem
 } FjellFieldType;
 

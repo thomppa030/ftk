@@ -71,6 +71,10 @@ static const bool registered = [] {
             if (j.contains("offset")) { auto& o = j["offset"]; col.offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()}; }
             col.is_trigger = j.value("is_trigger", false);
         },
+
+        .script_type_name = "ColliderComponent",
+        .script_get = [](Node& node) -> void* { return node.components.get<ColliderComponent>(); },
+        .script_add = [](Node& node) -> void* { return &node.components.add<ColliderComponent>(); },
     });
     return true;
 }();

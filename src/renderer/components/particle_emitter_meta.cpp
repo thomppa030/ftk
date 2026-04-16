@@ -8,7 +8,7 @@
 #include "core/project_manager.hpp"
 #include "scene/node.hpp"
 
-#include "ui/inspector_widgets.hpp"
+#include "ui/asset_ref_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -98,7 +98,8 @@ static const bool registered = [] {
         .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
             auto* em = static_cast<EmitterComponent*>(ptr);
             bool changed = false;
-            if (asset_path_field("VFX Effect", "##vfx_path", em->vfx_path)) {
+            static const std::string exts[] = {".fjvfx"};
+            if (asset_ref_field({.label = "VFX Effect", .id = "##vfx_path", .extensions = exts, .ctx = &ctx}, em->vfx_path)) {
                 if (!em->vfx_path.empty() && ctx.resource_manager && ctx.project_mgr) {
                     auto resolved = base_path::resolve_asset(
                         em->vfx_path, ctx.project_mgr->active());
@@ -160,6 +161,8 @@ static const bool registered = [] {
                 em.effect = effect_from_legacy_json(j);
             }
         },
+
+        .script_type_name = {},
     });
     return true;
 }();

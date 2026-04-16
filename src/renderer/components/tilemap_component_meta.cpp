@@ -1,7 +1,7 @@
 #include "scene/component_registry.hpp"
 #include "renderer/components/tilemap_component.hpp"
 #include "scene/node.hpp"
-#include "ui/inspector_widgets.hpp"
+#include "ui/asset_ref_widget.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -14,10 +14,11 @@ static const bool registered = [] {
         .json_key = "tilemap",
         .color = {0.30f, 0.65f, 0.85f, 1.0f},
 
-        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& /*ctx*/) -> bool {
+        .draw = [](Node3D& /*node*/, void* ptr, const InspectorContext& ctx) -> bool {
             auto* tm = static_cast<TilemapComponent*>(ptr);
             bool changed = false;
-            if (asset_path_field("Tileset", "##TilemapTileset", tm->tileset_texture)) { tm->texture_loaded = false; tm->dirty = true; changed = true; }
+            static const std::string exts[] = {".png", ".jpg", ".jpeg"};
+            if (asset_ref_field({.label = "Tileset", .id = "##TilemapTileset", .extensions = exts, .ctx = &ctx}, tm->tileset_texture)) { tm->texture_loaded = false; tm->dirty = true; changed = true; }
             ImGui::Text("Tile Size (px)"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragInt2("##TileTileSize", &tm->tile_size.x, 1, 1, 512)) { tm->dirty = true; changed = true; }
             ImGui::Text("Map Size (tiles)"); ImGui::SetNextItemWidth(-1);
@@ -56,6 +57,8 @@ static const bool registered = [] {
             tm.pixel_art = j.value("pixel_art", true);
             if (j.contains("tiles")) tm.tiles = j["tiles"].get<std::vector<int32_t>>();
         },
+
+        .script_type_name = {},
     });
     return true;
 }();

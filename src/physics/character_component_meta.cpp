@@ -48,6 +48,10 @@ static const bool registered = [] {
             cc.max_slope_angle = j.value("max_slope_angle", 50.0f);
             cc.mass = j.value("mass", 80.0f);
         },
+
+        .script_type_name = "CharacterComponent",
+        .script_get = [](Node& node) -> void* { return node.components.get<CharacterComponent>(); },
+        .script_add = [](Node& node) -> void* { return &node.components.add<CharacterComponent>(); },
     });
     return true;
 }();
