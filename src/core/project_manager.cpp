@@ -33,7 +33,7 @@ void ProjectManager::open(const std::filesystem::path& path) {
 Project ProjectManager::create(const std::filesystem::path& directory,
                                 const std::string& name) {
     auto proj = Project::create(directory, name);
-    project_ = proj;
+    project_ = std::move(proj);
     scan_models();
     scan_scenes();
 

@@ -2,6 +2,7 @@ extern "C" void fjell_input_clear_connections();
 
 #include "core/engine.hpp"
 #include "core/base_path.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "core/input_component.hpp"
 #include "core/commands.hpp"
 #include "core/game_builder.hpp"
@@ -90,6 +91,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     import_dialog_.set_gpu(gpu_core);
     menu_bar_.set_gpu(gpu_core);
     import_file_browser_.set_gpu(gpu_core);
+    asset_file_browser_.set_gpu(gpu_core);
 
     // Icon provider for standalone file browsers (uses IconCache from the editor's context)
     auto icon_provider = [](const FileBrowser::Entry& entry) -> ImTextureID {
@@ -117,6 +119,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
         return icons->icon_for_current_context(name);
     };
     import_file_browser_.set_icon_provider(icon_provider);
+    asset_file_browser_.set_icon_provider(icon_provider);
 
     init_subsystems();
     init_project(project_path);
@@ -452,6 +455,8 @@ void Engine::init_editor() {
             .game_ui = &game_ui_,
             .thread_pool = &thread_pool_,
             .window = &window_,
+            .content_browser = &content_browser_,
+            .file_browser = &asset_file_browser_,
             .game_mode = game_mode_,
             .start_play = [this]() { start_play(); },
             .stop_play = [this]() { stop_play(); },
@@ -1107,6 +1112,16 @@ void Engine::bind_menu_bar() {
             import_dialog_.open(path, output_dir);
         }));
 
+    // Asset reference widget browser → deliver result to pending widget
+    connections_.push_back(asset_file_browser_.on_selected.bind(
+        [this](const std::string& path) {
+            std::string root;
+            if (project_mgr_.active()) {
+                root = project_mgr_.active()->root().string();
+            }
+            asset_ref_browse_accept(path, root);
+        }));
+
     // React to project open/close from any source
     connections_.push_back(project_mgr_.on_opened.bind(
         [this](const std::string& name) {
@@ -1482,6 +1497,7 @@ void Engine::run() {
         window_.poll_events();
         if (import_dialog_.is_open()) import_dialog_.tick();
         if (import_file_browser_.is_open()) import_file_browser_.tick();
+        if (asset_file_browser_.is_open()) asset_file_browser_.tick();
         menu_bar_.tick_browsers();
         clock_.tick();
 

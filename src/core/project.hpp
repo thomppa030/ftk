@@ -1,7 +1,10 @@
 #pragma once
 
+#include "core/asset_database.hpp"
+
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -31,6 +34,8 @@ public:
     [[nodiscard]] const std::filesystem::path& root() const { return root_; }
     [[nodiscard]] const ProjectConfig& config() const { return config_; }
     [[nodiscard]] ProjectConfig& config() { return config_; }
+    [[nodiscard]] AssetDatabase* asset_db() { return asset_db_.get(); }
+    [[nodiscard]] const AssetDatabase* asset_db() const { return asset_db_.get(); }
 
     void save() const;
 
@@ -51,6 +56,7 @@ private:
 
     std::filesystem::path root_;
     ProjectConfig config_;
+    std::unique_ptr<AssetDatabase> asset_db_;
 };
 
 } // namespace fjell

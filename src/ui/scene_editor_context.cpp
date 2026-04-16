@@ -59,7 +59,9 @@ void SceneEditorContext::init() {
                            &deps_.vulkan_context->grid_pass().settings(),
                            deps_.vulkan_context->pipeline_cache(),
                            &deps_.vulkan_context->bindless_textures(),
-                           deps_.resource_manager, deps_.project_mgr);
+                           deps_.resource_manager, deps_.project_mgr,
+                           deps_.content_browser, deps_.file_browser,
+                           deps_.icon_cache);
     node_editor_panel_.init(deps_.scene, &selected_id_);
 
     // Bind context-level delegates

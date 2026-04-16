@@ -17,6 +17,7 @@ inline void colored_separator(const ImVec4& color) {
     ImGui::Dummy({0.0f, 4.0f});
 }
 
+[[deprecated("Use asset_ref_field() from ui/asset_ref_widget.hpp")]]
 inline bool asset_path_field(const char* label, const char* id, std::string& path) {
     bool changed = false;
     char buf[256];

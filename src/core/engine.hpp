@@ -206,6 +206,9 @@ private:
     // In-engine mesh importer
     ImportDialog import_dialog_;
     FileBrowser import_file_browser_;
+
+    // Asset reference widget browser (separate from import browser)
+    FileBrowser asset_file_browser_;
 };
 
 } // namespace fjell

@@ -1,4 +1,5 @@
 #include "core/project.hpp"
+#include "core/asset_database.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 #include "platform/platform.hpp"
@@ -17,11 +18,13 @@ Project Project::create(const std::filesystem::path& directory,
     std::filesystem::create_directories(root / "assets");
     std::filesystem::create_directories(root / "scenes");
     std::filesystem::create_directories(root / "scripts");
+    std::filesystem::create_directories(root / ".fjell");
 
     ProjectConfig config;
     config.name = name;
 
     Project project(root, config);
+    project.asset_db_ = std::make_unique<AssetDatabase>(root);
     project.save();
 
     // Initialise scripting support for the new project
@@ -54,7 +57,23 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
         config.layout = j.value("layout", "");
 
         FJELL_CORE_INFO("Project opened: {} ({})", config.name, root.string());
-        return Project(root, config);
+        auto project = Project(root, config);
+
+        // Initialize asset database
+        project.asset_db_ = std::make_unique<AssetDatabase>(root);
+        if (auto r = project.asset_db_->load(); !r) {
+            FJELL_CORE_WARN("Asset database: {}", r.error());
+        }
+        project.asset_db_->rebuild();
+        if (project.asset_db_->dirty()) {
+            if (auto r = project.asset_db_->save(); !r) {
+                FJELL_CORE_WARN("Asset database save: {}", r.error());
+            } else {
+                FJELL_CORE_INFO("Asset database: {} assets tracked", project.asset_db_->size());
+            }
+        }
+
+        return project;
     } catch (const nlohmann::json::parse_error& e) {
         FJELL_CORE_ERROR("Failed to parse {}: {}", manifest_path.string(), e.what());
         return std::nullopt;

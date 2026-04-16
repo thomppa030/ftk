@@ -115,6 +115,9 @@ private:
 public:
     void refresh_current_dir();
 
+    /// Get the relative path of the currently selected file (empty if none or directory).
+    [[nodiscard]] std::string selected_asset_path() const;
+
     Delegate<void(const std::string&)> on_add_model;
     Delegate<void(const std::string&)> on_load_scene;
     // Hook for opening asset-specific editor contexts (path, file type string)

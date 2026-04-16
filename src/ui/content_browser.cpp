@@ -1209,4 +1209,14 @@ void ContentBrowser::release_preview_texture() {
     preview_height_ = 0;
 }
 
+std::string ContentBrowser::selected_asset_path() const {
+    if (selected_index_ < 0 || selected_index_ >= static_cast<int>(entries_.size())) {
+        return {};
+    }
+    const auto& entry = entries_[selected_index_];
+    if (entry.is_directory) return {};
+    if (root_.empty()) return entry.path.string();
+    return std::filesystem::relative(entry.path, root_).string();
+}
+
 } // namespace fjell

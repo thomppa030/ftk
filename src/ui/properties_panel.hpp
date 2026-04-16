@@ -9,6 +9,9 @@ namespace fjell {
 
 class BindlessTextures;
 class CommandHistory;
+class ContentBrowser;
+class FileBrowser;
+class IconCache;
 class Material;
 class PipelineCache;
 class ProjectManager;
@@ -26,7 +29,10 @@ public:
               PipelineCache* pipeline_cache = nullptr,
               BindlessTextures* bindless = nullptr,
               ResourceManager* resource_manager = nullptr,
-              ProjectManager* project_mgr = nullptr);
+              ProjectManager* project_mgr = nullptr,
+              ContentBrowser* content_browser = nullptr,
+              FileBrowser* file_browser = nullptr,
+              IconCache* icons = nullptr);
 
     void draw();
 
@@ -45,6 +51,9 @@ private:
     BindlessTextures* bindless_{nullptr};
     ResourceManager* resource_manager_{nullptr};
     ProjectManager* project_mgr_{nullptr};
+    ContentBrowser* content_browser_{nullptr};
+    FileBrowser* file_browser_{nullptr};
+    IconCache* icons_{nullptr};
 
     // Drag coalescing
     Transform drag_start_transform_;

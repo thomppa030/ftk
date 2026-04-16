@@ -44,7 +44,10 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
                            PipelineCache* pipeline_cache,
                            BindlessTextures* bindless,
                            ResourceManager* resource_manager,
-                           ProjectManager* project_mgr) {
+                           ProjectManager* project_mgr,
+                           ContentBrowser* content_browser,
+                           FileBrowser* file_browser,
+                           IconCache* icons) {
     scene_ = scene;
     selected_id_ = selected_id;
     gizmo_op_ = gizmo_op;
@@ -56,6 +59,9 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
     bindless_ = bindless;
     resource_manager_ = resource_manager;
     project_mgr_ = project_mgr;
+    content_browser_ = content_browser;
+    file_browser_ = file_browser;
+    icons_ = icons;
 }
 
 void PropertiesPanel::draw() {
@@ -161,7 +167,8 @@ void PropertiesPanel::draw() {
             ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
 
             const InspectorContext ictx{
-                scene_, history_, resource_manager_, pipeline_cache_, bindless_, project_mgr_};
+                scene_, history_, resource_manager_, pipeline_cache_, bindless_, project_mgr_,
+                content_browser_, file_browser_, icons_};
 
             auto& registry = ComponentRegistry::instance();
             ComponentTypeId remove_id = ~0u;

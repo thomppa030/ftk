@@ -29,6 +29,8 @@ add_executable(fjell
     main.cpp
     renderer/gpu/accel_structure.cpp
     renderer/gpu/vma_impl.cpp
+    core/asset_id.cpp
+    core/asset_database.cpp
     core/base_path.cpp
     core/clock.cpp
     core/game_builder.cpp
@@ -175,6 +177,8 @@ add_executable(fjell
     core/input_component_meta.cpp
     scripting/script_manager.cpp
     scripting/script_globals.cpp
+    scripting/asset_type_registry.cpp
+    scripting/asset_type_registrations.cpp
     scripting/log_api.cpp
     scripting/audio_api.cpp
     scripting/camera_api.cpp
@@ -184,6 +188,7 @@ add_executable(fjell
     scripting/vfx_api.cpp
     scripting/viewport_api.cpp
     scripting/scene_api.cpp
+    ui/asset_ref_widget.cpp
     ui/console.cpp
     ui/menu_bar.cpp
     ui/file_browser.cpp

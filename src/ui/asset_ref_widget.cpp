@@ -1,0 +1,158 @@
+#include "ui/asset_ref_widget.hpp"
+#include "ui/content_browser.hpp"
+#include "ui/file_browser.hpp"
+#include "ui/icon_cache.hpp"
+#include "core/project_manager.hpp"
+
+#include <imgui.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <string>
+
+namespace fjell {
+
+// ── Browse pending state ────────────────────────────────────────────────
+// Only one widget can have an active browse session at a time.
+
+static std::string s_browse_pending_id;      // ImGui ID of the widget waiting
+static std::string s_browse_result;          // path delivered by FileBrowser
+static bool        s_browse_result_ready{false};
+
+void asset_ref_browse_accept(const std::string& absolute_path,
+                             const std::string& project_root) {
+    if (s_browse_pending_id.empty()) return;
+    if (project_root.empty()) {
+        s_browse_result = absolute_path;
+    } else {
+        std::error_code ec;
+        s_browse_result = std::filesystem::relative(
+            absolute_path, project_root, ec).string();
+        if (ec) s_browse_result = absolute_path;
+    }
+    s_browse_result_ready = true;
+}
+
+// ── Extension matching ──────────────────────────────────────────────────
+
+static bool matches_extension(const std::string& path,
+                              std::span<const std::string> extensions) {
+    if (extensions.empty()) return true;
+    auto ext = std::filesystem::path(path).extension().string();
+    return std::ranges::any_of(extensions, [&](const std::string& e) {
+        return ext == e;
+    });
+}
+
+// ── Widget ──────────────────────────────────────────────────────────────
+
+bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
+    bool changed = false;
+
+    ImGui::PushID(config.id);
+
+    // Label
+    ImGui::Text("%s", config.label);
+
+    // Display field — filename only, full path on hover
+    auto display = path.empty()
+        ? std::string("(none)")
+        : std::filesystem::path(path).filename().string();
+
+    float button_width = ImGui::GetFrameHeight();
+    int num_buttons = 1; // clear always
+    if (config.ctx && config.ctx->content_browser) num_buttons++;
+    if (config.ctx && config.ctx->file_browser) num_buttons++;
+    float buttons_total = static_cast<float>(num_buttons) * (button_width + ImGui::GetStyle().ItemSpacing.x);
+
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - buttons_total);
+    ImGui::InputText("##display", display.data(), display.size(),
+                     ImGuiInputTextFlags_ReadOnly);
+
+    // Tooltip: full path
+    if (ImGui::IsItemHovered() && !path.empty()) {
+        ImGui::SetTooltip("%s", path.c_str());
+    }
+
+    // Drag-and-drop target
+    if (ImGui::BeginDragDropTarget()) {
+        if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+            std::string dropped(static_cast<const char*>(payload->Data));
+            if (matches_extension(dropped, config.extensions)) {
+                path = dropped;
+                changed = true;
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    // Check for pending browse result
+    if (s_browse_result_ready && s_browse_pending_id == config.id) {
+        if (matches_extension(s_browse_result, config.extensions)) {
+            path = s_browse_result;
+            changed = true;
+        }
+        s_browse_pending_id.clear();
+        s_browse_result.clear();
+        s_browse_result_ready = false;
+    }
+
+    // Use Selected button
+    if (config.ctx && config.ctx->content_browser) {
+        ImGui::SameLine();
+        if (ImGui::Button("S", {button_width, 0})) {
+            auto selected = config.ctx->content_browser->selected_asset_path();
+            if (!selected.empty() && matches_extension(selected, config.extensions)) {
+                path = selected;
+                changed = true;
+            }
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Use selected asset from content browser");
+        }
+    }
+
+    // Browse button
+    if (config.ctx && config.ctx->file_browser) {
+        ImGui::SameLine();
+        if (ImGui::Button("...", {button_width, 0})) {
+            s_browse_pending_id = config.id;
+            s_browse_result_ready = false;
+            std::vector<std::string> exts(config.extensions.begin(), config.extensions.end());
+            config.ctx->file_browser->open(
+                std::string("Select ") + config.label,
+                FileBrowser::Mode::select_file, exts);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Browse for file");
+        }
+    }
+
+    // Clear button
+    if (!path.empty()) {
+        ImGui::SameLine();
+        if (ImGui::Button("x", {button_width, 0})) {
+            path.clear();
+            changed = true;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Clear");
+        }
+    }
+
+    // Per-type preview
+    if (config.asset_type && config.asset_type->draw_preview &&
+        !path.empty() && config.ctx && config.ctx->resource_manager) {
+        const Project* project = config.ctx->project_mgr
+            ? config.ctx->project_mgr->active() : nullptr;
+        config.asset_type->draw_preview(
+            path, *config.ctx->resource_manager,
+            config.ctx->icons, project,
+            ImGui::GetContentRegionAvail().x);
+    }
+
+    ImGui::PopID();
+    return changed;
+}
+
+} // namespace fjell
