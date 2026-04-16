@@ -875,17 +875,23 @@ void DdgiPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
     }
 }
 
+AABB DdgiPass::trace_reach_bounds() const {
+    glm::vec3 grid_min = config_.grid_position;
+    glm::vec3 grid_max = config_.grid_position + glm::vec3(config_.probe_counts - glm::ivec3(1)) * config_.probe_spacing;
+    return {grid_min - glm::vec3(MAX_TRACE_DIST), grid_max + glm::vec3(MAX_TRACE_DIST)};
+}
+
 void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
     if (backend_ != DdgiBackend::ray_traced || !accel_manager_ || !ctx.queue || !ctx.mega_buffer)
         return;
 
     const auto& cmds = ctx.queue->commands();
+    AABB bounds = trace_reach_bounds();
 
-    // Ensure BLAS for all visible scene models (synchronous GPU build on first encounter)
     for (const auto& dc : cmds) {
-        if (dc.model) {
-            accel_manager_->ensure_blas(dc.model, *ctx.mega_buffer);
-        }
+        if (!dc.model) continue;
+        if (!dc.world_aabb.intersects(bounds)) continue;
+        accel_manager_->ensure_blas(dc.model, *ctx.mega_buffer);
     }
 
     // Cache particle SSBO for compute dispatch + build particle mesh BLASes
@@ -1222,13 +1228,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (backend_ == DdgiBackend::ray_traced && accel_manager_ && ctx.queue && ctx.mega_buffer) {
         const auto& cmds = ctx.queue->commands();
         if (!cmds.empty()) {
-            // Build TLAS — collect draw data + model pointers
+            // Only include objects that rays can reach from the probe grid
+            AABB bounds = trace_reach_bounds();
+
             std::vector<GpuDrawData> tlas_draws;
             std::vector<const Model*> tlas_models;
             tlas_draws.reserve(cmds.size());
             tlas_models.reserve(cmds.size());
             for (const auto& dc : cmds) {
                 if (!dc.model) continue;
+                if (!dc.world_aabb.intersects(bounds)) continue;
                 GpuDrawData data{};
                 data.model = dc.push.model;
                 data.material_id = dc.push.material_id;
@@ -1311,7 +1320,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         rt_push.light_direction = light_direction_;
         rt_push.light_intensity = light_intensity_;
         rt_push.light_color = light_color_;
-        rt_push.max_trace_dist = 40.0f;
+        rt_push.max_trace_dist = MAX_TRACE_DIST;
         rt_push.emissive_gi_boost = config_.emissive_gi_boost;
 
         vkCmdPushConstants(ctx.cmd, rt_trace_pipeline_layout_,

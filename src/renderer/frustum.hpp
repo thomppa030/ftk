@@ -22,6 +22,12 @@ struct AABB {
         return min.x <= max.x;
     }
 
+    [[nodiscard]] bool intersects(const AABB& other) const {
+        return max.x >= other.min.x && min.x <= other.max.x &&
+               max.y >= other.min.y && min.y <= other.max.y &&
+               max.z >= other.min.z && min.z <= other.max.z;
+    }
+
     // Arvo's fast AABB transform — no 8-corner expansion needed
     [[nodiscard]] AABB transform(const glm::mat4& m) const {
         glm::vec3 new_min = glm::vec3(m[3]);

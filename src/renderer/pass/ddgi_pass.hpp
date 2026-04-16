@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
 
 #include <glm/glm.hpp>
@@ -201,7 +202,14 @@ public:
         float emissive_gi_boost;
     };
 
+    /// Max ray distance used in RT trace push constants.
+    static constexpr float MAX_TRACE_DIST = 40.0f;
+
 private:
+    /// Probe grid bounds expanded by max trace distance — objects outside
+    /// this volume can never be hit by DDGI rays.
+    [[nodiscard]] AABB trace_reach_bounds() const;
+
     void update_constants(Images& imgs, const FrameContext& ctx);
 
     Device* device_{nullptr};
