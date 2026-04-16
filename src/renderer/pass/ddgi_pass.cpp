@@ -526,6 +526,8 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         // Enable UPDATE_AFTER_BIND on bindings updated every frame
         std::array<VkDescriptorBindingFlags, 11> rt_bind_flags{};
         rt_bind_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
+        rt_bind_flags[6] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // vertex buffer
+        rt_bind_flags[7] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // index buffer
         rt_bind_flags[8] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // per-instance data
 
         VkDescriptorSetLayoutBindingFlagsCreateInfo rt_flags_ci{};
@@ -1106,16 +1108,6 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rt_offset.imageView = imgs.probe_offset_view;
             rt_offset.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-            // Vertex + index buffers for closest-hit normal computation
-            VkDescriptorBufferInfo rt_verts{};
-            VkDescriptorBufferInfo rt_indices{};
-            if (ctx.mega_buffer) {
-                rt_verts.buffer = ctx.mega_buffer->vertex_buffer_handle();
-                rt_verts.range = VK_WHOLE_SIZE;
-                rt_indices.buffer = ctx.mega_buffer->index_buffer_handle();
-                rt_indices.range = VK_WHOLE_SIZE;
-            }
-
             // Irradiance + visibility atlases for multi-bounce GI in closest-hit
             VkDescriptorImageInfo rt_irradiance{};
             rt_irradiance.sampler = linear_sampler_;
@@ -1127,18 +1119,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rt_visibility.imageView = imgs.visibility_view;
             rt_visibility.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            // Write bindings 0, 2-10 (skip binding 1 = TLAS, updated per-frame)
-            std::array<VkWriteDescriptorSet, 9> rtw{};
+            // Write bindings 0, 2-5, 9-10 (skip 1=TLAS, 6-8=buffers, updated per-frame)
+            std::array<VkWriteDescriptorSet, 7> rtw{};
             for (auto& w : rtw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.rt_trace_set; w.descriptorCount = 1; }
             rtw[0].dstBinding = 0; rtw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; rtw[0].pBufferInfo = &rt_ubo;
             rtw[1].dstBinding = 2; rtw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; rtw[1].pImageInfo = &rt_radiance;
             rtw[2].dstBinding = 3; rtw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[2].pImageInfo = &rt_sky;
             rtw[3].dstBinding = 4; rtw[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[3].pBufferInfo = &rt_status;
             rtw[4].dstBinding = 5; rtw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[4].pImageInfo = &rt_offset;
-            rtw[5].dstBinding = 6; rtw[5].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[5].pBufferInfo = &rt_verts;
-            rtw[6].dstBinding = 7; rtw[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; rtw[6].pBufferInfo = &rt_indices;
-            rtw[7].dstBinding = 9; rtw[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[7].pImageInfo = &rt_irradiance;
-            rtw[8].dstBinding = 10; rtw[8].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[8].pImageInfo = &rt_visibility;
+            rtw[5].dstBinding = 9; rtw[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[5].pImageInfo = &rt_irradiance;
+            rtw[6].dstBinding = 10; rtw[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[6].pImageInfo = &rt_visibility;
 
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rtw.size()), rtw.data(), 0, nullptr);
         }
@@ -1269,6 +1259,36 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                                            tlas_models, particle_infos);
             }
         }
+    }
+
+    // Keep vertex/index buffer descriptors current (MegaBuffer may reallocate)
+    if (imgs.rt_trace_set != VK_NULL_HANDLE && ctx.mega_buffer) {
+        VkDescriptorBufferInfo verts_info{};
+        verts_info.buffer = ctx.mega_buffer->vertex_buffer_handle();
+        verts_info.range = VK_WHOLE_SIZE;
+
+        VkDescriptorBufferInfo indices_info{};
+        indices_info.buffer = ctx.mega_buffer->index_buffer_handle();
+        indices_info.range = VK_WHOLE_SIZE;
+
+        VkWriteDescriptorSet verts_write{};
+        verts_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        verts_write.dstSet = imgs.rt_trace_set;
+        verts_write.dstBinding = 6;
+        verts_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        verts_write.descriptorCount = 1;
+        verts_write.pBufferInfo = &verts_info;
+
+        VkWriteDescriptorSet indices_write{};
+        indices_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        indices_write.dstSet = imgs.rt_trace_set;
+        indices_write.dstBinding = 7;
+        indices_write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        indices_write.descriptorCount = 1;
+        indices_write.pBufferInfo = &indices_info;
+
+        std::array buf_writes = {verts_write, indices_write};
+        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(buf_writes.size()), buf_writes.data(), 0, nullptr);
     }
 
     bool use_rt = backend_ == DdgiBackend::ray_traced
