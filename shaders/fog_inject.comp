@@ -78,11 +78,12 @@ float slice_to_depth(float t) {
     return pc.near_plane * pow(pc.far_plane / pc.near_plane, t);
 }
 
-// Henyey-Greenstein phase function
+// Henyey-Greenstein phase function, clamped to prevent sun-disc hotspot
 float henyey_greenstein(float g, float cos_theta) {
     float g2 = g * g;
     float denom = 1.0 + g2 - 2.0 * g * cos_theta;
-    return (1.0 - g2) / (4.0 * 3.14159265 * denom * sqrt(denom));
+    float phase = (1.0 - g2) / (4.0 * 3.14159265 * denom * sqrt(denom));
+    return min(phase, 0.5);
 }
 
 // ── Local light shadow sampling for volumetric ─────────────────────
@@ -205,13 +206,12 @@ float sample_shadow(vec3 world_pos) {
 }
 
 // Windowed attenuation for volumetric lights.
-// Smoothly ramps down near the light source to avoid froxel-sized
-// brightness spikes, and fades to zero at the radius boundary.
+// Smooth falloff at radius boundary, small epsilon to preserve brightness near source.
 float vol_attenuation(float dist, float radius) {
     float t = dist / radius;
-    float window = 1.0 - t * t;
-    window = window * window;
-    float inv_sq = 1.0 / (dist * dist + 1.0); // softened inverse-square (large epsilon)
+    float window = clamp(1.0 - t * t, 0.0, 1.0);
+    window *= window;
+    float inv_sq = 1.0 / (dist * dist + 0.01);
     return inv_sq * window;
 }
 
@@ -249,13 +249,21 @@ void main() {
         fog_density = pc.density * (1.0 + abs(h) * pc.height_falloff * 0.5);
     }
 
+    // Fade density to zero near max distance to prevent uniform grey wall
+    float dist_ratio = ray_dist / pc.far_plane;
+    fog_density *= 1.0 - smoothstep(0.7, 1.0, dist_ratio);
+
     // Early out for negligible density
     if (fog_density < 1e-6) {
         imageStore(scatter_volume, coord, vec4(0.0));
         return;
     }
 
-    float extinction = fog_density * pc.scattering;
+    // Extinction controls fog opacity (how much light is blocked).
+    // Scattering controls in-scattered light brightness independently,
+    // so god rays can be bright without making the fog opaque.
+    float extinction = fog_density * 0.1;
+    float scatter_coeff = fog_density * pc.scattering;
 
     // Directional light contribution
     vec3 cam_to_froxel = normalize(world_pos - ubo.camera_position.xyz);
@@ -312,7 +320,7 @@ void main() {
     // Ambient contribution (isotropic)
     vec3 ambient = ubo.ambient_color.xyz * ubo.ambient_color.w;
 
-    vec3 in_scattered = fog_color * extinction * (light_contrib + ambient);
+    vec3 in_scattered = fog_color * scatter_coeff * (light_contrib + ambient);
 
     imageStore(scatter_volume, coord, vec4(in_scattered, extinction));
 }

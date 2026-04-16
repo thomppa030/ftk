@@ -68,7 +68,7 @@ void main() {
         vec3 slice_light = in_scattering * (1.0 - tr) / max(extinction, 1e-7);
 
         accumulated_light += transmittance * slice_light;
-        transmittance *= tr;
+        transmittance = max(transmittance * tr, 0.05);
 
         imageStore(integrated_volume, ivec3(coord, z),
                    vec4(accumulated_light, transmittance));

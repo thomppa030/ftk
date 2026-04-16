@@ -15,7 +15,7 @@ namespace fjell {
 class VolumetricFogPass : public RenderPass {
 public:
     static constexpr uint32_t TILE_SIZE = 8;
-    static constexpr uint32_t DEPTH_SLICES = 64;
+    static constexpr uint32_t DEPTH_SLICES = 128;
     static constexpr uint32_t SCREEN_DIVISOR = 16;
     static constexpr VkFormat VOLUME_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
 
