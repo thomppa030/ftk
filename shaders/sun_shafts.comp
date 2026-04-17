@@ -185,10 +185,14 @@ void main() {
         if (transmittance < 0.01) break;
     }
 
-    // Angular fade around the sun direction so the shaft contribution
-    // rolls off smoothly into the surrounding sky instead of drawing a
-    // visible disc at the cascade limit.
-    float halo_fade = smoothstep(pc.halo_outer, pc.halo_inner, cos_theta);
+    // Angular fade around the sun direction — sky pixels only. Geometry
+    // pixels get crepuscular rays from whichever direction the sun is,
+    // including at wide view angles; capping them with an angular fade
+    // produces a visible "cone of light" gradient on the ground.
+    float halo_fade = 1.0;
+    if (raw_depth >= 1.0) {
+        halo_fade = smoothstep(pc.halo_outer, pc.halo_inner, cos_theta);
+    }
 
     vec3 result = accumulated * pc.intensity * halo_fade;
 
