@@ -132,6 +132,15 @@ struct WorldEnvironmentNode : Node3D {
     float contact_shadow_thickness{0.05f};  // occluder thickness tolerance
     int contact_shadow_steps{12};
 
+    // Procedural atmospheric scattering. When enabled, overrides gradient/HDRI.
+    bool atmosphere_enabled{false};
+    float atmosphere_rayleigh_scale{8500.0f};   // scale height in meters
+    float atmosphere_mie_scale{1200.0f};        // scale height in meters
+    float atmosphere_mie_g{0.76f};              // Henyey-Greenstein asymmetry
+    float atmosphere_mie_coeff{21e-6f};         // haze scatter coefficient
+    float atmosphere_sun_intensity{22.0f};      // multiplies directional light color
+    float atmosphere_hdri_floor{0.1f};          // minimum HDRI visibility; HDRI × max(tint, floor)
+
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<WorldEnvironmentNode>();
         clone_3d_into(*copy);
@@ -143,6 +152,13 @@ struct WorldEnvironmentNode : Node3D {
         copy->contact_shadow_distance = contact_shadow_distance;
         copy->contact_shadow_thickness = contact_shadow_thickness;
         copy->contact_shadow_steps = contact_shadow_steps;
+        copy->atmosphere_enabled = atmosphere_enabled;
+        copy->atmosphere_rayleigh_scale = atmosphere_rayleigh_scale;
+        copy->atmosphere_mie_scale = atmosphere_mie_scale;
+        copy->atmosphere_mie_g = atmosphere_mie_g;
+        copy->atmosphere_mie_coeff = atmosphere_mie_coeff;
+        copy->atmosphere_sun_intensity = atmosphere_sun_intensity;
+        copy->atmosphere_hdri_floor = atmosphere_hdri_floor;
         return copy;
     }
 };

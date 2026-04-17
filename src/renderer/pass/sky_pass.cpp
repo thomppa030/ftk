@@ -16,7 +16,20 @@ void SkyPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
         if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
             top_color_ = env->sky_top_color;
             bottom_color_ = env->sky_bottom_color;
-            use_hdri_ = !env->hdri_path.empty();
+            if (env->atmosphere_enabled) {
+                mode_ = Mode::Atmosphere;
+            } else if (!env->hdri_path.empty()) {
+                mode_ = Mode::Hdri;
+            } else {
+                mode_ = Mode::Gradient;
+            }
+            has_hdri_ = !env->hdri_path.empty();
+            atm_rayleigh_scale_ = env->atmosphere_rayleigh_scale;
+            atm_mie_scale_      = env->atmosphere_mie_scale;
+            atm_mie_g_          = env->atmosphere_mie_g;
+            atm_mie_coeff_      = env->atmosphere_mie_coeff;
+            atm_sun_intensity_  = env->atmosphere_sun_intensity;
+            atm_hdri_floor_     = env->atmosphere_hdri_floor;
             break;
         }
     }
@@ -105,7 +118,7 @@ Result<> SkyPass::create(Device& device, const PassResources& resources) {
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     push_range.offset = 0;
-    push_range.size = 48; // 2 * vec4 + 4 floats
+    push_range.size = 80; // 2 * vec4 + 12 floats (sky_mode + atmosphere params + padding)
 
     std::array set_layouts = {resources.global_set_layout};
 
@@ -174,15 +187,27 @@ void SkyPass::record(const FrameContext& ctx) {
         glm::vec4 bottom;
         float viewport_width;
         float viewport_height;
-        float use_hdri;
-        float pad2;
+        float sky_mode;
+        float atmosphere_rayleigh_scale;
+        float atmosphere_mie_scale;
+        float atmosphere_mie_g;
+        float atmosphere_sun_intensity;
+        float atmosphere_mie_coeff;
+        float atmosphere_hdri_floor;
+        float atmosphere_has_hdri;
     } push{
         glm::vec4(top_color_, 1.0f),
         glm::vec4(bottom_color_, 1.0f),
         static_cast<float>(ctx.target->extent().width),
         static_cast<float>(ctx.target->extent().height),
-        use_hdri_ ? 1.0f : 0.0f,
-        0.0f
+        static_cast<float>(mode_),
+        atm_rayleigh_scale_,
+        atm_mie_scale_,
+        atm_mie_g_,
+        atm_sun_intensity_,
+        atm_mie_coeff_,
+        atm_hdri_floor_,
+        has_hdri_ ? 1.0f : 0.0f
     };
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);

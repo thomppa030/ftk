@@ -152,7 +152,14 @@ nlohmann::json serialize_node(const Node& node) {
             {"contact_shadows_enabled", env->contact_shadows_enabled},
             {"contact_shadow_distance", env->contact_shadow_distance},
             {"contact_shadow_thickness", env->contact_shadow_thickness},
-            {"contact_shadow_steps", env->contact_shadow_steps}
+            {"contact_shadow_steps", env->contact_shadow_steps},
+            {"atmosphere_enabled", env->atmosphere_enabled},
+            {"atmosphere_rayleigh_scale", env->atmosphere_rayleigh_scale},
+            {"atmosphere_mie_scale", env->atmosphere_mie_scale},
+            {"atmosphere_mie_g", env->atmosphere_mie_g},
+            {"atmosphere_mie_coeff", env->atmosphere_mie_coeff},
+            {"atmosphere_sun_intensity", env->atmosphere_sun_intensity},
+            {"atmosphere_hdri_floor", env->atmosphere_hdri_floor}
         };
         if (!env->hdri_path.empty()) {
             j["sky"]["hdri_path"] = env->hdri_path;
@@ -365,6 +372,13 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 env->contact_shadow_distance = js.value("contact_shadow_distance", 0.3f);
                 env->contact_shadow_thickness = js.value("contact_shadow_thickness", 0.05f);
                 env->contact_shadow_steps = js.value("contact_shadow_steps", 12);
+                env->atmosphere_enabled = js.value("atmosphere_enabled", false);
+                env->atmosphere_rayleigh_scale = js.value("atmosphere_rayleigh_scale", 8500.0f);
+                env->atmosphere_mie_scale = js.value("atmosphere_mie_scale", 1200.0f);
+                env->atmosphere_mie_g = js.value("atmosphere_mie_g", 0.76f);
+                env->atmosphere_mie_coeff = js.value("atmosphere_mie_coeff", 21e-6f);
+                env->atmosphere_sun_intensity = js.value("atmosphere_sun_intensity", 22.0f);
+                env->atmosphere_hdri_floor = js.value("atmosphere_hdri_floor", 0.1f);
                 if (js.contains("hdri_path")) {
                     env->hdri_path = js["hdri_path"].get<std::string>();
                 }

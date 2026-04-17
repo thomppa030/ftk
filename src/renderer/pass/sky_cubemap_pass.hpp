@@ -34,6 +34,14 @@ public:
     /// Set sky gradient colors. Marks dirty so next generate() re-renders.
     void set_colors(const glm::vec3& top, const glm::vec3& bottom);
 
+    /// Configure atmospheric scattering state. When enabled, the cubemap
+    /// is regenerated with the procedural model instead of the gradient,
+    /// so IBL sampling matches what the sky pass renders.
+    void set_atmosphere(bool enabled, const glm::vec3& sun_dir,
+                        const glm::vec3& sun_color, float sun_intensity,
+                        float rayleigh_scale, float mie_scale,
+                        float mie_g, float mie_coeff);
+
     /// Dispatch the cubemap compute shader and generate mips.
     /// Only does work if dirty.
     void generate(VkCommandBuffer cmd);
@@ -49,6 +57,12 @@ public:
 
     [[nodiscard]] bool dirty() const { return dirty_; }
     [[nodiscard]] bool has_hdri() const { return hdri_cubemap_view_ != VK_NULL_HANDLE; }
+
+    /// Monotonic counter — bumped whenever the sky cubemap view/sampler
+    /// identity changes (HDRI load, HDRI clear). Consumers (DDGI, SSR) that
+    /// cache the cubemap in their own descriptor sets compare their last-seen
+    /// version and rewrite when stale.
+    [[nodiscard]] uint32_t binding_version() const { return binding_version_; }
 
     /// Load an HDRI equirectangular image, convert to cubemap, and prefilter.
     /// Path must be absolute or resolvable from the current working directory.
@@ -108,8 +122,20 @@ private:
 
     glm::vec3 top_color_{0.15f, 0.25f, 0.45f};
     glm::vec3 bottom_color_{0.35f, 0.35f, 0.4f};
+
+    bool atmosphere_enabled_{false};
+    glm::vec3 atm_sun_dir_{0.0f, 1.0f, 0.0f};
+    glm::vec3 atm_sun_color_{1.0f};
+    float atm_sun_intensity_{22.0f};
+    float atm_rayleigh_scale_{8500.0f};
+    float atm_mie_scale_{1200.0f};
+    float atm_mie_g_{0.76f};
+    float atm_mie_coeff_{21e-6f};
+
     bool dirty_{true};
     bool first_generate_{true};
+    uint32_t binding_version_{0};
+    ResourceRegistry* registry_{nullptr};
     const class Project* project_{nullptr};
 
     // ── HDRI environment map ──────────────────────────────────────────

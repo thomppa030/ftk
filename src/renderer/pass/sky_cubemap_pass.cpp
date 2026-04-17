@@ -100,6 +100,7 @@ void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
 }
 
 void SkyCubemapPass::register_resources(ResourceRegistry& registry) {
+    registry_ = &registry;
     registry.register_image("sky_cubemap", {0, cubemap_view(), cubemap_sampler()});
 }
 
@@ -137,11 +138,31 @@ void SkyCubemapPass::destroy() {
 void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
     if (!ctx.scene) return;
 
+    // Pull the sun direction / color from the first directional light in the
+    // scene so the atmospheric cubemap matches the sky pass and the direct
+    // lighting term. Falls back to straight-up sun if none exists.
+    glm::vec3 sun_dir{0.0f, 1.0f, 0.0f};
+    glm::vec3 sun_color{1.0f};
+    for (const auto& obj : ctx.scene->objects()) {
+        if (const auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
+            sun_dir = glm::normalize(-dl->direction);
+            sun_color = dl->color;
+            break;
+        }
+    }
+
     for (const auto& obj : ctx.scene->objects()) {
         if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
             set_colors(env->sky_top_color, env->sky_bottom_color);
+            set_atmosphere(env->atmosphere_enabled, sun_dir, sun_color,
+                           env->atmosphere_sun_intensity,
+                           env->atmosphere_rayleigh_scale,
+                           env->atmosphere_mie_scale,
+                           env->atmosphere_mie_g,
+                           env->atmosphere_mie_coeff);
 
-            // Load HDRI if path changed
+            // Load HDRI if path changed (works regardless of atmosphere mode —
+            // atmosphere modulates the HDRI color rather than replacing it).
             if (!env->hdri_path.empty() && env->hdri_path != loaded_hdri_path_) {
                 auto resolved = base_path::resolve_asset(env->hdri_path, project_);
                 load_hdri(resolved);
@@ -155,6 +176,38 @@ void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
                     gb.flush_writes();
                 }
+
+                // Update ResourceRegistry + bump version so consumers (DDGI)
+                // rewrite their cached sky_cubemap descriptor.
+                if (registry_ != nullptr) {
+                    registry_->register_image("sky_cubemap",
+                        {0, hdri_cubemap_view_, hdri_cubemap_sampler_});
+                }
+                ++binding_version_;
+            } else if (env->hdri_path.empty() && !loaded_hdri_path_.empty()) {
+                // HDRI was cleared — revert to gradient cubemap.
+                // The sky_cubemap binding (on both the global set and DDGI's
+                // RT set) isn't UPDATE_AFTER_BIND, so we must wait for
+                // in-flight frames before rewriting the descriptor and
+                // destroying the HDRI image/sampler it referenced.
+                vkDeviceWaitIdle(device_);
+
+                auto& gb = gpu.global_bindings();
+                for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+                    gb.write_image(i, "sky_cubemap",
+                        cubemap_view_, cubemap_sampler_,
+                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                    gb.flush_writes();
+                }
+
+                if (registry_ != nullptr) {
+                    registry_->register_image("sky_cubemap",
+                        {0, cubemap_view_, cubemap_sampler_});
+                }
+                ++binding_version_;
+
+                destroy_hdri();
+                dirty_ = true;
             }
             break;
         }
@@ -167,6 +220,31 @@ void SkyCubemapPass::set_colors(const glm::vec3& top, const glm::vec3& bottom) {
         bottom_color_ = bottom;
         dirty_ = true;
     }
+}
+
+void SkyCubemapPass::set_atmosphere(bool enabled, const glm::vec3& sun_dir,
+                                     const glm::vec3& sun_color, float sun_intensity,
+                                     float rayleigh_scale, float mie_scale,
+                                     float mie_g, float mie_coeff) {
+    bool changed = enabled != atmosphere_enabled_;
+    if (enabled) {
+        if (sun_dir != atm_sun_dir_ || sun_color != atm_sun_color_ ||
+            sun_intensity != atm_sun_intensity_ ||
+            rayleigh_scale != atm_rayleigh_scale_ ||
+            mie_scale != atm_mie_scale_ || mie_g != atm_mie_g_ ||
+            mie_coeff != atm_mie_coeff_) {
+            changed = true;
+        }
+    }
+    atmosphere_enabled_ = enabled;
+    atm_sun_dir_ = sun_dir;
+    atm_sun_color_ = sun_color;
+    atm_sun_intensity_ = sun_intensity;
+    atm_rayleigh_scale_ = rayleigh_scale;
+    atm_mie_scale_ = mie_scale;
+    atm_mie_g_ = mie_g;
+    atm_mie_coeff_ = mie_coeff;
+    if (changed) dirty_ = true;
 }
 
 void SkyCubemapPass::generate(VkCommandBuffer cmd) {
@@ -208,11 +286,29 @@ void SkyCubemapPass::generate(VkCommandBuffer cmd) {
     struct PushConstants {
         glm::vec4 top_color;
         glm::vec4 bottom_color;
+        glm::vec4 light_direction;  // xyz = sun dir, w unused
+        glm::vec4 light_color;      // xyz = rgb, w unused
         uint32_t face_size;
+        uint32_t sky_mode;          // 0 = gradient, 2 = atmosphere
+        float atmosphere_rayleigh_scale;
+        float atmosphere_mie_scale;
+        float atmosphere_mie_g;
+        float atmosphere_sun_intensity;
+        float atmosphere_mie_coeff;
+        float padding0;
     } push{
         glm::vec4(top_color_, 1.0f),
         glm::vec4(bottom_color_, 1.0f),
-        CUBEMAP_SIZE
+        glm::vec4(atm_sun_dir_, 0.0f),
+        glm::vec4(atm_sun_color_, 0.0f),
+        CUBEMAP_SIZE,
+        atmosphere_enabled_ ? 2u : 0u,
+        atm_rayleigh_scale_,
+        atm_mie_scale_,
+        atm_mie_g_,
+        atm_sun_intensity_,
+        atm_mie_coeff_,
+        0.0f
     };
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cubemap_pipeline_);
@@ -529,7 +625,9 @@ void SkyCubemapPass::create_cubemap_pipeline() {
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     push_range.offset = 0;
-    push_range.size = sizeof(glm::vec4) * 2 + sizeof(uint32_t);
+    // top + bottom + light_dir + light_color = 4 vec4 = 64 bytes
+    // face_size (u32) + sky_mode (u32) + 6 floats + padding = 32 bytes
+    push_range.size = sizeof(glm::vec4) * 4 + 8 * sizeof(uint32_t);
 
     // Pipeline layout
     VkPipelineLayoutCreateInfo pl_ci{};

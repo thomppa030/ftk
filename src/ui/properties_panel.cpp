@@ -407,6 +407,29 @@ void PropertiesPanel::draw() {
                         ImGui::SetNextItemWidth(-1);
                         ImGui::SliderInt("##ContactSteps", &env->contact_shadow_steps, 4, 64);
                     }
+
+                    ImGui::Spacing();
+                    ImGui::Checkbox("Atmospheric Scattering##EnvAtmos", &env->atmosphere_enabled);
+                    if (env->atmosphere_enabled) {
+                        ImGui::Text("Sun Intensity");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##AtmosSunI", &env->atmosphere_sun_intensity, 1.0f, 50.0f);
+                        ImGui::Text("Rayleigh Scale Height (m)");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##AtmosRayleighScale", &env->atmosphere_rayleigh_scale, 1000.0f, 20000.0f);
+                        ImGui::Text("Mie Scale Height (m)");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##AtmosMieScale", &env->atmosphere_mie_scale, 100.0f, 5000.0f);
+                        ImGui::Text("Mie Anisotropy");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##AtmosMieG", &env->atmosphere_mie_g, 0.0f, 0.99f);
+                        ImGui::Text("Mie Coefficient");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##AtmosMieCoeff", &env->atmosphere_mie_coeff, 1e-6f, 100e-6f, "%.1e");
+                        ImGui::Text("HDRI Floor (min visibility)");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##AtmosHdriFloor", &env->atmosphere_hdri_floor, 0.0f, 1.0f);
+                    }
                 }
             }
 
