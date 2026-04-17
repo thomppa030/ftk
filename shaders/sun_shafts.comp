@@ -7,6 +7,16 @@
 // haze + point/spot volumetrics). This pass covers only the directional
 // contribution, with ray-marched shadow sampling so shafts get their
 // shape directly from the scene geometry via the cascade shadow map.
+//
+// References:
+//   - Tiago Sousa, "CryEngine 3 Graphics Gems" (SIGGRAPH 2013).
+//     Describes CryEngine's approach of screen-space ray-marching the
+//     cascade shadow map for directional-light god rays.
+//   - Sebastien Hillaire, "Physically Based and Unified Volumetric
+//     Rendering in Frostbite" (SIGGRAPH 2015).
+//     Energy-conserving Beer-Lambert integration used per march segment.
+//   - Henyey & Greenstein (1941), "Diffuse radiation in the galaxy".
+//     Single-parameter phase function for forward scatter.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 

@@ -16,6 +16,11 @@ namespace fjell {
 // map to produce crisp directional-light crepuscular rays. Complements the
 // froxel-based volumetric fog (which handles atmospheric haze and point/spot
 // volumetrics) with geometrically accurate shafts bounded by shadows.
+//
+// Approach follows Tiago Sousa's CryEngine 3 Graphics Gems talk (SIGGRAPH
+// 2013) for the screen-space shadow-map ray-march, and Sebastien Hillaire's
+// "Physically Based and Unified Volumetric Rendering in Frostbite"
+// (SIGGRAPH 2015) for the energy-conserving Beer-Lambert integration.
 class SunShaftsPass : public RenderPass {
 public:
     static constexpr uint32_t TILE_SIZE = 8;

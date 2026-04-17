@@ -3,6 +3,9 @@
 // Upsample half-res sun shafts and additively composite into scene color.
 // Uses depth-aware bilinear upsample to keep shaft edges crisp near
 // geometry silhouettes.
+//
+// Half-res accumulation + full-res composite follows the standard
+// Frostbite / CryEngine post-process pattern (Hillaire 2015; Sousa 2013).
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
