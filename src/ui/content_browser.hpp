@@ -43,6 +43,7 @@ private:
         vfx,
         widget,
         preset,
+        input_config,
         unknown
     };
 

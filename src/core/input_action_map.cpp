@@ -1,133 +1,40 @@
 #include "core/input_action_map.hpp"
 #include "core/input.hpp"
+#include "core/input_context_io.hpp"
 #include "core/log.hpp"
 
-#include <nlohmann/json.hpp>
-
 #include <cmath>
-#include <filesystem>
-#include <fstream>
 
 namespace fjell {
 
 // ── Asset loading ────────────────────────────────────────────────────
 
 void InputActionMap::load_action(const std::string& path) {
-    std::ifstream f(path);
-    if (!f.is_open()) {
-        FJELL_CORE_WARN("InputActionMap: failed to open {}", path);
-        return;
-    }
-
-    auto j = nlohmann::json::parse(f, nullptr, false);
-    if (!j.is_object()) {
-        FJELL_CORE_WARN("InputActionMap: invalid JSON in {}", path);
-        return;
-    }
-
-    InputActionDef def;
-    def.name = j.value("name", "");
+    auto def = parse_action_file(path);
     if (def.name.empty()) {
-        FJELL_CORE_WARN("InputActionMap: action missing 'name' in {}", path);
+        FJELL_CORE_WARN("InputActionMap: failed to load action from {}", path);
         return;
-    }
-
-    auto type_str = j.value("type", "button");
-    if (type_str == "button") def.type = ActionType::button;
-    else if (type_str == "axis1d") def.type = ActionType::axis1d;
-    else if (type_str == "axis2d") def.type = ActionType::axis2d;
-    else {
-        FJELL_CORE_WARN("InputActionMap: unknown type '{}' for action '{}'", type_str, def.name);
-        def.type = ActionType::button;
     }
 
     actions_[def.name] = def;
-    // Ensure state and delegates exist
     states_[def.name].type = def.type;
     delegates_[def.name];
-
-    FJELL_CORE_INFO("InputActionMap: loaded action '{}' ({})", def.name, type_str);
 }
 
 void InputActionMap::load_actions_dir(const std::string& dir) {
-    namespace fs = std::filesystem;
-    if (!fs::exists(dir)) return;
-
-    for (const auto& entry : fs::directory_iterator(dir)) {
-        if (entry.is_regular_file() && entry.path().extension() == ".fjaction") {
-            load_action(entry.path().string());
-        }
+    auto defs = scan_action_files(dir);
+    for (auto& def : defs) {
+        actions_[def.name] = def;
+        states_[def.name].type = def.type;
+        delegates_[def.name];
     }
-}
-
-static ModifierType parse_modifier_type(const std::string& s) {
-    if (s == "scale") return ModifierType::scale;
-    if (s == "deadzone") return ModifierType::deadzone;
-    if (s == "negate") return ModifierType::negate;
-    if (s == "swizzle") return ModifierType::swizzle;
-    return ModifierType::scale;
 }
 
 void InputActionMap::load_context(const std::string& path) {
-    std::ifstream f(path);
-    if (!f.is_open()) {
-        FJELL_CORE_WARN("InputActionMap: failed to open {}", path);
-        return;
-    }
-
-    auto j = nlohmann::json::parse(f, nullptr, false);
-    if (!j.is_object()) {
-        FJELL_CORE_WARN("InputActionMap: invalid JSON in {}", path);
-        return;
-    }
-
-    InputMappingContext ctx;
-    ctx.name = j.value("name", "");
-    ctx.consume = j.value("consume", true);
-
+    auto ctx = parse_input_context(path);
     if (ctx.name.empty()) {
-        FJELL_CORE_WARN("InputActionMap: context missing 'name' in {}", path);
+        FJELL_CORE_WARN("InputActionMap: failed to load context from {}", path);
         return;
-    }
-
-    if (j.contains("bindings") && j["bindings"].is_array()) {
-        for (const auto& bj : j["bindings"]) {
-            InputBinding binding;
-            binding.action = bj.value("action", "");
-            if (binding.action.empty()) continue;
-
-            // Single source or composite
-            if (bj.contains("source")) {
-                auto src_str = bj["source"].get<std::string>();
-
-                // Expand shorthands for axis2d
-                if (src_str == "pad_lstick" || src_str == "pad_rstick" ||
-                    src_str == "mouse_move") {
-                    // Store the _x variant; evaluation will read _x and _y
-                    binding.source = input_source_from_string(src_str);
-                } else {
-                    binding.source = input_source_from_string(src_str);
-                }
-            }
-
-            // Composite WASD-style
-            if (bj.contains("up")) binding.up = input_source_from_string(bj["up"].get<std::string>());
-            if (bj.contains("down")) binding.down = input_source_from_string(bj["down"].get<std::string>());
-            if (bj.contains("left")) binding.left = input_source_from_string(bj["left"].get<std::string>());
-            if (bj.contains("right")) binding.right = input_source_from_string(bj["right"].get<std::string>());
-
-            // Modifiers
-            if (bj.contains("modifiers") && bj["modifiers"].is_array()) {
-                for (const auto& mj : bj["modifiers"]) {
-                    InputModifier mod;
-                    mod.type = parse_modifier_type(mj.value("type", "scale"));
-                    mod.value = mj.value("value", 0.0f);
-                    binding.modifiers.push_back(mod);
-                }
-            }
-
-            ctx.bindings.push_back(std::move(binding));
-        }
     }
 
     FJELL_CORE_INFO("InputActionMap: loaded context '{}' ({} bindings)",
@@ -441,50 +348,7 @@ void InputActionMap::save_context(const std::string& context, const std::string&
     auto it = contexts_.find(context);
     if (it == contexts_.end()) return;
 
-    const auto& ctx = it->second;
-    nlohmann::json j;
-    j["name"] = ctx.name;
-    j["consume"] = ctx.consume;
-
-    auto& bindings_arr = j["bindings"];
-    bindings_arr = nlohmann::json::array();
-
-    for (const auto& b : ctx.bindings) {
-        nlohmann::json bj;
-        bj["action"] = b.action;
-
-        if (b.is_composite()) {
-            bj["up"] = input_source_to_string(b.up);
-            bj["down"] = input_source_to_string(b.down);
-            bj["left"] = input_source_to_string(b.left);
-            bj["right"] = input_source_to_string(b.right);
-        } else {
-            bj["source"] = input_source_to_string(b.source);
-        }
-
-        if (!b.modifiers.empty()) {
-            auto& marr = bj["modifiers"];
-            marr = nlohmann::json::array();
-            for (const auto& m : b.modifiers) {
-                nlohmann::json mj;
-                switch (m.type) {
-                    case ModifierType::scale: mj["type"] = "scale"; break;
-                    case ModifierType::deadzone: mj["type"] = "deadzone"; break;
-                    case ModifierType::negate: mj["type"] = "negate"; break;
-                    case ModifierType::swizzle: mj["type"] = "swizzle"; break;
-                }
-                if (m.type != ModifierType::negate && m.type != ModifierType::swizzle) {
-                    mj["value"] = m.value;
-                }
-                marr.push_back(mj);
-            }
-        }
-
-        bindings_arr.push_back(bj);
-    }
-
-    std::ofstream out(path);
-    out << j.dump(4) << "\n";
+    write_input_context(it->second, path);
 }
 
 // ── Listen mode ──────────────────────────────────────────────────────

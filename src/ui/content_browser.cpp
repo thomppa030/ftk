@@ -111,6 +111,7 @@ ContentBrowser::FileType ContentBrowser::classify(const std::filesystem::path& p
     if (ext == ".fjvfx") return FileType::vfx;
     if (ext == ".fjwidget") return FileType::widget;
     if (ext == ".fjp") return FileType::preset;
+    if (ext == ".fjinput" || ext == ".fjaction") return FileType::input_config;
     if (ext == ".fjsl") return FileType::shader;
     if (ext == ".vert" || ext == ".frag" || ext == ".comp" ||
         ext == ".mesh" || ext == ".task" || ext == ".glsl") return FileType::shader;
@@ -131,8 +132,9 @@ const char* ContentBrowser::icon_name(FileType type) const {
         case FileType::ui_layout:  return "shader";
         case FileType::vfx:        return "node";
         case FileType::widget:     return "node";
-        case FileType::preset:     return "node";
-        case FileType::unknown:    return "node";
+        case FileType::preset:       return "node";
+        case FileType::input_config: return "node";
+        case FileType::unknown:      return "node";
     }
     return "node";
 }
@@ -752,6 +754,16 @@ void ContentBrowser::draw_context_menu() {
                     }
                     break;
 
+                case FileType::input_config:
+                    if (ImGui::MenuItem("Open in Input Editor")) {
+                        auto rel = std::filesystem::relative(entry.path, root_);
+                        auto ext = entry.path.extension().string();
+                        on_open_asset.broadcast(rel.string(),
+                            ext == ".fjinput" ? "input_mapping" : "input_action");
+                        ImGui::CloseCurrentPopup();
+                    }
+                    break;
+
                 case FileType::animation:
                 case FileType::unknown:
                     break;
@@ -986,6 +998,17 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
         case FileType::preset: {
             auto rel = std::filesystem::relative(entry.path, root_);
             on_instantiate_preset.broadcast(rel.string());
+            break;
+        }
+
+        case FileType::input_config: {
+            auto rel = std::filesystem::relative(entry.path, root_);
+            auto ext = entry.path.extension().string();
+            if (ext == ".fjinput") {
+                on_open_asset.broadcast(rel.string(), "input_mapping");
+            } else if (ext == ".fjaction") {
+                on_open_asset.broadcast(rel.string(), "input_action");
+            }
             break;
         }
 

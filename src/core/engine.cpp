@@ -28,6 +28,7 @@ extern "C" void fjell_input_clear_connections();
 #include "ui/blend_space_2d_editor_context.hpp"
 #include "ui/material_editor_context.hpp"
 #include "ui/ui_editor_context.hpp"
+#include "ui/input_mapping_editor_context.hpp"
 #include "ui/vfx_editor_context.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/scene_editor_context.hpp"
@@ -639,6 +640,45 @@ void Engine::init_editor() {
         .matches = [](const EditorContext& ctx, const std::string&) {
             return dynamic_cast<const BlendSpace2DEditorContext*>(&ctx) != nullptr;
         }
+    });
+
+    auto input_factory = [this](const std::string&) -> std::unique_ptr<EditorContext> {
+        InputMappingEditorDeps deps{
+            .vulkan_context = vulkan_context_.get(),
+            .input = &input_,
+            .project_mgr = &project_mgr_,
+            .input_action_map = &input_action_map_
+        };
+        auto ctx = std::make_unique<InputMappingEditorContext>(deps);
+        ctx->init();
+        return ctx;
+    };
+    auto input_matches = [](const EditorContext& ctx, const std::string&) {
+        return dynamic_cast<const InputMappingEditorContext*>(&ctx) != nullptr;
+    };
+
+    context_registry_.register_type("input_mapping", {
+        .create = [input_factory](const std::string& path) {
+            auto ctx = input_factory(path);
+            static_cast<InputMappingEditorContext&>(*ctx).open_context(path);
+            return ctx;
+        },
+        .open = [](EditorContext& ctx, const std::string& path) {
+            static_cast<InputMappingEditorContext&>(ctx).open_context(path);
+        },
+        .matches = input_matches
+    });
+
+    context_registry_.register_type("input_action", {
+        .create = [input_factory](const std::string& path) {
+            auto ctx = input_factory(path);
+            static_cast<InputMappingEditorContext&>(*ctx).open_action(path);
+            return ctx;
+        },
+        .open = [](EditorContext& ctx, const std::string& path) {
+            static_cast<InputMappingEditorContext&>(ctx).open_action(path);
+        },
+        .matches = input_matches
     });
 }
 

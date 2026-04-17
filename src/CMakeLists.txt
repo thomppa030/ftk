@@ -38,6 +38,7 @@ add_executable(fjell
     core/layer_stack.cpp
     core/input.cpp
     core/input_action_map.cpp
+    core/input_context_io.cpp
     core/input_modifier.cpp
     core/input_source.cpp
     core/play_session.cpp
@@ -213,6 +214,7 @@ add_executable(fjell
     ui/blend_space_1d_editor_context.cpp
     ui/blend_space_2d_editor_context.cpp
     ui/context_registry.cpp
+    ui/input_mapping_editor_context.cpp
     ui/material_editor_context.cpp
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
