@@ -139,7 +139,9 @@ nlohmann::json serialize_node(const Node& node) {
             {"shaft_density_mult", vf->shaft_density_mult},
             {"shaft_max_reach", vf->shaft_max_reach},
             {"shaft_step_count", vf->shaft_step_count},
-            {"shaft_anisotropy", vf->shaft_anisotropy}
+            {"shaft_anisotropy", vf->shaft_anisotropy},
+            {"shaft_halo_inner", vf->shaft_halo_inner},
+            {"shaft_halo_outer", vf->shaft_halo_outer}
         };
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
@@ -338,6 +340,8 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 vf->shaft_max_reach = jf.value("shaft_max_reach", 200.0f);
                 vf->shaft_step_count = jf.value("shaft_step_count", 32);
                 vf->shaft_anisotropy = jf.value("shaft_anisotropy", 0.75f);
+                vf->shaft_halo_inner = jf.value("shaft_halo_inner", 0.95f);
+                vf->shaft_halo_outer = jf.value("shaft_halo_outer", 0.6f);
             }
             node = std::move(vf);
         } else if (node_type == "world_environment") {

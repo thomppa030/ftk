@@ -93,6 +93,8 @@ struct VolumetricFogNode : Node3D {
     float shaft_max_reach{200.0f};
     int shaft_step_count{32};
     float shaft_anisotropy{0.75f};
+    float shaft_halo_inner{0.95f};  // cos(angle): full-strength shafts within this cone around the sun
+    float shaft_halo_outer{0.6f};   // cos(angle): shafts fade to zero here (wider = more sky coverage)
 
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<VolumetricFogNode>();
@@ -110,6 +112,8 @@ struct VolumetricFogNode : Node3D {
         copy->shaft_max_reach = shaft_max_reach;
         copy->shaft_step_count = shaft_step_count;
         copy->shaft_anisotropy = shaft_anisotropy;
+        copy->shaft_halo_inner = shaft_halo_inner;
+        copy->shaft_halo_outer = shaft_halo_outer;
         return copy;
     }
 };

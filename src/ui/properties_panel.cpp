@@ -356,7 +356,13 @@ void PropertiesPanel::draw() {
                         ImGui::SliderInt("##ShaftSteps", &vf->shaft_step_count, 8, 128);
                         ImGui::Text("Shaft Anisotropy");
                         ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ShaftAniso", &vf->shaft_anisotropy, 0.0f, 0.99f);
+                        ImGui::SliderFloat("##ShaftAniso", &vf->shaft_anisotropy, 0.0f, 0.9f);
+                        ImGui::Text("Shaft Halo Inner (full within cos)");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##ShaftHaloInner", &vf->shaft_halo_inner, 0.0f, 1.0f);
+                        ImGui::Text("Shaft Halo Outer (fade to zero at cos)");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##ShaftHaloOuter", &vf->shaft_halo_outer, -1.0f, 1.0f);
                     }
                 }
             }

@@ -1,24 +1,212 @@
 #version 460
 
-// Analytic sun shafts: screen-space ray-march against cascade shadow map
-// for crisp directional light crepuscular rays. Runs at half-res.
+// Analytic sun shafts: half-res screen-space ray-march against cascade
+// shadow map to produce crisp directional-light crepuscular rays.
 //
-// Phase 1 stub — writes zeros so pass wiring can be verified end-to-end.
-// Phase 2 will add the ray-march and temporal accumulation.
+// Runs alongside the froxel volumetric fog (which handles atmospheric
+// haze + point/spot volumetrics). This pass covers only the directional
+// contribution, with ray-marched shadow sampling so shafts get their
+// shape directly from the scene geometry via the cascade shadow map.
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, r11f_g11f_b10f) uniform writeonly image2D shafts_out;
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+    mat4 inv_view_proj;
+    mat4 prev_view_proj;
+    mat4 unjittered_vp;
+    mat4 prev_unjittered_vp;
+    float time;
+} ubo;
+
+layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
+
+layout(set = 1, binding = 0, r11f_g11f_b10f) uniform writeonly image2D shafts_out;
+layout(set = 1, binding = 1) uniform sampler2D depth_texture;
+layout(set = 1, binding = 2) uniform sampler2D shafts_history;
 
 layout(push_constant) uniform PushConstants {
     uvec2 output_size;
+    uvec2 full_size;
+    float max_reach;
+    float density;
+    float intensity;
+    float anisotropy;
+    uint step_count;
     uint frame_index;
+    float history_blend;
+    float jitter;
+    float halo_inner;
+    float halo_outer;
     float pad0;
+    float pad1;
 } pc;
+
+// HG with peak clamp. Forward-scatter can spike to hundreds at g→1 and
+// paint a bright halo around the sun; cap at 1.0 to keep shafts visible
+// along the sun direction without blowing out the horizon.
+float henyey_greenstein(float g, float cos_theta) {
+    float g2 = g * g;
+    float denom = 1.0 + g2 - 2.0 * g * cos_theta;
+    float phase = (1.0 - g2) / (4.0 * 3.14159265 * denom * sqrt(denom));
+    return min(phase, 1.0);
+}
+
+// Interleaved gradient noise per pixel — cheap blue-noise-ish dither.
+float ign(ivec2 coord, uint frame) {
+    vec3 m = vec3(0.06711056, 0.00583715, 52.9829189);
+    return fract(m.z * fract(dot(vec2(coord) + float(frame) * 5.588238, m.xy)));
+}
+
+// Returns shadow in [0,1], or -1 if the sample is outside all cascades
+// (caller should stop the march — beyond-cascade in-scatter has no shape
+// and would just add a uniform sun-direction blob).
+float sample_cascade_shadow(vec3 world_pos) {
+    float view_depth = -(ubo.view * vec4(world_pos, 1.0)).z;
+
+    int cascade = 2;
+    for (int i = 0; i < 3; ++i) {
+        if (view_depth < ubo.cascade_splits[i]) {
+            cascade = i;
+            break;
+        }
+    }
+
+    vec4 lp = ubo.cascade_vp[cascade] * vec4(world_pos, 1.0);
+    vec3 proj = lp.xyz / lp.w;
+    vec2 suv = proj.xy * 0.5 + 0.5;
+
+    if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0 ||
+        proj.z < 0.0 || proj.z > 1.0) {
+        return -1.0;
+    }
+
+    float bias = 0.002 * (1.0 + float(cascade));
+    return texture(shadow_map, vec4(suv, float(cascade), proj.z - bias));
+}
 
 void main() {
     ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
     if (coord.x >= int(pc.output_size.x) || coord.y >= int(pc.output_size.y)) return;
 
-    imageStore(shafts_out, coord, vec4(0.0, 0.0, 0.0, 0.0));
+    // Half-res pixel → full-res UV (sample center of 2x2 block)
+    vec2 half_uv = (vec2(coord) + 0.5) / vec2(pc.output_size);
+
+    // Sample scene depth at the center of the 2x2 full-res block.
+    ivec2 full_coord = ivec2((vec2(coord) + 0.5) * vec2(pc.full_size) / vec2(pc.output_size));
+    full_coord = clamp(full_coord, ivec2(0), ivec2(pc.full_size) - 1);
+    float raw_depth = texelFetch(depth_texture, full_coord, 0).r;
+
+    // Reconstruct world-space ray through this pixel.
+    vec2 ndc = half_uv * 2.0 - 1.0;
+    vec4 near_world = ubo.inv_view_proj * vec4(ndc, 0.0, 1.0);
+    near_world /= near_world.w;
+    vec4 far_world = ubo.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    far_world /= far_world.w;
+    vec3 ray_dir = normalize(far_world.xyz - near_world.xyz);
+
+    // March distance: to scene hit, or max_reach for sky pixels. Cap at the
+    // furthest cascade's reach — samples beyond it have no shadow data and
+    // waste march budget (the loop early-exits anyway when shadow == -1).
+    float cascade_limit = ubo.cascade_splits[2];
+    vec3 view_forward = -vec3(ubo.view[0][2], ubo.view[1][2], ubo.view[2][2]);
+    float cos_angle = max(dot(ray_dir, view_forward), 1e-4);
+    float max_ray_dist = min(pc.max_reach, cascade_limit / cos_angle);
+
+    float scene_dist;
+    if (raw_depth >= 1.0) {
+        scene_dist = max_ray_dist;
+    } else {
+        vec4 clip = vec4(ndc, raw_depth, 1.0);
+        vec4 view = ubo.inv_projection * clip;
+        float linear_z = -view.z / view.w;
+        scene_dist = min(linear_z / cos_angle, max_ray_dist);
+    }
+
+    float step_size = scene_dist / float(pc.step_count);
+    if (step_size <= 0.0) {
+        imageStore(shafts_out, coord, vec4(0.0));
+        return;
+    }
+
+    // Per-pixel jitter offsets the first step within [0, step_size) so
+    // that undersampled rays don't band across screen space.
+    float pixel_jitter = ign(coord, pc.frame_index);
+    float march_t = step_size * pixel_jitter;
+
+    // HG phase is view-dependent but constant along the ray (directional light).
+    float cos_theta = dot(ray_dir, ubo.light_direction.xyz);
+    float phase = henyey_greenstein(pc.anisotropy, cos_theta);
+
+    vec3 sun_color = ubo.light_color.xyz * ubo.light_direction.w;
+
+    vec3 accumulated = vec3(0.0);
+    float transmittance = 1.0;
+
+    for (uint i = 0; i < pc.step_count; ++i) {
+        vec3 world_pos = ubo.camera_position.xyz + ray_dir * march_t;
+
+        float shadow = sample_cascade_shadow(world_pos);
+        // Beyond the shadow cascades there's no meaningful shaft shape —
+        // end the march here so the accumulated radiance stops growing.
+        if (shadow < 0.0) break;
+
+        // World-space distance fade: each sample's contribution falls off
+        // with distance from the camera, independent of the ray's total
+        // length. This avoids the disc-shaped artifact where rays close to
+        // the sun direction all reach their cascade limit at similar
+        // brightness and produce a visible ring when the per-ray fade kicks
+        // in. Physical intuition: nearby particles contribute more in-scatter
+        // than distant ones.
+        float dist_fade = 1.0 - smoothstep(pc.max_reach * 0.5, pc.max_reach, march_t);
+
+        // Beer-Lambert transmittance for this segment.
+        float extinction = pc.density;
+        float seg_tr = exp(-extinction * step_size);
+
+        // In-scatter: sun radiance × phase × shadow × (1 - seg_tr)/extinction
+        // gives energy-conserving per-segment contribution.
+        vec3 in_scatter = sun_color * phase * shadow * pc.density * dist_fade;
+        vec3 seg_light = in_scatter * (1.0 - seg_tr) / max(extinction, 1e-6);
+
+        accumulated += transmittance * seg_light;
+        transmittance *= seg_tr;
+
+        march_t += step_size;
+        if (transmittance < 0.01) break;
+    }
+
+    // Angular fade around the sun direction so the shaft contribution
+    // rolls off smoothly into the surrounding sky instead of drawing a
+    // visible disc at the cascade limit.
+    float halo_fade = smoothstep(pc.halo_outer, pc.halo_inner, cos_theta);
+
+    vec3 result = accumulated * pc.intensity * halo_fade;
+
+    // Temporal accumulation: blend with previous frame's shafts.
+    // Screen-space reproject using prev view-projection.
+    if (pc.history_blend > 0.0) {
+        // Use a representative mid-ray point for reprojection (half of scene_dist).
+        vec3 repro_world = ubo.camera_position.xyz + ray_dir * (scene_dist * 0.5);
+        vec4 prev_clip = ubo.prev_view_proj * vec4(repro_world, 1.0);
+        if (prev_clip.w > 0.0) {
+            vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
+            if (all(greaterThanEqual(prev_uv, vec2(0.0))) &&
+                all(lessThanEqual(prev_uv, vec2(1.0)))) {
+                vec3 history = texture(shafts_history, prev_uv).rgb;
+                result = mix(result, history, pc.history_blend);
+            }
+        }
+    }
+
+    imageStore(shafts_out, coord, vec4(result, 1.0));
 }

@@ -96,8 +96,13 @@ void main() {
     vec4 fog = texture(integrated_volume, vec3(dithered_uv, w));
     // fog.rgb = accumulated in-scattered light, fog.a = transmittance
 
-    // Apply fog to scene color
+    // Apply fog to scene color. For sky pixels we drop the in-scatter term
+    // (fog.rgb) because the skybox already encodes atmospheric scattering
+    // and directional shafts are handled by the dedicated sun shafts pass —
+    // adding in-scatter here paints a phase-peaked blob around the sun disc.
+    // Transmittance still applies so dense fog can dim the sky.
     vec4 color = imageLoad(scene_color, coord);
-    color.rgb = color.rgb * fog.a + fog.rgb;
+    vec3 in_scatter = is_sky ? vec3(0.0) : fog.rgb;
+    color.rgb = color.rgb * fog.a + in_scatter;
     imageStore(scene_color, coord, color);
 }

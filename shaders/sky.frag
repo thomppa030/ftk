@@ -58,16 +58,19 @@ void main() {
     vec3 sun_dir = normalize(ubo.light_direction.xyz);
     float sun_dot = dot(view_dir, sun_dir);
 
-    // Sun disc with soft edge
-    float sun = smoothstep(0.9975, 0.999, sun_dot);
+    // Sun disc: smaller core, wide soft edge, falloff toward the rim.
+    float disc = smoothstep(0.9985, 0.99985, sun_dot);
+    float disc_falloff = pow(disc, 2.0);
 
-    // Sun glow halo
-    float glow = pow(max(sun_dot, 0.0), 128.0) * 0.3;
-    glow += pow(max(sun_dot, 0.0), 32.0) * 0.15;
+    // Glow halo that explicitly fades to zero at a defined outer radius
+    // so the sun integrates cleanly into the sky instead of bleeding a
+    // soft cloud outward with no clear boundary.
+    float glow = smoothstep(0.985, 0.9985, sun_dot);
+    glow = pow(glow, 3.0);  // concentrate brightness near the disc edge
 
     vec3 sun_color = ubo.light_color.rgb * ubo.light_direction.w;
-    color += sun_color * sun * 4.0;
-    color += sun_color * glow;
+    color += sun_color * disc_falloff * 3.0;
+    color += sun_color * glow * 0.5;
 
     out_color = vec4(color, 1.0);
     out_metallic_roughness = vec2(0.0);

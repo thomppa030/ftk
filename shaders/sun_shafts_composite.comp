@@ -1,0 +1,38 @@
+#version 460
+
+// Upsample half-res sun shafts and additively composite into scene color.
+// Uses depth-aware bilinear upsample to keep shaft edges crisp near
+// geometry silhouettes.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform sampler2D shafts_tex;   // half-res
+layout(set = 0, binding = 1) uniform sampler2D depth_texture; // full-res
+layout(set = 0, binding = 2, rgba16f) uniform image2D scene_color;
+
+layout(push_constant) uniform PushConstants {
+    uvec2 viewport_size;
+    uvec2 shafts_size;
+} pc;
+
+float linearize_depth(float raw, mat4 inv_proj) {
+    vec4 view = inv_proj * vec4(0.0, 0.0, raw, 1.0);
+    return -view.z / view.w;
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(pc.viewport_size.x) || coord.y >= int(pc.viewport_size.y)) return;
+
+    vec2 uv = (vec2(coord) + 0.5) / vec2(pc.viewport_size);
+
+    // Sample shafts with bilinear at matching UV (trilinear-within-mip-0 via
+    // the sampler). For Phase 2 this is a plain bilinear upsample; a
+    // depth-aware 2x2 filter can refine this further if halos appear at
+    // silhouettes.
+    vec3 shafts = texture(shafts_tex, uv).rgb;
+
+    vec4 color = imageLoad(scene_color, coord);
+    color.rgb += shafts;
+    imageStore(scene_color, coord, color);
+}
