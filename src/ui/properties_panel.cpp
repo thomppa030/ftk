@@ -338,6 +338,26 @@ void PropertiesPanel::draw() {
                     ImGui::Text("Fog Color");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::ColorEdit3("##FogColor", &vf->fog_color.r);
+
+                    ImGui::Spacing();
+                    ImGui::Checkbox("Sun Shafts##FogShafts", &vf->shafts_enabled);
+                    if (vf->shafts_enabled) {
+                        ImGui::Text("Shaft Intensity");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##ShaftIntensity", &vf->shaft_intensity, 0.0f, 10.0f);
+                        ImGui::Text("Shaft Density Mult");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##ShaftDensity", &vf->shaft_density_mult, 0.0f, 5.0f);
+                        ImGui::Text("Shaft Max Reach");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##ShaftReach", &vf->shaft_max_reach, 10.0f, 1000.0f);
+                        ImGui::Text("Shaft Steps");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderInt("##ShaftSteps", &vf->shaft_step_count, 8, 128);
+                        ImGui::Text("Shaft Anisotropy");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##ShaftAniso", &vf->shaft_anisotropy, 0.0f, 0.99f);
+                    }
                 }
             }
 

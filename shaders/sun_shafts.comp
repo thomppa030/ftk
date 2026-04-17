@@ -1,0 +1,24 @@
+#version 460
+
+// Analytic sun shafts: screen-space ray-march against cascade shadow map
+// for crisp directional light crepuscular rays. Runs at half-res.
+//
+// Phase 1 stub — writes zeros so pass wiring can be verified end-to-end.
+// Phase 2 will add the ray-march and temporal accumulation.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0, r11f_g11f_b10f) uniform writeonly image2D shafts_out;
+
+layout(push_constant) uniform PushConstants {
+    uvec2 output_size;
+    uint frame_index;
+    float pad0;
+} pc;
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(pc.output_size.x) || coord.y >= int(pc.output_size.y)) return;
+
+    imageStore(shafts_out, coord, vec4(0.0, 0.0, 0.0, 0.0));
+}

@@ -39,6 +39,7 @@
 #include "renderer/pass/transparent_pass.hpp"
 #include "renderer/pass/uv_viz_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
+#include "renderer/pass/sun_shafts_pass.hpp"
 #include "renderer/pass/wireframe_pass.hpp"
 
 #include "core/log.hpp"
@@ -104,6 +105,7 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("gtao", std::make_unique<GtaoPass>());
     add("ssr", std::make_unique<SsrPass>());
     add("volumetric_fog", std::make_unique<VolumetricFogPass>());
+    add("sun_shafts", std::make_unique<SunShaftsPass>());
     add("ddgi", std::make_unique<DdgiPass>());
     add("ss_gi", std::make_unique<SsGiPass>());
 

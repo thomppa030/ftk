@@ -133,7 +133,13 @@ nlohmann::json serialize_node(const Node& node) {
             {"anisotropy", vf->anisotropy},
             {"max_distance", vf->max_distance},
             {"temporal_blend", vf->temporal_blend},
-            {"color", {vf->fog_color.r, vf->fog_color.g, vf->fog_color.b}}
+            {"color", {vf->fog_color.r, vf->fog_color.g, vf->fog_color.b}},
+            {"shafts_enabled", vf->shafts_enabled},
+            {"shaft_intensity", vf->shaft_intensity},
+            {"shaft_density_mult", vf->shaft_density_mult},
+            {"shaft_max_reach", vf->shaft_max_reach},
+            {"shaft_step_count", vf->shaft_step_count},
+            {"shaft_anisotropy", vf->shaft_anisotropy}
         };
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
@@ -326,6 +332,12 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                     auto& c = jf["color"];
                     vf->fog_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
                 }
+                vf->shafts_enabled = jf.value("shafts_enabled", true);
+                vf->shaft_intensity = jf.value("shaft_intensity", 1.0f);
+                vf->shaft_density_mult = jf.value("shaft_density_mult", 1.0f);
+                vf->shaft_max_reach = jf.value("shaft_max_reach", 200.0f);
+                vf->shaft_step_count = jf.value("shaft_step_count", 32);
+                vf->shaft_anisotropy = jf.value("shaft_anisotropy", 0.75f);
             }
             node = std::move(vf);
         } else if (node_type == "world_environment") {

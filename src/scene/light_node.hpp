@@ -86,6 +86,14 @@ struct VolumetricFogNode : Node3D {
     float temporal_blend{0.9f};
     glm::vec3 fog_color{0.8f, 0.85f, 0.9f};
 
+    // Analytic sun shafts (directional light crepuscular rays, screen-space ray-march)
+    bool shafts_enabled{true};
+    float shaft_intensity{1.0f};
+    float shaft_density_mult{1.0f};
+    float shaft_max_reach{200.0f};
+    int shaft_step_count{32};
+    float shaft_anisotropy{0.75f};
+
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<VolumetricFogNode>();
         clone_3d_into(*copy);
@@ -96,6 +104,12 @@ struct VolumetricFogNode : Node3D {
         copy->max_distance = max_distance;
         copy->temporal_blend = temporal_blend;
         copy->fog_color = fog_color;
+        copy->shafts_enabled = shafts_enabled;
+        copy->shaft_intensity = shaft_intensity;
+        copy->shaft_density_mult = shaft_density_mult;
+        copy->shaft_max_reach = shaft_max_reach;
+        copy->shaft_step_count = shaft_step_count;
+        copy->shaft_anisotropy = shaft_anisotropy;
         return copy;
     }
 };
