@@ -43,6 +43,7 @@ layout(set = 0, binding = 9) uniform sampler3D scene_sdf;
 layout(set = 0, binding = 10) uniform sampler2D gi_indirect;
 layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
 layout(set = 0, binding = 12) uniform sampler2D ss_gi_emissive;
+layout(set = 0, binding = 13) uniform sampler2D contact_shadow_tex;
 
 struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
@@ -228,6 +229,8 @@ void main() {
     vec3 diffuse = kD * ALBEDO / PI;
 
     float shadow = shadow_factor(WORLD_POS, N, NdotL);
+    float contact = texelFetch(contact_shadow_tex, ivec2(gl_FragCoord.xy), 0).r;
+    shadow *= contact;
 
     vec3 radiance = ubo.light_color.xyz * light_intensity;
     vec3 Lo = (diffuse + specular) * radiance * NdotL * shadow;

@@ -126,6 +126,12 @@ struct WorldEnvironmentNode : Node3D {
     float ibl_intensity{1.0f};
     std::string hdri_path;
 
+    // Contact shadows: screen-space ray march along the sun direction.
+    bool contact_shadows_enabled{true};
+    float contact_shadow_distance{0.3f};    // world-space march length in meters
+    float contact_shadow_thickness{0.05f};  // occluder thickness tolerance
+    int contact_shadow_steps{12};
+
     [[nodiscard]] std::unique_ptr<Node> clone() const override {
         auto copy = std::make_unique<WorldEnvironmentNode>();
         clone_3d_into(*copy);
@@ -133,6 +139,10 @@ struct WorldEnvironmentNode : Node3D {
         copy->sky_bottom_color = sky_bottom_color;
         copy->ibl_intensity = ibl_intensity;
         copy->hdri_path = hdri_path;
+        copy->contact_shadows_enabled = contact_shadows_enabled;
+        copy->contact_shadow_distance = contact_shadow_distance;
+        copy->contact_shadow_thickness = contact_shadow_thickness;
+        copy->contact_shadow_steps = contact_shadow_steps;
         return copy;
     }
 };

@@ -419,6 +419,10 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         gb.write_image(current_frame_, "ss_gi_emissive",
             gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        gb.write_image(current_frame_, "contact_shadow",
+            contact_shadow_pass().shadow_view(),
+            contact_shadow_pass().shadow_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
         gb.flush_writes();
     }
 
@@ -471,6 +475,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
             prep_ctx.view = viewports[0].view;
             prep_ctx.projection = viewports[0].projection;
             prep_ctx.camera_position = viewports[0].camera_position;
+            prep_ctx.target = viewports[0].target;
         }
         passes_.prepare_frame_all(prep_ctx, gpu_);
     }
@@ -1137,6 +1142,11 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         }
         gb.write_image(current_frame_, "ss_gi_emissive",
             ss_gi_view, gpu_.gi_fallback_sampler(),
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        gb.write_image(current_frame_, "contact_shadow",
+            contact_shadow_pass().shadow_view(),
+            contact_shadow_pass().shadow_sampler(),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         gb.flush_writes();

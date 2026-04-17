@@ -148,7 +148,11 @@ nlohmann::json serialize_node(const Node& node) {
         j["sky"] = {
             {"sky_top_color", {env->sky_top_color.x, env->sky_top_color.y, env->sky_top_color.z}},
             {"sky_bottom_color", {env->sky_bottom_color.x, env->sky_bottom_color.y, env->sky_bottom_color.z}},
-            {"ibl_intensity", env->ibl_intensity}
+            {"ibl_intensity", env->ibl_intensity},
+            {"contact_shadows_enabled", env->contact_shadows_enabled},
+            {"contact_shadow_distance", env->contact_shadow_distance},
+            {"contact_shadow_thickness", env->contact_shadow_thickness},
+            {"contact_shadow_steps", env->contact_shadow_steps}
         };
         if (!env->hdri_path.empty()) {
             j["sky"]["hdri_path"] = env->hdri_path;
@@ -357,6 +361,10 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                     env->sky_bottom_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
                 }
                 env->ibl_intensity = js.value("ibl_intensity", 1.0f);
+                env->contact_shadows_enabled = js.value("contact_shadows_enabled", true);
+                env->contact_shadow_distance = js.value("contact_shadow_distance", 0.3f);
+                env->contact_shadow_thickness = js.value("contact_shadow_thickness", 0.05f);
+                env->contact_shadow_steps = js.value("contact_shadow_steps", 12);
                 if (js.contains("hdri_path")) {
                     env->hdri_path = js["hdri_path"].get<std::string>();
                 }

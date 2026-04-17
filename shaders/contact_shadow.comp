@@ -1,0 +1,119 @@
+#version 460
+
+// Contact shadows: full-res screen-space ray-march against the depth buffer
+// along the directional light direction. Fills the sub-cascade gap where
+// small-scale geometry (table legs, pebbles, character chins) loses contact
+// with its resting surface because the cascade shadow map's texel is too
+// coarse to resolve the occlusion.
+//
+// References:
+//   - Bungie, "Contact hardening shadows in Destiny" (GDC 2015)
+//   - Wronski, "Screen Space Ray Traced Shadows" (SIGGRAPH 2014)
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;   // xyz points toward the sun
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+    mat4 inv_view_proj;
+    mat4 prev_view_proj;
+    mat4 unjittered_vp;
+    mat4 prev_unjittered_vp;
+    float time;
+} ubo;
+
+layout(set = 0, binding = 4) uniform sampler2D depth_texture;
+
+layout(set = 1, binding = 0, r8) uniform writeonly image2D contact_out;
+
+layout(push_constant) uniform PushConstants {
+    uvec2 viewport_size;
+    float max_distance;     // world-space march length
+    float thickness;        // depth-delta tolerance before a hit counts as occlusion
+    uint step_count;
+    float frame_jitter;
+    float pad0;
+    float pad1;
+} pc;
+
+// Interleaved gradient noise per pixel for dithered start offset.
+float ign(ivec2 coord, float frame_offset) {
+    return fract(52.9829189 *
+                 fract(dot(vec2(coord), vec2(0.06711056, 0.00583715)) + frame_offset));
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    if (coord.x >= int(pc.viewport_size.x) || coord.y >= int(pc.viewport_size.y)) return;
+
+    float raw_depth = texelFetch(depth_texture, coord, 0).r;
+    // Sky pixels can't cast or receive contact shadows.
+    if (raw_depth >= 1.0) {
+        imageStore(contact_out, coord, vec4(1.0));
+        return;
+    }
+
+    vec2 uv = (vec2(coord) + 0.5) / vec2(pc.viewport_size);
+    vec2 ndc_xy = uv * 2.0 - 1.0;
+
+    // Reconstruct view-space position from depth.
+    vec4 clip = vec4(ndc_xy, raw_depth, 1.0);
+    vec4 view_pos = ubo.inv_projection * clip;
+    view_pos /= view_pos.w;
+
+    // Light direction in view space. Assume directional: the 3x3 view
+    // rotation suffices for a direction vector.
+    vec3 light_dir_view = normalize(mat3(ubo.view) * ubo.light_direction.xyz);
+
+    // Start slightly along the light direction to avoid self-hitting the
+    // originating pixel in the first sample.
+    float jitter = ign(coord, pc.frame_jitter);
+    float start_offset = mix(0.05, 0.15, jitter);
+    vec3 ray_origin = view_pos.xyz + light_dir_view * start_offset;
+
+    float step_size = pc.max_distance / float(pc.step_count);
+
+    float occlusion = 0.0;
+    for (uint i = 0; i < pc.step_count; ++i) {
+        vec3 sample_pos = ray_origin + light_dir_view * step_size * float(i);
+
+        // Project back to clip space to read the scene depth at the sample's
+        // screen-space position.
+        vec4 sample_clip = ubo.projection * vec4(sample_pos, 1.0);
+        if (sample_clip.w <= 0.0) break;
+        vec3 sample_ndc = sample_clip.xyz / sample_clip.w;
+
+        // Early out if the march left screen space.
+        if (any(lessThan(sample_ndc.xy, vec2(-1.0))) ||
+            any(greaterThan(sample_ndc.xy, vec2(1.0)))) break;
+
+        vec2 sample_uv = sample_ndc.xy * 0.5 + 0.5;
+        float scene_raw = texture(depth_texture, sample_uv).r;
+        if (scene_raw >= 1.0) continue;
+
+        // Convert scene depth at the sample's XY back to view-space Z.
+        vec4 scene_clip = vec4(sample_ndc.xy, scene_raw, 1.0);
+        vec4 scene_view = ubo.inv_projection * scene_clip;
+        float scene_view_z = scene_view.z / scene_view.w;
+
+        // Sample point is occluded when scene geometry sits between the
+        // ray and the light, within a thickness window (so we don't count
+        // occluders the ray has already passed through).
+        float depth_delta = scene_view_z - sample_pos.z;
+        if (depth_delta > 0.001 && depth_delta < pc.thickness) {
+            occlusion = 1.0;
+            break;
+        }
+    }
+
+    float shadow = 1.0 - occlusion;
+    imageStore(contact_out, coord, vec4(shadow));
+}

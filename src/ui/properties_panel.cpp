@@ -393,6 +393,20 @@ void PropertiesPanel::draw() {
                     ImGui::Text("IBL Intensity");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::SliderFloat("##IBLIntensity", &env->ibl_intensity, 0.0f, 5.0f);
+
+                    ImGui::Spacing();
+                    ImGui::Checkbox("Contact Shadows##EnvContact", &env->contact_shadows_enabled);
+                    if (env->contact_shadows_enabled) {
+                        ImGui::Text("Contact Shadow Distance");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##ContactDist", &env->contact_shadow_distance, 0.05f, 2.0f);
+                        ImGui::Text("Contact Shadow Thickness");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderFloat("##ContactThick", &env->contact_shadow_thickness, 0.01f, 0.5f);
+                        ImGui::Text("Contact Shadow Steps");
+                        ImGui::SetNextItemWidth(-1);
+                        ImGui::SliderInt("##ContactSteps", &env->contact_shadow_steps, 4, 64);
+                    }
                 }
             }
 

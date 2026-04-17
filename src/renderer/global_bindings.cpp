@@ -36,6 +36,7 @@ void GlobalBindings::register_builtins() {
     declare({"gi_indirect",     10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
     declare({"local_shadow_atlas", 11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG | COMP});
     declare({"ss_gi_emissive",  12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
+    declare({"contact_shadow",  13, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, FRAG});
 }
 
 void GlobalBindings::declare(GlobalBindingDecl decl) {

@@ -40,6 +40,7 @@ layout(set = 0, binding = 7) uniform sampler2D brdf_lut;
 layout(set = 0, binding = 10) uniform sampler2D gi_indirect;
 layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
 layout(set = 0, binding = 12) uniform sampler2D ss_gi_emissive;
+layout(set = 0, binding = 13) uniform sampler2D contact_shadow_tex;
 
 struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
@@ -190,6 +191,11 @@ void main() {
     vec3 diffuse = kD * albedo / PI;
 
     float shadow = shadow_factor(frag_world_pos, N, NdotL);
+    // Screen-space contact shadows: multiplies sub-cascade occlusion from
+    // small geometry the cascade shadow map can't resolve (character feet,
+    // small props on a surface, etc.).
+    float contact = texelFetch(contact_shadow_tex, ivec2(gl_FragCoord.xy), 0).r;
+    shadow *= contact;
 
     // Direct lighting (directional)
     vec3 radiance = ubo.light_color.xyz * light_intensity;

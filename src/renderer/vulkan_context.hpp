@@ -26,6 +26,7 @@
 #include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
+#include "renderer/pass/contact_shadow_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
@@ -148,6 +149,7 @@ public:
   [[nodiscard]] GtaoPass &gtao_pass() { return passes_.get<GtaoPass>("gtao"); }
   [[nodiscard]] SsrPass &ssr_pass() { return passes_.get<SsrPass>("ssr"); }
   [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return passes_.get<VolumetricFogPass>("volumetric_fog"); }
+  [[nodiscard]] ContactShadowPass &contact_shadow_pass() { return passes_.get<ContactShadowPass>("contact_shadow"); }
   [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }
   [[nodiscard]] SsGiPass &ss_gi_pass() { return passes_.get<SsGiPass>("ss_gi"); }
   [[nodiscard]] TaaResolvePass &taa_resolve_pass() { return passes_.get<TaaResolvePass>("taa_resolve"); }
