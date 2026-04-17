@@ -107,6 +107,7 @@ nlohmann::json serialize_node(const Node& node) {
             {"color", {pl->color.x, pl->color.y, pl->color.z}},
             {"intensity", pl->intensity},
             {"radius", pl->radius},
+            {"vol_scatter_intensity", pl->vol_scatter_intensity},
             {"cast_shadows", pl->cast_shadows},
             {"shadow_bias", pl->shadow_bias}
         };
@@ -119,6 +120,7 @@ nlohmann::json serialize_node(const Node& node) {
             {"radius", sl->radius},
             {"inner_angle", sl->inner_angle},
             {"outer_angle", sl->outer_angle},
+            {"vol_scatter_intensity", sl->vol_scatter_intensity},
             {"cast_shadows", sl->cast_shadows},
             {"shadow_bias", sl->shadow_bias}
         };
@@ -284,6 +286,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 }
                 pl->intensity = jl.value("intensity", 1.0f);
                 pl->radius = jl.value("radius", 10.0f);
+                pl->vol_scatter_intensity = jl.value("vol_scatter_intensity", 1.0f);
                 pl->cast_shadows = jl.value("cast_shadows", false);
                 pl->shadow_bias = jl.value("shadow_bias", 0.005f);
             }
@@ -304,6 +307,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 sl->radius = jl.value("radius", 10.0f);
                 sl->inner_angle = jl.value("inner_angle", 20.0f);
                 sl->outer_angle = jl.value("outer_angle", 30.0f);
+                sl->vol_scatter_intensity = jl.value("vol_scatter_intensity", 1.0f);
                 sl->cast_shadows = jl.value("cast_shadows", false);
                 sl->shadow_bias = jl.value("shadow_bias", 0.002f);
             }

@@ -48,6 +48,7 @@ struct GpuPointLight {
     vec4 position_radius;   // xyz = world pos, w = radius
     vec4 color_intensity;   // xyz = color, w = intensity
     ivec4 shadow_info;      // x = atlas_x, y = atlas_y, z = tile_size, w = flags (0 = no shadow)
+    vec4 vol_params;        // x = volumetric scatter intensity multiplier
 };
 
 struct GpuSpotLight {
@@ -59,6 +60,7 @@ struct GpuSpotLight {
     int shadow_atlas_y;
     int shadow_tile_size;       // 0 = no shadow
     mat4 shadow_vp;             // light-space view-projection
+    vec4 vol_params;            // x = volumetric scatter intensity multiplier
 };
 
 layout(set = 0, binding = 2) readonly buffer LightBuffer {

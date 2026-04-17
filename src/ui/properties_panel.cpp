@@ -19,6 +19,7 @@
 #include "renderer/pass/grid_pass.hpp"
 #include "scripting/script_manager.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "ui/material_params_widget.hpp"
 
@@ -269,6 +270,9 @@ void PropertiesPanel::draw() {
                     ImGui::Text("Radius");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::DragFloat("##PLRadius", &pl->radius, 0.5f, 0.1f, 500.0f);
+                    ImGui::Text("Volumetric Scatter");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##PLVolScatter", &pl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f);
                     ImGui::Checkbox("Cast Shadows##PL", &pl->cast_shadows);
                     if (pl->cast_shadows) {
                         ImGui::Text("Shadow Bias");
@@ -298,6 +302,9 @@ void PropertiesPanel::draw() {
                     ImGui::Text("Outer Angle");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::DragFloat("##SLOuter", &sl->outer_angle, 0.5f, 0.0f, 90.0f);
+                    ImGui::Text("Volumetric Scatter");
+                    ImGui::SetNextItemWidth(-1);
+                    ImGui::DragFloat("##SLVolScatter", &sl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f);
                     ImGui::Checkbox("Cast Shadows##SL", &sl->cast_shadows);
                     if (sl->cast_shadows) {
                         ImGui::Text("Shadow Bias");
@@ -337,12 +344,26 @@ void PropertiesPanel::draw() {
             if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj)) {
                 colored_separator({0.4f, 0.6f, 0.9f, 1.0f});
                 if (ImGui::CollapsingHeader("World Environment", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    static const std::string hdri_exts[] = {".hdr", ".exr"};
+                    asset_ref_field({.label = "HDRI",
+                                     .id = "##EnvHDRI",
+                                     .extensions = hdri_exts,
+                                     .ctx = &ictx},
+                                    env->hdri_path);
+
+                    const bool gradient_mode = env->hdri_path.empty();
+                    ImGui::BeginDisabled(!gradient_mode);
                     ImGui::Text("Sky Top Color");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::ColorEdit3("##SkyTop", &env->sky_top_color.x);
                     ImGui::Text("Sky Bottom Color");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::ColorEdit3("##SkyBottom", &env->sky_bottom_color.x);
+                    ImGui::EndDisabled();
+                    if (!gradient_mode) {
+                        ImGui::TextDisabled("(gradient overridden by HDRI)");
+                    }
+
                     ImGui::Text("IBL Intensity");
                     ImGui::SetNextItemWidth(-1);
                     ImGui::SliderFloat("##IBLIntensity", &env->ibl_intensity, 0.0f, 5.0f);

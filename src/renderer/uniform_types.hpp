@@ -58,6 +58,7 @@ struct GpuPointLight {
     alignas(16) glm::vec4 position_radius;  // xyz = world pos, w = radius
     alignas(16) glm::vec4 color_intensity;  // xyz = color, w = intensity
     alignas(16) glm::ivec4 shadow_info;     // x = atlas_x, y = atlas_y, z = tile_size, w = flags (0 = no shadow)
+    alignas(16) glm::vec4 vol_params;       // x = vol_scatter_intensity
 };
 
 struct GpuSpotLight {
@@ -69,6 +70,7 @@ struct GpuSpotLight {
     int shadow_atlas_y;                          // atlas tile Y offset (pixels)
     int shadow_tile_size;                        // tile size in pixels (0 = no shadow)
     alignas(16) glm::mat4 shadow_vp;            // light-space view-projection
+    alignas(16) glm::vec4 vol_params;           // x = vol_scatter_intensity
 };
 
 struct PbrPushConstants {

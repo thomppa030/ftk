@@ -53,6 +53,11 @@ float depth_to_slice(float z) {
     return log(z / pc.near_plane) / log(pc.far_plane / pc.near_plane);
 }
 
+// Interleaved gradient noise — screen-space dither without a texture
+float ign(ivec2 coord) {
+    return fract(52.9829189 * fract(0.06711056 * float(coord.x) + 0.00583715 * float(coord.y)));
+}
+
 void main() {
     ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
     if (coord.x >= int(pc.viewport_width) || coord.y >= int(pc.viewport_height)) return;
@@ -61,22 +66,34 @@ void main() {
     vec2 uv = (vec2(coord) + 0.5) / vec2(pc.viewport_width, pc.viewport_height);
     float raw_depth = texelFetch(depth_texture, coord, 0).r;
 
-    // Convert to linear depth
-    // Standard perspective: linear_z = near * far / (far - depth * (far - near))
-    // But our projection might use reverse-Z or standard. Use inv_projection.
-    vec4 clip_pos = vec4(uv * 2.0 - 1.0, raw_depth, 1.0);
-    vec4 view_pos = ubo.inv_projection * clip_pos;
-    float linear_z = -view_pos.z / view_pos.w;
+    // Sky pixels (depth == 1.0) get the full volume integral — the density
+    // fade near far_plane in fog_inject ensures the last slice represents
+    // "all the fog between camera and sky" without edge artifacts.
+    bool is_sky = raw_depth >= 1.0;
 
-    // Clamp to fog range
-    linear_z = clamp(linear_z, pc.near_plane, pc.far_plane);
+    float linear_z;
+    if (is_sky) {
+        linear_z = pc.far_plane;
+    } else {
+        vec4 clip_pos = vec4(uv * 2.0 - 1.0, raw_depth, 1.0);
+        vec4 view_pos = ubo.inv_projection * clip_pos;
+        linear_z = -view_pos.z / view_pos.w;
+        linear_z = clamp(linear_z, pc.near_plane, pc.far_plane);
+    }
 
     // Convert to froxel W coordinate
     float w = depth_to_slice(linear_z);
     w = clamp(w, 0.0, 1.0);
 
+    // Dither the UV by half a froxel to break up block edges.
+    // The interleaved gradient noise varies per pixel, smoothing the
+    // hard froxel boundaries that show up against a bright sky.
+    float noise = ign(coord) - 0.5;
+    vec2 froxel_size = vec2(1.0) / vec2(pc.volume_dims.xy);
+    vec2 dithered_uv = uv + noise * froxel_size * 0.5;
+
     // Sample integrated fog volume (trilinear)
-    vec4 fog = texture(integrated_volume, vec3(uv, w));
+    vec4 fog = texture(integrated_volume, vec3(dithered_uv, w));
     // fog.rgb = accumulated in-scattered light, fog.a = transmittance
 
     // Apply fog to scene color

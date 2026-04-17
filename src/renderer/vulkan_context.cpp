@@ -701,6 +701,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
             glm::vec3 pos = glm::vec3(pl->world_matrix_[3]);
             gpu.position_radius = glm::vec4(pos, pl->radius);
             gpu.color_intensity = glm::vec4(pl->color, pl->intensity);
+            gpu.vol_params = glm::vec4(pl->vol_scatter_intensity, 0.0f, 0.0f, 0.0f);
             // Fill shadow block data if this point light has shadows assigned
             auto pit = point_shadow_map.find(point_count);
             if (pit != point_shadow_map.end()) {
@@ -726,6 +727,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
                                                  std::cos(glm::radians(sl->inner_angle)));
             gpu.color_intensity = glm::vec4(sl->color, sl->intensity);
             gpu.outer_cos = std::cos(glm::radians(sl->outer_angle));
+            gpu.vol_params = glm::vec4(sl->vol_scatter_intensity, 0.0f, 0.0f, 0.0f);
             // Fill shadow tile data if this spot light has shadows assigned
             auto it = spot_shadow_map.find(spot_count);
             if (it != spot_shadow_map.end()) {
@@ -753,6 +755,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
         GpuPointLight gpu{};
         gpu.position_radius = glm::vec4(pl.position, pl.radius);
         gpu.color_intensity = glm::vec4(pl.color, pl.intensity);
+        gpu.vol_params = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
         std::memcpy(dst + point_count * sizeof(GpuPointLight), &gpu, sizeof(GpuPointLight));
         ++point_count;
     }
@@ -767,6 +770,7 @@ void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {
                                              std::cos(glm::radians(sl.inner_angle)));
         gpu.color_intensity = glm::vec4(sl.color, sl.intensity);
         gpu.outer_cos = std::cos(glm::radians(sl.outer_angle));
+        gpu.vol_params = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
         std::memcpy(spot_dst + spot_count * sizeof(GpuSpotLight), &gpu, sizeof(GpuSpotLight));
         ++spot_count;
     }

@@ -31,6 +31,7 @@ struct PointLightNode : Node3D {
     glm::vec3 color{1.0f};
     float intensity{1.0f};
     float radius{10.0f};
+    float vol_scatter_intensity{1.0f};
     bool cast_shadows{false};
     float shadow_bias{0.005f};
 
@@ -40,6 +41,7 @@ struct PointLightNode : Node3D {
         copy->color = color;
         copy->intensity = intensity;
         copy->radius = radius;
+        copy->vol_scatter_intensity = vol_scatter_intensity;
         copy->cast_shadows = cast_shadows;
         copy->shadow_bias = shadow_bias;
         return copy;
@@ -53,6 +55,7 @@ struct SpotLightNode : Node3D {
     float radius{10.0f};
     float inner_angle{20.0f};
     float outer_angle{30.0f};
+    float vol_scatter_intensity{1.0f};
     bool cast_shadows{false};
     float shadow_bias{0.002f};
 
@@ -65,6 +68,7 @@ struct SpotLightNode : Node3D {
         copy->radius = radius;
         copy->inner_angle = inner_angle;
         copy->outer_angle = outer_angle;
+        copy->vol_scatter_intensity = vol_scatter_intensity;
         copy->cast_shadows = cast_shadows;
         copy->shadow_bias = shadow_bias;
         return copy;
