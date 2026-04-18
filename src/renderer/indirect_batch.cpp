@@ -188,31 +188,27 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     bool current_skinned = false;
     uint32_t range_start = 0;
 
+    // Helper: compute LOD index for a given world-space position + matrix scale.
+    // Mirrors the original per-draw LOD path below but takes an explicit world
+    // matrix so it works for per-instance LOD selection too.
+    auto select_lod = [&](const Model& model, const glm::mat4& world) -> uint32_t {
+        if (!do_lod || model.lod_count() <= 1) return 0;
+        glm::vec3 diff = camera_pos - glm::vec3(world[3]);
+        float dist_sq = glm::dot(diff, diff);
+        float radius = model.bounding_radius();
+        float sx2 = glm::dot(glm::vec3(world[0]), glm::vec3(world[0]));
+        float sy2 = glm::dot(glm::vec3(world[1]), glm::vec3(world[1]));
+        float sz2 = glm::dot(glm::vec3(world[2]), glm::vec3(world[2]));
+        float max_scale_sq = std::max({sx2, sy2, sz2});
+        float r_proj_sq = radius * radius * max_scale_sq * proj_scale * proj_scale;
+        return model.select_lod_sq(r_proj_sq, dist_sq);
+    };
+
     for (const auto& dc : opaque_commands) {
         if (dc.skinned) continue; // skinned draws appended after static draws
 
-        // LOD selection using squared distances (avoid sqrt)
-        uint32_t lod = 0;
-        if (do_lod && dc.model->lod_count() > 1) {
-            glm::vec3 diff = camera_pos - glm::vec3(dc.world_matrix[3]);
-            float dist_sq = glm::dot(diff, diff);
-            float radius = dc.model->bounding_radius();
-
-            // Max axis scale squared (avoid 3 sqrts)
-            float sx2 = glm::dot(glm::vec3(dc.world_matrix[0]), glm::vec3(dc.world_matrix[0]));
-            float sy2 = glm::dot(glm::vec3(dc.world_matrix[1]), glm::vec3(dc.world_matrix[1]));
-            float sz2 = glm::dot(glm::vec3(dc.world_matrix[2]), glm::vec3(dc.world_matrix[2]));
-            float max_scale_sq = std::max({sx2, sy2, sz2});
-
-            // screen_size = radius * scale * proj_scale / distance
-            // Compare squared: (radius * scale * proj_scale)^2 vs (threshold * distance)^2
-            float r_proj_sq = radius * radius * max_scale_sq * proj_scale * proj_scale;
-
-            lod = dc.model->select_lod_sq(r_proj_sq, dist_sq);
-
-            if (lod >= dc.model->lod_count()) continue;
-        }
-
+        // Ensure the pipeline range reflects the current draw's pipeline before
+        // we emit any sub-draws (instanced or not).
         if (dc.pipeline_id != current_pipeline || dc.skinned != current_skinned) {
             if (current_pipeline != UINT32_MAX && draw_index > range_start) {
                 ranges.push_back({current_pipeline, range_start, draw_index - range_start, current_skinned});
@@ -222,46 +218,113 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             range_start = draw_index;
         }
 
-        const auto& lod_level = dc.model->lod_levels()[lod];
+        bool is_instanced = dc.instance_transforms && !dc.instance_transforms->empty();
         const auto& entries = dc.model->mega_entries();
-        uint32_t entry_begin = lod_level.first_mega_entry;
-        uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
+        const auto& lods = dc.model->lod_levels();
+        uint32_t max_lod = dc.model->lod_count();
 
-        // Instanced draw: append world-space transforms once, share first_instance
-        // across all mega entries of this command.
-        uint32_t instance_count = 1;
-        uint32_t first_instance = 0;
-        if (dc.instance_transforms && !dc.instance_transforms->empty()) {
-            instance_count = static_cast<uint32_t>(dc.instance_transforms->size());
-            first_instance = static_cast<uint32_t>(staged_instance_transforms_.size());
+        if (is_instanced) {
+            // Per-instance LOD: bucket instances by LOD, emit one indirect
+            // draw per non-empty bucket × mega_entry. Transforms for each
+            // bucket live contiguously in the staged transform buffer so a
+            // single `first_instance` slice covers the whole bucket.
+            constexpr uint32_t MAX_LOD_BUCKETS = 4;
+            std::array<std::vector<glm::mat4>, MAX_LOD_BUCKETS> buckets;
+            for (auto& b : buckets) b.clear();
+
             const glm::mat4& node_world = dc.world_matrix;
             for (const auto& local : *dc.instance_transforms) {
-                staged_instance_transforms_.push_back(node_world * local);
+                glm::mat4 world = node_world * local;
+                uint32_t lod = select_lod(*dc.model, world);
+                if (lod >= max_lod) continue; // fully culled by distance
+                if (lod >= MAX_LOD_BUCKETS) lod = MAX_LOD_BUCKETS - 1;
+                buckets[lod].push_back(world);
             }
+
+            for (uint32_t lod = 0; lod < max_lod && lod < MAX_LOD_BUCKETS; ++lod) {
+                const auto& bucket = buckets[lod];
+                if (bucket.empty()) continue;
+
+                uint32_t bucket_first_instance = static_cast<uint32_t>(staged_instance_transforms_.size());
+                staged_instance_transforms_.insert(staged_instance_transforms_.end(),
+                                                   bucket.begin(), bucket.end());
+                uint32_t bucket_count = static_cast<uint32_t>(bucket.size());
+
+                const auto& lod_level = lods[lod];
+                uint32_t entry_begin = lod_level.first_mega_entry;
+                uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
+
+                for (uint32_t e = entry_begin; e < entry_end; ++e) {
+                    const auto& entry = entries[e];
+                    VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
+                    cmd.indexCount = entry.index_count;
+                    cmd.instanceCount = bucket_count;
+                    cmd.firstIndex = entry.first_index;
+                    cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
+                    cmd.firstInstance = draw_index;
+
+                    const AABB& local = dc.model->local_aabb();
+                    GpuInstancedDraw desc{};
+                    desc.local_aabb_min = glm::vec4(local.min, 0.0f);
+                    desc.local_aabb_max = glm::vec4(local.max, 0.0f);
+                    desc.first_instance = bucket_first_instance;
+                    desc.instance_count = bucket_count;
+                    desc.indirect_cmd_index = draw_index;
+                    desc._pad = 0;
+                    staged_instanced_draws_.push_back(desc);
+
+                    GpuDrawData& data = draw_data[draw_index];
+                    data.model = dc.push.model;
+                    data.prev_model = dc.prev_world_matrix;
+                    data.material_id = dc.push.material_id;
+                    data.meshlet_offset = entry.meshlet_offset;
+                    data.meshlet_count = entry.meshlet_count;
+                    data.vertex_offset = entry.vertex_offset;
+                    data.instance_count = bucket_count;
+                    data.first_instance = bucket_first_instance;
+
+                    if (do_lod) {
+                        // Per-bucket AABB: union of this bucket's instance world AABBs.
+                        AABB bucket_aabb = local.transform(bucket[0]);
+                        for (size_t i = 1; i < bucket.size(); ++i) {
+                            AABB b = local.transform(bucket[i]);
+                            bucket_aabb.min = glm::min(bucket_aabb.min, b.min);
+                            bucket_aabb.max = glm::max(bucket_aabb.max, b.max);
+                        }
+                        aabbs[draw_index].min_x = bucket_aabb.min.x;
+                        aabbs[draw_index].min_y = bucket_aabb.min.y;
+                        aabbs[draw_index].min_z = bucket_aabb.min.z;
+                        aabbs[draw_index].pad0 = 0.0f;
+                        aabbs[draw_index].max_x = bucket_aabb.max.x;
+                        aabbs[draw_index].max_y = bucket_aabb.max.y;
+                        aabbs[draw_index].max_z = bucket_aabb.max.z;
+                        aabbs[draw_index].pad1 = 0.0f;
+                    }
+
+                    total_meshlets += entry.meshlet_count * bucket_count;
+                    triangles += (entry.index_count / 3) * bucket_count;
+                    draw_index++;
+                }
+            }
+            continue;
         }
+
+        // Non-instanced: one LOD for the whole draw (original path).
+        uint32_t lod = select_lod(*dc.model, dc.world_matrix);
+        if (lod >= max_lod) continue;
+
+        const auto& lod_level = lods[lod];
+        uint32_t entry_begin = lod_level.first_mega_entry;
+        uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
 
         for (uint32_t e = entry_begin; e < entry_end; ++e) {
             const auto& entry = entries[e];
             VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
             cmd.indexCount = entry.index_count;
-            cmd.instanceCount = instance_count;
+            cmd.instanceCount = 1;
             cmd.firstIndex = entry.first_index;
             cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
             cmd.firstInstance = draw_index;
-
-            // Instanced draws register a descriptor so InstanceCullPass can
-            // per-instance frustum-cull and patch `instanceCount` in-place.
-            if (instance_count > 1) {
-                const AABB& local = dc.model->local_aabb();
-                GpuInstancedDraw desc{};
-                desc.local_aabb_min = glm::vec4(local.min, 0.0f);
-                desc.local_aabb_max = glm::vec4(local.max, 0.0f);
-                desc.first_instance = first_instance;
-                desc.instance_count = instance_count;
-                desc.indirect_cmd_index = draw_index;
-                desc._pad = 0;
-                staged_instanced_draws_.push_back(desc);
-            }
 
             GpuDrawData& data = draw_data[draw_index];
             data.model = dc.push.model;
@@ -270,14 +333,9 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             data.meshlet_offset = entry.meshlet_offset;
             data.meshlet_count = entry.meshlet_count;
             data.vertex_offset = entry.vertex_offset;
-            data.instance_count = instance_count;
-            data.first_instance = first_instance;
-            if (dc.skinned && animation_system) {
-                data.bone_offset = animation_system->bone_offset_for(dc.node_id);
-                data.bone_count = animation_system->bone_count_for(dc.node_id);
-            }
+            data.instance_count = 1;
+            data.first_instance = 0;
 
-            // AABB only needed for GPU cull (main batch, not shadow)
             if (do_lod) {
                 const AABB& world_aabb = dc.world_aabb;
                 aabbs[draw_index].min_x = world_aabb.min.x;
@@ -290,8 +348,8 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 aabbs[draw_index].pad1 = 0.0f;
             }
 
-            total_meshlets += entry.meshlet_count * instance_count;
-            triangles += (entry.index_count / 3) * instance_count;
+            total_meshlets += entry.meshlet_count;
+            triangles += entry.index_count / 3;
             draw_index++;
         }
     }

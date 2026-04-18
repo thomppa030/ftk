@@ -75,11 +75,11 @@ static const bool registered = [] {
             ImGui::Text("Instances: %zu", inst->instances.size());
             if (ImGui::Button("Add Instance")) {
                 // Temporary test hack: offset each new instance on a grid so
-                // Phase 2 can be visually verified. Phase 5 replaces this with
-                // a scatter tool + per-instance transform table.
+                // phases 2-4 can be visually verified. Phase 5 replaces this
+                // with a scatter tool + per-instance transform table.
                 uint32_t n = static_cast<uint32_t>(inst->instances.size());
                 uint32_t side = 10;
-                float spacing = 2.0f;
+                float spacing = 6.0f;  // wide enough to span LOD transitions
                 float x = static_cast<float>(n % side) * spacing;
                 float z = static_cast<float>(n / side) * spacing;
                 glm::mat4 m(1.0f);
