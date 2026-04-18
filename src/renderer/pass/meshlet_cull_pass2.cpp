@@ -60,6 +60,7 @@ void MeshletCullPass2::build(FrameGraph& graph, ResourceRegistry& registry,
         instance_pass_->dispatch_cull_second(
             cb,
             ctx.global_descriptor_set,
+            ctx.draw_data_set,
             ctx.indirect_batch->draw_data_buffer(ctx.frame_index),
             ctx.indirect_batch->draw_data_size(ctx.frame_index),
             bounds_buf, bounds_size,

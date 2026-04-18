@@ -70,6 +70,23 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
     capacities_[frame_index] = new_cap;
 }
 
+void IndirectBatch::ensure_instance_capacity(uint32_t frame_index, uint32_t count) {
+    if (count <= instance_transform_capacities_[frame_index]) return;
+
+    uint32_t new_cap = std::max(count, instance_transform_capacities_[frame_index] * 2);
+    if (new_cap < 256) new_cap = 256;
+
+    instance_transform_buffers_[frame_index] = std::make_unique<Buffer>(
+        allocator_,
+        new_cap * sizeof(glm::mat4),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+    instance_transform_buffers_[frame_index]->map();
+
+    instance_transform_capacities_[frame_index] = new_cap;
+}
+
 void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           const std::vector<DrawCommand>& transparent_commands,
                           uint32_t frame_index,
@@ -105,6 +122,20 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     }
 
     ensure_capacity(frame_index, total_draws);
+
+    // Pre-count total instance transforms across instanced opaque draws.
+    // Each instanced draw contributes N transforms, shared across its mega entries.
+    uint32_t total_instance_transforms = 0;
+    for (const auto& dc : opaque_commands) {
+        if (dc.instance_transforms && !dc.instance_transforms->empty()) {
+            total_instance_transforms += static_cast<uint32_t>(dc.instance_transforms->size());
+        }
+    }
+    if (total_instance_transforms > 0) {
+        ensure_instance_capacity(frame_index, total_instance_transforms);
+    }
+    staged_instance_transforms_.clear();
+    staged_instance_transforms_.reserve(total_instance_transforms);
 
     // Stage to CPU-side vectors (L1/L2 cached) to avoid scattered writes
     // to write-combined GPU memory. Bulk memcpy at the end.
@@ -171,11 +202,24 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         uint32_t entry_begin = lod_level.first_mega_entry;
         uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
 
+        // Instanced draw: append world-space transforms once, share first_instance
+        // across all mega entries of this command.
+        uint32_t instance_count = 1;
+        uint32_t first_instance = 0;
+        if (dc.instance_transforms && !dc.instance_transforms->empty()) {
+            instance_count = static_cast<uint32_t>(dc.instance_transforms->size());
+            first_instance = static_cast<uint32_t>(staged_instance_transforms_.size());
+            const glm::mat4& node_world = dc.world_matrix;
+            for (const auto& local : *dc.instance_transforms) {
+                staged_instance_transforms_.push_back(node_world * local);
+            }
+        }
+
         for (uint32_t e = entry_begin; e < entry_end; ++e) {
             const auto& entry = entries[e];
             VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
             cmd.indexCount = entry.index_count;
-            cmd.instanceCount = 1;
+            cmd.instanceCount = instance_count;
             cmd.firstIndex = entry.first_index;
             cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
             cmd.firstInstance = draw_index;
@@ -187,6 +231,8 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             data.meshlet_offset = entry.meshlet_offset;
             data.meshlet_count = entry.meshlet_count;
             data.vertex_offset = entry.vertex_offset;
+            data.instance_count = instance_count;
+            data.first_instance = first_instance;
             if (dc.skinned && animation_system) {
                 data.bone_offset = animation_system->bone_offset_for(dc.node_id);
                 data.bone_count = animation_system->bone_count_for(dc.node_id);
@@ -205,8 +251,8 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 aabbs[draw_index].pad1 = 0.0f;
             }
 
-            total_meshlets += entry.meshlet_count;
-            triangles += entry.index_count / 3;
+            total_meshlets += entry.meshlet_count * instance_count;
+            triangles += (entry.index_count / 3) * instance_count;
             draw_index++;
         }
     }
@@ -283,6 +329,14 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     std::memcpy(draw_data_buffers_[frame_index]->mapped(),
                 staged_draw_data_.data(),
                 draw_index * sizeof(GpuDrawData));
+
+    uint32_t staged_instances = static_cast<uint32_t>(staged_instance_transforms_.size());
+    instance_transform_counts_[frame_index] = staged_instances;
+    if (staged_instances > 0) {
+        std::memcpy(instance_transform_buffers_[frame_index]->mapped(),
+                    staged_instance_transforms_.data(),
+                    staged_instances * sizeof(glm::mat4));
+    }
 
     // Populate mesh shader indirect dispatch buffers
     uint32_t opaque_count = opaque_counts_[frame_index];

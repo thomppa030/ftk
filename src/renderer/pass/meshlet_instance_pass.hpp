@@ -17,8 +17,10 @@ namespace fjell {
 struct GpuMeshletInstance {
     uint32_t meshlet_index;
     uint32_t draw_index;
+    uint32_t instance_index;   // offset within a draw's instance range (0 for single-instance)
+    uint32_t _pad;
 };
-static_assert(sizeof(GpuMeshletInstance) == 8);
+static_assert(sizeof(GpuMeshletInstance) == 16);
 
 class MeshletInstancePass : public RenderPass {
 public:
@@ -49,6 +51,7 @@ public:
     // Dispatch first cull pass: per-meshlet frustum + occlusion against previous Hi-Z.
     // Outputs visible instances to binned buffer, saves Hi-Z-rejected to culled buffer.
     void dispatch_cull_first(VkCommandBuffer cmd, VkDescriptorSet global_set,
+                             VkDescriptorSet draw_data_set,
                              VkBuffer draw_data_buffer, VkDeviceSize draw_data_size,
                              VkBuffer bounds_buffer, VkDeviceSize bounds_size,
                              VkBuffer pipeline_bin_buffer, VkDeviceSize pipeline_bin_size,
@@ -60,6 +63,7 @@ public:
     // Dispatch second cull pass: test previously culled meshlets against NEW Hi-Z.
     // Appends newly visible instances to the same binned output buffer.
     void dispatch_cull_second(VkCommandBuffer cmd, VkDescriptorSet global_set,
+                              VkDescriptorSet draw_data_set,
                               VkBuffer draw_data_buffer, VkDeviceSize draw_data_size,
                               VkBuffer bounds_buffer, VkDeviceSize bounds_size,
                               VkBuffer pipeline_bin_buffer, VkDeviceSize pipeline_bin_size,
@@ -93,6 +97,7 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
+    VkDescriptorSetLayout draw_data_set_layout_{VK_NULL_HANDLE};
 
     // Expand pass
     VkPipelineLayout expand_layout_{VK_NULL_HANDLE};
@@ -111,6 +116,7 @@ private:
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> cull_sets_pass2_{};
 
     void dispatch_cull_internal(VkCommandBuffer cmd, VkDescriptorSet global_set,
+                                VkDescriptorSet draw_data_set,
                                 VkBuffer draw_data_buffer, VkDeviceSize draw_data_size,
                                 VkBuffer bounds_buffer, VkDeviceSize bounds_size,
                                 VkBuffer pipeline_bin_buffer, VkDeviceSize pipeline_bin_size,

@@ -3,6 +3,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/components/instanced_mesh_component.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/render_stats.hpp"
@@ -74,6 +75,63 @@ void SceneGatherer::gather(const GatherInput& input) {
                     if (obj->components.has<SpriteComponent>()) continue;
                     const auto* spatial = obj->as_spatial();
                     if (!spatial) continue;
+
+                    // Instanced mesh path
+                    if (auto* inst = obj->components.get<InstancedMeshComponent>();
+                        inst && inst->model && !inst->instances.empty()) {
+                        local_total_[chunk_id]++;
+
+                        DrawCommand dc{};
+                        dc.world_matrix = spatial->world_matrix_;
+                        dc.prev_world_matrix = spatial->prev_world_matrix_;
+                        dc.push.model = spatial->world_matrix_;
+                        dc.model = inst->model;
+                        dc.node_id = obj->id;
+                        dc.instance_transforms = &inst->instances;
+                        if (inst->material) {
+                            dc.push.material_id = inst->material->material_id();
+                            dc.pipeline_id = inst->material->pipeline_id();
+                            dc.sort_key = RenderQueue::make_sort_key(
+                                dc.pipeline_id, inst->material->material_id(), obj->id);
+                            dc.transparent = inst->material->force_transparent()
+                                            || (inst->material->params().base_color_factor.w < 1.0f);
+                        }
+
+                        // Union AABB = every instance's world AABB
+                        AABB local = inst->model->local_aabb();
+                        AABB world_union;
+                        bool first = true;
+                        for (const auto& local_xform : inst->instances) {
+                            glm::mat4 world = spatial->world_matrix_ * local_xform;
+                            AABB box = local.transform(world);
+                            if (first) {
+                                world_union = box;
+                                first = false;
+                            } else {
+                                world_union.min = glm::min(world_union.min, box.min);
+                                world_union.max = glm::max(world_union.max, box.max);
+                            }
+                        }
+                        dc.world_aabb = world_union;
+
+                        if (!dc.transparent) {
+                            for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+                                if (shadow_frustums[c].intersects(dc.world_aabb)) {
+                                    cascade_cmds[c].push_back(dc);
+                                }
+                            }
+                        }
+                        if (!camera_frustum.intersects(dc.world_aabb)) {
+                            local_culled_[chunk_id]++;
+                            continue;
+                        }
+                        if (dc.transparent) {
+                            glm::vec3 diff = camera_position_ - glm::vec3(dc.world_matrix[3]);
+                            dc.camera_distance = glm::dot(diff, diff);
+                        }
+                        commands.push_back(dc);
+                        continue;
+                    }
 
                     // Skeletal mesh path
                     if (auto* skel = obj->components.get<SkeletalMeshComponent>(); skel && skel->skeletal_model) {
@@ -208,6 +266,14 @@ void SceneGatherer::gather(const GatherInput& input) {
         draw_data_descriptor_.update(
             indirect_batch_->draw_data_buffer(input.frame_index),
             indirect_batch_->draw_data_size(input.frame_index),
+            input.frame_index);
+    }
+
+    // Update instance transform SSBO binding (partially bound — only when present)
+    if (indirect_batch_->instance_transform_count(input.frame_index) > 0) {
+        draw_data_descriptor_.update_instance_transforms(
+            indirect_batch_->instance_transform_buffer(input.frame_index),
+            indirect_batch_->instance_transform_size(input.frame_index),
             input.frame_index);
     }
 

@@ -23,6 +23,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
+#include "fjell_instance_transforms.glsl"
+
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
 layout(location = 2) in vec2 in_tex_coord;
@@ -30,6 +32,10 @@ layout(location = 3) in vec3 in_normal;
 layout(location = 4) in vec4 in_tangent;
 
 void main() {
-    mat4 model = draws[gl_BaseInstance].model;
+    DrawData dd = draws[gl_BaseInstance];
+    uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + instance_id]
+        : dd.model;
     gl_Position = push.light_space * model * vec4(in_position, 1.0);
 }

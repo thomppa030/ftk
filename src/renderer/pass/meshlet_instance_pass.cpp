@@ -23,6 +23,7 @@
 namespace fjell {
 
 Result<> MeshletInstancePass::create(Device& device, const PassResources& resources) {
+    draw_data_set_layout_ = resources.draw_data_layout;
     create(device.handle(), resources.allocator,
            resources.global_set_layout, resources.pipeline_cache);
     return {};
@@ -149,9 +150,14 @@ void MeshletInstancePass::create(VkDevice device, VmaAllocator allocator,
         }
     }
 
-    // Cull pipeline layout: set 0 = global UBO, set 1 = cull buffers, push constants
+    // Cull pipeline layout: set 0 = global UBO, set 1 = cull buffers,
+    // set 2 = DrawData + InstanceTransforms (shared with vertex/mesh shaders)
     {
-        std::array set_layouts = {global_set_layout, cull_set_layout_->handle()};
+        std::array set_layouts = {
+            global_set_layout,
+            cull_set_layout_->handle(),
+            draw_data_set_layout_,
+        };
 
         VkPushConstantRange push_range{};
         push_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -345,6 +351,7 @@ void MeshletInstancePass::insert_expand_barrier(VkCommandBuffer cmd) {
 
 void MeshletInstancePass::dispatch_cull_first(VkCommandBuffer cmd,
                                                VkDescriptorSet global_set,
+                                               VkDescriptorSet draw_data_set,
                                                VkBuffer draw_data_buffer,
                                                VkDeviceSize draw_data_size,
                                                VkBuffer bounds_buffer,
@@ -362,7 +369,7 @@ void MeshletInstancePass::dispatch_cull_first(VkCommandBuffer cmd,
     vkCmdFillBuffer(cmd, culled_counters_[frame_index]->handle(),
                     0, sizeof(uint32_t), 0);
 
-    dispatch_cull_internal(cmd, global_set, draw_data_buffer, draw_data_size,
+    dispatch_cull_internal(cmd, global_set, draw_data_set, draw_data_buffer, draw_data_size,
                            bounds_buffer, bounds_size, pipeline_bin_buffer, pipeline_bin_size,
                            num_bins, frame_index, hiz_view, hiz_sampler,
                            viewport_width, viewport_height, hiz_mip_count, 0);
@@ -370,6 +377,7 @@ void MeshletInstancePass::dispatch_cull_first(VkCommandBuffer cmd,
 
 void MeshletInstancePass::dispatch_cull_second(VkCommandBuffer cmd,
                                                 VkDescriptorSet global_set,
+                                                VkDescriptorSet draw_data_set,
                                                 VkBuffer draw_data_buffer,
                                                 VkDeviceSize draw_data_size,
                                                 VkBuffer bounds_buffer,
@@ -385,7 +393,7 @@ void MeshletInstancePass::dispatch_cull_second(VkCommandBuffer cmd,
                                                 uint32_t hiz_mip_count) {
     // Second pass: the culled buffer from first pass becomes the input.
     // Don't re-zero indirect commands — we APPEND to the existing visible buffer.
-    dispatch_cull_internal(cmd, global_set, draw_data_buffer, draw_data_size,
+    dispatch_cull_internal(cmd, global_set, draw_data_set, draw_data_buffer, draw_data_size,
                            bounds_buffer, bounds_size, pipeline_bin_buffer, pipeline_bin_size,
                            num_bins, frame_index, hiz_view, hiz_sampler,
                            viewport_width, viewport_height, hiz_mip_count, 1);
@@ -393,6 +401,7 @@ void MeshletInstancePass::dispatch_cull_second(VkCommandBuffer cmd,
 
 void MeshletInstancePass::dispatch_cull_internal(VkCommandBuffer cmd,
                                                   VkDescriptorSet global_set,
+                                                  VkDescriptorSet draw_data_set,
                                                   VkBuffer draw_data_buffer,
                                                   VkDeviceSize draw_data_size,
                                                   VkBuffer bounds_buffer,
@@ -515,7 +524,7 @@ void MeshletInstancePass::dispatch_cull_internal(VkCommandBuffer cmd,
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_pipeline_);
 
-    std::array desc_sets = {global_set, active_set};
+    std::array desc_sets = {global_set, active_set, draw_data_set};
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, cull_layout_,
                             0, static_cast<uint32_t>(desc_sets.size()),
                             desc_sets.data(), 0, nullptr);
@@ -599,6 +608,7 @@ void MeshletInstancePass::build(FrameGraph& graph, ResourceRegistry& registry,
         dispatch_cull_first(
             cb,
             ctx.global_descriptor_set,
+            ctx.draw_data_set,
             ctx.indirect_batch->draw_data_buffer(ctx.frame_index),
             ctx.indirect_batch->draw_data_size(ctx.frame_index),
             bounds_buf, bounds_size,

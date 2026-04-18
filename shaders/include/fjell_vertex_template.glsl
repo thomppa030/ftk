@@ -40,6 +40,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
+#include "fjell_instance_transforms.glsl"
+
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_color;
 layout(location = 2) in vec2 in_tex_coord;
@@ -59,9 +61,15 @@ invariant gl_Position;
 
 void main() {
     uint draw_index = gl_BaseInstance;
-    mat4 model = draws[draw_index].model;
-    mat4 prev_model = draws[draw_index].prev_model;
-    uint material_id = draws[draw_index].material_id;
+    DrawData dd = draws[draw_index];
+    uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + instance_id]
+        : dd.model;
+    mat4 prev_model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + instance_id]
+        : dd.prev_model;
+    uint material_id = dd.material_id;
     GpuMaterial mat = materials[material_id];
 
     vec3 VERTEX = in_position;

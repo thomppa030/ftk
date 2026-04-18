@@ -73,8 +73,18 @@ static const bool registered = [] {
 
             ImGui::Separator();
             ImGui::Text("Instances: %zu", inst->instances.size());
-            if (ImGui::Button("Add Instance at Origin")) {
-                inst->instances.emplace_back(1.0f);
+            if (ImGui::Button("Add Instance")) {
+                // Temporary test hack: offset each new instance on a grid so
+                // Phase 2 can be visually verified. Phase 5 replaces this with
+                // a scatter tool + per-instance transform table.
+                uint32_t n = static_cast<uint32_t>(inst->instances.size());
+                uint32_t side = 10;
+                float spacing = 2.0f;
+                float x = static_cast<float>(n % side) * spacing;
+                float z = static_cast<float>(n / side) * spacing;
+                glm::mat4 m(1.0f);
+                m[3] = glm::vec4(x, 0.0f, z, 1.0f);
+                inst->instances.push_back(m);
                 inst->dirty = true;
                 changed = true;
             }

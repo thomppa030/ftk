@@ -40,6 +40,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
+#include "fjell_instance_transforms.glsl"
+
 layout(push_constant) uniform OutlinePush {
     vec4 outline_color;
     float thickness;
@@ -53,8 +55,12 @@ layout(location = 4) in vec4 in_tangent;
 
 void main() {
     uint draw_index = gl_BaseInstance;
-    mat4 model = draws[draw_index].model;
-    uint material_id = draws[draw_index].material_id;
+    DrawData dd = draws[draw_index];
+    uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + instance_id]
+        : dd.model;
+    uint material_id = dd.material_id;
     GpuMaterial mat = materials[material_id];
 
     vec3 VERTEX = in_position;

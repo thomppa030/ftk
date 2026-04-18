@@ -28,6 +28,10 @@ struct DrawCommand {
     uint32_t node_id{0};
     bool transparent{false};
     bool skinned{false};
+
+    // Instanced draws: local-space transforms in owning node's space.
+    // nullptr = single-instance draw (normal path).
+    const std::vector<glm::mat4>* instance_transforms{nullptr};
 };
 
 class RenderQueue {

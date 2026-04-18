@@ -44,6 +44,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
+#include "fjell_instance_transforms.glsl"
+
 struct Meshlet {
     uint vertex_offset;
     uint triangle_offset;
@@ -99,6 +101,7 @@ vec4 fetch_tangent(uint vi) {
 struct TaskPayload {
     uint draw_index;
     uint meshlet_index;
+    uint instance_index;
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -127,8 +130,12 @@ void main() {
     Meshlet m = meshlets[meshlet_idx];
 
     DrawData dd = draws[payload.draw_index];
-    mat4 model = dd.model;
-    mat4 prev_model = dd.prev_model;
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + payload.instance_index]
+        : dd.model;
+    mat4 prev_model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + payload.instance_index]
+        : dd.prev_model;
     uint material_id = dd.material_id;
     GpuMaterial mat = materials[material_id];
     mat3 normal_matrix = transpose(inverse(mat3(model)));

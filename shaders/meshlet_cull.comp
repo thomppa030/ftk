@@ -24,10 +24,16 @@ layout(set = 1, binding = 0) readonly buffer DrawDataBuffer {
 struct MeshletInstance {
     uint meshlet_index;
     uint draw_index;
+    uint instance_index;
+    uint _pad;
 };
 
 layout(set = 1, binding = 1) readonly buffer InputInstances {
     MeshletInstance instances_in[];
+};
+
+layout(set = 2, binding = 2) readonly buffer InstanceTransformsBuffer {
+    mat4 instance_transforms[];
 };
 
 layout(set = 1, binding = 2) readonly buffer InputCounter {
@@ -186,7 +192,9 @@ void main() {
     MeshletInstance inst = instances_in[id];
     MeshletBounds b = bounds[inst.meshlet_index];
     DrawData dd = draws[inst.draw_index];
-    mat4 model = dd.model;
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + inst.instance_index]
+        : dd.model;
 
     // Transform bounding sphere to world space
     vec3 center = (model * vec4(b.bounding_sphere.xyz, 1.0)).xyz;

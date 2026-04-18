@@ -23,6 +23,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
+#include "fjell_instance_transforms.glsl"
+
 struct Meshlet {
     uint vertex_offset;
     uint triangle_offset;
@@ -56,6 +58,7 @@ vec3 fetch_position(uint vi) {
 struct TaskPayload {
     uint draw_index;
     uint meshlet_index;
+    uint instance_index;
 };
 
 taskPayloadSharedEXT TaskPayload payload;
@@ -72,7 +75,9 @@ void main() {
     Meshlet m = meshlets[meshlet_idx];
 
     DrawData dd = draws[payload.draw_index];
-    mat4 model = dd.model;
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + payload.instance_index]
+        : dd.model;
 
     SetMeshOutputsEXT(m.vertex_count, m.triangle_count);
 

@@ -11,6 +11,8 @@ layout(set = 0, binding = 0) readonly buffer DrawDataBuffer {
 struct MeshletInstance {
     uint meshlet_index;
     uint draw_index;
+    uint instance_index;
+    uint _pad;
 };
 
 layout(set = 0, binding = 1) writeonly buffer InstanceBuffer {
@@ -32,10 +34,18 @@ void main() {
     DrawData dd = draws[draw_id];
     if (dd.meshlet_count == 0) return;
 
-    uint base = atomicAdd(instance_count, dd.meshlet_count);
+    uint inst_total = max(dd.instance_count, 1u);
+    uint emit_total = dd.meshlet_count * inst_total;
+    uint base = atomicAdd(instance_count, emit_total);
 
-    for (uint i = 0; i < dd.meshlet_count; ++i) {
-        instances[base + i].meshlet_index = dd.meshlet_offset + i;
-        instances[base + i].draw_index = draw_id;
+    uint slot = 0;
+    for (uint inst = 0; inst < inst_total; ++inst) {
+        for (uint i = 0; i < dd.meshlet_count; ++i) {
+            instances[base + slot].meshlet_index = dd.meshlet_offset + i;
+            instances[base + slot].draw_index = draw_id;
+            instances[base + slot].instance_index = inst;
+            instances[base + slot]._pad = 0u;
+            slot++;
+        }
     }
 }

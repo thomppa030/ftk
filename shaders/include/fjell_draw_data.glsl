@@ -10,7 +10,8 @@ struct DrawData {
     uint vertex_offset;
     uint bone_offset;     // offset into bone SSBO (0xFFFFFFFF = not skinned)
     uint bone_count;
-    uint _pad0, _pad1;
+    uint instance_count;  // 1 = single-instance; N = instanced (read InstanceTransforms)
+    uint first_instance;  // offset into InstanceTransforms when instance_count > 1
 };
 
 #endif

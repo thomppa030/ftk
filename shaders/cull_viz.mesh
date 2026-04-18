@@ -23,6 +23,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
+#include "fjell_instance_transforms.glsl"
+
 struct Meshlet {
     uint vertex_offset;
     uint triangle_offset;
@@ -74,6 +76,7 @@ layout(push_constant) uniform PushConstants {
 
 struct TaskPayload {
     uint draw_index;
+    uint instance_index;
     uint meshlet_indices[32];
 };
 
@@ -108,7 +111,9 @@ void main() {
 
     uint draw_idx = payload.draw_index;
     DrawData dd = draws[draw_idx];
-    mat4 model = dd.model;
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + payload.instance_index]
+        : dd.model;
     mat3 normal_matrix = transpose(inverse(mat3(model)));
 
     // Evaluate cone cull from current camera position

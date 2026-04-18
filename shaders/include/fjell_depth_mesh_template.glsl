@@ -44,6 +44,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
+#include "fjell_instance_transforms.glsl"
+
 struct Meshlet {
     uint vertex_offset;
     uint triangle_offset;
@@ -86,6 +88,7 @@ vec2 fetch_tex_coord(uint vi) {
 
 struct TaskPayload {
     uint draw_index;
+    uint instance_index;
     uint meshlet_indices[32];
 };
 
@@ -107,7 +110,9 @@ void main() {
     Meshlet m = meshlets[meshlet_idx];
 
     DrawData dd = draws[payload.draw_index];
-    mat4 model = dd.model;
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + payload.instance_index]
+        : dd.model;
     uint material_id = dd.material_id;
     GpuMaterial mat = materials[material_id];
 

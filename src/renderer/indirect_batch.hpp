@@ -28,7 +28,8 @@ struct GpuDrawData {
     uint32_t vertex_offset;
     uint32_t bone_offset{0xFFFFFFFF};   // offset into bone SSBO (0xFFFFFFFF = not skinned)
     uint32_t bone_count{0};
-    uint32_t pad_[2]{};
+    uint32_t instance_count{1};          // 1 = single instance; N = instanced
+    uint32_t first_instance{0};          // offset into instance transform SSBO
 };
 
 static_assert(sizeof(GpuDrawData) == 160, "GpuDrawData must be 160 bytes for std430");
@@ -109,8 +110,21 @@ public:
         return skinned_draw_indices_[frame_index];
     }
 
+    [[nodiscard]] VkBuffer instance_transform_buffer(uint32_t frame_index) const {
+        return instance_transform_buffers_[frame_index]
+                   ? instance_transform_buffers_[frame_index]->handle()
+                   : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkDeviceSize instance_transform_size(uint32_t frame_index) const {
+        return static_cast<VkDeviceSize>(instance_transform_counts_[frame_index]) * sizeof(glm::mat4);
+    }
+    [[nodiscard]] uint32_t instance_transform_count(uint32_t frame_index) const {
+        return instance_transform_counts_[frame_index];
+    }
+
 private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
+    void ensure_instance_capacity(uint32_t frame_index, uint32_t count);
 
     VkDevice device_;
     VmaAllocator allocator_;
@@ -134,6 +148,12 @@ private:
 
     // Per-frame skinned draw data indices (draw_index into GpuDrawData SSBO)
     std::array<std::vector<uint32_t>, MAX_FRAMES_IN_FLIGHT> skinned_draw_indices_;
+
+    // Per-frame packed instance transforms (world-space, concatenated for all instanced draws)
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instance_transform_buffers_;
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instance_transform_capacities_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instance_transform_counts_{};
+    std::vector<glm::mat4> staged_instance_transforms_;
 };
 
 } // namespace fjell

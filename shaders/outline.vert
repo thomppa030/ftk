@@ -40,6 +40,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
 };
 
+#include "fjell_instance_transforms.glsl"
+
 layout(push_constant) uniform OutlinePush {
     vec4 outline_color;
     float thickness;
@@ -53,7 +55,11 @@ layout(location = 4) in vec4 in_tangent;
 
 void main() {
     uint draw_index = gl_BaseInstance;
-    mat4 model = draws[draw_index].model;
+    DrawData dd = draws[draw_index];
+    uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
+    mat4 model = (dd.instance_count > 1u)
+        ? instance_transforms[dd.first_instance + instance_id]
+        : dd.model;
 
     vec3 VERTEX = in_position;
     vec3 NORMAL = in_normal;
