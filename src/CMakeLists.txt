@@ -131,6 +131,7 @@ add_executable(fjell
     renderer/pass/subsystem_compute_pass.cpp
     renderer/components/arrow_component_meta.cpp
     renderer/components/mesh_component_meta.cpp
+    renderer/components/instanced_mesh_component_meta.cpp
     renderer/components/skeletal_mesh_component_meta.cpp
     renderer/components/particle_emitter_meta.cpp
     renderer/components/sprite_component_meta.cpp
