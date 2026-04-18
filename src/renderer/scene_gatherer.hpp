@@ -18,6 +18,7 @@ class GpuContext;
 class Scene;
 class ShadowPass;
 class ThreadPool;
+struct InstancedMeshComponent;
 struct RenderStats;
 
 /// Input parameters for SceneGatherer::gather().
@@ -69,6 +70,12 @@ public:
     }
 
 private:
+    void ensure_component_buffers(InstancedMeshComponent& inst, uint32_t capacity);
+    void upload_component_transforms(InstancedMeshComponent& inst);
+
+    VkDevice device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{VK_NULL_HANDLE};
+
     RenderQueue render_queue_;
     glm::vec3 camera_position_{0.0f};
     glm::mat4 view_matrix_{1.0f};
