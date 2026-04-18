@@ -10,7 +10,12 @@
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#include <cstdio>
+#include <random>
+#include <unordered_map>
 
 namespace fjell {
 
@@ -73,26 +78,137 @@ static const bool registered = [] {
 
             ImGui::Separator();
             ImGui::Text("Instances: %zu", inst->instances.size());
-            if (ImGui::Button("Add Instance")) {
-                // Temporary test hack: offset each new instance on a grid so
-                // phases 2-4 can be visually verified. Phase 5 replaces this
-                // with a scatter tool + per-instance transform table.
-                uint32_t n = static_cast<uint32_t>(inst->instances.size());
-                uint32_t side = 10;
-                float spacing = 6.0f;  // wide enough to span LOD transitions
-                float x = static_cast<float>(n % side) * spacing;
-                float z = static_cast<float>(n / side) * spacing;
-                glm::mat4 m(1.0f);
-                m[3] = glm::vec4(x, 0.0f, z, 1.0f);
-                inst->instances.push_back(m);
-                inst->dirty = true;
-                changed = true;
+
+            // ── Scatter tool ──────────────────────────────────────────
+            // Editor state stored in function-local static so it persists
+            // across frames; keyed by component ptr so each component owns
+            // its own settings.
+            struct ScatterState {
+                int count{100};
+                glm::vec3 box_min{-10.0f, 0.0f, -10.0f};
+                glm::vec3 box_max{ 10.0f, 0.0f,  10.0f};
+                float scale_min{0.9f};
+                float scale_max{1.1f};
+                float rotation_jitter{180.0f}; // degrees around Y
+                bool snap_to_y_zero{true};
+                uint32_t seed{1337};
+            };
+            static std::unordered_map<InstancedMeshComponent*, ScatterState> scatter_states;
+            auto& ss = scatter_states[inst];
+
+            if (ImGui::CollapsingHeader("Scatter", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::DragInt("Count", &ss.count, 1.0f, 1, 100000);
+                ImGui::DragFloat3("Box Min", &ss.box_min.x, 0.1f);
+                ImGui::DragFloat3("Box Max", &ss.box_max.x, 0.1f);
+                ImGui::DragFloatRange2("Scale Range", &ss.scale_min, &ss.scale_max, 0.01f,
+                                       0.01f, 100.0f, "%.2f");
+                ImGui::DragFloat("Rotation Jitter (deg)", &ss.rotation_jitter, 1.0f, 0.0f, 180.0f);
+                ImGui::Checkbox("Snap Y to 0", &ss.snap_to_y_zero);
+                int seed_int = static_cast<int>(ss.seed);
+                if (ImGui::DragInt("Seed", &seed_int)) ss.seed = static_cast<uint32_t>(seed_int);
+
+                if (ImGui::Button("Scatter (Replace)")) {
+                    inst->instances.clear();
+                    std::mt19937 rng(ss.seed);
+                    std::uniform_real_distribution<float> dx(ss.box_min.x, ss.box_max.x);
+                    std::uniform_real_distribution<float> dy(ss.box_min.y, ss.box_max.y);
+                    std::uniform_real_distribution<float> dz(ss.box_min.z, ss.box_max.z);
+                    std::uniform_real_distribution<float> ds(ss.scale_min, ss.scale_max);
+                    float jitter_rad = glm::radians(ss.rotation_jitter);
+                    std::uniform_real_distribution<float> dr(-jitter_rad, jitter_rad);
+                    inst->instances.reserve(ss.count);
+                    for (int i = 0; i < ss.count; ++i) {
+                        glm::vec3 pos{dx(rng), ss.snap_to_y_zero ? 0.0f : dy(rng), dz(rng)};
+                        float angle = dr(rng);
+                        float scale = ds(rng);
+                        glm::mat4 m = glm::translate(glm::mat4(1.0f), pos)
+                                    * glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0, 1, 0))
+                                    * glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+                        inst->instances.push_back(m);
+                    }
+                    inst->dirty = true;
+                    changed = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Scatter (Append)")) {
+                    std::mt19937 rng(ss.seed + static_cast<uint32_t>(inst->instances.size()));
+                    std::uniform_real_distribution<float> dx(ss.box_min.x, ss.box_max.x);
+                    std::uniform_real_distribution<float> dy(ss.box_min.y, ss.box_max.y);
+                    std::uniform_real_distribution<float> dz(ss.box_min.z, ss.box_max.z);
+                    std::uniform_real_distribution<float> ds(ss.scale_min, ss.scale_max);
+                    float jitter_rad = glm::radians(ss.rotation_jitter);
+                    std::uniform_real_distribution<float> dr(-jitter_rad, jitter_rad);
+                    inst->instances.reserve(inst->instances.size() + ss.count);
+                    for (int i = 0; i < ss.count; ++i) {
+                        glm::vec3 pos{dx(rng), ss.snap_to_y_zero ? 0.0f : dy(rng), dz(rng)};
+                        float angle = dr(rng);
+                        float scale = ds(rng);
+                        glm::mat4 m = glm::translate(glm::mat4(1.0f), pos)
+                                    * glm::rotate(glm::mat4(1.0f), angle, glm::vec3(0, 1, 0))
+                                    * glm::scale(glm::mat4(1.0f), glm::vec3(scale));
+                        inst->instances.push_back(m);
+                    }
+                    inst->dirty = true;
+                    changed = true;
+                }
             }
-            ImGui::SameLine();
-            if (ImGui::Button("Clear") && !inst->instances.empty()) {
-                inst->instances.clear();
-                inst->dirty = true;
-                changed = true;
+
+            // ── Instance list / per-row editing ────────────────────────
+            if (ImGui::CollapsingHeader("Instances")) {
+                if (ImGui::Button("Add at Origin")) {
+                    inst->instances.emplace_back(1.0f);
+                    inst->dirty = true;
+                    changed = true;
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Clear") && !inst->instances.empty()) {
+                    inst->instances.clear();
+                    inst->dirty = true;
+                    changed = true;
+                }
+
+                ImGui::BeginChild("##InstanceList", ImVec2(0, 240), true);
+                int to_delete = -1;
+                for (size_t i = 0; i < inst->instances.size(); ++i) {
+                    ImGui::PushID(static_cast<int>(i));
+                    // Decompose the matrix into translation + scale (Y-only rotation for the UI).
+                    glm::mat4& m = inst->instances[i];
+                    glm::vec3 pos = glm::vec3(m[3]);
+                    glm::vec3 scale{
+                        glm::length(glm::vec3(m[0])),
+                        glm::length(glm::vec3(m[1])),
+                        glm::length(glm::vec3(m[2]))};
+                    // Y-axis rotation recovered from the first column after divide by scale.
+                    glm::vec3 col0 = glm::vec3(m[0]) / std::max(scale.x, 1e-6f);
+                    float yaw_deg = glm::degrees(std::atan2(col0.z, col0.x));
+
+                    char label[32];
+                    std::snprintf(label, sizeof(label), "%zu", i);
+                    if (ImGui::TreeNode(label, "#%zu  (%+.1f, %+.1f, %+.1f)",
+                                        i, pos.x, pos.y, pos.z)) {
+                        bool row_changed = false;
+                        row_changed |= ImGui::DragFloat3("Position", &pos.x, 0.05f);
+                        row_changed |= ImGui::DragFloat("Yaw (deg)", &yaw_deg, 0.5f, -360.0f, 360.0f);
+                        row_changed |= ImGui::DragFloat3("Scale", &scale.x, 0.01f, 0.001f, 1000.0f);
+                        if (ImGui::Button("Delete")) to_delete = static_cast<int>(i);
+                        if (row_changed) {
+                            m = glm::translate(glm::mat4(1.0f), pos)
+                              * glm::rotate(glm::mat4(1.0f), glm::radians(yaw_deg), glm::vec3(0, 1, 0))
+                              * glm::scale(glm::mat4(1.0f), scale);
+                            inst->dirty = true;
+                            changed = true;
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::EndChild();
+
+                if (to_delete >= 0) {
+                    inst->instances.erase(inst->instances.begin() + to_delete);
+                    inst->dirty = true;
+                    changed = true;
+                }
             }
 
             return changed;
