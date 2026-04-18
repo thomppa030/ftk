@@ -1,7 +1,5 @@
 #include "renderer/scene_gatherer.hpp"
 #include "renderer/frustum.hpp"
-#include "renderer/gpu/buffer.hpp"
-#include "renderer/gpu/vk_utils.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/components/mesh_component.hpp"
@@ -17,14 +15,9 @@
 #include "core/thread_pool.hpp"
 #include "scene/scene.hpp"
 
-#include <cstring>
-
 namespace fjell {
 
 void SceneGatherer::init(GpuContext& gpu) {
-    device_ = gpu.device();
-    allocator_ = gpu.allocator();
-
     indirect_batch_ = std::make_unique<IndirectBatch>(
         gpu.device(), gpu.allocator());
     draw_data_descriptor_.create(gpu.device());
@@ -88,12 +81,25 @@ void SceneGatherer::gather(const GatherInput& input) {
                         inst && inst->model && !inst->instances.empty()) {
                         local_total_[chunk_id]++;
 
-                        // Refresh cached local-bounds + cached_world_transforms
-                        // whenever the component is dirty or the node moves.
-                        // Static components with a static parent reuse the
-                        // cached world matrices across every frame — the main
-                        // CPU win for instancing at production scale.
-                        bool node_moved = inst->cached_node_world != spatial->world_matrix_;
+                        DrawCommand dc{};
+                        dc.world_matrix = spatial->world_matrix_;
+                        dc.prev_world_matrix = spatial->prev_world_matrix_;
+                        dc.push.model = spatial->world_matrix_;
+                        dc.model = inst->model;
+                        dc.node_id = obj->id;
+                        dc.instance_transforms = &inst->instances;
+                        if (inst->material) {
+                            dc.push.material_id = inst->material->material_id();
+                            dc.pipeline_id = inst->material->pipeline_id();
+                            dc.sort_key = RenderQueue::make_sort_key(
+                                dc.pipeline_id, inst->material->material_id(), obj->id);
+                            dc.transparent = inst->material->force_transparent()
+                                            || (inst->material->params().base_color_factor.w < 1.0f);
+                        }
+
+                        // Union AABB cached on the component (local-space) —
+                        // recompute only when instances/model change, then
+                        // transform once by the node's world matrix.
                         if (inst->dirty) {
                             AABB model_local = inst->model->local_aabb();
                             bool first = true;
@@ -108,46 +114,6 @@ void SceneGatherer::gather(const GatherInput& input) {
                                 }
                             }
                             inst->dirty = false;
-                            node_moved = true; // force world cache rebuild below
-                        }
-                        bool transforms_changed = false;
-                        if (node_moved || inst->cached_world_transforms.size() != inst->instances.size()) {
-                            inst->cached_world_transforms.resize(inst->instances.size());
-                            for (size_t i = 0; i < inst->instances.size(); ++i) {
-                                inst->cached_world_transforms[i] =
-                                    spatial->world_matrix_ * inst->instances[i];
-                            }
-                            inst->cached_node_world = spatial->world_matrix_;
-                            transforms_changed = true;
-                        }
-
-                        // Maintain the per-component GPU buffers so BDA-enabled
-                        // shaders can read instance transforms without going
-                        // through the shared SSBO. Upload only when something
-                        // actually changed — static components pay zero cost.
-                        ensure_component_buffers(*inst,
-                            static_cast<uint32_t>(inst->instances.size()));
-                        if (transforms_changed) {
-                            upload_component_transforms(*inst);
-                        }
-
-                        DrawCommand dc{};
-                        dc.world_matrix = spatial->world_matrix_;
-                        dc.prev_world_matrix = spatial->prev_world_matrix_;
-                        dc.push.model = spatial->world_matrix_;
-                        dc.model = inst->model;
-                        dc.node_id = obj->id;
-                        dc.instance_transforms_world = &inst->cached_world_transforms;
-                        dc.instance_transforms_addr = inst->transforms_addr;
-                        dc.visible_transforms_addr = inst->visible_addr;
-                        dc.prev_instance_transforms_addr = inst->prev_addr;
-                        if (inst->material) {
-                            dc.push.material_id = inst->material->material_id();
-                            dc.pipeline_id = inst->material->pipeline_id();
-                            dc.sort_key = RenderQueue::make_sort_key(
-                                dc.pipeline_id, inst->material->material_id(), obj->id);
-                            dc.transparent = inst->material->force_transparent()
-                                            || (inst->material->params().base_color_factor.w < 1.0f);
                         }
                         dc.world_aabb = inst->local_bounds.transform(spatial->world_matrix_);
 
@@ -358,58 +324,6 @@ void SceneGatherer::gather(const GatherInput& input) {
                 input.frame_index);
         }
     }
-}
-
-void SceneGatherer::ensure_component_buffers(InstancedMeshComponent& inst, uint32_t capacity) {
-    if (inst.gpu_capacity >= capacity && inst.transforms_buffer) return;
-
-    // Grow geometrically to amortize scatter edits (adding one instance at a
-    // time shouldn't reallocate every click).
-    uint32_t new_cap = std::max(capacity, inst.gpu_capacity * 2);
-    if (new_cap < 64) new_cap = 64;
-
-    VkDeviceSize bytes = static_cast<VkDeviceSize>(new_cap) * sizeof(glm::mat4);
-    VkBufferUsageFlags usage =
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-    // HOST_ACCESS_SEQUENTIAL_WRITE: CPU writes to a mapped device-local buffer
-    // on UMA / ReBAR systems, falls back to host-visible on others. Fine for
-    // our "upload once on dirty" pattern.
-    inst.transforms_buffer = std::make_unique<Buffer>(
-        allocator_, bytes, usage, VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    inst.transforms_buffer->map();
-    inst.transforms_addr = vk_utils::get_buffer_device_address(
-        device_, inst.transforms_buffer->handle());
-
-    // InstanceCullPass writes visible transforms here — GPU-only, no mapping.
-    inst.visible_buffer = std::make_unique<Buffer>(
-        allocator_, bytes,
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-    inst.visible_addr = vk_utils::get_buffer_device_address(
-        device_, inst.visible_buffer->handle());
-
-    // Previous-frame transforms for motion vectors. Populated by copy-from-
-    // transforms_buffer at frame start (Step 5+). Still allocated up front so
-    // the BDA slot is always valid.
-    inst.prev_buffer = std::make_unique<Buffer>(
-        allocator_, bytes, usage, VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    inst.prev_buffer->map();
-    inst.prev_addr = vk_utils::get_buffer_device_address(
-        device_, inst.prev_buffer->handle());
-
-    inst.gpu_capacity = new_cap;
-}
-
-void SceneGatherer::upload_component_transforms(InstancedMeshComponent& inst) {
-    if (!inst.transforms_buffer) return;
-    auto* dst = static_cast<glm::mat4*>(inst.transforms_buffer->mapped());
-    std::memcpy(dst, inst.cached_world_transforms.data(),
-                inst.cached_world_transforms.size() * sizeof(glm::mat4));
 }
 
 } // namespace fjell

@@ -29,16 +29,9 @@ struct DrawCommand {
     bool transparent{false};
     bool skinned{false};
 
-    // Instanced draws: pointer to a vector of WORLD-SPACE per-instance
-    // matrices (owned by the InstancedMeshComponent and refreshed only when
-    // the component is dirty or its node moves). nullptr = single-instance.
-    const std::vector<glm::mat4>* instance_transforms_world{nullptr};
-
-    // Per-component GPU buffer addresses for BDA-capable shaders. Zero =
-    // BDA path unavailable, caller falls back to the shared SSBO.
-    VkDeviceAddress instance_transforms_addr{0};
-    VkDeviceAddress visible_transforms_addr{0};
-    VkDeviceAddress prev_instance_transforms_addr{0};
+    // Instanced draws: local-space transforms in owning node's space.
+    // nullptr = single-instance draw (normal path).
+    const std::vector<glm::mat4>* instance_transforms{nullptr};
 };
 
 class RenderQueue {

@@ -152,8 +152,8 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     // Each instanced draw contributes N transforms, shared across its mega entries.
     uint32_t total_instance_transforms = 0;
     for (const auto& dc : opaque_commands) {
-        if (dc.instance_transforms_world && !dc.instance_transforms_world->empty()) {
-            total_instance_transforms += static_cast<uint32_t>(dc.instance_transforms_world->size());
+        if (dc.instance_transforms && !dc.instance_transforms->empty()) {
+            total_instance_transforms += static_cast<uint32_t>(dc.instance_transforms->size());
         }
     }
     if (total_instance_transforms > 0) {
@@ -219,13 +219,14 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             range_start = draw_index;
         }
 
-        bool is_instanced = dc.instance_transforms_world && !dc.instance_transforms_world->empty();
+        bool is_instanced = dc.instance_transforms && !dc.instance_transforms->empty();
         const auto& entries = dc.model->mega_entries();
         const auto& lods = dc.model->lod_levels();
         uint32_t max_lod = dc.model->lod_count();
 
         if (is_instanced) {
-            uint32_t src_count = static_cast<uint32_t>(dc.instance_transforms_world->size());
+            uint32_t src_count = static_cast<uint32_t>(dc.instance_transforms->size());
+            const glm::mat4& node_world = dc.world_matrix;
             const AABB& local = dc.model->local_aabb();
 
             if (is_shadow_batch) {
@@ -236,9 +237,10 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 if (lod >= max_lod) continue;
 
                 uint32_t bucket_first_instance = static_cast<uint32_t>(staged_instance_transforms_.size());
-                staged_instance_transforms_.insert(staged_instance_transforms_.end(),
-                    dc.instance_transforms_world->begin(),
-                    dc.instance_transforms_world->end());
+                staged_instance_transforms_.reserve(staged_instance_transforms_.size() + src_count);
+                for (const auto& l : *dc.instance_transforms) {
+                    staged_instance_transforms_.push_back(node_world * l);
+                }
 
                 const auto& lod_level = lods[lod];
                 uint32_t entry_begin = lod_level.first_mega_entry;
@@ -262,9 +264,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                     data.vertex_offset = entry.vertex_offset;
                     data.instance_count = src_count;
                     data.first_instance = bucket_first_instance;
-                    data.instances_addr = dc.instance_transforms_addr;
-                    data.visible_addr = dc.visible_transforms_addr;
-                    data.prev_instances_addr = dc.prev_instance_transforms_addr;
 
                     total_meshlets += entry.meshlet_count * src_count;
                     triangles += (entry.index_count / 3) * src_count;
@@ -284,7 +283,8 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             staged_bucket_worlds_.clear();
             staged_bucket_lods_.reserve(src_count);
             staged_bucket_worlds_.reserve(src_count);
-            for (const auto& world : *dc.instance_transforms_world) {
+            for (const auto& l : *dc.instance_transforms) {
+                glm::mat4 world = node_world * l;
                 uint32_t lod = select_lod(*dc.model, world);
                 if (lod >= max_lod) continue;
                 if (lod >= MAX_LOD_BUCKETS) lod = MAX_LOD_BUCKETS - 1;
@@ -353,9 +353,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                     data.vertex_offset = entry.vertex_offset;
                     data.instance_count = bucket_count;
                     data.first_instance = bucket_first_instance;
-                    data.instances_addr = dc.instance_transforms_addr;
-                    data.visible_addr = dc.visible_transforms_addr;
-                    data.prev_instances_addr = dc.prev_instance_transforms_addr;
 
                     if (do_lod) {
                         // GpuDrawAABB feeds CullPass (dead path) and RT TLAS. For
