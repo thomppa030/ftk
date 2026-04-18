@@ -218,16 +218,4 @@ inline VkPipeline create_fullscreen_pipeline(const FullscreenPipelineInfo& info)
     return pipeline;
 }
 
-// ── Buffer device address ──────────────────────────────────────────────
-
-/// Queries the device address of a buffer. The buffer must have been created
-/// with VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT and the device must have
-/// enabled bufferDeviceAddress.
-inline VkDeviceAddress get_buffer_device_address(VkDevice device, VkBuffer buffer) {
-    VkBufferDeviceAddressInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-    info.buffer = buffer;
-    return vkGetBufferDeviceAddress(device, &info);
-}
-
 } // namespace fjell::vk_utils

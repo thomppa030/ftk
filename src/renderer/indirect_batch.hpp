@@ -29,20 +29,10 @@ struct GpuDrawData {
     uint32_t bone_offset{0xFFFFFFFF};   // offset into bone SSBO (0xFFFFFFFF = not skinned)
     uint32_t bone_count{0};
     uint32_t instance_count{1};          // 1 = single instance; N = instanced
-    uint32_t first_instance{0};          // offset into the shared InstanceTransforms SSBO
-                                          // (legacy path; being replaced by BDA fields below)
-
-    // Buffer device addresses for per-component instance data. Valid only when
-    // instance_count > 1. Used by BDA-capable shaders; the legacy SSBO path
-    // still reads via first_instance. Currently unread — shader migration
-    // happens one file at a time in later steps.
-    uint64_t instances_addr{0};          // CPU-uploaded world transforms (this frame)
-    uint64_t visible_addr{0};            // post-InstanceCullPass compacted transforms
-    uint64_t prev_instances_addr{0};     // last frame's transforms (motion vectors)
-    uint64_t _pad_end{0};                // pad to 16-byte alignment
+    uint32_t first_instance{0};          // offset into instance transform SSBO
 };
 
-static_assert(sizeof(GpuDrawData) == 192, "GpuDrawData must be 192 bytes for std430");
+static_assert(sizeof(GpuDrawData) == 160, "GpuDrawData must be 160 bytes for std430");
 
 // One per instanced draw (each mega-entry × each distinct instanced DrawCommand).
 // Consumed by InstanceCullPass to cull instances against the view frustum and
