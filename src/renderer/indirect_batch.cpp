@@ -27,7 +27,7 @@ void IndirectBatch::ensure_capacity(uint32_t frame_index, uint32_t count) {
     indirect_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_,
         new_cap * sizeof(VkDrawIndexedIndirectCommand),
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     indirect_buffers_[frame_index]->map();
@@ -84,7 +84,31 @@ void IndirectBatch::ensure_instance_capacity(uint32_t frame_index, uint32_t coun
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     instance_transform_buffers_[frame_index]->map();
 
+    // GPU-only buffer for per-instance culled output (written by InstanceCullPass)
+    visible_instance_buffers_[frame_index] = std::make_unique<Buffer>(
+        allocator_,
+        new_cap * sizeof(glm::mat4),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VMA_MEMORY_USAGE_AUTO);
+
     instance_transform_capacities_[frame_index] = new_cap;
+}
+
+void IndirectBatch::ensure_instanced_draw_capacity(uint32_t frame_index, uint32_t count) {
+    if (count <= instanced_draw_capacities_[frame_index]) return;
+
+    uint32_t new_cap = std::max(count, instanced_draw_capacities_[frame_index] * 2);
+    if (new_cap < 64) new_cap = 64;
+
+    instanced_draw_buffers_[frame_index] = std::make_unique<Buffer>(
+        allocator_,
+        new_cap * sizeof(GpuInstancedDraw),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+    instanced_draw_buffers_[frame_index]->map();
+
+    instanced_draw_capacities_[frame_index] = new_cap;
 }
 
 void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
@@ -136,6 +160,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     }
     staged_instance_transforms_.clear();
     staged_instance_transforms_.reserve(total_instance_transforms);
+    staged_instanced_draws_.clear();
 
     // Stage to CPU-side vectors (L1/L2 cached) to avoid scattered writes
     // to write-combined GPU memory. Bulk memcpy at the end.
@@ -223,6 +248,20 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             cmd.firstIndex = entry.first_index;
             cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
             cmd.firstInstance = draw_index;
+
+            // Instanced draws register a descriptor so InstanceCullPass can
+            // per-instance frustum-cull and patch `instanceCount` in-place.
+            if (instance_count > 1) {
+                const AABB& local = dc.model->local_aabb();
+                GpuInstancedDraw desc{};
+                desc.local_aabb_min = glm::vec4(local.min, 0.0f);
+                desc.local_aabb_max = glm::vec4(local.max, 0.0f);
+                desc.first_instance = first_instance;
+                desc.instance_count = instance_count;
+                desc.indirect_cmd_index = draw_index;
+                desc._pad = 0;
+                staged_instanced_draws_.push_back(desc);
+            }
 
             GpuDrawData& data = draw_data[draw_index];
             data.model = dc.push.model;
@@ -336,6 +375,15 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         std::memcpy(instance_transform_buffers_[frame_index]->mapped(),
                     staged_instance_transforms_.data(),
                     staged_instances * sizeof(glm::mat4));
+    }
+
+    uint32_t staged_inst_draws = static_cast<uint32_t>(staged_instanced_draws_.size());
+    instanced_draw_counts_[frame_index] = staged_inst_draws;
+    if (staged_inst_draws > 0) {
+        ensure_instanced_draw_capacity(frame_index, staged_inst_draws);
+        std::memcpy(instanced_draw_buffers_[frame_index]->mapped(),
+                    staged_instanced_draws_.data(),
+                    staged_inst_draws * sizeof(GpuInstancedDraw));
     }
 
     // Populate mesh shader indirect dispatch buffers

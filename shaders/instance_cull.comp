@@ -1,0 +1,168 @@
+#version 460
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_ballot : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// Per-instance frustum culling + compaction for the vertex render path.
+// One workgroup per GpuInstancedDraw; N threads process N instances in
+// chunks of WG_SIZE. Visible instances compacted via subgroupBallot +
+// cross-subgroup prefix sum through shared memory. Thread 0 patches the
+// matching VkDrawIndexedIndirectCommand's instanceCount in-place.
+
+layout(local_size_x = 64) in;
+
+// Set 0: global UBO (view, projection — for frustum planes).
+layout(set = 0, binding = 0) uniform GlobalUbo {
+    mat4 view;
+    mat4 projection;
+    vec4 light_direction;
+    vec4 light_color;
+    vec4 camera_position;
+    vec4 ambient_color;
+    mat4 cascade_vp[3];
+    vec4 cascade_splits;
+    uvec4 tile_info;
+    mat4 inv_projection;
+} ubo;
+
+// Set 1: pass-local buffers.
+struct InstancedDraw {
+    vec4 local_aabb_min;
+    vec4 local_aabb_max;
+    uint first_instance;
+    uint instance_count;
+    uint indirect_cmd_index;
+    uint _pad;
+};
+
+layout(set = 1, binding = 0) readonly buffer InstancedDrawBuffer {
+    InstancedDraw draws[];
+};
+
+layout(set = 1, binding = 1) readonly buffer InstanceTransformsBuffer {
+    mat4 instance_transforms[];
+};
+
+layout(set = 1, binding = 2) writeonly buffer VisibleTransformsBuffer {
+    mat4 visible_transforms[];
+};
+
+// VkDrawIndexedIndirectCommand is 5 uint32s (20 bytes, tightly packed).
+// We view it as a raw uint array and patch index `i*5 + 1` (instanceCount).
+layout(set = 1, binding = 3) buffer IndirectBuffer {
+    uint indirect_words[];
+};
+
+// Up to 8 subgroups per 64-thread workgroup (64/8 = 8). +1 slot stores the
+// per-chunk total. 16 = comfortable margin across GPU vendors.
+shared uint s_subgroup_counts[16];
+shared uint s_wg_offset;
+
+void main() {
+    uint draw_id = gl_WorkGroupID.x;
+    InstancedDraw d = draws[draw_id];
+
+    // Extract frustum planes from the view-projection (world space)
+    mat4 vp = ubo.projection * ubo.view;
+    vec4 planes[6];
+    planes[0] = vec4(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0], vp[2][3] + vp[2][0], vp[3][3] + vp[3][0]);
+    planes[1] = vec4(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0], vp[2][3] - vp[2][0], vp[3][3] - vp[3][0]);
+    planes[2] = vec4(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1], vp[2][3] + vp[2][1], vp[3][3] + vp[3][1]);
+    planes[3] = vec4(vp[0][3] - vp[0][1], vp[1][3] - vp[1][1], vp[2][3] - vp[2][1], vp[3][3] - vp[3][1]);
+    planes[4] = vec4(vp[0][3] + vp[0][2], vp[1][3] + vp[1][2], vp[2][3] + vp[2][2], vp[3][3] + vp[3][2]);
+    planes[5] = vec4(vp[0][3] - vp[0][2], vp[1][3] - vp[1][2], vp[2][3] - vp[2][2], vp[3][3] - vp[3][2]);
+    for (int i = 0; i < 6; ++i) {
+        planes[i] /= length(planes[i].xyz);
+    }
+
+    if (gl_LocalInvocationIndex == 0) {
+        s_wg_offset = 0u;
+    }
+    barrier();
+
+    uint tid = gl_LocalInvocationIndex;
+    uint num_subgroups = gl_NumSubgroups;
+    uint subgroup_id = gl_SubgroupID;
+
+    // Process instances in chunks of WG_SIZE (= 64)
+    for (uint chunk_base = 0u; chunk_base < d.instance_count; chunk_base += gl_WorkGroupSize.x) {
+        uint inst_id = chunk_base + tid;
+        bool in_range = inst_id < d.instance_count;
+
+        // Transform model-local AABB by this instance's world matrix to get a world AABB.
+        // Corner-expansion using abs(M) and centre+extents is exact for an axis-aligned
+        // model AABB transformed by an arbitrary affine matrix.
+        bool visible = false;
+        mat4 m;
+        if (in_range) {
+            m = instance_transforms[d.first_instance + inst_id];
+
+            vec3 local_center = (d.local_aabb_min.xyz + d.local_aabb_max.xyz) * 0.5;
+            vec3 local_extent = (d.local_aabb_max.xyz - d.local_aabb_min.xyz) * 0.5;
+
+            vec3 world_center = (m * vec4(local_center, 1.0)).xyz;
+            mat3 abs_rot = mat3(
+                abs(m[0].xyz), abs(m[1].xyz), abs(m[2].xyz));
+            vec3 world_extent = abs_rot * local_extent;
+
+            vec3 world_min = world_center - world_extent;
+            vec3 world_max = world_center + world_extent;
+
+            visible = true;
+            for (int p = 0; p < 6; ++p) {
+                vec3 positive = mix(world_min, world_max, greaterThanEqual(planes[p].xyz, vec3(0.0)));
+                if (dot(planes[p].xyz, positive) + planes[p].w < 0.0) {
+                    visible = false;
+                    break;
+                }
+            }
+        }
+
+        // Subgroup-level compaction via ballot + exclusive bit count.
+        uvec4 ballot = subgroupBallot(visible);
+        uint sg_offset = subgroupBallotExclusiveBitCount(ballot);
+        uint sg_count = subgroupBallotBitCount(ballot);
+
+        // One lane per subgroup publishes its count into shared memory.
+        if (subgroupElect()) {
+            s_subgroup_counts[subgroup_id] = sg_count;
+        }
+        barrier();
+
+        // Workgroup-wide exclusive prefix sum across subgroup counts.
+        // Serial scan in thread 0 — N subgroups is tiny (≤ 8 on current HW).
+        // We publish: s_subgroup_counts[s] = exclusive prefix, s_subgroup_counts[num_subgroups] = total.
+        if (tid == 0u) {
+            uint acc = 0u;
+            for (uint s = 0u; s < num_subgroups; ++s) {
+                uint c = s_subgroup_counts[s];
+                s_subgroup_counts[s] = acc;
+                acc += c;
+            }
+            s_subgroup_counts[num_subgroups] = acc;  // total for this chunk
+        }
+        barrier();
+
+        uint sg_prefix = s_subgroup_counts[subgroup_id];
+        uint chunk_total = s_subgroup_counts[num_subgroups];
+        uint chunk_offset = s_wg_offset;
+
+        if (visible) {
+            uint out_slot = chunk_offset + sg_prefix + sg_offset;
+            visible_transforms[d.first_instance + out_slot] = m;
+        }
+
+        // Thread 0 advances the running workgroup offset for the next chunk.
+        if (tid == 0u) {
+            s_wg_offset = chunk_offset + chunk_total;
+        }
+        barrier();
+    }
+
+    // Patch the indirect command's instanceCount (word index 1 of 5) with the
+    // final visible count. Layout: [indexCount, instanceCount, firstIndex,
+    // vertexOffset, firstInstance].
+    if (gl_LocalInvocationIndex == 0) {
+        indirect_words[d.indirect_cmd_index * 5u + 1u] = s_wg_offset;
+    }
+}

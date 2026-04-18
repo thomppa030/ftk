@@ -33,7 +33,7 @@ void main() {
     DrawData dd = draws[gl_BaseInstance];
     uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
     mat4 model = (dd.instance_count > 1u)
-        ? instance_transforms[dd.first_instance + instance_id]
+        ? visible_instance_transforms[dd.first_instance + instance_id]
         : dd.model;
     vec4 world_pos = model * vec4(in_position, 1.0);
     gl_Position = ubo.projection * ubo.view * world_pos;

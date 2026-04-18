@@ -34,6 +34,19 @@ struct GpuDrawData {
 
 static_assert(sizeof(GpuDrawData) == 160, "GpuDrawData must be 160 bytes for std430");
 
+// One per instanced draw (each mega-entry × each distinct instanced DrawCommand).
+// Consumed by InstanceCullPass to cull instances against the view frustum and
+// compact the indirect command's instanceCount in-place.
+struct GpuInstancedDraw {
+    glm::vec4 local_aabb_min;        // model local AABB min (.w unused)
+    glm::vec4 local_aabb_max;        // model local AABB max (.w unused)
+    uint32_t first_instance;         // offset into InstanceTransforms
+    uint32_t instance_count;         // source instance count (pre-cull)
+    uint32_t indirect_cmd_index;     // which VkDrawIndexedIndirectCommand to patch
+    uint32_t _pad;
+};
+static_assert(sizeof(GpuInstancedDraw) == 48, "GpuInstancedDraw must be 48 bytes for std430");
+
 // A contiguous range of indirect draw commands sharing the same pipeline.
 struct PipelineDrawRange {
     uint32_t pipeline_id{0};
@@ -122,9 +135,31 @@ public:
         return instance_transform_counts_[frame_index];
     }
 
+    [[nodiscard]] VkBuffer visible_instance_buffer(uint32_t frame_index) const {
+        return visible_instance_buffers_[frame_index]
+                   ? visible_instance_buffers_[frame_index]->handle()
+                   : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkDeviceSize visible_instance_size(uint32_t frame_index) const {
+        return static_cast<VkDeviceSize>(instance_transform_counts_[frame_index]) * sizeof(glm::mat4);
+    }
+
+    [[nodiscard]] VkBuffer instanced_draw_buffer(uint32_t frame_index) const {
+        return instanced_draw_buffers_[frame_index]
+                   ? instanced_draw_buffers_[frame_index]->handle()
+                   : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkDeviceSize instanced_draw_size(uint32_t frame_index) const {
+        return static_cast<VkDeviceSize>(instanced_draw_counts_[frame_index]) * sizeof(GpuInstancedDraw);
+    }
+    [[nodiscard]] uint32_t instanced_draw_count(uint32_t frame_index) const {
+        return instanced_draw_counts_[frame_index];
+    }
+
 private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
     void ensure_instance_capacity(uint32_t frame_index, uint32_t count);
+    void ensure_instanced_draw_capacity(uint32_t frame_index, uint32_t count);
 
     VkDevice device_;
     VmaAllocator allocator_;
@@ -151,9 +186,17 @@ private:
 
     // Per-frame packed instance transforms (world-space, concatenated for all instanced draws)
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instance_transform_buffers_;
+    // GPU-written compacted visible instances — vertex path reads this
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> visible_instance_buffers_;
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instance_transform_capacities_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instance_transform_counts_{};
     std::vector<glm::mat4> staged_instance_transforms_;
+
+    // Per-frame per-instanced-draw descriptors (local AABB + indirect cmd index)
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> instanced_draw_buffers_;
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instanced_draw_capacities_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instanced_draw_counts_{};
+    std::vector<GpuInstancedDraw> staged_instanced_draws_;
 };
 
 } // namespace fjell

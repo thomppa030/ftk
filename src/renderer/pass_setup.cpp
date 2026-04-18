@@ -17,6 +17,7 @@
 #include "renderer/pass/grid_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
+#include "renderer/pass/instance_cull_pass.hpp"
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/local_shadow_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
@@ -65,6 +66,7 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     // ── Core geometry passes ───────────────────────────────────────────
     add("depth_prepass", std::make_unique<DepthPrePass>());
     add("hiz", std::make_unique<HizPass>());
+    add("instance_cull", std::make_unique<InstanceCullPass>());
 
     // ── Mesh shader passes (conditional) ───────────────────────────────
     if (gpu.use_mesh_shaders()) {

@@ -32,6 +32,8 @@ layout(location = 3) in vec3 in_normal;
 layout(location = 4) in vec4 in_tangent;
 
 void main() {
+    // Shadow cascades don't run InstanceCullPass (shadow frustum differs), so
+    // they always render every source instance via the raw buffer.
     DrawData dd = draws[gl_BaseInstance];
     uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
     mat4 model = (dd.instance_count > 1u)

@@ -58,7 +58,7 @@ void main() {
     DrawData dd = draws[draw_index];
     uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
     mat4 model = (dd.instance_count > 1u)
-        ? instance_transforms[dd.first_instance + instance_id]
+        ? visible_instance_transforms[dd.first_instance + instance_id]
         : dd.model;
 
     vec3 VERTEX = in_position;

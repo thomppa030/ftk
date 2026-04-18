@@ -269,11 +269,17 @@ void SceneGatherer::gather(const GatherInput& input) {
             input.frame_index);
     }
 
-    // Update instance transform SSBO binding (partially bound — only when present)
+    // Update instance transform SSBO bindings (partially bound — only when present).
+    // Raw transforms feed the mesh shader path; compacted visible transforms feed
+    // the vertex path after InstanceCullPass writes them.
     if (indirect_batch_->instance_transform_count(input.frame_index) > 0) {
         draw_data_descriptor_.update_instance_transforms(
             indirect_batch_->instance_transform_buffer(input.frame_index),
             indirect_batch_->instance_transform_size(input.frame_index),
+            input.frame_index);
+        draw_data_descriptor_.update_visible_instance_transforms(
+            indirect_batch_->visible_instance_buffer(input.frame_index),
+            indirect_batch_->visible_instance_size(input.frame_index),
             input.frame_index);
     }
 
@@ -302,6 +308,15 @@ void SceneGatherer::gather(const GatherInput& input) {
             shadow_draw_data_[c].update(
                 shadow_batches_[c]->draw_data_buffer(input.frame_index),
                 shadow_batches_[c]->draw_data_size(input.frame_index),
+                input.frame_index);
+        }
+        // Shadow cascades render every source instance (no InstanceCullPass
+        // in the shadow frustum), so bind the raw transform buffer into the
+        // cascade's descriptor.
+        if (shadow_batches_[c]->instance_transform_count(input.frame_index) > 0) {
+            shadow_draw_data_[c].update_instance_transforms(
+                shadow_batches_[c]->instance_transform_buffer(input.frame_index),
+                shadow_batches_[c]->instance_transform_size(input.frame_index),
                 input.frame_index);
         }
     }
