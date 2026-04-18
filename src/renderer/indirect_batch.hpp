@@ -64,7 +64,8 @@ public:
                uint32_t frame_index,
                const glm::mat4& projection = glm::mat4(1.0f),
                const glm::vec3& camera_pos = glm::vec3(0.0f),
-               AnimationSystem* animation_system = nullptr);
+               AnimationSystem* animation_system = nullptr,
+               bool is_shadow_batch = false);
 
     void draw(VkCommandBuffer cmd, uint32_t frame_index) const;
 
@@ -180,6 +181,11 @@ private:
     // CPU-side staging buffers (avoid scattered writes to write-combined GPU memory)
     std::vector<VkDrawIndexedIndirectCommand> staged_indirect_;
     std::vector<GpuDrawData> staged_draw_data_;
+
+    // Per-draw scratch for instanced LOD bucketing — reused across draws to
+    // avoid nested std::vector allocations in the hot loop.
+    std::vector<uint8_t> staged_bucket_lods_;
+    std::vector<glm::mat4> staged_bucket_worlds_;
 
     // Per-frame skinned draw data indices (draw_index into GpuDrawData SSBO)
     std::array<std::vector<uint32_t>, MAX_FRAMES_IN_FLIGHT> skinned_draw_indices_;

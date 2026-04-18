@@ -116,7 +116,8 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           uint32_t frame_index,
                           const glm::mat4& projection,
                           const glm::vec3& camera_pos,
-                          AnimationSystem* animation_system) {
+                          AnimationSystem* animation_system,
+                          bool is_shadow_batch) {
     FJELL_PROFILE_SCOPE_N("indirect_batch_build");
 
     // Precompute projection scale for LOD selection (vertical FOV)
@@ -224,31 +225,102 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         uint32_t max_lod = dc.model->lod_count();
 
         if (is_instanced) {
-            // Per-instance LOD: bucket instances by LOD, emit one indirect
-            // draw per non-empty bucket × mega_entry. Transforms for each
-            // bucket live contiguously in the staged transform buffer so a
-            // single `first_instance` slice covers the whole bucket.
-            constexpr uint32_t MAX_LOD_BUCKETS = 4;
-            std::array<std::vector<glm::mat4>, MAX_LOD_BUCKETS> buckets;
-            for (auto& b : buckets) b.clear();
-
+            uint32_t src_count = static_cast<uint32_t>(dc.instance_transforms->size());
             const glm::mat4& node_world = dc.world_matrix;
-            for (const auto& local : *dc.instance_transforms) {
-                glm::mat4 world = node_world * local;
-                uint32_t lod = select_lod(*dc.model, world);
-                if (lod >= max_lod) continue; // fully culled by distance
-                if (lod >= MAX_LOD_BUCKETS) lod = MAX_LOD_BUCKETS - 1;
-                buckets[lod].push_back(world);
-            }
+            const AABB& local = dc.model->local_aabb();
 
-            for (uint32_t lod = 0; lod < max_lod && lod < MAX_LOD_BUCKETS; ++lod) {
-                const auto& bucket = buckets[lod];
-                if (bucket.empty()) continue;
+            if (is_shadow_batch) {
+                // Shadow cascades: no per-instance LOD, no GPU instance cull.
+                // Pick one LOD for the whole patch from the node origin, render
+                // every source instance at that LOD through every mega entry.
+                uint32_t lod = select_lod(*dc.model, dc.world_matrix);
+                if (lod >= max_lod) continue;
 
                 uint32_t bucket_first_instance = static_cast<uint32_t>(staged_instance_transforms_.size());
-                staged_instance_transforms_.insert(staged_instance_transforms_.end(),
-                                                   bucket.begin(), bucket.end());
-                uint32_t bucket_count = static_cast<uint32_t>(bucket.size());
+                staged_instance_transforms_.reserve(staged_instance_transforms_.size() + src_count);
+                for (const auto& l : *dc.instance_transforms) {
+                    staged_instance_transforms_.push_back(node_world * l);
+                }
+
+                const auto& lod_level = lods[lod];
+                uint32_t entry_begin = lod_level.first_mega_entry;
+                uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
+
+                for (uint32_t e = entry_begin; e < entry_end; ++e) {
+                    const auto& entry = entries[e];
+                    VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
+                    cmd.indexCount = entry.index_count;
+                    cmd.instanceCount = src_count;
+                    cmd.firstIndex = entry.first_index;
+                    cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
+                    cmd.firstInstance = draw_index;
+
+                    GpuDrawData& data = draw_data[draw_index];
+                    data.model = dc.push.model;
+                    data.prev_model = dc.prev_world_matrix;
+                    data.material_id = dc.push.material_id;
+                    data.meshlet_offset = entry.meshlet_offset;
+                    data.meshlet_count = entry.meshlet_count;
+                    data.vertex_offset = entry.vertex_offset;
+                    data.instance_count = src_count;
+                    data.first_instance = bucket_first_instance;
+
+                    total_meshlets += entry.meshlet_count * src_count;
+                    triangles += (entry.index_count / 3) * src_count;
+                    draw_index++;
+                }
+                continue;
+            }
+
+            // Main pass: per-instance LOD bucketing. One transform+lod pass
+            // over all instances, then a per-lod contiguous fill pass — no
+            // nested std::vector allocations per draw.
+            constexpr uint32_t MAX_LOD_BUCKETS = 4;
+            std::array<uint32_t, MAX_LOD_BUCKETS> bucket_counts{0, 0, 0, 0};
+
+            // Scratch: reuse a single vector so allocations amortize across draws.
+            staged_bucket_lods_.clear();
+            staged_bucket_worlds_.clear();
+            staged_bucket_lods_.reserve(src_count);
+            staged_bucket_worlds_.reserve(src_count);
+            for (const auto& l : *dc.instance_transforms) {
+                glm::mat4 world = node_world * l;
+                uint32_t lod = select_lod(*dc.model, world);
+                if (lod >= max_lod) continue;
+                if (lod >= MAX_LOD_BUCKETS) lod = MAX_LOD_BUCKETS - 1;
+                staged_bucket_lods_.push_back(static_cast<uint8_t>(lod));
+                staged_bucket_worlds_.push_back(world);
+                bucket_counts[lod]++;
+            }
+
+            // Exclusive prefix of bucket_counts = first_instance offset per bucket,
+            // relative to where this draw's slice begins in staged_instance_transforms_.
+            uint32_t draw_slice_base = static_cast<uint32_t>(staged_instance_transforms_.size());
+            std::array<uint32_t, MAX_LOD_BUCKETS> bucket_first{};
+            {
+                uint32_t acc = 0;
+                for (uint32_t i = 0; i < MAX_LOD_BUCKETS; ++i) {
+                    bucket_first[i] = draw_slice_base + acc;
+                    acc += bucket_counts[i];
+                }
+            }
+
+            // Reserve contiguous space, then scatter each visible instance into
+            // its bucket's slot using a local write cursor per bucket.
+            uint32_t kept = static_cast<uint32_t>(staged_bucket_worlds_.size());
+            staged_instance_transforms_.resize(draw_slice_base + kept);
+            std::array<uint32_t, MAX_LOD_BUCKETS> bucket_cursor = bucket_first;
+            for (uint32_t i = 0; i < kept; ++i) {
+                uint32_t lod = staged_bucket_lods_[i];
+                staged_instance_transforms_[bucket_cursor[lod]++] = staged_bucket_worlds_[i];
+            }
+
+            // Emit one indirect draw + GpuInstancedDraw per non-empty bucket × mega entry.
+            for (uint32_t lod = 0; lod < max_lod && lod < MAX_LOD_BUCKETS; ++lod) {
+                uint32_t bucket_count = bucket_counts[lod];
+                if (bucket_count == 0) continue;
+
+                uint32_t bucket_first_instance = bucket_first[lod];
 
                 const auto& lod_level = lods[lod];
                 uint32_t entry_begin = lod_level.first_mega_entry;
@@ -263,7 +335,6 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                     cmd.vertexOffset = static_cast<int32_t>(entry.vertex_offset);
                     cmd.firstInstance = draw_index;
 
-                    const AABB& local = dc.model->local_aabb();
                     GpuInstancedDraw desc{};
                     desc.local_aabb_min = glm::vec4(local.min, 0.0f);
                     desc.local_aabb_max = glm::vec4(local.max, 0.0f);
@@ -284,20 +355,19 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                     data.first_instance = bucket_first_instance;
 
                     if (do_lod) {
-                        // Per-bucket AABB: union of this bucket's instance world AABBs.
-                        AABB bucket_aabb = local.transform(bucket[0]);
-                        for (size_t i = 1; i < bucket.size(); ++i) {
-                            AABB b = local.transform(bucket[i]);
-                            bucket_aabb.min = glm::min(bucket_aabb.min, b.min);
-                            bucket_aabb.max = glm::max(bucket_aabb.max, b.max);
-                        }
-                        aabbs[draw_index].min_x = bucket_aabb.min.x;
-                        aabbs[draw_index].min_y = bucket_aabb.min.y;
-                        aabbs[draw_index].min_z = bucket_aabb.min.z;
+                        // GpuDrawAABB feeds CullPass (dead path) and RT TLAS. For
+                        // instanced draws, InstanceCullPass handles per-instance
+                        // frustum testing — the per-bucket union here would be
+                        // wasted work. Record the DrawCommand's whole-patch AABB
+                        // so any downstream consumer still gets a valid bounds.
+                        const AABB& world_aabb = dc.world_aabb;
+                        aabbs[draw_index].min_x = world_aabb.min.x;
+                        aabbs[draw_index].min_y = world_aabb.min.y;
+                        aabbs[draw_index].min_z = world_aabb.min.z;
                         aabbs[draw_index].pad0 = 0.0f;
-                        aabbs[draw_index].max_x = bucket_aabb.max.x;
-                        aabbs[draw_index].max_y = bucket_aabb.max.y;
-                        aabbs[draw_index].max_z = bucket_aabb.max.z;
+                        aabbs[draw_index].max_x = world_aabb.max.x;
+                        aabbs[draw_index].max_y = world_aabb.max.y;
+                        aabbs[draw_index].max_z = world_aabb.max.z;
                         aabbs[draw_index].pad1 = 0.0f;
                     }
 

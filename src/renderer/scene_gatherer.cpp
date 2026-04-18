@@ -97,22 +97,25 @@ void SceneGatherer::gather(const GatherInput& input) {
                                             || (inst->material->params().base_color_factor.w < 1.0f);
                         }
 
-                        // Union AABB = every instance's world AABB
-                        AABB local = inst->model->local_aabb();
-                        AABB world_union;
-                        bool first = true;
-                        for (const auto& local_xform : inst->instances) {
-                            glm::mat4 world = spatial->world_matrix_ * local_xform;
-                            AABB box = local.transform(world);
-                            if (first) {
-                                world_union = box;
-                                first = false;
-                            } else {
-                                world_union.min = glm::min(world_union.min, box.min);
-                                world_union.max = glm::max(world_union.max, box.max);
+                        // Union AABB cached on the component (local-space) —
+                        // recompute only when instances/model change, then
+                        // transform once by the node's world matrix.
+                        if (inst->dirty) {
+                            AABB model_local = inst->model->local_aabb();
+                            bool first = true;
+                            for (const auto& lxf : inst->instances) {
+                                AABB box = model_local.transform(lxf);
+                                if (first) {
+                                    inst->local_bounds = box;
+                                    first = false;
+                                } else {
+                                    inst->local_bounds.min = glm::min(inst->local_bounds.min, box.min);
+                                    inst->local_bounds.max = glm::max(inst->local_bounds.max, box.max);
+                                }
                             }
+                            inst->dirty = false;
                         }
-                        dc.world_aabb = world_union;
+                        dc.world_aabb = inst->local_bounds.transform(spatial->world_matrix_);
 
                         if (!dc.transparent) {
                             for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
@@ -253,12 +256,13 @@ void SceneGatherer::gather(const GatherInput& input) {
                            projection_matrix_, camera_position_,
                            input.animation_system);
 
-    // Build per-cascade shadow indirect batches (each cascade only draws its own geometry)
+    // Build per-cascade shadow indirect batches (each cascade only draws its own geometry).
+    // Pass is_shadow_batch=true so instanced draws skip per-instance LOD bucketing + InstanceCullPass.
     empty_transparent_.clear();
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
         shadow_batches_[c]->build(shadow_commands_[c], empty_transparent_, input.frame_index,
                                   glm::mat4(1.0f), glm::vec3(0.0f),
-                                  input.animation_system);
+                                  input.animation_system, /*is_shadow_batch=*/true);
     }
 
     // Update draw data descriptor for this frame

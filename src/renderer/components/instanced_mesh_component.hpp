@@ -23,6 +23,10 @@ struct InstancedMeshComponent : NodeComponent {
 
     std::vector<glm::mat4> instances;
 
+    // Union of every instance's model-local-AABB transformed by its local-space
+    // instance matrix, expressed in the component's local (node-parent) space.
+    // Cached across frames; recomputed when `dirty` is set by editor mutations
+    // or when the model changes.
     AABB local_bounds{};
     bool dirty{true};
 };
