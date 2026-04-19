@@ -25,22 +25,61 @@ enum class ImageUsage : uint8_t {
     transfer_dst,           // destination of a copy/blit operation
 };
 
-// Image tracked by the frame graph
+// Subresource range tracked by the frame graph. A subrange of an image
+// with its own layout / last access state.
+struct SubresourceRange {
+    VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
+    uint32_t base_mip{0};
+    uint32_t mip_count{1};
+    uint32_t base_layer{0};
+    uint32_t layer_count{1};
+};
+
+// State for one non-overlapping slice of a tracked image.
+struct ImageSlice {
+    SubresourceRange range;
+    VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
+    VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT};
+    VkAccessFlags2 last_access{0};
+};
+
+// Image tracked by the frame graph. Layout/access state is per-slice so
+// that passes touching specific mips or array layers don't invalidate
+// the rest of the image.
 struct TrackedImage {
     VkImage image{VK_NULL_HANDLE};
     VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
-    VkImageLayout current_layout{VK_IMAGE_LAYOUT_UNDEFINED};
-    VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT};
-    VkAccessFlags2 last_access{0};
+    uint32_t mip_count{1};
+    uint32_t array_layers{1};
     uint32_t base_layer{0};
-    uint32_t layer_count{1};
+    bool persistent{false};   // state carries across begin_frame()
+    std::vector<ImageSlice> slices;
+};
+
+// One (image, subresource, usage) tuple inside a pass declaration.
+struct ImageAccess {
+    uint32_t image_id{0};
+    ImageUsage usage{ImageUsage::shader_read};
+    SubresourceRange range{};
+};
+
+// A post-pass state override. The pass promises that after its
+// record() returns, the named subresource is in the stated layout —
+// the graph records it without emitting a barrier.
+struct FinalLayoutOverride {
+    uint32_t image_id{0};
+    SubresourceRange range{};
+    VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
+    VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+    VkAccessFlags2 last_access{0};
 };
 
 // A pass declaration: what images it reads and writes
 struct PassDecl {
     std::string name;
     std::function<void(VkCommandBuffer)> execute;
-    std::vector<std::pair<uint32_t, ImageUsage>> image_uses; // image_id, usage
+    std::vector<ImageAccess> image_uses;
+    std::vector<FinalLayoutOverride> final_layouts;
     uint32_t parallel_group{0}; // 0 = sequential, >0 = parallel group ID
 };
 
@@ -51,7 +90,9 @@ class FrameGraph {
 public:
     // Register an image to track. Returns an ID.
     uint32_t register_image(VkImage image, VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
-                            uint32_t base_layer = 0, uint32_t layer_count = 1);
+                            uint32_t base_layer = 0, uint32_t layer_count = 1,
+                            uint32_t mip_count = 1,
+                            bool persistent = false);
 
     // Start a new frame — reset all layouts to UNDEFINED
     void begin_frame();
@@ -88,12 +129,27 @@ private:
     static VkPipelineStageFlags2 stage_for(ImageUsage usage);
     static VkAccessFlags2 access_for(ImageUsage usage);
 
-    void insert_barrier(VkCommandBuffer cmd, TrackedImage& img,
-                        VkImageLayout new_layout,
-                        VkPipelineStageFlags2 dst_stage,
-                        VkAccessFlags2 dst_access);
+    // Split the slice list so that every slice is either fully inside
+    // the query range or fully outside it. Returns indices into img.slices
+    // for the slices that cover the range.
+    std::vector<size_t> carve_slices(TrackedImage& img, const SubresourceRange& range);
+
+    // Merge neighbouring slices whose state is identical. Called after
+    // updating state so the list doesn't grow unboundedly.
+    void coalesce_slices(TrackedImage& img);
+
+    void insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImage& img,
+                                   ImageSlice& slice,
+                                   VkImageLayout new_layout,
+                                   VkPipelineStageFlags2 dst_stage,
+                                   VkAccessFlags2 dst_access);
 
     void emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass);
+
+    // Apply a pass's final_layout overrides: patch slice state to the
+    // declared values without emitting any barrier (producer promises
+    // the image already ends up in that layout).
+    void apply_final_layouts(const PassDecl& pass);
 
     std::vector<TrackedImage> images_;
     std::vector<PassDecl> passes_;
