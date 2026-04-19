@@ -15,7 +15,7 @@ public:
 
     Result<> create(Device&, const PassResources&) override { return {}; }
     void destroy() override {}
-    void record(const FrameContext&) override {}
+    void record(const FrameContext& ctx) override;
 
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
