@@ -21,6 +21,12 @@ struct ImportedImage {
     VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
     uint32_t base_layer{0};
     uint32_t layer_count{1};
+    uint32_t mip_count{1};
+    // Persistent images keep their tracked layout across begin_frame().
+    // Set true for shadow atlases, Hi-Z pyramids, sky cubemaps — images
+    // whose state at the start of frame N depends on frame N-1's exit
+    // state.
+    bool persistent{false};
 };
 
 /// State visible during pass declaration. Intentionally smaller than
@@ -117,6 +123,18 @@ public:
     FgTexture read_write(FgTexture, ResourceAccess);
     FgBuffer read_write(FgBuffer, ResourceAccess);
 
+    /// Promise that, after record() returns, the named texture is in
+    /// the stated layout. The graph trusts this hint and updates its
+    /// tracked state without emitting a barrier. Use this when a pass
+    /// performs inline layout choreography inside record() and needs
+    /// the graph to know the post-state so downstream passes see the
+    /// right source layout. Defaults cover the common "finished, ready
+    /// to sample" case.
+    FgTexture final_layout(FgTexture, VkImageLayout layout,
+                            VkPipelineStageFlags2 last_stage
+                                = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                            VkAccessFlags2 last_access = 0);
+
     // ── Pass-level flags ───────────────────────────────────────────────
 
     /// Assign this pass to a queue. Default is graphics.
@@ -157,7 +175,9 @@ public:
         VkImageAspectFlags aspect;
         uint32_t base_layer;
         uint32_t layer_count;
+        uint32_t mip_count;
         VkImageLayout initial_layout;
+        bool persistent;
     };
     struct ImportedBuffer {
         FgBuffer handle;
@@ -175,6 +195,12 @@ public:
         std::string name;
         BufferDesc desc;
     };
+    struct FinalLayout {
+        FgTexture handle{};
+        VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
+        VkPipelineStageFlags2 last_stage{VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT};
+        VkAccessFlags2 last_access{0};
+    };
 
     [[nodiscard]] const std::vector<TextureAccess>& texture_accesses() const noexcept { return texture_accesses_; }
     [[nodiscard]] const std::vector<BufferAccess>&  buffer_accesses()  const noexcept { return buffer_accesses_; }
@@ -182,6 +208,7 @@ public:
     [[nodiscard]] const std::vector<ImportedBuffer>&  imported_buffers()  const noexcept { return imported_buffers_; }
     [[nodiscard]] const std::vector<CreatedTexture>& created_textures() const noexcept { return created_textures_; }
     [[nodiscard]] const std::vector<CreatedBuffer>&  created_buffers()  const noexcept { return created_buffers_; }
+    [[nodiscard]] const std::vector<FinalLayout>& final_layouts() const noexcept { return final_layouts_; }
     [[nodiscard]] QueueType queue() const noexcept { return queue_; }
     [[nodiscard]] uint32_t parallel_group() const noexcept { return parallel_group_; }
     [[nodiscard]] bool is_never_cull() const noexcept { return never_cull_; }
@@ -198,6 +225,7 @@ private:
     std::vector<ImportedBuffer>  imported_buffers_;
     std::vector<CreatedTexture>  created_textures_;
     std::vector<CreatedBuffer>   created_buffers_;
+    std::vector<FinalLayout>     final_layouts_;
 
     QueueType queue_{QueueType::graphics};
     uint32_t parallel_group_{0};

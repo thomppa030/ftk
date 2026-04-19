@@ -31,7 +31,9 @@ FgTexture PassBuilder::import(std::string_view name, VkImage image, VkImageView 
         .aspect = aspect,
         .base_layer = base_layer,
         .layer_count = layer_count,
+        .mip_count = 1,
         .initial_layout = initial_layout,
+        .persistent = false,
     });
     return h;
 }
@@ -44,8 +46,20 @@ FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view 
         FJELL_GFX_WARN("PassBuilder::import_named: unknown image '{}'", key.c_str());
         return FgTexture{};
     }
-    return import(name, it->second.image, it->second.view, it->second.aspect,
-                  it->second.base_layer, it->second.layer_count, initial_layout);
+    FgTexture h{next_texture_id_++};
+    imported_textures_.push_back({
+        .handle = h,
+        .name = std::string(name),
+        .image = it->second.image,
+        .view = it->second.view,
+        .aspect = it->second.aspect,
+        .base_layer = it->second.base_layer,
+        .layer_count = it->second.layer_count,
+        .mip_count = it->second.mip_count,
+        .initial_layout = initial_layout,
+        .persistent = it->second.persistent,
+    });
+    return h;
 }
 
 FgBuffer PassBuilder::import(std::string_view name, VkBuffer buffer, VkDeviceSize size) {
@@ -89,6 +103,18 @@ FgBuffer PassBuilder::read_write(FgBuffer h, ResourceAccess a) {
     return h;
 }
 
+FgTexture PassBuilder::final_layout(FgTexture h, VkImageLayout layout,
+                                     VkPipelineStageFlags2 last_stage,
+                                     VkAccessFlags2 last_access) {
+    final_layouts_.push_back({
+        .handle = h,
+        .layout = layout,
+        .last_stage = last_stage,
+        .last_access = last_access,
+    });
+    return h;
+}
+
 void PassBuilder::reset() {
     texture_accesses_.clear();
     buffer_accesses_.clear();
@@ -96,6 +122,7 @@ void PassBuilder::reset() {
     imported_buffers_.clear();
     created_textures_.clear();
     created_buffers_.clear();
+    final_layouts_.clear();
     queue_ = QueueType::graphics;
     parallel_group_ = 0;
     never_cull_ = false;
