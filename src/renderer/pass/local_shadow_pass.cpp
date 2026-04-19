@@ -3,6 +3,7 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/indirect_batch.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/model.hpp"
@@ -445,13 +446,20 @@ PassSetup LocalShadowPass::setup() const {
     };
 }
 
+void LocalShadowPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Shadow atlas is pass-private; layout transitions happen inline in
+    // record(). Graph sees an empty-access pass.
+}
+
 void LocalShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                              const FrameContext& ctx) {
-    graph.add_pass("local_shadows", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, {});
+    PassBuilder builder;
+    graph.submit_declared_pass("local_shadows", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 // ── Recording ──────────────────────────────────────────────────────────

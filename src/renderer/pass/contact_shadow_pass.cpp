@@ -4,6 +4,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/global_bindings.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resource_registry.hpp"
@@ -335,18 +336,27 @@ PassSetup ContactShadowPass::setup() const {
     };
 }
 
-void ContactShadowPass::build(FrameGraph& graph, ResourceRegistry& registry,
-                              const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("depth")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
+void ContactShadowPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (depth import) is produced inside build() below
+    // until Phase 2 routes declare() through the pipeline.
+}
 
-    graph.add_pass("contact_shadow", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, std::move(uses));
+void ContactShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                              const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    PassBuilder builder;
+    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                 VK_IMAGE_ASPECT_DEPTH_BIT);
+    builder.read(depth, ResourceAccess::sampled_compute);
+
+    graph.submit_declared_pass("contact_shadow", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 void ContactShadowPass::record(const FrameContext& ctx) {

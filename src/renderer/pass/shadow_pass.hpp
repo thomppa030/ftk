@@ -28,6 +28,8 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    [[nodiscard]] bool uses_declare() const noexcept override { return true; }
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
 

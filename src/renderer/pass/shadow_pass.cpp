@@ -4,6 +4,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/indirect_batch.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/model.hpp"
@@ -664,17 +665,26 @@ PassSetup ShadowPass::setup() const {
     };
 }
 
+void ShadowPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Shadow atlas is a pass-private persistent image; all layout
+    // transitions for cascades happen inline inside record(). Graph
+    // sees an empty-access pass that runs in parallel group 1.
+}
+
 void ShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                         const FrameContext& ctx) {
-    graph.add_pass("shadow", [this, ctx](VkCommandBuffer cb) {
-        if (ctx.skip_shadows) return;
+    PassBuilder builder;
+    builder.parallel_group(1);
+    graph.submit_declared_pass("shadow", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            if (ctx.skip_shadows) { return; }
 #ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Shadow Pass");
+            TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Shadow Pass");
 #endif
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, {}, 1);
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 } // namespace fjell
