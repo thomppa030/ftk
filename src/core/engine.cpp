@@ -202,14 +202,10 @@ void Engine::init_ui() {
                VkCommandBuffer cmd, VkDescriptorSet global_set,
                VkDescriptorSet bindless_set, VkExtent2D extent,
                uint32_t frame_index) {
-            fps_accum_ += clock_.delta_time();
-            ++fps_count_;
-            if (fps_accum_ >= 0.5f) {
-                int fps = static_cast<int>(static_cast<float>(fps_count_) / fps_accum_ + 0.5f);
-                game_ui_.context().set("fps", std::to_string(fps));
-                fps_accum_ = 0.0f;
-                fps_count_ = 0;
-            }
+            // FPS is shown as an ImGui overlay in play mode (see
+            // SceneEditorContext::draw_play_overlay). Pushing it into the
+            // game-UI context every 0.5s forces a full Yoga layout rebuild,
+            // so we keep it out of the HUD.
 
             if (!active_context().is_playing() && game_ui_.loaded()) {
                 game_ui_.update(static_cast<float>(extent.width),
@@ -222,7 +218,6 @@ void Engine::init_ui() {
             for (auto& inst : ui_subsystem_->instances()) {
                 if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) continue;
                 if (!inst.game_ui || !inst.game_ui->loaded()) continue;
-                inst.game_ui->context().set("fps", std::to_string(fps_count_));
                 inst.game_ui->update(static_cast<float>(extent.width),
                                      static_cast<float>(extent.height),
                                      frame_index, clock_.delta_time(), &input_);

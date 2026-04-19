@@ -186,8 +186,6 @@ private:
     bool layout_built_{false};
     std::string pending_layout_load_;
     bool has_saved_layout_{false};
-    float fps_accum_{0.0f};
-    int fps_count_{0};
 
     // Editor contexts
     ContextRegistry context_registry_;

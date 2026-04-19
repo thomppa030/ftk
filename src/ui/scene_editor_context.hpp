@@ -139,6 +139,12 @@ private:
     int focus_viewport_frames_{0}; // countdown: focus viewport after N frames
     std::unique_ptr<PlaySession> play_session_;
 
+    // Play-mode FPS overlay (frames counted locally, updated every 0.5s).
+    // Kept out of the game UI context so the HUD layout never rebuilds for it.
+    double play_fps_accum_s_{0.0};
+    uint32_t play_fps_count_{0};
+    float play_fps_value_{0.0f};
+
     // Delegate connections (context-level bindings)
     std::vector<Connection> connections_;
 
