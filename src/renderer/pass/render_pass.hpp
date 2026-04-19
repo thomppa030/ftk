@@ -2,6 +2,7 @@
 
 #include "core/result.hpp"
 #include "renderer/frame_graph.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/render_pipeline.hpp"
 
 #include <array>
@@ -208,6 +209,27 @@ public:
     /// Complex passes override this with custom logic.
     virtual void build(FrameGraph& graph, ResourceRegistry& registry,
                        const FrameContext& ctx);
+
+    /// Declare the pass's DAG topology: imported and created resources,
+    /// reads, writes, queue assignment. The graph consumes this to
+    /// schedule passes, allocate transient resources, and emit barriers.
+    ///
+    /// Default implementation does nothing. Passes implement this to opt
+    /// into the DAG-authored path. Passes that don't are still driven by
+    /// the legacy setup()/build() path. Both coexist during the
+    /// migration; the legacy path will be removed once every pass has
+    /// implemented declare().
+    ///
+    /// Must not record commands or touch per-frame transient state:
+    /// called during graph construction, before any command buffer
+    /// exists.
+    virtual void declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {}
+
+    /// Whether this pass implements declare() and should be routed
+    /// through the DAG path instead of the legacy build() path. Default
+    /// is false; passes that implement declare() override to return true.
+    /// Once every pass returns true, the legacy path is removed.
+    [[nodiscard]] virtual bool uses_declare() const noexcept { return false; }
 
     [[nodiscard]] Result<> recreate(Device& device, const PassResources& resources) {
         destroy();

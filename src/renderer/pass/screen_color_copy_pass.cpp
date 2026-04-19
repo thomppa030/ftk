@@ -1,5 +1,6 @@
 #include "renderer/pass/screen_color_copy_pass.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/resource_registry.hpp"
 
 namespace fjell {
@@ -20,21 +21,38 @@ PassSetup ScreenColorCopyPass::setup() const {
     };
 }
 
+void ScreenColorCopyPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Graph topology for this pass is produced per-frame inside build()
+    // below because the VkImages to import are only reachable through
+    // FrameContext->target. Once Phase 2 routes passes through the
+    // pipeline's DAG path directly, declare() will become the single
+    // source of truth and build() will be deleted.
+}
+
 void ScreenColorCopyPass::build(FrameGraph& graph, ResourceRegistry& registry,
                                 const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("color")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::transfer_src);
-    }
-    if (auto* img = registry.find_image("screen_color")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::transfer_dst);
-    }
+    // DAG path: import color and screen_color VkImages, declare transfer
+    // accesses against them, and submit through the typed API.
+    // submit_declared_pass() dedups imports against images the pipeline
+    // already registered and emits the same legacy image-uses list the
+    // old build() produced.
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
 
-    graph.add_pass("screen_color_copy", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, std::move(uses));
+    PassBuilder builder;
+    auto src = builder.import("color", target->color_image(), /*view*/ VK_NULL_HANDLE);
+    auto dst = builder.import("screen_color", target->screen_color_image(), /*view*/ VK_NULL_HANDLE);
+    builder.read(src, ResourceAccess::transfer_src);
+    builder.write(dst, ResourceAccess::transfer_dst);
+
+    (void)registry;
+
+    graph.submit_declared_pass("screen_color_copy", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 void ScreenColorCopyPass::record(const FrameContext& ctx) {
