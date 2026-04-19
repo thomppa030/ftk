@@ -24,6 +24,7 @@ layout(rgba16f, set = 0, binding = 4) uniform image2D probe_offset_image;
 
 layout(push_constant) uniform PushConstants {
     uint first_frame;
+    float max_trace_dist;
 };
 
 void main() {

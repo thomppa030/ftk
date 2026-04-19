@@ -363,11 +363,11 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create DDGI update set layout");
     }
 
-    // Update pipeline layout: descriptor set + push constant (first_frame uint)
+    // Update pipeline layout: descriptor set + push constants (first_frame + max_trace_dist)
     VkPushConstantRange update_push{};
     update_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     update_push.offset = 0;
-    update_push.size = sizeof(uint32_t);
+    update_push.size = sizeof(uint32_t) + sizeof(float);
 
     VkPipelineLayoutCreateInfo update_pipe_layout_ci{};
     update_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -871,6 +871,7 @@ void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
 }
 
 void DdgiPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
+    if (!config_.enabled) return;
     // Only build accel structures when DDGI is enabled for this viewport
     if (ctx.pp_resources && ctx.pp_resources->ddgi()) {
         prepare_accel_structures(ctx);
@@ -922,6 +923,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     auto sdf_sampler = sdf_res != nullptr ? sdf_res->sampler : VK_NULL_HANDLE;
     auto sky_cubemap_view = sky_res != nullptr ? sky_res->view : VK_NULL_HANDLE;
     auto sky_cubemap_sampler = sky_res != nullptr ? sky_res->sampler : VK_NULL_HANDLE;
+
+    // Sky cubemap identity changed (HDRI loaded or cleared) — force a
+    // descriptor rewrite on trace_set / rt_trace_set. The old handles may
+    // already be destroyed, so this must happen before we use them.
+    if (sky_cubemap_view != imgs.last_sky_view ||
+        sky_cubemap_sampler != imgs.last_sky_sampler) {
+        imgs.images_need_init = true;
+        imgs.last_sky_view = sky_cubemap_view;
+        imgs.last_sky_sampler = sky_cubemap_sampler;
+    }
 
     // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
@@ -1411,14 +1422,17 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
 
-    uint32_t first_frame_val = is_first_frame_ ? 1u : 0u;
+    struct UpdatePush {
+        uint32_t first_frame;
+        float max_trace_dist;
+    } update_push{is_first_frame_ ? 1U : 0U, MAX_TRACE_DIST};
 
     // ── 5. Dispatch irradiance update ──
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, irradiance_update_pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                             update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
     vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(uint32_t), &first_frame_val);
+                       0, sizeof(update_push), &update_push);
     vkCmdDispatch(ctx.cmd,
                   (static_cast<uint32_t>(imgs.irr_width) + 7) / 8,
                   (static_cast<uint32_t>(imgs.irr_height) + 7) / 8, 1);
@@ -1428,7 +1442,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                             update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
     vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(uint32_t), &first_frame_val);
+                       0, sizeof(update_push), &update_push);
     vkCmdDispatch(ctx.cmd,
                   (static_cast<uint32_t>(imgs.vis_width) + 7) / 8,
                   (static_cast<uint32_t>(imgs.vis_height) + 7) / 8, 1);
@@ -1445,7 +1459,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                             update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
     vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(uint32_t), &first_frame_val);
+                       0, sizeof(update_push), &update_push);
     vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
 
     // ── 9. Dispatch probe status ──
@@ -1453,7 +1467,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                             update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
     vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(uint32_t), &first_frame_val);
+                       0, sizeof(update_push), &update_push);
     vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
 
     // ── 10. Transition indirect image to GENERAL for sample output ──
@@ -1519,6 +1533,8 @@ PassSetup DdgiPass::setup() const {
 
 void DdgiPass::build(FrameGraph& graph, ResourceRegistry& registry,
                       const FrameContext& ctx) {
+    if (!config_.enabled) return;
+
     std::vector<std::pair<uint32_t, ImageUsage>> uses;
     if (auto* img = registry.find_image("depth")) {
         uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);

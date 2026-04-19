@@ -24,6 +24,7 @@ layout(rgba16f, set = 0, binding = 2) uniform image2D irradiance_image;
 
 layout(push_constant) uniform PushConstants {
     uint first_frame;
+    float max_trace_dist;
 };
 
 #define EPSILON 0.0001
@@ -80,6 +81,14 @@ void main() {
                 // Clamp radiance to prevent emissive hotspots from causing flicker
                 radiance = min(radiance, vec3(30.0));
                 radiance *= energy_conservation;
+
+                // Down-weight sky miss rays so nearby surface bounces dominate.
+                // Even with blurred sky sampling (mip 4), HDR skies can still
+                // overpower subtle color bleeding from nearby geometry.
+                if (dist >= max_trace_dist - 0.1) {
+                    weight *= 0.25;
+                }
+
                 result += vec4(radiance * weight, weight);
             }
         }

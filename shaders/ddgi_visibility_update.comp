@@ -24,6 +24,7 @@ layout(rg16f, set = 0, binding = 3) uniform image2D visibility_image;
 
 layout(push_constant) uniform PushConstants {
     uint first_frame;
+    float max_trace_dist;
 };
 
 #define EPSILON 0.0001

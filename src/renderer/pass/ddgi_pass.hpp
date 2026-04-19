@@ -40,6 +40,7 @@ struct DdgiConfig {
     float emissive_gi_boost{4.0f};
     float infinite_bounces_mult{0.8f};
     bool half_res_output{true};
+    bool enabled{true};
 };
 
 /// GPU-side constants UBO (std140 layout).
@@ -128,6 +129,12 @@ public:
         int32_t total_probes{0};
 
         bool images_need_init{true};
+
+        // Cached sky cubemap identity — if the registry entry swaps
+        // (e.g. HDRI loaded/cleared), bump images_need_init to rewrite
+        // the static cubemap binding on trace_set / rt_trace_set.
+        VkImageView last_sky_view{VK_NULL_HANDLE};
+        VkSampler last_sky_sampler{VK_NULL_HANDLE};
 
         // ImGui debug textures
         VkDescriptorSet indirect_imgui_desc{VK_NULL_HANDLE};
