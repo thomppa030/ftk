@@ -37,6 +37,8 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    [[nodiscard]] bool uses_declare() const noexcept override { return true; }
 
     void record_into(const FrameContext& ctx, Images& imgs);
     void resize(uint32_t width, uint32_t height);

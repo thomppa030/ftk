@@ -1,4 +1,5 @@
 #include "renderer/pass/subsystem_compute_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 
 #ifdef FJELL_ENABLE_TRACY
@@ -23,13 +24,20 @@ PassSetup SubsystemComputePass::setup() const {
     };
 }
 
+void SubsystemComputePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Empty graph accesses — subsystem compute dispatches operate on
+    // pass-private buffers with hand-coded barriers inside record().
+}
+
 void SubsystemComputePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                                   const FrameContext& ctx) {
-    graph.add_pass("subsystem_compute", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, {});
+    PassBuilder builder;
+    graph.submit_declared_pass("subsystem_compute", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 void SubsystemComputePass::record(const FrameContext& ctx) {

@@ -2,6 +2,7 @@
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/exposure_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
+#include "renderer/pass_builder.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -317,38 +318,47 @@ PassSetup TonemapPass::setup() const {
     };
 }
 
-void TonemapPass::build(FrameGraph& graph, ResourceRegistry& registry,
-                         const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("color")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::shader_read);
-    }
+void TonemapPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (color import) is produced inside build() below
+    // until Phase 2 routes declare() through the pipeline.
+}
 
-    graph.add_pass("tonemap", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        if (local.pp_resources && local.pp_resources->tonemap()) {
-            VkImageView bloom_view = VK_NULL_HANDLE;
-            if (local.passes) {
-                auto* bloom = local.passes->try_get<BloomPass>("bloom");
-                if (bloom && bloom->enabled() && local.pp_resources->bloom()) {
-                    bloom_view = local.pp_resources->bloom()->mips[0].view;
+void TonemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                         const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    PassBuilder builder;
+    auto color = builder.import("color", target->color_image(), target->color_view());
+    builder.read(color, ResourceAccess::sampled_fragment);
+
+    graph.submit_declared_pass("tonemap", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            if (local.pp_resources && local.pp_resources->tonemap()) {
+                VkImageView bloom_view = VK_NULL_HANDLE;
+                if (local.passes) {
+                    auto* bloom = local.passes->try_get<BloomPass>("bloom");
+                    if (bloom && bloom->enabled() && local.pp_resources->bloom()) {
+                        bloom_view = local.pp_resources->bloom()->mips[0].view;
+                    }
                 }
-            }
-            // Use TAA-resolved color when available, otherwise raw scene color
-            VkImageView color_source = local.target->color_view();
-            if (auto* taa_imgs = local.pp_resources->taa()) {
-                // After TAA record_into() flips write_index, the just-written
-                // output is at [1 - write_index] (the old write target).
-                uint32_t output_idx = 1 - taa_imgs->write_index;
-                if (taa_imgs->history_view[output_idx] != VK_NULL_HANDLE) {
-                    color_source = taa_imgs->history_view[output_idx];
+                // Use TAA-resolved color when available, otherwise raw scene color.
+                VkImageView color_source = local.target->color_view();
+                if (auto* taa_imgs = local.pp_resources->taa()) {
+                    // After TAA record_into() flips write_index, the just-
+                    // written output is at [1 - write_index] (the old write
+                    // target).
+                    uint32_t output_idx = 1 - taa_imgs->write_index;
+                    if (taa_imgs->history_view[output_idx] != VK_NULL_HANDLE) {
+                        color_source = taa_imgs->history_view[output_idx];
+                    }
                 }
+                record_into(local, *local.pp_resources->tonemap(),
+                            color_source, bloom_view, 0.3f, exposure_);
             }
-            record_into(local, *local.pp_resources->tonemap(),
-                        color_source, bloom_view, 0.3f, exposure_);
-        }
-    }, std::move(uses));
+        });
 }
 
 } // namespace fjell

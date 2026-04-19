@@ -3,6 +3,7 @@
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -213,23 +214,31 @@ PassSetup TaaResolvePass::setup() const {
     };
 }
 
-void TaaResolvePass::build(FrameGraph& graph, ResourceRegistry& registry,
-                            const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("color")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
-    if (auto* img = registry.find_image("velocity")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
+void TaaResolvePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (color + velocity imports) is produced inside
+    // build() below until Phase 2 routes declare() through the pipeline.
+}
 
-    graph.add_pass("taa_resolve", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        if (local.pp_resources && local.pp_resources->taa()) {
-            record_into(local, *local.pp_resources->taa());
-        }
-    }, std::move(uses));
+void TaaResolvePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                            const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    PassBuilder builder;
+    auto color = builder.import("color", target->color_image(), target->color_view());
+    auto velocity = builder.import("velocity", target->velocity_image(),
+                                    target->velocity_view());
+    builder.read(color, ResourceAccess::sampled_compute);
+    builder.read(velocity, ResourceAccess::sampled_compute);
+
+    graph.submit_declared_pass("taa_resolve", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            if (local.pp_resources && local.pp_resources->taa()) {
+                record_into(local, *local.pp_resources->taa());
+            }
+        });
 }
 
 void TaaResolvePass::record(const FrameContext& ctx) {
