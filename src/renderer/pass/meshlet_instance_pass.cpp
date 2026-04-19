@@ -3,6 +3,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/render_stats.hpp"
@@ -564,9 +565,18 @@ PassSetup MeshletInstancePass::setup() const {
     };
 }
 
+void MeshletInstancePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // All buffers and the Hi-Z image read are handled imperatively inside
+    // the record lambda: the meshlet expand/cull pipeline uses pass-
+    // private SSBOs that FrameGraph doesn't track, and the Hi-Z layout
+    // is managed by HizPass. Graph sees an empty-access pass.
+}
+
 void MeshletInstancePass::build(FrameGraph& graph, ResourceRegistry& registry,
                                  const FrameContext& ctx) {
-    graph.add_pass("meshlet_expand_cull", [this, ctx, &registry](VkCommandBuffer cb) {
+    PassBuilder builder;
+    graph.submit_declared_pass("meshlet_expand_cull", builder,
+        [this, ctx, &registry](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
         TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Meshlet Expand+Cull");
 #endif
@@ -625,7 +635,7 @@ void MeshletInstancePass::build(FrameGraph& graph, ResourceRegistry& registry,
         if (ctx.render_stats) {
             ctx.render_stats->two_pass_occlusion = hiz_ready;
         }
-    }, {});
+    });
 }
 
 } // namespace fjell

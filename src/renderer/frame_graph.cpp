@@ -111,8 +111,7 @@ void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandB
 }
 
 void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder& builder,
-                                       std::function<void(VkCommandBuffer)> execute,
-                                       uint32_t parallel_group) {
+                                       std::function<void(VkCommandBuffer)> execute) {
     // Phase 1: transient allocation is not yet implemented. Any pass that
     // uses create() is trying to run ahead of the migration.
     if (!builder.created_textures().empty() || !builder.created_buffers().empty()) {
@@ -171,7 +170,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     pass.name = name;
     pass.execute = std::move(execute);
     pass.image_uses = std::move(uses);
-    pass.parallel_group = parallel_group;
+    pass.parallel_group = builder.parallel_group();
     passes_.push_back(std::move(pass));
 }
 

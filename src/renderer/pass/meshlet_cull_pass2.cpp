@@ -3,6 +3,7 @@
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
@@ -23,11 +24,18 @@ PassSetup MeshletCullPass2::setup() const {
     };
 }
 
+void MeshletCullPass2::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Hi-Z image read and pass-private SSBO writes are all hand-
+    // barriered inside record. Graph sees an empty-access pass.
+}
+
 void MeshletCullPass2::build(FrameGraph& graph, ResourceRegistry& registry,
                               const FrameContext& ctx) {
-    if (!instance_pass_) return;
+    if (!instance_pass_) { return; }
 
-    graph.add_pass("meshlet_cull_pass2", [this, ctx, &registry](VkCommandBuffer cb) {
+    PassBuilder builder;
+    graph.submit_declared_pass("meshlet_cull_pass2", builder,
+        [this, ctx, &registry](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
         TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Meshlet Cull Pass 2");
 #endif
@@ -73,7 +81,7 @@ void MeshletCullPass2::build(FrameGraph& graph, ResourceRegistry& registry,
             hiz_imgs->hiz_mip_count);
 
         instance_pass_->insert_cull_barrier(cb);
-    }, {});
+    });
 }
 
 } // namespace fjell

@@ -81,6 +81,7 @@ void PassBuilder::reset() {
     created_textures_.clear();
     created_buffers_.clear();
     queue_ = QueueType::graphics;
+    parallel_group_ = 0;
     never_cull_ = false;
     side_effects_ = false;
     next_texture_id_ = 0;

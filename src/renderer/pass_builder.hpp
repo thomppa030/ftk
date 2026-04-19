@@ -94,6 +94,13 @@ public:
     /// Assign this pass to a queue. Default is graphics.
     void queue(QueueType q) { queue_ = q; }
 
+    /// Assign this pass to a parallel group. Passes in the same non-zero
+    /// group can have their commands recorded in parallel onto secondary
+    /// command buffers; group 0 (default) means sequential recording on
+    /// the primary command buffer. The graph preserves declared
+    /// dependencies regardless of group assignment.
+    void parallel_group(uint32_t group) { parallel_group_ = group; }
+
     /// Mark this pass as never-cullable. Debug visualizations with
     /// side-effects that the graph can't see (ImGui, direct writes to
     /// host-visible buffers) use this.
@@ -148,6 +155,7 @@ public:
     [[nodiscard]] const std::vector<CreatedTexture>& created_textures() const noexcept { return created_textures_; }
     [[nodiscard]] const std::vector<CreatedBuffer>&  created_buffers()  const noexcept { return created_buffers_; }
     [[nodiscard]] QueueType queue() const noexcept { return queue_; }
+    [[nodiscard]] uint32_t parallel_group() const noexcept { return parallel_group_; }
     [[nodiscard]] bool is_never_cull() const noexcept { return never_cull_; }
     [[nodiscard]] bool has_side_effects_flag() const noexcept { return side_effects_; }
 
@@ -164,6 +172,7 @@ private:
     std::vector<CreatedBuffer>   created_buffers_;
 
     QueueType queue_{QueueType::graphics};
+    uint32_t parallel_group_{0};
     bool never_cull_{false};
     bool side_effects_{false};
 

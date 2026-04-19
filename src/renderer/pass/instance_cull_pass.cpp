@@ -6,6 +6,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/indirect_batch.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/render_pipeline.hpp"
 #include "renderer/resource_registry.hpp"
@@ -103,9 +104,17 @@ PassSetup InstanceCullPass::setup() const {
     };
 }
 
+void InstanceCullPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // No graph-tracked images or buffers: all SSBOs are hand-barriered
+    // inside the record lambda below. Graph sees an empty-access pass;
+    // the existing pipeline still orders it by phase + sub_order.
+}
+
 void InstanceCullPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                               const FrameContext& ctx) {
-    graph.add_pass("instance_cull", [this, ctx](VkCommandBuffer cb) {
+    PassBuilder builder;
+    graph.submit_declared_pass("instance_cull", builder,
+        [this, ctx](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
         TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Instance Cull");
 #endif
@@ -169,7 +178,7 @@ void InstanceCullPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &barrier;
         vkCmdPipelineBarrier2(cb, &dep);
-    }, {});
+    });
 }
 
 } // namespace fjell
