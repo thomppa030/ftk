@@ -4,6 +4,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/pass/sky_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -828,17 +829,24 @@ PassSetup SkyCubemapPass::setup() const {
     };
 }
 
+void SkyCubemapPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Cubemap + BRDF LUT are pass-private persistent images; layout
+    // transitions are inline. Graph sees an empty-access pass.
+}
+
 void SkyCubemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                             const FrameContext& ctx) {
-    graph.add_pass("sky_cubemap", [this, passes = ctx.passes](VkCommandBuffer cb) {
-        if (passes) {
-            auto& sky = passes->get<SkyPass>("sky");
-            set_colors(sky.top_color(), sky.bottom_color());
-        }
-        if (dirty()) {
-            generate(cb);
-        }
-    }, {});
+    PassBuilder builder;
+    graph.submit_declared_pass("sky_cubemap", builder,
+        [this, passes = ctx.passes](VkCommandBuffer cb) {
+            if (passes) {
+                auto& sky = passes->get<SkyPass>("sky");
+                set_colors(sky.top_color(), sky.bottom_color());
+            }
+            if (dirty()) {
+                generate(cb);
+            }
+        });
 }
 
 // ── HDRI environment map support ─────────────────────────────────────────

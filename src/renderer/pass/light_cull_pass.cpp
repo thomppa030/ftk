@@ -2,6 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -108,14 +109,22 @@ void LightCullPass::register_resources(ResourceRegistry& registry) {
     }
 }
 
-void LightCullPass::build(FrameGraph& graph, ResourceRegistry& registry,
-                           const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("depth")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
+void LightCullPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology produced inside build() below until Phase 2.
+}
 
-    graph.add_pass("light_cull", [this, ctx](VkCommandBuffer cb) {
+void LightCullPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                           const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    PassBuilder builder;
+    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                 VK_IMAGE_ASPECT_DEPTH_BIT);
+    builder.read(depth, ResourceAccess::sampled_compute);
+
+    graph.submit_declared_pass("light_cull", builder,
+        [this, ctx](VkCommandBuffer cb) {
         FrameContext local = ctx;
         local.cmd = cb;
         record(local);
@@ -133,7 +142,7 @@ void LightCullPass::build(FrameGraph& graph, ResourceRegistry& registry,
         dep.memoryBarrierCount = 1;
         dep.pMemoryBarriers = &mem_barrier;
         vkCmdPipelineBarrier2(cb, &dep);
-    }, std::move(uses));
+    });
 }
 
 } // namespace fjell
