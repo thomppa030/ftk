@@ -38,17 +38,6 @@ PassSetup OpaquePass::setup() const {
         .name = "color_opaque",
         .phase = RenderPhase::Color,
         .sub_order = 0,
-        .reads = {},
-        .writes = {{"msaa_color", ImageUsage::color_attachment},
-                   {"color", ImageUsage::color_attachment},
-                   {"msaa_mr", ImageUsage::color_attachment},
-                   {"mr", ImageUsage::color_attachment},
-                   {"msaa_normal", ImageUsage::color_attachment},
-                   {"normal", ImageUsage::color_attachment},
-                   {"msaa_velocity", ImageUsage::color_attachment},
-                   {"velocity", ImageUsage::color_attachment},
-                   {"msaa_depth", ImageUsage::depth_attachment},
-                   {"depth", ImageUsage::depth_attachment}},
     };
 }
 
@@ -90,51 +79,6 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (auto cubemap = builder.import_named(ctx, "sky_cubemap"); cubemap.valid()) {
         builder.read(cubemap, ResourceAccess::sampled_fragment);
     }
-}
-
-void OpaquePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                       const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto msaa_color = builder.import("msaa_color", target->msaa_color_image(),
-                                      target->msaa_color_view());
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    auto msaa_mr = builder.import("msaa_mr", target->msaa_mr_image(),
-                                   target->msaa_mr_view());
-    auto mr = builder.import("mr", target->mr_image(), target->mr_view());
-    auto msaa_normal = builder.import("msaa_normal", target->msaa_normal_image(),
-                                       target->msaa_normal_view());
-    auto normal = builder.import("normal", target->normal_image(),
-                                  target->normal_view());
-    auto msaa_velocity = builder.import("msaa_velocity", target->msaa_velocity_image(),
-                                         target->msaa_velocity_view());
-    auto velocity = builder.import("velocity", target->velocity_image(),
-                                    target->velocity_view());
-    auto msaa_depth = builder.import("msaa_depth", target->msaa_depth_image(),
-                                      target->msaa_depth_view(),
-                                      VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-
-    builder.write(msaa_color, ResourceAccess::color_attachment);
-    builder.write(color, ResourceAccess::color_attachment);
-    builder.write(msaa_mr, ResourceAccess::color_attachment);
-    builder.write(mr, ResourceAccess::color_attachment);
-    builder.write(msaa_normal, ResourceAccess::color_attachment);
-    builder.write(normal, ResourceAccess::color_attachment);
-    builder.write(msaa_velocity, ResourceAccess::color_attachment);
-    builder.write(velocity, ResourceAccess::color_attachment);
-    builder.write(msaa_depth, ResourceAccess::depth_attachment);
-    builder.write(depth, ResourceAccess::depth_attachment);
-
-    graph.submit_declared_pass("color_opaque", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 void OpaquePass::record(const FrameContext& ctx) {

@@ -19,8 +19,6 @@ PassSetup SubsystemComputePass::setup() const {
         .name = "subsystem_compute",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 120,
-        .reads = {},
-        .writes = {},
     };
 }
 
@@ -29,17 +27,6 @@ void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& /
     // the graph doesn't track. Flag as side-effecting until Phase 3
     // adds buffer tracking.
     builder.has_side_effects();
-}
-
-void SubsystemComputePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                                  const FrameContext& ctx) {
-    PassBuilder builder;
-    graph.submit_declared_pass("subsystem_compute", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 void SubsystemComputePass::record(const FrameContext& ctx) {

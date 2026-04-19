@@ -345,8 +345,6 @@ PassSetup LightVizPass::setup() const {
         .name = (mode_ == 0) ? "light_heatmap" : "light_grid",
         .phase = RenderPhase::Debug,
         .sub_order = (mode_ == 0) ? 60u : 70u,
-        .reads = {},
-        .writes = {},
     };
 }
 
@@ -360,28 +358,6 @@ void LightVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if ((ctx.active_sources & bits) != 0U) {
         builder.has_side_effects();
     }
-}
-
-void LightVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                          const FrameContext& ctx) {
-    auto source = (mode_ == 0) ? ViewportSource::light_heatmap : ViewportSource::light_grid;
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(source)))) { return; }
-
-    const auto* name = (mode_ == 0) ? "light_heatmap" : "light_grid";
-
-    PassBuilder builder;
-    graph.submit_declared_pass(name, builder,
-        [this, ctx](VkCommandBuffer cb) {
-            if (ctx.registry) {
-                auto* tile_buf = ctx.registry->find_buffer("tile_light_ssbo");
-                if (tile_buf) {
-                    set_tile_ssbo(tile_buf->buffer, tile_buf->size);
-                }
-            }
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 } // namespace fjell

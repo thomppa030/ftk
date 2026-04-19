@@ -393,8 +393,6 @@ PassSetup CullVizPass::setup() const {
         .name = "cull_viz",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 130,
-        .reads = {},
-        .writes = {},
     };
 }
 
@@ -402,28 +400,6 @@ void CullVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::gpu_cull))) != 0U) {
         builder.has_side_effects();
     }
-}
-
-void CullVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                          const FrameContext& ctx) {
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) { return; }
-
-    PassBuilder builder;
-    graph.submit_declared_pass("cull_viz", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            if (!ctx.use_mesh_shaders || !ctx.passes) { return; }
-            auto* cull = ctx.passes->try_get<CullPass>("cull");
-            if (!cull || !cull->enabled()) { return; }
-
-            FrameContext local = ctx;
-            local.cmd = cb;
-            uint32_t opaque_count = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
-            if (opaque_count > 0) {
-                record(local,
-                    cull->visibility_buffer(ctx.frame_index),
-                    cull->visibility_buffer_size(ctx.frame_index));
-            }
-        });
 }
 
 } // namespace fjell

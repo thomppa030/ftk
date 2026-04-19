@@ -806,8 +806,6 @@ PassSetup VolumetricFogPass::setup() const {
         .name = "volumetric_fog",
         .phase = RenderPhase::PostProcess,
         .sub_order = 100,
-        .reads = {{"depth", ImageUsage::compute_read}},
-        .writes = {{"scene_color", ImageUsage::compute_write}},
     };
 }
 
@@ -817,28 +815,6 @@ void VolumetricFogPass::declare(PassBuilder& builder, const DeclareContext& ctx)
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.write(color, ResourceAccess::storage_write_compute);
     // Froxel 3D textures are pass-private and stay inline.
-}
-
-void VolumetricFogPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                               const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.write(color, ResourceAccess::storage_write_compute);
-
-    graph.submit_declared_pass("volumetric_fog", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            if (local.pp_resources && local.pp_resources->volumetric_fog()) {
-                record_into(local, *local.pp_resources->volumetric_fog());
-            }
-        });
 }
 
 } // namespace fjell

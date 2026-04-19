@@ -441,8 +441,6 @@ PassSetup LocalShadowPass::setup() const {
         .name = "local_shadows",
         .phase = RenderPhase::Environment,
         .sub_order = 110, // after cascade shadows (100)
-        .reads = {},
-        .writes = {},
     };
 }
 
@@ -468,17 +466,6 @@ void LocalShadowPass::collect_exports(DeclareContext& ctx) {
     img.mip_count = 1;
     img.persistent = true;
     ctx.imports.emplace("local_shadow_atlas", img);
-}
-
-void LocalShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                             const FrameContext& ctx) {
-    PassBuilder builder;
-    graph.submit_declared_pass("local_shadows", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 // ── Recording ──────────────────────────────────────────────────────────

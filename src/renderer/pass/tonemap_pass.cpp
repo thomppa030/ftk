@@ -336,8 +336,6 @@ PassSetup TonemapPass::setup() const {
         .name = "tonemap",
         .phase = RenderPhase::PostProcess,
         .sub_order = 300,
-        .reads = {{"scene_color", ImageUsage::shader_read}},
-        .writes = {{"tonemapped", ImageUsage::shader_read}},
     };
 }
 
@@ -350,44 +348,6 @@ void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.never_cull();
     // Alternate color sources (TAA history, bloom mip 0) live on
     // pass-private resources and are resolved inside record().
-}
-
-void TonemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                         const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    builder.read(color, ResourceAccess::sampled_fragment);
-
-    graph.submit_declared_pass("tonemap", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            if (local.pp_resources && local.pp_resources->tonemap()) {
-                VkImageView bloom_view = VK_NULL_HANDLE;
-                if (local.passes) {
-                    auto* bloom = local.passes->try_get<BloomPass>("bloom");
-                    if (bloom && bloom->enabled() && local.pp_resources->bloom()) {
-                        bloom_view = local.pp_resources->bloom()->mips[0].view;
-                    }
-                }
-                // Use TAA-resolved color when available, otherwise raw scene color.
-                VkImageView color_source = local.target->color_view();
-                if (auto* taa_imgs = local.pp_resources->taa()) {
-                    // After TAA record_into() flips write_index, the just-
-                    // written output is at [1 - write_index] (the old write
-                    // target).
-                    uint32_t output_idx = 1 - taa_imgs->write_index;
-                    if (taa_imgs->history_view[output_idx] != VK_NULL_HANDLE) {
-                        color_source = taa_imgs->history_view[output_idx];
-                    }
-                }
-                record_into(local, *local.pp_resources->tonemap(),
-                            color_source, bloom_view, 0.3f, exposure_);
-            }
-        });
 }
 
 } // namespace fjell

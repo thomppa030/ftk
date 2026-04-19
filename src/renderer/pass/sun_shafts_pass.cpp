@@ -414,8 +414,6 @@ PassSetup SunShaftsPass::setup() const {
         .name = "sun_shafts",
         .phase = RenderPhase::PostProcess,
         .sub_order = 120,
-        .reads = {{"depth", ImageUsage::compute_read}},
-        .writes = {{"scene_color", ImageUsage::compute_write}},
     };
 }
 
@@ -425,26 +423,6 @@ void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.write(color, ResourceAccess::storage_write_compute);
     // Half-res ping-pong textures are pass-private and stay inline.
-}
-
-void SunShaftsPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                          const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.write(color, ResourceAccess::storage_write_compute);
-
-    graph.submit_declared_pass("sun_shafts", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 void SunShaftsPass::record(const FrameContext& ctx) {

@@ -97,8 +97,6 @@ PassSetup LightCullPass::setup() const {
         .name = "light_cull",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 110,
-        .reads = {{"depth", ImageUsage::compute_read}},
-        .writes = {},
     };
 }
 
@@ -114,38 +112,6 @@ void LightCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(depth, ResourceAccess::sampled_compute);
     // Writes the forward+ tile SSBO; graph doesn't track buffers yet.
     builder.has_side_effects();
-}
-
-void LightCullPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                           const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    builder.read(depth, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("light_cull", builder,
-        [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-
-        // Barrier: compute write -> fragment read
-        VkMemoryBarrier2 mem_barrier{};
-        mem_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        mem_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        mem_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        mem_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        mem_barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.memoryBarrierCount = 1;
-        dep.pMemoryBarriers = &mem_barrier;
-        vkCmdPipelineBarrier2(cb, &dep);
-    });
 }
 
 } // namespace fjell

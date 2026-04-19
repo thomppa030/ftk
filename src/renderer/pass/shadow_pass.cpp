@@ -662,8 +662,6 @@ PassSetup ShadowPass::setup() const {
         .name = "shadow",
         .phase = RenderPhase::Environment,
         .sub_order = 100,
-        .reads = {},
-        .writes = {},
     };
 }
 
@@ -693,22 +691,6 @@ void ShadowPass::collect_exports(DeclareContext& ctx) {
     img.mip_count = 1;
     img.persistent = true;
     ctx.imports.emplace("shadow_atlas", img);
-}
-
-void ShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                        const FrameContext& ctx) {
-    PassBuilder builder;
-    builder.parallel_group(1);
-    graph.submit_declared_pass("shadow", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            if (ctx.skip_shadows) { return; }
-#ifdef FJELL_ENABLE_TRACY
-            TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Shadow Pass");
-#endif
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 } // namespace fjell

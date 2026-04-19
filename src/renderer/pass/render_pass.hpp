@@ -132,21 +132,14 @@ struct FrameContext {
     std::array<const std::vector<DrawCommand>*, MAX_SHADOW_CASCADES> shadow_cascade_commands{};
 };
 
-/// A named resource dependency with its intended usage.
-struct ResourceUse {
-    std::string name;
-    ImageUsage usage;
-};
-
-/// Everything the pipeline needs to wire a pass: name, phase, ordering,
-/// and resource reads/writes (used for both dependency sorting and
-/// automatic FrameGraph barrier insertion).
+/// Pipeline registration metadata: pass name and execution phase +
+/// sub_order, used only as a deterministic tiebreaker during the DAG
+/// topological sort. Resource reads/writes are described through
+/// declare()/PassBuilder instead.
 struct PassSetup {
     std::string name;
     RenderPhase phase{RenderPhase::Color};
     uint32_t sub_order{0};
-    std::vector<ResourceUse> reads;
-    std::vector<ResourceUse> writes;
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and
@@ -198,27 +191,14 @@ public:
     // Record draw commands into the command buffer.
     virtual void record(const FrameContext& ctx) = 0;
 
-    /// Declare pass metadata: name, phase, resource reads/writes.
-    /// The pipeline uses this for ordering, dependency resolution, and
-    /// automatic FrameGraph barrier insertion.
+    /// Pipeline registration metadata (name, phase, sub_order). The
+    /// pipeline uses this only as the deterministic tiebreaker for the
+    /// DAG topological sort.
     [[nodiscard]] virtual PassSetup setup() const { return {}; }
-
-    /// Build this pass into the FrameGraph. Default implementation resolves
-    /// setup() resource names to image IDs via the ResourceRegistry, then
-    /// calls graph.add_pass() with record() as the execute callback.
-    /// Complex passes override this with custom logic.
-    virtual void build(FrameGraph& graph, ResourceRegistry& registry,
-                       const FrameContext& ctx);
 
     /// Declare the pass's DAG topology: imported and created resources,
     /// reads, writes, queue assignment. The graph consumes this to
     /// schedule passes, allocate transient resources, and emit barriers.
-    ///
-    /// Default implementation does nothing. Passes implement this to opt
-    /// into the DAG-authored path. Passes that don't are still driven by
-    /// the legacy setup()/build() path. Both coexist during the
-    /// migration; the legacy path will be removed once every pass has
-    /// implemented declare().
     ///
     /// Must not record commands or touch per-frame transient state:
     /// called during graph construction, before any command buffer
@@ -232,12 +212,6 @@ public:
     /// PassBuilder::import_named() — no direct coupling to the producer
     /// class. Shadow atlases, Hi-Z pyramids, sky cubemaps, etc. go here.
     virtual void collect_exports(DeclareContext& /*ctx*/) {}
-
-    /// Whether this pass implements declare() and should be routed
-    /// through the DAG path instead of the legacy build() path. Default
-    /// is false; passes that implement declare() override to return true.
-    /// Once every pass returns true, the legacy path is removed.
-    [[nodiscard]] virtual bool uses_declare() const noexcept { return false; }
 
     [[nodiscard]] Result<> recreate(Device& device, const PassResources& resources) {
         destroy();

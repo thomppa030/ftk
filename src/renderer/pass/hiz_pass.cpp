@@ -379,8 +379,6 @@ PassSetup HizPass::setup() const {
         .name = "hiz_build",
         .phase = RenderPhase::DepthPrepass,
         .sub_order = 100,
-        .reads = {{"depth", ImageUsage::compute_read}},
-        .writes = {},
     };
 }
 
@@ -405,27 +403,6 @@ void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // is wired this frame — MeshletCullPass2 / cull viz / SSR reach
     // the pyramid through pass-private descriptor writes.
     builder.has_side_effects();
-}
-
-void HizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                     const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    builder.read(depth, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("hiz_build", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            auto* hiz_imgs = local.pp_resources ? local.pp_resources->hiz() : nullptr;
-            if (hiz_imgs && hiz_imgs->ready()) {
-                record_into(local, *hiz_imgs);
-            }
-        });
 }
 
 } // namespace fjell

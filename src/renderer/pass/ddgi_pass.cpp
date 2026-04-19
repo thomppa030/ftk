@@ -1529,9 +1529,6 @@ PassSetup DdgiPass::setup() const {
         .name = "ddgi",
         .phase = RenderPhase::Color,
         .sub_order = 5,
-        .reads = {{"depth", ImageUsage::compute_read},
-                  {"normal", ImageUsage::compute_read}},
-        .writes = {},
     };
 }
 
@@ -1544,30 +1541,6 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // probe_offset) bound through the global descriptor. Graph can't
     // see that consumer edge.
     builder.has_side_effects();
-}
-
-void DdgiPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                      const FrameContext& ctx) {
-    if (!config_.enabled) { return; }
-
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto normal = builder.import("normal", target->normal_image(), target->normal_view());
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.read(normal, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("ddgi", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            if (local.pp_resources && local.pp_resources->ddgi()) {
-                record_into(local, *local.pp_resources->ddgi());
-            }
-        });
 }
 
 } // namespace fjell

@@ -10,8 +10,6 @@ PassSetup DistortionPass::setup() const {
         .name = "distortion",
         .phase = RenderPhase::Color,
         .sub_order = 30,
-        .reads = {{"depth", ImageUsage::shader_read}},
-        .writes = {{"distortion", ImageUsage::color_attachment}},
     };
 }
 
@@ -20,27 +18,6 @@ void DistortionPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.write(distortion, ResourceAccess::color_attachment);
     builder.read(depth, ResourceAccess::sampled_fragment);
-}
-
-void DistortionPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                           const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto distortion = builder.import("distortion", target->distortion_image(),
-                                      target->distortion_view());
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    builder.write(distortion, ResourceAccess::color_attachment);
-    builder.read(depth, ResourceAccess::sampled_fragment);
-
-    graph.submit_declared_pass("distortion", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 void DistortionPass::record(const FrameContext& ctx) {

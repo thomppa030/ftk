@@ -208,8 +208,6 @@ PassSetup UvVizPass::setup() const {
         .name = "uv_viz",
         .phase = RenderPhase::Debug,
         .sub_order = 40,
-        .reads = {{"depth", ImageUsage::depth_attachment_read}},
-        .writes = {},
     };
 }
 
@@ -220,19 +218,6 @@ void UvVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::depth_attachment_read);
     builder.has_side_effects();
-}
-
-void UvVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                       const FrameContext& ctx) {
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::uv)))) { return; }
-
-    PassBuilder builder;
-    graph.submit_declared_pass("uv_viz", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 } // namespace fjell

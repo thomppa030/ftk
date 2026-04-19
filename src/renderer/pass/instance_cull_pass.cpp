@@ -99,8 +99,6 @@ PassSetup InstanceCullPass::setup() const {
         .name = "instance_cull",
         .phase = RenderPhase::DepthPrepass,
         .sub_order = 10,  // after meshlet_cull (sub_order 0), before depth draw
-        .reads = {},
-        .writes = {},
     };
 }
 
@@ -172,77 +170,6 @@ void InstanceCullPass::record(const FrameContext& ctx) {
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &barrier;
     vkCmdPipelineBarrier2(cb, &dep);
-}
-
-void InstanceCullPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                              const FrameContext& ctx) {
-    PassBuilder builder;
-    graph.submit_declared_pass("instance_cull", builder,
-        [this, ctx](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Instance Cull");
-#endif
-        if (!ctx.indirect_batch) return;
-        uint32_t draw_count = ctx.indirect_batch->instanced_draw_count(ctx.frame_index);
-        if (draw_count == 0) return;
-
-        VkDescriptorSet set = descriptor_sets_[ctx.frame_index];
-
-        std::array<VkDescriptorBufferInfo, 4> buf_infos{};
-        buf_infos[0].buffer = ctx.indirect_batch->instanced_draw_buffer(ctx.frame_index);
-        buf_infos[0].offset = 0;
-        buf_infos[0].range = ctx.indirect_batch->instanced_draw_size(ctx.frame_index);
-
-        buf_infos[1].buffer = ctx.indirect_batch->instance_transform_buffer(ctx.frame_index);
-        buf_infos[1].offset = 0;
-        buf_infos[1].range = ctx.indirect_batch->instance_transform_size(ctx.frame_index);
-
-        buf_infos[2].buffer = ctx.indirect_batch->visible_instance_buffer(ctx.frame_index);
-        buf_infos[2].offset = 0;
-        buf_infos[2].range = ctx.indirect_batch->visible_instance_size(ctx.frame_index);
-
-        buf_infos[3].buffer = ctx.indirect_batch->indirect_buffer(ctx.frame_index);
-        buf_infos[3].offset = 0;
-        buf_infos[3].range = VK_WHOLE_SIZE;
-
-        std::array<VkWriteDescriptorSet, 4> writes{};
-        for (uint32_t i = 0; i < writes.size(); ++i) {
-            writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[i].dstSet = set;
-            writes[i].dstBinding = i;
-            writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            writes[i].descriptorCount = 1;
-            writes[i].pBufferInfo = &buf_infos[i];
-        }
-        vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
-                               writes.data(), 0, nullptr);
-
-        vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);
-        std::array desc_sets = {ctx.global_descriptor_set, set};
-        vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_COMPUTE, layout_,
-                                0, static_cast<uint32_t>(desc_sets.size()),
-                                desc_sets.data(), 0, nullptr);
-
-        // One workgroup per instanced draw.
-        vkCmdDispatch(cb, draw_count, 1, 1);
-
-        // Barrier: compute writes → vertex shader reads (transforms) +
-        // indirect draw reads (patched instanceCount).
-        VkMemoryBarrier2 barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-        barrier.dstStageMask = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT |
-                               VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
-        barrier.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                                VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
-
-        VkDependencyInfo dep{};
-        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.memoryBarrierCount = 1;
-        dep.pMemoryBarriers = &barrier;
-        vkCmdPipelineBarrier2(cb, &dep);
-    });
 }
 
 } // namespace fjell

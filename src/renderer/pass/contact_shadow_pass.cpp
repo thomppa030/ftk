@@ -331,8 +331,6 @@ PassSetup ContactShadowPass::setup() const {
         .name = "contact_shadow",
         .phase = RenderPhase::GpuDriven,   // before Color so mesh.frag reads it
         .sub_order = 500,                  // after GTAO (400), before color (600)
-        .reads = {{"depth", ImageUsage::compute_read}},
-        .writes = {},
     };
 }
 
@@ -343,24 +341,6 @@ void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx)
     // descriptor — consumers (opaque/transparent fragment shaders)
     // reach it outside the catalog.
     builder.has_side_effects();
-}
-
-void ContactShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                              const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    builder.read(depth, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("contact_shadow", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 void ContactShadowPass::record(const FrameContext& ctx) {

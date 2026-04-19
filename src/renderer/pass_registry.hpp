@@ -15,8 +15,9 @@ namespace fjell {
 /// and looked up by concrete type via get<T>(). Owns all pass instances.
 ///
 /// Also drives pipeline registration: register_with_pipeline() iterates
-/// all passes, extracts their setup() metadata, and registers them with
-/// the RenderPipeline for ordering and execution.
+/// all passes, extracts their setup() metadata (name, phase, sub_order),
+/// and hands the RenderPipeline a PassEntry pointing at the pass so it
+/// can invoke declare()/record() directly.
 class PassRegistry {
 public:
     /// Register a pass by name. Takes ownership.
@@ -103,17 +104,15 @@ public:
         }
     }
 
-    /// Register all passes with a RenderPipeline. Iterates passes, calls
-    /// setup() for name/phase/ordering, and registers a build callback
-    /// that delegates to the pass's build() method.
-    /// The FrameContext pointer is captured by reference — must remain
-    /// valid for the lifetime of the pipeline entries.
-    void register_with_pipeline(RenderPipeline& pipeline, FrameContext& ctx);
+    /// Register all passes with a RenderPipeline. Iterates passes in
+    /// insertion order, extracts setup() metadata, and creates one
+    /// PassEntry per pass.
+    void register_with_pipeline(RenderPipeline& pipeline);
 
     /// Register a single pass (by registry name) with the pipeline.
     /// Used for passes created after initial registration (e.g. lazy meshlet init).
     void register_pass_with_pipeline(const std::string& name,
-                                     RenderPipeline& pipeline, FrameContext& ctx);
+                                     RenderPipeline& pipeline);
 
 private:
     std::unordered_map<std::string, std::unique_ptr<RenderPass>> passes_;

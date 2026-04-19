@@ -355,8 +355,6 @@ PassSetup DepthVizPass::setup() const {
         .name = "depth_viz",
         .phase = RenderPhase::Debug,
         .sub_order = 0,
-        .reads = {{"depth", ImageUsage::shader_read}},
-        .writes = {},
     };
 }
 
@@ -367,26 +365,6 @@ void DepthVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_fragment);
     builder.has_side_effects();
-}
-
-void DepthVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                          const FrameContext& ctx) {
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::depth)))) { return; }
-
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    builder.read(depth, ResourceAccess::sampled_fragment);
-
-    graph.submit_declared_pass("depth_viz", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 } // namespace fjell

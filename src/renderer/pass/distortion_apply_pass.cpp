@@ -94,9 +94,6 @@ PassSetup DistortionApplyPass::setup() const {
         .name = "distortion_apply",
         .phase = RenderPhase::Color,
         .sub_order = 31,
-        .reads = {{"screen_color", ImageUsage::shader_read},
-                  {"distortion", ImageUsage::shader_read}},
-        .writes = {{"msaa_color", ImageUsage::color_attachment}},
     };
 }
 
@@ -107,30 +104,6 @@ void DistortionApplyPass::declare(PassBuilder& builder, const DeclareContext& ct
     builder.read(distortion, ResourceAccess::sampled_fragment);
     builder.read(screen, ResourceAccess::sampled_fragment);
     builder.write(msaa_color, ResourceAccess::color_attachment);
-}
-
-void DistortionApplyPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                                 const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto distortion = builder.import("distortion", target->distortion_image(),
-                                      target->distortion_view());
-    auto screen = builder.import("screen_color", target->screen_color_image(),
-                                  target->screen_color_view());
-    auto msaa_color = builder.import("msaa_color", target->msaa_color_image(),
-                                      target->msaa_color_view());
-    builder.read(distortion, ResourceAccess::sampled_fragment);
-    builder.read(screen, ResourceAccess::sampled_fragment);
-    builder.write(msaa_color, ResourceAccess::color_attachment);
-
-    graph.submit_declared_pass("distortion_apply", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 void DistortionApplyPass::record(const FrameContext& ctx) {

@@ -300,8 +300,6 @@ PassSetup DepthPrePass::setup() const {
         .name = "depth_prepass",
         .phase = RenderPhase::DepthPrepass,
         .sub_order = 50,
-        .reads = {},
-        .writes = {{"depth", ImageUsage::depth_attachment}},
     };
 }
 
@@ -310,47 +308,6 @@ void DepthPrePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     const bool has_msaa = ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT;
     auto depth = builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth");
     builder.write(depth, ResourceAccess::depth_attachment);
-}
-
-void DepthPrePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                          const FrameContext& ctx) {
-    // Depth can be recorded by either this pass or MeshShaderDepthPass,
-    // depending on runtime. Pick the recorder once and bind the record
-    // lambda through it. Graph topology is identical either way (same
-    // depth attachment), so a single declared pass drives either
-    // recorder.
-    auto* msd = ctx.passes ? ctx.passes->try_get<MeshShaderDepthPass>("mesh_shader_depth") : nullptr;
-    RenderPass& depth_pass = (ctx.use_mesh_shaders && msd)
-        ? static_cast<RenderPass&>(*msd)
-        : static_cast<RenderPass&>(*this);
-
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    bool has_msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
-
-    PassBuilder builder;
-    builder.parallel_group(1);
-    if (has_msaa) {
-        auto msaa_depth = builder.import("msaa_depth", target->msaa_depth_image(),
-                                          target->msaa_depth_view(),
-                                          VK_IMAGE_ASPECT_DEPTH_BIT);
-        builder.write(msaa_depth, ResourceAccess::depth_attachment);
-    } else {
-        auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                     VK_IMAGE_ASPECT_DEPTH_BIT);
-        builder.write(depth, ResourceAccess::depth_attachment);
-    }
-
-    graph.submit_declared_pass("depth_prepass", builder,
-        [&depth_pass, ctx](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-            TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Depth Prepass");
-#endif
-            FrameContext local = ctx;
-            local.cmd = cb;
-            depth_pass.record(local);
-        });
 }
 
 } // namespace fjell

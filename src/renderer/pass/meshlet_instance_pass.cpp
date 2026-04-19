@@ -560,8 +560,6 @@ PassSetup MeshletInstancePass::setup() const {
         .name = "meshlet_cull",
         .phase = RenderPhase::DepthPrepass,
         .sub_order = 0,
-        .reads = {},
-        .writes = {},
     };
 }
 
@@ -639,72 +637,6 @@ void MeshletInstancePass::record(const FrameContext& ctx) {
     if (ctx.render_stats != nullptr) {
         ctx.render_stats->two_pass_occlusion = hiz_ready;
     }
-}
-
-void MeshletInstancePass::build(FrameGraph& graph, ResourceRegistry& registry,
-                                 const FrameContext& ctx) {
-    PassBuilder builder;
-    graph.submit_declared_pass("meshlet_expand_cull", builder,
-        [this, ctx, &registry](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Meshlet Expand+Cull");
-#endif
-        if (!ctx.use_mesh_shaders) return;
-
-        uint32_t total_draws = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
-        uint32_t total_mi = ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
-        if (total_draws == 0 || total_mi == 0) return;
-
-        dispatch_expand(
-            cb,
-            ctx.indirect_batch->draw_data_buffer(ctx.frame_index),
-            ctx.indirect_batch->draw_data_size(ctx.frame_index),
-            total_draws, ctx.frame_index);
-        insert_expand_barrier(cb);
-
-        auto& ranges_ref = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-        auto extent = ctx.target->extent();
-
-        // Look up meshlet bounds buffer from registry
-        VkBuffer bounds_buf = VK_NULL_HANDLE;
-        VkDeviceSize bounds_size = 0;
-        if (auto* bounds = registry.find_buffer("meshlet_bounds")) {
-            bounds_buf = bounds->buffer;
-            bounds_size = bounds->size;
-        }
-
-        auto* hiz_imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
-        bool hiz_ready = hiz_imgs && hiz_imgs->ready();
-
-        // Get Hi-Z sampler from HizPass via pass registry
-        VkSampler hiz_sampler = VK_NULL_HANDLE;
-        if (hiz_ready && ctx.passes) {
-            if (auto* hiz = ctx.passes->try_get<HizPass>("hiz")) {
-                hiz_sampler = hiz->sampler();
-            }
-        }
-
-        dispatch_cull_first(
-            cb,
-            ctx.global_descriptor_set,
-            ctx.draw_data_set,
-            ctx.indirect_batch->draw_data_buffer(ctx.frame_index),
-            ctx.indirect_batch->draw_data_size(ctx.frame_index),
-            bounds_buf, bounds_size,
-            ctx.indirect_batch->pipeline_bin_buffer(ctx.frame_index),
-            ctx.indirect_batch->pipeline_bin_size(ctx.frame_index),
-            static_cast<uint32_t>(ranges_ref.size()),
-            ctx.frame_index,
-            hiz_ready ? hiz_imgs->hiz_sampled_view : VK_NULL_HANDLE,
-            hiz_sampler,
-            extent.width, extent.height,
-            hiz_ready ? hiz_imgs->hiz_mip_count : 0);
-
-        insert_cull_barrier(cb);
-        if (ctx.render_stats) {
-            ctx.render_stats->two_pass_occlusion = hiz_ready;
-        }
-    });
 }
 
 } // namespace fjell

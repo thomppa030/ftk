@@ -9,8 +9,6 @@ PassSetup DepthResolvePass::setup() const {
         .name = "depth_resolve",
         .phase = RenderPhase::DepthPrepass,
         .sub_order = 51,
-        .reads = {{"msaa_depth", ImageUsage::depth_attachment_read}},
-        .writes = {{"depth", ImageUsage::depth_attachment}},
     };
 }
 
@@ -20,29 +18,6 @@ void DepthResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
     auto depth = builder.import_named(ctx, "depth");
     builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
     builder.write(depth, ResourceAccess::depth_attachment);
-}
-
-void DepthResolvePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                              const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-    if (target->sample_count() == VK_SAMPLE_COUNT_1_BIT) { return; }
-
-    PassBuilder builder;
-    auto msaa_depth = builder.import("msaa_depth", target->msaa_depth_image(),
-                                      target->msaa_depth_view(),
-                                      VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
-    builder.write(depth, ResourceAccess::depth_attachment);
-
-    graph.submit_declared_pass("depth_resolve", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 void DepthResolvePass::record(const FrameContext& ctx) {

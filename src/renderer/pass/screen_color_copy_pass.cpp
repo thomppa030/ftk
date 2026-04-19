@@ -16,8 +16,6 @@ PassSetup ScreenColorCopyPass::setup() const {
         .name = "screen_color_copy",
         .phase = RenderPhase::Color,
         .sub_order = 25,
-        .reads = {{"color", ImageUsage::transfer_src}},
-        .writes = {{"screen_color", ImageUsage::transfer_dst}},
     };
 }
 
@@ -26,32 +24,6 @@ void ScreenColorCopyPass::declare(PassBuilder& builder, const DeclareContext& ct
     auto dst = builder.import_named(ctx, "screen_color");
     builder.read(src, ResourceAccess::transfer_src);
     builder.write(dst, ResourceAccess::transfer_dst);
-}
-
-void ScreenColorCopyPass::build(FrameGraph& graph, ResourceRegistry& registry,
-                                const FrameContext& ctx) {
-    // DAG path: import color and screen_color VkImages, declare transfer
-    // accesses against them, and submit through the typed API.
-    // submit_declared_pass() dedups imports against images the pipeline
-    // already registered and emits the same legacy image-uses list the
-    // old build() produced.
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto src = builder.import("color", target->color_image(), /*view*/ VK_NULL_HANDLE);
-    auto dst = builder.import("screen_color", target->screen_color_image(), /*view*/ VK_NULL_HANDLE);
-    builder.read(src, ResourceAccess::transfer_src);
-    builder.write(dst, ResourceAccess::transfer_dst);
-
-    (void)registry;
-
-    graph.submit_declared_pass("screen_color_copy", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 void ScreenColorCopyPass::record(const FrameContext& ctx) {

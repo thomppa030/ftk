@@ -819,13 +819,21 @@ void SkyCubemapPass::generate_brdf_lut() {
     FJELL_GFX_DEBUG("BRDF LUT generated ({}x{})", BRDF_LUT_SIZE, BRDF_LUT_SIZE);
 }
 
+void SkyCubemapPass::record(const FrameContext& ctx) {
+    if (ctx.passes != nullptr) {
+        auto& sky = ctx.passes->get<SkyPass>("sky");
+        set_colors(sky.top_color(), sky.bottom_color());
+    }
+    if (dirty()) {
+        generate(ctx.cmd);
+    }
+}
+
 PassSetup SkyCubemapPass::setup() const {
     return {
         .name = "sky_cubemap",
         .phase = RenderPhase::Environment,
         .sub_order = 50,
-        .reads = {},
-        .writes = {},
     };
 }
 
@@ -864,21 +872,6 @@ void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
     img.mip_count = mips;
     img.persistent = true;
     ctx.imports.emplace("sky_cubemap", img);
-}
-
-void SkyCubemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                            const FrameContext& ctx) {
-    PassBuilder builder;
-    graph.submit_declared_pass("sky_cubemap", builder,
-        [this, passes = ctx.passes](VkCommandBuffer cb) {
-            if (passes) {
-                auto& sky = passes->get<SkyPass>("sky");
-                set_colors(sky.top_color(), sky.bottom_color());
-            }
-            if (dirty()) {
-                generate(cb);
-            }
-        });
 }
 
 // ── HDRI environment map support ─────────────────────────────────────────

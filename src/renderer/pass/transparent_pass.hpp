@@ -15,12 +15,14 @@ public:
     void destroy() override;
     void record(const FrameContext& ctx) override;
     [[nodiscard]] PassSetup setup() const override;
-    void build(FrameGraph& graph, ResourceRegistry& registry,
-               const FrameContext& ctx) override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
-    [[nodiscard]] bool uses_declare() const noexcept override { return true; }
 
 private:
+    // Inner drawing step: binds pipelines, runs through the transparent
+    // render queue. record() wraps this with begin/end rendering plus
+    // the worldspace UI + particle/subsystem transparent dispatches.
+    void record_draws(const FrameContext& ctx);
+
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};

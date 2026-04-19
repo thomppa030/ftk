@@ -208,9 +208,6 @@ PassSetup TaaResolvePass::setup() const {
         .name = "taa_resolve",
         .phase = RenderPhase::PostProcess,
         .sub_order = 150, // after volumetric fog (100), before bloom (200)
-        .reads = {{"color", ImageUsage::compute_read},
-                  {"velocity", ImageUsage::compute_read}},
-        .writes = {},
     };
 }
 
@@ -222,28 +219,6 @@ void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // History is pass-private; tonemap samples it through a non-catalog
     // view. Flag side-effecting so culling keeps this alive.
     builder.has_side_effects();
-}
-
-void TaaResolvePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                            const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    auto velocity = builder.import("velocity", target->velocity_image(),
-                                    target->velocity_view());
-    builder.read(color, ResourceAccess::sampled_compute);
-    builder.read(velocity, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("taa_resolve", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            if (local.pp_resources && local.pp_resources->taa()) {
-                record_into(local, *local.pp_resources->taa());
-            }
-        });
 }
 
 void TaaResolvePass::record(const FrameContext& ctx) {

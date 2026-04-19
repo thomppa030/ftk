@@ -623,8 +623,6 @@ PassSetup BloomPass::setup() const {
         .name = "bloom",
         .phase = RenderPhase::PostProcess,
         .sub_order = 200,
-        .reads = {{"scene_color", ImageUsage::shader_read}},
-        .writes = {{"scene_color", ImageUsage::shader_read}},
     };
 }
 
@@ -635,25 +633,6 @@ void BloomPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // non-catalog view; the graph can't see that edge so flag the pass
     // as side-effecting.
     builder.has_side_effects();
-}
-
-void BloomPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                      const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    builder.read(color, ResourceAccess::sampled_fragment);
-
-    graph.submit_declared_pass("bloom", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            if (local.pp_resources && local.pp_resources->bloom()) {
-                record_into(local, *local.pp_resources->bloom());
-            }
-        });
 }
 
 } // namespace fjell

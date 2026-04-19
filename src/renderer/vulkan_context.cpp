@@ -155,7 +155,7 @@ void VulkanContext::set_use_mesh_shaders(bool enable) {
         // Register new passes with the render pipeline
         for (const auto& name : {"meshlet_instance", "meshlet_cull_pass2",
                                   "mesh_shader_depth", "meshlet_viz", "cull", "cull_viz"}) {
-            passes_.register_pass_with_pipeline(name, render_pipeline_, current_ctx_);
+            passes_.register_pass_with_pipeline(name, render_pipeline_);
         }
 
         // Register custom vertex displacement depth pipelines for the newly
@@ -186,7 +186,7 @@ void VulkanContext::sync_tilemap_textures(Scene& scene, ResourceManager& resourc
 // ── Pass registration ────────────────────────────────────────────────────
 
 void VulkanContext::register_passes() {
-    passes_.register_with_pipeline(render_pipeline_, current_ctx_);
+    passes_.register_with_pipeline(render_pipeline_);
 }
 
 // ── Command buffer recording ────────────────────────────────────────────

@@ -641,8 +641,6 @@ PassSetup GtaoPass::setup() const {
         .name = "gtao",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 100,
-        .reads = {{"depth", ImageUsage::compute_read}},
-        .writes = {{"ao", ImageUsage::compute_write}},
     };
 }
 
@@ -652,26 +650,6 @@ void GtaoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Writes pass-private ao_texture bound through the global
     // descriptor; consumer edge is outside the catalog.
     builder.has_side_effects();
-}
-
-void GtaoPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                      const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    builder.read(depth, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("gtao", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            if (local.pp_resources && local.pp_resources->gtao()) {
-                record_into(local, *local.pp_resources->gtao());
-            }
-        });
 }
 
 } // namespace fjell

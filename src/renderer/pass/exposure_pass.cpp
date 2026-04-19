@@ -270,8 +270,6 @@ PassSetup ExposurePass::setup() const {
         .name = "exposure_histogram",
         .phase = RenderPhase::PostProcess,
         .sub_order = 25,  // after bloom (0), before tonemap (30)
-        .reads = {{"color", ImageUsage::compute_read}},
-        .writes = {},
     };
 }
 
@@ -282,25 +280,6 @@ void ExposurePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // readback feeds tonemap's exposure on the next frame. Mark as
     // side-effecting so culling keeps it alive.
     builder.has_side_effects();
-}
-
-void ExposurePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                          const FrameContext& ctx) {
-    if (!enabled_) { return; }
-
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    builder.read(color, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("exposure_histogram", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record(local);
-        });
 }
 
 } // namespace fjell

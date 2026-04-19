@@ -12,8 +12,6 @@
 
 #include <algorithm>
 #include <queue>
-#include <sstream>
-#include <unordered_set>
 
 namespace fjell {
 
@@ -41,24 +39,6 @@ bool RenderPipeline::is_pass_enabled(const std::string& name) const {
     return state_for(name).enabled;
 }
 
-void RenderPipeline::set_pass_resources(const std::string& name,
-                                         std::vector<std::string> reads,
-                                         std::vector<std::string> writes) {
-    auto& s = pass_state_[name];
-    s.reads = std::move(reads);
-    s.writes = std::move(writes);
-}
-
-bool RenderPipeline::is_resource_available(const std::string& resource) const {
-    for (const auto& [name, state] : pass_state_) {
-        if (!state.enabled) continue;
-        for (const auto& w : state.writes) {
-            if (w == resource) return true;
-        }
-    }
-    return false;
-}
-
 RenderPipeline::PassState& RenderPipeline::state_for(const std::string& name) {
     return pass_state_[name];
 }
@@ -77,64 +57,15 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("render_pipeline_execute");
 
-    // Topological sort by resource dependencies, order as tiebreaker
+    // One-shot ordering pass by entry.order. The real topological sort
+    // happens below on the declared DAG; this only fixes a deterministic
+    // initial order for use as the DAG sort's tiebreaker when two passes
+    // have no resource-derived dependency between them.
     if (!sorted_) {
-        size_t n = entries_.size();
-
-        // Build adjacency: if pass i writes resource R and pass j reads R, add edge i→j
-        std::vector<std::vector<size_t>> adj(n);
-        std::vector<uint32_t> in_degree(n, 0);
-
-        // Map resource name → indices of passes that write it
-        std::unordered_map<std::string, std::vector<size_t>> writers;
-        for (size_t i = 0; i < n; ++i) {
-            const auto& s = state_for(entries_[i].name);
-            for (const auto& w : s.writes) {
-                writers[w].push_back(i);
-            }
-        }
-
-        // For each pass that reads a resource, add edges from all its writers
-        // Only add edge if the writer has a lower order (respects intended ordering
-        // when multiple passes write the same resource in sequence)
-        for (size_t j = 0; j < n; ++j) {
-            const auto& s = state_for(entries_[j].name);
-            for (const auto& r : s.reads) {
-                auto it = writers.find(r);
-                if (it == writers.end()) continue;
-                for (size_t i : it->second) {
-                    if (i == j) continue;
-                    // Only add edge from writer → reader if writer has lower order
-                    if (entries_[i].order < entries_[j].order) {
-                        adj[i].push_back(j);
-                        in_degree[j]++;
-                    }
-                }
-            }
-        }
-
-        // Kahn's algorithm with priority queue (order as tiebreaker)
-        auto cmp = [this](size_t a, size_t b) {
-            return entries_[a].order > entries_[b].order; // min-heap
-        };
-        std::priority_queue<size_t, std::vector<size_t>, decltype(cmp)> pq(cmp);
-
-        for (size_t i = 0; i < n; ++i) {
-            if (in_degree[i] == 0) pq.push(i);
-        }
-
-        std::vector<PassEntry> sorted;
-        sorted.reserve(n);
-        while (!pq.empty()) {
-            size_t idx = pq.top();
-            pq.pop();
-            sorted.push_back(std::move(entries_[idx]));
-            for (size_t next : adj[idx]) {
-                if (--in_degree[next] == 0) pq.push(next);
-            }
-        }
-
-        entries_ = std::move(sorted);
+        std::sort(entries_.begin(), entries_.end(),
+                  [](const PassEntry& a, const PassEntry& b) {
+                      return a.order < b.order;
+                  });
         sorted_ = true;
     }
 

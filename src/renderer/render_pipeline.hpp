@@ -1,9 +1,7 @@
 #pragma once
 
-#include "renderer/frame_graph.hpp"
 #include "renderer/resource_registry.hpp"
 
-#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -30,20 +28,13 @@ enum class RenderPhase : uint32_t {
 };
 
 /// A self-declaring pass registration: name, execution phase + sub-order,
-/// and a build callback that adds the pass to the FrameGraph.
+/// and a pointer to the RenderPass for declare()/record() dispatch.
 struct PassEntry {
     std::string name;
     uint32_t order{0};
 
-    /// Called during execute(). Must call graph.add_pass() with its image deps.
-    using BuildFunc = std::function<void(FrameGraph& graph, ResourceRegistry& registry)>;
-    BuildFunc build;
-
-    /// Non-owning pointer to the RenderPass the registry holds. The pipeline
-    /// uses this to invoke declare()/record() directly once Phase 2 switches
-    /// from the legacy build() path. During Phase 2 commit #1 this is used
-    /// only to run a shadow declare-loop alongside the legacy path for
-    /// validation.
+    /// Non-owning pointer to the RenderPass the registry holds. The
+    /// pipeline invokes declare()/record() through this pointer.
     RenderPass* pass{nullptr};
 
     /// Construct order from phase + sub_order within that phase.
@@ -65,14 +56,6 @@ public:
     /// Query whether a pass is enabled.
     [[nodiscard]] bool is_pass_enabled(const std::string& name) const;
 
-    /// Declare which named resources a pass reads and writes.
-    void set_pass_resources(const std::string& name,
-                            std::vector<std::string> reads,
-                            std::vector<std::string> writes);
-
-    /// Check whether a named resource has at least one enabled producer.
-    [[nodiscard]] bool is_resource_available(const std::string& resource) const;
-
     /// Build the frame graph from registered passes and execute it.
     /// `ctx` is captured by reference into per-pass record lambdas; the
     /// caller must keep it alive until this function returns.
@@ -86,8 +69,6 @@ public:
 private:
     struct PassState {
         bool enabled{true};
-        std::vector<std::string> reads;
-        std::vector<std::string> writes;
     };
 
     [[nodiscard]] PassState& state_for(const std::string& name);
@@ -97,9 +78,8 @@ private:
     std::unordered_map<std::string, PassState> pass_state_;
     bool sorted_{false};
 
-    /// Phase 2 commit #1: run the declare-based DAG sort in parallel with
-    /// the legacy path and log whether the two orderings agree. Once-per
-    /// session so we don't spam the log every frame.
+    /// Log the declared-DAG pass count and culled-pass count once per
+    /// session instead of every frame.
     bool dag_order_logged_{false};
 
     static const PassState default_state_;

@@ -486,9 +486,6 @@ PassSetup SsGiPass::setup() const {
         .name = "ss_gi",
         .phase = RenderPhase::Color,
         .sub_order = 6, // after DDGI (5), which means after depth/normal are ready
-        .reads = {{"depth", ImageUsage::compute_read},
-                  {"normal", ImageUsage::compute_read}},
-        .writes = {},
     };
 }
 
@@ -500,32 +497,6 @@ void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     // Writes pass-private gi_indirect / ss_gi_emissive bound through
     // the global descriptor — consumer edge lives outside the catalog.
     builder.has_side_effects();
-}
-
-void SsGiPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                      const FrameContext& ctx) {
-    if (!config_.enabled || trace_pipeline_ == VK_NULL_HANDLE) { return; }
-    if (!ctx.pp_resources) { return; }
-
-    auto* imgs = ctx.pp_resources->ss_gi();
-    if (!imgs) { return; }
-
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto normal = builder.import("normal", target->normal_image(), target->normal_view());
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.read(normal, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("ss_gi", builder,
-        [this, ctx, imgs](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record_into(local, *imgs);
-        });
 }
 
 // ── Record ──────────────────────────────────────────────────────────────

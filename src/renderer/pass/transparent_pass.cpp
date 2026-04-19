@@ -179,6 +179,114 @@ void TransparentPass::destroy() {
 }
 
 void TransparentPass::record(const FrameContext& ctx) {
+#ifdef FJELL_ENABLE_TRACY
+    TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Color Transparent");
+#endif
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    VkRenderingAttachmentInfo color_attachment{};
+    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    color_attachment.imageView = target->msaa_color_view();
+    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
+    if (msaa) {
+        color_attachment.resolveImageView = target->color_view();
+        color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+    }
+
+    VkRenderingAttachmentInfo mr_attachment{};
+    mr_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    mr_attachment.imageView = target->msaa_mr_view();
+    mr_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    mr_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    mr_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    if (msaa) {
+        mr_attachment.resolveImageView = target->mr_view();
+        mr_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+    }
+
+    VkRenderingAttachmentInfo normal_attachment{};
+    normal_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    normal_attachment.imageView = target->msaa_normal_view();
+    normal_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    normal_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    normal_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    if (msaa) {
+        normal_attachment.resolveImageView = target->normal_view();
+        normal_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        normal_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+    }
+
+    VkRenderingAttachmentInfo velocity_attachment{};
+    velocity_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    velocity_attachment.imageView = target->msaa_velocity_view();
+    velocity_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    velocity_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    velocity_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    if (msaa) {
+        velocity_attachment.resolveImageView = target->velocity_view();
+        velocity_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        velocity_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
+    }
+
+    std::array<VkRenderingAttachmentInfo, 4> color_attachments = {
+        color_attachment, mr_attachment, normal_attachment, velocity_attachment};
+
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = target->msaa_depth_view();
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
+    if (msaa) {
+        depth_attachment.resolveImageView = VK_NULL_HANDLE;
+        depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
+    }
+
+    VkRenderingInfo ri{};
+    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    ri.renderArea.extent = target->extent();
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
+    ri.pColorAttachments = color_attachments.data();
+    ri.pDepthAttachment = &depth_attachment;
+
+    vkCmdBeginRendering(ctx.cmd, &ri);
+
+    VkViewport vp{};
+    vp.width = static_cast<float>(target->extent().width);
+    vp.height = static_cast<float>(target->extent().height);
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
+
+    VkRect2D sc{};
+    sc.extent = target->extent();
+    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+
+    record_draws(ctx);
+
+    // Worldspace UI: renders after transparent objects, before particles
+    if (ctx.world_ui_callback && ctx.playing) {
+        ctx.world_ui_callback(ctx.cmd,
+            ctx.global_descriptor_set,
+            ctx.bindless_set,
+            target->extent(), ctx.frame_index);
+    }
+
+    for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
+        ctx.subsystems[i]->record_transparent(ctx);
+    }
+
+    vkCmdEndRendering(ctx.cmd);
+}
+
+void TransparentPass::record_draws(const FrameContext& ctx) {
     if (!ctx.queue || !ctx.queue->has_transparent()) return;
     if (!ctx.indirect_batch || !ctx.mega_buffer) return;
 
@@ -249,17 +357,6 @@ PassSetup TransparentPass::setup() const {
         .name = "color_transparent",
         .phase = RenderPhase::Color,
         .sub_order = 50,
-        .reads = {{"screen_color", ImageUsage::shader_read}},
-        .writes = {{"msaa_color", ImageUsage::color_attachment},
-                   {"color", ImageUsage::color_attachment},
-                   {"msaa_mr", ImageUsage::color_attachment},
-                   {"mr", ImageUsage::color_attachment},
-                   {"msaa_normal", ImageUsage::color_attachment},
-                   {"normal", ImageUsage::color_attachment},
-                   {"msaa_velocity", ImageUsage::color_attachment},
-                   {"velocity", ImageUsage::color_attachment},
-                   {"msaa_depth", ImageUsage::shader_read},
-                   {"depth", ImageUsage::shader_read}},
     };
 }
 
@@ -297,165 +394,6 @@ void TransparentPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (auto cubemap = builder.import_named(ctx, "sky_cubemap"); cubemap.valid()) {
         builder.read(cubemap, ResourceAccess::sampled_fragment);
     }
-}
-
-void TransparentPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                            const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto msaa_color = builder.import("msaa_color", target->msaa_color_image(),
-                                      target->msaa_color_view());
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    auto msaa_mr = builder.import("msaa_mr", target->msaa_mr_image(),
-                                   target->msaa_mr_view());
-    auto mr = builder.import("mr", target->mr_image(), target->mr_view());
-    auto msaa_normal = builder.import("msaa_normal", target->msaa_normal_image(),
-                                       target->msaa_normal_view());
-    auto normal = builder.import("normal", target->normal_image(),
-                                  target->normal_view());
-    auto msaa_velocity = builder.import("msaa_velocity", target->msaa_velocity_image(),
-                                         target->msaa_velocity_view());
-    auto velocity = builder.import("velocity", target->velocity_image(),
-                                    target->velocity_view());
-    auto msaa_depth = builder.import("msaa_depth", target->msaa_depth_image(),
-                                      target->msaa_depth_view(),
-                                      VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto screen = builder.import("screen_color", target->screen_color_image(),
-                                  target->screen_color_view());
-
-    builder.write(msaa_color, ResourceAccess::color_attachment);
-    builder.write(color, ResourceAccess::color_attachment);
-    builder.write(msaa_mr, ResourceAccess::color_attachment);
-    builder.write(mr, ResourceAccess::color_attachment);
-    builder.write(msaa_normal, ResourceAccess::color_attachment);
-    builder.write(normal, ResourceAccess::color_attachment);
-    builder.write(msaa_velocity, ResourceAccess::color_attachment);
-    builder.write(velocity, ResourceAccess::color_attachment);
-    builder.read(msaa_depth, ResourceAccess::sampled_fragment);
-    builder.read(depth, ResourceAccess::sampled_fragment);
-    builder.read(screen, ResourceAccess::sampled_fragment);
-
-    graph.submit_declared_pass("color_transparent", builder,
-        [this, ctx](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-        TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Color Transparent");
-#endif
-        auto* target = ctx.target;
-
-        VkRenderingAttachmentInfo color_attachment{};
-        color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        color_attachment.imageView = target->msaa_color_view();
-        color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        bool msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
-        if (msaa) {
-            color_attachment.resolveImageView = target->color_view();
-            color_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            color_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-        }
-
-        // MR not needed for transparent objects (they don't write MR)
-        VkRenderingAttachmentInfo mr_attachment{};
-        mr_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        mr_attachment.imageView = target->msaa_mr_view();
-        mr_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        mr_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        mr_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        if (msaa) {
-            mr_attachment.resolveImageView = target->mr_view();
-            mr_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            mr_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-        }
-
-        // Normal attachment — transparent objects don't write normals (colorWriteMask=0 in pipeline)
-        VkRenderingAttachmentInfo normal_attachment{};
-        normal_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        normal_attachment.imageView = target->msaa_normal_view();
-        normal_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        normal_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        normal_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        if (msaa) {
-            normal_attachment.resolveImageView = target->normal_view();
-            normal_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            normal_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-        }
-
-        // Velocity attachment — transparent objects don't write velocity (colorWriteMask=0)
-        VkRenderingAttachmentInfo velocity_attachment{};
-        velocity_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        velocity_attachment.imageView = target->msaa_velocity_view();
-        velocity_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        velocity_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        velocity_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        if (msaa) {
-            velocity_attachment.resolveImageView = target->velocity_view();
-            velocity_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            velocity_attachment.resolveMode = VK_RESOLVE_MODE_AVERAGE_BIT;
-        }
-
-        std::array<VkRenderingAttachmentInfo, 4> color_attachments = {
-            color_attachment, mr_attachment, normal_attachment, velocity_attachment};
-
-        VkRenderingAttachmentInfo depth_attachment{};
-        depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-        depth_attachment.imageView = target->msaa_depth_view();
-        depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_NONE;
-
-        if (msaa) {
-            depth_attachment.resolveImageView = VK_NULL_HANDLE;
-            depth_attachment.resolveMode = VK_RESOLVE_MODE_NONE;
-        }
-
-        VkRenderingInfo ri{};
-        ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-        ri.renderArea.extent = target->extent();
-        ri.layerCount = 1;
-        ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
-        ri.pColorAttachments = color_attachments.data();
-        ri.pDepthAttachment = &depth_attachment;
-
-        vkCmdBeginRendering(cb, &ri);
-
-        FrameContext local = ctx;
-        local.cmd = cb;
-
-        VkViewport vp{};
-        vp.width = static_cast<float>(target->extent().width);
-        vp.height = static_cast<float>(target->extent().height);
-        vp.maxDepth = 1.0f;
-        vkCmdSetViewport(cb, 0, 1, &vp);
-
-        VkRect2D sc{};
-        sc.extent = target->extent();
-        vkCmdSetScissor(cb, 0, 1, &sc);
-
-        record(local);
-
-        // Worldspace UI: renders after transparent objects, before particles
-        if (ctx.world_ui_callback && ctx.playing) {
-            ctx.world_ui_callback(cb,
-                ctx.global_descriptor_set,
-                ctx.bindless_set,
-                target->extent(), ctx.frame_index);
-        }
-
-        for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
-            ctx.subsystems[i]->record_transparent(local);
-        }
-
-        vkCmdEndRendering(cb);
-    });
 }
 
 } // namespace fjell

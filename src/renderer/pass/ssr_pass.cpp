@@ -704,10 +704,6 @@ PassSetup SsrPass::setup() const {
         .name = "ssr",
         .phase = RenderPhase::PostProcess,
         .sub_order = 0,
-        .reads = {{"depth", ImageUsage::compute_read},
-                  {"scene_color", ImageUsage::compute_write},
-                  {"metallic_roughness", ImageUsage::compute_read}},
-        .writes = {},
     };
 }
 
@@ -719,30 +715,6 @@ void SsrPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.write(color, ResourceAccess::storage_write_compute);
     builder.read(mr, ResourceAccess::sampled_compute);
     // SSR output + history images are pass-private.
-}
-
-void SsrPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
-                     const FrameContext& ctx) {
-    auto* target = ctx.target;
-    if (target == nullptr) { return; }
-
-    PassBuilder builder;
-    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                 VK_IMAGE_ASPECT_DEPTH_BIT);
-    auto color = builder.import("color", target->color_image(), target->color_view());
-    auto mr = builder.import("mr", target->mr_image(), target->mr_view());
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.write(color, ResourceAccess::storage_write_compute);
-    builder.read(mr, ResourceAccess::sampled_compute);
-
-    graph.submit_declared_pass("ssr", builder,
-        [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            if (local.pp_resources && local.pp_resources->ssr()) {
-                record_into(local, *local.pp_resources->ssr());
-            }
-        });
 }
 
 } // namespace fjell
