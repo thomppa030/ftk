@@ -83,7 +83,14 @@ public:
     // ── Introspection ─────────────────────────────────────────────────────
     [[nodiscard]] bool  empty() const { return points.empty(); }
     [[nodiscard]] float min_key() const { return points.empty() ? 0.0f : points.front().input_key; }
-    [[nodiscard]] float max_key() const { return points.empty() ? 0.0f : points.back().input_key; }
+    /// Max evaluatable input key. For closed splines this extends past the
+    /// last point by one closing segment's span so queries can cover the
+    /// loop-back to points.front().
+    [[nodiscard]] float max_key() const;
+    /// Input-key span of the virtual closing segment (back -> front) when
+    /// `closed` is true. Returns 0 when the spline isn't closed or has < 2
+    /// points.
+    [[nodiscard]] float closing_span() const;
 
 private:
     std::vector<float> reparam_keys_;       ///< input_key at each reparam sample

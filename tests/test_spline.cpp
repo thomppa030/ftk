@@ -140,3 +140,44 @@ TEST_CASE("remove_point shrinks the spline", "[spline]") {
     REQUIRE(s.points[0].value == 0.0F);
     REQUIRE(s.points[1].value == 2.0F);
 }
+
+TEST_CASE("closed spline extends max_key by a closing segment span", "[spline]") {
+    Spline<float> s;
+    s.add_point(0.0F, 0.0F);
+    s.add_point(1.0F, 1.0F);
+    s.add_point(2.0F, 2.0F);
+    REQUIRE(s.max_key() == Approx(2.0F));
+    s.closed = true;
+    // Last authored segment is [1, 2] → closing span = 1.0
+    REQUIRE(s.max_key() == Approx(3.0F));
+    REQUIRE(s.closing_span() == Approx(1.0F));
+}
+
+TEST_CASE("closed spline evaluates closing segment back to first point", "[spline]") {
+    Spline<glm::vec3> s;
+    s.add_point(0.0F, glm::vec3(0.0F, 0.0F, 0.0F), SplineInterp::Linear);
+    s.add_point(1.0F, glm::vec3(1.0F, 0.0F, 0.0F), SplineInterp::Linear);
+    s.add_point(2.0F, glm::vec3(1.0F, 1.0F, 0.0F), SplineInterp::Linear);
+    s.closed = true;
+    // At max_key we should be back at points.front()
+    const auto end = s.evaluate(s.max_key());
+    REQUIRE(end.x == Approx(0.0F));
+    REQUIRE(end.y == Approx(0.0F));
+    REQUIRE(end.z == Approx(0.0F));
+    // Halfway through the closing segment (2.5 of span 1), we're halfway
+    // between (1, 1, 0) and (0, 0, 0)
+    const auto mid = s.evaluate(2.5F);
+    REQUIRE(mid.x == Approx(0.5F));
+    REQUIRE(mid.y == Approx(0.5F));
+}
+
+TEST_CASE("closed triangle reparam length equals perimeter", "[spline]") {
+    Spline<glm::vec3> s;
+    s.add_point(0.0F, glm::vec3(0.0F, 0.0F, 0.0F), SplineInterp::Linear);
+    s.add_point(1.0F, glm::vec3(3.0F, 0.0F, 0.0F), SplineInterp::Linear);
+    s.add_point(2.0F, glm::vec3(3.0F, 4.0F, 0.0F), SplineInterp::Linear);
+    s.closed = true;
+    s.build_reparam_table(256);
+    // Perimeter: 3 + 4 + 5 = 12
+    REQUIRE(s.total_length() == Approx(12.0F).epsilon(0.01F));
+}

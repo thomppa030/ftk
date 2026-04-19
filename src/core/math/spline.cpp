@@ -51,8 +51,25 @@ T hermite_derivative(const T& p0, const T& m0, const T& p1, const T& m1, float t
 } // namespace
 
 template <typename T>
+float Spline<T>::closing_span() const {
+    const size_t n = points.size();
+    if (!closed || n < 2) return 0.0F;
+    // Use the final authored segment's span so the loop-back rate matches
+    // the surrounding curve. Fall back to 1.0 if somehow zero.
+    const float span = points[n - 1].input_key - points[n - 2].input_key;
+    return span > 0.0F ? span : 1.0F;
+}
+
+template <typename T>
+float Spline<T>::max_key() const {
+    if (points.empty()) return 0.0F;
+    return points.back().input_key + closing_span();
+}
+
+template <typename T>
 size_t Spline<T>::find_segment(float input_key, float& local_t) const {
-    if (points.size() < 2) {
+    const size_t n = points.size();
+    if (n < 2) {
         local_t = 0.0f;
         return 0;
     }
@@ -60,12 +77,21 @@ size_t Spline<T>::find_segment(float input_key, float& local_t) const {
         local_t = 0.0f;
         return 0;
     }
+    // Closed: queries past the last point evaluate the virtual closing
+    // segment. Signal this by returning index n - 1 with local_t in [0,1];
+    // the caller pairs points[n-1] with points[0] in that case.
+    const float span = closing_span();
+    if (closed && span > 0.0F && input_key >= points.back().input_key) {
+        const float over = input_key - points.back().input_key;
+        local_t = std::min(over / span, 1.0F);
+        return n - 1;
+    }
     if (input_key >= points.back().input_key) {
         local_t = 1.0f;
-        return points.size() - 2;
+        return n - 2;
     }
     size_t lo = 0;
-    size_t hi = points.size() - 1;
+    size_t hi = n - 1;
     while (hi - lo > 1) {
         const size_t mid = (lo + hi) / 2;
         if (points[mid].input_key <= input_key) lo = mid;
@@ -83,8 +109,11 @@ T Spline<T>::evaluate(float input_key) const {
 
     float t = 0.0f;
     const size_t i = find_segment(input_key, t);
+    const size_t n = points.size();
+    // Closing segment: find_segment returns i == n-1 only when closed.
+    const bool closing = (i == n - 1);
     const SplinePoint<T>& a = points[i];
-    const SplinePoint<T>& b = points[i + 1];
+    const SplinePoint<T>& b = closing ? points[0] : points[i + 1];
 
     switch (a.interp_mode) {
         case SplineInterp::Constant:
@@ -95,7 +124,7 @@ T Spline<T>::evaluate(float input_key) const {
         case SplineInterp::CurveAuto:
         case SplineInterp::CurveUser:
         case SplineInterp::CurveBreak: {
-            const float dx = b.input_key - a.input_key;
+            const float dx = closing ? closing_span() : (b.input_key - a.input_key);
             return hermite(a.value, a.leave_tangent, b.value, b.arrive_tangent, t, dx);
         }
     }
@@ -108,9 +137,11 @@ T Spline<T>::tangent(float input_key) const {
 
     float t = 0.0f;
     const size_t i = find_segment(input_key, t);
+    const size_t n = points.size();
+    const bool closing = (i == n - 1);
     const SplinePoint<T>& a = points[i];
-    const SplinePoint<T>& b = points[i + 1];
-    const float dx = b.input_key - a.input_key;
+    const SplinePoint<T>& b = closing ? points[0] : points[i + 1];
+    const float dx = closing ? closing_span() : (b.input_key - a.input_key);
 
     switch (a.interp_mode) {
         case SplineInterp::Constant:
@@ -215,8 +246,8 @@ void Spline<T>::build_reparam_table(uint32_t samples) {
     reparam_keys_.reserve(samples);
     reparam_distances_.reserve(samples);
 
-    const float k0 = points.front().input_key;
-    const float k1 = points.back().input_key;
+    const float k0 = min_key();
+    const float k1 = max_key();  // covers the closing segment when closed
     const float step = (k1 - k0) / static_cast<float>(samples - 1);
 
     T   prev_v = evaluate(k0);
