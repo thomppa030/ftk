@@ -20,6 +20,7 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/components/spline_component.hpp"
 #include "renderer/components/sprite_desc.hpp"
+#include "scene/spline_editable.hpp"
 #include "scripting/debug_draw_queue.hpp"
 #include "renderer/resources/texture.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -219,12 +220,14 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
         glm::vec3 ray_origin = glm::vec3(world_near);
         glm::vec3 ray_dir = glm::normalize(glm::vec3(world_far - world_near));
 
-        // ── Spline control-point pick (any spline in the scene) ──
-        // Ray-test every control point on every SplineComponent. On a hit,
-        // select the owning node and its handle in one click — the usual
-        // Unreal-style workflow. This takes priority over mesh AABB picking.
+        // ── Spline control-point pick (any spline-bearing component) ──
+        // Ray-test every control point on every node that carries a
+        // spline (via SplineEditableRegistry). On a hit, select the owning
+        // node and its handle in one click. Takes priority over mesh
+        // AABB picking.
         {
             constexpr float kHandleRadius = 0.12f;
+            auto& registry = SplineEditableRegistry::instance();
             float    best_t  = std::numeric_limits<float>::max();
             uint32_t best_node{0};
             int      best_point{-1};
@@ -232,13 +235,14 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
             for (const auto& obj : deps_.scene->objects()) {
                 const auto* spatial = obj->as_spatial();
                 if (!spatial) continue;
-                auto* sp = obj->components.get<SplineComponent>();
-                if (!sp) continue;
+                const auto editable = registry.probe(*obj);
+                if (!editable.spline) continue;
 
                 const glm::mat4& world = spatial->world_matrix_;
-                for (size_t i = 0; i < sp->spline.points.size(); ++i) {
+                const auto& pts = editable.spline->points;
+                for (size_t i = 0; i < pts.size(); ++i) {
                     const glm::vec3 center = glm::vec3(
-                        world * glm::vec4(sp->spline.points[i].value, 1.0f));
+                        world * glm::vec4(pts[i].value, 1.0f));
                     const glm::vec3 oc = ray_origin - center;
                     const float b = glm::dot(oc, ray_dir);
                     const float c = glm::dot(oc, oc) - kHandleRadius * kHandleRadius;
@@ -256,18 +260,18 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
             }
 
             if (best_point >= 0) {
-                // Clear handle selection on any other spline in the scene so
-                // only one is ever "active".
+                // Clear handle selection on every other spline so only one
+                // is ever "active" across the whole scene.
                 for (const auto& obj : deps_.scene->objects()) {
-                    if (auto* other = obj->components.get<SplineComponent>()) {
-                        if (obj->id != best_node) other->editor_selected_point = -1;
+                    const auto other = registry.probe(*obj);
+                    if (other.selected_point && obj->id != best_node) {
+                        *other.selected_point = -1;
                     }
                 }
                 selected_id_ = best_node;
                 if (auto* hit_obj = deps_.scene->find_spatial(best_node)) {
-                    if (auto* sp = hit_obj->components.get<SplineComponent>()) {
-                        sp->editor_selected_point = best_point;
-                    }
+                    const auto hit = registry.probe(*hit_obj);
+                    if (hit.selected_point) *hit.selected_point = best_point;
                 }
                 return;  // don't fall through to node picking
             }
@@ -336,12 +340,13 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
         return;
     }
 
-    // If the selected object has a SplineComponent with a selected control
+    // If the selected object carries any spline with a selected control
     // point, the gizmo manipulates that point instead of the node.
-    auto* sp = obj->components.get<SplineComponent>();
-    const bool spline_point_mode = sp
-        && sp->editor_selected_point >= 0
-        && sp->editor_selected_point < static_cast<int>(sp->spline.points.size());
+    const auto editable = SplineEditableRegistry::instance().probe(*obj);
+    const int  sel_idx  = (editable.selected_point != nullptr) ? *editable.selected_point : -1;
+    const bool spline_point_mode = editable.spline
+        && sel_idx >= 0
+        && sel_idx < static_cast<int>(editable.spline->points.size());
 
     // Must draw inside the viewport window for ImGuizmo
     if (!ImGui::Begin(vp.title.c_str())) {
@@ -362,7 +367,7 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
     // Snapshot at drag start
     if (!gizmo_dragging_) {
         if (spline_point_mode) {
-            const glm::vec3 local_pos = sp->spline.points[sp->editor_selected_point].value;
+            const glm::vec3 local_pos = editable.spline->points[sel_idx].value;
             gizmo_matrix_ = obj->world_matrix_ * glm::translate(glm::mat4(1.0f), local_pos);
             gizmo_start_world_ = gizmo_matrix_;
             gizmo_start_transform_ = obj->transform;
@@ -404,14 +409,13 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
 
     auto apply_spline_gizmo = [&] {
         // Extract world-space position from the gizmo matrix, then map back
-        // into the node's local space.
+        // into the node's local space, then delegate post-edit side effects
+        // (auto tangents, reparam rebuild, dirty flag) to the component.
         const glm::vec3 world_pos = glm::vec3(gizmo_matrix_[3]);
         const glm::vec3 local_pos = glm::vec3(
             glm::inverse(obj->world_matrix_) * glm::vec4(world_pos, 1.0f));
-        sp->spline.points[sp->editor_selected_point].value = local_pos;
-        sp->spline.auto_set_tangents();
-        sp->spline.build_reparam_table(sp->reparam_samples);
-        sp->dirty = true;
+        editable.spline->points[sel_idx].value = local_pos;
+        if (editable.on_edited) editable.on_edited();
     };
 
     if (ImGuizmo::IsUsing()) {
@@ -441,8 +445,11 @@ void SceneEditorContext::draw_spline_visuals() {
 
     auto* obj = deps_.scene->find_spatial(selected_id_);
     if (!obj) return;
-    auto* sp = obj->components.get<SplineComponent>();
-    if (!sp || sp->spline.points.size() < 1) return;
+
+    const auto editable = SplineEditableRegistry::instance().probe(*obj);
+    if (!editable.spline || editable.spline->points.empty()) return;
+    const auto& spline = *editable.spline;
+    const int selected_idx = editable.selected_point ? *editable.selected_point : -1;
 
     const glm::mat4& world = obj->world_matrix_;
 
@@ -455,22 +462,22 @@ void SceneEditorContext::draw_spline_visuals() {
     constexpr int kSamples = 64;
     const glm::vec4 curve_col{0.45f, 0.75f, 0.95f, 1.0f};
 
-    if (sp->spline.points.size() >= 2) {
-        const float len = sp->spline.total_length();
-        glm::vec3 prev = to_world(sp->spline.evaluate(sp->spline.min_key()));
+    if (spline.points.size() >= 2) {
+        const float len = spline.total_length();
+        glm::vec3 prev = to_world(spline.evaluate(spline.min_key()));
         if (len > 0.0f) {
             for (int i = 1; i <= kSamples; ++i) {
                 const float s = len * (static_cast<float>(i) / static_cast<float>(kSamples));
-                const glm::vec3 w = to_world(sp->spline.evaluate_at_distance(s));
+                const glm::vec3 w = to_world(spline.evaluate_at_distance(s));
                 queue->line(prev, w, curve_col);
                 prev = w;
             }
         } else {
-            const float k0 = sp->spline.min_key();
-            const float k1 = sp->spline.max_key();
+            const float k0 = spline.min_key();
+            const float k1 = spline.max_key();
             for (int i = 1; i <= kSamples; ++i) {
                 const float t = static_cast<float>(i) / static_cast<float>(kSamples);
-                const glm::vec3 w = to_world(sp->spline.evaluate(k0 + (k1 - k0) * t));
+                const glm::vec3 w = to_world(spline.evaluate(k0 + (k1 - k0) * t));
                 queue->line(prev, w, curve_col);
                 prev = w;
             }
@@ -481,16 +488,16 @@ void SceneEditorContext::draw_spline_visuals() {
     constexpr float kHandleRadius = 0.08f;
     const glm::vec4 pt_col{1.0f, 1.0f, 1.0f, 1.0f};
     const glm::vec4 pt_sel{1.0f, 0.65f, 0.15f, 1.0f};
-    for (size_t i = 0; i < sp->spline.points.size(); ++i) {
-        const glm::vec3 w = to_world(sp->spline.points[i].value);
-        const bool selected = (sp->editor_selected_point == static_cast<int>(i));
+    for (size_t i = 0; i < spline.points.size(); ++i) {
+        const glm::vec3 w = to_world(spline.points[i].value);
+        const bool selected = (selected_idx == static_cast<int>(i));
         queue->sphere(w, kHandleRadius, selected ? pt_sel : pt_col);
     }
 
     // Tangent handles for CurveUser / CurveBreak: draw a line from the point
     // to a ball at position + tangent * (segment span * 0.25) on each side.
     const glm::vec4 tan_col{0.6f, 1.0f, 0.5f, 1.0f};
-    const auto& pts = sp->spline.points;
+    const auto& pts = spline.points;
     for (size_t i = 0; i < pts.size(); ++i) {
         const auto& p = pts[i];
         if (p.interp_mode != SplineInterp::CurveUser &&

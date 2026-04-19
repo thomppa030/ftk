@@ -134,6 +134,7 @@ add_executable(fjell
     renderer/components/arrow_component_meta.cpp
     renderer/components/mesh_component_meta.cpp
     renderer/components/spline_component_meta.cpp
+    renderer/components/spline_mesh_component_meta.cpp
     renderer/components/instanced_mesh_component_meta.cpp
     renderer/components/skeletal_mesh_component_meta.cpp
     renderer/components/particle_emitter_meta.cpp
@@ -178,6 +179,7 @@ add_executable(fjell
     physics/physics_world.cpp
     scene/scene.cpp
     scene/node_serializer.cpp
+    scene/spline_editable.cpp
     scene/preset.cpp
     scene/camera_subsystem.cpp
     scene/component_registry.cpp

@@ -1,6 +1,7 @@
 #include "renderer/components/spline_component.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/node.hpp"
+#include "scene/spline_editable.hpp"
 
 #include <imgui.h>
 #include <nlohmann/json.hpp>
@@ -216,6 +217,16 @@ static const bool registered = [] {
 
         .script_type_name = {},
     });
+
+    register_spline_editable<SplineComponent>(
+        [](SplineComponent& c) -> Spline<glm::vec3>* { return &c.spline; },
+        [](SplineComponent& c) -> int* { return &c.editor_selected_point; },
+        [](SplineComponent& c) {
+            c.spline.auto_set_tangents();
+            c.spline.build_reparam_table(c.reparam_samples);
+            c.dirty = true;
+        });
+
     return true;
 }();
 
