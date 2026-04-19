@@ -17,6 +17,8 @@ public:
     [[nodiscard]] PassSetup setup() const override;
     void build(FrameGraph& graph, ResourceRegistry& registry,
                const FrameContext& ctx) override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
+    [[nodiscard]] bool uses_declare() const noexcept override { return true; }
 
 private:
     void draw_outline(const FrameContext& ctx);

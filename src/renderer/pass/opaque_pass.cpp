@@ -3,6 +3,7 @@
 #include "renderer/resources/material.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
@@ -51,30 +52,54 @@ PassSetup OpaquePass::setup() const {
     };
 }
 
-void OpaquePass::build(FrameGraph& graph, ResourceRegistry& registry,
-                       const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    auto add_use = [&](const char* name, ImageUsage usage) {
-        if (auto* img = registry.find_image(name)) {
-            uses.emplace_back(img->frame_graph_id, usage);
-        }
-    };
-    add_use("msaa_color", ImageUsage::color_attachment);
-    add_use("color", ImageUsage::color_attachment);
-    add_use("msaa_mr", ImageUsage::color_attachment);
-    add_use("mr", ImageUsage::color_attachment);
-    add_use("msaa_normal", ImageUsage::color_attachment);
-    add_use("normal", ImageUsage::color_attachment);
-    add_use("msaa_velocity", ImageUsage::color_attachment);
-    add_use("velocity", ImageUsage::color_attachment);
-    add_use("msaa_depth", ImageUsage::depth_attachment);
-    add_use("depth", ImageUsage::depth_attachment);
+void OpaquePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (10 attachment imports) is produced inside
+    // build() below until Phase 2 routes declare() through the pipeline.
+}
 
-    graph.add_pass("color_opaque", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, std::move(uses));
+void OpaquePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                       const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    PassBuilder builder;
+    auto msaa_color = builder.import("msaa_color", target->msaa_color_image(),
+                                      target->msaa_color_view());
+    auto color = builder.import("color", target->color_image(), target->color_view());
+    auto msaa_mr = builder.import("msaa_mr", target->msaa_mr_image(),
+                                   target->msaa_mr_view());
+    auto mr = builder.import("mr", target->mr_image(), target->mr_view());
+    auto msaa_normal = builder.import("msaa_normal", target->msaa_normal_image(),
+                                       target->msaa_normal_view());
+    auto normal = builder.import("normal", target->normal_image(),
+                                  target->normal_view());
+    auto msaa_velocity = builder.import("msaa_velocity", target->msaa_velocity_image(),
+                                         target->msaa_velocity_view());
+    auto velocity = builder.import("velocity", target->velocity_image(),
+                                    target->velocity_view());
+    auto msaa_depth = builder.import("msaa_depth", target->msaa_depth_image(),
+                                      target->msaa_depth_view(),
+                                      VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                 VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    builder.write(msaa_color, ResourceAccess::color_attachment);
+    builder.write(color, ResourceAccess::color_attachment);
+    builder.write(msaa_mr, ResourceAccess::color_attachment);
+    builder.write(mr, ResourceAccess::color_attachment);
+    builder.write(msaa_normal, ResourceAccess::color_attachment);
+    builder.write(normal, ResourceAccess::color_attachment);
+    builder.write(msaa_velocity, ResourceAccess::color_attachment);
+    builder.write(velocity, ResourceAccess::color_attachment);
+    builder.write(msaa_depth, ResourceAccess::depth_attachment);
+    builder.write(depth, ResourceAccess::depth_attachment);
+
+    graph.submit_declared_pass("color_opaque", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 void OpaquePass::record(const FrameContext& ctx) {
