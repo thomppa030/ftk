@@ -2,6 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/systems/render_subsystem.hpp"
@@ -107,43 +108,53 @@ PassSetup DistortionPass::setup() const {
     };
 }
 
-void DistortionPass::build(FrameGraph& graph, ResourceRegistry& registry,
-                           const FrameContext& ctx) {
-    // Pass 1: Render distortion particles into distortion buffer
-    {
-        std::vector<std::pair<uint32_t, ImageUsage>> uses;
-        if (auto* img = registry.find_image("distortion")) {
-            uses.emplace_back(img->frame_graph_id, ImageUsage::color_attachment);
-        }
-        if (auto* img = registry.find_image("depth")) {
-            uses.emplace_back(img->frame_graph_id, ImageUsage::shader_read);
-        }
+void DistortionPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Two graph nodes per frame (render + apply) are produced inside
+    // build() below until Phase 2 routes declare() through the pipeline.
+}
 
-        graph.add_pass("distortion_render", [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record_render(local);
-        }, std::move(uses));
+void DistortionPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                           const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    // Pass 1: Render distortion particles into distortion buffer.
+    {
+        PassBuilder builder;
+        auto distortion = builder.import("distortion", target->distortion_image(),
+                                          target->distortion_view());
+        auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                     VK_IMAGE_ASPECT_DEPTH_BIT);
+        builder.write(distortion, ResourceAccess::color_attachment);
+        builder.read(depth, ResourceAccess::sampled_fragment);
+
+        graph.submit_declared_pass("distortion_render", builder,
+            [this, ctx](VkCommandBuffer cb) {
+                FrameContext local = ctx;
+                local.cmd = cb;
+                record_render(local);
+            });
     }
 
-    // Pass 2: Apply distortion offsets to screen color
+    // Pass 2: Apply distortion offsets to screen color.
     {
-        std::vector<std::pair<uint32_t, ImageUsage>> uses;
-        if (auto* img = registry.find_image("distortion")) {
-            uses.emplace_back(img->frame_graph_id, ImageUsage::shader_read);
-        }
-        if (auto* img = registry.find_image("screen_color")) {
-            uses.emplace_back(img->frame_graph_id, ImageUsage::shader_read);
-        }
-        if (auto* img = registry.find_image("msaa_color")) {
-            uses.emplace_back(img->frame_graph_id, ImageUsage::color_attachment);
-        }
+        PassBuilder builder;
+        auto distortion = builder.import("distortion", target->distortion_image(),
+                                          target->distortion_view());
+        auto screen = builder.import("screen_color", target->screen_color_image(),
+                                      target->screen_color_view());
+        auto msaa_color = builder.import("msaa_color", target->msaa_color_image(),
+                                          target->msaa_color_view());
+        builder.read(distortion, ResourceAccess::sampled_fragment);
+        builder.read(screen, ResourceAccess::sampled_fragment);
+        builder.write(msaa_color, ResourceAccess::color_attachment);
 
-        graph.add_pass("distortion_apply", [this, ctx](VkCommandBuffer cb) {
-            FrameContext local = ctx;
-            local.cmd = cb;
-            record_apply(local);
-        }, std::move(uses));
+        graph.submit_declared_pass("distortion_apply", builder,
+            [this, ctx](VkCommandBuffer cb) {
+                FrameContext local = ctx;
+                local.cmd = cb;
+                record_apply(local);
+            });
     }
 }
 

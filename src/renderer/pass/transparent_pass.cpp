@@ -4,6 +4,7 @@
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resource_registry.hpp"
@@ -262,27 +263,53 @@ PassSetup TransparentPass::setup() const {
     };
 }
 
-void TransparentPass::build(FrameGraph& graph, ResourceRegistry& registry,
-                            const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    auto add_use = [&](const char* name, ImageUsage usage) {
-        if (auto* img = registry.find_image(name)) {
-            uses.emplace_back(img->frame_graph_id, usage);
-        }
-    };
-    add_use("msaa_color", ImageUsage::color_attachment);
-    add_use("color", ImageUsage::color_attachment);
-    add_use("msaa_mr", ImageUsage::color_attachment);
-    add_use("mr", ImageUsage::color_attachment);
-    add_use("msaa_normal", ImageUsage::color_attachment);
-    add_use("normal", ImageUsage::color_attachment);
-    add_use("msaa_velocity", ImageUsage::color_attachment);
-    add_use("velocity", ImageUsage::color_attachment);
-    add_use("msaa_depth", ImageUsage::shader_read);
-    add_use("depth", ImageUsage::shader_read);
-    add_use("screen_color", ImageUsage::shader_read);
+void TransparentPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (many imports across MSAA/resolved attachments)
+    // is produced inside build() below until Phase 2.
+}
 
-    graph.add_pass("color_transparent", [this, ctx](VkCommandBuffer cb) {
+void TransparentPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                            const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    PassBuilder builder;
+    auto msaa_color = builder.import("msaa_color", target->msaa_color_image(),
+                                      target->msaa_color_view());
+    auto color = builder.import("color", target->color_image(), target->color_view());
+    auto msaa_mr = builder.import("msaa_mr", target->msaa_mr_image(),
+                                   target->msaa_mr_view());
+    auto mr = builder.import("mr", target->mr_image(), target->mr_view());
+    auto msaa_normal = builder.import("msaa_normal", target->msaa_normal_image(),
+                                       target->msaa_normal_view());
+    auto normal = builder.import("normal", target->normal_image(),
+                                  target->normal_view());
+    auto msaa_velocity = builder.import("msaa_velocity", target->msaa_velocity_image(),
+                                         target->msaa_velocity_view());
+    auto velocity = builder.import("velocity", target->velocity_image(),
+                                    target->velocity_view());
+    auto msaa_depth = builder.import("msaa_depth", target->msaa_depth_image(),
+                                      target->msaa_depth_view(),
+                                      VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                 VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto screen = builder.import("screen_color", target->screen_color_image(),
+                                  target->screen_color_view());
+
+    builder.write(msaa_color, ResourceAccess::color_attachment);
+    builder.write(color, ResourceAccess::color_attachment);
+    builder.write(msaa_mr, ResourceAccess::color_attachment);
+    builder.write(mr, ResourceAccess::color_attachment);
+    builder.write(msaa_normal, ResourceAccess::color_attachment);
+    builder.write(normal, ResourceAccess::color_attachment);
+    builder.write(msaa_velocity, ResourceAccess::color_attachment);
+    builder.write(velocity, ResourceAccess::color_attachment);
+    builder.read(msaa_depth, ResourceAccess::sampled_fragment);
+    builder.read(depth, ResourceAccess::sampled_fragment);
+    builder.read(screen, ResourceAccess::sampled_fragment);
+
+    graph.submit_declared_pass("color_transparent", builder,
+        [this, ctx](VkCommandBuffer cb) {
 #ifdef FJELL_ENABLE_TRACY
         TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Color Transparent");
 #endif
@@ -397,7 +424,7 @@ void TransparentPass::build(FrameGraph& graph, ResourceRegistry& registry,
         }
 
         vkCmdEndRendering(cb);
-    }, std::move(uses));
+    });
 }
 
 } // namespace fjell
