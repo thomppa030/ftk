@@ -108,6 +108,7 @@ add_executable(fjell
     renderer/pass/grid_pass.cpp
     renderer/pass/debug_pass.cpp
     renderer/pass/depth_prepass.cpp
+    renderer/pass/depth_resolve_pass.cpp
     renderer/pass/depth_viz_pass.cpp
     renderer/pass/light_cull_pass.cpp
     renderer/pass/mesh_shader_depth_pass.cpp
@@ -131,6 +132,7 @@ add_executable(fjell
     renderer/pass/opaque_pass.cpp
     renderer/pass/screen_color_copy_pass.cpp
     renderer/pass/distortion_pass.cpp
+    renderer/pass/distortion_apply_pass.cpp
     renderer/pass/exposure_pass.cpp
     renderer/pass/subsystem_compute_pass.cpp
     renderer/components/arrow_component_meta.cpp

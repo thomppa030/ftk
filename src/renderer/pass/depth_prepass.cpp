@@ -318,70 +318,28 @@ void DepthPrePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
 
     bool has_msaa = target->sample_count() != VK_SAMPLE_COUNT_1_BIT;
 
-    // depth_prepass: writes the MSAA depth attachment (or non-MSAA
-    // depth if MSAA is off). Records in parallel group 1 alongside
-    // any other passes in the same group.
-    {
-        PassBuilder builder;
-        builder.parallel_group(1);
-        if (has_msaa) {
-            auto msaa_depth = builder.import("msaa_depth", target->msaa_depth_image(),
-                                              target->msaa_depth_view(),
-                                              VK_IMAGE_ASPECT_DEPTH_BIT);
-            builder.write(msaa_depth, ResourceAccess::depth_attachment);
-        } else {
-            auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
-                                         VK_IMAGE_ASPECT_DEPTH_BIT);
-            builder.write(depth, ResourceAccess::depth_attachment);
-        }
-
-        graph.submit_declared_pass("depth_prepass", builder,
-            [&depth_pass, ctx](VkCommandBuffer cb) {
-#ifdef FJELL_ENABLE_TRACY
-                TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Depth Prepass");
-#endif
-                FrameContext local = ctx;
-                local.cmd = cb;
-                depth_pass.record(local);
-            });
-    }
-
-    // depth_resolve: MSAA-only. Resolves MSAA depth into the non-MSAA
-    // depth attachment using vkCmdBeginRendering's resolve machinery.
-    // Reads MSAA depth and writes non-MSAA depth.
+    PassBuilder builder;
+    builder.parallel_group(1);
     if (has_msaa) {
-        PassBuilder builder;
         auto msaa_depth = builder.import("msaa_depth", target->msaa_depth_image(),
                                           target->msaa_depth_view(),
                                           VK_IMAGE_ASPECT_DEPTH_BIT);
+        builder.write(msaa_depth, ResourceAccess::depth_attachment);
+    } else {
         auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
                                      VK_IMAGE_ASPECT_DEPTH_BIT);
-        builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
         builder.write(depth, ResourceAccess::depth_attachment);
-
-        graph.submit_declared_pass("depth_resolve", builder,
-            [ctx](VkCommandBuffer cb) {
-                auto* t = ctx.target;
-                VkRenderingAttachmentInfo depth_attachment{};
-                depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
-                depth_attachment.imageView = t->msaa_depth_view();
-                depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-                depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-                depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-                depth_attachment.resolveImageView = t->depth_view();
-                depth_attachment.resolveImageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-                depth_attachment.resolveMode = VK_RESOLVE_MODE_SAMPLE_ZERO_BIT;
-
-                VkRenderingInfo ri{};
-                ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
-                ri.renderArea.extent = t->extent();
-                ri.layerCount = 1;
-                ri.pDepthAttachment = &depth_attachment;
-
-                vkCmdBeginRendering(cb, &ri);
-                vkCmdEndRendering(cb);
-            });
     }
+
+    graph.submit_declared_pass("depth_prepass", builder,
+        [&depth_pass, ctx](VkCommandBuffer cb) {
+#ifdef FJELL_ENABLE_TRACY
+            TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), cb, "Depth Prepass");
+#endif
+            FrameContext local = ctx;
+            local.cmd = cb;
+            depth_pass.record(local);
+        });
 }
 
 } // namespace fjell

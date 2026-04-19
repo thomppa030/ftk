@@ -11,7 +11,9 @@
 #include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "renderer/pass/depth_prepass.hpp"
+#include "renderer/pass/depth_resolve_pass.hpp"
 #include "renderer/pass/depth_viz_pass.hpp"
+#include "renderer/pass/distortion_apply_pass.hpp"
 #include "renderer/pass/distortion_pass.hpp"
 #include "renderer/pass/exposure_pass.hpp"
 #include "renderer/pass/grid_pass.hpp"
@@ -65,6 +67,7 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
 
     // ── Core geometry passes ───────────────────────────────────────────
     add("depth_prepass", std::make_unique<DepthPrePass>());
+    add("depth_resolve", std::make_unique<DepthResolvePass>());
     add("hiz", std::make_unique<HizPass>());
     add("instance_cull", std::make_unique<InstanceCullPass>());
 
@@ -99,6 +102,7 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("opaque", std::make_unique<OpaquePass>());
     add("screen_color_copy", std::make_unique<ScreenColorCopyPass>());
     add("distortion", std::make_unique<DistortionPass>());
+    add("distortion_apply", std::make_unique<DistortionApplyPass>());
     add("subsystem_compute", std::make_unique<SubsystemComputePass>());
     add("taa_resolve", std::make_unique<TaaResolvePass>());
     add("exposure", std::make_unique<ExposurePass>());
