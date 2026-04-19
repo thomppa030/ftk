@@ -52,9 +52,44 @@ PassSetup OpaquePass::setup() const {
     };
 }
 
-void OpaquePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (10 attachment imports) is produced inside
-    // build() below until Phase 2 routes declare() through the pipeline.
+void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // G-buffer writes. In non-MSAA mode the msaa_* names alias the
+    // non-MSAA images in the catalog so both handles point at the
+    // same VkImage — FrameGraph dedups them.
+    auto msaa_color = builder.import_named(ctx, "msaa_color");
+    auto color = builder.import_named(ctx, "color");
+    auto msaa_mr = builder.import_named(ctx, "msaa_mr");
+    auto mr = builder.import_named(ctx, "mr");
+    auto msaa_normal = builder.import_named(ctx, "msaa_normal");
+    auto normal = builder.import_named(ctx, "normal");
+    auto msaa_velocity = builder.import_named(ctx, "msaa_velocity");
+    auto velocity = builder.import_named(ctx, "velocity");
+    auto msaa_depth = builder.import_named(ctx, "msaa_depth");
+    auto depth = builder.import_named(ctx, "depth");
+
+    builder.write(msaa_color, ResourceAccess::color_attachment);
+    builder.write(color, ResourceAccess::color_attachment);
+    builder.write(msaa_mr, ResourceAccess::color_attachment);
+    builder.write(mr, ResourceAccess::color_attachment);
+    builder.write(msaa_normal, ResourceAccess::color_attachment);
+    builder.write(normal, ResourceAccess::color_attachment);
+    builder.write(msaa_velocity, ResourceAccess::color_attachment);
+    builder.write(velocity, ResourceAccess::color_attachment);
+    builder.write(msaa_depth, ResourceAccess::depth_attachment);
+    builder.write(depth, ResourceAccess::depth_attachment);
+
+    // Consumed producer outputs. Declared reads here are what lets the
+    // DAG see the cross-pass edges currently papered over by inline
+    // finalize-to-SHADER_READ_ONLY barriers in the producers.
+    if (auto atlas = builder.import_named(ctx, "shadow_atlas"); atlas.valid()) {
+        builder.read(atlas, ResourceAccess::sampled_fragment);
+    }
+    if (auto atlas = builder.import_named(ctx, "local_shadow_atlas"); atlas.valid()) {
+        builder.read(atlas, ResourceAccess::sampled_fragment);
+    }
+    if (auto cubemap = builder.import_named(ctx, "sky_cubemap"); cubemap.valid()) {
+        builder.read(cubemap, ResourceAccess::sampled_fragment);
+    }
 }
 
 void OpaquePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
