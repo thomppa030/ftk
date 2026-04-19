@@ -22,6 +22,10 @@ struct SplineComponent : NodeComponent {
     /// Set to true by the editor whenever points or modes change.
     /// Consumers (chain sim, renderer) clear it after reacting.
     bool dirty{true};
+
+    /// Editor-only: index of the control point currently being manipulated
+    /// by the viewport gizmo. -1 when no point is selected. Not serialized.
+    int editor_selected_point{-1};
 };
 
 } // namespace fjell

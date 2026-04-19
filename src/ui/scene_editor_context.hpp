@@ -117,6 +117,7 @@ private:
     void draw_picking(ViewportPanel& vp);
     void draw_gizmo(ViewportPanel& vp);
     void draw_play_toolbar();
+    void draw_spline_visuals();
 
     // Gizmo drag state
     bool gizmo_dragging_{false};

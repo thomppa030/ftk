@@ -77,6 +77,7 @@ static const bool registered = [] {
             ImGui::SameLine();
             if (ImGui::Button("Clear") && !points.empty()) {
                 points.clear();
+                sp->editor_selected_point = -1;
                 mark_dirty(sp);
                 changed = true;
             }
@@ -96,8 +97,15 @@ static const bool registered = [] {
             for (size_t i = 0; i < points.size(); ++i) {
                 ImGui::PushID(static_cast<int>(i));
                 auto& p = points[i];
-                char header[32];
-                std::snprintf(header, sizeof(header), "#%zu  k=%.2f", i, p.input_key);
+                const bool is_sel = (sp->editor_selected_point == static_cast<int>(i));
+                char header[48];
+                std::snprintf(header, sizeof(header), "%s#%zu  k=%.2f",
+                              is_sel ? "* " : "  ", i, p.input_key);
+                if (ImGui::SmallButton(is_sel ? "-" : "+")) {
+                    sp->editor_selected_point = is_sel ? -1 : static_cast<int>(i);
+                    changed = true;
+                }
+                ImGui::SameLine();
                 if (ImGui::TreeNode("node", "%s", header)) {
                     bool row_changed = false;
 
@@ -134,6 +142,8 @@ static const bool registered = [] {
 
             if (to_delete >= 0) {
                 sp->spline.remove_point(static_cast<size_t>(to_delete));
+                if (sp->editor_selected_point == to_delete)      sp->editor_selected_point = -1;
+                else if (sp->editor_selected_point > to_delete)  sp->editor_selected_point -= 1;
                 mark_dirty(sp);
                 changed = true;
             }

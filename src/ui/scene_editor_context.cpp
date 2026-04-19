@@ -18,7 +18,9 @@
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "renderer/resources/skeletal_model.hpp"
+#include "renderer/components/spline_component.hpp"
 #include "renderer/components/sprite_desc.hpp"
+#include "scripting/debug_draw_queue.hpp"
 #include "renderer/resources/texture.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -172,6 +174,9 @@ void SceneEditorContext::draw(float dt) {
         draw_gizmo(*vp);
     }
 
+    // Spline viewport overlays (polyline + control points for the selected node)
+    draw_spline_visuals();
+
     // Play toolbar (centered in viewport toolbar area)
     draw_play_toolbar();
 
@@ -213,6 +218,60 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
 
         glm::vec3 ray_origin = glm::vec3(world_near);
         glm::vec3 ray_dir = glm::normalize(glm::vec3(world_far - world_near));
+
+        // ── Spline control-point pick (any spline in the scene) ──
+        // Ray-test every control point on every SplineComponent. On a hit,
+        // select the owning node and its handle in one click — the usual
+        // Unreal-style workflow. This takes priority over mesh AABB picking.
+        {
+            constexpr float kHandleRadius = 0.12f;
+            float    best_t  = std::numeric_limits<float>::max();
+            uint32_t best_node{0};
+            int      best_point{-1};
+
+            for (const auto& obj : deps_.scene->objects()) {
+                const auto* spatial = obj->as_spatial();
+                if (!spatial) continue;
+                auto* sp = obj->components.get<SplineComponent>();
+                if (!sp) continue;
+
+                const glm::mat4& world = spatial->world_matrix_;
+                for (size_t i = 0; i < sp->spline.points.size(); ++i) {
+                    const glm::vec3 center = glm::vec3(
+                        world * glm::vec4(sp->spline.points[i].value, 1.0f));
+                    const glm::vec3 oc = ray_origin - center;
+                    const float b = glm::dot(oc, ray_dir);
+                    const float c = glm::dot(oc, oc) - kHandleRadius * kHandleRadius;
+                    const float disc = b * b - c;
+                    if (disc < 0.0f) continue;
+                    const float sqrt_d = std::sqrt(disc);
+                    const float t0 = -b - sqrt_d;
+                    const float t = t0 >= 0.0f ? t0 : (-b + sqrt_d);
+                    if (t >= 0.0f && t < best_t) {
+                        best_t     = t;
+                        best_node  = obj->id;
+                        best_point = static_cast<int>(i);
+                    }
+                }
+            }
+
+            if (best_point >= 0) {
+                // Clear handle selection on any other spline in the scene so
+                // only one is ever "active".
+                for (const auto& obj : deps_.scene->objects()) {
+                    if (auto* other = obj->components.get<SplineComponent>()) {
+                        if (obj->id != best_node) other->editor_selected_point = -1;
+                    }
+                }
+                selected_id_ = best_node;
+                if (auto* hit_obj = deps_.scene->find_spatial(best_node)) {
+                    if (auto* sp = hit_obj->components.get<SplineComponent>()) {
+                        sp->editor_selected_point = best_point;
+                    }
+                }
+                return;  // don't fall through to node picking
+            }
+        }
 
         float closest_t = std::numeric_limits<float>::max();
         uint32_t hit_id = 0;
@@ -277,6 +336,13 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
         return;
     }
 
+    // If the selected object has a SplineComponent with a selected control
+    // point, the gizmo manipulates that point instead of the node.
+    auto* sp = obj->components.get<SplineComponent>();
+    const bool spline_point_mode = sp
+        && sp->editor_selected_point >= 0
+        && sp->editor_selected_point < static_cast<int>(sp->spline.points.size());
+
     // Must draw inside the viewport window for ImGuizmo
     if (!ImGui::Begin(vp.title.c_str())) {
         ImGui::End();
@@ -295,14 +361,24 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
 
     // Snapshot at drag start
     if (!gizmo_dragging_) {
-        gizmo_matrix_ = obj->world_matrix_;
-        gizmo_start_world_ = obj->world_matrix_;
-        gizmo_start_transform_ = obj->transform;
+        if (spline_point_mode) {
+            const glm::vec3 local_pos = sp->spline.points[sp->editor_selected_point].value;
+            gizmo_matrix_ = obj->world_matrix_ * glm::translate(glm::mat4(1.0f), local_pos);
+            gizmo_start_world_ = gizmo_matrix_;
+            gizmo_start_transform_ = obj->transform;
+        } else {
+            gizmo_matrix_ = obj->world_matrix_;
+            gizmo_start_world_ = obj->world_matrix_;
+            gizmo_start_transform_ = obj->transform;
+        }
     }
 
+    // Spline points only translate (rotation/scale would rotate the node, not the point).
     ImGuizmo::OPERATION op = ImGuizmo::TRANSLATE;
-    if (gizmo_op_ == 1) op = ImGuizmo::ROTATE;
-    if (gizmo_op_ == 2) op = ImGuizmo::SCALE;
+    if (!spline_point_mode) {
+        if (gizmo_op_ == 1) op = ImGuizmo::ROTATE;
+        if (gizmo_op_ == 2) op = ImGuizmo::SCALE;
+    }
 
     ImGuizmo::Manipulate(
         glm::value_ptr(view),
@@ -313,7 +389,7 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
 
     ImGui::End();
 
-    auto apply_gizmo = [&] {
+    auto apply_node_gizmo = [&] {
         glm::mat4 parent_world{1.0f};
         if (obj->parent_id != -1) {
             const auto* parent = deps_.scene->find(
@@ -326,17 +402,115 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
         obj->world_matrix_ = gizmo_matrix_;
     };
 
+    auto apply_spline_gizmo = [&] {
+        // Extract world-space position from the gizmo matrix, then map back
+        // into the node's local space.
+        const glm::vec3 world_pos = glm::vec3(gizmo_matrix_[3]);
+        const glm::vec3 local_pos = glm::vec3(
+            glm::inverse(obj->world_matrix_) * glm::vec4(world_pos, 1.0f));
+        sp->spline.points[sp->editor_selected_point].value = local_pos;
+        sp->spline.auto_set_tangents();
+        sp->spline.build_reparam_table(sp->reparam_samples);
+        sp->dirty = true;
+    };
+
     if (ImGuizmo::IsUsing()) {
         gizmo_dragging_ = true;
-        apply_gizmo();
+        if (spline_point_mode) apply_spline_gizmo();
+        else                   apply_node_gizmo();
         deps_.scene->mark_dirty();
     } else if (gizmo_dragging_) {
         gizmo_dragging_ = false;
-        apply_gizmo();
-        command_history().execute(std::make_unique<TransformCommand>(
-            *deps_.scene, obj->id,
-            gizmo_start_transform_, obj->transform,
-            obj->name));
+        if (spline_point_mode) {
+            apply_spline_gizmo();
+            // Undo support for spline edits: skip for now — same reason as
+            // instanced-mesh per-instance drags (no command type yet).
+        } else {
+            apply_node_gizmo();
+            command_history().execute(std::make_unique<TransformCommand>(
+                *deps_.scene, obj->id,
+                gizmo_start_transform_, obj->transform,
+                obj->name));
+        }
+    }
+}
+
+void SceneEditorContext::draw_spline_visuals() {
+    auto* queue = deps_.vulkan_context->debug_draw_queue();
+    if (!queue) return;
+
+    auto* obj = deps_.scene->find_spatial(selected_id_);
+    if (!obj) return;
+    auto* sp = obj->components.get<SplineComponent>();
+    if (!sp || sp->spline.points.size() < 1) return;
+
+    const glm::mat4& world = obj->world_matrix_;
+
+    auto to_world = [&](const glm::vec3& local) {
+        return glm::vec3(world * glm::vec4(local, 1.0f));
+    };
+
+    // Polyline: sample N segments using the reparam table when populated,
+    // otherwise fall back to direct t-parameter sampling.
+    constexpr int kSamples = 64;
+    const glm::vec4 curve_col{0.45f, 0.75f, 0.95f, 1.0f};
+
+    if (sp->spline.points.size() >= 2) {
+        const float len = sp->spline.total_length();
+        glm::vec3 prev = to_world(sp->spline.evaluate(sp->spline.min_key()));
+        if (len > 0.0f) {
+            for (int i = 1; i <= kSamples; ++i) {
+                const float s = len * (static_cast<float>(i) / static_cast<float>(kSamples));
+                const glm::vec3 w = to_world(sp->spline.evaluate_at_distance(s));
+                queue->line(prev, w, curve_col);
+                prev = w;
+            }
+        } else {
+            const float k0 = sp->spline.min_key();
+            const float k1 = sp->spline.max_key();
+            for (int i = 1; i <= kSamples; ++i) {
+                const float t = static_cast<float>(i) / static_cast<float>(kSamples);
+                const glm::vec3 w = to_world(sp->spline.evaluate(k0 + (k1 - k0) * t));
+                queue->line(prev, w, curve_col);
+                prev = w;
+            }
+        }
+    }
+
+    // Control-point handles: sphere per point, selected one highlighted.
+    constexpr float kHandleRadius = 0.08f;
+    const glm::vec4 pt_col{1.0f, 1.0f, 1.0f, 1.0f};
+    const glm::vec4 pt_sel{1.0f, 0.65f, 0.15f, 1.0f};
+    for (size_t i = 0; i < sp->spline.points.size(); ++i) {
+        const glm::vec3 w = to_world(sp->spline.points[i].value);
+        const bool selected = (sp->editor_selected_point == static_cast<int>(i));
+        queue->sphere(w, kHandleRadius, selected ? pt_sel : pt_col);
+    }
+
+    // Tangent handles for CurveUser / CurveBreak: draw a line from the point
+    // to a ball at position + tangent * (segment span * 0.25) on each side.
+    const glm::vec4 tan_col{0.6f, 1.0f, 0.5f, 1.0f};
+    const auto& pts = sp->spline.points;
+    for (size_t i = 0; i < pts.size(); ++i) {
+        const auto& p = pts[i];
+        if (p.interp_mode != SplineInterp::CurveUser &&
+            p.interp_mode != SplineInterp::CurveBreak) continue;
+
+        // Tangents are dValue/dInputKey — scale into "handle length" using the
+        // adjacent key spans so the visuals look similar regardless of key scale.
+        const float dx_prev = (i > 0)             ? (p.input_key - pts[i - 1].input_key) : 1.0F;
+        const float dx_next = (i + 1 < pts.size()) ? (pts[i + 1].input_key - p.input_key) : 1.0F;
+        const glm::vec3 pos = p.value;
+        const glm::vec3 handle_in  = pos - p.arrive_tangent * (dx_prev * 0.25F);
+        const glm::vec3 handle_out = pos + p.leave_tangent  * (dx_next * 0.25F);
+
+        const glm::vec3 pw = to_world(pos);
+        const glm::vec3 hin_w  = to_world(handle_in);
+        const glm::vec3 hout_w = to_world(handle_out);
+        queue->line(pw, hin_w, tan_col);
+        queue->line(pw, hout_w, tan_col);
+        queue->sphere(hin_w,  kHandleRadius * 0.7F, tan_col);
+        queue->sphere(hout_w, kHandleRadius * 0.7F, tan_col);
     }
 }
 
