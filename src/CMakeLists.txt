@@ -36,6 +36,7 @@ add_executable(fjell
     core/game_builder.cpp
     core/engine.cpp
     core/layer_stack.cpp
+    core/math/spline.cpp
     core/input.cpp
     core/input_action_map.cpp
     core/input_context_io.cpp

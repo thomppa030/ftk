@@ -1,6 +1,7 @@
 # --- Testable engine subset (no Vulkan, no GLFW, no ImGui) ---
 add_library(fjell-testable STATIC
     test_log_stub.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
@@ -38,6 +39,7 @@ add_executable(fjell-tests
     test_style_resolver.cpp
     test_data_bind.cpp
     test_ui_animation.cpp
+    test_spline.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE
