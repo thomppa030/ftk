@@ -2,6 +2,7 @@
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -69,7 +70,8 @@ const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& na
 void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               VkSampleCountFlagBits msaa, uint32_t /*active_sources*/,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
-                              uint32_t frame_index, ResourceRegistry& registry) {
+                              uint32_t frame_index, ResourceRegistry& registry,
+                              PassRegistry& passes) {
     FJELL_PROFILE_SCOPE_N("render_pipeline_execute");
 
     // Topological sort by resource dependencies, order as tiebreaker
@@ -145,6 +147,45 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         decl_ctx.frame_index     = frame_index;
         // Scene-summary + feature toggles stay at defaults in C1. No Phase 1
         // port branches on them, so topology is identical regardless.
+
+        // Populate the named-image catalog with the viewport's framebuffer
+        // images. Consumers look these up by name through
+        // PassBuilder::import_named(). Producer passes add their persistent
+        // outputs (shadow atlases, Hi-Z, cubemaps) via collect_exports_all.
+        const bool has_msaa_decl = (msaa != VK_SAMPLE_COUNT_1_BIT);
+        auto add_import = [&](std::string name, VkImage img, VkImageView view,
+                               VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
+            decl_ctx.imports.emplace(std::move(name),
+                ImportedImage{img, view, aspect, 0, 1});
+        };
+        add_import("color",        target.color_image(),        target.color_view());
+        add_import("depth",        target.depth_image(),        target.depth_view(),
+                   VK_IMAGE_ASPECT_DEPTH_BIT);
+        add_import("mr",           target.mr_image(),           target.mr_view());
+        add_import("normal",       target.normal_image(),       target.normal_view());
+        add_import("velocity",     target.velocity_image(),     target.velocity_view());
+        add_import("screen_color", target.screen_color_image(), target.screen_color_view());
+        add_import("distortion",   target.distortion_image(),   target.distortion_view());
+        if (has_msaa_decl) {
+            add_import("msaa_color",    target.msaa_color_image(),    target.msaa_color_view());
+            add_import("msaa_depth",    target.msaa_depth_image(),    target.msaa_depth_view(),
+                       VK_IMAGE_ASPECT_DEPTH_BIT);
+            add_import("msaa_mr",       target.msaa_mr_image(),       target.msaa_mr_view());
+            add_import("msaa_normal",   target.msaa_normal_image(),   target.msaa_normal_view());
+            add_import("msaa_velocity", target.msaa_velocity_image(), target.msaa_velocity_view());
+        } else {
+            // MSAA off: the msaa_* slots alias the non-MSAA images so
+            // passes that unconditionally import by the msaa name still
+            // resolve to a valid VkImage.
+            add_import("msaa_color",    target.color_image(),    target.color_view());
+            add_import("msaa_depth",    target.depth_image(),    target.depth_view(),
+                       VK_IMAGE_ASPECT_DEPTH_BIT);
+            add_import("msaa_mr",       target.mr_image(),       target.mr_view());
+            add_import("msaa_normal",   target.normal_image(),   target.normal_view());
+            add_import("msaa_velocity", target.velocity_image(), target.velocity_view());
+        }
+
+        passes.collect_exports_all(decl_ctx);
 
         struct DeclaredPass {
             size_t entry_index{0};

@@ -93,6 +93,16 @@ public:
         }
     }
 
+    /// Gather every pass's persistent exports into the DeclareContext's
+    /// named-image catalog. Called by RenderPipeline before any pass's
+    /// declare() runs, so consumers can resolve "shadow_atlas" etc.
+    /// through PassBuilder::import_named().
+    void collect_exports_all(DeclareContext& ctx) {
+        for (const auto& name : order_) {
+            passes_[name]->collect_exports(ctx);
+        }
+    }
+
     /// Register all passes with a RenderPipeline. Iterates passes, calls
     /// setup() for name/phase/ordering, and registers a build callback
     /// that delegates to the pass's build() method.

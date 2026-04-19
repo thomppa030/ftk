@@ -5,10 +5,23 @@
 #include <glm/vec2.hpp>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 #include <vulkan/vulkan.h>
 
 namespace fjell {
+
+/// A named image made available to pass declare() bodies. The pipeline
+/// registers target framebuffer images up front; producer passes add
+/// their persistent outputs via RenderPass::collect_exports(). Passes
+/// reach these by name through PassBuilder::import_named().
+struct ImportedImage {
+    VkImage image{VK_NULL_HANDLE};
+    VkImageView view{VK_NULL_HANDLE};
+    VkImageAspectFlags aspect{VK_IMAGE_ASPECT_COLOR_BIT};
+    uint32_t base_layer{0};
+    uint32_t layer_count{1};
+};
 
 /// State visible during pass declaration. Intentionally smaller than
 /// FrameContext: only contains information that is legal to read when
@@ -41,6 +54,14 @@ struct DeclareContext {
     bool ddgi_enabled{true};
     bool ss_gi_enabled{true};
     bool contact_shadows_enabled{true};
+
+    /// Named image catalog. Populated by the pipeline: target framebuffer
+    /// images (color/depth/normal/…/screen_color) and any persistent
+    /// images producer passes export via collect_exports(). Passes call
+    /// PassBuilder::import_named(ctx, "name") to attach an access, which
+    /// lets the graph see the cross-pass edge and emit the barrier
+    /// automatically instead of passes hand-rolling inline transitions.
+    std::unordered_map<std::string, ImportedImage> imports;
 };
 
 /// Records a pass's imported/created resources and its accesses against
@@ -72,6 +93,13 @@ public:
                           uint32_t base_layer = 0, uint32_t layer_count = 1,
                           VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
     FgBuffer import(std::string_view name, VkBuffer buffer, VkDeviceSize size);
+
+    /// Import an image by the name it was registered under in the
+    /// pipeline-provided DeclareContext catalog. Returns an invalid
+    /// handle and warns if the name isn't present — typo-safe without
+    /// crashing the frame.
+    FgTexture import_named(const DeclareContext& ctx, std::string_view name,
+                           VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
 
     // ── Access declarations ────────────────────────────────────────────
 

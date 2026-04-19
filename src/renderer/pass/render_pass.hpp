@@ -225,6 +225,14 @@ public:
     /// exists.
     virtual void declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {}
 
+    /// Register persistent images this pass owns and exposes to other
+    /// passes under a stable name. The pipeline calls this on every pass
+    /// before any declare() runs, building up the DeclareContext's
+    /// named-image catalog. Consumers then reach these by name through
+    /// PassBuilder::import_named() — no direct coupling to the producer
+    /// class. Shadow atlases, Hi-Z pyramids, sky cubemaps, etc. go here.
+    virtual void collect_exports(DeclareContext& /*ctx*/) {}
+
     /// Whether this pass implements declare() and should be routed
     /// through the DAG path instead of the legacy build() path. Default
     /// is false; passes that implement declare() override to return true.
