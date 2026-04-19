@@ -211,9 +211,9 @@ void SceneSdfPass::create_compute_pipeline() {
     write.pImageInfo = &img_info;
     vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
 
-    // Allocate mesh SDF buffer (4MB — room for ~60 meshes at 32³)
+    // Allocate mesh SDF buffer (128MB — room for ~2000 meshes at 32³)
     mesh_sdf_buffer_ = std::make_unique<Buffer>(
-        allocator_, 4 * 1024 * 1024,
+        allocator_, 128 * 1024 * 1024,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
