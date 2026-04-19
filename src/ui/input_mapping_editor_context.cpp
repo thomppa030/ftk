@@ -16,8 +16,6 @@
 
 namespace fjell {
 
-// ── Modifier helpers ────────────────────────────────────────────────
-
 static const char* modifier_type_label(ModifierType type) {
     switch (type) {
         case ModifierType::scale: return "Scale";
@@ -37,13 +35,13 @@ static const char* action_type_label(ActionType type) {
     return "Button";
 }
 
-static ImVec4 action_type_color(ActionType type) {
+static ImU32 action_type_color(ActionType type) {
     switch (type) {
-        case ActionType::button: return {0.5f, 0.8f, 0.5f, 1.0f};
-        case ActionType::axis1d: return {0.5f, 0.7f, 1.0f, 1.0f};
-        case ActionType::axis2d: return {1.0f, 0.7f, 0.4f, 1.0f};
+        case ActionType::button: return IM_COL32(120, 200, 120, 255);
+        case ActionType::axis1d: return IM_COL32(120, 170, 255, 255);
+        case ActionType::axis2d: return IM_COL32(255, 180, 100, 255);
     }
-    return {1.0f, 1.0f, 1.0f, 1.0f};
+    return IM_COL32(255, 255, 255, 255);
 }
 
 // ── Lifecycle ───────────────────────────────────────────────────────
@@ -60,7 +58,7 @@ void InputMappingEditorContext::shutdown() {
     rebinding_ = false;
 }
 
-// ── Open ────────────────────────────────────────────────────────────
+// ── Open / Save ─────────────────────────────────────────────────────
 
 void InputMappingEditorContext::open_context(const std::string& fjinput_path) {
     fjinput_path_ = fjinput_path;
@@ -71,18 +69,11 @@ void InputMappingEditorContext::open_context(const std::string& fjinput_path) {
     dirty_ = false;
 
     scan_actions();
-
-    FJELL_CORE_INFO("Input mapping editor opened: {}", fjinput_path);
 }
 
-void InputMappingEditorContext::open_action(const std::string& fjaction_path) {
+void InputMappingEditorContext::open_action(const std::string& /*fjaction_path*/) {
     scan_actions();
-
-    auto stem = std::filesystem::path(fjaction_path).stem().string();
-    focused_action_ = stem;
     name_ = "Input Mapping";
-
-    FJELL_CORE_INFO("Input mapping editor opened for action: {}", stem);
 }
 
 void InputMappingEditorContext::scan_actions() {
@@ -91,14 +82,11 @@ void InputMappingEditorContext::scan_actions() {
         auto resolved = deps_.project_mgr->active()->resolve(actions_dir);
         discovered_actions_ = scan_action_files(resolved);
     }
-
     std::sort(discovered_actions_.begin(), discovered_actions_.end(),
               [](const InputActionDef& a, const InputActionDef& b) {
                   return a.name < b.name;
               });
 }
-
-// ── Save ────────────────────────────────────────────────────────────
 
 bool InputMappingEditorContext::save() {
     if (fjinput_abs_path_.empty()) return false;
@@ -113,29 +101,19 @@ bool InputMappingEditorContext::save() {
 
 std::vector<std::string> InputMappingEditorContext::docked_window_names() const {
     return {
-        ctx_title("Actions"),
-        ctx_title("Bindings"),
-        ctx_title("Context Properties"),
-        ctx_title("Live Preview"),
+        ctx_title("Mappings"),
         ctx_title("History"),
-        ctx_title("Stats"),
         ctx_title("Console"),
     };
 }
 
 void InputMappingEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Actions, Bindings, Properties, LivePreview, History, Stats, Console };
+    enum class EPanel { Mappings, History, Console };
     using N = DockNode;
 
-    static const auto layout = N::horizontal_split(0.20f,
-        N::leaf({EPanel::Actions}),
-        N::horizontal_split(0.72f,
-            N::vertical_split(0.80f,
-                N::leaf({EPanel::Bindings}),
-                N::leaf({EPanel::Stats, EPanel::Console})),
-            N::vertical_split(0.45f,
-                N::leaf({EPanel::Properties}),
-                N::leaf({EPanel::LivePreview, EPanel::History}))));
+    static const auto layout = N::vertical_split(0.85f,
+        N::leaf({EPanel::Mappings}),
+        N::leaf({EPanel::History, EPanel::Console}));
 
     build_dockspace(main_area, layout, docked_window_names());
 }
@@ -143,20 +121,17 @@ void InputMappingEditorContext::setup_dockspace(ImGuiID main_area) {
 // ── Draw ────────────────────────────────────────────────────────────
 
 void InputMappingEditorContext::draw(float dt) {
-    // Check rebind completion — poll raw Input directly because draw() runs
-    // after poll_events(), so we can see the Pressed state that update() misses.
+    // Poll raw Input for rebind completion
     if (rebinding_) {
         InputSource captured = InputSource::none;
 
-        // Keyboard
         for (int k = 32; k < 349; ++k) {
-            if (k == GLFW_KEY_ESCAPE) continue; // Escape cancels, handled in shortcuts
+            if (k == GLFW_KEY_ESCAPE) continue;
             if (deps_.input->is_key_pressed(k)) {
                 captured = static_cast<InputSource>(k);
                 break;
             }
         }
-        // Mouse buttons
         if (captured == InputSource::none) {
             for (int b = 0; b < 5; ++b) {
                 if (deps_.input->is_mouse_button_pressed(b)) {
@@ -166,7 +141,6 @@ void InputMappingEditorContext::draw(float dt) {
                 }
             }
         }
-        // Gamepad buttons
         if (captured == InputSource::none) {
             for (int b = 0; b < 15; ++b) {
                 if (deps_.input->pad_button_pressed(b)) {
@@ -192,11 +166,24 @@ void InputMappingEditorContext::draw(float dt) {
         }
     }
 
-    draw_actions_panel();
-    draw_bindings_panel();
-    draw_context_properties();
-    draw_live_preview();
+    draw_mappings();
     draw_shared_panels(dt);
+
+    // Deferred removal
+    if (remove_binding_idx_ >= 0) {
+        context_.bindings.erase(context_.bindings.begin() + remove_binding_idx_);
+        dirty_ = true;
+        remove_binding_idx_ = -1;
+    }
+    if (!remove_action_name_.empty()) {
+        auto it = std::remove_if(context_.bindings.begin(), context_.bindings.end(),
+            [&](const InputBinding& b) { return b.action == remove_action_name_; });
+        if (it != context_.bindings.end()) {
+            context_.bindings.erase(it, context_.bindings.end());
+            dirty_ = true;
+        }
+        remove_action_name_.clear();
+    }
 }
 
 bool InputMappingEditorContext::handle_shortcuts() {
@@ -207,81 +194,67 @@ bool InputMappingEditorContext::handle_shortcuts() {
     return false;
 }
 
-// ── Actions Panel ───────────────────────────────────────────────────
+// ── Mappings (single main panel) ────────────────────────────────────
 
-void InputMappingEditorContext::draw_actions_panel() {
-    auto title = ctx_title("Actions");
+void InputMappingEditorContext::draw_mappings() {
+    auto title = ctx_title("Mappings");
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{16.0f, 12.0f});
     if (!ImGui::Begin(title.c_str())) {
         ImGui::End();
+        ImGui::PopStyleVar();
         return;
     }
-
-    if (ImGui::Button("Refresh")) {
-        scan_actions();
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%d actions)", static_cast<int>(discovered_actions_.size()));
-
-    ImGui::Separator();
-
-    for (const auto& action : discovered_actions_) {
-        ImGui::PushID(action.name.c_str());
-
-        // Drag source for adding bindings
-        ImGui::Selectable(action.name.c_str(), action.name == focused_action_);
-        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-            ImGui::SetDragDropPayload("ACTION_NAME", action.name.c_str(),
-                                      action.name.size() + 1);
-            ImGui::Text("Add binding: %s", action.name.c_str());
-            ImGui::EndDragDropSource();
-        }
-
-        // Type badge
-        ImGui::SameLine();
-        ImGui::TextColored(action_type_color(action.type), "[%s]",
-                           action_type_label(action.type));
-
-        // Scroll to focused action
-        if (action.name == focused_action_ && !focused_action_.empty()) {
-            ImGui::SetScrollHereY(0.5f);
-            focused_action_.clear();
-        }
-
-        ImGui::PopID();
-    }
-
-    ImGui::End();
-}
-
-// ── Bindings Panel ──────────────────────────────────────────────────
-
-void InputMappingEditorContext::draw_bindings_panel() {
-    auto title = ctx_title("Bindings");
-    if (!ImGui::Begin(title.c_str())) {
-        ImGui::End();
-        return;
-    }
+    ImGui::PopStyleVar();
 
     if (fjinput_path_.empty()) {
-        ImGui::TextDisabled("No .fjinput file loaded");
-        ImGui::TextDisabled("Double-click a .fjinput file in the content browser to open it.");
+        ImGui::TextDisabled("No .fjinput file loaded.");
         ImGui::End();
         return;
     }
 
-    // Drag-drop target: drop an action name to create a new binding
-    if (ImGui::BeginDragDropTarget()) {
-        if (const auto* payload = ImGui::AcceptDragDropPayload("ACTION_NAME")) {
-            std::string action_name(static_cast<const char*>(payload->Data));
-            InputBinding new_binding;
-            new_binding.action = action_name;
-            context_.bindings.push_back(std::move(new_binding));
+    // Header bar: context name, consume checkbox, add action
+    {
+        ImGui::SetNextItemWidth(200.0f);
+        char name_buf[128];
+        std::snprintf(name_buf, sizeof(name_buf), "%s", context_.name.c_str());
+        if (ImGui::InputText("##ContextName", name_buf, sizeof(name_buf))) {
+            context_.name = name_buf;
             dirty_ = true;
         }
-        ImGui::EndDragDropTarget();
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Context name");
+        }
+
+        ImGui::SameLine(0.0f, 16.0f);
+        if (ImGui::Checkbox("Consume", &context_.consume)) {
+            dirty_ = true;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Consume matched inputs, blocking lower contexts");
+        }
+
+        ImGui::SameLine(0.0f, 16.0f);
+        if (ImGui::Button("+ Add Action")) {
+            action_filter_[0] = '\0';
+            scan_actions();
+            ImGui::OpenPopup("add_action_popup");
+        }
+
+        if (dirty_) {
+            ImGui::SameLine(0.0f, 12.0f);
+            ImGui::TextColored({1.0f, 0.8f, 0.3f, 1.0f}, "(unsaved)");
+        }
+
+        draw_add_action_popup();
     }
 
-    // Group bindings by action
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    // Collect unique actions in binding order
     std::vector<std::string> action_order;
     for (const auto& binding : context_.bindings) {
         if (std::find(action_order.begin(), action_order.end(), binding.action) == action_order.end()) {
@@ -289,116 +262,138 @@ void InputMappingEditorContext::draw_bindings_panel() {
         }
     }
 
-    int remove_idx = -1;
+    if (action_order.empty()) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("No actions mapped. Click '+ Add Action' to get started.");
+    }
 
+    // Draw each action section
     for (const auto& action_name : action_order) {
-        // Find action type
-        ActionType action_type = ActionType::button;
+        ActionType type = ActionType::button;
         for (const auto& a : discovered_actions_) {
             if (a.name == action_name) {
-                action_type = a.type;
+                type = a.type;
                 break;
             }
         }
-
-        // Count bindings for this action
-        int count = 0;
-        for (const auto& b : context_.bindings) {
-            if (b.action == action_name) ++count;
-        }
-
-        ImGui::PushID(action_name.c_str());
-
-        // Header with action name + type badge
-        char header[256];
-        std::snprintf(header, sizeof(header), "%s  ", action_name.c_str());
-        bool open = ImGui::CollapsingHeader(header, ImGuiTreeNodeFlags_DefaultOpen);
-
-        // Type badge on same line as header
-        ImGui::SameLine(0.0f, 0.0f);
-        ImGui::TextColored(action_type_color(action_type), "[%s] (%d)",
-                           action_type_label(action_type), count);
-
-        if (open) {
-            ImGui::Indent(8.0f);
-
-            for (int i = 0; i < static_cast<int>(context_.bindings.size()); ++i) {
-                if (context_.bindings[i].action != action_name) continue;
-
-                ImGui::PushID(i);
-                draw_binding_row(i);
-
-                // Remove button
-                ImGui::SameLine();
-                if (ImGui::SmallButton("X")) {
-                    remove_idx = i;
-                }
-
-                ImGui::PopID();
-            }
-
-            // Add binding buttons
-            if (ImGui::SmallButton("+ Simple")) {
-                InputBinding new_binding;
-                new_binding.action = action_name;
-                context_.bindings.push_back(std::move(new_binding));
-                dirty_ = true;
-            }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("+ Composite")) {
-                InputBinding new_binding;
-                new_binding.action = action_name;
-                new_binding.up = InputSource::none;
-                new_binding.down = InputSource::none;
-                new_binding.left = InputSource::none;
-                new_binding.right = InputSource::none;
-                // Mark as composite by setting at least one direction to a sentinel
-                // is_composite() checks up != none, so we need to set a real key later
-                // For now, use key_w as placeholder to mark it composite
-                new_binding.up = InputSource::key_w;
-                new_binding.down = InputSource::key_s;
-                new_binding.left = InputSource::key_a;
-                new_binding.right = InputSource::key_d;
-                context_.bindings.push_back(std::move(new_binding));
-                dirty_ = true;
-            }
-
-            ImGui::Unindent(8.0f);
-            ImGui::Spacing();
-        }
-
-        ImGui::PopID();
-    }
-
-    // Process deferred removal
-    if (remove_idx >= 0) {
-        context_.bindings.erase(context_.bindings.begin() + remove_idx);
-        dirty_ = true;
+        draw_action_section(action_name, type);
     }
 
     ImGui::End();
 }
 
+void InputMappingEditorContext::draw_action_section(const std::string& action_name,
+                                                     ActionType type) {
+    ImGui::PushID(action_name.c_str());
+
+    // Action header with colored left strip
+    ImVec2 cursor = ImGui::GetCursorScreenPos();
+    float avail_w = ImGui::GetContentRegionAvail().x;
+    float header_h = ImGui::GetFrameHeight();
+
+    // Colored type indicator strip
+    auto* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(cursor, {cursor.x + 4.0f, cursor.y + header_h},
+                      action_type_color(type), 2.0f);
+
+    ImGui::Indent(14.0f);
+
+    bool open = ImGui::TreeNodeEx("##action", ImGuiTreeNodeFlags_DefaultOpen |
+                                               ImGuiTreeNodeFlags_AllowOverlap);
+
+    ImGui::SameLine();
+    ImGui::Text("%s", action_name.c_str());
+    ImGui::SameLine(0.0f, 8.0f);
+    ImGui::TextDisabled("[%s]", action_type_label(type));
+
+    // Right-aligned remove button
+    float remove_w = ImGui::CalcTextSize("Remove").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SameLine(avail_w - remove_w);
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.0f, 0.0f, 0.0f, 0.0f});
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.6f, 0.3f, 0.3f, 1.0f});
+    if (ImGui::SmallButton("Remove")) {
+        remove_action_name_ = action_name;
+    }
+    ImGui::PopStyleColor(2);
+
+    if (open) {
+        ImGui::Spacing();
+
+        // Binding rows
+        for (int i = 0; i < static_cast<int>(context_.bindings.size()); ++i) {
+            if (context_.bindings[i].action != action_name) continue;
+
+            ImGui::PushID(i);
+            draw_binding_row(i);
+            ImGui::PopID();
+            ImGui::Spacing();
+        }
+
+        // Add binding buttons
+        ImGui::Spacing();
+        ImGui::Indent(20.0f);
+        if (ImGui::SmallButton("+ Binding")) {
+            InputBinding b;
+            b.action = action_name;
+            context_.bindings.push_back(std::move(b));
+            dirty_ = true;
+        }
+        if (type == ActionType::axis2d) {
+            ImGui::SameLine(0.0f, 8.0f);
+            if (ImGui::SmallButton("+ Composite")) {
+                InputBinding b;
+                b.action = action_name;
+                b.up = InputSource::key_w;
+                b.down = InputSource::key_s;
+                b.left = InputSource::key_a;
+                b.right = InputSource::key_d;
+                context_.bindings.push_back(std::move(b));
+                dirty_ = true;
+            }
+        }
+        ImGui::Unindent(20.0f);
+
+        ImGui::TreePop();
+    }
+
+    ImGui::Unindent(14.0f);
+    ImGui::Spacing();
+    ImGui::Spacing();
+    ImGui::PopID();
+}
+
+// ── Binding row ─────────────────────────────────────────────────────
+
 void InputMappingEditorContext::draw_binding_row(int binding_idx) {
     auto& binding = context_.bindings[binding_idx];
 
+    ImGui::Indent(20.0f);
+
     if (binding.is_composite()) {
-        // Composite: four direction buttons
         draw_source_button("Up", binding.up, binding_idx, RebindTarget::up);
-        ImGui::SameLine();
-        draw_source_button("Down", binding.down, binding_idx, RebindTarget::down);
-        ImGui::SameLine();
-        draw_source_button("Left", binding.left, binding_idx, RebindTarget::left);
-        ImGui::SameLine();
-        draw_source_button("Right", binding.right, binding_idx, RebindTarget::right);
+        ImGui::SameLine(0.0f, 6.0f);
+        draw_source_button("Dn", binding.down, binding_idx, RebindTarget::down);
+        ImGui::SameLine(0.0f, 6.0f);
+        draw_source_button("Lt", binding.left, binding_idx, RebindTarget::left);
+        ImGui::SameLine(0.0f, 6.0f);
+        draw_source_button("Rt", binding.right, binding_idx, RebindTarget::right);
     } else {
-        // Single source button
-        draw_source_button("Source", binding.source, binding_idx, RebindTarget::source);
+        draw_source_button("Key", binding.source, binding_idx, RebindTarget::source);
     }
 
-    // Modifier chips
-    ImGui::SameLine();
+    // Modifiers
+    ImGui::SameLine(0.0f, 12.0f);
     draw_modifier_chips(binding_idx);
+
+    // Remove binding
+    ImGui::SameLine(0.0f, 8.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.5f, 0.5f, 0.5f, 1.0f});
+    if (ImGui::SmallButton("x")) {
+        remove_binding_idx_ = binding_idx;
+    }
+    ImGui::PopStyleColor();
+
+    ImGui::Unindent(20.0f);
 }
 
 bool InputMappingEditorContext::draw_source_button(const char* label, InputSource source,
@@ -408,17 +403,20 @@ bool InputMappingEditorContext::draw_source_button(const char* label, InputSourc
 
     char btn_label[128];
     if (is_this_rebinding) {
-        std::snprintf(btn_label, sizeof(btn_label), "%s: [...]##%s", label, label);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.8f, 0.6f, 0.2f, 1.0f});
+        std::snprintf(btn_label, sizeof(btn_label), "%s: ...##%s", label, label);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.7f, 0.5f, 0.15f, 1.0f});
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{0.8f, 0.6f, 0.2f, 1.0f});
+    } else if (source == InputSource::none) {
+        std::snprintf(btn_label, sizeof(btn_label), "%s: ---##%s", label, label);
     } else {
-        auto display = source != InputSource::none ? input_source_display_name(source) : "---";
+        auto display = input_source_display_name(source);
         std::snprintf(btn_label, sizeof(btn_label), "%s: %s##%s", label, display.c_str(), label);
     }
 
     bool clicked = ImGui::SmallButton(btn_label);
 
     if (is_this_rebinding) {
-        ImGui::PopStyleColor();
+        ImGui::PopStyleColor(2);
     }
 
     if (clicked && !rebinding_) {
@@ -435,203 +433,110 @@ void InputMappingEditorContext::draw_modifier_chips(int binding_idx) {
 
     for (int mi = 0; mi < static_cast<int>(binding.modifiers.size()); ++mi) {
         auto& mod = binding.modifiers[mi];
-        ImGui::PushID(mi + 1000); // offset to avoid ID collision with source buttons
+        ImGui::PushID(mi + 1000);
 
         char chip[64];
         if (mod.type == ModifierType::negate || mod.type == ModifierType::swizzle) {
             std::snprintf(chip, sizeof(chip), "%s", modifier_type_label(mod.type));
         } else {
-            std::snprintf(chip, sizeof(chip), "%s: %.2f", modifier_type_label(mod.type), mod.value);
+            std::snprintf(chip, sizeof(chip), "%s:%.2f", modifier_type_label(mod.type), mod.value);
         }
 
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.3f, 0.3f, 0.5f, 1.0f});
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.25f, 0.25f, 0.4f, 1.0f});
         if (ImGui::SmallButton(chip)) {
-            editing_modifier_binding_ = binding_idx;
-            editing_modifier_idx_ = mi;
-            ImGui::OpenPopup("edit_modifier");
+            ImGui::OpenPopup("edit_mod");
         }
         ImGui::PopStyleColor();
 
-        // Modifier edit popup
-        if (editing_modifier_binding_ == binding_idx && editing_modifier_idx_ == mi) {
-            if (ImGui::BeginPopup("edit_modifier")) {
-                int type_idx = static_cast<int>(mod.type);
-                const char* type_names[] = {"Scale", "Deadzone", "Negate", "Swizzle"};
-                if (ImGui::Combo("Type", &type_idx, type_names, 4)) {
-                    mod.type = static_cast<ModifierType>(type_idx);
-                    dirty_ = true;
-                }
-
-                if (mod.type == ModifierType::scale || mod.type == ModifierType::deadzone) {
-                    if (ImGui::DragFloat("Value", &mod.value, 0.01f, 0.0f, 10.0f)) {
-                        dirty_ = true;
-                    }
-                }
-
-                if (ImGui::Button("Remove")) {
-                    binding.modifiers.erase(binding.modifiers.begin() + mi);
-                    dirty_ = true;
-                    editing_modifier_binding_ = -1;
-                    editing_modifier_idx_ = -1;
-                    ImGui::CloseCurrentPopup();
-                }
-
-                ImGui::EndPopup();
+        if (ImGui::BeginPopup("edit_mod")) {
+            int type_idx = static_cast<int>(mod.type);
+            const char* type_names[] = {"Scale", "Deadzone", "Negate", "Swizzle"};
+            if (ImGui::Combo("Type", &type_idx, type_names, 4)) {
+                mod.type = static_cast<ModifierType>(type_idx);
+                dirty_ = true;
             }
+            if (mod.type == ModifierType::scale || mod.type == ModifierType::deadzone) {
+                if (ImGui::DragFloat("Value", &mod.value, 0.01f, 0.0f, 10.0f)) {
+                    dirty_ = true;
+                }
+            }
+            if (ImGui::Button("Remove Modifier")) {
+                binding.modifiers.erase(binding.modifiers.begin() + mi);
+                dirty_ = true;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
-        ImGui::SameLine();
+        ImGui::SameLine(0.0f, 4.0f);
         ImGui::PopID();
     }
 
-    // Add modifier button
-    ImGui::PushID(9999);
-    if (ImGui::SmallButton("+")) {
+    // Add modifier
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.2f, 0.2f, 0.3f, 1.0f});
+    if (ImGui::SmallButton("+mod")) {
         binding.modifiers.push_back({ModifierType::scale, 1.0f});
         dirty_ = true;
     }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("Add modifier");
-    }
-    ImGui::PopID();
+    ImGui::PopStyleColor();
 }
 
-// ── Context Properties ──────────────────────────────────────────────
+// ── Add Action popup ────────────────────────────────────────────────
 
-void InputMappingEditorContext::draw_context_properties() {
-    auto title = ctx_title("Context Properties");
-    if (!ImGui::Begin(title.c_str())) {
-        ImGui::End();
-        return;
-    }
+void InputMappingEditorContext::draw_add_action_popup() {
+    if (!ImGui::BeginPopup("add_action_popup")) return;
 
-    if (fjinput_path_.empty()) {
-        ImGui::TextDisabled("No context loaded");
-        ImGui::End();
-        return;
-    }
-
-    // Name
-    char name_buf[128];
-    std::snprintf(name_buf, sizeof(name_buf), "%s", context_.name.c_str());
-    if (ImGui::InputText("Name", name_buf, sizeof(name_buf))) {
-        context_.name = name_buf;
-        dirty_ = true;
-    }
-
-    // Consume
-    if (ImGui::Checkbox("Consume Input", &context_.consume)) {
-        dirty_ = true;
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip("When enabled, matched bindings prevent\nlower contexts from processing the same input");
-    }
-
+    ImGui::Text("Add Action");
     ImGui::Separator();
 
-    // File info
-    ImGui::TextDisabled("File: %s", fjinput_path_.c_str());
-    ImGui::TextDisabled("Bindings: %d", static_cast<int>(context_.bindings.size()));
+    ImGui::SetNextItemWidth(200.0f);
+    ImGui::InputTextWithHint("##filter", "Filter...", action_filter_, sizeof(action_filter_));
 
-    if (dirty_) {
-        ImGui::TextColored({1.0f, 0.8f, 0.3f, 1.0f}, "(unsaved changes)");
-    }
-
-    ImGui::End();
-}
-
-// ── Live Preview ────────────────────────────────────────────────────
-
-void InputMappingEditorContext::draw_live_preview() {
-    auto title = ctx_title("Live Preview");
-    if (!ImGui::Begin(title.c_str())) {
-        ImGui::End();
-        return;
-    }
-
-    // Check if context is active in the runtime stack
-    const auto& stack = deps_.input_action_map->context_stack();
-    bool context_active = std::find(stack.begin(), stack.end(), context_.name) != stack.end();
-
-    if (!context_active) {
-        ImGui::TextDisabled("Context '%s' is not active.", context_.name.c_str());
-        ImGui::TextDisabled("Start play mode to see live input.");
-        ImGui::End();
-        return;
-    }
-
-    const auto& states = deps_.input_action_map->states();
-
-    // Show state for each action referenced by this context
-    std::vector<std::string> shown_actions;
-    for (const auto& binding : context_.bindings) {
-        if (std::find(shown_actions.begin(), shown_actions.end(), binding.action) == shown_actions.end()) {
-            shown_actions.push_back(binding.action);
+    // Collect actions already in the context
+    std::vector<std::string> existing;
+    for (const auto& b : context_.bindings) {
+        if (std::find(existing.begin(), existing.end(), b.action) == existing.end()) {
+            existing.push_back(b.action);
         }
     }
 
-    for (const auto& action_name : shown_actions) {
-        auto it = states.find(action_name);
-        if (it == states.end()) continue;
+    ImGui::BeginChild("action_list", ImVec2{250.0f, 200.0f}, ImGuiChildFlags_Borders);
 
-        const auto& state = it->second;
-        ImGui::PushID(action_name.c_str());
-
-        ImGui::Text("%s", action_name.c_str());
-        ImGui::SameLine(150.0f);
-
-        if (state.type == ActionType::button) {
-            // Button indicators
-            auto indicator = [](const char* label, bool active) {
-                if (active) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.2f, 1.0f, 0.3f, 1.0f});
-                } else {
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.4f, 0.4f, 0.4f, 1.0f});
-                }
-                ImGui::Text("%s", label);
-                ImGui::PopStyleColor();
-            };
-
-            indicator("P", state.pressed);
-            ImGui::SameLine();
-            indicator("H", state.held);
-            ImGui::SameLine();
-            indicator("R", state.released);
-        } else if (state.type == ActionType::axis1d) {
-            // Horizontal bar
-            float normalized = (state.value + 1.0f) * 0.5f; // map -1..1 to 0..1
-            ImGui::ProgressBar(normalized, ImVec2{120.0f, 0.0f});
-            ImGui::SameLine();
-            ImGui::Text("%.2f", state.value);
-        } else if (state.type == ActionType::axis2d) {
-            // Crosshair widget
-            ImVec2 size{60.0f, 60.0f};
-            ImVec2 pos = ImGui::GetCursorScreenPos();
-            ImVec2 center{pos.x + size.x * 0.5f, pos.y + size.y * 0.5f};
-
-            auto* draw_list = ImGui::GetWindowDrawList();
-            draw_list->AddRectFilled(pos, {pos.x + size.x, pos.y + size.y},
-                                     IM_COL32(30, 30, 30, 255));
-            draw_list->AddLine({center.x, pos.y}, {center.x, pos.y + size.y},
-                               IM_COL32(80, 80, 80, 255));
-            draw_list->AddLine({pos.x, center.y}, {pos.x + size.x, center.y},
-                               IM_COL32(80, 80, 80, 255));
-
-            // Dot at current value
-            float dot_x = center.x + state.axis.x * size.x * 0.5f;
-            float dot_y = center.y - state.axis.y * size.y * 0.5f; // Y inverted
-            draw_list->AddCircleFilled({dot_x, dot_y}, 4.0f,
-                                       IM_COL32(50, 200, 80, 255));
-
-            ImGui::Dummy(size);
-            ImGui::SameLine();
-            ImGui::Text("(%.2f, %.2f)", state.axis.x, state.axis.y);
+    for (const auto& action : discovered_actions_) {
+        // Filter
+        if (action_filter_[0] != '\0') {
+            // Case-insensitive substring match
+            std::string name_lower = action.name;
+            std::string filter_lower(action_filter_);
+            std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
+            std::transform(filter_lower.begin(), filter_lower.end(), filter_lower.begin(), ::tolower);
+            if (name_lower.find(filter_lower) == std::string::npos) continue;
         }
 
-        ImGui::PopID();
+        // Skip already-added actions
+        bool already = std::find(existing.begin(), existing.end(), action.name) != existing.end();
+        if (already) {
+            ImGui::TextDisabled("%s [%s] (added)", action.name.c_str(),
+                                action_type_label(action.type));
+            continue;
+        }
+
+        char label[256];
+        std::snprintf(label, sizeof(label), "%s [%s]", action.name.c_str(),
+                      action_type_label(action.type));
+
+        if (ImGui::Selectable(label)) {
+            // Add an empty binding for this action
+            InputBinding b;
+            b.action = action.name;
+            context_.bindings.push_back(std::move(b));
+            dirty_ = true;
+            ImGui::CloseCurrentPopup();
+        }
     }
 
-    ImGui::End();
+    ImGui::EndChild();
+    ImGui::EndPopup();
 }
 
 } // namespace fjell

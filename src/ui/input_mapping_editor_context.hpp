@@ -19,7 +19,7 @@ struct InputMappingEditorDeps {
     VulkanContext* vulkan_context;
     Input* input;
     ProjectManager* project_mgr;
-    InputActionMap* input_action_map; // for listen mode
+    InputActionMap* input_action_map;
 };
 
 class InputMappingEditorContext final : public EditorContext {
@@ -39,54 +39,48 @@ public:
     bool handle_shortcuts() override;
     bool save() override;
 
-    // No 3D viewport
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override { return {}; }
     void apply_resize(VulkanContext&) override {}
     [[nodiscard]] bool any_viewport_hovered() const override { return false; }
 
-    // Open a .fjinput mapping context file
     void open_context(const std::string& fjinput_path);
-
-    // Open focused on a specific action (from .fjaction double-click)
     void open_action(const std::string& fjaction_path);
 
 private:
     enum class RebindTarget { source, up, down, left, right };
 
-    void draw_actions_panel();
-    void draw_bindings_panel();
-    void draw_context_properties();
-    void draw_live_preview();
-
-    // Binding row drawing helpers
+    void draw_mappings();
+    void draw_action_section(const std::string& action_name, ActionType type);
     void draw_binding_row(int binding_idx);
     bool draw_source_button(const char* label, InputSource source, int binding_idx,
                             RebindTarget target);
     void draw_modifier_chips(int binding_idx);
+    void draw_add_action_popup();
 
     void scan_actions();
 
     InputMappingEditorDeps deps_;
     std::string name_{"Input Mapping"};
 
-    // Asset being edited
     std::string fjinput_path_;
     std::string fjinput_abs_path_;
     InputMappingContext context_;
     bool dirty_{false};
 
-    // Discovered actions from project
+    // Discovered actions for the "Add Action" picker
     std::vector<InputActionDef> discovered_actions_;
-    std::string focused_action_; // scroll-to target when opened via .fjaction
 
     // Rebind state
     bool rebinding_{false};
     int rebind_binding_idx_{-1};
     RebindTarget rebind_target_{RebindTarget::source};
 
-    // Modifier editing popup state
-    int editing_modifier_binding_{-1};
-    int editing_modifier_idx_{-1};
+    // "Add Action" popup filter
+    char action_filter_[128]{};
+
+    // Deferred removal
+    int remove_binding_idx_{-1};
+    std::string remove_action_name_;
 };
 
 } // namespace fjell
