@@ -24,9 +24,13 @@ PassSetup MeshletCullPass2::setup() const {
     };
 }
 
-void MeshletCullPass2::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Hi-Z image read and pass-private SSBO writes are all hand-
-    // barriered inside record. Graph sees an empty-access pass.
+void MeshletCullPass2::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto it = ctx.imports.find("hiz_pyramid");
+    if (it != ctx.imports.end()) {
+        auto hiz = builder.import_named(ctx, "hiz_pyramid");
+        builder.read(hiz, ResourceAccess::sampled_compute);
+    }
+    // Pass-private SSBO writes stay inline until Phase 3.
 }
 
 void MeshletCullPass2::build(FrameGraph& graph, ResourceRegistry& registry,

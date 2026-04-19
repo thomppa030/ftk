@@ -376,11 +376,14 @@ PassSetup HizPass::setup() const {
     };
 }
 
-void HizPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology produced inside build() below until Phase 2
-    // moves declare() onto the pipeline's DAG path. Only the depth read
-    // is declared to the graph — the Hi-Z image itself is pass-private
-    // and barriers are recorded inline inside record_into().
+void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    // Hi-Z pyramid itself lives on PostProcessResources and is seeded
+    // into the catalog by the pipeline so downstream passes (meshlet
+    // cull pass 2, SSR) resolve "hiz_pyramid" by name. Internal mip-
+    // walk barriers stay inline inside record_into() — they don't
+    // cross pass boundaries.
 }
 
 void HizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

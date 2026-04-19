@@ -105,9 +105,9 @@ PassSetup InstanceCullPass::setup() const {
 }
 
 void InstanceCullPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // No graph-tracked images or buffers: all SSBOs are hand-barriered
-    // inside the record lambda below. Graph sees an empty-access pass;
-    // the existing pipeline still orders it by phase + sub_order.
+    // No graph-tracked images: all SSBO accesses are hand-barriered
+    // inside the record lambda. Graph sees an empty-access pass until
+    // Phase 3 adds buffer tracking.
 }
 
 void InstanceCullPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

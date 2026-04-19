@@ -565,11 +565,14 @@ PassSetup MeshletInstancePass::setup() const {
     };
 }
 
-void MeshletInstancePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // All buffers and the Hi-Z image read are handled imperatively inside
-    // the record lambda: the meshlet expand/cull pipeline uses pass-
-    // private SSBOs that FrameGraph doesn't track, and the Hi-Z layout
-    // is managed by HizPass. Graph sees an empty-access pass.
+void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto it = ctx.imports.find("hiz_pyramid");
+    if (it != ctx.imports.end()) {
+        auto hiz = builder.import_named(ctx, "hiz_pyramid");
+        builder.read(hiz, ResourceAccess::sampled_compute);
+    }
+    // Pass-private meshlet expand/cull SSBOs stay inline until Phase 3
+    // adds buffer tracking.
 }
 
 void MeshletInstancePass::build(FrameGraph& graph, ResourceRegistry& registry,
