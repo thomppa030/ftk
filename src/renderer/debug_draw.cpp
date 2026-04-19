@@ -143,7 +143,7 @@ void DebugDraw::generate_frustum(const CameraNode& cam, float aspect) {
 
 // ── Update ──────────────────────────────────────────────────────────────
 
-void DebugDraw::update(const Scene& scene, uint32_t selected_id,
+void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t selected_id,
                        bool show_colliders, DebugDrawQueue* script_queue) {
     FJELL_PROFILE_SCOPE_N("debug_draw_update");
     vertices_.clear();
@@ -296,27 +296,32 @@ void DebugDraw::update(const Scene& scene, uint32_t selected_id,
 
     if (vertices_.empty()) return;
 
-    // Upload to GPU
+    // Upload to GPU — write into this frame's slot only. Its fence was
+    // waited on before record_frame(), so destroying/replacing it here
+    // cannot race with an in-flight submission on another slot.
+    auto& buf = vertex_buffers_[frame_index];
+    auto& cap = buffer_capacities_[frame_index];
     VkDeviceSize required = vertices_.size() * sizeof(glm::vec3);
-    if (!vertex_buffer_ || required > buffer_capacity_) {
+    if (!buf || required > cap) {
         // Round up to avoid frequent reallocations
-        buffer_capacity_ = std::max(required, VkDeviceSize{4096});
-        vertex_buffer_ = std::make_unique<Buffer>(
-            allocator_, buffer_capacity_,
+        cap = std::max(required, VkDeviceSize{4096});
+        buf = std::make_unique<Buffer>(
+            allocator_, cap,
             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
             VMA_MEMORY_USAGE_AUTO,
             VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-        vertex_buffer_->map();
+        buf->map();
     }
-    vertex_buffer_->write(vertices_.data(), required);
+    buf->write(vertices_.data(), required);
 }
 
 // ── Draw ────────────────────────────────────────────────────────────────
 
-void DebugDraw::draw(VkCommandBuffer cmd, VkPipelineLayout layout) const {
-    if (!vertex_buffer_ || draw_commands_.empty()) return;
+void DebugDraw::draw(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frame_index) const {
+    const auto& buf = vertex_buffers_[frame_index];
+    if (!buf || draw_commands_.empty()) return;
 
-    VkBuffer vb = vertex_buffer_->handle();
+    VkBuffer vb = buf->handle();
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
 

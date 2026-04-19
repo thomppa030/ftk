@@ -1,9 +1,12 @@
 #pragma once
 
+#include "renderer/renderer_constants.hpp"
+
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -19,9 +22,14 @@ class DebugDraw {
 public:
     DebugDraw(VkDevice device, VmaAllocator allocator);
 
-    void update(const Scene& scene, uint32_t selected_id = 0,
+    /// Record debug primitives and upload them into the current frame's
+    /// vertex buffer. `frame_index` is the slot in [0, MAX_FRAMES_IN_FLIGHT)
+    /// whose fence has already been waited on by the caller.
+    void update(const Scene& scene, uint32_t frame_index, uint32_t selected_id = 0,
                 bool show_colliders = true, DebugDrawQueue* script_queue = nullptr);
-    void draw(VkCommandBuffer cmd, VkPipelineLayout layout) const;
+
+    /// Draw with the buffer populated by the matching `update()` call.
+    void draw(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frame_index) const;
 
     [[nodiscard]] bool empty() const { return draw_commands_.empty(); }
 
@@ -47,8 +55,11 @@ private:
 
     std::vector<glm::vec3> vertices_;
     std::vector<DrawCommand> draw_commands_;
-    std::unique_ptr<Buffer> vertex_buffer_;
-    VkDeviceSize buffer_capacity_{0};
+
+    // One vertex buffer per in-flight frame slot. Growth replaces only the
+    // current frame's buffer, which has already been retired by its fence.
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> vertex_buffers_;
+    std::array<VkDeviceSize, MAX_FRAMES_IN_FLIGHT> buffer_capacities_{};
 };
 
 } // namespace fjell

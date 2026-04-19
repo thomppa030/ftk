@@ -184,7 +184,7 @@ void DebugPass::record(const FrameContext& ctx) {
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &ctx.global_descriptor_set, 0, nullptr);
-    ctx.debug_draw->draw(ctx.cmd, layout_);
+    ctx.debug_draw->draw(ctx.cmd, layout_, ctx.frame_index);
 }
 
 } // namespace fjell

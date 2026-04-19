@@ -999,7 +999,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     gpu_.render_stats().reset();
     bool has_script_draws = debug_draw_queue_ && !debug_draw_queue_->primitives().empty();
     if (scene && (show_colliders_ || selected_id != 0 || has_script_draws)) {
-        debug_draw_->update(*scene, selected_id, show_colliders_, debug_draw_queue_);
+        debug_draw_->update(*scene, current_frame_, selected_id, show_colliders_, debug_draw_queue_);
     }
     if (debug_draw_queue_) {
         debug_draw_queue_->tick(dt);
