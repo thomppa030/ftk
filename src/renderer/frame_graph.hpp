@@ -66,15 +66,16 @@ public:
                   uint32_t parallel_group = 0);
 
     /// Submit a DAG-authored pass: consumes a PassBuilder (populated by
-    /// RenderPass::declare()) plus the pass's record callback. Registers
-    /// all imported images into the graph, derives legacy ImageUsage
-    /// values from declared ResourceAccess, and enqueues the pass the
-    /// same way add_pass() does. Created (non-imported) resources are
-    /// not yet allocated — that lands with Phase 3 aliasing. Passing a
-    /// builder with created resources is an error until then.
+    /// RenderPass::declare() or a pass's build()) plus the record
+    /// callback. Registers all imported images into the graph, derives
+    /// legacy ImageUsage values from declared ResourceAccess, reads
+    /// parallel-group assignment from the builder, and enqueues the
+    /// pass the same way add_pass() does. Created (non-imported)
+    /// resources are not yet allocated — that lands with Phase 3
+    /// aliasing. Passing a builder with created resources is an error
+    /// until then.
     void submit_declared_pass(const std::string& name, const PassBuilder& builder,
-                              std::function<void(VkCommandBuffer)> execute,
-                              uint32_t parallel_group = 0);
+                              std::function<void(VkCommandBuffer)> execute);
 
     // Execute all passes, inserting barriers between them.
     // Passes with the same parallel_group > 0 are recorded in parallel on
