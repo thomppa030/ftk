@@ -1,5 +1,9 @@
 #include "renderer/pass_builder.hpp"
 
+#include "core/log.hpp"
+
+#include <string>
+
 namespace fjell {
 
 FgTexture PassBuilder::create(std::string_view name, const TextureDesc& desc) {
@@ -30,6 +34,18 @@ FgTexture PassBuilder::import(std::string_view name, VkImage image, VkImageView 
         .initial_layout = initial_layout,
     });
     return h;
+}
+
+FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view name,
+                                     VkImageLayout initial_layout) {
+    std::string key(name);
+    auto it = ctx.imports.find(key);
+    if (it == ctx.imports.end()) {
+        FJELL_GFX_WARN("PassBuilder::import_named: unknown image '{}'", key.c_str());
+        return FgTexture{};
+    }
+    return import(name, it->second.image, it->second.view, it->second.aspect,
+                  it->second.base_layer, it->second.layer_count, initial_layout);
 }
 
 FgBuffer PassBuilder::import(std::string_view name, VkBuffer buffer, VkDeviceSize size) {
