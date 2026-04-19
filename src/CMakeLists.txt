@@ -59,6 +59,7 @@ add_executable(fjell
     renderer/gpu/gpu_core.cpp
     renderer/gpu/image.cpp
     renderer/indirect_batch.cpp
+    renderer/instance_provider.cpp
     renderer/resources/fjsl_parser.cpp
     renderer/resources/material.cpp
     renderer/resources/material_asset.cpp

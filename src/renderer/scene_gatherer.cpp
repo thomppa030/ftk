@@ -1,6 +1,7 @@
 #include "renderer/scene_gatherer.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/gpu_context.hpp"
+#include "renderer/instance_provider.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/components/instanced_mesh_component.hpp"
@@ -76,64 +77,41 @@ void SceneGatherer::gather(const GatherInput& input) {
                     const auto* spatial = obj->as_spatial();
                     if (!spatial) continue;
 
-                    // Instanced mesh path
-                    if (auto* inst = obj->components.get<InstancedMeshComponent>();
-                        inst && inst->model && !inst->instances.empty()) {
-                        local_total_[chunk_id]++;
+                    // Instance-provider path (InstancedMesh, SplineMesh, …).
+                    // Each registered probe may yield one DrawCommand per node.
+                    // The first one to claim this node wins; subsequent probes
+                    // aren't consulted. Shared culling / transparency /
+                    // cascade-assignment logic lives here so every provider
+                    // gets it uniformly.
+                    {
+                        bool claimed = false;
+                        for (const auto& probe : InstanceProviderRegistry::instance().probes()) {
+                            auto result = probe(*obj, *spatial);
+                            if (!result) continue;
+                            DrawCommand dc = std::move(*result);
+                            local_total_[chunk_id]++;
 
-                        DrawCommand dc{};
-                        dc.world_matrix = spatial->world_matrix_;
-                        dc.prev_world_matrix = spatial->prev_world_matrix_;
-                        dc.push.model = spatial->world_matrix_;
-                        dc.model = inst->model;
-                        dc.node_id = obj->id;
-                        dc.instance_transforms = &inst->instances;
-                        if (inst->material) {
-                            dc.push.material_id = inst->material->material_id();
-                            dc.pipeline_id = inst->material->pipeline_id();
-                            dc.sort_key = RenderQueue::make_sort_key(
-                                dc.pipeline_id, inst->material->material_id(), obj->id);
-                            dc.transparent = inst->material->force_transparent()
-                                            || (inst->material->params().base_color_factor.w < 1.0f);
-                        }
-
-                        // Union AABB cached on the component (local-space) —
-                        // recompute only when instances/model change, then
-                        // transform once by the node's world matrix.
-                        if (inst->dirty) {
-                            AABB model_local = inst->model->local_aabb();
-                            bool first = true;
-                            for (const auto& lxf : inst->instances) {
-                                AABB box = model_local.transform(lxf);
-                                if (first) {
-                                    inst->local_bounds = box;
-                                    first = false;
-                                } else {
-                                    inst->local_bounds.min = glm::min(inst->local_bounds.min, box.min);
-                                    inst->local_bounds.max = glm::max(inst->local_bounds.max, box.max);
+                            if (!dc.transparent) {
+                                for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+                                    if (shadow_frustums[c].intersects(dc.world_aabb)) {
+                                        cascade_cmds[c].push_back(dc);
+                                    }
                                 }
                             }
-                            inst->dirty = false;
-                        }
-                        dc.world_aabb = inst->local_bounds.transform(spatial->world_matrix_);
-
-                        if (!dc.transparent) {
-                            for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
-                                if (shadow_frustums[c].intersects(dc.world_aabb)) {
-                                    cascade_cmds[c].push_back(dc);
-                                }
+                            if (!camera_frustum.intersects(dc.world_aabb)) {
+                                local_culled_[chunk_id]++;
+                                claimed = true;
+                                break;
                             }
+                            if (dc.transparent) {
+                                glm::vec3 diff = camera_position_ - glm::vec3(dc.world_matrix[3]);
+                                dc.camera_distance = glm::dot(diff, diff);
+                            }
+                            commands.push_back(std::move(dc));
+                            claimed = true;
+                            break;
                         }
-                        if (!camera_frustum.intersects(dc.world_aabb)) {
-                            local_culled_[chunk_id]++;
-                            continue;
-                        }
-                        if (dc.transparent) {
-                            glm::vec3 diff = camera_position_ - glm::vec3(dc.world_matrix[3]);
-                            dc.camera_distance = glm::dot(diff, diff);
-                        }
-                        commands.push_back(dc);
-                        continue;
+                        if (claimed) continue;
                     }
 
                     // Skeletal mesh path
