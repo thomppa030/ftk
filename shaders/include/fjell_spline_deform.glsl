@@ -140,14 +140,37 @@ vec3 fjell_spline_deform_position(vec3 v, SplineSegment s) {
     return center + right_c * frame[0] + up_c * frame[1];
 }
 
-// Rescale the UV coordinate whose axis aligns with the mesh forward so that
-// texture tiling follows segment arc length instead of object-space position.
-// Convention: U runs along the forward axis. A mesh with UV.u ∈ [0, 1] across
-// its forward span will tile once per `2 * half_span` units of arc length.
-vec2 fjell_spline_remap_uv(vec2 uv, SplineSegment s) {
+// Running arc length from t=0 to t_target, approximated by summing 8 chord
+// samples along the hermite. Fixes the t → distance nonlinearity — without
+// this a constant UV scale leaves visible compression/stretching where the
+// curve tangent magnitude varies (starts/ends of segments with strong
+// tangents, or where a segment accelerates through its middle).
+float fjell_spline_running_length(SplineSegment s, float t_target) {
+    const int N = 8;
+    vec3 prev = s.start_pos;
+    float accum = 0.0;
+    for (int i = 1; i <= N; ++i) {
+        float t = t_target * (float(i) / float(N));
+        vec3 p = fjell_spline_hermite(s, t);
+        accum += length(p - prev);
+        prev = p;
+    }
+    return accum;
+}
+
+// Remap UV so the along-forward U axis tiles by world-space distance.
+// Convention: UV.u runs along the mesh's forward axis in [0, 1] over the
+// source span (2*half_span). We replace the along-forward fraction of u
+// with `running_arc_length / (2*half_span)` — tiling rate matches the flat
+// case but distributes evenly along the actual curve.
+vec2 fjell_spline_remap_uv(vec2 uv, vec3 v_object, SplineSegment s) {
+    vec3 split = fjell_spline_split_axes(v_object, s.forward);
+    float t = fjell_spline_along_to_t(split.z, s.half_span);
+    float running = fjell_spline_running_length(s, t);
     float span = max(2.0 * s.half_span, 1e-6);
-    float scale = s.arc_length / span;
-    return vec2(uv.x * scale, uv.y);
+    float u_along_fraction = (split.z + s.half_span) / span;
+    float u_transverse = uv.x - u_along_fraction;
+    return vec2(u_transverse + running / span, uv.y);
 }
 
 // Deform a direction (normal or tangent). Same frame but no translation.

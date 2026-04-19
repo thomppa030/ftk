@@ -73,7 +73,7 @@ void main() {
         local_normal  = fjell_spline_deform_direction(local_normal,  in_position, seg);
         local_tangent = fjell_spline_deform_direction(local_tangent, in_position, seg);
         local_pos     = fjell_spline_deform_position(in_position, seg);
-        uv            = fjell_spline_remap_uv(uv, seg);
+        uv            = fjell_spline_remap_uv(uv, in_position, seg);
     }
 
     vec4 world_pos = model * vec4(local_pos, 1.0);

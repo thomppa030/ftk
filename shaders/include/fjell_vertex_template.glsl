@@ -90,7 +90,7 @@ void main() {
         NORMAL         = fjell_spline_deform_direction(NORMAL,         in_position, seg);
         spline_tangent = fjell_spline_deform_direction(spline_tangent, in_position, seg);
         VERTEX         = fjell_spline_deform_position(in_position, seg);
-        UV             = fjell_spline_remap_uv(UV, seg);
+        UV             = fjell_spline_remap_uv(UV, in_position, seg);
     }
 
 /*FJSL_VERTEX_CUSTOM_PARAMS*/
