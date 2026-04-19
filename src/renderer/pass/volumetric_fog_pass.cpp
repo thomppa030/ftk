@@ -615,7 +615,8 @@ static VkImageMemoryBarrier2 make_barrier(VkImage image,
 }
 
 void VolumetricFogPass::record(const FrameContext& ctx) {
-    record_into(ctx, default_images_);
+    auto* imgs = ctx.pp_resources ? ctx.pp_resources->volumetric_fog() : nullptr;
+    record_into(ctx, imgs ? *imgs : default_images_);
 }
 
 void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {

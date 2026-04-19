@@ -245,7 +245,15 @@ void HizPass::resize(uint32_t width, uint32_t height) {
 }
 
 void HizPass::record(const FrameContext& ctx) {
-    record_into(ctx, default_images_);
+    // Prefer the viewport's per-instance Images (SceneViewport uses its
+    // own PostProcessResources); fall back to default_images_ when the
+    // caller doesn't provide a pp_resources bundle.
+    auto* imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
+    if (imgs && imgs->ready()) {
+        record_into(ctx, *imgs);
+    } else if (default_images_.ready()) {
+        record_into(ctx, default_images_);
+    }
 }
 
 void HizPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {

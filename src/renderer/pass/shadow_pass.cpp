@@ -630,7 +630,9 @@ void ShadowPass::record(const FrameContext& ctx) {
         vkCmdEndRendering(ctx.cmd);
     }
 
-    // Transition all cascade layers to shader-readable
+    // Transition all cascade layers to shader-readable. The graph's
+    // final_layout() hint records this post-state so downstream
+    // consumers skip the no-op transition.
     VkImageMemoryBarrier2 barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
@@ -675,8 +677,8 @@ void ShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         // sample without an extra barrier from the graph.
         builder.final_layout(atlas,
             VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 }
 

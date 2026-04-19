@@ -235,7 +235,30 @@ void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
 }
 
 void TonemapPass::record(const FrameContext& ctx) {
-    record_into(ctx, default_images_, source_view_, VK_NULL_HANDLE, 0.3f, exposure_);
+    auto* tonemap = ctx.pp_resources ? ctx.pp_resources->tonemap() : nullptr;
+    if (tonemap == nullptr) {
+        record_into(ctx, default_images_, source_view_, VK_NULL_HANDLE, 0.3f, exposure_);
+        return;
+    }
+
+    VkImageView bloom_view = VK_NULL_HANDLE;
+    if (ctx.passes != nullptr) {
+        auto* bloom = ctx.passes->try_get<BloomPass>("bloom");
+        if (bloom != nullptr && bloom->enabled() && ctx.pp_resources->bloom() != nullptr) {
+            bloom_view = ctx.pp_resources->bloom()->mips[0].view;
+        }
+    }
+
+    // Use TAA-resolved color when available, otherwise raw scene color.
+    VkImageView color_source = ctx.target->color_view();
+    if (auto* taa_imgs = ctx.pp_resources->taa()) {
+        uint32_t output_idx = 1 - taa_imgs->write_index;
+        if (taa_imgs->history_view[output_idx] != VK_NULL_HANDLE) {
+            color_source = taa_imgs->history_view[output_idx];
+        }
+    }
+
+    record_into(ctx, *tonemap, color_source, bloom_view, 0.3f, exposure_);
 }
 
 void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView source,

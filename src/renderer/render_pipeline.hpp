@@ -16,6 +16,7 @@ class PostProcessResources;
 class RenderPass;
 class ThreadPool;
 class ThreadCommandPools;
+struct FrameContext;
 
 /// Execution phases for render passes. Each phase has a base order value;
 /// passes within a phase are ordered by sub_order (0-99).
@@ -73,11 +74,14 @@ public:
     [[nodiscard]] bool is_resource_available(const std::string& resource) const;
 
     /// Build the frame graph from registered passes and execute it.
+    /// `ctx` is captured by reference into per-pass record lambdas; the
+    /// caller must keep it alive until this function returns.
     void execute(VkCommandBuffer cmd, OffscreenPass& target,
                  VkSampleCountFlagBits msaa, uint32_t active_sources,
                  ThreadPool& pool, ThreadCommandPools& secondary_pools,
                  uint32_t frame_index, ResourceRegistry& registry,
-                 PassRegistry& passes, PostProcessResources* pp_resources);
+                 PassRegistry& passes, PostProcessResources* pp_resources,
+                 const FrameContext& ctx);
 
 private:
     struct PassState {

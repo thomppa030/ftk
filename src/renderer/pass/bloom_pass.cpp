@@ -501,7 +501,8 @@ void BloomPass::invalidate_imgui_texture() {
 }
 
 void BloomPass::record(const FrameContext& ctx) {
-    record_into(ctx, default_images_);
+    auto* imgs = ctx.pp_resources ? ctx.pp_resources->bloom() : nullptr;
+    record_into(ctx, imgs ? *imgs : default_images_);
 }
 
 void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {

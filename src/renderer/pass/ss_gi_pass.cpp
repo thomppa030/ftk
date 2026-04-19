@@ -474,8 +474,11 @@ void SsGiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     prev_view_proj_ = glm::inverse(ctx.inv_view_proj);
 }
 
-void SsGiPass::record(const FrameContext& /*ctx*/) {
-    // record_into called via build()
+void SsGiPass::record(const FrameContext& ctx) {
+    if (!config_.enabled || trace_pipeline_ == VK_NULL_HANDLE) { return; }
+    auto* imgs = ctx.pp_resources ? ctx.pp_resources->ss_gi() : nullptr;
+    if (imgs == nullptr) { return; }
+    record_into(ctx, *imgs);
 }
 
 PassSetup SsGiPass::setup() const {

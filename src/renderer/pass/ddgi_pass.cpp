@@ -739,8 +739,11 @@ void DdgiPass::destroy() {
     device_ = nullptr;
 }
 
-void DdgiPass::record(const FrameContext& /*ctx*/) {
-    // DDGI uses record_into() with per-viewport Images
+void DdgiPass::record(const FrameContext& ctx) {
+    if (!config_.enabled) { return; }
+    auto* imgs = ctx.pp_resources ? ctx.pp_resources->ddgi() : nullptr;
+    if (imgs == nullptr) { return; }
+    record_into(ctx, *imgs);
 }
 
 static void write_trace_descriptors(VkDevice device, VkDescriptorSet set,

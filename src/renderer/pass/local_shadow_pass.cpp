@@ -452,8 +452,8 @@ void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
         builder.write(atlas, ResourceAccess::depth_attachment);
         builder.final_layout(atlas,
             VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
-            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 }
 
@@ -716,7 +716,8 @@ void LocalShadowPass::record(const FrameContext& ctx) {
         }
     }
 
-    // Transition atlas to shader read for fragment sampling
+    // Transition atlas to shader read for fragment sampling. The
+    // graph's final_layout() hint records this post-state.
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
