@@ -1,11 +1,16 @@
 #include "renderer/render_pipeline.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/render_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
+#include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 
 #include <algorithm>
 #include <queue>
+#include <sstream>
+#include <unordered_set>
 
 namespace fjell {
 
@@ -126,6 +131,162 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
         entries_ = std::move(sorted);
         sorted_ = true;
+    }
+
+    // ── Phase 2 commit #1: shadow DAG sort ────────────────────────────
+    // Run a declare-driven topo sort in parallel with the legacy path and
+    // log (once) whether the resulting pass order matches the current
+    // phase+sub_order ordering. No behavior change: the legacy build()
+    // loop below is still the one that actually executes.
+    if (!dag_order_logged_) {
+        DeclareContext decl_ctx;
+        decl_ctx.viewport_extent = {target.extent().width, target.extent().height};
+        decl_ctx.msaa_samples    = msaa;
+        decl_ctx.frame_index     = frame_index;
+        // Scene-summary + feature toggles stay at defaults in C1. No Phase 1
+        // port branches on them, so topology is identical regardless.
+
+        struct DeclaredPass {
+            size_t entry_index{0};
+            PassBuilder builder;
+        };
+        std::vector<DeclaredPass> declared;
+        declared.reserve(entries_.size());
+
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            auto* p = entries_[i].pass;
+            if (p == nullptr || !p->uses_declare()) continue;
+            if (!state_for(entries_[i].name).enabled) continue;
+            DeclaredPass d;
+            d.entry_index = i;
+            p->declare(d.builder, decl_ctx);
+            declared.push_back(std::move(d));
+        }
+
+        // Resource identity: (VkImage, base_layer, layer_count). Builder-
+        // local created handles aren't represented yet (no pass in Phase 1
+        // uses create()) — they'll surface in Phase 3.
+        struct ResKey {
+            VkImage image;
+            uint32_t base_layer;
+            uint32_t layer_count;
+            bool operator==(const ResKey& o) const noexcept {
+                return image == o.image && base_layer == o.base_layer
+                    && layer_count == o.layer_count;
+            }
+        };
+        struct ResKeyHash {
+            size_t operator()(const ResKey& k) const noexcept {
+                auto h1 = std::hash<void*>{}(static_cast<void*>(k.image));
+                auto h2 = std::hash<uint32_t>{}(k.base_layer);
+                auto h3 = std::hash<uint32_t>{}(k.layer_count);
+                return h1 ^ (h2 << 1) ^ (h3 << 2);
+            }
+        };
+
+        const size_t n = declared.size();
+        std::vector<std::vector<size_t>> adj(n);
+        std::vector<uint32_t> in_degree(n, 0);
+
+        // Map texture-handle id -> the resource key the pass imported it
+        // under, scoped per-pass (builder-local handle ids).
+        auto resolve_key = [](const PassBuilder& b, FgTexture h) -> ResKey {
+            for (const auto& imp : b.imported_textures()) {
+                if (imp.handle.id == h.id) {
+                    return {imp.image, imp.base_layer, imp.layer_count};
+                }
+            }
+            return {VK_NULL_HANDLE, 0, 0};
+        };
+
+        std::unordered_map<ResKey, size_t, ResKeyHash> last_writer;
+
+        // access_is_write / access_is_read from resource_desc.hpp cover
+        // the buffer side too; for the texture loop both sides of a
+        // read_write access should trigger the WAR edge AND update the
+        // last writer, so we mirror that behaviour here.
+
+        for (size_t j = 0; j < n; ++j) {
+            const auto& b = declared[j].builder;
+            for (const auto& acc : b.texture_accesses()) {
+                ResKey k = resolve_key(b, acc.handle);
+                if (k.image == VK_NULL_HANDLE) continue;
+                if (access_is_read(acc.access)) {
+                    auto it = last_writer.find(k);
+                    if (it != last_writer.end() && it->second != j) {
+                        adj[it->second].push_back(j);
+                        ++in_degree[j];
+                    }
+                }
+                if (access_is_write(acc.access)) {
+                    last_writer[k] = j;
+                }
+            }
+        }
+
+        // Kahn's algorithm; tiebreaker = original entry index (==
+        // current phase+sub_order after the legacy sort above).
+        auto cmp = [&declared](size_t a, size_t b) {
+            return declared[a].entry_index > declared[b].entry_index;
+        };
+        std::priority_queue<size_t, std::vector<size_t>, decltype(cmp)> pq(cmp);
+        for (size_t i = 0; i < n; ++i) {
+            if (in_degree[i] == 0) pq.push(i);
+        }
+        std::vector<size_t> dag_order;
+        dag_order.reserve(n);
+        while (!pq.empty()) {
+            size_t idx = pq.top();
+            pq.pop();
+            dag_order.push_back(idx);
+            for (size_t next : adj[idx]) {
+                if (--in_degree[next] == 0) pq.push(next);
+            }
+        }
+
+        const bool cycle_detected = (dag_order.size() != n);
+
+        // Compare against the legacy order restricted to enabled,
+        // uses_declare() passes (== the input to the DAG sort).
+        bool matches = !cycle_detected;
+        if (matches) {
+            for (size_t i = 0; i < n; ++i) {
+                if (declared[dag_order[i]].entry_index != declared[i].entry_index) {
+                    matches = false;
+                    break;
+                }
+            }
+        }
+
+        if (cycle_detected) {
+            FJELL_GFX_WARN(
+                "DAG shadow sort: cycle detected ({} of {} passes scheduled). "
+                "Legacy path still in control — investigate declare() edges.",
+                static_cast<unsigned>(dag_order.size()), static_cast<unsigned>(n));
+        } else if (matches) {
+            FJELL_GFX_INFO("DAG shadow sort: {} passes, order matches legacy.",
+                           static_cast<unsigned>(n));
+        } else {
+            std::ostringstream legacy_ss;
+            std::ostringstream dag_ss;
+            for (size_t i = 0; i < n; ++i) {
+                if (i != 0) {
+                    legacy_ss << ", ";
+                    dag_ss << ", ";
+                }
+                legacy_ss << entries_[declared[i].entry_index].name;
+                dag_ss << entries_[declared[dag_order[i]].entry_index].name;
+            }
+            std::string legacy_str = legacy_ss.str();
+            std::string dag_str = dag_ss.str();
+            FJELL_GFX_WARN(
+                "DAG shadow sort: {} passes, order differs from legacy.\n"
+                "  legacy: {}\n"
+                "  dag:    {}",
+                static_cast<unsigned>(n), legacy_str.c_str(), dag_str.c_str());
+        }
+
+        dag_order_logged_ = true;
     }
 
     // Register images with the frame graph and populate the resource registry

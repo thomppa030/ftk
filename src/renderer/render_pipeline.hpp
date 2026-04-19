@@ -11,6 +11,7 @@
 namespace fjell {
 
 class OffscreenPass;
+class RenderPass;
 class ThreadPool;
 class ThreadCommandPools;
 
@@ -34,6 +35,13 @@ struct PassEntry {
     /// Called during execute(). Must call graph.add_pass() with its image deps.
     using BuildFunc = std::function<void(FrameGraph& graph, ResourceRegistry& registry)>;
     BuildFunc build;
+
+    /// Non-owning pointer to the RenderPass the registry holds. The pipeline
+    /// uses this to invoke declare()/record() directly once Phase 2 switches
+    /// from the legacy build() path. During Phase 2 commit #1 this is used
+    /// only to run a shadow declare-loop alongside the legacy path for
+    /// validation.
+    RenderPass* pass{nullptr};
 
     /// Construct order from phase + sub_order within that phase.
     static constexpr uint32_t make_order(RenderPhase phase, uint32_t sub_order = 0) {
@@ -81,6 +89,11 @@ private:
     std::vector<PassEntry> entries_;
     std::unordered_map<std::string, PassState> pass_state_;
     bool sorted_{false};
+
+    /// Phase 2 commit #1: run the declare-based DAG sort in parallel with
+    /// the legacy path and log whether the two orderings agree. Once-per
+    /// session so we don't spam the log every frame.
+    bool dag_order_logged_{false};
 
     static const PassState default_state_;
 };

@@ -24,7 +24,8 @@ static void register_one(RenderPass* pass, RenderPipeline& pipeline, FrameContex
         .order = PassEntry::make_order(s.phase, s.sub_order),
         .build = [pass, &ctx](FrameGraph& graph, ResourceRegistry& registry) {
             pass->build(graph, registry, ctx);
-        }
+        },
+        .pass = pass,
     });
 
     // Register string dependencies for topological ordering
