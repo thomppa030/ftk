@@ -1,8 +1,10 @@
 #include "renderer/render_pipeline.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
+#include "renderer/post_process_resources.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -71,7 +73,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               VkSampleCountFlagBits msaa, uint32_t /*active_sources*/,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
                               uint32_t frame_index, ResourceRegistry& registry,
-                              PassRegistry& passes) {
+                              PassRegistry& passes, PostProcessResources* pp_resources) {
     FJELL_PROFILE_SCOPE_N("render_pipeline_execute");
 
     // Topological sort by resource dependencies, order as tiebreaker
@@ -183,6 +185,19 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             add_import("msaa_mr",       target.mr_image(),       target.mr_view());
             add_import("msaa_normal",   target.normal_image(),   target.normal_view());
             add_import("msaa_velocity", target.velocity_image(), target.velocity_view());
+        }
+
+        // Viewport-scoped exports: Hi-Z pyramid lives on PostProcessResources,
+        // not on any RenderPass, so the pipeline seeds it here. Per-viewport
+        // resources that several passes may consume go through the same path.
+        if (pp_resources != nullptr) {
+            if (auto* hiz = pp_resources->hiz()) {
+                if (hiz->ready() && hiz->hiz_sampled_view != VK_NULL_HANDLE) {
+                    decl_ctx.imports.emplace("hiz_pyramid",
+                        ImportedImage{hiz->hiz_image, hiz->hiz_sampled_view,
+                                       VK_IMAGE_ASPECT_COLOR_BIT, 0, 1});
+                }
+            }
         }
 
         passes.collect_exports_all(decl_ctx);

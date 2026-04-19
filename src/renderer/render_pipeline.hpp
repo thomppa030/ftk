@@ -12,6 +12,7 @@ namespace fjell {
 
 class OffscreenPass;
 class PassRegistry;
+class PostProcessResources;
 class RenderPass;
 class ThreadPool;
 class ThreadCommandPools;
@@ -76,7 +77,7 @@ public:
                  VkSampleCountFlagBits msaa, uint32_t active_sources,
                  ThreadPool& pool, ThreadCommandPools& secondary_pools,
                  uint32_t frame_index, ResourceRegistry& registry,
-                 PassRegistry& passes);
+                 PassRegistry& passes, PostProcessResources* pp_resources);
 
 private:
     struct PassState {

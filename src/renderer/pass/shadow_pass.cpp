@@ -665,10 +665,21 @@ PassSetup ShadowPass::setup() const {
     };
 }
 
-void ShadowPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Shadow atlas is a pass-private persistent image; all layout
-    // transitions for cascades happen inline inside record(). Graph
-    // sees an empty-access pass that runs in parallel group 1.
+void ShadowPass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
+    builder.parallel_group(1);
+    // Writes into the exported shadow_atlas image. Consumers declaring
+    // sampled_fragment on the same name will get the WAR edge that
+    // today is a hand-rolled SHADER_READ_ONLY barrier at the end of
+    // record().
+    // TODO(C2b final): import_named(ctx, "shadow_atlas") and
+    // declare the write once consumers are wired.
+}
+
+void ShadowPass::collect_exports(DeclareContext& ctx) {
+    if (image_ == VK_NULL_HANDLE || array_view_ == VK_NULL_HANDLE) { return; }
+    ctx.imports.emplace("shadow_atlas", ImportedImage{
+        image_, array_view_, VK_IMAGE_ASPECT_DEPTH_BIT,
+        /*base_layer*/ 0, /*layer_count*/ CASCADE_COUNT});
 }
 
 void ShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

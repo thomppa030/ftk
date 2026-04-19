@@ -295,10 +295,11 @@ PassSetup DepthPrePass::setup() const {
     };
 }
 
-void DepthPrePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology — attachment image choice depends on MSAA and
-    // mesh-shader state in FrameContext — is produced inside build()
-    // below until Phase 2 moves this path into the pipeline DAG.
+void DepthPrePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    builder.parallel_group(1);
+    const bool has_msaa = ctx.msaa_samples != VK_SAMPLE_COUNT_1_BIT;
+    auto depth = builder.import_named(ctx, has_msaa ? "msaa_depth" : "depth");
+    builder.write(depth, ResourceAccess::depth_attachment);
 }
 
 void DepthPrePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
