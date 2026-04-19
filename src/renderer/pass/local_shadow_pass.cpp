@@ -446,9 +446,21 @@ PassSetup LocalShadowPass::setup() const {
     };
 }
 
-void LocalShadowPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Shadow atlas is pass-private; layout transitions happen inline in
-    // record(). Graph sees an empty-access pass.
+void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto atlas = builder.import_named(ctx, "local_shadow_atlas");
+    if (atlas.valid()) {
+        builder.write(atlas, ResourceAccess::depth_attachment);
+    }
+    // Per-tile layout transitions stay inline in record(). Final
+    // finalize-to-SHADER_READ_ONLY barrier stays until consumers
+    // declare their reads (end of C2b).
+}
+
+void LocalShadowPass::collect_exports(DeclareContext& ctx) {
+    if (atlas_image_ == VK_NULL_HANDLE || atlas_view_ == VK_NULL_HANDLE) { return; }
+    ctx.imports.emplace("local_shadow_atlas", ImportedImage{
+        atlas_image_, atlas_view_, VK_IMAGE_ASPECT_DEPTH_BIT,
+        /*base_layer*/ 0, /*layer_count*/ 1});
 }
 
 void LocalShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

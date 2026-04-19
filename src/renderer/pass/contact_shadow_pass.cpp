@@ -336,9 +336,12 @@ PassSetup ContactShadowPass::setup() const {
     };
 }
 
-void ContactShadowPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (depth import) is produced inside build() below
-    // until Phase 2 routes declare() through the pipeline.
+void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    // Contact-shadow output image is pass-private; its own layout
+    // transitions stay inline inside record() until it joins the
+    // named catalog as a consumer-visible export.
 }
 
 void ContactShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

@@ -665,14 +665,17 @@ PassSetup ShadowPass::setup() const {
     };
 }
 
-void ShadowPass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
+void ShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.parallel_group(1);
-    // Writes into the exported shadow_atlas image. Consumers declaring
-    // sampled_fragment on the same name will get the WAR edge that
-    // today is a hand-rolled SHADER_READ_ONLY barrier at the end of
-    // record().
-    // TODO(C2b final): import_named(ctx, "shadow_atlas") and
-    // declare the write once consumers are wired.
+    auto atlas = builder.import_named(ctx, "shadow_atlas");
+    if (atlas.valid()) {
+        builder.write(atlas, ResourceAccess::depth_attachment);
+    }
+    // Per-cascade layout choreography stays inline in record() — the
+    // graph sees a single write spanning all cascades through the
+    // array_view_ exported from collect_exports(). The final
+    // finalize-to-SHADER_READ_ONLY barrier stays until consumers
+    // declare their reads (end of C2b).
 }
 
 void ShadowPass::collect_exports(DeclareContext& ctx) {
