@@ -23,7 +23,7 @@ static const bool registered = [] {
         .draw = [](Node3D& node, void* ptr, const InspectorContext& ctx) -> bool {
             auto* skel = static_cast<SkeletalMeshComponent*>(ptr);
             bool changed = false;
-            static const std::string model_exts[] = {".glb", ".gltf", ".fbx"};
+            static const std::string model_exts[] = {".fjmesh", ".fjskel"};
             static const std::string material_exts[] = {".fjmat"};
             std::string skel_model_path = node.source;
             if (asset_ref_field({.label = "Model", .id = "##SkelModel", .extensions = model_exts, .ctx = &ctx}, skel_model_path)) {

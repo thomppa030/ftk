@@ -90,7 +90,7 @@ void ProjectManager::scan_models() {
     for (const auto& entry : std::filesystem::directory_iterator(models_dir)) {
         if (!entry.is_regular_file()) continue;
         auto ext = entry.path().extension().string();
-        if (ext == ".gltf" || ext == ".glb") {
+        if (ext == ".fjmesh") {
             auto relative = std::filesystem::relative(entry.path(), root);
             available_models_.push_back(relative.string());
         }
