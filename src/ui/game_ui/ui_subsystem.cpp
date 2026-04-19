@@ -81,6 +81,27 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         auto tree_clone = UiDataBind::clone_node(*widget_asset.markup_root, nullptr);
         auto base_dir = std::filesystem::path(widget_resolved).parent_path().string();
         game_ui->load_from_tree(std::move(tree_clone), fjss_path, base_dir);
+
+        // Apply <prop> defaults from the .fjwidget to the root context. Child
+        // widgets get this via widget_resolver; the root widget's context is
+        // game_ui's top-level one, so we do it here.
+        for (const auto& prop : widget_asset.props) {
+            if (prop.default_value.empty()) continue;
+            auto& ctx_out = game_ui->context();
+            if (prop.type == "float") {
+                try { ctx_out.set_float(prop.name, std::stof(prop.default_value)); }
+                catch (...) { ctx_out.set(prop.name, prop.default_value); }
+            } else if (prop.type == "int") {
+                try { ctx_out.set_int(prop.name, std::stoi(prop.default_value)); }
+                catch (...) { ctx_out.set(prop.name, prop.default_value); }
+            } else if (prop.type == "bool") {
+                ctx_out.set_bool(prop.name,
+                    prop.default_value != "0" && prop.default_value != "false");
+            } else {
+                ctx_out.set(prop.name, prop.default_value);
+            }
+        }
+
         game_ui->mark_dirty();
 
         UiInstance inst;
