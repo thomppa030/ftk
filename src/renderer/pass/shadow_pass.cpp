@@ -670,19 +670,27 @@ void ShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto atlas = builder.import_named(ctx, "shadow_atlas");
     if (atlas.valid()) {
         builder.write(atlas, ResourceAccess::depth_attachment);
+        // record() finishes with every cascade transitioned to
+        // DEPTH_STENCIL_READ_ONLY_OPTIMAL inline so consumers can
+        // sample without an extra barrier from the graph.
+        builder.final_layout(atlas,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
     }
-    // Per-cascade layout choreography stays inline in record() — the
-    // graph sees a single write spanning all cascades through the
-    // array_view_ exported from collect_exports(). The final
-    // finalize-to-SHADER_READ_ONLY barrier stays until consumers
-    // declare their reads (end of C2b).
 }
 
 void ShadowPass::collect_exports(DeclareContext& ctx) {
     if (image_ == VK_NULL_HANDLE || array_view_ == VK_NULL_HANDLE) { return; }
-    ctx.imports.emplace("shadow_atlas", ImportedImage{
-        image_, array_view_, VK_IMAGE_ASPECT_DEPTH_BIT,
-        /*base_layer*/ 0, /*layer_count*/ CASCADE_COUNT});
+    ImportedImage img{};
+    img.image = image_;
+    img.view = array_view_;
+    img.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    img.base_layer = 0;
+    img.layer_count = CASCADE_COUNT;
+    img.mip_count = 1;
+    img.persistent = true;
+    ctx.imports.emplace("shadow_atlas", img);
 }
 
 void ShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

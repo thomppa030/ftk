@@ -833,9 +833,16 @@ void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto cubemap = builder.import_named(ctx, "sky_cubemap");
     if (cubemap.valid()) {
         builder.write(cubemap, ResourceAccess::storage_write_compute);
+        // After generate() the prefiltered mip chain has been walked
+        // into SHADER_READ_ONLY_OPTIMAL inline. When the sky is clean
+        // generate() is a no-op but the tracked state is already
+        // correct from the previous frame (persistent import).
+        builder.final_layout(cubemap,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     }
     // BRDF LUT is a static pass-private texture — not in the catalog.
-    // Mip-chain layout walks during generate() stay inline.
 }
 
 void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
@@ -845,9 +852,17 @@ void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
     VkImageView view = hdri_cubemap_view_ != VK_NULL_HANDLE
         ? hdri_cubemap_view_ : cubemap_view_;
     if (image == VK_NULL_HANDLE || view == VK_NULL_HANDLE) { return; }
-    ctx.imports.emplace("sky_cubemap", ImportedImage{
-        image, view, VK_IMAGE_ASPECT_COLOR_BIT,
-        /*base_layer*/ 0, /*layer_count*/ 6});
+    const uint32_t mips = hdri_cubemap_view_ != VK_NULL_HANDLE
+        ? HDRI_MIP_LEVELS : 1;
+    ImportedImage img{};
+    img.image = image;
+    img.view = view;
+    img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    img.base_layer = 0;
+    img.layer_count = 6;
+    img.mip_count = mips;
+    img.persistent = true;
+    ctx.imports.emplace("sky_cubemap", img);
 }
 
 void SkyCubemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

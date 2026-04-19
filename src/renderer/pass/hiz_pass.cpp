@@ -379,11 +379,20 @@ PassSetup HizPass::setup() const {
 void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_compute);
-    // Hi-Z pyramid itself lives on PostProcessResources and is seeded
-    // into the catalog by the pipeline so downstream passes (meshlet
-    // cull pass 2, SSR) resolve "hiz_pyramid" by name. Internal mip-
-    // walk barriers stay inline inside record_into() — they don't
-    // cross pass boundaries.
+
+    auto hiz = builder.import_named(ctx, "hiz_pyramid");
+    if (hiz.valid()) {
+        // record_into() writes every mip of the pyramid as a storage
+        // image, then transitions the whole chain to
+        // SHADER_READ_ONLY_OPTIMAL inline. Tell the graph that's the
+        // post-state so downstream consumers (MeshletCullPass2, SSR)
+        // don't need any additional barrier before sampling.
+        builder.write(hiz, ResourceAccess::storage_write_compute);
+        builder.final_layout(hiz,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+            VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
+    }
 }
 
 void HizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

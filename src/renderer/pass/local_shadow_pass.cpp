@@ -450,17 +450,24 @@ void LocalShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto atlas = builder.import_named(ctx, "local_shadow_atlas");
     if (atlas.valid()) {
         builder.write(atlas, ResourceAccess::depth_attachment);
+        builder.final_layout(atlas,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+            VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT);
     }
-    // Per-tile layout transitions stay inline in record(). Final
-    // finalize-to-SHADER_READ_ONLY barrier stays until consumers
-    // declare their reads (end of C2b).
 }
 
 void LocalShadowPass::collect_exports(DeclareContext& ctx) {
     if (atlas_image_ == VK_NULL_HANDLE || atlas_view_ == VK_NULL_HANDLE) { return; }
-    ctx.imports.emplace("local_shadow_atlas", ImportedImage{
-        atlas_image_, atlas_view_, VK_IMAGE_ASPECT_DEPTH_BIT,
-        /*base_layer*/ 0, /*layer_count*/ 1});
+    ImportedImage img{};
+    img.image = atlas_image_;
+    img.view = atlas_view_;
+    img.aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+    img.base_layer = 0;
+    img.layer_count = 1;
+    img.mip_count = 1;
+    img.persistent = true;
+    ctx.imports.emplace("local_shadow_atlas", img);
 }
 
 void LocalShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

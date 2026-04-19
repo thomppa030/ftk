@@ -193,9 +193,15 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         if (pp_resources != nullptr) {
             if (auto* hiz = pp_resources->hiz()) {
                 if (hiz->ready() && hiz->hiz_sampled_view != VK_NULL_HANDLE) {
-                    decl_ctx.imports.emplace("hiz_pyramid",
-                        ImportedImage{hiz->hiz_image, hiz->hiz_sampled_view,
-                                       VK_IMAGE_ASPECT_COLOR_BIT, 0, 1});
+                    ImportedImage img{};
+                    img.image = hiz->hiz_image;
+                    img.view = hiz->hiz_sampled_view;
+                    img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+                    img.base_layer = 0;
+                    img.layer_count = 1;
+                    img.mip_count = hiz->hiz_mip_count;
+                    img.persistent = true;
+                    decl_ctx.imports.emplace("hiz_pyramid", img);
                 }
             }
         }
