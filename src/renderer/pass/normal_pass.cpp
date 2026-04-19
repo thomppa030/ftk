@@ -1,6 +1,7 @@
 #include "renderer/pass/normal_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/resources/mega_buffer.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -216,15 +217,21 @@ PassSetup NormalPass::setup() const {
     };
 }
 
+void NormalPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Viz image is pass-private; graph sees an empty-access pass.
+}
+
 void NormalPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                         const FrameContext& ctx) {
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::normals)))) return;
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::normals)))) { return; }
 
-    graph.add_pass("normals", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, {});
+    PassBuilder builder;
+    graph.submit_declared_pass("normals", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 } // namespace fjell

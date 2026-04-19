@@ -1,6 +1,7 @@
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -349,24 +350,31 @@ PassSetup LightVizPass::setup() const {
     };
 }
 
+void LightVizPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Output viz image and tile SSBO are pass-private / looked up from
+    // registry at record time; graph sees an empty-access pass.
+}
+
 void LightVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                           const FrameContext& ctx) {
     auto source = (mode_ == 0) ? ViewportSource::light_heatmap : ViewportSource::light_grid;
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(source)))) return;
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(source)))) { return; }
 
-    auto name = (mode_ == 0) ? "light_heatmap" : "light_grid";
+    const auto* name = (mode_ == 0) ? "light_heatmap" : "light_grid";
 
-    graph.add_pass(name, [this, ctx](VkCommandBuffer cb) {
-        if (ctx.registry) {
-            auto* tile_buf = ctx.registry->find_buffer("tile_light_ssbo");
-            if (tile_buf) {
-                set_tile_ssbo(tile_buf->buffer, tile_buf->size);
+    PassBuilder builder;
+    graph.submit_declared_pass(name, builder,
+        [this, ctx](VkCommandBuffer cb) {
+            if (ctx.registry) {
+                auto* tile_buf = ctx.registry->find_buffer("tile_light_ssbo");
+                if (tile_buf) {
+                    set_tile_ssbo(tile_buf->buffer, tile_buf->size);
+                }
             }
-        }
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, {});
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 } // namespace fjell

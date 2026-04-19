@@ -1,6 +1,7 @@
 #include "renderer/pass/meshlet_viz_pass.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/render_queue.hpp"
@@ -377,15 +378,21 @@ PassSetup MeshletVizPass::setup() const {
     };
 }
 
+void MeshletVizPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Viz image is pass-private; graph sees an empty-access pass.
+}
+
 void MeshletVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                             const FrameContext& ctx) {
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) return;
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::meshlet_viz)))) { return; }
 
-    graph.add_pass("meshlet_viz", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, {});
+    PassBuilder builder;
+    graph.submit_declared_pass("meshlet_viz", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 } // namespace fjell

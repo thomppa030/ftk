@@ -1,6 +1,7 @@
 #include "renderer/pass/cull_viz_pass.hpp"
 #include "renderer/pass/cull_pass.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -397,23 +398,31 @@ PassSetup CullVizPass::setup() const {
     };
 }
 
+void CullVizPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Viz image is pass-private; visibility buffer is fetched from
+    // CullPass at record time. Graph sees an empty-access pass.
+}
+
 void CullVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                           const FrameContext& ctx) {
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) return;
-    graph.add_pass("cull_viz", [this, ctx](VkCommandBuffer cb) {
-        if (!ctx.use_mesh_shaders || !ctx.passes) return;
-        auto* cull = ctx.passes->try_get<CullPass>("cull");
-        if (!cull || !cull->enabled()) return;
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::gpu_cull)))) { return; }
 
-        FrameContext local = ctx;
-        local.cmd = cb;
-        uint32_t opaque_count = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
-        if (opaque_count > 0) {
-            record(local,
-                cull->visibility_buffer(ctx.frame_index),
-                cull->visibility_buffer_size(ctx.frame_index));
-        }
-    }, {});
+    PassBuilder builder;
+    graph.submit_declared_pass("cull_viz", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            if (!ctx.use_mesh_shaders || !ctx.passes) { return; }
+            auto* cull = ctx.passes->try_get<CullPass>("cull");
+            if (!cull || !cull->enabled()) { return; }
+
+            FrameContext local = ctx;
+            local.cmd = cb;
+            uint32_t opaque_count = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
+            if (opaque_count > 0) {
+                record(local,
+                    cull->visibility_buffer(ctx.frame_index),
+                    cull->visibility_buffer_size(ctx.frame_index));
+            }
+        });
 }
 
 } // namespace fjell

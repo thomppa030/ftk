@@ -2,6 +2,7 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/viewport_source.hpp"
@@ -359,20 +360,29 @@ PassSetup DepthVizPass::setup() const {
     };
 }
 
-void DepthVizPass::build(FrameGraph& graph, ResourceRegistry& registry,
+void DepthVizPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (depth import) is produced inside build() below
+    // until Phase 2 routes declare() through the pipeline.
+}
+
+void DepthVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                           const FrameContext& ctx) {
-    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::depth)))) return;
+    if (!(ctx.active_sources & (1u << static_cast<uint32_t>(ViewportSource::depth)))) { return; }
 
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("depth")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::shader_read);
-    }
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
 
-    graph.add_pass("depth_viz", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record(local);
-    }, std::move(uses));
+    PassBuilder builder;
+    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                 VK_IMAGE_ASPECT_DEPTH_BIT);
+    builder.read(depth, ResourceAccess::sampled_fragment);
+
+    graph.submit_declared_pass("depth_viz", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record(local);
+        });
 }
 
 } // namespace fjell
