@@ -214,9 +214,12 @@ PassSetup TaaResolvePass::setup() const {
     };
 }
 
-void TaaResolvePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (color + velocity imports) is produced inside
-    // build() below until Phase 2 routes declare() through the pipeline.
+void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto color = builder.import_named(ctx, "color");
+    auto velocity = builder.import_named(ctx, "velocity");
+    builder.read(color, ResourceAccess::sampled_compute);
+    builder.read(velocity, ResourceAccess::sampled_compute);
+    // TAA history is pass-private and stays inline.
 }
 
 void TaaResolvePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

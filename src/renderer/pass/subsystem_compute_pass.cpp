@@ -25,8 +25,8 @@ PassSetup SubsystemComputePass::setup() const {
 }
 
 void SubsystemComputePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Empty graph accesses — subsystem compute dispatches operate on
-    // pass-private buffers with hand-coded barriers inside record().
+    // Subsystem compute dispatches operate on pass-private buffers.
+    // Graph accesses stay empty until Phase 3 adds buffer tracking.
 }
 
 void SubsystemComputePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

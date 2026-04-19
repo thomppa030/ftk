@@ -627,9 +627,10 @@ PassSetup BloomPass::setup() const {
     };
 }
 
-void BloomPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (color import) is produced inside build() below
-    // until Phase 2 routes declare() through the pipeline.
+void BloomPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto color = builder.import_named(ctx, "color");
+    builder.read(color, ResourceAccess::sampled_fragment);
+    // Bloom mip chain is pass-private and stays inline.
 }
 
 void BloomPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

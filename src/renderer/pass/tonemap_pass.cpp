@@ -318,9 +318,11 @@ PassSetup TonemapPass::setup() const {
     };
 }
 
-void TonemapPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (color import) is produced inside build() below
-    // until Phase 2 routes declare() through the pipeline.
+void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto color = builder.import_named(ctx, "color");
+    builder.read(color, ResourceAccess::sampled_fragment);
+    // Tonemap's alternate color sources (TAA history, bloom mip 0) live
+    // on pass-private resources and are resolved inside record().
 }
 
 void TonemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

@@ -21,12 +21,11 @@ PassSetup ScreenColorCopyPass::setup() const {
     };
 }
 
-void ScreenColorCopyPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Graph topology for this pass is produced per-frame inside build()
-    // below because the VkImages to import are only reachable through
-    // FrameContext->target. Once Phase 2 routes passes through the
-    // pipeline's DAG path directly, declare() will become the single
-    // source of truth and build() will be deleted.
+void ScreenColorCopyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto src = builder.import_named(ctx, "color");
+    auto dst = builder.import_named(ctx, "screen_color");
+    builder.read(src, ResourceAccess::transfer_src);
+    builder.write(dst, ResourceAccess::transfer_dst);
 }
 
 void ScreenColorCopyPass::build(FrameGraph& graph, ResourceRegistry& registry,

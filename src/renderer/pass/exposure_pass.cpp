@@ -275,9 +275,10 @@ PassSetup ExposurePass::setup() const {
     };
 }
 
-void ExposurePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (color import) is produced inside build() below
-    // until Phase 2 routes declare() through the pipeline.
+void ExposurePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto color = builder.import_named(ctx, "color");
+    builder.read(color, ResourceAccess::sampled_compute);
+    // Histogram + readback buffers stay inline until Phase 3.
 }
 
 void ExposurePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
