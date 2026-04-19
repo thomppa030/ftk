@@ -9,6 +9,9 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
+
+namespace fjell { struct GpuSplineSegment; }
 
 namespace fjell {
 
@@ -50,13 +53,25 @@ struct SplineMeshComponent : NodeComponent {
     SplineMeshForward forward{SplineMeshForward::X};
 
     // Reference "up" direction in the owning node's local space. Used to
-    // build the per-slice orthonormal frame. Z-up by default.
-    glm::vec3 up_dir{0.0f, 0.0f, 1.0f};
+    // build the per-slice orthonormal frame. Y-up matches Fjell's world up;
+    // splines that lie on the ground plane (most common case) get a stable
+    // frame across segments as the curve tangent sweeps through XZ.
+    glm::vec3 up_dir{0.0F, 1.0F, 0.0F};
 
     // Union of every per-segment deformed AABB, expressed in the node's
     // local space. Cached; recomputed when `dirty` is set.
     AABB local_bounds{};
     bool dirty{true};
+
+    // Cached render data rebuilt when `dirty` — one entry per spline segment.
+    // `instance_transforms` mirrors the InstancedMesh convention: the gatherer
+    // emits `instance_transforms->size()` instances per draw. For spline-mesh
+    // all entries are identity — the node's world matrix already lives on
+    // `DrawCommand::world_matrix`, and per-segment geometry is carried on the
+    // `GpuSplineSegment` record. The shader reads `dd.model`, not the matrix
+    // buffer, when `spline_segment_offset != ~0u`.
+    std::vector<glm::mat4>        instance_transforms;
+    std::vector<GpuSplineSegment> segments;
 
     // Editor-only: currently manipulated control-point index. Mirrors the
     // field on SplineComponent so the same viewport gizmo logic applies.

@@ -63,10 +63,13 @@ void main() {
     uint draw_index = gl_BaseInstance;
     DrawData dd = draws[draw_index];
     uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
-    mat4 model = (dd.instance_count > 1u)
+
+    bool is_spline = (dd.spline_segment_offset != 0xFFFFFFFFu);
+
+    mat4 model = (dd.instance_count > 1u && !is_spline)
         ? visible_instance_transforms[dd.first_instance + instance_id]
         : dd.model;
-    mat4 prev_model = (dd.instance_count > 1u)
+    mat4 prev_model = (dd.instance_count > 1u && !is_spline)
         ? visible_instance_transforms[dd.first_instance + instance_id]
         : dd.prev_model;
     uint material_id = dd.material_id;
@@ -77,6 +80,18 @@ void main() {
     vec2 UV = in_tex_coord;
     mat4 MODEL = model;
     float TIME = ubo.time;
+
+    // Spline-mesh deform runs in object space before any FJSL user vertex
+    // code, so FJSL vertex() still sees a deformed VERTEX/NORMAL and can
+    // layer on top (e.g. waves on a bent rail).
+    vec3 spline_tangent = in_tangent.xyz;
+    if (is_spline) {
+        SplineSegment seg = spline_segments[dd.spline_segment_offset + instance_id];
+        NORMAL         = fjell_spline_deform_direction(NORMAL,         in_position, seg);
+        spline_tangent = fjell_spline_deform_direction(spline_tangent, in_position, seg);
+        VERTEX         = fjell_spline_deform_position(in_position, seg);
+        UV             = fjell_spline_remap_uv(UV, seg);
+    }
 
 /*FJSL_VERTEX_CUSTOM_PARAMS*/
 
@@ -99,7 +114,7 @@ void main() {
     mat3 normal_matrix = transpose(inverse(mat3(model)));
     frag_world_normal = normal_matrix * NORMAL;
 
-    vec3 T = normalize(normal_matrix * in_tangent.xyz);
+    vec3 T = normalize(normal_matrix * spline_tangent);
     vec3 N = normalize(frag_world_normal);
     vec3 B = cross(N, T) * in_tangent.w;
     frag_TBN = mat3(T, B, N);

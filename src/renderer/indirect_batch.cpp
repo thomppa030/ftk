@@ -1,5 +1,6 @@
 #include "renderer/indirect_batch.hpp"
 #include "animation/animation_system.hpp"
+#include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/mega_buffer.hpp"
@@ -238,9 +239,73 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         }
 
         bool is_instanced = dc.instance_transforms && !dc.instance_transforms->empty();
+        bool is_spline    = dc.spline_segments  && !dc.spline_segments->empty();
         const auto& entries = dc.model->mega_entries();
         const auto& lods = dc.model->lod_levels();
         uint32_t max_lod = dc.model->lod_count();
+
+        if (is_spline) {
+            // Shadow pass doesn't yet have the deform shader variant, so
+            // spline meshes skip casting shadows. Revisit when adding the
+            // deform branch to shadow.vert.
+            if (is_shadow_batch) continue;
+
+            // Spline-mesh: one instance per segment, sharing dc.push.model as
+            // the world transform. No per-instance LOD bucketing (all N
+            // instances of a given spline share the node and force LOD 0), no
+            // GPU instance cull (deformed bounds are the union — culled at
+            // whole-patch level via dc.world_aabb). Stage the segments once
+            // and emit one indirect command per mega entry.
+            uint32_t seg_count = static_cast<uint32_t>(dc.spline_segments->size());
+            uint32_t seg_offset = static_cast<uint32_t>(staged_spline_segments_.size());
+            staged_spline_segments_.insert(staged_spline_segments_.end(),
+                                           dc.spline_segments->begin(),
+                                           dc.spline_segments->end());
+
+            const uint32_t lod = 0;
+            if (lod >= max_lod) continue;
+            const auto& lod_level = lods[lod];
+            uint32_t entry_begin = lod_level.first_mega_entry;
+            uint32_t entry_end   = entry_begin + lod_level.mega_entry_count;
+
+            for (uint32_t e = entry_begin; e < entry_end; ++e) {
+                const auto& entry = entries[e];
+                VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
+                cmd.indexCount    = entry.index_count;
+                cmd.instanceCount = seg_count;
+                cmd.firstIndex    = entry.first_index;
+                cmd.vertexOffset  = static_cast<int32_t>(entry.vertex_offset);
+                cmd.firstInstance = draw_index;
+
+                GpuDrawData& data = draw_data[draw_index];
+                data.model          = dc.push.model;
+                data.prev_model     = dc.prev_world_matrix;
+                data.material_id    = dc.push.material_id;
+                data.meshlet_offset = entry.meshlet_offset;
+                data.meshlet_count  = entry.meshlet_count;
+                data.vertex_offset  = entry.vertex_offset;
+                data.instance_count = seg_count;
+                data.first_instance = 0;
+                data.spline_segment_offset = seg_offset;
+
+                if (do_lod) {
+                    const AABB& world_aabb = dc.world_aabb;
+                    aabbs[draw_index].min_x = world_aabb.min.x;
+                    aabbs[draw_index].min_y = world_aabb.min.y;
+                    aabbs[draw_index].min_z = world_aabb.min.z;
+                    aabbs[draw_index].pad0 = 0.0F;
+                    aabbs[draw_index].max_x = world_aabb.max.x;
+                    aabbs[draw_index].max_y = world_aabb.max.y;
+                    aabbs[draw_index].max_z = world_aabb.max.z;
+                    aabbs[draw_index].pad1 = 0.0F;
+                }
+
+                total_meshlets += entry.meshlet_count * seg_count;
+                triangles      += (entry.index_count / 3) * seg_count;
+                draw_index++;
+            }
+            continue;
+        }
 
         if (is_instanced) {
             uint32_t src_count = static_cast<uint32_t>(dc.instance_transforms->size());

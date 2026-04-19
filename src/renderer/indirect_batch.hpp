@@ -44,6 +44,11 @@ static_assert(sizeof(GpuDrawData) == 176, "GpuDrawData must be 176 bytes for std
 
 // Per-instance spline-mesh segment record. Layout matches
 // `SplineSegment` in shaders/include/fjell_spline_deform.glsl (std430).
+//
+// start_quat / end_quat encode the rotation-minimizing frame at each endpoint
+// (xyzw, unit quaternion). The shader slerps between them per-t, which avoids
+// the discontinuities a per-t Frenet frame produces at inflection points /
+// sharp bends.
 struct GpuSplineSegment {
     glm::vec3 start_pos;
     float     half_span;     // mesh extent along forward axis, object-space
@@ -52,11 +57,11 @@ struct GpuSplineSegment {
     glm::vec3 end_pos;
     float     _pad0;
     glm::vec3 end_tan;
-    float     _pad1;
-    glm::vec3 up_dir;
-    float     _pad2;
+    float     arc_length;   // approximate segment length in object space
+    glm::vec4 start_quat;
+    glm::vec4 end_quat;
 };
-static_assert(sizeof(GpuSplineSegment) == 80, "GpuSplineSegment must be 80 bytes for std430");
+static_assert(sizeof(GpuSplineSegment) == 96, "GpuSplineSegment must be 96 bytes for std430");
 
 // One per instanced draw (each mega-entry × each distinct instanced DrawCommand).
 // Consumed by InstanceCullPass to cull instances against the view frustum and

@@ -35,9 +35,12 @@ struct SplineSegment {
     vec3  end_pos;
     float _pad0;
     vec3  end_tan;
-    float _pad1;
-    vec3  up_dir;
-    float _pad2;
+    float arc_length;  // approximate segment length for UV re-parameterization
+    // Rotation-minimizing frame quaternions (xyzw) at the segment endpoints.
+    // Each encodes the basis whose Z axis points along the curve tangent and
+    // whose X/Y axes are the right/up for that slice.
+    vec4  start_quat;
+    vec4  end_quat;
 };
 
 // ── Hermite helpers ───────────────────────────────────────────────────────
@@ -65,20 +68,42 @@ vec3 fjell_spline_hermite_tangent(SplineSegment s, float t) {
 
 // ── Per-slice frame ───────────────────────────────────────────────────────
 
-// Orthonormal right/up/forward frame at parameter t, using s.up_dir as the
-// reference. Forward = normalized curve tangent. Right = cross(forward, up).
-// Up = cross(right, forward) so it stays orthogonal even when up_dir isn't.
+// Quaternion → 3x3 rotation matrix. Columns are the rotated X, Y, Z basis.
+mat3 fjell_quat_to_mat3(vec4 q) {
+    float x = q.x, y = q.y, z = q.z, w = q.w;
+    float xx = x*x, yy = y*y, zz = z*z;
+    float xy = x*y, xz = x*z, yz = y*z;
+    float wx = w*x, wy = w*y, wz = w*z;
+    return mat3(
+        vec3(1.0 - 2.0*(yy + zz),       2.0*(xy + wz),       2.0*(xz - wy)),
+        vec3(      2.0*(xy - wz), 1.0 - 2.0*(xx + zz),       2.0*(yz + wx)),
+        vec3(      2.0*(xz + wy),       2.0*(yz - wx), 1.0 - 2.0*(xx + yy))
+    );
+}
+
+// Shortest-arc slerp between two unit quaternions. Flips sign when the dot
+// product is negative so the interpolation always takes the short way.
+vec4 fjell_quat_slerp(vec4 a, vec4 b, float t) {
+    float d = dot(a, b);
+    if (d < 0.0) { b = -b; d = -d; }
+    // Near-parallel quaternions fall back to linear lerp to avoid div-by-zero
+    // in sin(theta). The result is renormalized below.
+    if (d > 0.9995) return normalize(mix(a, b, t));
+    float theta_0 = acos(clamp(d, -1.0, 1.0));
+    float theta   = theta_0 * t;
+    float sin_t0  = sin(theta_0);
+    float s0 = sin(theta_0 - theta) / sin_t0;
+    float s1 = sin(theta)           / sin_t0;
+    return s0 * a + s1 * b;
+}
+
+// Rotation-minimizing frame at parameter t. Columns: right, up, forward.
+// The quaternions were computed CPU-side using parallel transport along the
+// whole spline, so the frame is continuous across segment boundaries and
+// stable through inflection points / sharp bends.
 mat3 fjell_spline_frame(SplineSegment s, float t) {
-    vec3 f = normalize(fjell_spline_hermite_tangent(s, t));
-    vec3 up_ref = s.up_dir;
-    // Degenerate-case guard: if up is parallel to forward, rotate it.
-    if (abs(dot(up_ref, f)) > 0.999) {
-        up_ref = (abs(f.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-    }
-    vec3 r = normalize(cross(f, up_ref));
-    vec3 u = cross(r, f);
-    // Columns: right, up, forward — a right-handed basis.
-    return mat3(r, u, f);
+    vec4 q = fjell_quat_slerp(s.start_quat, s.end_quat, t);
+    return fjell_quat_to_mat3(q);
 }
 
 // ── Deform entry points ───────────────────────────────────────────────────
@@ -113,6 +138,16 @@ vec3 fjell_spline_deform_position(vec3 v, SplineSegment s) {
 
     // right = frame[0], up = frame[1]
     return center + right_c * frame[0] + up_c * frame[1];
+}
+
+// Rescale the UV coordinate whose axis aligns with the mesh forward so that
+// texture tiling follows segment arc length instead of object-space position.
+// Convention: U runs along the forward axis. A mesh with UV.u ∈ [0, 1] across
+// its forward span will tile once per `2 * half_span` units of arc length.
+vec2 fjell_spline_remap_uv(vec2 uv, SplineSegment s) {
+    float span = max(2.0 * s.half_span, 1e-6);
+    float scale = s.arc_length / span;
+    return vec2(uv.x * scale, uv.y);
 }
 
 // Deform a direction (normal or tangent). Same frame but no translation.

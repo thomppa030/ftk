@@ -54,7 +54,10 @@ void main() {
     uint draw_index = gl_BaseInstance;
     DrawData dd = draws[draw_index];
     uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
-    mat4 model = (dd.instance_count > 1u)
+
+    bool is_spline = (dd.spline_segment_offset != 0xFFFFFFFFu);
+
+    mat4 model = (dd.instance_count > 1u && !is_spline)
         ? visible_instance_transforms[dd.first_instance + instance_id]
         : dd.model;
     uint material_id = dd.material_id;
@@ -65,6 +68,12 @@ void main() {
     vec2 UV = in_tex_coord;
     mat4 MODEL = model;
     float TIME = ubo.time;
+
+    if (is_spline) {
+        SplineSegment seg = spline_segments[dd.spline_segment_offset + instance_id];
+        NORMAL = fjell_spline_deform_direction(NORMAL, in_position, seg);
+        VERTEX = fjell_spline_deform_position(in_position, seg);
+    }
 
 /*FJSL_VERTEX_CUSTOM_PARAMS*/
 

@@ -32,9 +32,15 @@ invariant gl_Position;
 void main() {
     DrawData dd = draws[gl_BaseInstance];
     uint instance_id = uint(gl_InstanceIndex) - uint(gl_BaseInstance);
-    mat4 model = (dd.instance_count > 1u)
+    bool is_spline = (dd.spline_segment_offset != 0xFFFFFFFFu);
+    mat4 model = (dd.instance_count > 1u && !is_spline)
         ? visible_instance_transforms[dd.first_instance + instance_id]
         : dd.model;
-    vec4 world_pos = model * vec4(in_position, 1.0);
+    vec3 local_pos = in_position;
+    if (is_spline) {
+        SplineSegment seg = spline_segments[dd.spline_segment_offset + instance_id];
+        local_pos = fjell_spline_deform_position(in_position, seg);
+    }
+    vec4 world_pos = model * vec4(local_pos, 1.0);
     gl_Position = ubo.projection * ubo.view * world_pos;
 }
