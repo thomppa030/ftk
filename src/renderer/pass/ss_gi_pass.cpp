@@ -2,6 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/accel_structure.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
@@ -488,27 +489,35 @@ PassSetup SsGiPass::setup() const {
     };
 }
 
-void SsGiPass::build(FrameGraph& graph, ResourceRegistry& registry,
+void SsGiPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (depth + normal imports) is produced inside
+    // build() below until Phase 2 routes declare() through the pipeline.
+}
+
+void SsGiPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
                       const FrameContext& ctx) {
-    if (!config_.enabled || trace_pipeline_ == VK_NULL_HANDLE) return;
-    if (!ctx.pp_resources) return;
+    if (!config_.enabled || trace_pipeline_ == VK_NULL_HANDLE) { return; }
+    if (!ctx.pp_resources) { return; }
 
     auto* imgs = ctx.pp_resources->ss_gi();
-    if (!imgs) return;
+    if (!imgs) { return; }
 
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("depth")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
-    if (auto* img = registry.find_image("normal")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
 
-    graph.add_pass("ss_gi", [this, ctx, imgs](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        record_into(local, *imgs);
-    }, std::move(uses));
+    PassBuilder builder;
+    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                 VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto normal = builder.import("normal", target->normal_image(), target->normal_view());
+    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(normal, ResourceAccess::sampled_compute);
+
+    graph.submit_declared_pass("ss_gi", builder,
+        [this, ctx, imgs](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            record_into(local, *imgs);
+        });
 }
 
 // ── Record ──────────────────────────────────────────────────────────────

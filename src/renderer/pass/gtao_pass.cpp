@@ -2,6 +2,7 @@
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -644,20 +645,29 @@ PassSetup GtaoPass::setup() const {
     };
 }
 
-void GtaoPass::build(FrameGraph& graph, ResourceRegistry& registry,
-                      const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("depth")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
+void GtaoPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (depth import) is produced inside build() below
+    // until Phase 2 routes declare() through the pipeline.
+}
 
-    graph.add_pass("gtao", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        if (local.pp_resources && local.pp_resources->gtao()) {
-            record_into(local, *local.pp_resources->gtao());
-        }
-    }, std::move(uses));
+void GtaoPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                      const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    PassBuilder builder;
+    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                 VK_IMAGE_ASPECT_DEPTH_BIT);
+    builder.read(depth, ResourceAccess::sampled_compute);
+
+    graph.submit_declared_pass("gtao", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            if (local.pp_resources && local.pp_resources->gtao()) {
+                record_into(local, *local.pp_resources->gtao());
+            }
+        });
 }
 
 } // namespace fjell

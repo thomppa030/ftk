@@ -2,6 +2,7 @@
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -709,26 +710,33 @@ PassSetup SsrPass::setup() const {
     };
 }
 
-void SsrPass::build(FrameGraph& graph, ResourceRegistry& registry,
-                     const FrameContext& ctx) {
-    std::vector<std::pair<uint32_t, ImageUsage>> uses;
-    if (auto* img = registry.find_image("depth")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
-    if (auto* img = registry.find_image("color")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_write);
-    }
-    if (auto* img = registry.find_image("mr")) {
-        uses.emplace_back(img->frame_graph_id, ImageUsage::compute_read);
-    }
+void SsrPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
+    // Per-frame topology (depth, color, mr imports) is produced inside
+    // build() below until Phase 2 routes declare() through the pipeline.
+}
 
-    graph.add_pass("ssr", [this, ctx](VkCommandBuffer cb) {
-        FrameContext local = ctx;
-        local.cmd = cb;
-        if (local.pp_resources && local.pp_resources->ssr()) {
-            record_into(local, *local.pp_resources->ssr());
-        }
-    }, std::move(uses));
+void SsrPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
+                     const FrameContext& ctx) {
+    auto* target = ctx.target;
+    if (target == nullptr) { return; }
+
+    PassBuilder builder;
+    auto depth = builder.import("depth", target->depth_image(), target->depth_view(),
+                                 VK_IMAGE_ASPECT_DEPTH_BIT);
+    auto color = builder.import("color", target->color_image(), target->color_view());
+    auto mr = builder.import("mr", target->mr_image(), target->mr_view());
+    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.write(color, ResourceAccess::storage_write_compute);
+    builder.read(mr, ResourceAccess::sampled_compute);
+
+    graph.submit_declared_pass("ssr", builder,
+        [this, ctx](VkCommandBuffer cb) {
+            FrameContext local = ctx;
+            local.cmd = cb;
+            if (local.pp_resources && local.pp_resources->ssr()) {
+                record_into(local, *local.pp_resources->ssr());
+            }
+        });
 }
 
 } // namespace fjell
