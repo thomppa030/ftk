@@ -238,8 +238,12 @@ PassSetup WireframePass::setup() const {
     };
 }
 
-void WireframePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Viz image is pass-private; graph sees an empty-access pass.
+void WireframePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // Viz output is a pass-private bindless-bound texture; mark
+    // side-effecting only when the viewport is showing it.
+    if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::wireframe))) != 0U) {
+        builder.has_side_effects();
+    }
 }
 
 void WireframePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

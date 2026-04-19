@@ -497,7 +497,9 @@ void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto normal = builder.import_named(ctx, "normal");
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.read(normal, ResourceAccess::sampled_compute);
-    // Raw/resolved/history/indirect images are pass-private.
+    // Writes pass-private gi_indirect / ss_gi_emissive bound through
+    // the global descriptor — consumer edge lives outside the catalog.
+    builder.has_side_effects();
 }
 
 void SsGiPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

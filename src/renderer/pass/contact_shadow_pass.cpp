@@ -339,9 +339,10 @@ PassSetup ContactShadowPass::setup() const {
 void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_compute);
-    // Contact-shadow output image is pass-private; its own layout
-    // transitions stay inline inside record() until it joins the
-    // named catalog as a consumer-visible export.
+    // Output is a pass-private texture bound through the global
+    // descriptor — consumers (opaque/transparent fragment shaders)
+    // reach it outside the catalog.
+    builder.has_side_effects();
 }
 
 void ContactShadowPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

@@ -104,10 +104,10 @@ PassSetup InstanceCullPass::setup() const {
     };
 }
 
-void InstanceCullPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // No graph-tracked images: all SSBO accesses are hand-barriered
-    // inside the record lambda. Graph sees an empty-access pass until
-    // Phase 3 adds buffer tracking.
+void InstanceCullPass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
+    // Writes compacted instance transforms + patched indirect draw
+    // commands the vertex path reads through its own descriptor set.
+    builder.has_side_effects();
 }
 
 void InstanceCullPass::record(const FrameContext& ctx) {

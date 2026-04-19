@@ -70,7 +70,7 @@ const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& na
 }
 
 void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
-                              VkSampleCountFlagBits msaa, uint32_t /*active_sources*/,
+                              VkSampleCountFlagBits msaa, uint32_t active_sources,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
                               uint32_t frame_index, ResourceRegistry& registry,
                               PassRegistry& passes, PostProcessResources* pp_resources,
@@ -143,6 +143,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     decl_ctx.viewport_extent = {target.extent().width, target.extent().height};
     decl_ctx.msaa_samples    = msaa;
     decl_ctx.frame_index     = frame_index;
+    decl_ctx.active_sources  = active_sources;
 
     const bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
     auto add_import = [&](std::string name, VkImage img, VkImageView view,
@@ -297,9 +298,86 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         return;
     }
 
+    // ── Pass culling ──────────────────────────────────────────────────
+    // Walk backwards from required passes and keep anything they depend
+    // on. A pass is required when it declares never_cull(), when it
+    // flags has_side_effects(), or when it writes to a persistent
+    // resource whose state must carry across frames (shadow atlases,
+    // Hi-Z, sky cubemap — consumed by this frame through
+    // import_named, but also by next frame's read on the same images).
+    //
+    // Rationale: the graph only tracks images, so most real
+    // side-effects (SSBO writes, pass-private texture updates,
+    // descriptor writes into the bindless set, host readbacks) are
+    // invisible to the DAG. Passes that do those have to mark
+    // has_side_effects() explicitly. Anything else that isn't reached
+    // from a root can be dropped — the output it produced would have
+    // been thrown away anyway.
+    std::vector<bool> alive(n, false);
+    {
+        std::vector<size_t> work;
+        work.reserve(n);
+
+        // Collect writers of each resource for the backward walk.
+        std::unordered_map<ResKey, std::vector<size_t>, ResKeyHash> writers_of;
+        for (size_t j = 0; j < n; ++j) {
+            const auto& b = pending[j].builder;
+            for (const auto& acc : b.texture_accesses()) {
+                if (!access_is_write(acc.access)) { continue; }
+                ResKey k = resolve_key(b, acc.handle);
+                if (k.image == VK_NULL_HANDLE) { continue; }
+                writers_of[k].push_back(j);
+            }
+        }
+
+        // Seed the set with roots.
+        for (size_t j = 0; j < n; ++j) {
+            const auto& b = pending[j].builder;
+            bool root = b.is_never_cull() || b.has_side_effects_flag();
+            if (!root) {
+                for (const auto& imp : b.imported_textures()) {
+                    for (const auto& acc : b.texture_accesses()) {
+                        if (acc.handle.id != imp.handle.id) { continue; }
+                        if (!access_is_write(acc.access)) { continue; }
+                        if (imp.persistent) {
+                            root = true;
+                            break;
+                        }
+                    }
+                    if (root) { break; }
+                }
+            }
+            if (root) {
+                alive[j] = true;
+                work.push_back(j);
+            }
+        }
+
+        while (!work.empty()) {
+            size_t j = work.back();
+            work.pop_back();
+            const auto& b = pending[j].builder;
+            for (const auto& acc : b.texture_accesses()) {
+                if (!access_is_read(acc.access)) { continue; }
+                ResKey k = resolve_key(b, acc.handle);
+                if (k.image == VK_NULL_HANDLE) { continue; }
+                auto it = writers_of.find(k);
+                if (it == writers_of.end()) { continue; }
+                for (size_t w : it->second) {
+                    if (alive[w]) { continue; }
+                    alive[w] = true;
+                    work.push_back(w);
+                }
+            }
+        }
+    }
+
+    size_t culled = 0;
+    for (bool a : alive) { if (!a) { ++culled; } }
+
     if (!dag_order_logged_) {
-        FJELL_GFX_INFO("RenderPipeline driven by declare(): {} passes.",
-                       static_cast<unsigned>(n));
+        FJELL_GFX_INFO("RenderPipeline driven by declare(): {} passes ({} culled).",
+                       static_cast<unsigned>(n), static_cast<unsigned>(culled));
         dag_order_logged_ = true;
     }
 
@@ -334,6 +412,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     registry.register_image("distortion", {distortion_id, target.distortion_view()});
 
     for (size_t idx : dag_order) {
+        if (!alive[idx]) { continue; }
         auto& pp = pending[idx];
         graph.submit_declared_pass(
             entries_[pp.entry_index].name,

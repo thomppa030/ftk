@@ -571,8 +571,10 @@ void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ct
         auto hiz = builder.import_named(ctx, "hiz_pyramid");
         builder.read(hiz, ResourceAccess::sampled_compute);
     }
-    // Pass-private meshlet expand/cull SSBOs stay inline until Phase 3
-    // adds buffer tracking.
+    // Writes the visible/indirect/culled SSBO chain consumed by the
+    // mesh-shader depth/color passes through the meshlet descriptor
+    // set — those accesses are outside the DAG.
+    builder.has_side_effects();
 }
 
 void MeshletInstancePass::record(const FrameContext& ctx) {

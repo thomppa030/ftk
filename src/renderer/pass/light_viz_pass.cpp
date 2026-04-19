@@ -350,9 +350,16 @@ PassSetup LightVizPass::setup() const {
     };
 }
 
-void LightVizPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Output viz image and tile SSBO are pass-private / looked up from
-    // registry at record time; graph sees an empty-access pass.
+void LightVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    // LightVizPass is registered twice (heatmap + grid); both bits can
+    // keep either instance alive. The mode-specific bit check happens
+    // at record time.
+    const uint32_t bits =
+        (1U << static_cast<uint32_t>(ViewportSource::light_heatmap)) |
+        (1U << static_cast<uint32_t>(ViewportSource::light_grid));
+    if ((ctx.active_sources & bits) != 0U) {
+        builder.has_side_effects();
+    }
 }
 
 void LightVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

@@ -221,8 +221,10 @@ PassSetup OverdrawPass::setup() const {
     };
 }
 
-void OverdrawPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Viz image is pass-private; graph sees an empty-access pass.
+void OverdrawPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::overdraw))) != 0U) {
+        builder.has_side_effects();
+    }
 }
 
 void OverdrawPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

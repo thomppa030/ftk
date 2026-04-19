@@ -214,9 +214,12 @@ PassSetup UvVizPass::setup() const {
 }
 
 void UvVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::uv))) == 0U) {
+        return;
+    }
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::depth_attachment_read);
-    // Viz image is pass-private; graph sees an empty-access pass.
+    builder.has_side_effects();
 }
 
 void UvVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

@@ -361,9 +361,12 @@ PassSetup DepthVizPass::setup() const {
 }
 
 void DepthVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::depth))) == 0U) {
+        return;
+    }
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_fragment);
-    // Viz image is pass-private and stays inline.
+    builder.has_side_effects();
 }
 
 void DepthVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

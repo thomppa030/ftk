@@ -401,6 +401,10 @@ void HizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
             VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
     }
+    // Keep Hi-Z alive independently of whether the declared write
+    // is wired this frame — MeshletCullPass2 / cull viz / SSR reach
+    // the pyramid through pass-private descriptor writes.
+    builder.has_side_effects();
 }
 
 void HizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

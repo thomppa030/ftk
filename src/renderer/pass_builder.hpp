@@ -61,6 +61,12 @@ struct DeclareContext {
     bool ss_gi_enabled{true};
     bool contact_shadows_enabled{true};
 
+    /// Bitmask of ViewportSource enum values: which debug visualizations
+    /// are currently showing somewhere (viewport tabs, overlays). Viz
+    /// passes check their bit in declare() and flag side-effects only
+    /// when they're actually going to produce a visible output.
+    uint32_t active_sources{0};
+
     /// Named image catalog. Populated by the pipeline: target framebuffer
     /// images (color/depth/normal/…/screen_color) and any persistent
     /// images producer passes export via collect_exports(). Passes call

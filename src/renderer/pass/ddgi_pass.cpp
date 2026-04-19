@@ -1540,8 +1540,10 @@ void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto normal = builder.import_named(ctx, "normal");
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.read(normal, ResourceAccess::sampled_compute);
-    // Probe atlases are pass-private persistent images; their own
-    // layout choreography stays inline until Phase 3.
+    // Writes pass-private probe atlases (irradiance, visibility,
+    // probe_offset) bound through the global descriptor. Graph can't
+    // see that consumer edge.
+    builder.has_side_effects();
 }
 
 void DdgiPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

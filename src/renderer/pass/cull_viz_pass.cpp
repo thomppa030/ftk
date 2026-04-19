@@ -398,9 +398,10 @@ PassSetup CullVizPass::setup() const {
     };
 }
 
-void CullVizPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Viz image is pass-private; visibility buffer is fetched from
-    // CullPass at record time. Graph sees an empty-access pass.
+void CullVizPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if ((ctx.active_sources & (1U << static_cast<uint32_t>(ViewportSource::gpu_cull))) != 0U) {
+        builder.has_side_effects();
+    }
 }
 
 void CullVizPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

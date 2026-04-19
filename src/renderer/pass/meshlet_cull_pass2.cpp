@@ -30,7 +30,8 @@ void MeshletCullPass2::declare(PassBuilder& builder, const DeclareContext& ctx) 
         auto hiz = builder.import_named(ctx, "hiz_pyramid");
         builder.read(hiz, ResourceAccess::sampled_compute);
     }
-    // Pass-private SSBO writes stay inline until Phase 3.
+    // Appends to the shared meshlet visible buffer.
+    builder.has_side_effects();
 }
 
 void MeshletCullPass2::record(const FrameContext& ctx) {

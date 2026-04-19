@@ -24,9 +24,11 @@ PassSetup SubsystemComputePass::setup() const {
     };
 }
 
-void SubsystemComputePass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Subsystem compute dispatches operate on pass-private buffers.
-    // Graph accesses stay empty until Phase 3 adds buffer tracking.
+void SubsystemComputePass::declare(PassBuilder& builder, const DeclareContext& /*ctx*/) {
+    // Subsystem compute dispatches update particle/sprite/tilemap SSBOs
+    // the graph doesn't track. Flag as side-effecting until Phase 3
+    // adds buffer tracking.
+    builder.has_side_effects();
 }
 
 void SubsystemComputePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

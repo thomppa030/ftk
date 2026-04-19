@@ -649,7 +649,9 @@ PassSetup GtaoPass::setup() const {
 void GtaoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_compute);
-    // AO blur chain is pass-private and stays inline.
+    // Writes pass-private ao_texture bound through the global
+    // descriptor; consumer edge is outside the catalog.
+    builder.has_side_effects();
 }
 
 void GtaoPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

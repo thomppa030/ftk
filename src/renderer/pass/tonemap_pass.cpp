@@ -344,8 +344,12 @@ PassSetup TonemapPass::setup() const {
 void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_fragment);
-    // Tonemap's alternate color sources (TAA history, bloom mip 0) live
-    // on pass-private resources and are resolved inside record().
+    // Tonemap is the frame terminator: its output (the tonemap pp
+    // image) goes to the present/ImGui step outside the graph, so
+    // mark never_cull so it anchors the backward walk.
+    builder.never_cull();
+    // Alternate color sources (TAA history, bloom mip 0) live on
+    // pass-private resources and are resolved inside record().
 }
 
 void TonemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

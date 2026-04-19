@@ -219,7 +219,9 @@ void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto velocity = builder.import_named(ctx, "velocity");
     builder.read(color, ResourceAccess::sampled_compute);
     builder.read(velocity, ResourceAccess::sampled_compute);
-    // TAA history is pass-private and stays inline.
+    // History is pass-private; tonemap samples it through a non-catalog
+    // view. Flag side-effecting so culling keeps this alive.
+    builder.has_side_effects();
 }
 
 void TaaResolvePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

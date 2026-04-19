@@ -278,7 +278,10 @@ PassSetup ExposurePass::setup() const {
 void ExposurePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_compute);
-    // Histogram + readback buffers stay inline until Phase 3.
+    // Writes histogram + readback buffers the graph doesn't track; the
+    // readback feeds tonemap's exposure on the next frame. Mark as
+    // side-effecting so culling keeps it alive.
+    builder.has_side_effects();
 }
 
 void ExposurePass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

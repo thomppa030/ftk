@@ -631,7 +631,10 @@ PassSetup BloomPass::setup() const {
 void BloomPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_fragment);
-    // Bloom mip chain is pass-private and stays inline.
+    // Mip chain is a pass-private chain the tonemap samples through a
+    // non-catalog view; the graph can't see that edge so flag the pass
+    // as side-effecting.
+    builder.has_side_effects();
 }
 
 void BloomPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

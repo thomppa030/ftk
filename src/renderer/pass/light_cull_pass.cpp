@@ -112,7 +112,8 @@ void LightCullPass::register_resources(ResourceRegistry& registry) {
 void LightCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_compute);
-    // Tile SSBO write stays inline until Phase 3 buffer tracking.
+    // Writes the forward+ tile SSBO; graph doesn't track buffers yet.
+    builder.has_side_effects();
 }
 
 void LightCullPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,
