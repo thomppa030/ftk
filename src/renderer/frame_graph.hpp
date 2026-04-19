@@ -9,6 +9,7 @@
 
 namespace fjell {
 
+class PassBuilder;
 class ThreadPool;
 class ThreadCommandPools;
 
@@ -63,6 +64,17 @@ public:
     void add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
                   std::vector<std::pair<uint32_t, ImageUsage>> uses,
                   uint32_t parallel_group = 0);
+
+    /// Submit a DAG-authored pass: consumes a PassBuilder (populated by
+    /// RenderPass::declare()) plus the pass's record callback. Registers
+    /// all imported images into the graph, derives legacy ImageUsage
+    /// values from declared ResourceAccess, and enqueues the pass the
+    /// same way add_pass() does. Created (non-imported) resources are
+    /// not yet allocated — that lands with Phase 3 aliasing. Passing a
+    /// builder with created resources is an error until then.
+    void submit_declared_pass(const std::string& name, const PassBuilder& builder,
+                              std::function<void(VkCommandBuffer)> execute,
+                              uint32_t parallel_group = 0);
 
     // Execute all passes, inserting barriers between them.
     // Passes with the same parallel_group > 0 are recorded in parallel on

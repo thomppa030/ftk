@@ -1,11 +1,71 @@
 #include "renderer/frame_graph.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
+#include "renderer/pass_builder.hpp"
+#include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 
+#include <cassert>
 #include <latch>
 
 namespace fjell {
+
+namespace {
+
+/// Map the DAG-era ResourceAccess down to the legacy ImageUsage enum
+/// used by the barrier emitter. Covers every access that applies to
+/// images; buffer accesses are ignored at this level (passes still
+/// barrier buffers imperatively; tracked-buffer support lands in
+/// Phase 4 along with batched barrier emission).
+ImageUsage image_usage_for(ResourceAccess a) {
+    switch (a) {
+        case ResourceAccess::color_attachment:
+            return ImageUsage::color_attachment;
+        case ResourceAccess::depth_attachment:
+            return ImageUsage::depth_attachment;
+        case ResourceAccess::depth_attachment_read:
+        case ResourceAccess::input_attachment:
+            return ImageUsage::depth_attachment_read;
+        case ResourceAccess::sampled_fragment:
+        case ResourceAccess::sampled_vertex:
+            return ImageUsage::shader_read;
+        case ResourceAccess::sampled_compute:
+        case ResourceAccess::storage_read_compute:
+            return ImageUsage::compute_read;
+        case ResourceAccess::storage_write_compute:
+        case ResourceAccess::storage_read_write_compute:
+            return ImageUsage::compute_write;
+        case ResourceAccess::transfer_src:
+            return ImageUsage::transfer_src;
+        case ResourceAccess::transfer_dst:
+            return ImageUsage::transfer_dst;
+        // Buffer-only accesses: the caller filters these out.
+        default:
+            return ImageUsage::shader_read;
+    }
+}
+
+[[nodiscard]] bool access_applies_to_image(ResourceAccess a) {
+    switch (a) {
+        case ResourceAccess::color_attachment:
+        case ResourceAccess::depth_attachment:
+        case ResourceAccess::depth_attachment_read:
+        case ResourceAccess::input_attachment:
+        case ResourceAccess::sampled_fragment:
+        case ResourceAccess::sampled_vertex:
+        case ResourceAccess::sampled_compute:
+        case ResourceAccess::storage_read_compute:
+        case ResourceAccess::storage_write_compute:
+        case ResourceAccess::storage_read_write_compute:
+        case ResourceAccess::transfer_src:
+        case ResourceAccess::transfer_dst:
+            return true;
+        default:
+            return false;
+    }
+}
+
+} // namespace
 
 uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
                                      uint32_t base_layer, uint32_t layer_count) {
@@ -42,6 +102,71 @@ void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandB
 void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
                            std::vector<std::pair<uint32_t, ImageUsage>> uses,
                            uint32_t parallel_group) {
+    PassDecl pass;
+    pass.name = name;
+    pass.execute = std::move(execute);
+    pass.image_uses = std::move(uses);
+    pass.parallel_group = parallel_group;
+    passes_.push_back(std::move(pass));
+}
+
+void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder& builder,
+                                       std::function<void(VkCommandBuffer)> execute,
+                                       uint32_t parallel_group) {
+    // Phase 1: transient allocation is not yet implemented. Any pass that
+    // uses create() is trying to run ahead of the migration.
+    if (!builder.created_textures().empty() || !builder.created_buffers().empty()) {
+        FJELL_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' declares created "
+                       "resources, but transient allocation lands with Phase 3. "
+                       "Importing is the only supported mode until then.",
+                       name.c_str());
+        assert(builder.created_textures().empty() && builder.created_buffers().empty());
+    }
+
+    // Register every imported image into the tracked-image table, reusing
+    // the existing tracked ID when the same VkImage was already registered
+    // (e.g. by the pipeline's up-front pass over OffscreenPass targets).
+    // Without dedup two tracked entries would diverge in their layout
+    // tracking, and barriers emitted against the second ID wouldn't
+    // update the first — leaving downstream readers reading stale state.
+    std::vector<uint32_t> handle_to_image_id;
+    handle_to_image_id.resize(builder.imported_textures().size(), UINT32_MAX);
+    for (const auto& imp : builder.imported_textures()) {
+        uint32_t image_id = UINT32_MAX;
+        for (size_t i = 0; i < images_.size(); ++i) {
+            if (images_[i].image == imp.image &&
+                images_[i].base_layer == imp.base_layer &&
+                images_[i].layer_count == imp.layer_count) {
+                image_id = static_cast<uint32_t>(i);
+                break;
+            }
+        }
+        if (image_id == UINT32_MAX) {
+            image_id = register_image(imp.image, imp.aspect, imp.base_layer, imp.layer_count);
+        }
+        if (imp.handle.id >= handle_to_image_id.size()) {
+            handle_to_image_id.resize(imp.handle.id + 1, UINT32_MAX);
+        }
+        handle_to_image_id[imp.handle.id] = image_id;
+    }
+
+    // Translate declared image accesses into the legacy (image_id, usage)
+    // pairs the rest of FrameGraph already consumes.
+    std::vector<std::pair<uint32_t, ImageUsage>> uses;
+    uses.reserve(builder.texture_accesses().size());
+    for (const auto& acc : builder.texture_accesses()) {
+        if (!access_applies_to_image(acc.access)) continue;
+        if (acc.handle.id >= handle_to_image_id.size()) {
+            FJELL_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' accesses "
+                           "texture handle {} which was not imported in this builder.",
+                           name.c_str(), static_cast<unsigned>(acc.handle.id));
+            continue;
+        }
+        uint32_t image_id = handle_to_image_id[acc.handle.id];
+        if (image_id == UINT32_MAX) continue;
+        uses.emplace_back(image_id, image_usage_for(acc.access));
+    }
+
     PassDecl pass;
     pass.name = name;
     pass.execute = std::move(execute);
