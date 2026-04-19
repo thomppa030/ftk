@@ -111,6 +111,23 @@ void IndirectBatch::ensure_instanced_draw_capacity(uint32_t frame_index, uint32_
     instanced_draw_capacities_[frame_index] = new_cap;
 }
 
+void IndirectBatch::ensure_spline_segment_capacity(uint32_t frame_index, uint32_t count) {
+    if (count <= spline_segment_capacities_[frame_index]) return;
+
+    uint32_t new_cap = std::max(count, spline_segment_capacities_[frame_index] * 2);
+    if (new_cap < 64) new_cap = 64;
+
+    spline_segment_buffers_[frame_index] = std::make_unique<Buffer>(
+        allocator_,
+        new_cap * sizeof(GpuSplineSegment),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VMA_MEMORY_USAGE_AUTO,
+        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+    spline_segment_buffers_[frame_index]->map();
+
+    spline_segment_capacities_[frame_index] = new_cap;
+}
+
 void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                           const std::vector<DrawCommand>& transparent_commands,
                           uint32_t frame_index,
@@ -162,6 +179,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     staged_instance_transforms_.clear();
     staged_instance_transforms_.reserve(total_instance_transforms);
     staged_instanced_draws_.clear();
+    staged_spline_segments_.clear();
 
     // Stage to CPU-side vectors (L1/L2 cached) to avoid scattered writes
     // to write-combined GPU memory. Bulk memcpy at the end.
@@ -512,6 +530,15 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         std::memcpy(instanced_draw_buffers_[frame_index]->mapped(),
                     staged_instanced_draws_.data(),
                     staged_inst_draws * sizeof(GpuInstancedDraw));
+    }
+
+    uint32_t staged_segments = static_cast<uint32_t>(staged_spline_segments_.size());
+    spline_segment_counts_[frame_index] = staged_segments;
+    if (staged_segments > 0) {
+        ensure_spline_segment_capacity(frame_index, staged_segments);
+        std::memcpy(spline_segment_buffers_[frame_index]->mapped(),
+                    staged_spline_segments_.data(),
+                    staged_segments * sizeof(GpuSplineSegment));
     }
 
     // Populate mesh shader indirect dispatch buffers

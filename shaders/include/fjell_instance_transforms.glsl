@@ -25,4 +25,13 @@ layout(set = 2, binding = 3) readonly buffer VisibleInstanceTransforms {
     mat4 visible_instance_transforms[];
 };
 
+// Spline-mesh per-instance segment records. Partially bound — only present
+// when the scene contains a SplineMeshComponent. Indexed by
+// `draw.spline_segment_offset + (gl_InstanceIndex - gl_BaseInstance)`.
+#include "fjell_spline_deform.glsl"
+
+layout(set = 2, binding = 4) readonly buffer SplineSegments {
+    SplineSegment spline_segments[];
+};
+
 #endif

@@ -30,9 +30,33 @@ struct GpuDrawData {
     uint32_t bone_count{0};
     uint32_t instance_count{1};          // 1 = single instance; N = instanced
     uint32_t first_instance{0};          // offset into instance transform SSBO
+
+    // Offset into the spline-segment SSBO for draw's first instance. Per-
+    // instance segment = spline_segment_offset + (gl_InstanceIndex - first_instance).
+    // 0xFFFFFFFF = not a spline-mesh draw (vertex stage skips deform).
+    uint32_t spline_segment_offset{0xFFFFFFFF};
+    uint32_t _pad0{0};
+    uint32_t _pad1{0};
+    uint32_t _pad2{0};
 };
 
-static_assert(sizeof(GpuDrawData) == 160, "GpuDrawData must be 160 bytes for std430");
+static_assert(sizeof(GpuDrawData) == 176, "GpuDrawData must be 176 bytes for std430");
+
+// Per-instance spline-mesh segment record. Layout matches
+// `SplineSegment` in shaders/include/fjell_spline_deform.glsl (std430).
+struct GpuSplineSegment {
+    glm::vec3 start_pos;
+    float     half_span;     // mesh extent along forward axis, object-space
+    glm::vec3 start_tan;
+    uint32_t  forward;       // 0 = X, 1 = Y, 2 = Z
+    glm::vec3 end_pos;
+    float     _pad0;
+    glm::vec3 end_tan;
+    float     _pad1;
+    glm::vec3 up_dir;
+    float     _pad2;
+};
+static_assert(sizeof(GpuSplineSegment) == 80, "GpuSplineSegment must be 80 bytes for std430");
 
 // One per instanced draw (each mega-entry × each distinct instanced DrawCommand).
 // Consumed by InstanceCullPass to cull instances against the view frustum and
@@ -157,10 +181,23 @@ public:
         return instanced_draw_counts_[frame_index];
     }
 
+    [[nodiscard]] VkBuffer spline_segment_buffer(uint32_t frame_index) const {
+        return spline_segment_buffers_[frame_index]
+                   ? spline_segment_buffers_[frame_index]->handle()
+                   : VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkDeviceSize spline_segment_size(uint32_t frame_index) const {
+        return static_cast<VkDeviceSize>(spline_segment_counts_[frame_index]) * sizeof(GpuSplineSegment);
+    }
+    [[nodiscard]] uint32_t spline_segment_count(uint32_t frame_index) const {
+        return spline_segment_counts_[frame_index];
+    }
+
 private:
     void ensure_capacity(uint32_t frame_index, uint32_t count);
     void ensure_instance_capacity(uint32_t frame_index, uint32_t count);
     void ensure_instanced_draw_capacity(uint32_t frame_index, uint32_t count);
+    void ensure_spline_segment_capacity(uint32_t frame_index, uint32_t count);
 
     VkDevice device_;
     VmaAllocator allocator_;
@@ -203,6 +240,12 @@ private:
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instanced_draw_capacities_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> instanced_draw_counts_{};
     std::vector<GpuInstancedDraw> staged_instanced_draws_;
+
+    // Per-frame packed spline-mesh per-instance segment records
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> spline_segment_buffers_;
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> spline_segment_capacities_{};
+    std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> spline_segment_counts_{};
+    std::vector<GpuSplineSegment> staged_spline_segments_;
 };
 
 } // namespace fjell

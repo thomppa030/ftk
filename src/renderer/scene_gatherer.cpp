@@ -265,6 +265,14 @@ void SceneGatherer::gather(const GatherInput& input) {
             input.frame_index);
     }
 
+    // Update spline-segment SSBO binding (partially bound).
+    if (indirect_batch_->spline_segment_count(input.frame_index) > 0) {
+        draw_data_descriptor_.update_spline_segments(
+            indirect_batch_->spline_segment_buffer(input.frame_index),
+            indirect_batch_->spline_segment_size(input.frame_index),
+            input.frame_index);
+    }
+
     // Update bone SSBO descriptor (shared by main pass and shadow cascades)
     if (input.animation_system && input.animation_system->has_bones_this_frame()) {
         auto& bb = input.animation_system->bone_buffer();

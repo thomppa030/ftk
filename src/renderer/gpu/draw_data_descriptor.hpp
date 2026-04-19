@@ -22,6 +22,7 @@ public:
     void update_bones(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
     void update_instance_transforms(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
     void update_visible_instance_transforms(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
+    void update_spline_segments(VkBuffer buffer, VkDeviceSize size, uint32_t frame_index);
 
     [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_->handle(); }
     [[nodiscard]] VkDescriptorSet descriptor_set(uint32_t frame_index) const {

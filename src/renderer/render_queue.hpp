@@ -32,6 +32,12 @@ struct DrawCommand {
     // Instanced draws: local-space transforms in owning node's space.
     // nullptr = single-instance draw (normal path).
     const std::vector<glm::mat4>* instance_transforms{nullptr};
+
+    // Spline-mesh draws: per-instance segment records (endpoints, tangents,
+    // forward axis, half span). Size must match instance_transforms->size()
+    // when both are set. nullptr = not a spline-mesh draw.
+    // The records are in world space.
+    const std::vector<struct GpuSplineSegment>* spline_segments{nullptr};
 };
 
 class RenderQueue {
