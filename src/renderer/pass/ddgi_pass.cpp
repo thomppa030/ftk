@@ -1532,9 +1532,13 @@ PassSetup DdgiPass::setup() const {
     };
 }
 
-void DdgiPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (depth + normal imports) is produced inside
-    // build() below until Phase 2 routes declare() through the pipeline.
+void DdgiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    auto normal = builder.import_named(ctx, "normal");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(normal, ResourceAccess::sampled_compute);
+    // Probe atlases are pass-private persistent images; their own
+    // layout choreography stays inline until Phase 3.
 }
 
 void DdgiPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

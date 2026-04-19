@@ -109,8 +109,10 @@ void LightCullPass::register_resources(ResourceRegistry& registry) {
     }
 }
 
-void LightCullPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology produced inside build() below until Phase 2.
+void LightCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    // Tile SSBO write stays inline until Phase 3 buffer tracking.
 }
 
 void LightCullPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

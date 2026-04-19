@@ -829,9 +829,25 @@ PassSetup SkyCubemapPass::setup() const {
     };
 }
 
-void SkyCubemapPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Cubemap + BRDF LUT are pass-private persistent images; layout
-    // transitions are inline. Graph sees an empty-access pass.
+void SkyCubemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto cubemap = builder.import_named(ctx, "sky_cubemap");
+    if (cubemap.valid()) {
+        builder.write(cubemap, ResourceAccess::storage_write_compute);
+    }
+    // BRDF LUT is a static pass-private texture — not in the catalog.
+    // Mip-chain layout walks during generate() stay inline.
+}
+
+void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
+    // HDRI takes precedence over the procedural cubemap when present.
+    VkImage image = hdri_cubemap_image_ != VK_NULL_HANDLE
+        ? hdri_cubemap_image_ : cubemap_image_;
+    VkImageView view = hdri_cubemap_view_ != VK_NULL_HANDLE
+        ? hdri_cubemap_view_ : cubemap_view_;
+    if (image == VK_NULL_HANDLE || view == VK_NULL_HANDLE) { return; }
+    ctx.imports.emplace("sky_cubemap", ImportedImage{
+        image, view, VK_IMAGE_ASPECT_COLOR_BIT,
+        /*base_layer*/ 0, /*layer_count*/ 6});
 }
 
 void SkyCubemapPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

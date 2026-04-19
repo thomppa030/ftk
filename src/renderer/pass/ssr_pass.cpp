@@ -710,9 +710,14 @@ PassSetup SsrPass::setup() const {
     };
 }
 
-void SsrPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (depth, color, mr imports) is produced inside
-    // build() below until Phase 2 routes declare() through the pipeline.
+void SsrPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    auto color = builder.import_named(ctx, "color");
+    auto mr = builder.import_named(ctx, "mr");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.write(color, ResourceAccess::storage_write_compute);
+    builder.read(mr, ResourceAccess::sampled_compute);
+    // SSR output + history images are pass-private.
 }
 
 void SsrPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

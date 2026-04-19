@@ -419,9 +419,12 @@ PassSetup SunShaftsPass::setup() const {
     };
 }
 
-void SunShaftsPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (depth + color imports) is produced inside
-    // build() below until Phase 2 routes declare() through the pipeline.
+void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    auto color = builder.import_named(ctx, "color");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.write(color, ResourceAccess::storage_write_compute);
+    // Half-res ping-pong textures are pass-private and stay inline.
 }
 
 void SunShaftsPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

@@ -489,9 +489,12 @@ PassSetup SsGiPass::setup() const {
     };
 }
 
-void SsGiPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (depth + normal imports) is produced inside
-    // build() below until Phase 2 routes declare() through the pipeline.
+void SsGiPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    auto normal = builder.import_named(ctx, "normal");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.read(normal, ResourceAccess::sampled_compute);
+    // Raw/resolved/history/indirect images are pass-private.
 }
 
 void SsGiPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

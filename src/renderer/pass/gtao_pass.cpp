@@ -645,9 +645,10 @@ PassSetup GtaoPass::setup() const {
     };
 }
 
-void GtaoPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (depth import) is produced inside build() below
-    // until Phase 2 routes declare() through the pipeline.
+void GtaoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    // AO blur chain is pass-private and stays inline.
 }
 
 void GtaoPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

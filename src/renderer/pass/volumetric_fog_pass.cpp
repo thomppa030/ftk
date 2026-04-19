@@ -810,9 +810,12 @@ PassSetup VolumetricFogPass::setup() const {
     };
 }
 
-void VolumetricFogPass::declare(PassBuilder& /*builder*/, const DeclareContext& /*ctx*/) {
-    // Per-frame topology (depth + color imports) is produced inside
-    // build() below until Phase 2 routes declare() through the pipeline.
+void VolumetricFogPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    auto color = builder.import_named(ctx, "color");
+    builder.read(depth, ResourceAccess::sampled_compute);
+    builder.write(color, ResourceAccess::storage_write_compute);
+    // Froxel 3D textures are pass-private and stay inline.
 }
 
 void VolumetricFogPass::build(FrameGraph& graph, ResourceRegistry& /*registry*/,

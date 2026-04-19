@@ -24,6 +24,7 @@ public:
                const FrameContext& ctx) override;
     void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     [[nodiscard]] bool uses_declare() const noexcept override { return true; }
+    void collect_exports(DeclareContext& ctx) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void register_resources(ResourceRegistry& registry) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
