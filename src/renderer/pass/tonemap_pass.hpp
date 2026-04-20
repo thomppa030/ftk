@@ -12,7 +12,9 @@ namespace fjell {
 // raw scene color), outputs LDR sRGB.
 class TonemapPass : public RenderPass {
 public:
-    // Per-viewport resolution-dependent image state.
+    // Per-viewport output image. Input descriptor sets are no longer
+    // owned per-viewport — TonemapPass::record_into() acquires them from
+    // FrameContext::descriptor_cache against the current source views.
     struct Images {
         VkImage image{VK_NULL_HANDLE};
         VmaAllocation memory{VK_NULL_HANDLE};
@@ -20,16 +22,10 @@ public:
         VkExtent2D extent{};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
 
-        // Own pool + per-frame input sets (self-contained allocation)
-        VkDescriptorPool pool{VK_NULL_HANDLE};
-        VkDescriptorSet input_sets[MAX_FRAMES_IN_FLIGHT]{};
-
         void create(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout set_layout,
                      uint32_t width, uint32_t height);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout set_layout,
                      uint32_t width, uint32_t height);
 
         [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);

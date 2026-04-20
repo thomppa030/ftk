@@ -7,7 +7,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -24,27 +23,11 @@
 #include <array>
 #include <stdexcept>
 
-namespace {
-
-// A/B flag: FJELL_DESCRIPTOR_CACHE=1 routes this pass through the
-// FrameDescriptorCache. Default off while C2a.3 lands so the legacy
-// Images::input_sets path keeps working until C2a.4 deletes it.
-bool use_descriptor_cache() {
-    static const bool on = [] {
-        const char* v = std::getenv("FJELL_DESCRIPTOR_CACHE");
-        return v != nullptr && v[0] != '0' && v[0] != '\0';
-    }();
-    return on;
-}
-
-} // namespace
-
 namespace fjell {
 
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
 void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
-                                  VkDescriptorSetLayout set_layout,
                                   uint32_t width, uint32_t height) {
     extent = {width, height};
 
@@ -74,51 +57,23 @@ void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
     if (vkCreateImageView(device, &view_ci, nullptr, &view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create tonemap output view");
     }
-
-    // Create own descriptor pool + sets (2 samplers per set: scene + bloom)
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
-
-    VkDescriptorPoolCreateInfo pool_ci{};
-    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
-    pool_ci.poolSizeCount = 1;
-    pool_ci.pPoolSizes = &pool_size;
-    if (vkCreateDescriptorPool(device, &pool_ci, nullptr, &pool) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tonemap images descriptor pool");
-    }
-
-    std::array<VkDescriptorSetLayout, MAX_FRAMES_IN_FLIGHT> layouts{};
-    layouts.fill(set_layout);
-    VkDescriptorSetAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = pool;
-    alloc_info.descriptorSetCount = MAX_FRAMES_IN_FLIGHT;
-    alloc_info.pSetLayouts = layouts.data();
-    if (vkAllocateDescriptorSets(device, &alloc_info, input_sets) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate tonemap images descriptor sets");
-    }
 }
 
 void TonemapPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
-    if (pool != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device, pool, nullptr); pool = VK_NULL_HANDLE; }
     if (view != VK_NULL_HANDLE) { vkDestroyImageView(device, view, nullptr); view = VK_NULL_HANDLE; }
     destroy_vma_image(allocator, image, memory);
     image = VK_NULL_HANDLE; memory = VK_NULL_HANDLE;
     extent = {};
-    for (auto& s : input_sets) s = VK_NULL_HANDLE;
 }
 
 void TonemapPass::Images::resize(VkDevice device, VmaAllocator allocator,
-                                  VkDescriptorSetLayout set_layout,
                                   uint32_t width, uint32_t height) {
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    if (width > 0 && height > 0) create(device, allocator, set_layout, width, height);
+    if (width > 0 && height > 0) create(device, allocator, width, height);
 }
 
 VkDescriptorSet TonemapPass::Images::imgui_texture(VkSampler sampler) {
@@ -213,7 +168,7 @@ void TonemapPass::destroy() {
 }
 
 void TonemapPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, set_layout_, width, height);
+    default_images_.resize(device_, allocator_, width, height);
 }
 
 VkDescriptorSet TonemapPass::imgui_texture() {
@@ -288,29 +243,18 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     VkImageView bloom = bloom_view != VK_NULL_HANDLE ? bloom_view : source;
     float has_bloom = bloom_view != VK_NULL_HANDLE ? 1.0f : 0.0f;
 
-    VkDescriptorSet input_set = VK_NULL_HANDLE;
-    if (use_descriptor_cache() && ctx.descriptor_cache != nullptr) {
-        std::array<FrameCacheBinding, 2> bindings{};
-        bindings[0].binding = 0;
-        bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[0].image.sampler = input_sampler_;
-        bindings[0].image.imageView = source;
-        bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        bindings[1].binding = 1;
-        bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        bindings[1].image.sampler = input_sampler_;
-        bindings[1].image.imageView = bloom;
-        bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        input_set = ctx.descriptor_cache->acquire(set_layout_, bindings);
-    } else {
-        // Legacy path: pass-owned pool, one set per frame slot, descriptors
-        // rewritten every frame. Removed in C2a.4.
-        vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 0,
-                                         source, input_sampler_);
-        vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 1,
-                                         bloom, input_sampler_);
-        input_set = imgs.input_sets[ctx.frame_index];
-    }
+    std::array<FrameCacheBinding, 2> bindings{};
+    bindings[0].binding = 0;
+    bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[0].image.sampler = input_sampler_;
+    bindings[0].image.imageView = source;
+    bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    bindings[1].binding = 1;
+    bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[1].image.sampler = input_sampler_;
+    bindings[1].image.imageView = bloom;
+    bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorSet input_set = ctx.descriptor_cache->acquire(set_layout_, bindings);
 
     // Transition output to writable
     vk_utils::prepare_color_attachment(cmd, imgs.image);

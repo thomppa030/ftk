@@ -51,9 +51,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
                            vol_w, vol_h);
     }
     if (config_.tonemap && width > 0 && height > 0) {
-        tonemap_images_.create(device_, allocator_,
-                               passes_->tonemap.image_set_layout(),
-                               width, height);
+        tonemap_images_.create(device_, allocator_, width, height);
     }
     if (config_.taa && width > 0 && height > 0) {
         taa_images_.create(device_, allocator_,
@@ -179,9 +177,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
                            width, height);
     }
     if (config_.tonemap) {
-        tonemap_images_.resize(device_, allocator_,
-                               passes_->tonemap.image_set_layout(),
-                               width, height);
+        tonemap_images_.resize(device_, allocator_, width, height);
     }
     if (config_.taa) {
         taa_images_.resize(device_, allocator_,
