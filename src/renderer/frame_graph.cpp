@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <latch>
+#include <unordered_map>
 
 namespace fjell {
 
@@ -122,6 +123,12 @@ void FrameGraph::begin_frame() {
     passes_.clear();
     for (auto& img : images_) {
         if (img.persistent) { continue; }
+        // Virtual resources get their VkImage re-bound every frame via
+        // bind_virtual_image() after the pool acquires an allocation.
+        // Clear the stale handle so a pass that ends up without an
+        // allocation this frame hits the VK_NULL_HANDLE guard in
+        // emit_barriers_for_pass.
+        if (img.virtual_resource) { img.image = VK_NULL_HANDLE; }
         img.slices.clear();
         ImageSlice slice{};
         slice.range.aspect = img.aspect;
@@ -132,6 +139,13 @@ void FrameGraph::begin_frame() {
         slice.layout = VK_IMAGE_LAYOUT_UNDEFINED;
         img.slices.push_back(slice);
     }
+}
+
+void FrameGraph::bind_virtual_image(uint32_t image_id, VkImage image) {
+    if (image_id >= images_.size()) { return; }
+    auto& img = images_[image_id];
+    if (!img.virtual_resource) { return; }
+    img.image = image;
 }
 
 void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandBuffer)> execute,
@@ -235,10 +249,28 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         handle_to_image_id[imp.handle.id] = image_id;
     }
 
-    // Register created textures as virtual resources. VK_NULL_HANDLE
-    // image, one initial slice covering the whole surface so carve_slices
+    // Register created textures as virtual resources. Virtual resources
+    // are deduped by name across passes so a transient written by one
+    // pass and read by another (both call create() with the same name +
+    // desc) resolves to the same TrackedImage. VK_NULL_HANDLE image +
+    // one initial slice covering the whole surface so carve_slices
     // behaves normally during any stray range queries.
     for (const auto& cre : builder.created_textures()) {
+        // Dedup by name: if an earlier pass created the same named
+        // transient, reuse its image_id and just map this pass's handle
+        // onto it.
+        uint32_t existing_id = UINT32_MAX;
+        for (size_t k = 0; k < images_.size(); ++k) {
+            if (images_[k].virtual_resource && images_[k].name == cre.name) {
+                existing_id = static_cast<uint32_t>(k);
+                break;
+            }
+        }
+        if (existing_id != UINT32_MAX) {
+            handle_to_image_id[cre.handle.id] = existing_id;
+            continue;
+        }
+
         TrackedImage img{};
         img.image = VK_NULL_HANDLE;
         img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -686,22 +718,88 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
     slice.last_access = dst_access;
 }
 
+namespace {
+
+// Merged pre-pass access state for one image, accumulated across all of
+// the pass's declared ImageUses. Mirrors RDG's "Merged Access State":
+// one barrier per image per pass, combining every declared stage/access
+// bitmask and picking a layout that's compatible with all of them.
+struct MergedAccess {
+    SubresourceRange range{};
+    VkImageLayout layout{VK_IMAGE_LAYOUT_UNDEFINED};
+    VkPipelineStageFlags2 stages{0};
+    VkAccessFlags2 access{0};
+    bool any_write{false};
+};
+
+// Pick the layout that satisfies every declared access. If any write is
+// involved we use a general/attachment write layout; pure reads keep the
+// read-only layout. Mixing read + storage-write collapses to GENERAL.
+VkImageLayout merge_layouts(VkImageLayout a, VkImageLayout b) {
+    if (a == VK_IMAGE_LAYOUT_UNDEFINED) { return b; }
+    if (b == VK_IMAGE_LAYOUT_UNDEFINED) { return a; }
+    if (a == b) { return a; }
+
+    auto is_attachment = [](VkImageLayout l) {
+        return l == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+            || l == VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
+            || l == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            || l == VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+    };
+
+    // Attachment layouts dominate sampled reads within the same pass —
+    // the attachment IS the access, and READ_ONLY variants satisfy
+    // sampled reads too.
+    if (is_attachment(a)) { return a; }
+    if (is_attachment(b)) { return b; }
+
+    // Anything else that doesn't agree: fall back to GENERAL. Covers
+    // STORAGE_WRITE + SHADER_READ, STORAGE_WRITE + TRANSFER_DST, etc.
+    return VK_IMAGE_LAYOUT_GENERAL;
+}
+
+} // namespace
+
 void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass) {
+    // Merge every declared access per image_id into one required pre-pass
+    // state. Iteration order of image_uses doesn't matter for the merge —
+    // we union stages + access flags and collapse layouts.
+    std::unordered_map<uint32_t, MergedAccess> merged;
+    merged.reserve(pass.image_uses.size());
+
     for (const auto& acc : pass.image_uses) {
         auto& img = images_[acc.image_id];
-        // Virtual (create()-declared) resources aren't backed by a real
-        // VkImage yet in C2. Skip barrier emission for them — the owning
-        // pass still drives its Images-owned VkImage through record().
-        if (img.virtual_resource) { continue; }
+        // Virtual resources are backed by a TransientImagePool allocation
+        // (bound via bind_virtual_image) after compute_alias_groups runs.
+        // If the pool didn't hand out a VkImage this frame, there's nothing
+        // to barrier.
+        if (img.image == VK_NULL_HANDLE) { continue; }
 
-        auto needed_layout = layout_for(acc.usage, img.aspect);
-        auto needed_stage = stage_for(acc.usage);
-        auto needed_access = access_for(acc.usage);
+        auto layout = layout_for(acc.usage, img.aspect);
+        auto stages = stage_for(acc.usage);
+        auto access = access_for(acc.usage);
+        bool is_write = acc.usage == ImageUsage::color_attachment
+                     || acc.usage == ImageUsage::depth_attachment
+                     || acc.usage == ImageUsage::compute_write
+                     || acc.usage == ImageUsage::transfer_dst;
 
-        auto indices = carve_slices(img, acc.range);
+        auto& m = merged[acc.image_id];
+        if (m.stages == 0 && m.access == 0 && m.layout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            // First access — range defines the covered subresource.
+            m.range = acc.range;
+        }
+        m.layout = merge_layouts(m.layout, layout);
+        m.stages |= stages;
+        m.access |= access;
+        m.any_write = m.any_write || is_write;
+    }
+
+    for (const auto& [image_id, m] : merged) {
+        auto& img = images_[image_id];
+        auto indices = carve_slices(img, m.range);
         for (size_t idx : indices) {
             insert_barrier_for_slice(cmd, img, img.slices[idx],
-                                      needed_layout, needed_stage, needed_access);
+                                      m.layout, m.stages, m.access);
         }
         coalesce_slices(img);
     }
@@ -710,7 +808,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
 void FrameGraph::apply_final_layouts(const PassDecl& pass) {
     for (const auto& fl : pass.final_layouts) {
         auto& img = images_[fl.image_id];
-        if (img.virtual_resource) { continue; }
+        if (img.image == VK_NULL_HANDLE) { continue; }
         auto indices = carve_slices(img, fl.range);
         for (size_t idx : indices) {
             img.slices[idx].layout = fl.layout;
