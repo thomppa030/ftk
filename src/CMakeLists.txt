@@ -85,6 +85,8 @@ add_executable(fjell
     renderer/resources/primitives.cpp
     renderer/bindless.cpp
     renderer/frame_graph.cpp
+    renderer/frame_cache_key.cpp
+    renderer/frame_descriptor_cache.cpp
     renderer/pass_builder.cpp
     renderer/gpu/thread_command_pools.cpp
     renderer/systems/particle_system.cpp

@@ -2,6 +2,7 @@
 add_library(fjell-testable STATIC
     test_log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/frame_cache_key.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
@@ -20,6 +21,7 @@ target_link_libraries(fjell-testable PUBLIC
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     glm::glm
+    Vulkan::Headers
 )
 
 if(MSVC)
@@ -40,6 +42,7 @@ add_executable(fjell-tests
     test_data_bind.cpp
     test_ui_animation.cpp
     test_spline.cpp
+    test_frame_descriptor_cache.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE
