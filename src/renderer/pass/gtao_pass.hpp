@@ -11,7 +11,8 @@ namespace fjell {
 
 class GtaoPass : public RenderPass {
 public:
-    // Per-viewport resolution-dependent image state.
+    // Per-viewport AO + blur images. Descriptor sets come from
+    // FrameContext::descriptor_cache during record_into().
     struct Images {
         // AO output image (R8_UNORM, half-res)
         VkImage ao_image{VK_NULL_HANDLE};
@@ -27,18 +28,10 @@ public:
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
         bool images_need_init{true};
 
-        // Own pool + per-pass descriptor sets
-        VkDescriptorPool pool{VK_NULL_HANDLE};
-        VkDescriptorSet gtao_set{VK_NULL_HANDLE};
-        VkDescriptorSet blur_h_set{VK_NULL_HANDLE};
-        VkDescriptorSet blur_v_set{VK_NULL_HANDLE};
-
         void create(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout set_layout, VkSampler sampler,
                      uint32_t half_w, uint32_t half_h);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout set_layout, VkSampler sampler,
                      uint32_t width, uint32_t height);
 
         [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);

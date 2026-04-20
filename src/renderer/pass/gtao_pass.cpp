@@ -1,4 +1,5 @@
 #include "renderer/pass/gtao_pass.hpp"
+#include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -80,7 +81,6 @@ static void destroy_ao_image(VkDevice device, VmaAllocator allocator,
 }
 
 void GtaoPass::Images::create(VkDevice device, VmaAllocator allocator,
-                                VkDescriptorSetLayout set_layout, VkSampler sampler,
                                 uint32_t half_w, uint32_t half_h) {
     extent = {half_w, half_h};
 
@@ -88,131 +88,16 @@ void GtaoPass::Images::create(VkDevice device, VmaAllocator allocator,
     create_ao_image(device, allocator, half_w, half_h, blur_image, blur_memory, blur_view);
 
     images_need_init = true;
-
-    // Own descriptor pool (3 sets: gtao, blur_h, blur_v)
-    std::array<VkDescriptorPoolSize, 2> pool_sizes{};
-    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    pool_sizes[0].descriptorCount = 3;
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = 3;
-
-    VkDescriptorPoolCreateInfo pool_ci{};
-    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = 3;
-    pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
-    pool_ci.pPoolSizes = pool_sizes.data();
-
-    if (vkCreateDescriptorPool(device, &pool_ci, nullptr, &pool) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create GTAO images descriptor pool");
-    }
-
-    std::array<VkDescriptorSetLayout, 3> layouts = {set_layout, set_layout, set_layout};
-    VkDescriptorSetAllocateInfo alloc_ci{};
-    alloc_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_ci.descriptorPool = pool;
-    alloc_ci.descriptorSetCount = 3;
-    alloc_ci.pSetLayouts = layouts.data();
-
-    std::array<VkDescriptorSet, 3> sets{};
-    if (vkAllocateDescriptorSets(device, &alloc_ci, sets.data()) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate GTAO images descriptor sets");
-    }
-    gtao_set = sets[0];
-    blur_h_set = sets[1];
-    blur_v_set = sets[2];
-
-    // Write descriptors
-    // gtao_set: binding 0 = ao_image (storage write)
-    {
-        VkDescriptorImageInfo storage_info{};
-        storage_info.imageView = ao_view;
-        storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = gtao_set;
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write.descriptorCount = 1;
-        write.pImageInfo = &storage_info;
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-    }
-
-    // blur_h_set: binding 0 = blur_image (storage write), binding 1 = ao_image (sampled read)
-    {
-        VkDescriptorImageInfo storage_info{};
-        storage_info.imageView = blur_view;
-        storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkDescriptorImageInfo sampled_info{};
-        sampled_info.sampler = sampler;
-        sampled_info.imageView = ao_view;
-        sampled_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        std::array<VkWriteDescriptorSet, 2> writes{};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = blur_h_set;
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writes[0].descriptorCount = 1;
-        writes[0].pImageInfo = &storage_info;
-
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = blur_h_set;
-        writes[1].dstBinding = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo = &sampled_info;
-
-        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    }
-
-    // blur_v_set: binding 0 = ao_image (storage write), binding 1 = blur_image (sampled read)
-    {
-        VkDescriptorImageInfo storage_info{};
-        storage_info.imageView = ao_view;
-        storage_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkDescriptorImageInfo sampled_info{};
-        sampled_info.sampler = sampler;
-        sampled_info.imageView = blur_view;
-        sampled_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        std::array<VkWriteDescriptorSet, 2> writes{};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = blur_v_set;
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        writes[0].descriptorCount = 1;
-        writes[0].pImageInfo = &storage_info;
-
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = blur_v_set;
-        writes[1].dstBinding = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 1;
-        writes[1].pImageInfo = &sampled_info;
-
-        vkUpdateDescriptorSets(device, static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
-    }
 }
 
 void GtaoPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
-    if (pool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device, pool, nullptr);
-        pool = VK_NULL_HANDLE;
-        gtao_set = VK_NULL_HANDLE;
-        blur_h_set = VK_NULL_HANDLE;
-        blur_v_set = VK_NULL_HANDLE;
-    }
     destroy_ao_image(device, allocator, ao_image, ao_memory, ao_view);
     destroy_ao_image(device, allocator, blur_image, blur_memory, blur_view);
     extent = {};
 }
 
 void GtaoPass::Images::resize(VkDevice device, VmaAllocator allocator,
-                                VkDescriptorSetLayout set_layout, VkSampler sampler,
                                 uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
 
@@ -222,7 +107,7 @@ void GtaoPass::Images::resize(VkDevice device, VmaAllocator allocator,
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    create(device, allocator, set_layout, sampler, half_w, half_h);
+    create(device, allocator, half_w, half_h);
 }
 
 VkDescriptorSet GtaoPass::Images::imgui_texture(VkSampler sampler) {
@@ -366,7 +251,7 @@ Result<> GtaoPass::create(Device& device, const PassResources& resources) {
     }
 
     // Create 1x1 placeholder images so binding 5 is valid from frame 1
-    default_images_.create(device_, allocator_, pass_set_layout_, ao_sampler_, 1, 1);
+    default_images_.create(device_, allocator_, 1, 1);
 
     FJELL_GFX_DEBUG("GTAO pass created");
     return {};
@@ -384,7 +269,7 @@ void GtaoPass::destroy() {
 }
 
 void GtaoPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, pass_set_layout_, ao_sampler_, width, height);
+    default_images_.resize(device_, allocator_, width, height);
 }
 
 VkDescriptorSet GtaoPass::imgui_texture() {
@@ -520,12 +405,48 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkCmdPipelineBarrier2(cmd, &dep);
     }
 
+    auto* cache = ctx.descriptor_cache;
+
+    // gtao: binding 0 = storage ao output
+    FrameCacheBinding gtao_b{};
+    gtao_b.binding = 0;
+    gtao_b.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    gtao_b.image.imageView = imgs.ao_view;
+    gtao_b.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    VkDescriptorSet gtao_set = cache->acquire(pass_set_layout_, std::span{&gtao_b, 1});
+
+    // blur horizontal: storage blur output + sampled ao input
+    std::array<FrameCacheBinding, 2> blur_h_b{};
+    blur_h_b[0].binding = 0;
+    blur_h_b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    blur_h_b[0].image.imageView = imgs.blur_view;
+    blur_h_b[0].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    blur_h_b[1].binding = 1;
+    blur_h_b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    blur_h_b[1].image.sampler = ao_sampler_;
+    blur_h_b[1].image.imageView = imgs.ao_view;
+    blur_h_b[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorSet blur_h_set = cache->acquire(pass_set_layout_, blur_h_b);
+
+    // blur vertical: storage ao output + sampled blur input
+    std::array<FrameCacheBinding, 2> blur_v_b{};
+    blur_v_b[0].binding = 0;
+    blur_v_b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    blur_v_b[0].image.imageView = imgs.ao_view;
+    blur_v_b[0].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    blur_v_b[1].binding = 1;
+    blur_v_b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    blur_v_b[1].image.sampler = ao_sampler_;
+    blur_v_b[1].image.imageView = imgs.blur_view;
+    blur_v_b[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorSet blur_v_set = cache->acquire(pass_set_layout_, blur_v_b);
+
     // GTAO compute
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gtao_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gtao_layout_,
                             0, 1, &global_set, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gtao_layout_,
-                            1, 1, &imgs.gtao_set, 0, nullptr);
+                            1, 1, &gtao_set, 0, nullptr);
 
     GtaoPushConstants push{};
     push.radius = radius_;
@@ -565,7 +486,7 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, blur_layout_,
                             0, 1, &global_set, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, blur_layout_,
-                            1, 1, &imgs.blur_h_set, 0, nullptr);
+                            1, 1, &blur_h_set, 0, nullptr);
 
     BlurPushConstants blur_push{};
     blur_push.viewport_width = half_w;
@@ -609,7 +530,7 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // Blur vertical
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, blur_layout_,
-                            1, 1, &imgs.blur_v_set, 0, nullptr);
+                            1, 1, &blur_v_set, 0, nullptr);
 
     blur_push.direction = 1;
     vkCmdPushConstants(cmd, blur_layout_, VK_SHADER_STAGE_COMPUTE_BIT,

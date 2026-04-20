@@ -21,9 +21,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
     if (config_.gtao) {
         uint32_t half_w = std::max(1u, width / 2);
         uint32_t half_h = std::max(1u, height / 2);
-        gtao_images_.create(device_, allocator_,
-                            passes_->gtao.image_set_layout(), passes_->gtao.ao_sampler(),
-                            half_w, half_h);
+        gtao_images_.create(device_, allocator_, half_w, half_h);
     }
     if (config_.bloom && width > 0 && height > 0) {
         bloom_images_.create(device_, allocator_, width, height);
@@ -135,9 +133,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
                            width, height);
     }
     if (config_.gtao) {
-        gtao_images_.resize(device_, allocator_,
-                            passes_->gtao.image_set_layout(), passes_->gtao.ao_sampler(),
-                            width, height);
+        gtao_images_.resize(device_, allocator_, width, height);
     }
     if (config_.bloom) {
         bloom_images_.resize(device_, allocator_, width, height);
