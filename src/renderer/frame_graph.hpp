@@ -185,6 +185,14 @@ public:
     // the named logical resources in ResourceRegistry.
     [[nodiscard]] const std::vector<TrackedImage>& images() const noexcept { return images_; }
 
+    // Bind a VkImage to a virtual (create()-declared) resource after the
+    // TransientImagePool assigns a physical allocation. Must be called
+    // before execute() so barrier emission can operate on the real
+    // image. Slice state stays at the begin_frame() seed (UNDEFINED) so
+    // the first access triggers a correct aliasing transition whether
+    // the pool handed back a fresh image or one reused from last frame.
+    void bind_virtual_image(uint32_t image_id, VkImage image);
+
 private:
     static VkImageLayout layout_for(ImageUsage usage, VkImageAspectFlags aspect);
     static VkPipelineStageFlags2 stage_for(ImageUsage usage);

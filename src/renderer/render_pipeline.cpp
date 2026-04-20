@@ -124,6 +124,25 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 decl_ctx.imports.emplace("hiz_pyramid", img);
             }
         }
+        // AO output image is per-viewport: look up the active pp_resources
+        // ao_image here so declare-time imports match whichever viewport
+        // is being recorded. AoPass::collect_exports() can't see
+        // pp_resources, and default_pp_'s ao_image isn't the one the
+        // preview viewport writes — importing the wrong one lets the
+        // graph tracker's layout drift from actual image state.
+        if (auto* gtao = pp_resources->gtao()) {
+            if (gtao->ao_image != VK_NULL_HANDLE && gtao->ao_view != VK_NULL_HANDLE) {
+                ImportedImage img{};
+                img.image = gtao->ao_image;
+                img.view = gtao->ao_view;
+                img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+                img.base_layer = 0;
+                img.layer_count = 1;
+                img.mip_count = 1;
+                img.persistent = true;
+                decl_ctx.imports.emplace("gtao_ao", img);
+            }
+        }
     }
 
     passes.collect_exports_all(decl_ctx);
@@ -148,16 +167,21 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         pending.push_back(std::move(pp));
     }
 
-    // Resource identity for topological sort: (VkImage, base_layer,
-    // layer_count). Builder-local created handles aren't represented
-    // yet; they surface in Phase 3 with transient aliasing.
+    // Resource identity for topological sort. Imported images are keyed by
+    // (VkImage, base_layer, layer_count) — stable across passes for the
+    // same physical resource. Created (transient) resources are keyed by
+    // the name they were declared with, so two passes referencing the same
+    // logical transient (one calls create("foo"), the other reads "foo" by
+    // create'ing it again in its declare, or vice versa) resolve to the
+    // same key and the DAG sort / liveness walk sees the edge.
     struct ResKey {
-        VkImage image;
-        uint32_t base_layer;
-        uint32_t layer_count;
+        VkImage image{VK_NULL_HANDLE};
+        uint32_t base_layer{0};
+        uint32_t layer_count{0};
+        std::string virtual_name;  // non-empty iff image == VK_NULL_HANDLE
         bool operator==(const ResKey& o) const noexcept {
             return image == o.image && base_layer == o.base_layer
-                && layer_count == o.layer_count;
+                && layer_count == o.layer_count && virtual_name == o.virtual_name;
         }
     };
     struct ResKeyHash {
@@ -165,7 +189,8 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             auto h1 = std::hash<void*>{}(static_cast<void*>(k.image));
             auto h2 = std::hash<uint32_t>{}(k.base_layer);
             auto h3 = std::hash<uint32_t>{}(k.layer_count);
-            return h1 ^ (h2 << 1) ^ (h3 << 2);
+            auto h4 = std::hash<std::string>{}(k.virtual_name);
+            return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3);
         }
     };
 
@@ -176,10 +201,19 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     auto resolve_key = [](const PassBuilder& b, FgTexture h) -> ResKey {
         for (const auto& imp : b.imported_textures()) {
             if (imp.handle.id == h.id) {
-                return {imp.image, imp.base_layer, imp.layer_count};
+                return {imp.image, imp.base_layer, imp.layer_count, {}};
             }
         }
-        return {VK_NULL_HANDLE, 0, 0};
+        for (const auto& cre : b.created_textures()) {
+            if (cre.handle.id == h.id) {
+                return {VK_NULL_HANDLE, 0, 0, cre.name};
+            }
+        }
+        return {VK_NULL_HANDLE, 0, 0, {}};
+    };
+
+    auto key_valid = [](const ResKey& k) {
+        return k.image != VK_NULL_HANDLE || !k.virtual_name.empty();
     };
 
     std::unordered_map<ResKey, size_t, ResKeyHash> last_writer;
@@ -187,7 +221,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         const auto& b = pending[j].builder;
         for (const auto& acc : b.texture_accesses()) {
             ResKey k = resolve_key(b, acc.handle);
-            if (k.image == VK_NULL_HANDLE) { continue; }
+            if (!key_valid(k)) { continue; }
             if (access_is_read(acc.access)) {
                 auto it = last_writer.find(k);
                 if (it != last_writer.end() && it->second != j) {
@@ -257,7 +291,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             for (const auto& acc : b.texture_accesses()) {
                 if (!access_is_write(acc.access)) { continue; }
                 ResKey k = resolve_key(b, acc.handle);
-                if (k.image == VK_NULL_HANDLE) { continue; }
+                if (!key_valid(k)) { continue; }
                 writers_of[k].push_back(j);
             }
         }
@@ -292,7 +326,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             for (const auto& acc : b.texture_accesses()) {
                 if (!access_is_read(acc.access)) { continue; }
                 ResKey k = resolve_key(b, acc.handle);
-                if (k.image == VK_NULL_HANDLE) { continue; }
+                if (!key_valid(k)) { continue; }
                 auto it = writers_of.find(k);
                 if (it == writers_of.end()) { continue; }
                 for (size_t w : it->second) {
@@ -383,6 +417,13 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 res.sampler = VK_NULL_HANDLE;
                 res.mip_count = img.mip_count;
                 registry.register_image(img.name, res);
+                // Tell the graph which VkImage backs this virtual resource
+                // this frame, so emit_barriers_for_pass has something to
+                // transition. Slice state is already seeded to UNDEFINED
+                // by begin_frame(), which is what we want — the first
+                // access will barrier out of UNDEFINED regardless of
+                // whether the pool handed back a fresh or reused image.
+                graph.bind_virtual_image(rid, alloc->image);
             }
         }
     }
