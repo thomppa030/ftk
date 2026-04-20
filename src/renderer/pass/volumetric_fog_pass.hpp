@@ -25,7 +25,8 @@ public:
         VkImageView view{VK_NULL_HANDLE};
     };
 
-    // Per-viewport resolution-dependent image + temporal state.
+    // Per-viewport froxel volumes + temporal state. Descriptor sets for
+    // each dispatch come from FrameContext::descriptor_cache.
     struct Images {
         VolumeImage scatter_volumes[2];
         VolumeImage integrated_volume;
@@ -36,27 +37,10 @@ public:
         uint32_t frame_counter{0};
         uint32_t ping_pong{0};
 
-        // Own pool + all descriptor sets
-        VkDescriptorPool pool{VK_NULL_HANDLE};
-        VkDescriptorSet inject_sets[2]{};
-        VkDescriptorSet temporal_sets[2]{};
-        VkDescriptorSet integrate_sets[2]{};
-        VkDescriptorSet composite_sets[MAX_FRAMES_IN_FLIGHT]{};
-
         void create(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout inject_layout,
-                     VkDescriptorSetLayout temporal_layout,
-                     VkDescriptorSetLayout integrate_layout,
-                     VkDescriptorSetLayout composite_layout,
-                     VkSampler linear_sampler,
                      uint32_t vol_w, uint32_t vol_h);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout inject_layout,
-                     VkDescriptorSetLayout temporal_layout,
-                     VkDescriptorSetLayout integrate_layout,
-                     VkDescriptorSetLayout composite_layout,
-                     VkSampler linear_sampler,
                      uint32_t screen_w, uint32_t screen_h);
 
         [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);

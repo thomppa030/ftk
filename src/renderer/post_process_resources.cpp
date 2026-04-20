@@ -34,13 +34,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
     if (config_.volumetric_fog) {
         uint32_t vol_w = std::max(1u, width / VolumetricFogPass::SCREEN_DIVISOR);
         uint32_t vol_h = std::max(1u, height / VolumetricFogPass::SCREEN_DIVISOR);
-        fog_images_.create(device_, allocator_,
-                           passes_->fog.inject_set_layout(),
-                           passes_->fog.temporal_set_layout(),
-                           passes_->fog.integrate_set_layout(),
-                           passes_->fog.composite_set_layout(),
-                           passes_->fog.fog_sampler(),
-                           vol_w, vol_h);
+        fog_images_.create(device_, allocator_, vol_w, vol_h);
     }
     if (config_.tonemap && width > 0 && height > 0) {
         tonemap_images_.create(device_, allocator_, width, height);
@@ -152,13 +146,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         ssr_images_.resize(device_, allocator_, width, height);
     }
     if (config_.volumetric_fog) {
-        fog_images_.resize(device_, allocator_,
-                           passes_->fog.inject_set_layout(),
-                           passes_->fog.temporal_set_layout(),
-                           passes_->fog.integrate_set_layout(),
-                           passes_->fog.composite_set_layout(),
-                           passes_->fog.fog_sampler(),
-                           width, height);
+        fog_images_.resize(device_, allocator_, width, height);
     }
     if (config_.tonemap) {
         tonemap_images_.resize(device_, allocator_, width, height);
