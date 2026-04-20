@@ -421,17 +421,17 @@ void SsrPass::record(const FrameContext& ctx) {
     record_into(ctx, imgs ? *imgs : default_images_);
 }
 
-void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
+void SsrPass::record_into(const FrameContext& ctx, Images& /*imgs*/) {
     auto target_extent = ctx.target->extent();
     uint32_t width = target_extent.width;
     uint32_t height = target_extent.height;
 
-    if (imgs.ssr_image == VK_NULL_HANDLE) return;
     if (ctx.registry == nullptr) return;
 
     auto* hiz_res = ctx.registry->find_image("hiz");
     auto* prev_color_res = ctx.registry->find_image("prev_frame_color");
     auto mr_view = ctx.registry->image_view("mr");
+    auto* ssr_res = ctx.registry->find_image("ssr_output");
 
     if (prev_color_res == nullptr || prev_color_res->view == VK_NULL_HANDLE) return;
     if (hiz_res == nullptr || hiz_res->view == VK_NULL_HANDLE || hiz_res->mip_count == 0) return;
@@ -439,21 +439,25 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     // dispatch this frame. Old path left the MR slot stale but the cache
     // requires every binding in the layout to have a valid view.
     if (mr_view == VK_NULL_HANDLE) return;
+    if (ssr_res == nullptr || ssr_res->image == VK_NULL_HANDLE) return;
+
+    const VkImage ssr_image = ssr_res->image;
+    const VkImageView ssr_view = ssr_res->view;
 
     auto cmd = ctx.cmd;
     auto global_set = ctx.global_descriptor_set;
 
     if (!enabled_) {
-        insert_image_barrier(cmd, imgs.ssr_image,
+        insert_image_barrier(cmd, ssr_image,
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
         VkClearColorValue clear{};
         VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdClearColorImage(cmd, imgs.ssr_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
+        vkCmdClearColorImage(cmd, ssr_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
 
-        insert_image_barrier(cmd, imgs.ssr_image,
+        insert_image_barrier(cmd, ssr_image,
             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -482,7 +486,7 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     trace_bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     trace_bindings[2].binding = 2;
     trace_bindings[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    trace_bindings[2].image.imageView = imgs.ssr_view;
+    trace_bindings[2].image.imageView = ssr_view;
     trace_bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     VkDescriptorSet trace_set = cache->acquire(trace_set_layout_, trace_bindings);
 
@@ -491,7 +495,7 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     comp_bindings[0].binding = 0;
     comp_bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     comp_bindings[0].image.sampler = nearest_sampler_;
-    comp_bindings[0].image.imageView = imgs.ssr_view;
+    comp_bindings[0].image.imageView = ssr_view;
     comp_bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     comp_bindings[1].binding = 1;
     comp_bindings[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -505,7 +509,7 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     VkDescriptorSet composite_set = cache->acquire(composite_set_layout_, comp_bindings);
 
     // SSR output → GENERAL for write
-    insert_image_barrier(cmd, imgs.ssr_image,
+    insert_image_barrier(cmd, ssr_image,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
@@ -531,7 +535,7 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
 
     // Barrier: SSR write → composite read
-    insert_image_barrier(cmd, imgs.ssr_image,
+    insert_image_barrier(cmd, ssr_image,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -571,7 +575,8 @@ void SsrPass::post_record(const FrameContext& ctx) {
 }
 
 void SsrPass::register_resources(ResourceRegistry& registry) {
-    registry.register_image("prev_frame_color", {0, prev_frame_view_});
+    registry.register_image("prev_frame_color",
+        {.frame_graph_id = 0, .image = prev_frame_image_, .view = prev_frame_view_});
 }
 
 PassSetup SsrPass::setup() const {
@@ -600,6 +605,9 @@ void SsrPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto ssr_out = builder.create("ssr_output", ssr_desc);
     builder.write(ssr_out, ResourceAccess::storage_write_compute);
     builder.read(ssr_out, ResourceAccess::sampled_compute);
+    // SSR-off path clears the output via vkCmdClearColorImage — the
+    // allocation needs TRANSFER_DST to support that operation.
+    builder.write(ssr_out, ResourceAccess::transfer_dst);
 }
 
 } // namespace fjell

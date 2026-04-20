@@ -36,7 +36,8 @@ void SceneSdfPass::create(Device& device, VkDescriptorSetLayout /*global_set_lay
 }
 
 void SceneSdfPass::register_resources(ResourceRegistry& registry) {
-    registry.register_image("scene_sdf", {0, sdf_view_, sdf_sampler_});
+    registry.register_image("scene_sdf",
+        {.frame_graph_id = 0, .image = sdf_image_, .view = sdf_view_, .sampler = sdf_sampler_});
 }
 
 void SceneSdfPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {

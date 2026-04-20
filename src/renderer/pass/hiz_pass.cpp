@@ -275,8 +275,11 @@ void HizPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
 void HizPass::register_resources(ResourceRegistry& registry) {
     if (active_images_ && active_images_->ready()) {
         registry.register_image("hiz", {
-            0, active_images_->hiz_sampled_view,
-            sampler_, active_images_->hiz_mip_count});
+            .frame_graph_id = 0,
+            .image = active_images_->hiz_image,
+            .view = active_images_->hiz_sampled_view,
+            .sampler = sampler_,
+            .mip_count = active_images_->hiz_mip_count});
     }
 }
 

@@ -102,7 +102,8 @@ void SkyCubemapPass::post_create(GpuContext& gpu, PassRegistry& passes) {
 
 void SkyCubemapPass::register_resources(ResourceRegistry& registry) {
     registry_ = &registry;
-    registry.register_image("sky_cubemap", {0, cubemap_view(), cubemap_sampler()});
+    registry.register_image("sky_cubemap",
+        {.frame_graph_id = 0, .image = cubemap_image_, .view = cubemap_view(), .sampler = cubemap_sampler()});
 }
 
 void SkyCubemapPass::destroy() {
@@ -182,7 +183,8 @@ void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
                 // rewrite their cached sky_cubemap descriptor.
                 if (registry_ != nullptr) {
                     registry_->register_image("sky_cubemap",
-                        {0, hdri_cubemap_view_, hdri_cubemap_sampler_});
+                        {.frame_graph_id = 0, .image = hdri_cubemap_image_,
+                         .view = hdri_cubemap_view_, .sampler = hdri_cubemap_sampler_});
                 }
                 ++binding_version_;
             } else if (env->hdri_path.empty() && !loaded_hdri_path_.empty()) {
@@ -203,7 +205,8 @@ void SkyCubemapPass::prepare_frame(const FrameContext& ctx, GpuContext& gpu) {
 
                 if (registry_ != nullptr) {
                     registry_->register_image("sky_cubemap",
-                        {0, cubemap_view_, cubemap_sampler_});
+                        {.frame_graph_id = 0, .image = cubemap_image_,
+                         .view = cubemap_view_, .sampler = cubemap_sampler_});
                 }
                 ++binding_version_;
 

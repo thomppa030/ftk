@@ -16,6 +16,7 @@ class ResourceRegistry {
 public:
     struct ImageResource {
         uint32_t frame_graph_id{0};
+        VkImage image{VK_NULL_HANDLE};
         VkImageView view{VK_NULL_HANDLE};
         VkSampler sampler{VK_NULL_HANDLE};
         uint32_t mip_count{0};

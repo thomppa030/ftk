@@ -330,18 +330,18 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
     graph.begin_frame();
 
-    registry.register_image("color", {color_id, target.color_view()});
-    registry.register_image("msaa_color", {msaa_color_id, target.msaa_color_view()});
-    registry.register_image("depth", {depth_id, target.depth_view()});
-    registry.register_image("msaa_depth", {msaa_depth_id, target.msaa_depth_view()});
-    registry.register_image("mr", {mr_id, target.mr_view()});
-    registry.register_image("msaa_mr", {msaa_mr_id, target.msaa_mr_view()});
-    registry.register_image("normal", {normal_id, target.normal_view()});
-    registry.register_image("msaa_normal", {msaa_normal_id, target.msaa_normal_view()});
-    registry.register_image("velocity", {velocity_id, target.velocity_view()});
-    registry.register_image("msaa_velocity", {msaa_velocity_id, target.msaa_velocity_view()});
-    registry.register_image("screen_color", {screen_color_id, target.screen_color_view()});
-    registry.register_image("distortion", {distortion_id, target.distortion_view()});
+    registry.register_image("color",         {.frame_graph_id = color_id,         .image = target.color_image(),         .view = target.color_view()});
+    registry.register_image("msaa_color",    {.frame_graph_id = msaa_color_id,    .image = target.msaa_color_image(),    .view = target.msaa_color_view()});
+    registry.register_image("depth",         {.frame_graph_id = depth_id,         .image = target.depth_image(),         .view = target.depth_view()});
+    registry.register_image("msaa_depth",    {.frame_graph_id = msaa_depth_id,    .image = target.msaa_depth_image(),    .view = target.msaa_depth_view()});
+    registry.register_image("mr",            {.frame_graph_id = mr_id,            .image = target.mr_image(),            .view = target.mr_view()});
+    registry.register_image("msaa_mr",       {.frame_graph_id = msaa_mr_id,       .image = target.msaa_mr_image(),       .view = target.msaa_mr_view()});
+    registry.register_image("normal",        {.frame_graph_id = normal_id,        .image = target.normal_image(),        .view = target.normal_view()});
+    registry.register_image("msaa_normal",   {.frame_graph_id = msaa_normal_id,   .image = target.msaa_normal_image(),   .view = target.msaa_normal_view()});
+    registry.register_image("velocity",      {.frame_graph_id = velocity_id,      .image = target.velocity_image(),      .view = target.velocity_view()});
+    registry.register_image("msaa_velocity", {.frame_graph_id = msaa_velocity_id, .image = target.msaa_velocity_image(), .view = target.msaa_velocity_view()});
+    registry.register_image("screen_color",  {.frame_graph_id = screen_color_id,  .image = target.screen_color_image(),  .view = target.screen_color_view()});
+    registry.register_image("distortion",    {.frame_graph_id = distortion_id,    .image = target.distortion_image(),    .view = target.distortion_view()});
 
     for (size_t idx : dag_order) {
         if (!alive[idx]) { continue; }
@@ -378,6 +378,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 if (img.name.empty()) { continue; }
                 ResourceRegistry::ImageResource res{};
                 res.frame_graph_id = rid;
+                res.image = alloc->image;
                 res.view = alloc->full_view;
                 res.sampler = VK_NULL_HANDLE;
                 res.mip_count = img.mip_count;
