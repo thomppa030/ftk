@@ -14,6 +14,9 @@ void TransientImagePool::create(VkDevice device, VmaAllocator allocator) {
 void TransientImagePool::destroy() {
     if (allocator_ == VK_NULL_HANDLE) { return; }
     for (auto& e : entries_) {
+        if (e.alloc.full_view != VK_NULL_HANDLE) {
+            vkDestroyImageView(device_, e.alloc.full_view, nullptr);
+        }
         if (e.alloc.image != VK_NULL_HANDLE) {
             vmaDestroyImage(allocator_, e.alloc.image, e.alloc.memory);
         }
@@ -129,8 +132,31 @@ TransientImagePool::acquire(const TextureDesc& desc,
     entry.alloc.mip_levels = desc.mip_levels;
     entry.alloc.array_layers = desc.array_layers;
     entry.alloc.image_type = ci.imageType;
+    entry.alloc.view_type = desc.view_type;
     entry.in_use = true;
     entry.source_viewport = viewport_extent;
+
+    // Whole-image view. Exact-match aliasing means every logical
+    // resource in a group has the same subresource span, so one view
+    // per Entry is sufficient. Per-mip/per-layer views arrive with
+    // subresource-aware aliasing later.
+    VkImageViewCreateInfo vi{};
+    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    vi.image = entry.alloc.image;
+    vi.viewType = desc.view_type;
+    vi.format = desc.format;
+    vi.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vi.subresourceRange.baseMipLevel = 0;
+    vi.subresourceRange.levelCount = desc.mip_levels;
+    vi.subresourceRange.baseArrayLayer = 0;
+    vi.subresourceRange.layerCount = desc.array_layers;
+    r = vkCreateImageView(device_, &vi, nullptr, &entry.alloc.full_view);
+    if (r != VK_SUCCESS) {
+        FJELL_GFX_ERROR("TransientImagePool: vkCreateImageView failed ({})",
+                        static_cast<int>(r));
+        vmaDestroyImage(allocator_, entry.alloc.image, entry.alloc.memory);
+        return nullptr;
+    }
 
     entries_.push_back(entry);
     return &entries_.back().alloc;
