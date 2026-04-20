@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/bindless.hpp"
+#include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/global_bindings.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/descriptor.hpp"
@@ -111,6 +112,10 @@ public:
     // ── Bindless ────────────────────────────────────────────────────────
     [[nodiscard]] BindlessTextures& bindless_textures() { return bindless_textures_; }
 
+    // ── Per-frame descriptor set cache ─────────────────────────────────
+    [[nodiscard]] FrameDescriptorCache& descriptor_cache() { return descriptor_cache_; }
+    [[nodiscard]] const FrameDescriptorCache& descriptor_cache() const { return descriptor_cache_; }
+
     // ── Shared GPU buffers ──────────────────────────────────────────────
     [[nodiscard]] MegaBuffer* mega_buffer() { return mega_buffer_.get(); }
     [[nodiscard]] MeshletBuffer* meshlet_buffer() { return meshlet_buffer_.get(); }
@@ -161,6 +166,7 @@ private:
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> uniform_buffers_;
 
     BindlessTextures bindless_textures_;
+    FrameDescriptorCache descriptor_cache_;
 
     // Pipelines
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};

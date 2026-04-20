@@ -108,6 +108,8 @@ GpuContext::GpuContext(Window& window)
         throw std::runtime_error(r.error());
     }
 
+    descriptor_cache_.create(core_.vk_device(), MAX_FRAMES_IN_FLIGHT, {});
+
     // Multi-draw indirect setup
     mega_buffer_ = std::make_unique<MegaBuffer>(
         core_.vk_device(), core_.allocator(), core_.command_pool(), core_.graphics_queue());
@@ -191,6 +193,7 @@ GpuContext::~GpuContext() {
 
     global_bindings_.destroy();
     bindless_textures_.destroy();
+    descriptor_cache_.destroy();
     pipeline_cache_.reset();
     pipeline_.reset();
 

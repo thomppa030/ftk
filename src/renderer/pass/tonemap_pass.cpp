@@ -1,4 +1,5 @@
 #include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/exposure_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
@@ -6,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -21,6 +23,21 @@
 
 #include <array>
 #include <stdexcept>
+
+namespace {
+
+// A/B flag: FJELL_DESCRIPTOR_CACHE=1 routes this pass through the
+// FrameDescriptorCache. Default off while C2a.3 lands so the legacy
+// Images::input_sets path keeps working until C2a.4 deletes it.
+bool use_descriptor_cache() {
+    static const bool on = [] {
+        const char* v = std::getenv("FJELL_DESCRIPTOR_CACHE");
+        return v != nullptr && v[0] != '0' && v[0] != '\0';
+    }();
+    return on;
+}
+
+} // namespace
 
 namespace fjell {
 
@@ -268,15 +285,32 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
 
     auto cmd = ctx.cmd;
 
-    // Update input descriptors
-    vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 0,
-                                     source, input_sampler_);
-
-    // Write bloom descriptor (binding 1) — use a 1x1 black texture if no bloom
     VkImageView bloom = bloom_view != VK_NULL_HANDLE ? bloom_view : source;
     float has_bloom = bloom_view != VK_NULL_HANDLE ? 1.0f : 0.0f;
-    vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 1,
-                                     bloom, input_sampler_);
+
+    VkDescriptorSet input_set = VK_NULL_HANDLE;
+    if (use_descriptor_cache() && ctx.descriptor_cache != nullptr) {
+        std::array<FrameCacheBinding, 2> bindings{};
+        bindings[0].binding = 0;
+        bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[0].image.sampler = input_sampler_;
+        bindings[0].image.imageView = source;
+        bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bindings[1].binding = 1;
+        bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        bindings[1].image.sampler = input_sampler_;
+        bindings[1].image.imageView = bloom;
+        bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        input_set = ctx.descriptor_cache->acquire(set_layout_, bindings);
+    } else {
+        // Legacy path: pass-owned pool, one set per frame slot, descriptors
+        // rewritten every frame. Removed in C2a.4.
+        vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 0,
+                                         source, input_sampler_);
+        vk_utils::write_image_descriptor(device_, imgs.input_sets[ctx.frame_index], 1,
+                                         bloom, input_sampler_);
+        input_set = imgs.input_sets[ctx.frame_index];
+    }
 
     // Transition output to writable
     vk_utils::prepare_color_attachment(cmd, imgs.image);
@@ -318,7 +352,7 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     vkCmdSetScissor(cmd, 0, 1, &sc);
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
-                            0, 1, &imgs.input_sets[ctx.frame_index], 0, nullptr);
+                            0, 1, &input_set, 0, nullptr);
 
     struct { float intensity; float active; float ev; } push{bloom_intensity, has_bloom, exposure};
     vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);

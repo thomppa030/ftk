@@ -219,6 +219,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
         ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
     }
     ctx.pp_resources = pp;
+    ctx.descriptor_cache = &gpu_.descriptor_cache();
     ctx.registry = &resource_registry_;
     ctx.skip_shadows = skip_shadows;
     ctx.flip_tonemap_y = flip_tonemap_y;
@@ -957,6 +958,9 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
 
     // GPU is now done with this frame slot — safe to destroy/resize resources.
     apply_pending_ddgi_toggle();
+
+    // Reclaim descriptor sets from the previous iteration of this slot.
+    gpu_.descriptor_cache().begin_frame(current_frame_);
 
     // Lazy-init per-thread command pools (needs thread count from pool)
     gpu_.ensure_secondary_pools(pool.thread_count());

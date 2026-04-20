@@ -43,6 +43,7 @@ struct PassResources {
     VkQueue graphics_queue{VK_NULL_HANDLE};
 };
 
+class FrameDescriptorCache;
 class IndirectBatch;
 class MegaBuffer;
 class PipelineCache;
@@ -80,6 +81,10 @@ struct FrameContext {
 
     // Per-viewport post-process images
     PostProcessResources* pp_resources{nullptr};
+
+    // Per-frame descriptor set cache; passes call acquire() to get a set
+    // bound to transient views without managing a pool themselves.
+    FrameDescriptorCache* descriptor_cache{nullptr};
 
     // Named resource registry (pass-to-pass data flow)
     ResourceRegistry* registry{nullptr};
