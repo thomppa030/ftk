@@ -356,20 +356,33 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             });
     }
 
-    // Allocate a VkImage per alias group from the cross-frame pool.
-    // Nothing consumes these allocations yet (C3.1) — this is the
-    // allocation path by itself, to prove it doesn't crash and to
-    // surface pool stats before passes rewire in C3.3+.
+    // Allocate a VkImage per alias group from the cross-frame pool and
+    // register each logical resource under the name it was declared
+    // with. Passes rewire their record() reads through
+    // ctx.registry->image_view(name) in C3.3+.
     if (ctx.transient_pool != nullptr) {
         ctx.transient_pool->begin_frame(target.extent());
         const auto groups = graph.compute_alias_groups();
         const auto lifetimes = graph.compute_lifetimes();
+        const auto& imgs = graph.images();
         for (const auto& group : groups) {
             VkImageUsageFlags usage_flags = 0;
             for (uint32_t rid : group.resource_ids) {
                 usage_flags |= lifetimes[rid].usage_flags;
             }
-            (void)ctx.transient_pool->acquire(group.desc, target.extent(), usage_flags);
+            const auto* alloc = ctx.transient_pool->acquire(
+                group.desc, target.extent(), usage_flags);
+            if (alloc == nullptr) { continue; }
+            for (uint32_t rid : group.resource_ids) {
+                const auto& img = imgs[rid];
+                if (img.name.empty()) { continue; }
+                ResourceRegistry::ImageResource res{};
+                res.frame_graph_id = rid;
+                res.view = alloc->full_view;
+                res.sampler = VK_NULL_HANDLE;
+                res.mip_count = img.mip_count;
+                registry.register_image(img.name, res);
+            }
         }
     }
 

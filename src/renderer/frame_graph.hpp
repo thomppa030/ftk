@@ -58,11 +58,12 @@ struct TrackedImage {
 
     // Transient resources declared through PassBuilder::create(). For
     // C2 (lifetime analysis + bin-packing bookkeeping) these hold only
-    // the TextureDesc for matching; no VkImage is allocated, so barrier
-    // emission skips them. C3 is where create() actually allocates a
-    // VkImage via VMA.
+    // the TextureDesc for matching; C3.1 added VMA-backed allocation,
+    // C3.2 registers the view under `name` into ResourceRegistry so
+    // passes can read it through ctx.registry->image_view(name).
     bool virtual_resource{false};
     TextureDesc desc{};
+    std::string name;
 
     std::vector<ImageSlice> slices;
 };
@@ -178,6 +179,11 @@ public:
     // FJELL_LOG_LIFETIMES gate and same one-shot cadence as
     // log_lifetimes().
     void log_alias_groups() const;
+
+    // Accessor for the submitted image list. The pipeline reads this
+    // after compute_alias_groups() to wire group allocations back to
+    // the named logical resources in ResourceRegistry.
+    [[nodiscard]] const std::vector<TrackedImage>& images() const noexcept { return images_; }
 
 private:
     static VkImageLayout layout_for(ImageUsage usage, VkImageAspectFlags aspect);

@@ -26,12 +26,14 @@ public:
     struct Allocation {
         VkImage image{VK_NULL_HANDLE};
         VmaAllocation memory{VK_NULL_HANDLE};
+        VkImageView full_view{VK_NULL_HANDLE};  // whole-image view matching desc
         VkExtent3D extent{};
         VkFormat format{VK_FORMAT_UNDEFINED};
         VkImageUsageFlags usage_flags{0};
         uint32_t mip_levels{1};
         uint32_t array_layers{1};
         VkImageType image_type{VK_IMAGE_TYPE_2D};
+        VkImageViewType view_type{VK_IMAGE_VIEW_TYPE_2D};
     };
 
     TransientImagePool() = default;

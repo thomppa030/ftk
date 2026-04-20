@@ -248,6 +248,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
         img.persistent = cre.desc.persistent;
         img.virtual_resource = true;
         img.desc = cre.desc;
+        img.name = cre.name;
         ImageSlice slice{};
         slice.range.aspect = img.aspect;
         slice.range.base_mip = 0;
