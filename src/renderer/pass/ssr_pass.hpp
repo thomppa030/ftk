@@ -11,25 +11,6 @@ namespace fjell {
 
 class SsrPass : public RenderPass {
 public:
-    // Per-viewport SSR output image. Descriptor sets come from
-    // FrameContext::descriptor_cache during record_into().
-    struct Images {
-        VkImage ssr_image{VK_NULL_HANDLE};
-        VmaAllocation ssr_memory{VK_NULL_HANDLE};
-        VkImageView ssr_view{VK_NULL_HANDLE};
-        VkExtent2D extent{};
-        VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
-
-        void create(VkDevice device, VmaAllocator allocator,
-                     uint32_t width, uint32_t height);
-        void destroy(VkDevice device, VmaAllocator allocator);
-        void resize(VkDevice device, VmaAllocator allocator,
-                     uint32_t width, uint32_t height);
-
-        [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);
-        void invalidate_imgui_texture();
-    };
-
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
     void record(const FrameContext& ctx) override;
@@ -39,11 +20,6 @@ public:
     void pre_record(const FrameContext& ctx, GpuContext& gpu) override;
     void post_record(const FrameContext& ctx) override;
 
-    // Record into externally-provided images.
-    void record_into(const FrameContext& ctx, Images& imgs);
-
-    void resize(uint32_t width, uint32_t height);
-
     // Previous-frame color buffer management (for SSR history).
     // Call ensure_prev_frame before rendering; call copy_prev_frame after.
     void ensure_prev_frame(VkDevice device, VmaAllocator allocator,
@@ -51,12 +27,6 @@ public:
                            uint32_t width, uint32_t height);
     void copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent);
     [[nodiscard]] VkImageView prev_frame_view() const { return prev_frame_view_; }
-
-    [[nodiscard]] VkImageView ssr_view() const { return default_images_.ssr_view; }
-    [[nodiscard]] VkImage ssr_image() const { return default_images_.ssr_image; }
-
-    [[nodiscard]] VkDescriptorSet imgui_texture();
-    void invalidate_imgui_texture();
 
     void set_enabled(bool e) { enabled_ = e; }
     void set_max_steps(uint32_t s) { max_steps_ = s; }
@@ -69,18 +39,11 @@ public:
     [[nodiscard]] float thickness() const { return thickness_; }
     [[nodiscard]] float intensity() const { return intensity_; }
 
-    // Expose layouts/samplers so external Images can be created
-    [[nodiscard]] VkDescriptorSetLayout trace_set_layout() const { return trace_set_layout_; }
-    [[nodiscard]] VkDescriptorSetLayout composite_set_layout() const { return composite_set_layout_; }
-    [[nodiscard]] VkSampler nearest_sampler() const { return nearest_sampler_; }
-    [[nodiscard]] VkSampler linear_sampler() const { return linear_sampler_; }
-
 private:
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
 
-    // Resolution-independent (shared across all Images)
     VkSampler linear_sampler_{VK_NULL_HANDLE};
     VkSampler nearest_sampler_{VK_NULL_HANDLE};
 
@@ -92,15 +55,11 @@ private:
     VkPipelineLayout composite_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline composite_pipeline_{VK_NULL_HANDLE};
 
-    // Parameters
     bool enabled_{true};
     uint32_t max_steps_{64};
     float max_distance_{100.0f};
     float thickness_{0.3f};
     float intensity_{1.0f};
-
-    // Default per-viewport images
-    Images default_images_;
 
     // Previous-frame color buffer (singleton, main viewport only)
     VkImage prev_frame_image_{VK_NULL_HANDLE};

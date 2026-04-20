@@ -34,14 +34,16 @@ struct PostProcessConfig {
 /// One instance per viewport / SubViewport. Pass singletons provide the
 /// shared pipelines and descriptor set layouts; this class owns the
 /// per-resolution images, descriptor pools, and descriptor sets.
+///
+/// Bloom and SSR transients live in the FrameGraph's TransientImagePool —
+/// no per-viewport Images for them. Config toggles still gate whether
+/// those passes run (see `config()`).
 class PostProcessResources {
 public:
     /// Pass singletons are needed to provide set layouts for Images creation.
     struct PassRefs {
         HizPass& hiz;
         GtaoPass& gtao;
-        BloomPass& bloom;
-        SsrPass& ssr;
         VolumetricFogPass& fog;
         TonemapPass& tonemap;
         DdgiPass& ddgi;
@@ -65,8 +67,6 @@ public:
     // Per-pass image access (nullptr if disabled in config)
     [[nodiscard]] HizPass::Images* hiz() { return config_.hiz ? &hiz_images_ : nullptr; }
     [[nodiscard]] GtaoPass::Images* gtao() { return config_.gtao ? &gtao_images_ : nullptr; }
-    [[nodiscard]] BloomPass::Images* bloom() { return config_.bloom ? &bloom_images_ : nullptr; }
-    [[nodiscard]] SsrPass::Images* ssr() { return config_.ssr ? &ssr_images_ : nullptr; }
     [[nodiscard]] VolumetricFogPass::Images* volumetric_fog() { return config_.volumetric_fog ? &fog_images_ : nullptr; }
     [[nodiscard]] TonemapPass::Images* tonemap() { return config_.tonemap ? &tonemap_images_ : nullptr; }
     [[nodiscard]] DdgiPass::Images* ddgi() { return config_.ddgi ? &ddgi_images_ : nullptr; }
@@ -89,8 +89,6 @@ private:
 
     HizPass::Images hiz_images_;
     GtaoPass::Images gtao_images_;
-    BloomPass::Images bloom_images_;
-    SsrPass::Images ssr_images_;
     VolumetricFogPass::Images fog_images_;
     TonemapPass::Images tonemap_images_;
     DdgiPass::Images ddgi_images_;

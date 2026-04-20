@@ -11,7 +11,6 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
-#include <imgui_impl_vulkan.h>
 
 #include <algorithm>
 #include <array>
@@ -160,14 +159,11 @@ void VolumetricFogPass::Images::create(VkDevice device, VmaAllocator allocator,
 
     scatter_volumes[0] = create_volume_image(device, allocator, vol_w, vol_h, DEPTH_SLICES);
     scatter_volumes[1] = create_volume_image(device, allocator, vol_w, vol_h, DEPTH_SLICES);
-    integrated_volume = create_volume_image(device, allocator, vol_w, vol_h, DEPTH_SLICES);
 }
 
 void VolumetricFogPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
-    invalidate_imgui_texture();
     destroy_volume_image(device, allocator, scatter_volumes[0]);
     destroy_volume_image(device, allocator, scatter_volumes[1]);
-    destroy_volume_image(device, allocator, integrated_volume);
     volume_extent = {};
 }
 
@@ -191,20 +187,11 @@ void VolumetricFogPass::Images::resize(VkDevice device, VmaAllocator allocator,
     create(device, allocator, vol_w, vol_h);
 }
 
-VkDescriptorSet VolumetricFogPass::Images::imgui_texture(VkSampler sampler) {
-    if (imgui_descriptor == VK_NULL_HANDLE && integrated_volume.view != VK_NULL_HANDLE) {
-        imgui_descriptor = ImGui_ImplVulkan_AddTexture(
-            sampler, integrated_volume.view,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor;
-}
-
 void VolumetricFogPass::Images::invalidate_imgui_texture() {
-    if (imgui_descriptor != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor);
-        imgui_descriptor = VK_NULL_HANDLE;
-    }
+    // No ImGui resources owned by Images — the integrated volume lives
+    // in the FrameGraph's transient pool. Kept as a no-op for symmetry
+    // with the other pass Images structs called by
+    // PostProcessResources::invalidate_imgui_textures().
 }
 
 // ── VolumetricFogPass (singleton) ───────────────────────────────────────────
@@ -364,14 +351,6 @@ void VolumetricFogPass::destroy() {
 
 void VolumetricFogPass::resize(uint32_t width, uint32_t height) {
     default_images_.resize(device_, allocator_, width, height);
-}
-
-VkDescriptorSet VolumetricFogPass::imgui_texture() {
-    return default_images_.imgui_texture(linear_sampler_);
-}
-
-void VolumetricFogPass::invalidate_imgui_texture() {
-    default_images_.invalidate_imgui_texture();
 }
 
 // ── Record ──────────────────────────────────────────────────────────────────

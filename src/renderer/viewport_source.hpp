@@ -13,7 +13,6 @@ enum class ViewportSource : uint8_t {
     final_color,
     depth,
     wireframe,
-    bloom,
     normals,
     overdraw,
     uv,
@@ -31,7 +30,6 @@ inline const char* viewport_source_name(ViewportSource source) {
         case ViewportSource::final_color:    return "Final Color";
         case ViewportSource::depth:          return "Depth";
         case ViewportSource::wireframe:      return "Wireframe";
-        case ViewportSource::bloom:          return "Bloom";
         case ViewportSource::normals:        return "Normals";
         case ViewportSource::overdraw:       return "Overdraw";
         case ViewportSource::uv:             return "UV";
@@ -46,7 +44,7 @@ inline const char* viewport_source_name(ViewportSource source) {
     return "Unknown";
 }
 
-constexpr int VIEWPORT_SOURCE_COUNT = 14;
+constexpr int VIEWPORT_SOURCE_COUNT = 13;
 
 struct ViewportRenderRequest {
     OffscreenPass* target{nullptr};

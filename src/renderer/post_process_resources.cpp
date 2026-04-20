@@ -23,12 +23,6 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
         uint32_t half_h = std::max(1u, height / 2);
         gtao_images_.create(device_, allocator_, half_w, half_h);
     }
-    if (config_.bloom && width > 0 && height > 0) {
-        bloom_images_.create(device_, allocator_, width, height);
-    }
-    if (config_.ssr && width > 0 && height > 0) {
-        ssr_images_.create(device_, allocator_, width, height);
-    }
     if (config_.volumetric_fog) {
         uint32_t vol_w = std::max(1u, width / VolumetricFogPass::SCREEN_DIVISOR);
         uint32_t vol_h = std::max(1u, height / VolumetricFogPass::SCREEN_DIVISOR);
@@ -51,8 +45,6 @@ PostProcessResources::~PostProcessResources() {
     if (device_ == VK_NULL_HANDLE) return;
     hiz_images_.destroy(device_, allocator_);
     gtao_images_.destroy(device_, allocator_);
-    bloom_images_.destroy(device_, allocator_);
-    ssr_images_.destroy(device_, allocator_);
     fog_images_.destroy(device_, allocator_);
     tonemap_images_.destroy(device_, allocator_);
     ddgi_images_.destroy(device_, allocator_);
@@ -65,7 +57,6 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
     , config_(other.config_)
     , passes_storage_(std::move(other.passes_storage_))
     , hiz_images_(other.hiz_images_), gtao_images_(other.gtao_images_)
-    , bloom_images_(other.bloom_images_), ssr_images_(other.ssr_images_)
     , fog_images_(other.fog_images_), tonemap_images_(other.tonemap_images_)
     , ddgi_images_(std::move(other.ddgi_images_))
     , ss_gi_images_(std::move(other.ss_gi_images_))
@@ -74,8 +65,6 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
     other.device_ = VK_NULL_HANDLE;
     other.hiz_images_ = {};
     other.gtao_images_ = {};
-    other.bloom_images_ = {};
-    other.ssr_images_ = {};
     other.fog_images_ = {};
     other.tonemap_images_ = {};
     other.ddgi_images_ = {};
@@ -88,8 +77,6 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         if (device_ != VK_NULL_HANDLE) {
             hiz_images_.destroy(device_, allocator_);
             gtao_images_.destroy(device_, allocator_);
-            bloom_images_.destroy(device_, allocator_);
-            ssr_images_.destroy(device_, allocator_);
             fog_images_.destroy(device_, allocator_);
             tonemap_images_.destroy(device_, allocator_);
             ddgi_images_.destroy(device_, allocator_);
@@ -103,8 +90,6 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         passes_ = passes_storage_.get();
         hiz_images_ = other.hiz_images_;
         gtao_images_ = other.gtao_images_;
-        bloom_images_ = other.bloom_images_;
-        ssr_images_ = other.ssr_images_;
         fog_images_ = other.fog_images_;
         tonemap_images_ = other.tonemap_images_;
         ddgi_images_ = std::move(other.ddgi_images_);
@@ -113,8 +98,6 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         other.device_ = VK_NULL_HANDLE;
         other.hiz_images_ = {};
         other.gtao_images_ = {};
-        other.bloom_images_ = {};
-        other.ssr_images_ = {};
         other.fog_images_ = {};
         other.tonemap_images_ = {};
         other.ddgi_images_ = {};
@@ -134,12 +117,6 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
     }
     if (config_.gtao) {
         gtao_images_.resize(device_, allocator_, width, height);
-    }
-    if (config_.bloom) {
-        bloom_images_.resize(device_, allocator_, width, height);
-    }
-    if (config_.ssr) {
-        ssr_images_.resize(device_, allocator_, width, height);
     }
     if (config_.volumetric_fog) {
         fog_images_.resize(device_, allocator_, width, height);
@@ -173,8 +150,6 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
 
 void PostProcessResources::invalidate_imgui_textures() {
     gtao_images_.invalidate_imgui_texture();
-    bloom_images_.invalidate_imgui_texture();
-    ssr_images_.invalidate_imgui_texture();
     fog_images_.invalidate_imgui_texture();
     tonemap_images_.invalidate_imgui_texture();
     ddgi_images_.invalidate_imgui_texture();

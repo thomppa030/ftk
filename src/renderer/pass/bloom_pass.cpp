@@ -10,8 +10,6 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
-#include <imgui_impl_vulkan.h>
-
 #include <array>
 #include <stdexcept>
 
@@ -177,123 +175,6 @@ static void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
     vkCmdEndRendering(cmd);
 }
 
-// ── Images (per-viewport state) ─────────────────────────────────────────────
-
-void BloomPass::Images::create(VkDevice device, VmaAllocator allocator,
-                                uint32_t width, uint32_t height) {
-    extent = {width, height};
-    VkFormat fmt = VK_FORMAT_R16G16B16A16_SFLOAT;
-
-    auto create_img = [&](uint32_t w, uint32_t h) -> MipLevel {
-        MipLevel mip{};
-        mip.width = w;
-        mip.height = h;
-
-        VkImageCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        ci.imageType = VK_IMAGE_TYPE_2D;
-        ci.format = fmt;
-        ci.extent = {w, h, 1};
-        ci.mipLevels = 1;
-        ci.arrayLayers = 1;
-        ci.samples = VK_SAMPLE_COUNT_1_BIT;
-        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-        ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-        if (create_vma_image(allocator, &ci, &mip.image, &mip.allocation) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create bloom mip image");
-        }
-
-        VkImageViewCreateInfo view_ci{};
-        view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        view_ci.image = mip.image;
-        view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view_ci.format = fmt;
-        view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (vkCreateImageView(device, &view_ci, nullptr, &mip.view) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create bloom mip view");
-        }
-
-        return mip;
-    };
-
-    uint32_t w = width / 2;
-    uint32_t h = height / 2;
-    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
-        mips[i] = create_img(std::max(w, 1u), std::max(h, 1u));
-        w /= 2;
-        h /= 2;
-    }
-
-    // Output image (full resolution)
-    VkImageCreateInfo out_ci{};
-    out_ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    out_ci.imageType = VK_IMAGE_TYPE_2D;
-    out_ci.format = fmt;
-    out_ci.extent = {width, height, 1};
-    out_ci.mipLevels = 1;
-    out_ci.arrayLayers = 1;
-    out_ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    out_ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    out_ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-    out_ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if (create_vma_image(allocator, &out_ci, &output_image, &output_allocation) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom output image");
-    }
-
-    VkImageViewCreateInfo out_view_ci{};
-    out_view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    out_view_ci.image = output_image;
-    out_view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    out_view_ci.format = fmt;
-    out_view_ci.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(device, &out_view_ci, nullptr, &output_view) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom output view");
-    }
-}
-
-void BloomPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
-    invalidate_imgui_texture();
-    for (auto& mip : mips) {
-        if (mip.view != VK_NULL_HANDLE) vkDestroyImageView(device, mip.view, nullptr);
-        destroy_vma_image(allocator, mip.image, mip.allocation);
-        mip = {};
-    }
-    if (output_view != VK_NULL_HANDLE) { vkDestroyImageView(device, output_view, nullptr); output_view = VK_NULL_HANDLE; }
-    destroy_vma_image(allocator, output_image, output_allocation);
-    output_image = VK_NULL_HANDLE;
-    output_allocation = VK_NULL_HANDLE;
-    extent = {};
-}
-
-void BloomPass::Images::resize(VkDevice device, VmaAllocator allocator,
-                                uint32_t width, uint32_t height) {
-    if (extent.width == width && extent.height == height) return;
-    vkDeviceWaitIdle(device);
-
-    destroy(device, allocator);
-    if (width > 0 && height > 0) {
-        create(device, allocator, width, height);
-    }
-}
-
-VkDescriptorSet BloomPass::Images::imgui_texture(VkSampler sampler) {
-    if (imgui_descriptor == VK_NULL_HANDLE && output_view != VK_NULL_HANDLE) {
-        imgui_descriptor = ImGui_ImplVulkan_AddTexture(
-            sampler, output_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor;
-}
-
-void BloomPass::Images::invalidate_imgui_texture() {
-    if (imgui_descriptor != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor);
-        imgui_descriptor = VK_NULL_HANDLE;
-    }
-}
-
 // ── BloomPass (singleton) ───────────────────────────────────────────────────
 
 Result<> BloomPass::create(Device& device, const PassResources& resources) {
@@ -404,8 +285,6 @@ Result<> BloomPass::create(Device& device, const PassResources& resources) {
 }
 
 void BloomPass::destroy() {
-    default_images_.destroy(device_, allocator_);
-
     auto d = [this](auto& h) { if (h != VK_NULL_HANDLE) { vkDestroyPipeline(device_, h, nullptr); h = VK_NULL_HANDLE; } };
     d(downsample_pipeline_); d(upsample_pipeline_); d(composite_pipeline_);
     auto dl = [this](auto& h) { if (h != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, h, nullptr); h = VK_NULL_HANDLE; } };
@@ -416,24 +295,7 @@ void BloomPass::destroy() {
     if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
 }
 
-void BloomPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, width, height);
-}
-
-VkDescriptorSet BloomPass::imgui_texture() {
-    return default_images_.imgui_texture(sampler_);
-}
-
-void BloomPass::invalidate_imgui_texture() {
-    default_images_.invalidate_imgui_texture();
-}
-
 void BloomPass::record(const FrameContext& ctx) {
-    auto* imgs = ctx.pp_resources ? ctx.pp_resources->bloom() : nullptr;
-    record_into(ctx, imgs ? *imgs : default_images_);
-}
-
-void BloomPass::record_into(const FrameContext& ctx, Images& /*imgs*/) {
     if (!ctx.target || !enabled_) return;
     if (ctx.registry == nullptr) return;
 

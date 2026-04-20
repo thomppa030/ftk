@@ -25,14 +25,14 @@ public:
         VkImageView view{VK_NULL_HANDLE};
     };
 
-    // Per-viewport froxel volumes + temporal state. Descriptor sets for
-    // each dispatch come from FrameContext::descriptor_cache.
+    // Per-viewport scatter ping-pong volumes + temporal state.
+    // The integrated volume is a per-frame transient owned by the
+    // FrameGraph (resolved through ResourceRegistry at record time);
+    // these scatter volumes persist across frames for temporal reuse.
     struct Images {
         VolumeImage scatter_volumes[2];
-        VolumeImage integrated_volume;
 
         VkExtent3D volume_extent{};
-        VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
         bool volumes_need_init{true};
         uint32_t frame_counter{0};
         uint32_t ping_pong{0};
@@ -43,7 +43,6 @@ public:
         void resize(VkDevice device, VmaAllocator allocator,
                      uint32_t screen_w, uint32_t screen_h);
 
-        [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);
         void invalidate_imgui_texture();
     };
 
@@ -58,9 +57,6 @@ public:
     void record_into(const FrameContext& ctx, Images& imgs);
 
     void resize(uint32_t width, uint32_t height);
-
-    [[nodiscard]] VkDescriptorSet imgui_texture();
-    void invalidate_imgui_texture();
 
     [[nodiscard]] bool enabled() const { return enabled_; }
 

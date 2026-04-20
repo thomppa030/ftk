@@ -118,7 +118,7 @@ VulkanContext::VulkanContext(Window& window)
     default_config.ddgi = true;
     default_config.ss_gi = true;
     default_config.taa = true;
-    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), bloom_pass(), ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass()};
+    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass()};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
@@ -377,27 +377,19 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     // the global descriptor set. Transition it here so the read is valid.
     auto* gtao_imgs = default_pp_->gtao();
     if (gtao_imgs && gtao_imgs->images_need_init) {
-        std::array<VkImageMemoryBarrier2, 2> ao_barriers{};
-        ao_barriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        ao_barriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        ao_barriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        ao_barriers[0].image = gtao_imgs->ao_image;
-        ao_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        ao_barriers[0].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        ao_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-
-        ao_barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        ao_barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        ao_barriers[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        ao_barriers[1].image = gtao_imgs->blur_image;
-        ao_barriers[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        ao_barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        ao_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        VkImageMemoryBarrier2 ao_barrier{};
+        ao_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        ao_barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        ao_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        ao_barrier.image = gtao_imgs->ao_image;
+        ao_barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        ao_barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        ao_barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 
         VkDependencyInfo dep{};
         dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dep.imageMemoryBarrierCount = 2;
-        dep.pImageMemoryBarriers = ao_barriers.data();
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &ao_barrier;
         vkCmdPipelineBarrier2(cmd, &dep);
     }
 
@@ -1301,8 +1293,8 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
     uint32_t bindless_idx = gpu_.bindless_textures().reserve_index();
 
     PostProcessResources::PassRefs refs{
-        hiz_pass(), gtao_pass(), bloom_pass(),
-        ssr_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass()};
+        hiz_pass(), gtao_pass(), volumetric_fog_pass(),
+        tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass()};
 
     auto viewport = std::make_unique<SceneViewport>(
         gpu_.device_ref(), gpu_.device(), gpu_.allocator(),

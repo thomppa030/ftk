@@ -11,15 +11,12 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
-#include <imgui_impl_vulkan.h>
-
 #include <array>
 #include <stdexcept>
 
 namespace fjell {
 
 static constexpr uint32_t TILE_SIZE = 8;
-static constexpr VkFormat SSR_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
 
 struct SsrTracePushConstants {
     uint32_t viewport_width;
@@ -86,73 +83,6 @@ static void insert_image_barrier(VkCommandBuffer cmd, VkImage image,
     dep.imageMemoryBarrierCount = 1;
     dep.pImageMemoryBarriers = &barrier;
     vkCmdPipelineBarrier2(cmd, &dep);
-}
-
-// ── Images (per-viewport state) ─────────────────────────────────────────────
-
-void SsrPass::Images::create(VkDevice device, VmaAllocator allocator,
-                               uint32_t width, uint32_t height) {
-    extent = {width, height};
-
-    VkImageCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = SSR_FORMAT;
-    ci.extent = {width, height, 1};
-    ci.mipLevels = 1;
-    ci.arrayLayers = 1;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-               VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    if (create_vma_image(allocator, &ci, &ssr_image, &ssr_memory) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create SSR output image");
-    }
-
-    VkImageViewCreateInfo vi{};
-    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    vi.image = ssr_image;
-    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vi.format = SSR_FORMAT;
-    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    if (vkCreateImageView(device, &vi, nullptr, &ssr_view) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create SSR output image view");
-    }
-}
-
-void SsrPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
-    invalidate_imgui_texture();
-    if (ssr_view != VK_NULL_HANDLE) { vkDestroyImageView(device, ssr_view, nullptr); ssr_view = VK_NULL_HANDLE; }
-    destroy_vma_image(allocator, ssr_image, ssr_memory);
-    ssr_image = VK_NULL_HANDLE; ssr_memory = VK_NULL_HANDLE;
-    extent = {};
-}
-
-void SsrPass::Images::resize(VkDevice device, VmaAllocator allocator,
-                               uint32_t width, uint32_t height) {
-    if (width == 0 || height == 0) return;
-    if (extent.width == width && extent.height == height) return;
-    vkDeviceWaitIdle(device);
-
-    destroy(device, allocator);
-    create(device, allocator, width, height);
-}
-
-VkDescriptorSet SsrPass::Images::imgui_texture(VkSampler sampler) {
-    if (imgui_descriptor == VK_NULL_HANDLE && ssr_view != VK_NULL_HANDLE) {
-        imgui_descriptor = ImGui_ImplVulkan_AddTexture(
-            sampler, ssr_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    }
-    return imgui_descriptor;
-}
-
-void SsrPass::Images::invalidate_imgui_texture() {
-    if (imgui_descriptor != VK_NULL_HANDLE) {
-        ImGui_ImplVulkan_RemoveTexture(imgui_descriptor);
-        imgui_descriptor = VK_NULL_HANDLE;
-    }
 }
 
 // ── SsrPass (singleton) ─────────────────────────────────────────────────────
@@ -251,16 +181,11 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
     trace_pipeline_ = create_compute_pipeline(device_, trace_pipeline_layout_, "shaders/ssr_trace.comp.spv", vk_pipeline_cache_);
     composite_pipeline_ = create_compute_pipeline(device_, composite_pipeline_layout_, "shaders/ssr_composite.comp.spv", vk_pipeline_cache_);
 
-    // Create 1x1 placeholder so descriptors are valid from frame 1
-    default_images_.create(device_, allocator_, 1, 1);
-
     FJELL_GFX_DEBUG("SSR pass created");
     return {};
 }
 
 void SsrPass::destroy() {
-    default_images_.destroy(device_, allocator_);
-
     // Prev-frame history buffer
     if (prev_frame_view_ != VK_NULL_HANDLE) {
         vkDestroyImageView(device_, prev_frame_view_, nullptr);
@@ -329,8 +254,6 @@ void SsrPass::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
     vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
     vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vkCreateImageView(device, &vi, nullptr, &prev_frame_view_);
-
-    resize(width, height);
 
     // Clear to black and transition to SHADER_READ_ONLY so first-frame SSR
     // reads valid (black) data.
@@ -404,24 +327,7 @@ void SsrPass::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 
-void SsrPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, width, height);
-}
-
-VkDescriptorSet SsrPass::imgui_texture() {
-    return default_images_.imgui_texture(linear_sampler_);
-}
-
-void SsrPass::invalidate_imgui_texture() {
-    default_images_.invalidate_imgui_texture();
-}
-
 void SsrPass::record(const FrameContext& ctx) {
-    auto* imgs = ctx.pp_resources ? ctx.pp_resources->ssr() : nullptr;
-    record_into(ctx, imgs ? *imgs : default_images_);
-}
-
-void SsrPass::record_into(const FrameContext& ctx, Images& /*imgs*/) {
     auto target_extent = ctx.target->extent();
     uint32_t width = target_extent.width;
     uint32_t height = target_extent.height;
@@ -558,7 +464,7 @@ void SsrPass::record_into(const FrameContext& ctx, Images& /*imgs*/) {
 }
 
 void SsrPass::pre_record(const FrameContext& ctx, GpuContext& gpu) {
-    bool needs_buffer = ctx.pp_resources && ctx.pp_resources->ssr();
+    bool needs_buffer = ctx.pp_resources && ctx.pp_resources->config().ssr;
     if (needs_buffer && ctx.target) {
         auto ext = ctx.target->extent();
         ensure_prev_frame(gpu.device(), gpu.allocator(),
@@ -568,7 +474,7 @@ void SsrPass::pre_record(const FrameContext& ctx, GpuContext& gpu) {
 }
 
 void SsrPass::post_record(const FrameContext& ctx) {
-    bool needs_copy = ctx.pp_resources && ctx.pp_resources->ssr();
+    bool needs_copy = ctx.pp_resources && ctx.pp_resources->config().ssr;
     if (needs_copy && ctx.target) {
         copy_prev_frame(ctx.cmd, ctx.target->color_image(), ctx.target->extent());
     }

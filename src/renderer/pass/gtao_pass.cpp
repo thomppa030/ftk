@@ -85,7 +85,6 @@ void GtaoPass::Images::create(VkDevice device, VmaAllocator allocator,
     extent = {half_w, half_h};
 
     create_ao_image(device, allocator, half_w, half_h, ao_image, ao_memory, ao_view);
-    create_ao_image(device, allocator, half_w, half_h, blur_image, blur_memory, blur_view);
 
     images_need_init = true;
 }
@@ -93,7 +92,6 @@ void GtaoPass::Images::create(VkDevice device, VmaAllocator allocator,
 void GtaoPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
     destroy_ao_image(device, allocator, ao_image, ao_memory, ao_view);
-    destroy_ao_image(device, allocator, blur_image, blur_memory, blur_view);
     extent = {};
 }
 

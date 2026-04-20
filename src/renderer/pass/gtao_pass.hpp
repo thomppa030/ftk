@@ -11,18 +11,14 @@ namespace fjell {
 
 class GtaoPass : public RenderPass {
 public:
-    // Per-viewport AO + blur images. Descriptor sets come from
-    // FrameContext::descriptor_cache during record_into().
+    // Per-viewport AO output. The blur ping-pong image is a per-frame
+    // transient owned by the FrameGraph; ao_image stays on Images because
+    // it's bound through the global descriptor (binding 5) and through
+    // ImGui (viewport thumbnail) — both require a stable VkImage.
     struct Images {
-        // AO output image (R8_UNORM, half-res)
         VkImage ao_image{VK_NULL_HANDLE};
         VmaAllocation ao_memory{VK_NULL_HANDLE};
         VkImageView ao_view{VK_NULL_HANDLE};
-
-        // Blur temp image (R8_UNORM, half-res)
-        VkImage blur_image{VK_NULL_HANDLE};
-        VmaAllocation blur_memory{VK_NULL_HANDLE};
-        VkImageView blur_view{VK_NULL_HANDLE};
 
         VkExtent2D extent{};  // half-res dimensions
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};

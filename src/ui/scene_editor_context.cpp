@@ -825,8 +825,8 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
         preview_config.tonemap = true;
 
         PostProcessResources::PassRefs refs{
-            vk.hiz_pass(), vk.gtao_pass(), vk.bloom_pass(),
-            vk.ssr_pass(), vk.volumetric_fog_pass(), vk.tonemap_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass()};
+            vk.hiz_pass(), vk.gtao_pass(), vk.volumetric_fog_pass(),
+            vk.tonemap_pass(), vk.ddgi_pass(), vk.ss_gi_pass(), vk.taa_resolve_pass()};
 
         camera_preview_pp_ = std::make_unique<PostProcessResources>(
             vk.device(), vk.allocator(), 320, 180, preview_config, refs);
