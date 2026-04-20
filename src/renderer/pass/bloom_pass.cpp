@@ -547,9 +547,31 @@ PassSetup BloomPass::setup() const {
 void BloomPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_fragment);
-    // Mip chain is a pass-private chain the tonemap samples through a
-    // non-catalog view; the graph can't see that edge so flag the pass
-    // as side-effecting.
+
+    // Declare the mip chain + composite output as transient resources so
+    // the graph sees them for lifetime analysis and (eventually) aliasing.
+    // They're still record()'d through the pass's own Images storage
+    // today — C3 will hand over graph-allocated VkImages.
+    TextureDesc mip_desc{};
+    mip_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    mip_desc.size_class = SizeClass::viewport;
+    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
+        // Mip 0 is viewport/2, each successive halves again.
+        mip_desc.viewport_divisor = 1u << (i + 1);
+        auto h = builder.create("bloom_mip" + std::to_string(i), mip_desc);
+        builder.write(h, ResourceAccess::color_attachment);
+        builder.read(h, ResourceAccess::sampled_fragment);
+    }
+
+    TextureDesc out_desc{};
+    out_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    out_desc.size_class = SizeClass::viewport;
+    auto output = builder.create("bloom_output", out_desc);
+    builder.write(output, ResourceAccess::color_attachment);
+
+    // Tonemap samples bloom_output through a pass-private view that the
+    // graph can't yet follow, so bloom still needs the side-effect flag
+    // until the output is consumed through the catalog.
     builder.has_side_effects();
 }
 

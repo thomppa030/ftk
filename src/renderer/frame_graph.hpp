@@ -1,5 +1,7 @@
 #pragma once
 
+#include "renderer/resource_desc.hpp"
+
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
@@ -53,6 +55,15 @@ struct TrackedImage {
     uint32_t array_layers{1};
     uint32_t base_layer{0};
     bool persistent{false};   // state carries across begin_frame()
+
+    // Transient resources declared through PassBuilder::create(). For
+    // C2 (lifetime analysis + bin-packing bookkeeping) these hold only
+    // the TextureDesc for matching; no VkImage is allocated, so barrier
+    // emission skips them. C3 is where create() actually allocates a
+    // VkImage via VMA.
+    bool virtual_resource{false};
+    TextureDesc desc{};
+
     std::vector<ImageSlice> slices;
 };
 
@@ -92,6 +103,16 @@ struct ResourceLifetime {
     VkImageUsageFlags usage_flags{0};
 
     [[nodiscard]] bool used() const noexcept { return first_pass != UINT32_MAX; }
+};
+
+// One physical allocation shared by resources whose lifetimes don't
+// overlap. Populated by compute_alias_groups() from lifetime + desc.
+// Non-matching descs (different format/extent/samples/layers/mips) go
+// into their own groups — exact match only in Phase 3.
+struct AliasGroup {
+    TextureDesc desc{};                   // shared descriptor, for C3 allocation
+    std::vector<uint32_t> resource_ids;   // image IDs in images_ that share this group
+    uint32_t last_free_pass{0};           // highest last_pass among members; used during packing
 };
 
 // Lightweight frame graph that tracks image layouts and inserts barriers.
@@ -145,6 +166,18 @@ public:
     // FJELL_LOG_LIFETIMES env var so enabling it on demand is a no-rebuild
     // operation. Intended for Phase 3 debugging only.
     void log_lifetimes() const;
+
+    // Greedy bin-pack virtual (create()-declared) resources with
+    // non-overlapping lifetimes and identical descriptors into shared
+    // AliasGroups. Persistent and backed (imported) images stay out of
+    // the pool — each lands in its own singleton group. C3 turns these
+    // groups into real VkImage allocations; C2 only analyses.
+    [[nodiscard]] std::vector<AliasGroup> compute_alias_groups() const;
+
+    // Log the alias groups and the logical-to-physical ratio. Same
+    // FJELL_LOG_LIFETIMES gate and same one-shot cadence as
+    // log_lifetimes().
+    void log_alias_groups() const;
 
 private:
     static VkImageLayout layout_for(ImageUsage usage, VkImageAspectFlags aspect);

@@ -5,6 +5,7 @@
 #include "core/profiler.hpp"
 #include "core/thread_pool.hpp"
 
+#include <algorithm>
 #include <cassert>
 #include <cstdlib>
 #include <latch>
@@ -177,19 +178,35 @@ void FrameGraph::add_pass(const std::string& name, std::function<void(VkCommandB
 
 void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder& builder,
                                        std::function<void(VkCommandBuffer)> execute) {
-    if (!builder.created_textures().empty() || !builder.created_buffers().empty()) {
+    // Phase 3 C2: accept created textures as virtual resources. They
+    // participate in lifetime analysis and alias-group bin-packing but
+    // do not get a VkImage yet — each pass's record() continues to use
+    // its own Images storage. C3 swaps in real VMA-backed allocations
+    // and rewires pass reads through graph-provided views.
+    if (!builder.created_buffers().empty()) {
         FJELL_GFX_WARN("FrameGraph::submit_declared_pass: pass '{}' declares created "
-                       "resources, but transient allocation lands with Phase 3. "
-                       "Importing is the only supported mode until then.",
+                       "buffers, which aren't handled yet (buffer tracking arrives "
+                       "in Phase 4).",
                        name.c_str());
-        assert(builder.created_textures().empty() && builder.created_buffers().empty());
     }
 
-    // Resolve imported textures into graph image ids. Persistent bit is
-    // sticky — once any importer marks the image persistent, it stays
-    // persistent for the lifetime of the FrameGraph.
+    // Resolve imported and created textures into graph image ids.
+    // Imports are deduped across passes by (VkImage, layer range); creates
+    // are always fresh virtual entries (one per declaration — no dedup
+    // yet since we don't have a stable name registry for cross-pass
+    // ping-pong reads, and the migrated passes declare one create per
+    // pass anyway).
     std::vector<uint32_t> handle_to_image_id;
-    handle_to_image_id.resize(builder.imported_textures().size(), UINT32_MAX);
+    if (!builder.imported_textures().empty() || !builder.created_textures().empty()) {
+        uint32_t max_handle_id = 0;
+        for (const auto& imp : builder.imported_textures()) {
+            max_handle_id = std::max(max_handle_id, imp.handle.id);
+        }
+        for (const auto& cre : builder.created_textures()) {
+            max_handle_id = std::max(max_handle_id, cre.handle.id);
+        }
+        handle_to_image_id.resize(max_handle_id + 1, UINT32_MAX);
+    }
     for (const auto& imp : builder.imported_textures()) {
         uint32_t image_id = UINT32_MAX;
         for (size_t i = 0; i < images_.size(); ++i) {
@@ -215,10 +232,32 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
                 }
             }
         }
-        if (imp.handle.id >= handle_to_image_id.size()) {
-            handle_to_image_id.resize(imp.handle.id + 1, UINT32_MAX);
-        }
         handle_to_image_id[imp.handle.id] = image_id;
+    }
+
+    // Register created textures as virtual resources. VK_NULL_HANDLE
+    // image, one initial slice covering the whole surface so carve_slices
+    // behaves normally during any stray range queries.
+    for (const auto& cre : builder.created_textures()) {
+        TrackedImage img{};
+        img.image = VK_NULL_HANDLE;
+        img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        img.mip_count = cre.desc.mip_levels;
+        img.array_layers = cre.desc.array_layers;
+        img.base_layer = 0;
+        img.persistent = cre.desc.persistent;
+        img.virtual_resource = true;
+        img.desc = cre.desc;
+        ImageSlice slice{};
+        slice.range.aspect = img.aspect;
+        slice.range.base_mip = 0;
+        slice.range.mip_count = img.mip_count;
+        slice.range.base_layer = 0;
+        slice.range.layer_count = img.array_layers;
+        img.slices.push_back(slice);
+        images_.push_back(std::move(img));
+        uint32_t image_id = static_cast<uint32_t>(images_.size() - 1);
+        handle_to_image_id[cre.handle.id] = image_id;
     }
 
     PassDecl pass;
@@ -316,20 +355,112 @@ void FrameGraph::log_lifetimes() const {
                    static_cast<unsigned>(passes_.size()));
     for (size_t i = 0; i < lifetimes.size(); ++i) {
         const auto& lt = lifetimes[i];
+        const char* kind = images_[i].virtual_resource
+            ? "virtual"
+            : (images_[i].persistent ? "persistent" : "import");
         if (!lt.used()) {
-            FJELL_GFX_INFO("  img#{} persistent={} unused",
-                           static_cast<unsigned>(i),
-                           images_[i].persistent ? 1 : 0);
+            FJELL_GFX_INFO("  img#{} [{}] unused",
+                           static_cast<unsigned>(i), kind);
             continue;
         }
-        FJELL_GFX_INFO("  img#{} persistent={} [{}..{}] ({} passes) usage=0x{:x} first='{}' last='{}'",
-                       static_cast<unsigned>(i),
-                       images_[i].persistent ? 1 : 0,
+        FJELL_GFX_INFO("  img#{} [{}] [{}..{}] ({} passes) usage=0x{:x} first='{}' last='{}'",
+                       static_cast<unsigned>(i), kind,
                        lt.first_pass, lt.last_pass,
                        lt.last_pass - lt.first_pass + 1,
                        static_cast<unsigned>(lt.usage_flags),
                        passes_[lt.first_pass].name.c_str(),
                        passes_[lt.last_pass].name.c_str());
+    }
+}
+
+namespace {
+
+bool desc_matches_exactly(const TextureDesc& a, const TextureDesc& b) {
+    return a.format == b.format
+        && a.samples == b.samples
+        && a.array_layers == b.array_layers
+        && a.mip_levels == b.mip_levels
+        && a.size_class == b.size_class
+        && a.width == b.width
+        && a.height == b.height
+        && a.depth == b.depth
+        && a.viewport_divisor == b.viewport_divisor
+        && a.view_type == b.view_type;
+}
+
+} // namespace
+
+std::vector<AliasGroup> FrameGraph::compute_alias_groups() const {
+    const auto lifetimes = compute_lifetimes();
+
+    // Walk virtual resources in first_pass order — greedy packs need a
+    // stable arrival sequence. Persistent and imported images sit out
+    // of the pool entirely; C3 will allocate them separately.
+    struct Candidate {
+        uint32_t image_id;
+        ResourceLifetime lt;
+    };
+    std::vector<Candidate> candidates;
+    for (size_t i = 0; i < images_.size(); ++i) {
+        if (!images_[i].virtual_resource) { continue; }
+        if (images_[i].persistent) { continue; }
+        if (!lifetimes[i].used()) { continue; }
+        candidates.push_back({static_cast<uint32_t>(i), lifetimes[i]});
+    }
+    std::sort(candidates.begin(), candidates.end(),
+              [](const Candidate& a, const Candidate& b) {
+                  return a.lt.first_pass < b.lt.first_pass;
+              });
+
+    std::vector<AliasGroup> groups;
+    for (const auto& c : candidates) {
+        const auto& desc = images_[c.image_id].desc;
+        AliasGroup* target = nullptr;
+        for (auto& g : groups) {
+            if (g.last_free_pass < c.lt.first_pass && desc_matches_exactly(g.desc, desc)) {
+                target = &g;
+                break;
+            }
+        }
+        if (target == nullptr) {
+            groups.push_back({});
+            target = &groups.back();
+            target->desc = desc;
+        }
+        target->resource_ids.push_back(c.image_id);
+        target->last_free_pass = std::max(target->last_free_pass, c.lt.last_pass);
+    }
+    return groups;
+}
+
+void FrameGraph::log_alias_groups() const {
+    const char* flag = std::getenv("FJELL_LOG_LIFETIMES");
+    if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return; }
+
+    const auto groups = compute_alias_groups();
+    uint32_t virtual_count = 0;
+    for (const auto& img : images_) {
+        if (img.virtual_resource && !img.persistent) { ++virtual_count; }
+    }
+    if (virtual_count == 0) {
+        FJELL_GFX_INFO("FrameGraph alias groups: no virtual resources yet");
+        return;
+    }
+    float ratio = groups.empty() ? 0.0f
+        : 100.0f * (1.0f - static_cast<float>(groups.size()) / static_cast<float>(virtual_count));
+    FJELL_GFX_INFO("FrameGraph alias groups: {} logical -> {} physical ({:.1f}% reduction)",
+                   virtual_count,
+                   static_cast<unsigned>(groups.size()),
+                   ratio);
+    for (size_t g = 0; g < groups.size(); ++g) {
+        const auto& group = groups[g];
+        FJELL_GFX_INFO("  group#{} fmt={} size_class={} w={} h={} layers={} mips={}: {} resources",
+                       static_cast<unsigned>(g),
+                       static_cast<int>(group.desc.format),
+                       static_cast<int>(group.desc.size_class),
+                       group.desc.width, group.desc.height,
+                       group.desc.array_layers, group.desc.mip_levels,
+                       static_cast<unsigned>(group.resource_ids.size()));
     }
 }
 
@@ -557,6 +688,11 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
 void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass) {
     for (const auto& acc : pass.image_uses) {
         auto& img = images_[acc.image_id];
+        // Virtual (create()-declared) resources aren't backed by a real
+        // VkImage yet in C2. Skip barrier emission for them — the owning
+        // pass still drives its Images-owned VkImage through record().
+        if (img.virtual_resource) { continue; }
+
         auto needed_layout = layout_for(acc.usage, img.aspect);
         auto needed_stage = stage_for(acc.usage);
         auto needed_access = access_for(acc.usage);
@@ -573,6 +709,7 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
 void FrameGraph::apply_final_layouts(const PassDecl& pass) {
     for (const auto& fl : pass.final_layouts) {
         auto& img = images_[fl.image_id];
+        if (img.virtual_resource) { continue; }
         auto indices = carve_slices(img, fl.range);
         for (size_t idx : indices) {
             img.slices[idx].layout = fl.layout;

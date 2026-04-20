@@ -589,7 +589,17 @@ void SsrPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.write(color, ResourceAccess::storage_write_compute);
     builder.read(mr, ResourceAccess::sampled_compute);
-    // SSR output + history images are pass-private.
+
+    // SSR intermediate (full-res R16G16B16A16F) is a per-frame transient;
+    // declare it so Phase 3 aliasing can pack it with similar-shape
+    // resources. The prev_frame_color history stays pass-private —
+    // it's persistent across frames.
+    TextureDesc ssr_desc{};
+    ssr_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ssr_desc.size_class = SizeClass::viewport;
+    auto ssr_out = builder.create("ssr_output", ssr_desc);
+    builder.write(ssr_out, ResourceAccess::storage_write_compute);
+    builder.read(ssr_out, ResourceAccess::sampled_compute);
 }
 
 } // namespace fjell

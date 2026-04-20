@@ -357,6 +357,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
     if (!lifetimes_logged_) {
         graph.log_lifetimes();
+        graph.log_alias_groups();
         lifetimes_logged_ = true;
     }
 

@@ -568,6 +568,19 @@ PassSetup GtaoPass::setup() const {
 void GtaoPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_compute);
+
+    // Two half-res R8_UNORM scratch buffers: AO output + blur temp.
+    TextureDesc ao_desc{};
+    ao_desc.format = VK_FORMAT_R8_UNORM;
+    ao_desc.size_class = SizeClass::viewport;
+    ao_desc.viewport_divisor = 2;
+    auto ao = builder.create("gtao_ao", ao_desc);
+    auto blur = builder.create("gtao_blur", ao_desc);
+    builder.write(ao, ResourceAccess::storage_write_compute);
+    builder.read(ao, ResourceAccess::sampled_compute);
+    builder.write(blur, ResourceAccess::storage_write_compute);
+    builder.read(blur, ResourceAccess::sampled_compute);
+
     // Writes pass-private ao_texture bound through the global
     // descriptor; consumer edge is outside the catalog.
     builder.has_side_effects();

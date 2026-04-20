@@ -648,7 +648,27 @@ void VolumetricFogPass::declare(PassBuilder& builder, const DeclareContext& ctx)
     auto color = builder.import_named(ctx, "color");
     builder.read(depth, ResourceAccess::sampled_compute);
     builder.write(color, ResourceAccess::storage_write_compute);
-    // Froxel 3D textures are pass-private and stay inline.
+
+    // Froxel 3D scatter volumes ping-pong across frames, so they're
+    // persistent and sit out of the alias pool. The single-frame
+    // integrated volume is a real transient that can alias.
+    TextureDesc scatter_desc{};
+    scatter_desc.format = VOLUME_FORMAT;
+    scatter_desc.size_class = SizeClass::viewport;
+    scatter_desc.viewport_divisor = SCREEN_DIVISOR;
+    scatter_desc.depth = DEPTH_SLICES;
+    scatter_desc.view_type = VK_IMAGE_VIEW_TYPE_3D;
+    scatter_desc.persistent = true;
+    auto scatter0 = builder.create("fog_scatter0", scatter_desc);
+    auto scatter1 = builder.create("fog_scatter1", scatter_desc);
+    builder.write(scatter0, ResourceAccess::storage_write_compute);
+    builder.write(scatter1, ResourceAccess::storage_write_compute);
+
+    TextureDesc integrated_desc = scatter_desc;
+    integrated_desc.persistent = false;
+    auto integrated = builder.create("fog_integrated", integrated_desc);
+    builder.write(integrated, ResourceAccess::storage_write_compute);
+    builder.read(integrated, ResourceAccess::sampled_compute);
 }
 
 } // namespace fjell

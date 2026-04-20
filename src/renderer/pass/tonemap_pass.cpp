@@ -320,6 +320,13 @@ PassSetup TonemapPass::setup() const {
 void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_fragment);
+
+    TextureDesc out_desc{};
+    out_desc.format = VK_FORMAT_R8G8B8A8_SRGB;
+    out_desc.size_class = SizeClass::viewport;
+    auto output = builder.create("tonemap_output", out_desc);
+    builder.write(output, ResourceAccess::color_attachment);
+
     // Tonemap is the frame terminator: its output (the tonemap pp
     // image) goes to the present/ImGui step outside the graph, so
     // mark never_cull so it anchors the backward walk.
