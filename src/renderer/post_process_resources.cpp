@@ -29,11 +29,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
         bloom_images_.create(device_, allocator_, width, height);
     }
     if (config_.ssr && width > 0 && height > 0) {
-        ssr_images_.create(device_, allocator_,
-                           passes_->ssr.trace_set_layout(),
-                           passes_->ssr.composite_set_layout(),
-                           passes_->ssr.nearest_sampler(),
-                           width, height);
+        ssr_images_.create(device_, allocator_, width, height);
     }
     if (config_.volumetric_fog) {
         uint32_t vol_w = std::max(1u, width / VolumetricFogPass::SCREEN_DIVISOR);
@@ -153,11 +149,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         bloom_images_.resize(device_, allocator_, width, height);
     }
     if (config_.ssr) {
-        ssr_images_.resize(device_, allocator_,
-                           passes_->ssr.trace_set_layout(),
-                           passes_->ssr.composite_set_layout(),
-                           passes_->ssr.nearest_sampler(),
-                           width, height);
+        ssr_images_.resize(device_, allocator_, width, height);
     }
     if (config_.volumetric_fog) {
         fog_images_.resize(device_, allocator_,

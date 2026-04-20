@@ -11,7 +11,8 @@ namespace fjell {
 
 class SsrPass : public RenderPass {
 public:
-    // Per-viewport resolution-dependent image state.
+    // Per-viewport SSR output image. Descriptor sets come from
+    // FrameContext::descriptor_cache during record_into().
     struct Images {
         VkImage ssr_image{VK_NULL_HANDLE};
         VmaAllocation ssr_memory{VK_NULL_HANDLE};
@@ -19,27 +20,10 @@ public:
         VkExtent2D extent{};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
 
-        // Own pool + descriptor sets
-        VkDescriptorPool pool{VK_NULL_HANDLE};
-        VkDescriptorSet trace_set{VK_NULL_HANDLE};
-        VkDescriptorSet composite_set{VK_NULL_HANDLE};
-
-        // Cached views for lazy descriptor updates
-        VkImageView last_hiz_view{VK_NULL_HANDLE};
-        VkImageView last_prev_color_view{VK_NULL_HANDLE};
-        VkImageView last_color_view{VK_NULL_HANDLE};
-        VkImageView last_mr_view{VK_NULL_HANDLE};
-
         void create(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout trace_layout,
-                     VkDescriptorSetLayout composite_layout,
-                     VkSampler nearest_sampler,
                      uint32_t width, uint32_t height);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout trace_layout,
-                     VkDescriptorSetLayout composite_layout,
-                     VkSampler nearest_sampler,
                      uint32_t width, uint32_t height);
 
         [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);

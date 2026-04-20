@@ -1,4 +1,5 @@
 #include "renderer/pass/ssr_pass.hpp"
+#include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -90,151 +91,53 @@ static void insert_image_barrier(VkCommandBuffer cmd, VkImage image,
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
 void SsrPass::Images::create(VkDevice device, VmaAllocator allocator,
-                               VkDescriptorSetLayout trace_layout,
-                               VkDescriptorSetLayout composite_layout,
-                               VkSampler nearest_sampler,
                                uint32_t width, uint32_t height) {
     extent = {width, height};
 
-    // SSR output image
-    {
-        VkImageCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        ci.imageType = VK_IMAGE_TYPE_2D;
-        ci.format = SSR_FORMAT;
-        ci.extent = {width, height, 1};
-        ci.mipLevels = 1;
-        ci.arrayLayers = 1;
-        ci.samples = VK_SAMPLE_COUNT_1_BIT;
-        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-        ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                   VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImageCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = SSR_FORMAT;
+    ci.extent = {width, height, 1};
+    ci.mipLevels = 1;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+               VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-        if (create_vma_image(allocator, &ci, &ssr_image, &ssr_memory) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create SSR output image");
-        }
-
-        VkImageViewCreateInfo vi{};
-        vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        vi.image = ssr_image;
-        vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        vi.format = SSR_FORMAT;
-        vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        if (vkCreateImageView(device, &vi, nullptr, &ssr_view) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create SSR output image view");
-        }
+    if (create_vma_image(allocator, &ci, &ssr_image, &ssr_memory) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create SSR output image");
     }
 
-    // Own descriptor pool: 2 sets (trace + composite)
-    // trace: 2 combined_image_sampler + 1 storage_image
-    // composite: 2 combined_image_sampler + 1 storage_image
-    {
-        std::array<VkDescriptorPoolSize, 2> sizes{};
-        sizes[0] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4};
-        sizes[1] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2};
-
-        VkDescriptorPoolCreateInfo ci{};
-        ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        ci.maxSets = 2;
-        ci.poolSizeCount = static_cast<uint32_t>(sizes.size());
-        ci.pPoolSizes = sizes.data();
-        if (vkCreateDescriptorPool(device, &ci, nullptr, &pool) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create SSR images descriptor pool");
-        }
-    }
-
-    // Allocate sets
-    {
-        VkDescriptorSetAllocateInfo ai{};
-        ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        ai.descriptorPool = pool;
-        ai.descriptorSetCount = 1;
-        ai.pSetLayouts = &trace_layout;
-        if (vkAllocateDescriptorSets(device, &ai, &trace_set) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate SSR trace descriptor set");
-        }
-    }
-    {
-        VkDescriptorSetAllocateInfo ai{};
-        ai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        ai.descriptorPool = pool;
-        ai.descriptorSetCount = 1;
-        ai.pSetLayouts = &composite_layout;
-        if (vkAllocateDescriptorSets(device, &ai, &composite_set) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate SSR composite descriptor set");
-        }
-    }
-
-    // Reset cached views
-    last_hiz_view = VK_NULL_HANDLE;
-    last_prev_color_view = VK_NULL_HANDLE;
-    last_color_view = VK_NULL_HANDLE;
-    last_mr_view = VK_NULL_HANDLE;
-
-    // Write trace set: binding 2 = ssr output (bindings 0,1 are per-frame)
-    {
-        VkDescriptorImageInfo ssr_info{};
-        ssr_info.imageView = ssr_view;
-        ssr_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = trace_set;
-        write.dstBinding = 2;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write.descriptorCount = 1;
-        write.pImageInfo = &ssr_info;
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-    }
-
-    // Write composite set: binding 0 = ssr (binding 1 = scene color, per-frame)
-    {
-        VkDescriptorImageInfo ssr_info{};
-        ssr_info.sampler = nearest_sampler;
-        ssr_info.imageView = ssr_view;
-        ssr_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = composite_set;
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &ssr_info;
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    VkImageViewCreateInfo vi{};
+    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    vi.image = ssr_image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = SSR_FORMAT;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (vkCreateImageView(device, &vi, nullptr, &ssr_view) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create SSR output image view");
     }
 }
 
 void SsrPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
-    if (pool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device, pool, nullptr);
-        pool = VK_NULL_HANDLE;
-        trace_set = VK_NULL_HANDLE;
-        composite_set = VK_NULL_HANDLE;
-    }
     if (ssr_view != VK_NULL_HANDLE) { vkDestroyImageView(device, ssr_view, nullptr); ssr_view = VK_NULL_HANDLE; }
     destroy_vma_image(allocator, ssr_image, ssr_memory);
     ssr_image = VK_NULL_HANDLE; ssr_memory = VK_NULL_HANDLE;
     extent = {};
-    last_hiz_view = VK_NULL_HANDLE;
-    last_prev_color_view = VK_NULL_HANDLE;
-    last_color_view = VK_NULL_HANDLE;
-    last_mr_view = VK_NULL_HANDLE;
 }
 
 void SsrPass::Images::resize(VkDevice device, VmaAllocator allocator,
-                               VkDescriptorSetLayout trace_layout,
-                               VkDescriptorSetLayout composite_layout,
-                               VkSampler nearest_sampler,
                                uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    create(device, allocator, trace_layout, composite_layout, nearest_sampler, width, height);
+    create(device, allocator, width, height);
 }
 
 VkDescriptorSet SsrPass::Images::imgui_texture(VkSampler sampler) {
@@ -349,7 +252,7 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
     composite_pipeline_ = create_compute_pipeline(device_, composite_pipeline_layout_, "shaders/ssr_composite.comp.spv", vk_pipeline_cache_);
 
     // Create 1x1 placeholder so descriptors are valid from frame 1
-    default_images_.create(device_, allocator_, trace_set_layout_, composite_set_layout_, nearest_sampler_, 1, 1);
+    default_images_.create(device_, allocator_, 1, 1);
 
     FJELL_GFX_DEBUG("SSR pass created");
     return {};
@@ -502,7 +405,7 @@ void SsrPass::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D
 }
 
 void SsrPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, trace_set_layout_, composite_set_layout_, nearest_sampler_, width, height);
+    default_images_.resize(device_, allocator_, width, height);
 }
 
 VkDescriptorSet SsrPass::imgui_texture() {
@@ -532,6 +435,10 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     if (prev_color_res == nullptr || prev_color_res->view == VK_NULL_HANDLE) return;
     if (hiz_res == nullptr || hiz_res->view == VK_NULL_HANDLE || hiz_res->mip_count == 0) return;
+    // The composite set binds MR — if it's not yet registered, SSR can't
+    // dispatch this frame. Old path left the MR slot stale but the cache
+    // requires every binding in the layout to have a valid view.
+    if (mr_view == VK_NULL_HANDLE) return;
 
     auto cmd = ctx.cmd;
     auto global_set = ctx.global_descriptor_set;
@@ -556,78 +463,46 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     uint32_t groups_x = (width + TILE_SIZE - 1) / TILE_SIZE;
     uint32_t groups_y = (height + TILE_SIZE - 1) / TILE_SIZE;
 
-    // Update per-frame descriptors (lazy)
-    if (hiz_res->view != imgs.last_hiz_view) {
-        imgs.last_hiz_view = hiz_res->view;
+    auto* cache = ctx.descriptor_cache;
 
-        VkDescriptorImageInfo info{};
-        info.sampler = hiz_res->sampler;
-        info.imageView = hiz_res->view;
-        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    // Acquire trace set: hiz (0), prev_color (1), ssr output (2).
+    // ssr output descriptor references GENERAL layout — Vulkan demands
+    // the descriptor's imageLayout match the actual image state at use
+    // time, and we barrier to GENERAL right before dispatch below.
+    std::array<FrameCacheBinding, 3> trace_bindings{};
+    trace_bindings[0].binding = 0;
+    trace_bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    trace_bindings[0].image.sampler = hiz_res->sampler;
+    trace_bindings[0].image.imageView = hiz_res->view;
+    trace_bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    trace_bindings[1].binding = 1;
+    trace_bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    trace_bindings[1].image.sampler = linear_sampler_;
+    trace_bindings[1].image.imageView = prev_color_res->view;
+    trace_bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    trace_bindings[2].binding = 2;
+    trace_bindings[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    trace_bindings[2].image.imageView = imgs.ssr_view;
+    trace_bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    VkDescriptorSet trace_set = cache->acquire(trace_set_layout_, trace_bindings);
 
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = imgs.trace_set;
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-    }
-
-    if (prev_color_res->view != imgs.last_prev_color_view) {
-        imgs.last_prev_color_view = prev_color_res->view;
-
-        VkDescriptorImageInfo info{};
-        info.sampler = linear_sampler_;
-        info.imageView = prev_color_res->view;
-        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = imgs.trace_set;
-        write.dstBinding = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-    }
-
-    VkImageView color_view = ctx.target->color_view();
-    if (color_view != imgs.last_color_view) {
-        imgs.last_color_view = color_view;
-
-        VkDescriptorImageInfo info{};
-        info.imageView = color_view;
-        info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = imgs.composite_set;
-        write.dstBinding = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        write.descriptorCount = 1;
-        write.pImageInfo = &info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-    }
-
-    if (mr_view != VK_NULL_HANDLE && mr_view != imgs.last_mr_view) {
-        imgs.last_mr_view = mr_view;
-
-        VkDescriptorImageInfo info{};
-        info.sampler = nearest_sampler_;
-        info.imageView = mr_view;
-        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = imgs.composite_set;
-        write.dstBinding = 2;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-    }
+    // Acquire composite set: ssr (0), color output (1), mr (2).
+    std::array<FrameCacheBinding, 3> comp_bindings{};
+    comp_bindings[0].binding = 0;
+    comp_bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    comp_bindings[0].image.sampler = nearest_sampler_;
+    comp_bindings[0].image.imageView = imgs.ssr_view;
+    comp_bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    comp_bindings[1].binding = 1;
+    comp_bindings[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    comp_bindings[1].image.imageView = ctx.target->color_view();
+    comp_bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    comp_bindings[2].binding = 2;
+    comp_bindings[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    comp_bindings[2].image.sampler = nearest_sampler_;
+    comp_bindings[2].image.imageView = mr_view;
+    comp_bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorSet composite_set = cache->acquire(composite_set_layout_, comp_bindings);
 
     // SSR output → GENERAL for write
     insert_image_barrier(cmd, imgs.ssr_image,
@@ -640,7 +515,7 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_layout_,
                             0, 1, &global_set, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_layout_,
-                            1, 1, &imgs.trace_set, 0, nullptr);
+                            1, 1, &trace_set, 0, nullptr);
 
     SsrTracePushConstants trace_push{};
     trace_push.viewport_width = width;
@@ -666,7 +541,7 @@ void SsrPass::record_into(const FrameContext& ctx, Images& imgs) {
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_layout_,
                             0, 1, &global_set, 0, nullptr);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_layout_,
-                            1, 1, &imgs.composite_set, 0, nullptr);
+                            1, 1, &composite_set, 0, nullptr);
 
     SsrCompositePushConstants comp_push{};
     comp_push.viewport_width = width;
