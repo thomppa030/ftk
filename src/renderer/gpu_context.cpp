@@ -109,6 +109,7 @@ GpuContext::GpuContext(Window& window)
     }
 
     descriptor_cache_.create(core_.vk_device(), MAX_FRAMES_IN_FLIGHT, {});
+    transient_pool_.create(core_.vk_device(), core_.allocator());
 
     // Multi-draw indirect setup
     mega_buffer_ = std::make_unique<MegaBuffer>(
@@ -191,6 +192,7 @@ GpuContext::~GpuContext() {
     meshlet_buffer_.reset();
     mega_buffer_.reset();
 
+    transient_pool_.destroy();
     global_bindings_.destroy();
     bindless_textures_.destroy();
     descriptor_cache_.destroy();

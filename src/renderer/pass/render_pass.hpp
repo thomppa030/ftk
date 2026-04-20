@@ -48,6 +48,7 @@ class IndirectBatch;
 class MegaBuffer;
 class PipelineCache;
 class PostProcessResources;
+class TransientImagePool;
 
 // Shared state that every pass can read during recording.
 struct FrameContext {
@@ -85,6 +86,9 @@ struct FrameContext {
     // Per-frame descriptor set cache; passes call acquire() to get a set
     // bound to transient views without managing a pool themselves.
     FrameDescriptorCache* descriptor_cache{nullptr};
+
+    // Cross-frame VMA-backed image pool for FrameGraph's aliased transients.
+    TransientImagePool* transient_pool{nullptr};
 
     // Named resource registry (pass-to-pass data flow)
     ResourceRegistry* registry{nullptr};

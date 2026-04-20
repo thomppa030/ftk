@@ -220,6 +220,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     }
     ctx.pp_resources = pp;
     ctx.descriptor_cache = &gpu_.descriptor_cache();
+    ctx.transient_pool = &gpu_.transient_pool();
     ctx.registry = &resource_registry_;
     ctx.skip_shadows = skip_shadows;
     ctx.flip_tonemap_y = flip_tonemap_y;

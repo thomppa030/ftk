@@ -5,6 +5,7 @@
 #include "renderer/pass_builder.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
+#include "renderer/transient_image_pool.hpp"
 #include "renderer/gpu/thread_command_pools.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -355,9 +356,33 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             });
     }
 
+    // Allocate a VkImage per alias group from the cross-frame pool.
+    // Nothing consumes these allocations yet (C3.1) — this is the
+    // allocation path by itself, to prove it doesn't crash and to
+    // surface pool stats before passes rewire in C3.3+.
+    if (ctx.transient_pool != nullptr) {
+        ctx.transient_pool->begin_frame(target.extent());
+        const auto groups = graph.compute_alias_groups();
+        const auto lifetimes = graph.compute_lifetimes();
+        for (const auto& group : groups) {
+            VkImageUsageFlags usage_flags = 0;
+            for (uint32_t rid : group.resource_ids) {
+                usage_flags |= lifetimes[rid].usage_flags;
+            }
+            (void)ctx.transient_pool->acquire(group.desc, target.extent(), usage_flags);
+        }
+    }
+
     if (!lifetimes_logged_) {
         graph.log_lifetimes();
         graph.log_alias_groups();
+        if (ctx.transient_pool != nullptr) {
+            FJELL_GFX_INFO(
+                "TransientImagePool: {} live, {} acquires, {} new allocations this frame",
+                ctx.transient_pool->live_images(),
+                ctx.transient_pool->acquires_this_frame(),
+                ctx.transient_pool->allocations_this_frame());
+        }
         lifetimes_logged_ = true;
     }
 
