@@ -83,6 +83,17 @@ struct PassDecl {
     uint32_t parallel_group{0}; // 0 = sequential, >0 = parallel group ID
 };
 
+// Lifetime of a tracked image over the current pass list, expressed as
+// half-open [first_pass, last_pass] pass indices into passes_. Unused
+// resources leave the sentinel values in place.
+struct ResourceLifetime {
+    uint32_t first_pass{UINT32_MAX};
+    uint32_t last_pass{0};
+    VkImageUsageFlags usage_flags{0};
+
+    [[nodiscard]] bool used() const noexcept { return first_pass != UINT32_MAX; }
+};
+
 // Lightweight frame graph that tracks image layouts and inserts barriers.
 // Not a full dependency graph — pass order is explicit, the graph just
 // handles transitions.
@@ -123,6 +134,17 @@ public:
     // secondary command buffers via the thread pool.
     void execute(VkCommandBuffer primary, ThreadPool* pool,
                  ThreadCommandPools* cmd_pools, uint32_t frame_index);
+
+    // Compute per-image lifetime (first/last pass index, unioned image
+    // usage flags) over the currently submitted pass list. Indices point
+    // into passes_ in submission order — the pipeline submits in DAG
+    // order, so these double as DAG-order lifetimes.
+    [[nodiscard]] std::vector<ResourceLifetime> compute_lifetimes() const;
+
+    // Log per-image lifetimes through the graphics logger. Gated by the
+    // FJELL_LOG_LIFETIMES env var so enabling it on demand is a no-rebuild
+    // operation. Intended for Phase 3 debugging only.
+    void log_lifetimes() const;
 
 private:
     static VkImageLayout layout_for(ImageUsage usage, VkImageAspectFlags aspect);
