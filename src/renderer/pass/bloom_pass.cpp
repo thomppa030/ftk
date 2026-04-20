@@ -433,8 +433,29 @@ void BloomPass::record(const FrameContext& ctx) {
     record_into(ctx, imgs ? *imgs : default_images_);
 }
 
-void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
-    if (!ctx.target || imgs.output_view == VK_NULL_HANDLE || !enabled_) return;
+void BloomPass::record_into(const FrameContext& ctx, Images& /*imgs*/) {
+    if (!ctx.target || !enabled_) return;
+    if (ctx.registry == nullptr) return;
+
+    // Resolve mip chain + composite output from the graph's registry.
+    struct MipRef { VkImage image; VkImageView view; uint32_t width; uint32_t height; };
+    std::array<MipRef, MIP_COUNT> mips{};
+    auto target_extent = ctx.target->extent();
+    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
+        std::string name = "bloom_mip" + std::to_string(i);
+        const auto* res = ctx.registry->find_image(name);
+        if (res == nullptr || res->image == VK_NULL_HANDLE) return;
+        mips[i].image = res->image;
+        mips[i].view = res->view;
+        // Viewport_divisor from declare: mip i is viewport / (1 << (i+1)).
+        uint32_t div = 1u << (i + 1);
+        mips[i].width = std::max(1u, target_extent.width / div);
+        mips[i].height = std::max(1u, target_extent.height / div);
+    }
+    const auto* out_res = ctx.registry->find_image("bloom_output");
+    if (out_res == nullptr || out_res->image == VK_NULL_HANDLE) return;
+    const VkImage output_image = out_res->image;
+    const VkImageView output_view = out_res->view;
 
     auto cmd = ctx.cmd;
     auto* cache = ctx.descriptor_cache;
@@ -450,12 +471,10 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
     };
 
     // Downsample chain: source for mip 0 is the scene color; for mip i>0
-    // it's mip[i-1]. Views are stable across frames so the cache dedups
-    // these hits between frames, but because the pool is reset each frame
-    // each chain element re-acquires.
+    // it's mip[i-1].
     for (uint32_t i = 0; i < MIP_COUNT; ++i) {
-        auto& mip = imgs.mips[i];
-        VkImageView src_view = (i == 0) ? ctx.target->color_view() : imgs.mips[i - 1].view;
+        const auto& mip = mips[i];
+        VkImageView src_view = (i == 0) ? ctx.target->color_view() : mips[i - 1].view;
         VkDescriptorSet src_set = acquire_single(src_view);
 
         struct { float threshold, is_first, pad1, pad2; } push{
@@ -480,8 +499,8 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // Upsample chain
     for (int i = static_cast<int>(MIP_COUNT) - 2; i >= 0; --i) {
-        auto& dst = imgs.mips[i];
-        VkDescriptorSet up_set = acquire_single(imgs.mips[i + 1].view);
+        const auto& dst = mips[i];
+        VkDescriptorSet up_set = acquire_single(mips[i + 1].view);
 
         struct { float blend, pad1, pad2, pad3; } push{0.6f, 0.0f, 0.0f, 0.0f};
 
@@ -512,13 +531,13 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
     comp_bindings[1].binding = 1;
     comp_bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     comp_bindings[1].image.sampler = sampler_;
-    comp_bindings[1].image.imageView = imgs.mips[0].view;
+    comp_bindings[1].image.imageView = mips[0].view;
     comp_bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorSet comp_set = cache->acquire(composite_layout_, comp_bindings);
 
     struct { float intensity, p1, p2, p3; } comp_push{intensity_, 0, 0, 0};
 
-    transition(cmd, imgs.output_image,
+    transition(cmd, output_image,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -526,11 +545,11 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     draw_fullscreen(cmd, composite_pipeline_, composite_layout_pipeline_,
                     comp_set,
-                    imgs.output_view, imgs.extent.width, imgs.extent.height,
+                    output_view, target_extent.width, target_extent.height,
                     VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                     &comp_push, sizeof(comp_push));
 
-    transition(cmd, imgs.output_image,
+    transition(cmd, output_image,
         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);

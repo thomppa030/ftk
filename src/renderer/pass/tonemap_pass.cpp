@@ -214,10 +214,10 @@ void TonemapPass::record(const FrameContext& ctx) {
     }
 
     VkImageView bloom_view = VK_NULL_HANDLE;
-    if (ctx.passes != nullptr) {
+    if (ctx.passes != nullptr && ctx.registry != nullptr) {
         auto* bloom = ctx.passes->try_get<BloomPass>("bloom");
-        if (bloom != nullptr && bloom->enabled() && ctx.pp_resources->bloom() != nullptr) {
-            bloom_view = ctx.pp_resources->bloom()->mips[0].view;
+        if (bloom != nullptr && bloom->enabled()) {
+            bloom_view = ctx.registry->image_view("bloom_mip0");
         }
     }
 
