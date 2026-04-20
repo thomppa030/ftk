@@ -82,6 +82,10 @@ private:
     /// session instead of every frame.
     bool dag_order_logged_{false};
 
+    /// Log resource lifetimes once per session (debug; gated by the
+    /// FJELL_LOG_LIFETIMES env var inside FrameGraph::log_lifetimes).
+    bool lifetimes_logged_{false};
+
     static const PassState default_state_;
 };
 

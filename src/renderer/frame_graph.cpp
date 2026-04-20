@@ -6,6 +6,7 @@
 #include "core/thread_pool.hpp"
 
 #include <cassert>
+#include <cstdlib>
 #include <latch>
 
 namespace fjell {
@@ -272,6 +273,64 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     }
 
     passes_.push_back(std::move(pass));
+}
+
+namespace {
+
+VkImageUsageFlags usage_flag_for(ImageUsage u) {
+    switch (u) {
+        case ImageUsage::color_attachment:       return VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        case ImageUsage::depth_attachment:
+        case ImageUsage::depth_attachment_read:  return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        case ImageUsage::shader_read:
+        case ImageUsage::compute_read:           return VK_IMAGE_USAGE_SAMPLED_BIT;
+        case ImageUsage::compute_write:          return VK_IMAGE_USAGE_STORAGE_BIT;
+        case ImageUsage::transfer_src:           return VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        case ImageUsage::transfer_dst:           return VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
+    return 0;
+}
+
+} // namespace
+
+std::vector<ResourceLifetime> FrameGraph::compute_lifetimes() const {
+    std::vector<ResourceLifetime> out(images_.size());
+    for (uint32_t p = 0; p < passes_.size(); ++p) {
+        for (const auto& acc : passes_[p].image_uses) {
+            auto& lt = out[acc.image_id];
+            if (p < lt.first_pass) { lt.first_pass = p; }
+            if (p > lt.last_pass || !lt.used()) { lt.last_pass = p; }
+            lt.usage_flags |= usage_flag_for(acc.usage);
+        }
+    }
+    return out;
+}
+
+void FrameGraph::log_lifetimes() const {
+    const char* flag = std::getenv("FJELL_LOG_LIFETIMES");
+    if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return; }
+
+    const auto lifetimes = compute_lifetimes();
+    FJELL_GFX_INFO("FrameGraph lifetimes ({} images, {} passes):",
+                   static_cast<unsigned>(images_.size()),
+                   static_cast<unsigned>(passes_.size()));
+    for (size_t i = 0; i < lifetimes.size(); ++i) {
+        const auto& lt = lifetimes[i];
+        if (!lt.used()) {
+            FJELL_GFX_INFO("  img#{} persistent={} unused",
+                           static_cast<unsigned>(i),
+                           images_[i].persistent ? 1 : 0);
+            continue;
+        }
+        FJELL_GFX_INFO("  img#{} persistent={} [{}..{}] ({} passes) usage=0x{:x} first='{}' last='{}'",
+                       static_cast<unsigned>(i),
+                       images_[i].persistent ? 1 : 0,
+                       lt.first_pass, lt.last_pass,
+                       lt.last_pass - lt.first_pass + 1,
+                       static_cast<unsigned>(lt.usage_flags),
+                       passes_[lt.first_pass].name.c_str(),
+                       passes_[lt.last_pass].name.c_str());
+    }
 }
 
 VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect) {

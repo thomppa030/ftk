@@ -355,6 +355,11 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             });
     }
 
+    if (!lifetimes_logged_) {
+        graph.log_lifetimes();
+        lifetimes_logged_ = true;
+    }
+
     graph.execute(cmd, &pool, &secondary_pools, frame_index);
 }
 
