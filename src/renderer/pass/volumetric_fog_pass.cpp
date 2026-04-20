@@ -410,6 +410,13 @@ void VolumetricFogPass::record(const FrameContext& ctx) {
 void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (!enabled_) return;
     if (imgs.scatter_volumes[0].view == VK_NULL_HANDLE) return;
+    if (ctx.registry == nullptr) return;
+
+    const auto* integrated_res = ctx.registry->find_image("fog_integrated");
+    if (integrated_res == nullptr || integrated_res->image == VK_NULL_HANDLE) return;
+
+    const VkImage integrated_image = integrated_res->image;
+    const VkImageView integrated_view = integrated_res->view;
 
     auto cmd = ctx.cmd;
     auto extent = ctx.target->extent();
@@ -453,7 +460,7 @@ void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
     int_b[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     int_b[1].binding = 1;
     int_b[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    int_b[1].image.imageView = imgs.integrated_volume.view;
+    int_b[1].image.imageView = integrated_view;
     int_b[1].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     VkDescriptorSet integrate_set = cache->acquire(integrate_set_layout_, int_b);
 
@@ -462,7 +469,7 @@ void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
     comp_b[0].binding = 0;
     comp_b[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     comp_b[0].image.sampler = linear_sampler_;
-    comp_b[0].image.imageView = imgs.integrated_volume.view;
+    comp_b[0].image.imageView = integrated_view;
     comp_b[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     comp_b[1].binding = 1;
     comp_b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -515,7 +522,7 @@ void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        init[2] = make_barrier(imgs.integrated_volume.image,
+        init[2] = make_barrier(integrated_image,
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
@@ -573,7 +580,7 @@ void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 7. Barrier: integrated → readable for composite ──────────────
     {
-        auto b = make_barrier(imgs.integrated_volume.image,
+        auto b = make_barrier(integrated_image,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -599,7 +606,7 @@ void VolumetricFogPass::record_into(const FrameContext& ctx, Images& imgs) {
     // scatter[prev]: SHADER_READ_ONLY → GENERAL (becomes cur next frame)
     {
         std::array<VkImageMemoryBarrier2, 2> restore{};
-        restore[0] = make_barrier(imgs.integrated_volume.image,
+        restore[0] = make_barrier(integrated_image,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);

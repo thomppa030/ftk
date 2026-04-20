@@ -287,6 +287,15 @@ void GtaoPass::record(const FrameContext& ctx) {
 
 void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (imgs.ao_view == VK_NULL_HANDLE) return;
+    if (ctx.registry == nullptr) return;
+
+    // Blur temp is a per-frame transient the graph now owns. ao_image
+    // still lives on Images — it's bound through the global descriptor
+    // (binding 5) and would break if the VkImage changed mid-frame.
+    const auto* blur_res = ctx.registry->find_image("gtao_blur");
+    if (blur_res == nullptr || blur_res->image == VK_NULL_HANDLE) return;
+    const VkImage blur_image = blur_res->image;
+    const VkImageView blur_view = blur_res->view;
 
     auto cmd = ctx.cmd;
     auto global_set = ctx.global_descriptor_set;
@@ -315,7 +324,7 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
         init_barriers[1].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
         init_barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         init_barriers[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        init_barriers[1].image = imgs.blur_image;
+        init_barriers[1].image = blur_image;
         init_barriers[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         VkDependencyInfo init_dep{};
@@ -395,7 +404,7 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
         to_general[1].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
         to_general[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         to_general[1].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        to_general[1].image = imgs.blur_image;
+        to_general[1].image = blur_image;
         to_general[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
         VkDependencyInfo dep{};
@@ -419,7 +428,7 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
     std::array<FrameCacheBinding, 2> blur_h_b{};
     blur_h_b[0].binding = 0;
     blur_h_b[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    blur_h_b[0].image.imageView = imgs.blur_view;
+    blur_h_b[0].image.imageView = blur_view;
     blur_h_b[0].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     blur_h_b[1].binding = 1;
     blur_h_b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -437,7 +446,7 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
     blur_v_b[1].binding = 1;
     blur_v_b[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     blur_v_b[1].image.sampler = ao_sampler_;
-    blur_v_b[1].image.imageView = imgs.blur_view;
+    blur_v_b[1].image.imageView = blur_view;
     blur_v_b[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorSet blur_v_set = cache->acquire(pass_set_layout_, blur_v_b);
 
@@ -509,7 +518,7 @@ void GtaoPass::record_into(const FrameContext& ctx, Images& imgs) {
     blur_barriers[0].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
     blur_barriers[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
     blur_barriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    blur_barriers[0].image = imgs.blur_image;
+    blur_barriers[0].image = blur_image;
     blur_barriers[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     blur_barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
