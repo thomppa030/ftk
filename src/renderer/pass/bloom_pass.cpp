@@ -1,4 +1,5 @@
 #include "renderer/pass/bloom_pass.hpp"
+#include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -179,9 +180,6 @@ static void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
 void BloomPass::Images::create(VkDevice device, VmaAllocator allocator,
-                                VkDescriptorSetLayout single_tex_layout,
-                                VkDescriptorSetLayout composite_layout,
-                                VkSampler sampler,
                                 uint32_t width, uint32_t height) {
     extent = {width, height};
     VkFormat fmt = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -254,77 +252,10 @@ void BloomPass::Images::create(VkDevice device, VmaAllocator allocator,
     if (vkCreateImageView(device, &out_view_ci, nullptr, &output_view) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create bloom output view");
     }
-
-    // Own descriptor pool
-    uint32_t total_sets = MIP_COUNT + MAX_FRAMES_IN_FLIGHT * 2;
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = MIP_COUNT + MAX_FRAMES_IN_FLIGHT + MAX_FRAMES_IN_FLIGHT * 2;
-
-    VkDescriptorPoolCreateInfo pool_ci{};
-    pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_ci.maxSets = total_sets;
-    pool_ci.poolSizeCount = 1;
-    pool_ci.pPoolSizes = &pool_size;
-    if (vkCreateDescriptorPool(device, &pool_ci, nullptr, &pool) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create bloom images descriptor pool");
-    }
-
-    // Allocate mip chain sets
-    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
-        VkDescriptorSetAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc_info.descriptorPool = pool;
-        alloc_info.descriptorSetCount = 1;
-        alloc_info.pSetLayouts = &single_tex_layout;
-        if (vkAllocateDescriptorSets(device, &alloc_info, &mip_sets[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate bloom mip descriptor set");
-        }
-    }
-    // Per-frame source + composite sets
-    for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f) {
-        VkDescriptorSetAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        alloc_info.descriptorPool = pool;
-        alloc_info.descriptorSetCount = 1;
-        alloc_info.pSetLayouts = &single_tex_layout;
-        if (vkAllocateDescriptorSets(device, &alloc_info, &source_sets[f]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate bloom source descriptor set");
-        }
-
-        alloc_info.pSetLayouts = &composite_layout;
-        if (vkAllocateDescriptorSets(device, &alloc_info, &composite_sets[f]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate bloom composite descriptor set");
-        }
-    }
-
-    // Write mip chain descriptors
-    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
-        VkDescriptorImageInfo img_info{};
-        img_info.sampler = sampler;
-        img_info.imageView = mips[i].view;
-        img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = mip_sets[i];
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &img_info;
-        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-    }
 }
 
 void BloomPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     invalidate_imgui_texture();
-    if (pool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device, pool, nullptr);
-        pool = VK_NULL_HANDLE;
-        mip_sets = {};
-        for (auto& s : source_sets) s = VK_NULL_HANDLE;
-        for (auto& s : composite_sets) s = VK_NULL_HANDLE;
-    }
     for (auto& mip : mips) {
         if (mip.view != VK_NULL_HANDLE) vkDestroyImageView(device, mip.view, nullptr);
         destroy_vma_image(allocator, mip.image, mip.allocation);
@@ -338,16 +269,13 @@ void BloomPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
 }
 
 void BloomPass::Images::resize(VkDevice device, VmaAllocator allocator,
-                                VkDescriptorSetLayout single_tex_layout,
-                                VkDescriptorSetLayout composite_layout,
-                                VkSampler sampler,
                                 uint32_t width, uint32_t height) {
     if (extent.width == width && extent.height == height) return;
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
     if (width > 0 && height > 0) {
-        create(device, allocator, single_tex_layout, composite_layout, sampler, width, height);
+        create(device, allocator, width, height);
     }
 }
 
@@ -489,7 +417,7 @@ void BloomPass::destroy() {
 }
 
 void BloomPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, single_tex_layout_, composite_layout_, sampler_, width, height);
+    default_images_.resize(device_, allocator_, width, height);
 }
 
 VkDescriptorSet BloomPass::imgui_texture() {
@@ -509,29 +437,26 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (!ctx.target || imgs.output_view == VK_NULL_HANDLE || !enabled_) return;
 
     auto cmd = ctx.cmd;
-    uint32_t fi = ctx.frame_index;
+    auto* cache = ctx.descriptor_cache;
 
-    // Update scene source descriptor (per-frame)
-    {
-        VkDescriptorImageInfo img_info{};
-        img_info.sampler = sampler_;
-        img_info.imageView = ctx.target->color_view();
-        img_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    auto acquire_single = [&](VkImageView view) {
+        FrameCacheBinding b{};
+        b.binding = 0;
+        b.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        b.image.sampler = sampler_;
+        b.image.imageView = view;
+        b.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        return cache->acquire(single_tex_layout_, std::span{&b, 1});
+    };
 
-        VkWriteDescriptorSet write{};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = imgs.source_sets[fi];
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = 1;
-        write.pImageInfo = &img_info;
-        vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
-    }
-
-    // Downsample chain
+    // Downsample chain: source for mip 0 is the scene color; for mip i>0
+    // it's mip[i-1]. Views are stable across frames so the cache dedups
+    // these hits between frames, but because the pool is reset each frame
+    // each chain element re-acquires.
     for (uint32_t i = 0; i < MIP_COUNT; ++i) {
         auto& mip = imgs.mips[i];
-        VkDescriptorSet src_set = (i == 0) ? imgs.source_sets[fi] : imgs.mip_sets[i - 1];
+        VkImageView src_view = (i == 0) ? ctx.target->color_view() : imgs.mips[i - 1].view;
+        VkDescriptorSet src_set = acquire_single(src_view);
 
         struct { float threshold, is_first, pad1, pad2; } push{
             threshold_, (i == 0) ? 1.0f : 0.0f, 0.0f, 0.0f};
@@ -556,6 +481,7 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
     // Upsample chain
     for (int i = static_cast<int>(MIP_COUNT) - 2; i >= 0; --i) {
         auto& dst = imgs.mips[i];
+        VkDescriptorSet up_set = acquire_single(imgs.mips[i + 1].view);
 
         struct { float blend, pad1, pad2, pad3; } push{0.6f, 0.0f, 0.0f, 0.0f};
 
@@ -565,7 +491,7 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT);
 
-        draw_fullscreen(cmd, upsample_pipeline_, upsample_layout_, imgs.mip_sets[i + 1],
+        draw_fullscreen(cmd, upsample_pipeline_, upsample_layout_, up_set,
                         dst.view, dst.width, dst.height,
                         VK_ATTACHMENT_LOAD_OP_LOAD,
                         &push, sizeof(push));
@@ -577,26 +503,18 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
     }
 
     // Composite: scene + bloom → output
-    {
-        std::array<VkDescriptorImageInfo, 2> desc_imgs{};
-        desc_imgs[0].sampler = sampler_;
-        desc_imgs[0].imageView = ctx.target->color_view();
-        desc_imgs[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        desc_imgs[1].sampler = sampler_;
-        desc_imgs[1].imageView = imgs.mips[0].view;
-        desc_imgs[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-        std::array<VkWriteDescriptorSet, 2> writes{};
-        for (int b = 0; b < 2; ++b) {
-            writes[b].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            writes[b].dstSet = imgs.composite_sets[fi];
-            writes[b].dstBinding = b;
-            writes[b].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            writes[b].descriptorCount = 1;
-            writes[b].pImageInfo = &desc_imgs[b];
-        }
-        vkUpdateDescriptorSets(device_, 2, writes.data(), 0, nullptr);
-    }
+    std::array<FrameCacheBinding, 2> comp_bindings{};
+    comp_bindings[0].binding = 0;
+    comp_bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    comp_bindings[0].image.sampler = sampler_;
+    comp_bindings[0].image.imageView = ctx.target->color_view();
+    comp_bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    comp_bindings[1].binding = 1;
+    comp_bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    comp_bindings[1].image.sampler = sampler_;
+    comp_bindings[1].image.imageView = imgs.mips[0].view;
+    comp_bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    VkDescriptorSet comp_set = cache->acquire(composite_layout_, comp_bindings);
 
     struct { float intensity, p1, p2, p3; } comp_push{intensity_, 0, 0, 0};
 
@@ -607,7 +525,7 @@ void BloomPass::record_into(const FrameContext& ctx, Images& imgs) {
         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
 
     draw_fullscreen(cmd, composite_pipeline_, composite_layout_pipeline_,
-                    imgs.composite_sets[fi],
+                    comp_set,
                     imgs.output_view, imgs.extent.width, imgs.extent.height,
                     VK_ATTACHMENT_LOAD_OP_DONT_CARE,
                     &comp_push, sizeof(comp_push));

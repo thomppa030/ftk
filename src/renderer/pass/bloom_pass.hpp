@@ -27,7 +27,9 @@ public:
         uint32_t height{0};
     };
 
-    // Per-viewport resolution-dependent image state.
+    // Per-viewport mip chain + composite output. Descriptor sets for
+    // each dispatch come from FrameContext::descriptor_cache; this
+    // struct only owns the resolution-dependent images and views.
     struct Images {
         std::array<MipLevel, MIP_COUNT> mips{};
 
@@ -37,22 +39,10 @@ public:
         VkExtent2D extent{};
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
 
-        // Own pool + all descriptor sets
-        VkDescriptorPool pool{VK_NULL_HANDLE};
-        std::array<VkDescriptorSet, MIP_COUNT> mip_sets{};
-        VkDescriptorSet source_sets[MAX_FRAMES_IN_FLIGHT]{};
-        VkDescriptorSet composite_sets[MAX_FRAMES_IN_FLIGHT]{};
-
         void create(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout single_tex_layout,
-                     VkDescriptorSetLayout composite_layout,
-                     VkSampler sampler,
                      uint32_t width, uint32_t height);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
-                     VkDescriptorSetLayout single_tex_layout,
-                     VkDescriptorSetLayout composite_layout,
-                     VkSampler sampler,
                      uint32_t width, uint32_t height);
 
         [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);

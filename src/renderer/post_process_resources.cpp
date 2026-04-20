@@ -26,11 +26,7 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
                             half_w, half_h);
     }
     if (config_.bloom && width > 0 && height > 0) {
-        bloom_images_.create(device_, allocator_,
-                             passes_->bloom.single_tex_set_layout(),
-                             passes_->bloom.composite_set_layout(),
-                             passes_->bloom.bloom_sampler(),
-                             width, height);
+        bloom_images_.create(device_, allocator_, width, height);
     }
     if (config_.ssr && width > 0 && height > 0) {
         ssr_images_.create(device_, allocator_,
@@ -154,11 +150,7 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
                             width, height);
     }
     if (config_.bloom) {
-        bloom_images_.resize(device_, allocator_,
-                             passes_->bloom.single_tex_set_layout(),
-                             passes_->bloom.composite_set_layout(),
-                             passes_->bloom.bloom_sampler(),
-                             width, height);
+        bloom_images_.resize(device_, allocator_, width, height);
     }
     if (config_.ssr) {
         ssr_images_.resize(device_, allocator_,
