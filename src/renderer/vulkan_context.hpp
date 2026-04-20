@@ -146,7 +146,7 @@ public:
   [[nodiscard]] UvVizPass &uv_viz_pass() { return passes_.get<UvVizPass>("uv_viz"); }
   [[nodiscard]] HizPass &hiz_pass() { return passes_.get<HizPass>("hiz"); }
   [[nodiscard]] BloomPass &bloom_pass() { return passes_.get<BloomPass>("bloom"); }
-  [[nodiscard]] GtaoPass &gtao_pass() { return passes_.get<GtaoPass>("gtao"); }
+  [[nodiscard]] AoPass &gtao_pass() { return passes_.get<AoPass>("ao_trace"); }
   [[nodiscard]] SsrPass &ssr_pass() { return passes_.get<SsrPass>("ssr"); }
   [[nodiscard]] VolumetricFogPass &volumetric_fog_pass() { return passes_.get<VolumetricFogPass>("volumetric_fog"); }
   [[nodiscard]] ContactShadowPass &contact_shadow_pass() { return passes_.get<ContactShadowPass>("contact_shadow"); }

@@ -109,7 +109,9 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("tonemap", std::make_unique<TonemapPass>());
 
     // ── Screen-space effects ───────────────────────────────────────────
-    add("gtao", std::make_unique<GtaoPass>());
+    add("ao_trace", std::make_unique<GtaoTracePass>());
+    add("ao_blur_h", std::make_unique<AoBlurHPass>());
+    add("ao_blur_v", std::make_unique<AoBlurVPass>());
     add("ssr", std::make_unique<SsrPass>());
     add("volumetric_fog", std::make_unique<VolumetricFogPass>());
     add("sun_shafts", std::make_unique<SunShaftsPass>());

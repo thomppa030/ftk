@@ -43,7 +43,7 @@ public:
     /// Pass singletons are needed to provide set layouts for Images creation.
     struct PassRefs {
         HizPass& hiz;
-        GtaoPass& gtao;
+        AoPass& gtao;
         VolumetricFogPass& fog;
         TonemapPass& tonemap;
         DdgiPass& ddgi;
@@ -66,7 +66,7 @@ public:
 
     // Per-pass image access (nullptr if disabled in config)
     [[nodiscard]] HizPass::Images* hiz() { return config_.hiz ? &hiz_images_ : nullptr; }
-    [[nodiscard]] GtaoPass::Images* gtao() { return config_.gtao ? &gtao_images_ : nullptr; }
+    [[nodiscard]] AoPass::Images* gtao() { return config_.gtao ? &gtao_images_ : nullptr; }
     [[nodiscard]] VolumetricFogPass::Images* volumetric_fog() { return config_.volumetric_fog ? &fog_images_ : nullptr; }
     [[nodiscard]] TonemapPass::Images* tonemap() { return config_.tonemap ? &tonemap_images_ : nullptr; }
     [[nodiscard]] DdgiPass::Images* ddgi() { return config_.ddgi ? &ddgi_images_ : nullptr; }
@@ -88,7 +88,7 @@ private:
     PassRefs* passes_{nullptr};
 
     HizPass::Images hiz_images_;
-    GtaoPass::Images gtao_images_;
+    AoPass::Images gtao_images_;
     VolumetricFogPass::Images fog_images_;
     TonemapPass::Images tonemap_images_;
     DdgiPass::Images ddgi_images_;
