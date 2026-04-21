@@ -22,6 +22,7 @@ void TransientImagePool::destroy() {
         }
     }
     entries_.clear();
+    live_bytes_ = 0;
     device_ = VK_NULL_HANDLE;
     allocator_ = VK_NULL_HANDLE;
 }
@@ -118,13 +119,15 @@ TransientImagePool::acquire(const TextureDesc& desc,
     alloc_ci.flags = VMA_ALLOCATION_CREATE_CAN_ALIAS_BIT;
 
     Entry entry{};
+    VmaAllocationInfo alloc_info{};
     VkResult r = vmaCreateImage(allocator_, &ci, &alloc_ci,
-                                 &entry.alloc.image, &entry.alloc.memory, nullptr);
+                                 &entry.alloc.image, &entry.alloc.memory, &alloc_info);
     if (r != VK_SUCCESS) {
         FJELL_GFX_ERROR("TransientImagePool: vmaCreateImage failed ({})",
                         static_cast<int>(r));
         return nullptr;
     }
+    live_bytes_ += alloc_info.size;
 
     entry.alloc.extent = resolved;
     entry.alloc.format = desc.format;
@@ -155,6 +158,7 @@ TransientImagePool::acquire(const TextureDesc& desc,
         FJELL_GFX_ERROR("TransientImagePool: vkCreateImageView failed ({})",
                         static_cast<int>(r));
         vmaDestroyImage(allocator_, entry.alloc.image, entry.alloc.memory);
+        live_bytes_ -= alloc_info.size;
         return nullptr;
     }
 

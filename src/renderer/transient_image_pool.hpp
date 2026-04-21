@@ -63,6 +63,7 @@ public:
     [[nodiscard]] uint32_t live_images() const noexcept;
     [[nodiscard]] uint32_t acquires_this_frame() const noexcept { return acquires_this_frame_; }
     [[nodiscard]] uint32_t allocations_this_frame() const noexcept { return allocations_this_frame_; }
+    [[nodiscard]] uint64_t live_bytes() const noexcept { return live_bytes_; }
 
 private:
     struct Entry {
@@ -84,6 +85,7 @@ private:
 
     uint32_t acquires_this_frame_{0};
     uint32_t allocations_this_frame_{0};
+    uint64_t live_bytes_{0};
 };
 
 } // namespace fjell

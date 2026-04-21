@@ -450,10 +450,12 @@ std::vector<AliasGroup> FrameGraph::compute_alias_groups() const {
     for (const auto& c : candidates) {
         const auto& desc = images_[c.image_id].desc;
         AliasGroup* target = nullptr;
-        for (auto& g : groups) {
-            if (g.last_free_pass < c.lt.first_pass && desc_matches_exactly(g.desc, desc)) {
-                target = &g;
-                break;
+        if (aliasing_enabled_) {
+            for (auto& g : groups) {
+                if (g.last_free_pass < c.lt.first_pass && desc_matches_exactly(g.desc, desc)) {
+                    target = &g;
+                    break;
+                }
             }
         }
         if (target == nullptr) {

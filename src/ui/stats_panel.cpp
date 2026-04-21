@@ -1,5 +1,6 @@
 #include "ui/stats_panel.hpp"
 #include "renderer/pipeline_cache.hpp"
+#include "renderer/render_pipeline.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
@@ -143,6 +144,32 @@ void StatsPanel::draw(float dt, const char* title) {
                 if (ImGui::SliderFloat("Adaptation Speed", &speed, 0.1f, 5.0f))
                     tonemap.set_adaptation_speed(speed);
             }
+        }
+
+        if (ImGui::CollapsingHeader("Frame Graph")) {
+            auto& pipeline = ctx_->render_pipeline();
+            bool aliasing = pipeline.aliasing_enabled();
+            if (ImGui::Checkbox("Aliasing", &aliasing)) {
+                pipeline.set_aliasing_enabled(aliasing);
+            }
+            ImGui::SameLine(0, 10);
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("When off, each transient image gets its own VkImage.\n"
+                                  "Use to isolate regressions caused by aliasing reuse.");
+            }
+
+            const auto& st = pipeline.aliasing_stats();
+            const float ratio = st.logical_count == 0 ? 0.0f
+                : 100.0f * (1.0f - (static_cast<float>(st.physical_count)
+                                     / static_cast<float>(st.logical_count)));
+            ImGui::Text("Logical: %u  Physical: %u  (%.1f%% reduction)",
+                        st.logical_count, st.physical_count, ratio);
+            ImGui::Text("Pool: %u live, %.1f MiB",
+                        st.live_images,
+                        static_cast<double>(st.live_bytes) / (1024.0 * 1024.0));
+            ImGui::Text("Acquires: %u  New allocs: %u",
+                        st.acquires, st.allocations);
         }
     }
     ImGui::End();

@@ -2,6 +2,7 @@
 
 #include "renderer/resource_registry.hpp"
 
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -43,6 +44,18 @@ struct PassEntry {
     }
 };
 
+/// Snapshot of the most recent frame's aliasing stats. Populated by
+/// execute(); read by the stats panel. Safe to read on the main thread
+/// between frames.
+struct AliasingStats {
+    uint32_t logical_count{0};   // number of virtual (create()) resources in use
+    uint32_t physical_count{0};  // number of AliasGroups returned
+    uint32_t live_images{0};     // TransientImagePool cached images
+    uint64_t live_bytes{0};      // TransientImagePool total VRAM in bytes
+    uint32_t acquires{0};        // pool acquires this frame
+    uint32_t allocations{0};     // pool allocations (misses) this frame
+};
+
 /// Pass registry + frame graph execution. Passes register themselves with
 /// their image dependencies; execute() builds and runs the frame graph.
 class RenderPipeline {
@@ -55,6 +68,17 @@ public:
 
     /// Query whether a pass is enabled.
     [[nodiscard]] bool is_pass_enabled(const std::string& name) const;
+
+    /// Debug toggle: when false, FrameGraph::compute_alias_groups() emits
+    /// one group per logical resource (no packing), so the pool allocates
+    /// a dedicated VkImage per logical. Intended for isolating regressions
+    /// that may stem from aliasing reuse.
+    void set_aliasing_enabled(bool enabled) noexcept { aliasing_enabled_ = enabled; }
+    [[nodiscard]] bool aliasing_enabled() const noexcept { return aliasing_enabled_; }
+
+    /// Most recent frame's aliasing snapshot. Updated every time execute()
+    /// runs with a transient pool present.
+    [[nodiscard]] const AliasingStats& aliasing_stats() const noexcept { return aliasing_stats_; }
 
     /// Build the frame graph from registered passes and execute it.
     /// `ctx` is captured by reference into per-pass record lambdas; the
@@ -91,6 +115,13 @@ private:
     /// Log resource lifetimes once per session (debug; gated by the
     /// FJELL_LOG_LIFETIMES env var inside FrameGraph::log_lifetimes).
     bool lifetimes_logged_{false};
+
+    /// Master switch for C2 greedy packing. Flipped via the debug UI to
+    /// diff aliased vs non-aliased runs.
+    bool aliasing_enabled_{true};
+
+    /// Last frame's aliasing snapshot, read by StatsPanel.
+    AliasingStats aliasing_stats_{};
 
     static const PassState default_state_;
 };

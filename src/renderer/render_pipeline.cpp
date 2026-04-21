@@ -388,6 +388,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
 
     // ── Dispatch to the FrameGraph ────────────────────────────────────
     FrameGraph graph;
+    graph.set_aliasing_enabled(aliasing_enabled_);
     auto color_id        = graph.register_image(target.color_image());
     auto msaa_color_id   = has_msaa ? graph.register_image(target.msaa_color_image()) : color_id;
     auto depth_id        = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -438,6 +439,15 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         const auto groups = graph.compute_alias_groups();
         const auto lifetimes = graph.compute_lifetimes();
         const auto& imgs = graph.images();
+
+        // Snapshot for debug UI.
+        uint32_t logical_count = 0;
+        for (const auto& img : imgs) {
+            if (img.virtual_resource && !img.persistent) { ++logical_count; }
+        }
+        aliasing_stats_.logical_count = logical_count;
+        aliasing_stats_.physical_count = static_cast<uint32_t>(groups.size());
+
         for (const auto& group : groups) {
             VkImageUsageFlags usage_flags = 0;
             for (uint32_t rid : group.resource_ids) {
@@ -465,6 +475,11 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 graph.bind_virtual_image(rid, alloc->image);
             }
         }
+
+        aliasing_stats_.live_images = ctx.transient_pool->live_images();
+        aliasing_stats_.live_bytes = ctx.transient_pool->live_bytes();
+        aliasing_stats_.acquires = ctx.transient_pool->acquires_this_frame();
+        aliasing_stats_.allocations = ctx.transient_pool->allocations_this_frame();
     }
 
     if (!lifetimes_logged_) {
