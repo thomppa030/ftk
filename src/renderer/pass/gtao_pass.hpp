@@ -65,10 +65,20 @@ public:
         VkDescriptorSet imgui_descriptor{VK_NULL_HANDLE};
         bool images_need_init{true};
 
+        // `concurrent_families` + `concurrent_family_count` come from
+        // `Device::concurrent_queue_families()`. When non-null the AO
+        // image is created with `VK_SHARING_MODE_CONCURRENT` so the
+        // compute queue can write it while graphics reads through the
+        // global descriptor. Null on hardware without an async compute
+        // queue family; the image falls back to exclusive sharing.
         void create(VkDevice device, VmaAllocator allocator,
+                     const uint32_t* concurrent_families,
+                     uint32_t concurrent_family_count,
                      uint32_t half_w, uint32_t half_h);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
+                     const uint32_t* concurrent_families,
+                     uint32_t concurrent_family_count,
                      uint32_t width, uint32_t height);
 
         [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);
@@ -104,6 +114,12 @@ public:
     [[nodiscard]] VkPipeline blur_pipeline() const { return blur_pipeline_; }
     [[nodiscard]] Images& images() { return default_images_; }
 
+    /// Concurrent queue family info forwarded to per-viewport `Images`
+    /// created through `PostProcessResources`. Null on devices without a
+    /// dedicated compute queue.
+    [[nodiscard]] const uint32_t* concurrent_queue_families() const { return concurrent_families_; }
+    [[nodiscard]] uint32_t concurrent_queue_family_count() const { return concurrent_family_count_; }
+
 protected:
     // Subclass hooks. AoPass::create() sets up shared state then calls
     // create_trace(); AoPass::declare/record delegate when enabled, and
@@ -118,6 +134,11 @@ protected:
     VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkDescriptorSetLayout global_set_layout_{VK_NULL_HANDLE};
+    // Cached concurrent-sharing info for images GTAO writes on the
+    // compute queue and mesh.frag reads on graphics. Null on devices
+    // without async compute — AO images fall back to exclusive sharing.
+    const uint32_t* concurrent_families_{nullptr};
+    uint32_t concurrent_family_count_{0};
 
 private:
     VkSampler ao_sampler_{VK_NULL_HANDLE};

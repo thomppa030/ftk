@@ -220,6 +220,17 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
         : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
     depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // Async-eligible passes (GTAO, Hi-Z, depth viz) sample depth on the
+    // compute queue while the graphics queue may still own its last
+    // write. Concurrent sharing skips ownership-transfer barriers and
+    // accepts the minor driver tax it sometimes costs.
+    uint32_t cc_count = 0;
+    const uint32_t* cc_families = device_.concurrent_queue_families(cc_count);
+    if (cc_families != nullptr) {
+        depth_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+        depth_info.queueFamilyIndexCount = cc_count;
+        depth_info.pQueueFamilyIndices = cc_families;
+    }
 
     if (create_vma_image(allocator_, &depth_info, &depth_image_, &depth_allocation_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create offscreen depth image");
@@ -249,6 +260,13 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         resolve_depth_info.tiling = VK_IMAGE_TILING_OPTIMAL;
         resolve_depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         resolve_depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        // Same rationale as the MSAA depth above: GTAO + Hi-Z sample
+        // the resolve target on the compute queue.
+        if (cc_families != nullptr) {
+            resolve_depth_info.sharingMode = VK_SHARING_MODE_CONCURRENT;
+            resolve_depth_info.queueFamilyIndexCount = cc_count;
+            resolve_depth_info.pQueueFamilyIndices = cc_families;
+        }
 
         if (create_vma_image(allocator_, &resolve_depth_info, &resolve_depth_image_, &resolve_depth_allocation_) != VK_SUCCESS) {
             throw std::runtime_error("Failed to create resolve depth image");

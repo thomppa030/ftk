@@ -54,6 +54,7 @@ struct BlurPushConstants {
 };
 
 void create_ao_image(VkDevice device, VmaAllocator allocator,
+                      const uint32_t* concurrent_families, uint32_t concurrent_family_count,
                       uint32_t width, uint32_t height,
                       VkImage& image, VmaAllocation& allocation, VkImageView& view) {
     VkImageCreateInfo ci{};
@@ -68,6 +69,14 @@ void create_ao_image(VkDevice device, VmaAllocator allocator,
     ci.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
                VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    // GTAO writes ao_image on the compute queue; mesh.frag reads it
+    // through the global descriptor on the graphics queue. Concurrent
+    // sharing is the path that avoids explicit ownership transfers.
+    if (concurrent_families != nullptr) {
+        ci.sharingMode = VK_SHARING_MODE_CONCURRENT;
+        ci.queueFamilyIndexCount = concurrent_family_count;
+        ci.pQueueFamilyIndices = concurrent_families;
+    }
 
     if (create_vma_image(allocator, &ci, &image, &allocation) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create AO image");
@@ -97,9 +106,12 @@ void destroy_ao_image(VkDevice device, VmaAllocator allocator,
 // ── Images (per-viewport state) ─────────────────────────────────────────────
 
 void AoPass::Images::create(VkDevice device, VmaAllocator allocator,
+                             const uint32_t* concurrent_families,
+                             uint32_t concurrent_family_count,
                              uint32_t half_w, uint32_t half_h) {
     extent = {half_w, half_h};
-    create_ao_image(device, allocator, half_w, half_h, ao_image, ao_memory, ao_view);
+    create_ao_image(device, allocator, concurrent_families, concurrent_family_count,
+                    half_w, half_h, ao_image, ao_memory, ao_view);
     images_need_init = true;
 }
 
@@ -110,6 +122,8 @@ void AoPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
 }
 
 void AoPass::Images::resize(VkDevice device, VmaAllocator allocator,
+                             const uint32_t* concurrent_families,
+                             uint32_t concurrent_family_count,
                              uint32_t width, uint32_t height) {
     if (width == 0 || height == 0) return;
 
@@ -119,7 +133,7 @@ void AoPass::Images::resize(VkDevice device, VmaAllocator allocator,
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    create(device, allocator, half_w, half_h);
+    create(device, allocator, concurrent_families, concurrent_family_count, half_w, half_h);
 }
 
 VkDescriptorSet AoPass::Images::imgui_texture(VkSampler sampler) {
@@ -141,6 +155,7 @@ void AoPass::Images::invalidate_imgui_texture() {
 
 Result<> AoPass::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
+    concurrent_families_ = device.concurrent_queue_families(concurrent_family_count_);
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     global_set_layout_ = resources.global_set_layout;
@@ -212,7 +227,8 @@ Result<> AoPass::create(Device& device, const PassResources& resources) {
     vkDestroyShaderModule(device_, comp_module, nullptr);
 
     // 1x1 placeholder so the global "ao_texture" binding is valid from frame 1.
-    default_images_.create(device_, allocator_, 1, 1);
+    default_images_.create(device_, allocator_,
+                           concurrent_families_, concurrent_family_count_, 1, 1);
 
     if (auto r = create_trace(device, resources); !r) { return r; }
 
@@ -230,7 +246,9 @@ void AoPass::destroy() {
 }
 
 void AoPass::resize(uint32_t width, uint32_t height) {
-    default_images_.resize(device_, allocator_, width, height);
+    default_images_.resize(device_, allocator_,
+                           concurrent_families_, concurrent_family_count_,
+                           width, height);
 }
 
 VkDescriptorSet AoPass::imgui_texture() {
