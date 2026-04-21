@@ -54,6 +54,16 @@ public:
     [[nodiscard]] bool async_compute_supported() const {
         return async_compute_queue_ != VK_NULL_HANDLE;
     }
+
+    /// When async compute is supported, returns a pointer to a stable
+    /// array of {graphics_family, async_compute_family} and writes the
+    /// count to `out_count`. Returns nullptr (and writes 0) otherwise.
+    /// The caller writes these into `VkImageCreateInfo::sharingMode =
+    /// VK_SHARING_MODE_CONCURRENT` and
+    /// `VkImageCreateInfo::pQueueFamilyIndices` for images that may be
+    /// read or written from either queue. The array lifetime is tied to
+    /// the Device instance — safe to pass into vkCreateImage.
+    [[nodiscard]] const uint32_t* concurrent_queue_families(uint32_t& out_count) const;
     [[nodiscard]] const std::string& gpu_name() const { return gpu_name_; }
 
     [[nodiscard]] QueueFamilyIndices find_queue_families() const;
@@ -110,6 +120,11 @@ private:
     VkQueue graphics_queue_{VK_NULL_HANDLE};
     VkQueue present_queue_{VK_NULL_HANDLE};
     VkQueue async_compute_queue_{VK_NULL_HANDLE};
+    // {graphics_family, async_compute_family} — stable for the lifetime
+    // of the Device, filled in create_logical_device when async is
+    // supported. Empty otherwise.
+    std::array<uint32_t, 2> concurrent_families_{};
+    uint32_t concurrent_family_count_{0};
     std::string gpu_name_;
     bool mesh_shader_supported_{false};
     uint32_t mesh_shader_max_workgroup_size_{0};

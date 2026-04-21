@@ -366,6 +366,9 @@ void Device::create_logical_device() {
     vkGetDeviceQueue(device_, indices.present.value(), 0, &present_queue_);
     if (indices.async_compute.has_value()) {
         vkGetDeviceQueue(device_, indices.async_compute.value(), 0, &async_compute_queue_);
+        concurrent_families_[0] = indices.graphics.value();
+        concurrent_families_[1] = indices.async_compute.value();
+        concurrent_family_count_ = 2;
         FJELL_GFX_INFO("Async compute supported (queue family {})",
                        indices.async_compute.value());
     } else {
@@ -403,6 +406,15 @@ void Device::create_logical_device() {
         pfn_get_buffer_device_address_ = reinterpret_cast<PFN_vkGetBufferDeviceAddressKHR>(
             vkGetDeviceProcAddr(device_, "vkGetBufferDeviceAddress"));
     }
+}
+
+const uint32_t* Device::concurrent_queue_families(uint32_t& out_count) const {
+    if (concurrent_family_count_ == 0) {
+        out_count = 0;
+        return nullptr;
+    }
+    out_count = concurrent_family_count_;
+    return concurrent_families_.data();
 }
 
 QueueFamilyIndices Device::find_queue_families() const {
