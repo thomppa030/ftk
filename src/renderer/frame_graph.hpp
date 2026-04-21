@@ -159,15 +159,20 @@ public:
     // Execute all passes, inserting barriers between them.
     // Passes with the same parallel_group > 0 are recorded in parallel on
     // secondary command buffers via the thread pool.
-    // Passes with `queue == QueueType::async_compute` record into
-    // `async_compute` instead of `graphics` — a null handle routes them
-    // back to the graphics CB (degrades gracefully on hardware without
-    // a separate compute queue).
+    //
+    // Three command buffers, split around the async compute island:
+    //   graphics_pre  — graphics passes before the first compute pass.
+    //   async_compute — compute-hinted passes (null routes back to pre).
+    //   graphics_post — graphics passes after the last compute pass.
+    //                   null folds them back into pre, which is the
+    //                   correct behavior when no compute pass runs.
     //
     // Returns true if any pass was actually recorded into the async
-    // compute CB — the submission code uses this to skip the compute
-    // queue submit + timeline wait on frames where no pass ran there.
-    [[nodiscard]] bool execute(VkCommandBuffer graphics, VkCommandBuffer async_compute,
+    // compute CB — submit_and_present uses this to fire the compute
+    // submit + timeline sync only when needed.
+    [[nodiscard]] bool execute(VkCommandBuffer graphics_pre,
+                               VkCommandBuffer graphics_post,
+                               VkCommandBuffer async_compute,
                                ThreadPool* pool, ThreadCommandPools* cmd_pools,
                                uint32_t frame_index);
 

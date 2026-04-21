@@ -853,25 +853,42 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
     }
 }
 
-bool FrameGraph::execute(VkCommandBuffer graphics, VkCommandBuffer async_compute,
+bool FrameGraph::execute(VkCommandBuffer graphics_pre,
+                          VkCommandBuffer graphics_post,
+                          VkCommandBuffer async_compute,
                           ThreadPool* pool, ThreadCommandPools* cmd_pools,
                           uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("frame_graph_execute");
     bool can_parallelize = pool && cmd_pools && pool->thread_count() > 0;
     bool recorded_async = false;
 
-    auto cb_for = [&](const PassDecl& pass) {
+    // Pre-scan for the first async-compute pass. Every graphics pass at
+    // a lower index goes into graphics_pre, higher indices into
+    // graphics_post. If no compute pass runs, graphics_post is unused
+    // and everything stays in graphics_pre (which works out to today's
+    // single-CB behavior). Null graphics_post also folds back into pre,
+    // so devices without async support don't need a second CB.
+    size_t first_async_idx = passes_.size();
+    for (size_t i = 0; i < passes_.size(); ++i) {
+        if (passes_[i].queue == QueueType::async_compute && async_compute != VK_NULL_HANDLE) {
+            first_async_idx = i;
+            break;
+        }
+    }
+    VkCommandBuffer effective_post = (graphics_post != VK_NULL_HANDLE) ? graphics_post : graphics_pre;
+
+    auto cb_for = [&](const PassDecl& pass, size_t index) {
         if (pass.queue == QueueType::async_compute && async_compute != VK_NULL_HANDLE) {
             recorded_async = true;
             return async_compute;
         }
-        return graphics;
+        return index > first_async_idx ? effective_post : graphics_pre;
     };
 
     size_t i = 0;
     while (i < passes_.size()) {
         auto& pass = passes_[i];
-        VkCommandBuffer cb = cb_for(pass);
+        VkCommandBuffer cb = cb_for(pass, i);
 
         if (pass.parallel_group == 0 || !can_parallelize) {
             emit_barriers_for_pass(cb, pass);
@@ -889,7 +906,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics, VkCommandBuffer async_compute
         size_t group_size = i - group_begin;
 
         for (size_t p = group_begin; p < group_begin + group_size; ++p) {
-            emit_barriers_for_pass(cb_for(passes_[p]), passes_[p]);
+            emit_barriers_for_pass(cb_for(passes_[p], p), passes_[p]);
         }
 
         secondaries_scratch_.resize(group_size);
@@ -929,7 +946,7 @@ bool FrameGraph::execute(VkCommandBuffer graphics, VkCommandBuffer async_compute
         // the only current users). Pick the first pass's CB; a mixed-
         // queue parallel group isn't supported — we'd need separate
         // execute_commands into each CB.
-        vkCmdExecuteCommands(cb_for(passes_[group_begin]),
+        vkCmdExecuteCommands(cb_for(passes_[group_begin], group_begin),
                               static_cast<uint32_t>(group_size), secondaries.data());
 
         for (size_t p = group_begin; p < group_begin + group_size; ++p) {
