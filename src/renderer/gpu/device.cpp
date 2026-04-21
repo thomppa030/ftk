@@ -255,6 +255,9 @@ void Device::create_logical_device() {
         indices.graphics.value(),
         indices.present.value()
     };
+    if (indices.async_compute.has_value()) {
+        unique_families.insert(indices.async_compute.value());
+    }
 
     float priority = 1.0f;
     for (uint32_t family : unique_families) {
@@ -289,6 +292,9 @@ void Device::create_logical_device() {
     features_12.descriptorBindingVariableDescriptorCount = VK_TRUE;
     features_12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
     features_12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+    // Needed for cross-queue sync between graphics and async compute
+    // submissions (Phase 3). Harmless when async isn't used.
+    features_12.timelineSemaphore = VK_TRUE;
 
     // Vulkan 1.3 dynamic rendering
     VkPhysicalDeviceVulkan13Features features_13{};
@@ -358,6 +364,13 @@ void Device::create_logical_device() {
 
     vkGetDeviceQueue(device_, indices.graphics.value(), 0, &graphics_queue_);
     vkGetDeviceQueue(device_, indices.present.value(), 0, &present_queue_);
+    if (indices.async_compute.has_value()) {
+        vkGetDeviceQueue(device_, indices.async_compute.value(), 0, &async_compute_queue_);
+        FJELL_GFX_INFO("Async compute supported (queue family {})",
+                       indices.async_compute.value());
+    } else {
+        FJELL_GFX_INFO("Async compute not supported (no dedicated compute queue family)");
+    }
 
     // Load mesh shader extension function pointers
     if (mesh_shader_supported_) {
@@ -415,8 +428,20 @@ QueueFamilyIndices Device::find_queue_families(VkPhysicalDevice device) const {
         if (present_support) {
             indices.present = i;
         }
+    }
 
-        if (indices.is_complete()) break;
+    // Async compute: prefer a dedicated family (COMPUTE bit, no GRAPHICS
+    // bit) — those run in parallel with graphics work. If every compute-
+    // capable family also has GRAPHICS, skip async support entirely
+    // rather than pretending (same family = same hardware scheduler,
+    // submissions serialize).
+    for (uint32_t i = 0; i < count; ++i) {
+        bool has_compute = (families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+        bool has_graphics = (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+        if (has_compute && !has_graphics) {
+            indices.async_compute = i;
+            break;
+        }
     }
 
     return indices;
