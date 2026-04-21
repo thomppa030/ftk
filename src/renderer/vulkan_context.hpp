@@ -306,6 +306,15 @@ private:
   uint32_t recorded_image_index_{0};
   uint32_t pending_image_index_{0};
   bool has_recorded_frame_{false};
+  // True when the main-viewport pipeline actually recorded commands
+  // into the async compute CB this frame — drives whether submit_and_
+  // present fires the compute queue submit + timeline wait.
+  bool recorded_async_this_frame_{false};
+  // Per-frame-slot monotonic counter for timeline semaphore values.
+  // Compute submit signals `next`, graphics waits on `next`, then we
+  // advance. Separate per slot so MAX_FRAMES_IN_FLIGHT concurrent frames
+  // don't stomp on each other.
+  std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> async_timeline_values_{};
 
 
   // ── Editor / game state ───────────────────────────────────────────────

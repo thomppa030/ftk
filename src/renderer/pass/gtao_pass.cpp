@@ -438,6 +438,11 @@ PassSetup GtaoTracePass::setup() const {
         .name = "ao_trace",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 100,
+        // AsyncComputeHint::Prefer is the intended value once the
+        // graphics CB can be split around the compute work — see
+        // Plans/async-compute-overlap.md "Phase 3d: dependency
+        // ordering". Kept on graphics for now: without splitting,
+        // compute waits for nothing and races depth_prepass.
     };
 }
 

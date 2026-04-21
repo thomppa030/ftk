@@ -163,9 +163,13 @@ public:
     // `async_compute` instead of `graphics` — a null handle routes them
     // back to the graphics CB (degrades gracefully on hardware without
     // a separate compute queue).
-    void execute(VkCommandBuffer graphics, VkCommandBuffer async_compute,
-                 ThreadPool* pool, ThreadCommandPools* cmd_pools,
-                 uint32_t frame_index);
+    //
+    // Returns true if any pass was actually recorded into the async
+    // compute CB — the submission code uses this to skip the compute
+    // queue submit + timeline wait on frames where no pass ran there.
+    [[nodiscard]] bool execute(VkCommandBuffer graphics, VkCommandBuffer async_compute,
+                               ThreadPool* pool, ThreadCommandPools* cmd_pools,
+                               uint32_t frame_index);
 
     // Compute per-image lifetime (first/last pass index, unioned image
     // usage flags) over the currently submitted pass list. Indices point

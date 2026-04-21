@@ -51,7 +51,7 @@ const RenderPipeline::PassState& RenderPipeline::state_for(const std::string& na
     return default_state_;
 }
 
-void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
+bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               VkSampleCountFlagBits msaa, uint32_t active_sources,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
                               uint32_t frame_index, ResourceRegistry& registry,
@@ -300,7 +300,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         FJELL_GFX_ERROR(
             "RenderPipeline: cycle detected in declared graph ({} of {} passes scheduled).",
             static_cast<unsigned>(dag_order.size()), static_cast<unsigned>(n));
-        return;
+        return false;
     }
 
     // ── Pass culling ──────────────────────────────────────────────────
@@ -484,7 +484,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // Async compute CB is provided by the caller via ctx when the device
     // supports it. A null handle here (no async support, or the preview
     // renderer) routes compute passes back to the graphics CB.
-    graph.execute(cmd, ctx.async_compute_cmd, &pool, &secondary_pools, frame_index);
+    return graph.execute(cmd, ctx.async_compute_cmd, &pool, &secondary_pools, frame_index);
 }
 
 } // namespace fjell

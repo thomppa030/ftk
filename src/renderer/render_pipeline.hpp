@@ -61,13 +61,16 @@ public:
     /// caller must keep it alive until this function returns.
     /// `async_compute_available` flips async-hinted passes onto the
     /// compute queue when true; false forces them back to graphics.
-    void execute(VkCommandBuffer cmd, OffscreenPass& target,
-                 VkSampleCountFlagBits msaa, uint32_t active_sources,
-                 ThreadPool& pool, ThreadCommandPools& secondary_pools,
-                 uint32_t frame_index, ResourceRegistry& registry,
-                 PassRegistry& passes, PostProcessResources* pp_resources,
-                 const FrameContext& ctx,
-                 bool async_compute_available);
+    /// Returns true if any pass recorded to the async compute CB — the
+    /// caller uses this to decide whether to submit it and wait on its
+    /// timeline semaphore.
+    [[nodiscard]] bool execute(VkCommandBuffer cmd, OffscreenPass& target,
+                               VkSampleCountFlagBits msaa, uint32_t active_sources,
+                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
+                               uint32_t frame_index, ResourceRegistry& registry,
+                               PassRegistry& passes, PostProcessResources* pp_resources,
+                               const FrameContext& ctx,
+                               bool async_compute_available);
 
 private:
     struct PassState {

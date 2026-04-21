@@ -853,14 +853,16 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
     }
 }
 
-void FrameGraph::execute(VkCommandBuffer graphics, VkCommandBuffer async_compute,
+bool FrameGraph::execute(VkCommandBuffer graphics, VkCommandBuffer async_compute,
                           ThreadPool* pool, ThreadCommandPools* cmd_pools,
                           uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("frame_graph_execute");
     bool can_parallelize = pool && cmd_pools && pool->thread_count() > 0;
+    bool recorded_async = false;
 
     auto cb_for = [&](const PassDecl& pass) {
         if (pass.queue == QueueType::async_compute && async_compute != VK_NULL_HANDLE) {
+            recorded_async = true;
             return async_compute;
         }
         return graphics;
@@ -934,6 +936,7 @@ void FrameGraph::execute(VkCommandBuffer graphics, VkCommandBuffer async_compute
             apply_final_layouts(passes_[p]);
         }
     }
+    return recorded_async;
 }
 
 } // namespace fjell
