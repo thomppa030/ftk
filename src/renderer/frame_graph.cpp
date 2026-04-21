@@ -469,6 +469,46 @@ std::vector<AliasGroup> FrameGraph::compute_alias_groups() const {
     return groups;
 }
 
+bool FrameGraph::validate_alias_groups(const std::vector<AliasGroup>& groups) const {
+    const char* flag = std::getenv("FJELL_VALIDATE_ALIASING");
+    if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return true; }
+
+    const auto lifetimes = compute_lifetimes();
+    bool ok = true;
+    for (size_t g = 0; g < groups.size(); ++g) {
+        const auto& grp = groups[g];
+        if (grp.resource_ids.size() < 2) { continue; }
+
+        // Sort members by first_pass so overlap checks are a simple
+        // forward sweep.
+        std::vector<uint32_t> ordered = grp.resource_ids;
+        std::sort(ordered.begin(), ordered.end(),
+                  [&](uint32_t a, uint32_t b) {
+                      return lifetimes[a].first_pass < lifetimes[b].first_pass;
+                  });
+
+        for (size_t i = 0; i + 1 < ordered.size(); ++i) {
+            const auto& a = lifetimes[ordered[i]];
+            const auto& b = lifetimes[ordered[i + 1]];
+            if (a.last_pass >= b.first_pass) {
+                FJELL_GFX_ERROR(
+                    "AliasGroup#{} overlap: img#{} '{}' [{}..{}] and img#{} '{}' [{}..{}]",
+                    static_cast<unsigned>(g),
+                    ordered[i], images_[ordered[i]].name.c_str(),
+                    a.first_pass, a.last_pass,
+                    ordered[i + 1], images_[ordered[i + 1]].name.c_str(),
+                    b.first_pass, b.last_pass);
+                ok = false;
+            }
+        }
+    }
+    if (ok) {
+        FJELL_GFX_INFO("FrameGraph aliasing validation: {} groups OK",
+                       static_cast<unsigned>(groups.size()));
+    }
+    return ok;
+}
+
 void FrameGraph::log_alias_groups() const {
     const char* flag = std::getenv("FJELL_LOG_LIFETIMES");
     if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return; }
