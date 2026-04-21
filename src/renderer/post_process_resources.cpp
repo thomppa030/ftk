@@ -24,7 +24,9 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
         gtao_images_.create(device_, allocator_,
                             passes_->gtao.concurrent_queue_families(),
                             passes_->gtao.concurrent_queue_family_count(),
-                            half_w, half_h);
+                            half_w, half_h,
+                            passes_->gtao.init_graphics_queue(),
+                            passes_->gtao.init_graphics_pool());
     }
     if (config_.volumetric_fog) {
         uint32_t vol_w = std::max(1u, width / VolumetricFogPass::SCREEN_DIVISOR);
@@ -122,7 +124,9 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         gtao_images_.resize(device_, allocator_,
                             passes_->gtao.concurrent_queue_families(),
                             passes_->gtao.concurrent_queue_family_count(),
-                            width, height);
+                            width, height,
+                            passes_->gtao.init_graphics_queue(),
+                            passes_->gtao.init_graphics_pool());
     }
     if (config_.volumetric_fog) {
         fog_images_.resize(device_, allocator_, width, height);

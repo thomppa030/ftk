@@ -108,11 +108,66 @@ void destroy_ao_image(VkDevice device, VmaAllocator allocator,
 void AoPass::Images::create(VkDevice device, VmaAllocator allocator,
                              const uint32_t* concurrent_families,
                              uint32_t concurrent_family_count,
-                             uint32_t half_w, uint32_t half_h) {
+                             uint32_t half_w, uint32_t half_h,
+                             VkQueue graphics_queue,
+                             VkCommandPool graphics_pool) {
     extent = {half_w, half_h};
     create_ao_image(device, allocator, concurrent_families, concurrent_family_count,
                     half_w, half_h, ao_image, ao_memory, ao_view);
     images_need_init = true;
+
+    // Seed the image in SHADER_READ so the global ao_texture descriptor
+    // (baked with VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) passes
+    // queue-submit layout validation from frame one — even for viewports
+    // whose GTAO runs async on the compute queue, and for pp_resources
+    // whose owning viewport never runs GTAO at all (camera preview).
+    static int ao_image_counter = 0;
+    set_image_debug_name(device, ao_image,
+        "ao_image#" + std::to_string(ao_image_counter++)
+        + "(" + std::to_string(half_w) + "x" + std::to_string(half_h) + ")");
+    if (graphics_queue != VK_NULL_HANDLE && graphics_pool != VK_NULL_HANDLE) {
+        VkCommandBufferAllocateInfo alloc_info{};
+        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        alloc_info.commandPool = graphics_pool;
+        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        alloc_info.commandBufferCount = 1;
+        VkCommandBuffer cmd{};
+        vkAllocateCommandBuffers(device, &alloc_info, &cmd);
+
+        VkCommandBufferBeginInfo begin{};
+        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &begin);
+
+        VkImageMemoryBarrier2 bar{};
+        bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        bar.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+        bar.srcAccessMask = 0;
+        bar.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+        bar.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        bar.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        bar.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        bar.image = ao_image;
+        bar.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+        VkDependencyInfo dep{};
+        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers = &bar;
+        vkCmdPipelineBarrier2(cmd, &dep);
+
+        vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submit.commandBufferCount = 1;
+        submit.pCommandBuffers = &cmd;
+        vkQueueSubmit(graphics_queue, 1, &submit, VK_NULL_HANDLE);
+        vkQueueWaitIdle(graphics_queue);
+        vkFreeCommandBuffers(device, graphics_pool, 1, &cmd);
+    }
 }
 
 void AoPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
@@ -124,7 +179,9 @@ void AoPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
 void AoPass::Images::resize(VkDevice device, VmaAllocator allocator,
                              const uint32_t* concurrent_families,
                              uint32_t concurrent_family_count,
-                             uint32_t width, uint32_t height) {
+                             uint32_t width, uint32_t height,
+                             VkQueue graphics_queue,
+                             VkCommandPool graphics_pool) {
     if (width == 0 || height == 0) return;
 
     uint32_t half_w = std::max(1U, width / 2);
@@ -133,7 +190,8 @@ void AoPass::Images::resize(VkDevice device, VmaAllocator allocator,
     vkDeviceWaitIdle(device);
 
     destroy(device, allocator);
-    create(device, allocator, concurrent_families, concurrent_family_count, half_w, half_h);
+    create(device, allocator, concurrent_families, concurrent_family_count,
+           half_w, half_h, graphics_queue, graphics_pool);
 }
 
 VkDescriptorSet AoPass::Images::imgui_texture(VkSampler sampler) {
@@ -159,6 +217,8 @@ Result<> AoPass::create(Device& device, const PassResources& resources) {
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     global_set_layout_ = resources.global_set_layout;
+    init_graphics_queue_ = resources.graphics_queue;
+    init_graphics_pool_ = resources.command_pool;
 
     VkSamplerCreateInfo sampler_ci{};
     sampler_ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -248,7 +308,8 @@ void AoPass::destroy() {
 void AoPass::resize(uint32_t width, uint32_t height) {
     default_images_.resize(device_, allocator_,
                            concurrent_families_, concurrent_family_count_,
-                           width, height);
+                           width, height,
+                           init_graphics_queue_, init_graphics_pool_);
 }
 
 VkDescriptorSet AoPass::imgui_texture() {
@@ -305,7 +366,10 @@ void AoPass::record(const FrameContext& ctx) {
         bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
         bar.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         bar.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        bar.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+        // Compute-queue-safe dstStage; semaphore covers the visibility
+        // to graphics-side FRAGMENT_SHADER readers. Same reasoning as
+        // AoBlurVPass::record's final transition.
+        bar.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
         bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
         bar.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -438,6 +502,11 @@ PassSetup GtaoTracePass::setup() const {
         .name = "ao_trace",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 100,
+        // .async_hint = AsyncComputeHint::Prefer — infra complete but
+        // flipping the hint surfaces a descriptor vs layout race on
+        // offscreen#N.resolve_color when post-process passes route to
+        // graphics_post_cmd. Pending a proper audit of ImGui-bound
+        // descriptor layouts across all three submits.
     };
 }
 
@@ -458,6 +527,7 @@ PassSetup AoBlurHPass::setup() const {
         .name = "ao_blur_h",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 101,
+        // .async_hint = AsyncComputeHint::Prefer — see GtaoTracePass.
     };
 }
 
@@ -540,6 +610,7 @@ PassSetup AoBlurVPass::setup() const {
         .name = "ao_blur_v",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 102,
+        // .async_hint = AsyncComputeHint::Prefer — see GtaoTracePass.
     };
 }
 
@@ -619,11 +690,19 @@ void AoBlurVPass::record(const FrameContext& ctx) {
     // Final ao_image transition to SHADER_READ — honors AoPass::declare's
     // final_layout() promise and satisfies the mesh.frag descriptor's
     // baked SHADER_READ layout.
+    //
+    // dstStage is COMPUTE_SHADER, not FRAGMENT_SHADER: when this pass
+    // runs on the compute queue the fragment stage isn't part of the
+    // queue's supported set. The cross-queue visibility to mesh.frag is
+    // provided by the timeline-semaphore wait in submit_and_present,
+    // which upgrades the dependency to FRAGMENT_SHADER on the graphics
+    // side. Layout transitions under CONCURRENT sharing happen in
+    // whichever CB emits the barrier, so this one legal on compute.
     VkImageMemoryBarrier2 bar{};
     bar.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
     bar.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     bar.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    bar.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    bar.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     bar.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
     bar.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
     bar.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;

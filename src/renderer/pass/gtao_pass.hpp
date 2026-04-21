@@ -74,12 +74,16 @@ public:
         void create(VkDevice device, VmaAllocator allocator,
                      const uint32_t* concurrent_families,
                      uint32_t concurrent_family_count,
-                     uint32_t half_w, uint32_t half_h);
+                     uint32_t half_w, uint32_t half_h,
+                     VkQueue graphics_queue = VK_NULL_HANDLE,
+                     VkCommandPool graphics_pool = VK_NULL_HANDLE);
         void destroy(VkDevice device, VmaAllocator allocator);
         void resize(VkDevice device, VmaAllocator allocator,
                      const uint32_t* concurrent_families,
                      uint32_t concurrent_family_count,
-                     uint32_t width, uint32_t height);
+                     uint32_t width, uint32_t height,
+                     VkQueue graphics_queue = VK_NULL_HANDLE,
+                     VkCommandPool graphics_pool = VK_NULL_HANDLE);
 
         [[nodiscard]] VkDescriptorSet imgui_texture(VkSampler sampler);
         void invalidate_imgui_texture();
@@ -120,6 +124,12 @@ public:
     [[nodiscard]] const uint32_t* concurrent_queue_families() const { return concurrent_families_; }
     [[nodiscard]] uint32_t concurrent_queue_family_count() const { return concurrent_family_count_; }
 
+    /// Graphics queue + command pool for one-shot image transitions during
+    /// PostProcessResources::Images::create. Set via post_create; null for
+    /// headless/test builds where PostProcessResources never calls them.
+    [[nodiscard]] VkQueue init_graphics_queue() const { return init_graphics_queue_; }
+    [[nodiscard]] VkCommandPool init_graphics_pool() const { return init_graphics_pool_; }
+
 protected:
     // Subclass hooks. AoPass::create() sets up shared state then calls
     // create_trace(); AoPass::declare/record delegate when enabled, and
@@ -139,6 +149,9 @@ protected:
     // without async compute — AO images fall back to exclusive sharing.
     const uint32_t* concurrent_families_{nullptr};
     uint32_t concurrent_family_count_{0};
+
+    VkQueue init_graphics_queue_{VK_NULL_HANDLE};
+    VkCommandPool init_graphics_pool_{VK_NULL_HANDLE};
 
 private:
     VkSampler ao_sampler_{VK_NULL_HANDLE};
