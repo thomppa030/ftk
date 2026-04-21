@@ -150,6 +150,27 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 decl_ctx.imports.emplace("gtao_ao", img);
             }
         }
+        // Fog scatter ping-pong volumes: same per-viewport-import pattern
+        // as gtao_ao. The pass advances ping_pong after composite, so
+        // cur_index() here points at the volume that inject/temporal/
+        // integrate all target this frame.
+        if (auto* fog = pp_resources->volumetric_fog()) {
+            if (fog->scatter_volumes[0].view != VK_NULL_HANDLE) {
+                auto add_scatter = [&](const char* name, uint32_t idx) {
+                    ImportedImage img{};
+                    img.image = fog->scatter_volumes[idx].image;
+                    img.view = fog->scatter_volumes[idx].view;
+                    img.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+                    img.base_layer = 0;
+                    img.layer_count = 1;
+                    img.mip_count = 1;
+                    img.persistent = true;
+                    decl_ctx.imports.emplace(name, img);
+                };
+                add_scatter("fog_scatter_cur", fog->cur_index());
+                add_scatter("fog_scatter_prev", fog->prev_index());
+            }
+        }
     }
 
     passes.collect_exports_all(decl_ctx);

@@ -126,7 +126,14 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("ao_blur_h", std::make_unique<AoBlurHPass>());
     add("ao_blur_v", std::make_unique<AoBlurVPass>());
     add("ssr", std::make_unique<SsrPass>());
-    add("volumetric_fog", std::make_unique<VolumetricFogPass>());
+    // Volumetric fog split into 4 DAG nodes: inject → temporal →
+    // integrate → composite. FogInjectPass IS FogCore (owns the shared
+    // sampler, 4 pipelines, scatter Images). Follower nodes look it up
+    // in post_create() via passes.get<FogCore>("fog_inject").
+    add("fog_inject", std::make_unique<FogInjectPass>());
+    add("fog_temporal", std::make_unique<FogTemporalPass>());
+    add("fog_integrate", std::make_unique<FogIntegratePass>());
+    add("fog_composite", std::make_unique<FogCompositePass>());
     add("sun_shafts", std::make_unique<SunShaftsPass>());
     add("contact_shadow", std::make_unique<ContactShadowPass>());
     add("ddgi", std::make_unique<DdgiPass>());
