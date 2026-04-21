@@ -192,7 +192,18 @@ public:
     // AliasGroups. Persistent and backed (imported) images stay out of
     // the pool — each lands in its own singleton group. C3 turns these
     // groups into real VkImage allocations; C2 only analyses.
+    //
+    // When aliasing is disabled via set_aliasing_enabled(false), every
+    // candidate is returned as its own singleton group — the pool then
+    // allocates one distinct VkImage per logical resource. Used as a
+    // debug kill switch for A/B regression hunts.
     [[nodiscard]] std::vector<AliasGroup> compute_alias_groups() const;
+
+    // Toggle whether compute_alias_groups() performs greedy packing.
+    // Default is on; flipping off yields one physical image per logical
+    // (no aliasing). Intended for debug UI only.
+    void set_aliasing_enabled(bool enabled) noexcept { aliasing_enabled_ = enabled; }
+    [[nodiscard]] bool aliasing_enabled() const noexcept { return aliasing_enabled_; }
 
     // Log the alias groups and the logical-to-physical ratio. Same
     // FJELL_LOG_LIFETIMES gate and same one-shot cadence as
@@ -250,6 +261,8 @@ private:
 
     // Reusable scratch for parallel group secondary command buffers
     std::vector<VkCommandBuffer> secondaries_scratch_;
+
+    bool aliasing_enabled_{true};
 };
 
 } // namespace fjell
