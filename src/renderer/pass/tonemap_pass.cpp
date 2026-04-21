@@ -215,7 +215,7 @@ void TonemapPass::record(const FrameContext& ctx) {
 
     VkImageView bloom_view = VK_NULL_HANDLE;
     if (ctx.passes != nullptr && ctx.registry != nullptr) {
-        auto* bloom = ctx.passes->try_get<BloomPass>("bloom");
+        auto* bloom = ctx.passes->try_get<BloomCore>("bloom_ds_0");
         if (bloom != nullptr && bloom->enabled()) {
             bloom_view = ctx.registry->image_view("bloom_mip0");
         }
@@ -327,12 +327,28 @@ void TonemapPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto output = builder.create("tonemap_output", out_desc);
     builder.write(output, ResourceAccess::color_attachment);
 
+    // Declared read on bloom_mip0 so the DAG sees the tonemap ← bloom_us_0
+    // edge. Resolving the view happens at record time through the
+    // registry; declaring the access lets the graph emit the
+    // COLOR_ATTACHMENT → SHADER_READ barrier for us. Name + desc must
+    // match what BloomUsPass(0) declares — the graph dedupes virtuals by
+    // name, so this create() resolves to the same TrackedImage bloom_us_0
+    // writes into.
+    if (ctx.bloom_enabled) {
+        TextureDesc bloom_desc{};
+        bloom_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+        bloom_desc.size_class = SizeClass::viewport;
+        bloom_desc.viewport_divisor = 2;
+        auto bloom_mip0 = builder.create("bloom_mip0", bloom_desc);
+        builder.read(bloom_mip0, ResourceAccess::sampled_fragment);
+    }
+
     // Tonemap is the frame terminator: its output (the tonemap pp
     // image) goes to the present/ImGui step outside the graph, so
     // mark never_cull so it anchors the backward walk.
     builder.never_cull();
-    // Alternate color sources (TAA history, bloom mip 0) live on
-    // pass-private resources and are resolved inside record().
+    // Alternate color sources (TAA history) live on pass-private
+    // resources and are resolved inside record().
 }
 
 } // namespace fjell

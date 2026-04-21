@@ -1,25 +1,43 @@
+// ── Bloom downsample/upsample pipeline implementation ──────────────────────
+//
+// Nine RenderPass classes, one fullscreen draw each. Shared sampler +
+// pipelines live on BloomCore (BloomDs0Pass IS the core); follower ds/us
+// nodes hold a BloomCore* looked up in post_create() via passes.get. Each
+// node declares only the mip slots it touches, so the graph's RDG-style
+// merged-barrier emitter can per-node-barrier the mip chain, and each
+// mip's lifetime is short enough that mip 0 and mip 4 (plus mip 1 and
+// mip 3) alias in the transient pool.
+
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
-#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
-#include "renderer/post_process_resources.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <array>
+#include <span>
 #include <stdexcept>
+#include <string>
 
 namespace fjell {
 
-static VkPipeline create_fullscreen_pipeline(
-        VkDevice device, VkPipelineLayout layout,
-        VkShaderModule vert, VkShaderModule frag, VkFormat color_format,
-        bool additive_blend = false,
-        VkPipelineCache pipeline_cache = VK_NULL_HANDLE) {
+namespace {
+
+constexpr VkFormat BLOOM_FORMAT = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+std::string mip_name(uint32_t idx) {
+    return "bloom_mip" + std::to_string(idx);
+}
+
+VkPipeline create_fullscreen_pipeline(VkDevice device, VkPipelineLayout layout,
+                                       VkShaderModule vert, VkShaderModule frag,
+                                       VkFormat color_format, bool additive_blend,
+                                       VkPipelineCache pipeline_cache) {
     std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
     stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -51,7 +69,7 @@ static VkPipeline create_fullscreen_pipeline(
     VkPipelineRasterizationStateCreateInfo rasterizer{};
     rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
+    rasterizer.lineWidth = 1.0F;
     rasterizer.cullMode = VK_CULL_MODE_NONE;
 
     VkPipelineMultisampleStateCreateInfo multisampling{};
@@ -101,7 +119,7 @@ static VkPipeline create_fullscreen_pipeline(
     pipeline_ci.pDynamicState = &dynamic_state;
     pipeline_ci.layout = layout;
 
-    VkPipeline pipeline;
+    VkPipeline pipeline{VK_NULL_HANDLE};
     if (vkCreateGraphicsPipelines(device, pipeline_cache, 1, &pipeline_ci,
                                    nullptr, &pipeline) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create bloom pipeline");
@@ -109,35 +127,11 @@ static VkPipeline create_fullscreen_pipeline(
     return pipeline;
 }
 
-static void transition(VkCommandBuffer cmd, VkImage image,
-                       VkImageLayout old_layout, VkImageLayout new_layout,
-                       VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                       VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
-    VkImageMemoryBarrier2 barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = src_stage;
-    barrier.srcAccessMask = src_access;
-    barrier.dstStageMask = dst_stage;
-    barrier.dstAccessMask = dst_access;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    VkDependencyInfo dep{};
-    dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
-}
-
-static void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
-                            VkPipelineLayout layout, VkDescriptorSet set,
-                            VkImageView target_view, uint32_t w, uint32_t h,
-                            VkAttachmentLoadOp load_op,
-                            const void* push_data, uint32_t push_size) {
+void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
+                     VkPipelineLayout layout, VkDescriptorSet set,
+                     VkImageView target_view, uint32_t w, uint32_t h,
+                     VkAttachmentLoadOp load_op,
+                     const void* push_data, uint32_t push_size) {
     VkRenderingAttachmentInfo color{};
     color.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
     color.imageView = target_view;
@@ -158,7 +152,7 @@ static void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
     VkViewport vp{};
     vp.width = static_cast<float>(w);
     vp.height = static_cast<float>(h);
-    vp.maxDepth = 1.0f;
+    vp.maxDepth = 1.0F;
     vkCmdSetViewport(cmd, 0, 1, &vp);
 
     VkRect2D sc{};
@@ -167,7 +161,7 @@ static void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
 
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout,
                             0, 1, &set, 0, nullptr);
-    if (push_data && push_size > 0) {
+    if (push_data != nullptr && push_size > 0) {
         vkCmdPushConstants(cmd, layout, VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, push_size, push_data);
     }
@@ -175,9 +169,68 @@ static void draw_fullscreen(VkCommandBuffer cmd, VkPipeline pipeline,
     vkCmdEndRendering(cmd);
 }
 
-// ── BloomPass (singleton) ───────────────────────────────────────────────────
+VkDescriptorSet acquire_single(FrameDescriptorCache& cache,
+                                VkDescriptorSetLayout layout,
+                                VkSampler sampler, VkImageView view) {
+    FrameCacheBinding b{};
+    b.binding = 0;
+    b.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    b.image.sampler = sampler;
+    b.image.imageView = view;
+    b.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    return cache.acquire(layout, std::span{&b, 1});
+}
 
-Result<> BloomPass::create(Device& device, const PassResources& resources) {
+// Resolve a mip's image/view and viewport size from the graph's registry.
+struct MipResolved {
+    VkImage image{VK_NULL_HANDLE};
+    VkImageView view{VK_NULL_HANDLE};
+    uint32_t width{0};
+    uint32_t height{0};
+};
+
+MipResolved resolve_mip(const FrameContext& ctx, uint32_t idx) {
+    MipResolved out;
+    if (ctx.registry == nullptr || ctx.target == nullptr) { return out; }
+    const auto* res = ctx.registry->find_image(mip_name(idx));
+    if (res == nullptr || res->image == VK_NULL_HANDLE) { return out; }
+    auto target_extent = ctx.target->extent();
+    uint32_t div = 1U << (idx + 1);
+    out.image = res->image;
+    out.view = res->view;
+    out.width = std::max(1U, target_extent.width / div);
+    out.height = std::max(1U, target_extent.height / div);
+    return out;
+}
+
+void declare_mip(PassBuilder& builder, uint32_t idx, ResourceAccess access) {
+    TextureDesc desc{};
+    desc.format = BLOOM_FORMAT;
+    desc.size_class = SizeClass::viewport;
+    desc.viewport_divisor = 1U << (idx + 1);
+    auto h = builder.create(mip_name(idx), desc);
+    if (access == ResourceAccess::color_attachment) {
+        builder.write(h, access);
+    } else {
+        builder.read(h, access);
+    }
+}
+
+void declare_mip_read_write(PassBuilder& builder, uint32_t idx) {
+    TextureDesc desc{};
+    desc.format = BLOOM_FORMAT;
+    desc.size_class = SizeClass::viewport;
+    desc.viewport_divisor = 1U << (idx + 1);
+    auto h = builder.create(mip_name(idx), desc);
+    builder.read(h, ResourceAccess::color_attachment);
+    builder.write(h, ResourceAccess::color_attachment);
+}
+
+} // namespace
+
+// ── BloomCore ───────────────────────────────────────────────────────────────
+
+Result<> BloomCore::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
@@ -194,7 +247,7 @@ Result<> BloomPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create bloom sampler");
     }
 
-    // Descriptor set layouts
+    // Single-sampler descriptor layout (used by both ds + us nodes).
     VkDescriptorSetLayoutBinding binding{};
     binding.binding = 0;
     binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -209,251 +262,201 @@ Result<> BloomPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create bloom descriptor layout");
     }
 
-    std::array<VkDescriptorSetLayoutBinding, 2> comp_bindings{};
-    comp_bindings[0].binding = 0;
-    comp_bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    comp_bindings[0].descriptorCount = 1;
-    comp_bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    comp_bindings[1].binding = 1;
-    comp_bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    comp_bindings[1].descriptorCount = 1;
-    comp_bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-
-    layout_ci.bindingCount = 2;
-    layout_ci.pBindings = comp_bindings.data();
-    if (vkCreateDescriptorSetLayout(device_, &layout_ci, nullptr, &composite_layout_) != VK_SUCCESS) {
-        return make_error("Failed to create bloom composite descriptor layout");
-    }
-
-    // Pipeline layouts
-    VkPushConstantRange down_push{};
-    down_push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    down_push.size = 4 * sizeof(float);
+    // Pipeline layouts (downsample + upsample, both 4-float push constants)
+    VkPushConstantRange push{};
+    push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    push.size = 4 * sizeof(float);
 
     VkPipelineLayoutCreateInfo pipe_layout_ci{};
     pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipe_layout_ci.setLayoutCount = 1;
     pipe_layout_ci.pSetLayouts = &single_tex_layout_;
     pipe_layout_ci.pushConstantRangeCount = 1;
-    pipe_layout_ci.pPushConstantRanges = &down_push;
+    pipe_layout_ci.pPushConstantRanges = &push;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &downsample_layout_) != VK_SUCCESS) {
         return make_error("Failed to create bloom downsample layout");
     }
-
-    VkPushConstantRange up_push{};
-    up_push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    up_push.size = 4 * sizeof(float);
-
-    pipe_layout_ci.pPushConstantRanges = &up_push;
     if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &upsample_layout_) != VK_SUCCESS) {
         return make_error("Failed to create bloom upsample layout");
-    }
-
-    VkPushConstantRange comp_push{};
-    comp_push.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-    comp_push.size = 4 * sizeof(float);
-
-    pipe_layout_ci.pSetLayouts = &composite_layout_;
-    pipe_layout_ci.pPushConstantRanges = &comp_push;
-    if (vkCreatePipelineLayout(device_, &pipe_layout_ci, nullptr, &composite_layout_pipeline_) != VK_SUCCESS) {
-        return make_error("Failed to create bloom composite layout");
     }
 
     // Shaders
     auto vert_code = read_spirv(base_path::resolve("shaders/depth_viz.vert.spv"));
     auto down_code = read_spirv(base_path::resolve("shaders/bloom_downsample.frag.spv"));
     auto up_code   = read_spirv(base_path::resolve("shaders/bloom_upsample.frag.spv"));
-    auto comp_code = read_spirv(base_path::resolve("shaders/bloom_composite.frag.spv"));
 
-    auto vert_mod = create_shader_module(device_, vert_code);
-    auto down_mod = create_shader_module(device_, down_code);
-    auto up_mod   = create_shader_module(device_, up_code);
-    auto comp_mod = create_shader_module(device_, comp_code);
+    auto* vert_mod = create_shader_module(device_, vert_code);
+    auto* down_mod = create_shader_module(device_, down_code);
+    auto* up_mod   = create_shader_module(device_, up_code);
 
-    VkFormat fmt = VK_FORMAT_R16G16B16A16_SFLOAT;
-    downsample_pipeline_ = create_fullscreen_pipeline(device_, downsample_layout_, vert_mod, down_mod, fmt, false, vk_pipeline_cache_);
-    upsample_pipeline_   = create_fullscreen_pipeline(device_, upsample_layout_, vert_mod, up_mod, fmt, true, vk_pipeline_cache_);
-    composite_pipeline_  = create_fullscreen_pipeline(device_, composite_layout_pipeline_, vert_mod, comp_mod, fmt, false, vk_pipeline_cache_);
+    downsample_pipeline_ = create_fullscreen_pipeline(
+        device_, downsample_layout_, vert_mod, down_mod, BLOOM_FORMAT, false, vk_pipeline_cache_);
+    upsample_pipeline_ = create_fullscreen_pipeline(
+        device_, upsample_layout_, vert_mod, up_mod, BLOOM_FORMAT, true, vk_pipeline_cache_);
 
-    vkDestroyShaderModule(device_, comp_mod, nullptr);
     vkDestroyShaderModule(device_, up_mod, nullptr);
     vkDestroyShaderModule(device_, down_mod, nullptr);
     vkDestroyShaderModule(device_, vert_mod, nullptr);
 
-    FJELL_GFX_DEBUG("Bloom pass created");
+    FJELL_GFX_DEBUG("Bloom core created");
     return {};
 }
 
-void BloomPass::destroy() {
+void BloomCore::destroy() {
     auto d = [this](auto& h) { if (h != VK_NULL_HANDLE) { vkDestroyPipeline(device_, h, nullptr); h = VK_NULL_HANDLE; } };
-    d(downsample_pipeline_); d(upsample_pipeline_); d(composite_pipeline_);
+    d(downsample_pipeline_); d(upsample_pipeline_);
     auto dl = [this](auto& h) { if (h != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, h, nullptr); h = VK_NULL_HANDLE; } };
-    dl(downsample_layout_); dl(upsample_layout_); dl(composite_layout_pipeline_);
+    dl(downsample_layout_); dl(upsample_layout_);
 
-    if (single_tex_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, single_tex_layout_, nullptr); single_tex_layout_ = VK_NULL_HANDLE; }
-    if (composite_layout_ != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device_, composite_layout_, nullptr); composite_layout_ = VK_NULL_HANDLE; }
-    if (sampler_ != VK_NULL_HANDLE) { vkDestroySampler(device_, sampler_, nullptr); sampler_ = VK_NULL_HANDLE; }
+    if (single_tex_layout_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(device_, single_tex_layout_, nullptr);
+        single_tex_layout_ = VK_NULL_HANDLE;
+    }
+    if (sampler_ != VK_NULL_HANDLE) {
+        vkDestroySampler(device_, sampler_, nullptr);
+        sampler_ = VK_NULL_HANDLE;
+    }
 }
 
-void BloomPass::record(const FrameContext& ctx) {
-    if (!ctx.target || !enabled_) return;
-    if (ctx.registry == nullptr) return;
+// ── BloomDs0Pass ────────────────────────────────────────────────────────────
 
-    // Resolve mip chain + composite output from the graph's registry.
-    struct MipRef { VkImage image; VkImageView view; uint32_t width; uint32_t height; };
-    std::array<MipRef, MIP_COUNT> mips{};
-    auto target_extent = ctx.target->extent();
-    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
-        std::string name = "bloom_mip" + std::to_string(i);
-        const auto* res = ctx.registry->find_image(name);
-        if (res == nullptr || res->image == VK_NULL_HANDLE) return;
-        mips[i].image = res->image;
-        mips[i].view = res->view;
-        // Viewport_divisor from declare: mip i is viewport / (1 << (i+1)).
-        uint32_t div = 1u << (i + 1);
-        mips[i].width = std::max(1u, target_extent.width / div);
-        mips[i].height = std::max(1u, target_extent.height / div);
-    }
-    const auto* out_res = ctx.registry->find_image("bloom_output");
-    if (out_res == nullptr || out_res->image == VK_NULL_HANDLE) return;
-    const VkImage output_image = out_res->image;
-    const VkImageView output_view = out_res->view;
-
-    auto cmd = ctx.cmd;
-    auto* cache = ctx.descriptor_cache;
-
-    auto acquire_single = [&](VkImageView view) {
-        FrameCacheBinding b{};
-        b.binding = 0;
-        b.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        b.image.sampler = sampler_;
-        b.image.imageView = view;
-        b.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        return cache->acquire(single_tex_layout_, std::span{&b, 1});
-    };
-
-    // Downsample chain: source for mip 0 is the scene color; for mip i>0
-    // it's mip[i-1].
-    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
-        const auto& mip = mips[i];
-        VkImageView src_view = (i == 0) ? ctx.target->color_view() : mips[i - 1].view;
-        VkDescriptorSet src_set = acquire_single(src_view);
-
-        struct { float threshold, is_first, pad1, pad2; } push{
-            threshold_, (i == 0) ? 1.0f : 0.0f, 0.0f, 0.0f};
-
-        transition(cmd, mip.image,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-        draw_fullscreen(cmd, downsample_pipeline_, downsample_layout_, src_set,
-                        mip.view, mip.width, mip.height,
-                        VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-                        &push, sizeof(push));
-
-        transition(cmd, mip.image,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    }
-
-    // Upsample chain
-    for (int i = static_cast<int>(MIP_COUNT) - 2; i >= 0; --i) {
-        const auto& dst = mips[i];
-        VkDescriptorSet up_set = acquire_single(mips[i + 1].view);
-
-        struct { float blend, pad1, pad2, pad3; } push{0.6f, 0.0f, 0.0f, 0.0f};
-
-        transition(cmd, dst.image,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT);
-
-        draw_fullscreen(cmd, upsample_pipeline_, upsample_layout_, up_set,
-                        dst.view, dst.width, dst.height,
-                        VK_ATTACHMENT_LOAD_OP_LOAD,
-                        &push, sizeof(push));
-
-        transition(cmd, dst.image,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-    }
-
-    // Composite: scene + bloom → output
-    std::array<FrameCacheBinding, 2> comp_bindings{};
-    comp_bindings[0].binding = 0;
-    comp_bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    comp_bindings[0].image.sampler = sampler_;
-    comp_bindings[0].image.imageView = ctx.target->color_view();
-    comp_bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    comp_bindings[1].binding = 1;
-    comp_bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    comp_bindings[1].image.sampler = sampler_;
-    comp_bindings[1].image.imageView = mips[0].view;
-    comp_bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkDescriptorSet comp_set = cache->acquire(composite_layout_, comp_bindings);
-
-    struct { float intensity, p1, p2, p3; } comp_push{intensity_, 0, 0, 0};
-
-    transition(cmd, output_image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-
-    draw_fullscreen(cmd, composite_pipeline_, composite_layout_pipeline_,
-                    comp_set,
-                    output_view, target_extent.width, target_extent.height,
-                    VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-                    &comp_push, sizeof(comp_push));
-
-    transition(cmd, output_image,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-}
-
-PassSetup BloomPass::setup() const {
+PassSetup BloomDs0Pass::setup() const {
     return {
-        .name = "bloom",
+        .name = "bloom_ds_0",
         .phase = RenderPhase::PostProcess,
         .sub_order = 200,
     };
 }
 
-void BloomPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+void BloomDs0Pass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if (!enabled()) { return; }
+
     auto color = builder.import_named(ctx, "color");
     builder.read(color, ResourceAccess::sampled_fragment);
+    declare_mip(builder, 0, ResourceAccess::color_attachment);
+}
 
-    // Declare the mip chain + composite output as transient resources so
-    // the graph sees them for lifetime analysis and (eventually) aliasing.
-    // They're still record()'d through the pass's own Images storage
-    // today — C3 will hand over graph-allocated VkImages.
-    TextureDesc mip_desc{};
-    mip_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    mip_desc.size_class = SizeClass::viewport;
-    for (uint32_t i = 0; i < MIP_COUNT; ++i) {
-        // Mip 0 is viewport/2, each successive halves again.
-        mip_desc.viewport_divisor = 1u << (i + 1);
-        auto h = builder.create("bloom_mip" + std::to_string(i), mip_desc);
-        builder.write(h, ResourceAccess::color_attachment);
-        builder.read(h, ResourceAccess::sampled_fragment);
-    }
+void BloomDs0Pass::record(const FrameContext& ctx) {
+    if (!enabled() || ctx.target == nullptr || ctx.registry == nullptr) { return; }
 
-    TextureDesc out_desc{};
-    out_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    out_desc.size_class = SizeClass::viewport;
-    auto output = builder.create("bloom_output", out_desc);
-    builder.write(output, ResourceAccess::color_attachment);
+    auto dst = resolve_mip(ctx, 0);
+    if (dst.image == VK_NULL_HANDLE) { return; }
 
-    // Tonemap samples bloom_output through a pass-private view that the
-    // graph can't yet follow, so bloom still needs the side-effect flag
-    // until the output is consumed through the catalog.
-    builder.has_side_effects();
+    auto* cache = ctx.descriptor_cache;
+    VkDescriptorSet src_set = acquire_single(*cache, single_tex_layout(),
+                                              sampler(), ctx.target->color_view());
+
+    struct { float threshold, is_first, pad1, pad2; } push{
+        threshold(), 1.0F, 0.0F, 0.0F};
+
+    draw_fullscreen(ctx.cmd, downsample_pipeline(), downsample_layout(), src_set,
+                    dst.view, dst.width, dst.height,
+                    VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    &push, sizeof(push));
+}
+
+// ── BloomDsPass (mip_index 1..4) ────────────────────────────────────────────
+
+Result<> BloomDsPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+    return {};
+}
+
+void BloomDsPass::destroy() {}
+
+void BloomDsPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    core_ = &passes.get<BloomCore>("bloom_ds_0");
+}
+
+PassSetup BloomDsPass::setup() const {
+    return {
+        .name = "bloom_ds_" + std::to_string(mip_index_),
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 200 + mip_index_,
+    };
+}
+
+void BloomDsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    (void)ctx;
+    if (core_ == nullptr || !core_->enabled()) { return; }
+
+    declare_mip(builder, mip_index_ - 1, ResourceAccess::sampled_fragment);
+    declare_mip(builder, mip_index_, ResourceAccess::color_attachment);
+}
+
+void BloomDsPass::record(const FrameContext& ctx) {
+    if (core_ == nullptr || !core_->enabled()) { return; }
+    if (ctx.registry == nullptr) { return; }
+
+    auto src = resolve_mip(ctx, mip_index_ - 1);
+    auto dst = resolve_mip(ctx, mip_index_);
+    if (src.view == VK_NULL_HANDLE || dst.image == VK_NULL_HANDLE) { return; }
+
+    auto* cache = ctx.descriptor_cache;
+    VkDescriptorSet src_set = acquire_single(*cache, core_->single_tex_layout(),
+                                              core_->sampler(), src.view);
+
+    struct { float threshold, is_first, pad1, pad2; } push{
+        core_->threshold(), 0.0F, 0.0F, 0.0F};
+
+    draw_fullscreen(ctx.cmd, core_->downsample_pipeline(), core_->downsample_layout(),
+                    src_set, dst.view, dst.width, dst.height,
+                    VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+                    &push, sizeof(push));
+}
+
+// ── BloomUsPass (dst_mip 3..0) ──────────────────────────────────────────────
+
+Result<> BloomUsPass::create(Device& /*device*/, const PassResources& /*resources*/) {
+    return {};
+}
+
+void BloomUsPass::destroy() {}
+
+void BloomUsPass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    core_ = &passes.get<BloomCore>("bloom_ds_0");
+}
+
+PassSetup BloomUsPass::setup() const {
+    // Upsample runs after downsample. sub_order offset keeps the us_3..us_0
+    // order stable and places all upsamples after all downsamples within
+    // the PostProcess phase (downsamples use 200..204).
+    return {
+        .name = "bloom_us_" + std::to_string(dst_mip_),
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 210 + (BLOOM_MIP_COUNT - 2 - dst_mip_),
+    };
+}
+
+void BloomUsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    (void)ctx;
+    if (core_ == nullptr || !core_->enabled()) { return; }
+
+    declare_mip(builder, dst_mip_ + 1, ResourceAccess::sampled_fragment);
+    declare_mip_read_write(builder, dst_mip_);
+    // No final_layout/has_side_effects on dst_mip 0: tonemap declares a
+    // read on "bloom_mip0" (when bloom is enabled), so the DAG sees the
+    // consumer edge and emits the COLOR_ATTACHMENT → SHADER_READ barrier
+    // between this pass and tonemap automatically.
+}
+
+void BloomUsPass::record(const FrameContext& ctx) {
+    if (core_ == nullptr || !core_->enabled()) { return; }
+    if (ctx.registry == nullptr) { return; }
+
+    auto src = resolve_mip(ctx, dst_mip_ + 1);
+    auto dst = resolve_mip(ctx, dst_mip_);
+    if (src.view == VK_NULL_HANDLE || dst.image == VK_NULL_HANDLE) { return; }
+
+    auto* cache = ctx.descriptor_cache;
+    VkDescriptorSet up_set = acquire_single(*cache, core_->single_tex_layout(),
+                                             core_->sampler(), src.view);
+
+    struct { float blend, pad1, pad2, pad3; } push{0.6F, 0.0F, 0.0F, 0.0F};
+
+    draw_fullscreen(ctx.cmd, core_->upsample_pipeline(), core_->upsample_layout(),
+                    up_set, dst.view, dst.width, dst.height,
+                    VK_ATTACHMENT_LOAD_OP_LOAD,
+                    &push, sizeof(push));
 }
 
 } // namespace fjell

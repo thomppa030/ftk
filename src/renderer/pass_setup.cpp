@@ -91,7 +91,20 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("uv_viz", std::make_unique<UvVizPass>());
 
     // ── Post-processing ────────────────────────────────────────────────
-    add("bloom", std::make_unique<BloomPass>());
+    // Bloom split into 9 DAG nodes: 5 downsample + 4 upsample. BloomDs0Pass
+    // IS the BloomCore (shared sampler, layouts, pipelines); the other 8
+    // look it up in post_create() via passes.get<BloomCore>("bloom_ds_0").
+    add("bloom_ds_0", std::make_unique<BloomDs0Pass>());
+    for (uint32_t i = 1; i < BLOOM_MIP_COUNT; ++i) {
+        add("bloom_ds_" + std::to_string(i), std::make_unique<BloomDsPass>(i));
+    }
+    for (uint32_t dst = BLOOM_MIP_COUNT - 2; dst < BLOOM_MIP_COUNT; --dst) {
+        // Loop runs dst = 3, 2, 1, 0 then underflows to stop. Iteration
+        // order is cosmetic — sub_order + DAG sort put them in the
+        // correct spot regardless.
+        add("bloom_us_" + std::to_string(dst), std::make_unique<BloomUsPass>(dst));
+        if (dst == 0) { break; }
+    }
 
     // ── Sky ────────────────────────────────────────────────────────────
     add("sky", std::make_unique<SkyPass>());

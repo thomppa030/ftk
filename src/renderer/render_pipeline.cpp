@@ -1,5 +1,6 @@
 #include "renderer/render_pipeline.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/pass_builder.hpp"
@@ -76,6 +77,12 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     decl_ctx.msaa_samples    = msaa;
     decl_ctx.frame_index     = frame_index;
     decl_ctx.active_sources  = active_sources;
+    // Feature flags sourced from pass enable state — let passes that need
+    // to cross-check (e.g. tonemap declaring a read on bloom_mip0) see
+    // the canonical toggle without reaching into the PassRegistry.
+    if (auto* bloom = passes.try_get<BloomCore>("bloom_ds_0")) {
+        decl_ctx.bloom_enabled = bloom->enabled();
+    }
 
     const bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
     auto add_import = [&](std::string name, VkImage img, VkImageView view,
