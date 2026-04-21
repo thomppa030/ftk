@@ -56,7 +56,8 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               ThreadPool& pool, ThreadCommandPools& secondary_pools,
                               uint32_t frame_index, ResourceRegistry& registry,
                               PassRegistry& passes, PostProcessResources* pp_resources,
-                              const FrameContext& ctx) {
+                              const FrameContext& ctx,
+                              bool async_compute_available) {
     FJELL_PROFILE_SCOPE_N("render_pipeline_execute");
 
     // One-shot ordering pass by entry.order. The real topological sort
@@ -191,6 +192,16 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         PendingPass pp;
         pp.entry_index = i;
         pp.pass = p;
+        // Seed the builder's queue from the pass's async hint. Declare
+        // can override if it wants (unusual), but the default is what
+        // setup() advertised. Without an async-capable device, fall
+        // through to graphics unconditionally.
+        auto setup = p->setup();
+        if (async_compute_available && setup.async_hint == AsyncComputeHint::Prefer) {
+            pp.builder.queue(QueueType::async_compute);
+        } else {
+            pp.builder.queue(QueueType::graphics);
+        }
         p->declare(pp.builder, decl_ctx);
         pending.push_back(std::move(pp));
     }
@@ -459,6 +470,7 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     if (!lifetimes_logged_) {
         graph.log_lifetimes();
         graph.log_alias_groups();
+        graph.log_queue_segments();
         if (ctx.transient_pool != nullptr) {
             FJELL_GFX_INFO(
                 "TransientImagePool: {} live, {} acquires, {} new allocations this frame",

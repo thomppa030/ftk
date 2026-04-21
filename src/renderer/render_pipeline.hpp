@@ -59,12 +59,15 @@ public:
     /// Build the frame graph from registered passes and execute it.
     /// `ctx` is captured by reference into per-pass record lambdas; the
     /// caller must keep it alive until this function returns.
+    /// `async_compute_available` flips async-hinted passes onto the
+    /// compute queue when true; false forces them back to graphics.
     void execute(VkCommandBuffer cmd, OffscreenPass& target,
                  VkSampleCountFlagBits msaa, uint32_t active_sources,
                  ThreadPool& pool, ThreadCommandPools& secondary_pools,
                  uint32_t frame_index, ResourceRegistry& registry,
                  PassRegistry& passes, PostProcessResources* pp_resources,
-                 const FrameContext& ctx);
+                 const FrameContext& ctx,
+                 bool async_compute_available);
 
 private:
     struct PassState {

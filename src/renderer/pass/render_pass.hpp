@@ -141,14 +141,33 @@ struct FrameContext {
     std::array<const std::vector<DrawCommand>*, MAX_SHADOW_CASCADES> shadow_cascade_commands{};
 };
 
-/// Pipeline registration metadata: pass name and execution phase +
-/// sub_order, used only as a deterministic tiebreaker during the DAG
-/// topological sort. Resource reads/writes are described through
-/// declare()/PassBuilder instead.
+/// How a pass prefers to be scheduled relative to the graphics queue.
+/// Phase 3 (`RenderPipeline` dual-queue dispatch) reads this; Phase 2
+/// only populates it. When `Device::async_compute_supported()` is false
+/// every pass degrades to `None` regardless of the hint.
+enum class AsyncComputeHint : uint8_t {
+    /// Must run on the graphics queue — typically because the pass uses
+    /// render targets or records commands that aren't valid on a pure
+    /// compute queue (begin/end rendering, graphics pipelines, blits).
+    None,
+
+    /// Can run on the compute queue when the hardware supports async.
+    /// Falls back to graphics otherwise. Use this for compute passes
+    /// whose outputs can comfortably survive one timeline hop before
+    /// downstream graphics work consumes them (GTAO, light cull, DDGI).
+    Prefer,
+};
+
+/// Pipeline registration metadata: pass name, execution phase, sub_order,
+/// and async-compute hint. `phase` + `sub_order` drive the deterministic
+/// tiebreaker during the DAG topological sort; `async_hint` advises the
+/// pipeline on queue routing. Resource reads/writes are described
+/// through declare()/PassBuilder instead.
 struct PassSetup {
     std::string name;
     RenderPhase phase{RenderPhase::Color};
     uint32_t sub_order{0};
+    AsyncComputeHint async_hint{AsyncComputeHint::None};
 };
 
 // Base class for a render pass. Each pass owns its pipeline(s) and

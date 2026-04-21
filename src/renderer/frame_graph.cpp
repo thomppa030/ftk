@@ -297,6 +297,7 @@ void FrameGraph::submit_declared_pass(const std::string& name, const PassBuilder
     pass.name = name;
     pass.execute = std::move(execute);
     pass.parallel_group = builder.parallel_group();
+    pass.queue = builder.queue();
     pass.image_uses.reserve(builder.texture_accesses().size());
 
     for (const auto& acc : builder.texture_accesses()) {
@@ -495,6 +496,39 @@ void FrameGraph::log_alias_groups() const {
                        group.desc.array_layers, group.desc.mip_levels,
                        static_cast<unsigned>(group.resource_ids.size()));
     }
+}
+
+void FrameGraph::log_queue_segments() const {
+    const char* flag = std::getenv("FJELL_LOG_LIFETIMES");
+    if (flag == nullptr || flag[0] == '0' || flag[0] == '\0') { return; }
+    if (passes_.empty()) { return; }
+
+    auto queue_name = [](QueueType q) {
+        return q == QueueType::async_compute ? "async_compute" : "graphics";
+    };
+
+    uint32_t segment_index = 0;
+    uint32_t segment_size = 0;
+    uint32_t total_compute_passes = 0;
+    QueueType prev_queue = passes_.front().queue;
+    for (const auto& pass : passes_) {
+        if (pass.queue == prev_queue) {
+            ++segment_size;
+        } else {
+            FJELL_GFX_INFO("  segment#{} queue={} ({} pass{})",
+                           segment_index, queue_name(prev_queue),
+                           segment_size, segment_size == 1 ? "" : "es");
+            ++segment_index;
+            prev_queue = pass.queue;
+            segment_size = 1;
+        }
+        if (pass.queue == QueueType::async_compute) { ++total_compute_passes; }
+    }
+    FJELL_GFX_INFO("  segment#{} queue={} ({} pass{})",
+                   segment_index, queue_name(prev_queue),
+                   segment_size, segment_size == 1 ? "" : "es");
+    FJELL_GFX_INFO("FrameGraph queue segments: {} total, {} async compute pass(es)",
+                   segment_index + 1, total_compute_passes);
 }
 
 VkImageLayout FrameGraph::layout_for(ImageUsage usage, VkImageAspectFlags aspect) {

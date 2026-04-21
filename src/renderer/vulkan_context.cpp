@@ -345,7 +345,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     render_pipeline_.execute(cmd, target, target.sample_count(), active_sources_,
                               pool, gpu_.secondary_pools(), current_frame_,
-                              resource_registry_, passes_, pp, current_ctx_);
+                              resource_registry_, passes_, pp, current_ctx_,
+                              gpu_.device_ref().async_compute_supported());
 
     // Post-pipeline cleanup (SSR history copy, etc.)
     passes_.post_record_all(current_ctx_);

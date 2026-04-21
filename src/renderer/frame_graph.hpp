@@ -93,6 +93,11 @@ struct PassDecl {
     std::vector<ImageAccess> image_uses;
     std::vector<FinalLayoutOverride> final_layouts;
     uint32_t parallel_group{0}; // 0 = sequential, >0 = parallel group ID
+    // Which queue should record this pass. Phase 3b reads this to split
+    // the DAG across graphics and async compute command buffers; Phase 3a
+    // only classifies so the segment-boundary picture can be logged and
+    // validated before we actually split.
+    QueueType queue{QueueType::graphics};
 };
 
 // Lifetime of a tracked image over the current pass list, expressed as
@@ -179,6 +184,12 @@ public:
     // FJELL_LOG_LIFETIMES gate and same one-shot cadence as
     // log_lifetimes().
     void log_alias_groups() const;
+
+    // Log queue-segment breakdown — how the submitted pass list splits
+    // into runs of same-queue passes. Each segment boundary is a future
+    // timeline-semaphore sync point. Same FJELL_LOG_LIFETIMES gate and
+    // cadence as log_alias_groups().
+    void log_queue_segments() const;
 
     // Accessor for the submitted image list. The pipeline reads this
     // after compute_alias_groups() to wire group allocations back to
