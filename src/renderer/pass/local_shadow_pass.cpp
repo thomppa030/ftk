@@ -45,6 +45,7 @@ void LocalShadowPass::create_atlas() {
     if (create_vma_image(allocator_, &info, &atlas_image_, &atlas_memory_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create local shadow atlas");
     }
+    set_image_debug_name(device_, atlas_image_, "local_shadow_atlas");
 
     VkImageViewCreateInfo view_info{};
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;

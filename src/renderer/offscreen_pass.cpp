@@ -519,6 +519,21 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     if (vkCreateImageView(vk, &dist_view_info, nullptr, &distortion_view_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create distortion view");
     }
+
+    static int offscreen_counter = 0;
+    const std::string tag = "offscreen#" + std::to_string(offscreen_counter++);
+    set_image_debug_name(vk, color_image_, tag + ".color");
+    set_image_debug_name(vk, depth_image_, tag + ".depth");
+    set_image_debug_name(vk, resolve_color_image_, tag + ".resolve_color");
+    set_image_debug_name(vk, resolve_depth_image_, tag + ".resolve_depth");
+    set_image_debug_name(vk, mr_image_, tag + ".mr");
+    set_image_debug_name(vk, resolve_mr_image_, tag + ".resolve_mr");
+    set_image_debug_name(vk, normal_image_, tag + ".normal");
+    set_image_debug_name(vk, resolve_normal_image_, tag + ".resolve_normal");
+    set_image_debug_name(vk, velocity_image_, tag + ".velocity");
+    set_image_debug_name(vk, resolve_velocity_image_, tag + ".resolve_velocity");
+    set_image_debug_name(vk, screen_color_image_, tag + ".screen_color");
+    set_image_debug_name(vk, distortion_image_, tag + ".distortion");
 }
 
 VkDescriptorSet OffscreenPass::imgui_texture() {

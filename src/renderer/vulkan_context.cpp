@@ -325,11 +325,18 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
                                         pp, skip_shadows, flip_tonemap_y);
-    // Hand the async CB + post-compute graphics CB to the graph. Null
-    // when the device has no compute queue or for preview viewports
-    // (which fall back to single-CB behavior).
-    current_ctx_.async_compute_cmd = gpu_.async_compute_cb(current_frame_);
-    current_ctx_.graphics_post_cmd = gpu_.graphics_post_cb(current_frame_);
+    // Hand the async CB + post-compute graphics CB to the graph, but
+    // only for the main frame CB — preview viewports get their own
+    // one-shot CBs from render_preview and have no paired compute/post
+    // CBs, so routing their passes through the main frame's async CB
+    // would interleave preview compute dispatches into a CB that
+    // submit_and_present fences independently. Nulling both handles
+    // folds previews back to single-CB behavior.
+    const bool is_main_cb = (cmd == gpu_.command_buffer(current_frame_));
+    current_ctx_.async_compute_cmd = is_main_cb ? gpu_.async_compute_cb(current_frame_)
+                                                : VK_NULL_HANDLE;
+    current_ctx_.graphics_post_cmd = is_main_cb ? gpu_.graphics_post_cb(current_frame_)
+                                                : VK_NULL_HANDLE;
 
 
     // Init screen color image on first use (or after resize) so the descriptor
@@ -341,6 +348,11 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         target.mark_screen_color_initialized();
     }
+
+    // ao_image's initial layout (UNDEFINED → SHADER_READ) is seeded inside
+    // AoPass::Images::create via a one-shot graphics-queue submit, so by
+    // the time we get here the global ao_texture descriptor's baked layout
+    // already matches the image. No per-frame baseline needed.
 
     // Populate resource registry — passes self-register their outputs,
     // then non-pass resources (meshlet bounds) are added manually.

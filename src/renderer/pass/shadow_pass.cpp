@@ -186,6 +186,7 @@ void ShadowPass::create_images() {
     if (create_vma_image(allocator_, &image_info, &image_, &memory_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create shadow map image");
     }
+    set_image_debug_name(device_, image_, "shadow_map");
 
     // Array view (all layers) for sampling in the fragment shader
     VkImageViewCreateInfo array_view_info{};

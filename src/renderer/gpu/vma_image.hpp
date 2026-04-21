@@ -3,7 +3,26 @@
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
+#include <string>
+
 namespace fjell {
+
+/// Attach a human-readable name to a Vulkan image via VK_EXT_debug_utils.
+/// Validation messages and RenderDoc captures display this name instead
+/// of the raw handle. Silent no-op when debug utils aren't available
+/// (release builds without the extension loaded).
+inline void set_image_debug_name(VkDevice device, VkImage image, const std::string& name) {
+    if (image == VK_NULL_HANDLE) { return; }
+    static auto fn = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+        vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));
+    if (fn == nullptr) { return; }
+    VkDebugUtilsObjectNameInfoEXT info{};
+    info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    info.objectType = VK_OBJECT_TYPE_IMAGE;
+    info.objectHandle = reinterpret_cast<uint64_t>(image);
+    info.pObjectName = name.c_str();
+    fn(device, &info);
+}
 
 /// Lightweight helper to replace raw vkCreateImage + vkAllocateMemory + vkBindImageMemory
 /// with VMA-backed allocation. Used by render passes, offscreen targets, and other code

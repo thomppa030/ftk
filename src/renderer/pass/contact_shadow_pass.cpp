@@ -258,6 +258,7 @@ void ContactShadowPass::create_image(uint32_t w, uint32_t h) {
     if (create_vma_image(allocator_, &ci, &shadow_image_, &shadow_memory_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create contact shadow image");
     }
+    set_image_debug_name(device_, shadow_image_, "contact_shadow");
 
     VkImageViewCreateInfo vi{};
     vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
