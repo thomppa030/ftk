@@ -60,6 +60,8 @@ struct AliasingStats {
 /// their image dependencies; execute() builds and runs the frame graph.
 class RenderPipeline {
 public:
+    ~RenderPipeline();
+
     void register_pass(PassEntry entry);
     void remove_pass(const std::string& name);
 
@@ -122,6 +124,13 @@ private:
 
     /// Last frame's aliasing snapshot, read by StatsPanel.
     AliasingStats aliasing_stats_{};
+
+    /// Peak logical/physical counts + bytes seen across the session. Used
+    /// by the shutdown summary log to report the achieved aliasing win.
+    uint32_t peak_logical_{0};
+    uint32_t peak_physical_{0};
+    uint64_t peak_live_bytes_{0};
+    uint64_t peak_bytes_saved_{0};
 
     static const PassState default_state_;
 };

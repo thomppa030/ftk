@@ -19,6 +19,22 @@ namespace fjell {
 
 const RenderPipeline::PassState RenderPipeline::default_state_{};
 
+RenderPipeline::~RenderPipeline() {
+    // Exit metric: one line summarising the best aliasing win achieved
+    // this session. Silent when the pipeline never ran (headless tools,
+    // aborts before first frame).
+    if (peak_logical_ == 0) { return; }
+    const float reduction = peak_logical_ == 0 ? 0.0f
+        : 100.0f * (1.0f - (static_cast<float>(peak_physical_)
+                             / static_cast<float>(peak_logical_)));
+    FJELL_GFX_INFO(
+        "FrameGraph aliasing (peak): {} logical -> {} physical ({:.1f}% reduction, "
+        "~{:.1f} MiB saved, peak VRAM {:.1f} MiB)",
+        peak_logical_, peak_physical_, reduction,
+        static_cast<double>(peak_bytes_saved_) / (1024.0 * 1024.0),
+        static_cast<double>(peak_live_bytes_) / (1024.0 * 1024.0));
+}
+
 void RenderPipeline::register_pass(PassEntry entry) {
     pass_state_.try_emplace(entry.name); // create default state if not exists
     entries_.push_back(std::move(entry));
@@ -440,13 +456,18 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         const auto lifetimes = graph.compute_lifetimes();
         const auto& imgs = graph.images();
 
-        // Snapshot for debug UI.
+        // Snapshot + peak tracking for debug UI and shutdown summary.
         uint32_t logical_count = 0;
         for (const auto& img : imgs) {
             if (img.virtual_resource && !img.persistent) { ++logical_count; }
         }
         aliasing_stats_.logical_count = logical_count;
         aliasing_stats_.physical_count = static_cast<uint32_t>(groups.size());
+
+        if (logical_count > peak_logical_) { peak_logical_ = logical_count; }
+        if (static_cast<uint32_t>(groups.size()) > peak_physical_) {
+            peak_physical_ = static_cast<uint32_t>(groups.size());
+        }
 
         for (const auto& group : groups) {
             VkImageUsageFlags usage_flags = 0;
@@ -480,12 +501,33 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         aliasing_stats_.live_bytes = ctx.transient_pool->live_bytes();
         aliasing_stats_.acquires = ctx.transient_pool->acquires_this_frame();
         aliasing_stats_.allocations = ctx.transient_pool->allocations_this_frame();
+
+        if (aliasing_stats_.live_bytes > peak_live_bytes_) {
+            peak_live_bytes_ = aliasing_stats_.live_bytes;
+        }
+
+        // Track the best "bytes saved" seen this session. We compare the
+        // physical VRAM that holds `physical_count` images against the
+        // hypothetical unaliased cost of `logical_count` images of the
+        // same average size. Conservative: assumes all logicals share the
+        // average — close enough for a rough win metric.
+        if (aliasing_stats_.physical_count > 0 && aliasing_stats_.logical_count > 0
+            && aliasing_stats_.live_bytes > 0) {
+            const uint64_t avg_bytes = aliasing_stats_.live_bytes
+                / aliasing_stats_.physical_count;
+            const uint64_t hypothetical = avg_bytes * aliasing_stats_.logical_count;
+            if (hypothetical > aliasing_stats_.live_bytes) {
+                const uint64_t saved = hypothetical - aliasing_stats_.live_bytes;
+                if (saved > peak_bytes_saved_) { peak_bytes_saved_ = saved; }
+            }
+        }
     }
 
     if (!lifetimes_logged_) {
         graph.log_lifetimes();
         graph.log_alias_groups();
         graph.log_queue_segments();
+        (void)graph.validate_alias_groups(graph.compute_alias_groups());
         if (ctx.transient_pool != nullptr) {
             FJELL_GFX_INFO(
                 "TransientImagePool: {} live, {} acquires, {} new allocations this frame",

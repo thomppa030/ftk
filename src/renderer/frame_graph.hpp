@@ -210,6 +210,12 @@ public:
     // log_lifetimes().
     void log_alias_groups() const;
 
+    // Walk every alias group and assert that its members have disjoint
+    // lifetimes (last pass of member i strictly before first pass of
+    // member i+1). Returns true if everything is legal. Gated by
+    // FJELL_VALIDATE_ALIASING so it only runs on demand.
+    [[nodiscard]] bool validate_alias_groups(const std::vector<AliasGroup>& groups) const;
+
     // Log queue-segment breakdown — how the submitted pass list splits
     // into runs of same-queue passes. Each segment boundary is a future
     // timeline-semaphore sync point. Same FJELL_LOG_LIFETIMES gate and
