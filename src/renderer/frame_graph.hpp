@@ -240,6 +240,19 @@ private:
     static VkPipelineStageFlags2 stage_for(ImageUsage usage);
     static VkAccessFlags2 access_for(ImageUsage usage);
 
+    // When a barrier is recorded into a compute-queue CB, graphics-only
+    // stage bits (COLOR_ATTACHMENT_OUTPUT, FRAGMENT_SHADER, vertex/tess/
+    // geometry, EARLY/LATE_FRAGMENT_TESTS) are rejected by the validator
+    // because they're not part of VK_QUEUE_COMPUTE_BIT's supported set.
+    // Cross-queue synchronisation between graphics_pre's signal and the
+    // compute wait is already handled by the timeline semaphore in
+    // submit_and_present, so rewriting srcStage on the compute CB to
+    // ALL_COMMANDS is safe: we aren't dropping any ordering, just naming
+    // a stage the queue actually supports. Same logic applies to any
+    // graphics-only dstStage coming back the other direction.
+    static VkPipelineStageFlags2 stages_for_queue(VkPipelineStageFlags2 stages,
+                                                  QueueType queue);
+
     // Split the slice list so that every slice is either fully inside
     // the query range or fully outside it. Returns indices into img.slices
     // for the slices that cover the range.
@@ -253,7 +266,8 @@ private:
                                    ImageSlice& slice,
                                    VkImageLayout new_layout,
                                    VkPipelineStageFlags2 dst_stage,
-                                   VkAccessFlags2 dst_access);
+                                   VkAccessFlags2 dst_access,
+                                   QueueType queue);
 
     void emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pass);
 

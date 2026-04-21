@@ -617,6 +617,32 @@ VkPipelineStageFlags2 FrameGraph::stage_for(ImageUsage usage) {
     return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 }
 
+VkPipelineStageFlags2 FrameGraph::stages_for_queue(VkPipelineStageFlags2 stages,
+                                                    QueueType queue) {
+    if (queue != QueueType::async_compute) { return stages; }
+
+    constexpr VkPipelineStageFlags2 graphics_only =
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT
+      | VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT
+      | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
+      | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+      | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT
+      | VK_PIPELINE_STAGE_2_TESSELLATION_CONTROL_SHADER_BIT
+      | VK_PIPELINE_STAGE_2_TESSELLATION_EVALUATION_SHADER_BIT
+      | VK_PIPELINE_STAGE_2_GEOMETRY_SHADER_BIT
+      | VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT
+      | VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT
+      | VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+
+    const VkPipelineStageFlags2 disallowed = stages & graphics_only;
+    if (disallowed == 0) { return stages; }
+
+    // Collapse the graphics-only bits to ALL_COMMANDS; keep the rest.
+    // Semaphore ordering from submit_and_present handles the real cross-
+    // queue wait, so we only need a stage the queue accepts.
+    return (stages & ~graphics_only) | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+}
+
 VkAccessFlags2 FrameGraph::access_for(ImageUsage usage) {
     switch (usage) {
         case ImageUsage::color_attachment:
@@ -759,7 +785,8 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
                                            ImageSlice& slice,
                                            VkImageLayout new_layout,
                                            VkPipelineStageFlags2 dst_stage,
-                                           VkAccessFlags2 dst_access) {
+                                           VkAccessFlags2 dst_access,
+                                           QueueType queue) {
     if (slice.layout == new_layout
         && (slice.last_access & dst_access) == dst_access) {
         return;
@@ -767,9 +794,13 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
 
     VkImageMemoryBarrier2 barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    barrier.srcStageMask = slice.last_stage;
+    // Stage masks have to be legal for the queue we're recording into.
+    // The semaphore wait in submit_and_present already handles any cross-
+    // queue ordering, so collapsing graphics-only bits on the compute CB
+    // loses no information.
+    barrier.srcStageMask = stages_for_queue(slice.last_stage, queue);
     barrier.srcAccessMask = slice.last_access;
-    barrier.dstStageMask = dst_stage;
+    barrier.dstStageMask = stages_for_queue(dst_stage, queue);
     barrier.dstAccessMask = dst_access;
     barrier.oldLayout = slice.layout;
     barrier.newLayout = new_layout;
@@ -789,8 +820,12 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
 
     vkCmdPipelineBarrier2(cmd, &dep);
 
+    // Record the queue-translated stage back into the slice. The next
+    // pass's barrier will feed this as srcStage — translating once at
+    // emit time means the slice state always reflects what's actually
+    // valid on whichever queue last touched it.
     slice.layout = new_layout;
-    slice.last_stage = dst_stage;
+    slice.last_stage = stages_for_queue(dst_stage, queue);
     slice.last_access = dst_access;
 }
 
@@ -875,7 +910,8 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
         auto indices = carve_slices(img, m.range);
         for (size_t idx : indices) {
             insert_barrier_for_slice(cmd, img, img.slices[idx],
-                                      m.layout, m.stages, m.access);
+                                      m.layout, m.stages, m.access,
+                                      pass.queue);
         }
         coalesce_slices(img);
     }
