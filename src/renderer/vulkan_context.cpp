@@ -325,9 +325,12 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
                                         pp, skip_shadows, flip_tonemap_y);
-    // Hand the async CB to the graph (null when the device has no
-    // compute queue, or when the compute CB isn't ready for this frame).
+    // Hand the async CB + post-compute graphics CB to the graph. Null
+    // when the device has no compute queue or for preview viewports
+    // (which fall back to single-CB behavior).
     current_ctx_.async_compute_cmd = gpu_.async_compute_cb(current_frame_);
+    current_ctx_.graphics_post_cmd = gpu_.graphics_post_cb(current_frame_);
+
 
     // Init screen color image on first use (or after resize) so the descriptor
     // at binding 8 doesn't point to an UNDEFINED-layout image.
@@ -465,14 +468,21 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         return;
     }
 
-    // Async compute CB is begun alongside the graphics CB. It stays
-    // empty on frames where no pass is hinted Prefer — ending an empty
-    // CB is legal, and submit_and_present skips the compute submit when
-    // nothing ran.
+    // Async compute CB and post-compute graphics CB begin alongside
+    // the main graphics CB. They stay empty on frames without compute
+    // work — submit_and_present detects that and skips the extra
+    // submissions.
     VkCommandBuffer async_cmd = gpu_.async_compute_cb(current_frame_);
+    VkCommandBuffer post_cmd = gpu_.graphics_post_cb(current_frame_);
     if (async_cmd != VK_NULL_HANDLE) {
         if (vkBeginCommandBuffer(async_cmd, &begin_info) != VK_SUCCESS) {
             FJELL_GFX_CRITICAL("Failed to begin recording async compute command buffer");
+            return;
+        }
+    }
+    if (post_cmd != VK_NULL_HANDLE) {
+        if (vkBeginCommandBuffer(post_cmd, &begin_info) != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("Failed to begin recording post-compute graphics command buffer");
             return;
         }
     }
@@ -523,10 +533,18 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         ui_preview_callback_(current_frame_);
     }
 
+    // ImGui to swapchain runs post-compute: on frames with async work
+    // it needs to wait for both the graphics pre-CB and compute CB to
+    // finish. Easiest is to record into the post-compute CB when the
+    // frame uses async (post_cmd non-null + recorded_async_this_frame_);
+    // otherwise stick with the pre CB, same as today's single-CB flow.
+    VkCommandBuffer swap_cmd = (post_cmd != VK_NULL_HANDLE && recorded_async_this_frame_)
+        ? post_cmd : cmd;
+
     // --- Render ImGui to swapchain ---
     {
         // Transition swapchain image: UNDEFINED → COLOR_ATTACHMENT_OPTIMAL
-        transition_image(cmd, gpu_.swapchain().image(image_index),
+        transition_image(swap_cmd, gpu_.swapchain().image(image_index),
             VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -548,23 +566,23 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         rendering_info.colorAttachmentCount = 1;
         rendering_info.pColorAttachments = &color_attachment;
 
-        vkCmdBeginRendering(cmd, &rendering_info);
+        vkCmdBeginRendering(swap_cmd, &rendering_info);
 
         if (overlay_callback_) {
-            overlay_callback_(cmd);
+            overlay_callback_(swap_cmd);
         }
 
         // Game UI renders to swapchain in play mode, after ImGui
         if (playing && game_ui_callback_) {
-            game_ui_callback_(cmd, gpu_.global_descriptor_set(current_frame_),
+            game_ui_callback_(swap_cmd, gpu_.global_descriptor_set(current_frame_),
                               gpu_.bindless_textures().descriptor_set(),
                               gpu_.swapchain().extent(), current_frame_);
         }
 
-        vkCmdEndRendering(cmd);
+        vkCmdEndRendering(swap_cmd);
 
         // Transition swapchain image: COLOR_ATTACHMENT_OPTIMAL → PRESENT_SRC_KHR
-        transition_image(cmd, gpu_.swapchain().image(image_index),
+        transition_image(swap_cmd, gpu_.swapchain().image(image_index),
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
             VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
             VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
@@ -572,7 +590,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     }
 
 #ifdef FJELL_ENABLE_TRACY
-    TracyVkCollect(gpu_.tracy_ctx(), cmd);
+    TracyVkCollect(gpu_.tracy_ctx(), swap_cmd);
 #endif
 
     if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
@@ -582,6 +600,11 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
     if (async_cmd != VK_NULL_HANDLE) {
         if (vkEndCommandBuffer(async_cmd) != VK_SUCCESS) {
             FJELL_GFX_CRITICAL("Failed to end recording async compute command buffer");
+        }
+    }
+    if (post_cmd != VK_NULL_HANDLE) {
+        if (vkEndCommandBuffer(post_cmd) != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("Failed to end recording post-compute graphics command buffer");
         }
     }
 }
@@ -923,88 +946,155 @@ void VulkanContext::submit_and_present() {
     if (!has_recorded_frame_) return;
 
     auto& render_finished = gpu_.swapchain().render_finished_semaphores();
+    VkSemaphore image_available = gpu_.image_available_semaphore(recorded_frame_);
+    VkFence fence = gpu_.in_flight_fence(recorded_frame_);
+    VkSemaphore timeline = gpu_.async_compute_timeline(recorded_frame_);
 
-    // ── Async compute submit (optional) ───────────────────────────────
-    // When the graph routed any pass to the compute CB, we submit it on
-    // the compute queue first, signal a per-slot timeline value, and
-    // have the graphics submit wait on that value at the point where
-    // it actually consumes the compute output (fragment shader for
-    // ao_texture sampling). If no compute work ran, skip entirely.
-    uint64_t signalled_timeline = 0;
-    if (recorded_async_this_frame_) {
-        ++async_timeline_values_[recorded_frame_];
-        signalled_timeline = async_timeline_values_[recorded_frame_];
+    // Fast path: no async work this frame → single graphics submit,
+    // same as pre-Phase-3 behavior.
+    if (!recorded_async_this_frame_) {
+        VkSemaphoreSubmitInfo wait{};
+        wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        wait.semaphore = image_available;
+        wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-        VkCommandBufferSubmitInfo compute_cmd_info{};
-        compute_cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        compute_cmd_info.commandBuffer = gpu_.async_compute_cb(recorded_frame_);
+        VkCommandBufferSubmitInfo cmd_info{};
+        cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        cmd_info.commandBuffer = gpu_.command_buffer(recorded_frame_);
 
-        VkSemaphoreSubmitInfo compute_signal{};
-        compute_signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        compute_signal.semaphore = gpu_.async_compute_timeline(recorded_frame_);
-        compute_signal.value = signalled_timeline;
-        compute_signal.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+        VkSemaphoreSubmitInfo signal{};
+        signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        signal.semaphore = render_finished[recorded_image_index_];
+        signal.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-        VkSubmitInfo2 compute_submit{};
-        compute_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        compute_submit.commandBufferInfoCount = 1;
-        compute_submit.pCommandBufferInfos = &compute_cmd_info;
-        compute_submit.signalSemaphoreInfoCount = 1;
-        compute_submit.pSignalSemaphoreInfos = &compute_signal;
+        VkSubmitInfo2 submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit.waitSemaphoreInfoCount = 1;
+        submit.pWaitSemaphoreInfos = &wait;
+        submit.commandBufferInfoCount = 1;
+        submit.pCommandBufferInfos = &cmd_info;
+        submit.signalSemaphoreInfoCount = 1;
+        submit.pSignalSemaphoreInfos = &signal;
 
-        VkResult r = vkQueueSubmit2(gpu_.async_compute_queue(), 1, &compute_submit, VK_NULL_HANDLE);
-        if (r != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("async compute vkQueueSubmit2 failed: {}", static_cast<int>(r));
+        if (vkQueueSubmit2(gpu_.graphics_queue(), 1, &submit, fence) != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("vkQueueSubmit2 (single) failed");
             has_recorded_frame_ = false;
             return;
         }
-    }
+    } else {
+        // Async path: three submits chained by timeline semaphore.
+        //   graphics_pre  : wait(image_available) → signal(timeline v1)
+        //   compute       : wait(timeline v1)     → signal(timeline v2)
+        //   graphics_post : wait(timeline v2)     → signal(render_finished) + fence
+        //
+        // v1 is the "depth is ready for compute" fence line; v2 is
+        // "compute output is ready for graphics". Using two values per
+        // frame keeps the sync unambiguous — compute doesn't risk
+        // consuming the wrong graphics pre-output.
+        async_timeline_values_[recorded_frame_] += 2;
+        uint64_t v1 = async_timeline_values_[recorded_frame_] - 1;
+        uint64_t v2 = async_timeline_values_[recorded_frame_];
 
-    // ── Graphics submit ───────────────────────────────────────────────
-    std::array<VkSemaphoreSubmitInfo, 2> wait_infos{};
-    uint32_t wait_count = 0;
+        // ── Submit 1: graphics pre ────────────────────────────────────
+        VkSemaphoreSubmitInfo pre_wait{};
+        pre_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        pre_wait.semaphore = image_available;
+        pre_wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-    wait_infos[wait_count].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    wait_infos[wait_count].semaphore = gpu_.image_available_semaphore(recorded_frame_);
-    wait_infos[wait_count].stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    ++wait_count;
+        VkCommandBufferSubmitInfo pre_cmd{};
+        pre_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        pre_cmd.commandBuffer = gpu_.command_buffer(recorded_frame_);
 
-    if (recorded_async_this_frame_) {
-        // Stall only fragment-shader-stage consumers of the compute
-        // output — earlier graphics work (depth prepass, shadows) keeps
-        // running in parallel with the compute queue. That's where the
-        // overlap win comes from.
-        wait_infos[wait_count].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        wait_infos[wait_count].semaphore = gpu_.async_compute_timeline(recorded_frame_);
-        wait_infos[wait_count].value = signalled_timeline;
-        wait_infos[wait_count].stageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        ++wait_count;
-    }
+        VkSemaphoreSubmitInfo pre_signal{};
+        pre_signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        pre_signal.semaphore = timeline;
+        pre_signal.value = v1;
+        // Signal from late-fragment stage — depth_prepass writes ended
+        // by the end of LATE_FRAGMENT_TESTS, which is where compute
+        // starts safely sampling depth from.
+        pre_signal.stageMask = VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT
+                              | VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 
-    VkCommandBufferSubmitInfo cmd_info{};
-    cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-    cmd_info.commandBuffer = gpu_.command_buffer(recorded_frame_);
+        VkSubmitInfo2 pre_submit{};
+        pre_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        pre_submit.waitSemaphoreInfoCount = 1;
+        pre_submit.pWaitSemaphoreInfos = &pre_wait;
+        pre_submit.commandBufferInfoCount = 1;
+        pre_submit.pCommandBufferInfos = &pre_cmd;
+        pre_submit.signalSemaphoreInfoCount = 1;
+        pre_submit.pSignalSemaphoreInfos = &pre_signal;
 
-    VkSemaphoreSubmitInfo signal_info{};
-    signal_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    signal_info.semaphore = render_finished[recorded_image_index_];
-    signal_info.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        if (vkQueueSubmit2(gpu_.graphics_queue(), 1, &pre_submit, VK_NULL_HANDLE) != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_pre) failed");
+            has_recorded_frame_ = false;
+            return;
+        }
 
-    VkSubmitInfo2 submit_info{};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-    submit_info.waitSemaphoreInfoCount = wait_count;
-    submit_info.pWaitSemaphoreInfos = wait_infos.data();
-    submit_info.commandBufferInfoCount = 1;
-    submit_info.pCommandBufferInfos = &cmd_info;
-    submit_info.signalSemaphoreInfoCount = 1;
-    submit_info.pSignalSemaphoreInfos = &signal_info;
+        // ── Submit 2: compute ────────────────────────────────────────
+        VkSemaphoreSubmitInfo comp_wait{};
+        comp_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        comp_wait.semaphore = timeline;
+        comp_wait.value = v1;
+        comp_wait.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
 
-    VkResult submit_result = vkQueueSubmit2(gpu_.graphics_queue(), 1, &submit_info,
-                                             gpu_.in_flight_fence(recorded_frame_));
-    if (submit_result != VK_SUCCESS) {
-        FJELL_GFX_CRITICAL("vkQueueSubmit2 failed: {}", static_cast<int>(submit_result));
-        has_recorded_frame_ = false;
-        return;
+        VkCommandBufferSubmitInfo comp_cmd{};
+        comp_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        comp_cmd.commandBuffer = gpu_.async_compute_cb(recorded_frame_);
+
+        VkSemaphoreSubmitInfo comp_signal{};
+        comp_signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        comp_signal.semaphore = timeline;
+        comp_signal.value = v2;
+        comp_signal.stageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+
+        VkSubmitInfo2 comp_submit{};
+        comp_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        comp_submit.waitSemaphoreInfoCount = 1;
+        comp_submit.pWaitSemaphoreInfos = &comp_wait;
+        comp_submit.commandBufferInfoCount = 1;
+        comp_submit.pCommandBufferInfos = &comp_cmd;
+        comp_submit.signalSemaphoreInfoCount = 1;
+        comp_submit.pSignalSemaphoreInfos = &comp_signal;
+
+        if (vkQueueSubmit2(gpu_.async_compute_queue(), 1, &comp_submit, VK_NULL_HANDLE) != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("vkQueueSubmit2 (async compute) failed");
+            has_recorded_frame_ = false;
+            return;
+        }
+
+        // ── Submit 3: graphics post ──────────────────────────────────
+        VkSemaphoreSubmitInfo post_wait{};
+        post_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        post_wait.semaphore = timeline;
+        post_wait.value = v2;
+        // Wait at fragment stage — the compute output (AO) is read by
+        // mesh.frag, so earlier graphics-queue work (if any were still
+        // outstanding) wouldn't need to stall.
+        post_wait.stageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+
+        VkCommandBufferSubmitInfo post_cmd{};
+        post_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        post_cmd.commandBuffer = gpu_.graphics_post_cb(recorded_frame_);
+
+        VkSemaphoreSubmitInfo post_signal{};
+        post_signal.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        post_signal.semaphore = render_finished[recorded_image_index_];
+        post_signal.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+        VkSubmitInfo2 post_submit{};
+        post_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        post_submit.waitSemaphoreInfoCount = 1;
+        post_submit.pWaitSemaphoreInfos = &post_wait;
+        post_submit.commandBufferInfoCount = 1;
+        post_submit.pCommandBufferInfos = &post_cmd;
+        post_submit.signalSemaphoreInfoCount = 1;
+        post_submit.pSignalSemaphoreInfos = &post_signal;
+
+        if (vkQueueSubmit2(gpu_.graphics_queue(), 1, &post_submit, fence) != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_post) failed");
+            has_recorded_frame_ = false;
+            return;
+        }
     }
 
     VkPresentInfoKHR present_info{};

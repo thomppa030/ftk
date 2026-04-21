@@ -481,10 +481,12 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         lifetimes_logged_ = true;
     }
 
-    // Async compute CB is provided by the caller via ctx when the device
-    // supports it. A null handle here (no async support, or the preview
-    // renderer) routes compute passes back to the graphics CB.
-    return graph.execute(cmd, ctx.async_compute_cmd, &pool, &secondary_pools, frame_index);
+    // Async compute CB + post-compute graphics CB are provided by the
+    // caller via ctx. Null handles here (no async support, or preview
+    // renderer) cause FrameGraph to fold everything back into the
+    // graphics CB — same as single-CB behavior.
+    return graph.execute(cmd, ctx.graphics_post_cmd, ctx.async_compute_cmd,
+                         &pool, &secondary_pools, frame_index);
 }
 
 } // namespace fjell

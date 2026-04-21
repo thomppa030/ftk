@@ -58,6 +58,14 @@ public:
     [[nodiscard]] VkCommandBuffer command_buffer(uint32_t frame_index) const {
         return command_buffers_[frame_index];
     }
+    // Second graphics CB per frame slot. Phase 3d uses this for
+    // post-compute graphics work — after async compute signals its
+    // timeline value, graphics waits and resumes in this CB. Empty +
+    // unused on frames without compute work; null when the device has
+    // no separate compute queue.
+    [[nodiscard]] VkCommandBuffer graphics_post_cb(uint32_t frame_index) const {
+        return graphics_post_cbs_.empty() ? VK_NULL_HANDLE : graphics_post_cbs_[frame_index];
+    }
 
     // Async compute command pool + per-frame CB. Null when
     // `device().async_compute_supported()` is false. Passes that hint
@@ -96,6 +104,9 @@ private:
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     std::vector<VkCommandBuffer> command_buffers_;
+    // Post-compute graphics CBs — allocated in pairs with the primary
+    // ones when async compute is available. Shares command_pool_.
+    std::vector<VkCommandBuffer> graphics_post_cbs_;
     std::array<VkSemaphore, MAX_FRAMES_IN_FLIGHT> image_available_{};
     std::array<VkFence, MAX_FRAMES_IN_FLIGHT> in_flight_{};
 

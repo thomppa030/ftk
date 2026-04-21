@@ -58,6 +58,11 @@ struct FrameContext {
     // previews that share the main frame's submission. FrameGraph::execute
     // routes compute passes here; a null handle falls back to `cmd`.
     VkCommandBuffer async_compute_cmd{VK_NULL_HANDLE};
+    // Second graphics CB — post-compute graphics work records into this
+    // one when the frame uses async compute. FrameGraph picks between
+    // this and `cmd` based on DAG position relative to the first async
+    // pass. Null falls back to `cmd` (same as today's single-CB flow).
+    VkCommandBuffer graphics_post_cmd{VK_NULL_HANDLE};
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};

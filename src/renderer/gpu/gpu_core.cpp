@@ -67,6 +67,21 @@ GpuCore::GpuCore(Window& window)
     // pool entirely; passes that hint async degrade to the graphics queue
     // in Phase 3.
     if (device_.async_compute_supported()) {
+        // Post-compute graphics CBs — allocated from the existing
+        // graphics command pool. Same queue family as command_buffer(),
+        // just a second CB per frame slot so async-frames can split
+        // graphics work into before/after halves around the compute
+        // submit (phase 3d).
+        graphics_post_cbs_.resize(MAX_FRAMES_IN_FLIGHT);
+        VkCommandBufferAllocateInfo post_alloc{};
+        post_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        post_alloc.commandPool = command_pool_;
+        post_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        post_alloc.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
+        if (vkAllocateCommandBuffers(device_.handle(), &post_alloc, graphics_post_cbs_.data()) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate post-compute graphics command buffers");
+        }
+
         VkCommandPoolCreateInfo ac_pool_ci{};
         ac_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         ac_pool_ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;

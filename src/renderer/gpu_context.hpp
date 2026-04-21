@@ -83,6 +83,9 @@ public:
     [[nodiscard]] VkCommandBuffer command_buffer(uint32_t frame_index) const {
         return core_.command_buffer(frame_index);
     }
+    [[nodiscard]] VkCommandBuffer graphics_post_cb(uint32_t frame_index) const {
+        return core_.graphics_post_cb(frame_index);
+    }
 
     // Async compute resources forwarded from GpuCore. Null when the
     // device has no separate compute queue family.
