@@ -159,8 +159,13 @@ public:
     // Execute all passes, inserting barriers between them.
     // Passes with the same parallel_group > 0 are recorded in parallel on
     // secondary command buffers via the thread pool.
-    void execute(VkCommandBuffer primary, ThreadPool* pool,
-                 ThreadCommandPools* cmd_pools, uint32_t frame_index);
+    // Passes with `queue == QueueType::async_compute` record into
+    // `async_compute` instead of `graphics` — a null handle routes them
+    // back to the graphics CB (degrades gracefully on hardware without
+    // a separate compute queue).
+    void execute(VkCommandBuffer graphics, VkCommandBuffer async_compute,
+                 ThreadPool* pool, ThreadCommandPools* cmd_pools,
+                 uint32_t frame_index);
 
     // Compute per-image lifetime (first/last pass index, unioned image
     // usage flags) over the currently submitted pass list. Indices point

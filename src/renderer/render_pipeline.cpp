@@ -481,7 +481,10 @@ void RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         lifetimes_logged_ = true;
     }
 
-    graph.execute(cmd, &pool, &secondary_pools, frame_index);
+    // Async compute CB is provided by the caller via ctx when the device
+    // supports it. A null handle here (no async support, or the preview
+    // renderer) routes compute passes back to the graphics CB.
+    graph.execute(cmd, ctx.async_compute_cmd, &pool, &secondary_pools, frame_index);
 }
 
 } // namespace fjell

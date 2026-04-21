@@ -853,18 +853,27 @@ void FrameGraph::apply_final_layouts(const PassDecl& pass) {
     }
 }
 
-void FrameGraph::execute(VkCommandBuffer primary, ThreadPool* pool,
-                          ThreadCommandPools* cmd_pools, uint32_t frame_index) {
+void FrameGraph::execute(VkCommandBuffer graphics, VkCommandBuffer async_compute,
+                          ThreadPool* pool, ThreadCommandPools* cmd_pools,
+                          uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("frame_graph_execute");
     bool can_parallelize = pool && cmd_pools && pool->thread_count() > 0;
+
+    auto cb_for = [&](const PassDecl& pass) {
+        if (pass.queue == QueueType::async_compute && async_compute != VK_NULL_HANDLE) {
+            return async_compute;
+        }
+        return graphics;
+    };
 
     size_t i = 0;
     while (i < passes_.size()) {
         auto& pass = passes_[i];
+        VkCommandBuffer cb = cb_for(pass);
 
         if (pass.parallel_group == 0 || !can_parallelize) {
-            emit_barriers_for_pass(primary, pass);
-            pass.execute(primary);
+            emit_barriers_for_pass(cb, pass);
+            pass.execute(cb);
             apply_final_layouts(pass);
             ++i;
             continue;
@@ -878,7 +887,7 @@ void FrameGraph::execute(VkCommandBuffer primary, ThreadPool* pool,
         size_t group_size = i - group_begin;
 
         for (size_t p = group_begin; p < group_begin + group_size; ++p) {
-            emit_barriers_for_pass(primary, passes_[p]);
+            emit_barriers_for_pass(cb_for(passes_[p]), passes_[p]);
         }
 
         secondaries_scratch_.resize(group_size);
@@ -914,7 +923,12 @@ void FrameGraph::execute(VkCommandBuffer primary, ThreadPool* pool,
 
         done.wait();
 
-        vkCmdExecuteCommands(primary, static_cast<uint32_t>(group_size), secondaries.data());
+        // Parallel groups are graphics-only (depth_prepass + shadow are
+        // the only current users). Pick the first pass's CB; a mixed-
+        // queue parallel group isn't supported — we'd need separate
+        // execute_commands into each CB.
+        vkCmdExecuteCommands(cb_for(passes_[group_begin]),
+                              static_cast<uint32_t>(group_size), secondaries.data());
 
         for (size_t p = group_begin; p < group_begin + group_size; ++p) {
             apply_final_layouts(passes_[p]);

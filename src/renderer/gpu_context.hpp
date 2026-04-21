@@ -84,6 +84,24 @@ public:
         return core_.command_buffer(frame_index);
     }
 
+    // Async compute resources forwarded from GpuCore. Null when the
+    // device has no separate compute queue family.
+    [[nodiscard]] VkCommandPool async_compute_pool() const {
+        return core_.async_compute_pool();
+    }
+    [[nodiscard]] VkCommandBuffer async_compute_cb(uint32_t frame_index) const {
+        return core_.async_compute_cb(frame_index);
+    }
+    [[nodiscard]] VkSemaphore async_compute_timeline(uint32_t frame_index) const {
+        return core_.async_compute_timeline(frame_index);
+    }
+    [[nodiscard]] VkQueue async_compute_queue() const {
+        return core_.device().async_compute_queue();
+    }
+    [[nodiscard]] bool async_compute_supported() const {
+        return core_.device().async_compute_supported();
+    }
+
     // ── Frame sync ──────────────────────────────────────────────────────
     [[nodiscard]] VkSemaphore image_available_semaphore(uint32_t frame_index) const {
         return core_.image_available_semaphore(frame_index);

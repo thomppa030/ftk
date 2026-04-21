@@ -53,6 +53,11 @@ class TransientImagePool;
 // Shared state that every pass can read during recording.
 struct FrameContext {
     VkCommandBuffer cmd{VK_NULL_HANDLE};
+    // Secondary command buffer for async-hinted passes. Null when the
+    // device doesn't expose a compute queue family, or for viewport
+    // previews that share the main frame's submission. FrameGraph::execute
+    // routes compute passes here; a null handle falls back to `cmd`.
+    VkCommandBuffer async_compute_cmd{VK_NULL_HANDLE};
     OffscreenPass* target{nullptr};
     const RenderQueue* queue{nullptr};
     VkDescriptorSet global_descriptor_set{VK_NULL_HANDLE};

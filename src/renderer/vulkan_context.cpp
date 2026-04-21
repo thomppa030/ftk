@@ -197,6 +197,9 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
                                                  bool flip_tonemap_y) {
     FrameContext ctx{};
     ctx.cmd = cmd;
+    // Async compute CB is set on the main-viewport path in render_frame
+    // (after build_frame_context returns). Preview viewports never hit
+    // the async path — they submit their own single-CB bundle.
     ctx.target = &target;
     ctx.queue = &gatherer_.render_queue();
     ctx.camera_position = gatherer_.camera_position();
@@ -322,6 +325,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
                                         pp, skip_shadows, flip_tonemap_y);
+    // Hand the async CB to the graph (null when the device has no
+    // compute queue, or when the compute CB isn't ready for this frame).
+    current_ctx_.async_compute_cmd = gpu_.async_compute_cb(current_frame_);
 
     // Init screen color image on first use (or after resize) so the descriptor
     // at binding 8 doesn't point to an UNDEFINED-layout image.
