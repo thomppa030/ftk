@@ -17,6 +17,11 @@ class Window;
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphics;
     std::optional<uint32_t> present;
+    // Async-capable compute queue family. Prefer a dedicated family
+    // (COMPUTE bit set, GRAPHICS bit clear) so work on it actually runs
+    // in parallel with graphics. Left empty when no such family exists —
+    // passes that opt into async degrade gracefully to the graphics queue.
+    std::optional<uint32_t> async_compute;
 
     [[nodiscard]] bool is_complete() const {
         return graphics.has_value() && present.has_value();
@@ -45,6 +50,10 @@ public:
     [[nodiscard]] VkSurfaceKHR surface() const { return surface_; }
     [[nodiscard]] VkQueue graphics_queue() const { return graphics_queue_; }
     [[nodiscard]] VkQueue present_queue() const { return present_queue_; }
+    [[nodiscard]] VkQueue async_compute_queue() const { return async_compute_queue_; }
+    [[nodiscard]] bool async_compute_supported() const {
+        return async_compute_queue_ != VK_NULL_HANDLE;
+    }
     [[nodiscard]] const std::string& gpu_name() const { return gpu_name_; }
 
     [[nodiscard]] QueueFamilyIndices find_queue_families() const;
@@ -100,6 +109,7 @@ private:
     VkDevice device_{VK_NULL_HANDLE};
     VkQueue graphics_queue_{VK_NULL_HANDLE};
     VkQueue present_queue_{VK_NULL_HANDLE};
+    VkQueue async_compute_queue_{VK_NULL_HANDLE};
     std::string gpu_name_;
     bool mesh_shader_supported_{false};
     uint32_t mesh_shader_max_workgroup_size_{0};
