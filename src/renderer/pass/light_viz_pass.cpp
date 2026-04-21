@@ -1,4 +1,5 @@
 #include "renderer/pass/light_viz_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
@@ -281,6 +282,8 @@ void LightVizPass::set_tile_ssbo(VkBuffer buffer, VkDeviceSize size) {
 void LightVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || view_ == VK_NULL_HANDLE) return;
     if (tile_buffer_ == VK_NULL_HANDLE) return;
+
+    FJELL_GPU_ZONE(ctx, "Viz: Light");
 
     // Update descriptor: point at the tile light SSBO
     vk_utils::write_buffer_descriptor(device_, tile_sets_[ctx.frame_index], 0,

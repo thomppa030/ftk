@@ -1,4 +1,5 @@
 #include "renderer/pass/grid_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -171,6 +172,8 @@ void GridPass::destroy() {
 
 void GridPass::record(const FrameContext& ctx) {
     if (!settings_.visible || !ctx.target) return;
+
+    FJELL_GPU_ZONE(ctx, "Grid");
 
     auto extent = ctx.target->extent();
 

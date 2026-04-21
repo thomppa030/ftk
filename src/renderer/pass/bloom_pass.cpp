@@ -9,6 +9,7 @@
 // mip 3) alias in the transient pool.
 
 #include "renderer/pass/bloom_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -20,6 +21,7 @@
 #include "core/log.hpp"
 
 #include <array>
+#include <cstdio>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -342,6 +344,8 @@ void BloomDs0Pass::record(const FrameContext& ctx) {
     auto dst = resolve_mip(ctx, 0);
     if (dst.image == VK_NULL_HANDLE) { return; }
 
+    FJELL_GPU_ZONE(ctx, "Bloom Ds0");
+
     auto* cache = ctx.descriptor_cache;
     VkDescriptorSet src_set = acquire_single(*cache, single_tex_layout(),
                                               sampler(), ctx.target->color_view());
@@ -390,6 +394,10 @@ void BloomDsPass::record(const FrameContext& ctx) {
     auto src = resolve_mip(ctx, mip_index_ - 1);
     auto dst = resolve_mip(ctx, mip_index_);
     if (src.view == VK_NULL_HANDLE || dst.image == VK_NULL_HANDLE) { return; }
+
+    char zone_name[16];
+    std::snprintf(zone_name, sizeof(zone_name), "Bloom Ds%u", mip_index_);
+    FJELL_GPU_ZONE_DYNAMIC(ctx, zone_name);
 
     auto* cache = ctx.descriptor_cache;
     VkDescriptorSet src_set = acquire_single(*cache, core_->single_tex_layout(),
@@ -446,6 +454,10 @@ void BloomUsPass::record(const FrameContext& ctx) {
     auto src = resolve_mip(ctx, dst_mip_ + 1);
     auto dst = resolve_mip(ctx, dst_mip_);
     if (src.view == VK_NULL_HANDLE || dst.image == VK_NULL_HANDLE) { return; }
+
+    char zone_name[16];
+    std::snprintf(zone_name, sizeof(zone_name), "Bloom Us%u", dst_mip_);
+    FJELL_GPU_ZONE_DYNAMIC(ctx, zone_name);
 
     auto* cache = ctx.descriptor_cache;
     VkDescriptorSet up_set = acquire_single(*cache, core_->single_tex_layout(),

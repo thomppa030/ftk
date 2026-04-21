@@ -1,4 +1,5 @@
 #include "renderer/pass/normal_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
@@ -149,6 +150,8 @@ void NormalPass::destroy() {
 
 void NormalPass::record(const FrameContext& ctx) {
     if (!ctx.target || !ctx.queue || ctx.queue->empty() || !viz_image_.valid()) return;
+
+    FJELL_GPU_ZONE(ctx, "Viz: Normal");
 
     auto cmd = ctx.cmd;
 

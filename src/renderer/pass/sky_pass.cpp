@@ -1,4 +1,5 @@
 #include "renderer/pass/sky_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/shader_utils.hpp"
@@ -181,6 +182,8 @@ void SkyPass::destroy() {
 
 void SkyPass::record(const FrameContext& ctx) {
     if (!ctx.target) return;
+
+    FJELL_GPU_ZONE(ctx, "Sky");
 
     struct {
         glm::vec4 top;

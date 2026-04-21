@@ -1,4 +1,5 @@
 #include "renderer/pass/light_cull_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -77,6 +78,8 @@ void LightCullPass::pre_record(const FrameContext& ctx, GpuContext& gpu) {
 }
 
 void LightCullPass::record(const FrameContext& ctx) {
+    FJELL_GPU_ZONE(ctx, "Light Cull");
+
     auto extent = ctx.target->extent();
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline_);

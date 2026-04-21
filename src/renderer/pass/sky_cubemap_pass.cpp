@@ -1,4 +1,5 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
@@ -828,6 +829,7 @@ void SkyCubemapPass::record(const FrameContext& ctx) {
         set_colors(sky.top_color(), sky.bottom_color());
     }
     if (dirty()) {
+        FJELL_GPU_ZONE(ctx, "Sky Cubemap");
         generate(ctx.cmd);
     }
 }

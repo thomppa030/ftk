@@ -1,4 +1,5 @@
 #include "renderer/pass/contact_shadow_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
@@ -346,6 +347,8 @@ void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx)
 
 void ContactShadowPass::record(const FrameContext& ctx) {
     if (ctx.target == nullptr) return;
+
+    FJELL_GPU_ZONE(ctx, "Contact Shadow");
 
     auto extent = ctx.target->extent();
     VkCommandBuffer cmd = ctx.cmd;

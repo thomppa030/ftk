@@ -1,4 +1,5 @@
 #include "renderer/pass/ss_gi_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/accel_structure.hpp"
@@ -478,6 +479,7 @@ void SsGiPass::record(const FrameContext& ctx) {
     if (!config_.enabled || trace_pipeline_ == VK_NULL_HANDLE) { return; }
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->ss_gi() : nullptr;
     if (imgs == nullptr) { return; }
+    FJELL_GPU_ZONE(ctx, "SS-GI");
     record_into(ctx, *imgs);
 }
 

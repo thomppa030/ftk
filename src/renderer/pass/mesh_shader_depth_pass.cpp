@@ -1,4 +1,5 @@
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/resources/mega_buffer.hpp"
@@ -354,6 +355,8 @@ void MeshShaderDepthPass::destroy() {
 
 void MeshShaderDepthPass::record(const FrameContext& ctx) {
     if (!ctx.target || !ctx.queue || ctx.queue->empty()) return;
+
+    FJELL_GPU_ZONE(ctx, "Mesh Depth");
 
     auto extent = ctx.target->extent();
 

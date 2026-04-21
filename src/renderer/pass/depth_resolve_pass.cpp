@@ -1,4 +1,5 @@
 #include "renderer/pass/depth_resolve_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 
@@ -23,6 +24,8 @@ void DepthResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
 void DepthResolvePass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
     if (target == nullptr || target->sample_count() == VK_SAMPLE_COUNT_1_BIT) { return; }
+
+    FJELL_GPU_ZONE(ctx, "Depth Resolve");
 
     VkRenderingAttachmentInfo depth_attachment{};
     depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;

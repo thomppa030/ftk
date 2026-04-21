@@ -1,4 +1,5 @@
 #include "renderer/pass/meshlet_viz_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
@@ -240,6 +241,8 @@ void MeshletVizPass::invalidate_imgui_texture() {
 
 void MeshletVizPass::record(const FrameContext& ctx) {
     if (view_ == VK_NULL_HANDLE) return;
+
+    FJELL_GPU_ZONE(ctx, "Viz: Meshlet");
 
     auto cmd = ctx.cmd;
     bool can_draw = ctx.target && ctx.queue && !ctx.queue->empty()

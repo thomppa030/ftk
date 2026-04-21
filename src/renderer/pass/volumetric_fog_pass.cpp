@@ -15,6 +15,7 @@
 // to emit the right transitions on the first access of the new frame.
 
 #include "renderer/pass/volumetric_fog_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -424,6 +425,8 @@ void FogInjectPass::record(const FrameContext& ctx) {
     auto* imgs = images_for(ctx, this);
     if (imgs == nullptr || imgs->scatter_volumes[0].view == VK_NULL_HANDLE) { return; }
 
+    FJELL_GPU_ZONE(ctx, "Fog Inject");
+
     uint32_t cur = imgs->cur_index();
     auto* cmd = ctx.cmd;
     auto extent = ctx.target->extent();
@@ -490,6 +493,8 @@ void FogTemporalPass::record(const FrameContext& ctx) {
 
     auto* imgs = images_for(ctx, core_);
     if (imgs == nullptr || imgs->scatter_volumes[0].view == VK_NULL_HANDLE) { return; }
+
+    FJELL_GPU_ZONE(ctx, "Fog Temporal");
 
     uint32_t cur = imgs->cur_index();
     uint32_t prev = imgs->prev_index();
@@ -573,6 +578,8 @@ void FogIntegratePass::record(const FrameContext& ctx) {
     const auto* integrated_res = ctx.registry->find_image("fog_integrated");
     if (integrated_res == nullptr || integrated_res->image == VK_NULL_HANDLE) { return; }
 
+    FJELL_GPU_ZONE(ctx, "Fog Integrate");
+
     uint32_t cur = imgs->cur_index();
     auto* cmd = ctx.cmd;
     auto extent = ctx.target->extent();
@@ -655,6 +662,8 @@ void FogCompositePass::record(const FrameContext& ctx) {
 
     const auto* integrated_res = ctx.registry->find_image("fog_integrated");
     if (integrated_res == nullptr || integrated_res->image == VK_NULL_HANDLE) { return; }
+
+    FJELL_GPU_ZONE(ctx, "Fog Composite");
 
     auto* cmd = ctx.cmd;
     auto extent = ctx.target->extent();

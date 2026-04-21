@@ -1,4 +1,5 @@
 #include "renderer/pass/depth_viz_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -294,6 +295,8 @@ void DepthVizPass::invalidate_imgui_texture() {
 
 void DepthVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || view_ == VK_NULL_HANDLE) return;
+
+    FJELL_GPU_ZONE(ctx, "Viz: Depth");
 
     // Update descriptor: point at the target's depth view (resolved single-sample when MSAA)
     vk_utils::write_image_descriptor(device_, depth_sets_[ctx.frame_index], 0,

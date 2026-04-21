@@ -1,4 +1,5 @@
 #include "renderer/pass/overdraw_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/pass_builder.hpp"
@@ -154,6 +155,8 @@ void OverdrawPass::destroy() {
 
 void OverdrawPass::record(const FrameContext& ctx) {
     if (!ctx.target || !ctx.queue || ctx.queue->empty() || !viz_image_.valid()) return;
+
+    FJELL_GPU_ZONE(ctx, "Viz: Overdraw");
 
     auto cmd = ctx.cmd;
 

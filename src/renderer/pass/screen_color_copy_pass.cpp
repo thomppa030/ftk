@@ -1,4 +1,5 @@
 #include "renderer/pass/screen_color_copy_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/resource_registry.hpp"
@@ -29,6 +30,8 @@ void ScreenColorCopyPass::declare(PassBuilder& builder, const DeclareContext& ct
 void ScreenColorCopyPass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
     VkExtent2D ext = target->extent();
+
+    FJELL_GPU_ZONE(ctx, "Screen Color Copy");
 
     VkImageCopy region{};
     region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};

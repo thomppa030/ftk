@@ -1,4 +1,5 @@
 #include "renderer/pass/tonemap_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/exposure_pass.hpp"
@@ -207,6 +208,8 @@ void TonemapPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
 }
 
 void TonemapPass::record(const FrameContext& ctx) {
+    FJELL_GPU_ZONE(ctx, "Tonemap");
+
     auto* tonemap = ctx.pp_resources ? ctx.pp_resources->tonemap() : nullptr;
     if (tonemap == nullptr) {
         record_into(ctx, default_images_, source_view_, VK_NULL_HANDLE, 0.3f, exposure_);

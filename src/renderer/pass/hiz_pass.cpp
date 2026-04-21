@@ -1,4 +1,5 @@
 #include "renderer/pass/hiz_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -250,8 +251,10 @@ void HizPass::record(const FrameContext& ctx) {
     // caller doesn't provide a pp_resources bundle.
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->hiz() : nullptr;
     if (imgs && imgs->ready()) {
+        FJELL_GPU_ZONE(ctx, "Hi-Z Build");
         record_into(ctx, *imgs);
     } else if (default_images_.ready()) {
+        FJELL_GPU_ZONE(ctx, "Hi-Z Build");
         record_into(ctx, default_images_);
     }
 }

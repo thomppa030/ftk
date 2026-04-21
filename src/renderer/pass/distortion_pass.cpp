@@ -1,4 +1,5 @@
 #include "renderer/pass/distortion_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
 #include "renderer/systems/render_subsystem.hpp"
@@ -23,6 +24,8 @@ void DistortionPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void DistortionPass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
     if (target == nullptr) { return; }
+
+    FJELL_GPU_ZONE(ctx, "Distortion");
 
     VkRenderingAttachmentInfo color_attachment{};
     color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;

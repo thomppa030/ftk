@@ -1,4 +1,5 @@
 #include "renderer/pass/wireframe_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/resources/mega_buffer.hpp"
@@ -169,6 +170,8 @@ void WireframePass::destroy() {
 
 void WireframePass::record(const FrameContext& ctx) {
     if (!ctx.target || !ctx.queue || ctx.queue->empty() || !viz_image_.valid()) return;
+
+    FJELL_GPU_ZONE(ctx, "Viz: Wireframe");
 
     // Transition output image
     vk_utils::prepare_color_attachment(ctx.cmd, viz_image_.image());

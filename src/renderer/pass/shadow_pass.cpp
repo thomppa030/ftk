@@ -1,4 +1,5 @@
 #include "renderer/pass/shadow_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu_context.hpp"
@@ -17,10 +18,6 @@
 #include "scene/light_node.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
-
-#ifdef FJELL_ENABLE_TRACY
-#include <tracy/TracyVulkan.hpp>
-#endif
 
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -477,6 +474,8 @@ void ShadowPass::destroy() {
 
 void ShadowPass::record(const FrameContext& ctx) {
     if (!ctx.queue || ctx.queue->empty()) return;
+
+    FJELL_GPU_ZONE(ctx, "Cascade Shadows");
 
     VkViewport viewport{};
     viewport.x = 0.0f;

@@ -1,4 +1,5 @@
 #include "renderer/pass/debug_pass.hpp"
+#include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/debug_draw.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -180,6 +181,8 @@ void DebugPass::destroy() {
 
 void DebugPass::record(const FrameContext& ctx) {
     if (!ctx.debug_draw || ctx.debug_draw->empty()) return;
+
+    FJELL_GPU_ZONE(ctx, "Viz: Debug");
 
     vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
