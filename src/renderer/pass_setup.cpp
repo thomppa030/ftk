@@ -125,7 +125,11 @@ void create_all_passes(PassRegistry& passes, GpuContext& gpu,
     add("ao_trace", std::make_unique<GtaoTracePass>());
     add("ao_blur_h", std::make_unique<AoBlurHPass>());
     add("ao_blur_v", std::make_unique<AoBlurVPass>());
-    add("ssr", std::make_unique<SsrPass>());
+    // SSR split into 2 DAG nodes: trace → composite. SsrTracePass IS
+    // SsrCore (owns both samplers, layouts, pipelines, and the cross-
+    // frame prev_frame history). SsrCompositePass is a follower.
+    add("ssr_trace", std::make_unique<SsrTracePass>());
+    add("ssr_composite", std::make_unique<SsrCompositePass>());
     // Volumetric fog split into 4 DAG nodes: inject → temporal →
     // integrate → composite. FogInjectPass IS FogCore (owns the shared
     // sampler, 4 pipelines, scatter Images). Follower nodes look it up

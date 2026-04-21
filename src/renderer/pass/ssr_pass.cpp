@@ -1,12 +1,22 @@
+// ── Screen-space reflections pipeline implementation ───────────────────────
+//
+// Two RenderPass classes, one compute dispatch each. SsrTracePass IS
+// the SsrCore (owns samplers, descriptor layouts, pipelines, prev-frame
+// history). SsrCompositePass is a follower holding SsrCore* looked up
+// in post_create(). Each node declares only the accesses it performs;
+// the graph emits one merged barrier per image per node, and ssr_output
+// is a graph transient deduped by name across the two nodes.
+
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
+#include "renderer/pass_registry.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
-#include "renderer/gpu/vma_image.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -16,9 +26,11 @@
 
 namespace fjell {
 
-static constexpr uint32_t TILE_SIZE = 8;
+namespace {
 
-struct SsrTracePushConstants {
+constexpr uint32_t TILE_SIZE = 8;
+
+struct TracePushConstants {
     uint32_t viewport_width;
     uint32_t viewport_height;
     uint32_t hiz_mip_count;
@@ -29,18 +41,18 @@ struct SsrTracePushConstants {
     float pad;
 };
 
-struct SsrCompositePushConstants {
+struct CompositePushConstants {
     uint32_t viewport_width;
     uint32_t viewport_height;
     float intensity;
     float pad;
 };
 
-static VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layout,
-                                           const std::string& shader_path,
-                                           VkPipelineCache pipeline_cache = VK_NULL_HANDLE) {
+VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layout,
+                                    const std::string& shader_path,
+                                    VkPipelineCache pipeline_cache) {
     auto code = read_spirv(base_path::resolve(shader_path));
-    auto module = create_shader_module(device, code);
+    auto* module = create_shader_module(device, code);
 
     VkPipelineShaderStageCreateInfo stage{};
     stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -62,11 +74,10 @@ static VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layo
     return pipeline;
 }
 
-static void insert_image_barrier(VkCommandBuffer cmd, VkImage image,
-                                  VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
-                                  VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access,
-                                  VkImageLayout old_layout, VkImageLayout new_layout,
-                                  uint32_t base_mip = 0, uint32_t mip_count = 1) {
+void emit_transition(VkCommandBuffer cmd, VkImage image,
+                      VkImageLayout old_layout, VkImageLayout new_layout,
+                      VkPipelineStageFlags2 src_stage, VkAccessFlags2 src_access,
+                      VkPipelineStageFlags2 dst_stage, VkAccessFlags2 dst_access) {
     VkImageMemoryBarrier2 barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
     barrier.srcStageMask = src_stage;
@@ -76,7 +87,7 @@ static void insert_image_barrier(VkCommandBuffer cmd, VkImage image,
     barrier.oldLayout = old_layout;
     barrier.newLayout = new_layout;
     barrier.image = image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, base_mip, mip_count, 0, 1};
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
     VkDependencyInfo dep{};
     dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
@@ -85,15 +96,16 @@ static void insert_image_barrier(VkCommandBuffer cmd, VkImage image,
     vkCmdPipelineBarrier2(cmd, &dep);
 }
 
-// ── SsrPass (singleton) ─────────────────────────────────────────────────────
+} // namespace
 
-Result<> SsrPass::create(Device& device, const PassResources& resources) {
+// ── SsrCore ─────────────────────────────────────────────────────────────────
+
+Result<> SsrCore::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
     allocator_ = resources.allocator;
     auto global_set_layout = resources.global_set_layout;
 
-    // Samplers
     {
         VkSamplerCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -121,7 +133,7 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
         }
     }
 
-    // Trace set layout: binding 0 = hiz, binding 1 = prev_color, binding 2 = ssr output
+    // Trace set layout: binding 0 = hiz, 1 = prev_color, 2 = ssr output
     {
         std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
         bindings[0] = {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
@@ -137,7 +149,7 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
         }
     }
 
-    // Composite set layout: binding 0 = ssr (read), binding 1 = scene color (read/write), binding 2 = MR (read)
+    // Composite set layout: binding 0 = ssr (read), 1 = scene color (rw), 2 = MR (read)
     {
         std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
         bindings[0] = {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
@@ -153,7 +165,6 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
         }
     }
 
-    // Pipeline layouts
     auto create_layout = [&](VkDescriptorSetLayout pass_layout, uint32_t push_size) {
         std::array<VkDescriptorSetLayout, 2> sets = {global_set_layout, pass_layout};
         VkPushConstantRange push{};
@@ -174,19 +185,19 @@ Result<> SsrPass::create(Device& device, const PassResources& resources) {
         return layout;
     };
 
-    trace_pipeline_layout_ = create_layout(trace_set_layout_, sizeof(SsrTracePushConstants));
-    composite_pipeline_layout_ = create_layout(composite_set_layout_, sizeof(SsrCompositePushConstants));
+    trace_pipeline_layout_ = create_layout(trace_set_layout_, sizeof(TracePushConstants));
+    composite_pipeline_layout_ = create_layout(composite_set_layout_, sizeof(CompositePushConstants));
 
-    // Compute pipelines
-    trace_pipeline_ = create_compute_pipeline(device_, trace_pipeline_layout_, "shaders/ssr_trace.comp.spv", vk_pipeline_cache_);
-    composite_pipeline_ = create_compute_pipeline(device_, composite_pipeline_layout_, "shaders/ssr_composite.comp.spv", vk_pipeline_cache_);
+    trace_pipeline_ = create_compute_pipeline(device_, trace_pipeline_layout_,
+                                               "shaders/ssr_trace.comp.spv", vk_pipeline_cache_);
+    composite_pipeline_ = create_compute_pipeline(device_, composite_pipeline_layout_,
+                                                   "shaders/ssr_composite.comp.spv", vk_pipeline_cache_);
 
     FJELL_GFX_DEBUG("SSR pass created");
     return {};
 }
 
-void SsrPass::destroy() {
-    // Prev-frame history buffer
+void SsrCore::destroy() {
     if (prev_frame_view_ != VK_NULL_HANDLE) {
         vkDestroyImageView(device_, prev_frame_view_, nullptr);
         prev_frame_view_ = VK_NULL_HANDLE;
@@ -213,9 +224,9 @@ void SsrPass::destroy() {
     safe_destroy(vkDestroyPipelineLayout, composite_pipeline_layout_);
 }
 
-void SsrPass::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
-                                 VkCommandPool command_pool, VkQueue queue,
-                                 uint32_t width, uint32_t height) {
+void SsrCore::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
+                                  VkCommandPool command_pool, VkQueue queue,
+                                  uint32_t width, uint32_t height) {
     if (prev_frame_image_ != VK_NULL_HANDLE &&
         width == prev_frame_extent_.width &&
         height == prev_frame_extent_.height) {
@@ -255,9 +266,9 @@ void SsrPass::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
     vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vkCreateImageView(device, &vi, nullptr, &prev_frame_view_);
 
-    // Clear to black and transition to SHADER_READ_ONLY so first-frame SSR
-    // reads valid (black) data.
-    VkCommandBuffer init_cmd;
+    // Clear to black and transition to SHADER_READ_ONLY so first-frame
+    // SSR reads valid (black) data.
+    VkCommandBuffer init_cmd{VK_NULL_HANDLE};
     VkCommandBufferAllocateInfo cmd_ai{};
     cmd_ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     cmd_ai.commandPool = command_pool;
@@ -270,7 +281,7 @@ void SsrPass::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(init_cmd, &begin);
 
-    transition_image(init_cmd, prev_frame_image_,
+    emit_transition(init_cmd, prev_frame_image_,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -280,7 +291,7 @@ void SsrPass::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
     vkCmdClearColorImage(init_cmd, prev_frame_image_,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &clear_range);
 
-    transition_image(init_cmd, prev_frame_image_,
+    emit_transition(init_cmd, prev_frame_image_,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
@@ -296,17 +307,15 @@ void SsrPass::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
     vkFreeCommandBuffers(device, command_pool, 1, &init_cmd);
 }
 
-void SsrPass::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent) {
-    if (!enabled_ || prev_frame_image_ == VK_NULL_HANDLE) return;
+void SsrCore::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent) {
+    if (!enabled_ || prev_frame_image_ == VK_NULL_HANDLE) { return; }
 
-    // src color → TRANSFER_SRC
-    transition_image(cmd, src_color,
+    emit_transition(cmd, src_color,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
 
-    // prev_frame → TRANSFER_DST
-    transition_image(cmd, prev_frame_image_,
+    emit_transition(cmd, prev_frame_image_,
         VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
@@ -320,65 +329,108 @@ void SsrPass::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D
         prev_frame_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1, &region);
 
-    // prev_frame → SHADER_READ_ONLY for next frame's SSR trace
-    transition_image(cmd, prev_frame_image_,
+    emit_transition(cmd, prev_frame_image_,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
 }
 
-void SsrPass::record(const FrameContext& ctx) {
-    auto target_extent = ctx.target->extent();
-    uint32_t width = target_extent.width;
-    uint32_t height = target_extent.height;
+void SsrCore::pre_record(const FrameContext& ctx, GpuContext& gpu) {
+    bool needs_buffer = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
+    if (needs_buffer && ctx.target != nullptr) {
+        auto ext = ctx.target->extent();
+        ensure_prev_frame(gpu.device(), gpu.allocator(),
+                          gpu.command_pool(), gpu.graphics_queue(),
+                          ext.width, ext.height);
+    }
+}
 
-    if (ctx.registry == nullptr) return;
+void SsrCore::post_record(const FrameContext& ctx) {
+    bool needs_copy = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
+    if (needs_copy && ctx.target != nullptr) {
+        copy_prev_frame(ctx.cmd, ctx.target->color_image(), ctx.target->extent());
+    }
+}
 
-    auto* hiz_res = ctx.registry->find_image("hiz");
-    auto* prev_color_res = ctx.registry->find_image("prev_frame_color");
-    auto mr_view = ctx.registry->image_view("mr");
+void SsrCore::register_resources(ResourceRegistry& registry) {
+    registry.register_image("prev_frame_color",
+        {.frame_graph_id = 0, .image = prev_frame_image_, .view = prev_frame_view_});
+}
+
+// ── SsrTracePass ────────────────────────────────────────────────────────────
+
+PassSetup SsrTracePass::setup() const {
+    return {
+        .name = "ssr_trace",
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 0,
+    };
+}
+
+void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto depth = builder.import_named(ctx, "depth");
+    builder.read(depth, ResourceAccess::sampled_compute);
+
+    TextureDesc ssr_desc{};
+    ssr_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ssr_desc.size_class = SizeClass::viewport;
+    auto ssr_out = builder.create("ssr_output", ssr_desc);
+
+    if (enabled()) {
+        builder.write(ssr_out, ResourceAccess::storage_write_compute);
+    } else {
+        // Disabled path clears ssr_output via vkCmdClearColorImage so
+        // the composite reads zero. The graph barriers us into
+        // TRANSFER_DST; we honor the final_layout SHADER_READ promise
+        // inline after the clear. The composite still declares its
+        // read (and therefore runs), which is what we want — composite
+        // just samples a black image.
+        builder.write(ssr_out, ResourceAccess::transfer_dst);
+        builder.final_layout(ssr_out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    }
+}
+
+void SsrTracePass::record(const FrameContext& ctx) {
+    if (ctx.registry == nullptr) { return; }
+
     auto* ssr_res = ctx.registry->find_image("ssr_output");
-
-    if (prev_color_res == nullptr || prev_color_res->view == VK_NULL_HANDLE) return;
-    if (hiz_res == nullptr || hiz_res->view == VK_NULL_HANDLE || hiz_res->mip_count == 0) return;
-    // The composite set binds MR — if it's not yet registered, SSR can't
-    // dispatch this frame. Old path left the MR slot stale but the cache
-    // requires every binding in the layout to have a valid view.
-    if (mr_view == VK_NULL_HANDLE) return;
-    if (ssr_res == nullptr || ssr_res->image == VK_NULL_HANDLE) return;
+    if (ssr_res == nullptr || ssr_res->image == VK_NULL_HANDLE) { return; }
 
     const VkImage ssr_image = ssr_res->image;
     const VkImageView ssr_view = ssr_res->view;
 
-    auto cmd = ctx.cmd;
-    auto global_set = ctx.global_descriptor_set;
+    auto* cmd = ctx.cmd;
 
-    if (!enabled_) {
-        insert_image_barrier(cmd, ssr_image,
-            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
+    if (!enabled()) {
+        // Graph barriered us into TRANSFER_DST. Clear, then emit the
+        // matching TRANSFER_DST → SHADER_READ transition to honor the
+        // final_layout promise.
         VkClearColorValue clear{};
         VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdClearColorImage(cmd, ssr_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &range);
-
-        insert_image_barrier(cmd, ssr_image,
+        vkCmdClearColorImage(cmd, ssr_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                             &clear, 1, &range);
+        emit_transition(cmd, ssr_image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
         return;
     }
 
+    auto* hiz_res = ctx.registry->find_image("hiz");
+    auto* prev_color_res = ctx.registry->find_image("prev_frame_color");
+    if (prev_color_res == nullptr || prev_color_res->view == VK_NULL_HANDLE) { return; }
+    if (hiz_res == nullptr || hiz_res->view == VK_NULL_HANDLE || hiz_res->mip_count == 0) { return; }
+
+    auto target_extent = ctx.target->extent();
+    uint32_t width = target_extent.width;
+    uint32_t height = target_extent.height;
     uint32_t groups_x = (width + TILE_SIZE - 1) / TILE_SIZE;
     uint32_t groups_y = (height + TILE_SIZE - 1) / TILE_SIZE;
 
     auto* cache = ctx.descriptor_cache;
 
-    // Acquire trace set: hiz (0), prev_color (1), ssr output (2).
-    // ssr output descriptor references GENERAL layout — Vulkan demands
-    // the descriptor's imageLayout match the actual image state at use
-    // time, and we barrier to GENERAL right before dispatch below.
     std::array<FrameCacheBinding, 3> trace_bindings{};
     trace_bindings[0].binding = 0;
     trace_bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -387,21 +439,97 @@ void SsrPass::record(const FrameContext& ctx) {
     trace_bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     trace_bindings[1].binding = 1;
     trace_bindings[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    trace_bindings[1].image.sampler = linear_sampler_;
+    trace_bindings[1].image.sampler = linear_sampler();
     trace_bindings[1].image.imageView = prev_color_res->view;
     trace_bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     trace_bindings[2].binding = 2;
     trace_bindings[2].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     trace_bindings[2].image.imageView = ssr_view;
     trace_bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    VkDescriptorSet trace_set = cache->acquire(trace_set_layout_, trace_bindings);
+    VkDescriptorSet trace_set = cache->acquire(trace_set_layout(), trace_bindings);
 
-    // Acquire composite set: ssr (0), color output (1), mr (2).
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline());
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_layout(),
+                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_layout(),
+                            1, 1, &trace_set, 0, nullptr);
+
+    TracePushConstants trace_push{};
+    trace_push.viewport_width = width;
+    trace_push.viewport_height = height;
+    trace_push.hiz_mip_count = hiz_res->mip_count;
+    trace_push.max_steps = max_steps();
+    trace_push.max_distance = max_distance();
+    trace_push.thickness = thickness();
+    trace_push.intensity = intensity();
+
+    vkCmdPushConstants(cmd, trace_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
+                       0, sizeof(trace_push), &trace_push);
+    vkCmdDispatch(cmd, groups_x, groups_y, 1);
+}
+
+// ── SsrCompositePass ────────────────────────────────────────────────────────
+
+Result<> SsrCompositePass::create(Device& /*device*/, const PassResources& /*resources*/) {
+    return {};
+}
+
+void SsrCompositePass::destroy() {}
+
+void SsrCompositePass::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    core_ = &passes.get<SsrCore>("ssr_trace");
+}
+
+PassSetup SsrCompositePass::setup() const {
+    return {
+        .name = "ssr_composite",
+        .phase = RenderPhase::PostProcess,
+        .sub_order = 1,
+    };
+}
+
+void SsrCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    if (core_ == nullptr) { return; }
+
+    // Re-create ssr_output by name to dedup with SsrTracePass's declaration.
+    TextureDesc ssr_desc{};
+    ssr_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ssr_desc.size_class = SizeClass::viewport;
+    auto ssr_out = builder.create("ssr_output", ssr_desc);
+    builder.read(ssr_out, ResourceAccess::sampled_compute);
+
+    auto color = builder.import_named(ctx, "color");
+    auto mr = builder.import_named(ctx, "mr");
+    builder.write(color, ResourceAccess::storage_write_compute);
+    builder.read(mr, ResourceAccess::sampled_compute);
+}
+
+void SsrCompositePass::record(const FrameContext& ctx) {
+    if (core_ == nullptr) { return; }
+    if (ctx.registry == nullptr) { return; }
+    // In the disabled path SsrTracePass clears ssr_output to black and the
+    // composite pass still runs — reflections cleanly fade to zero. No
+    // early-out based on enabled().
+
+    auto* ssr_res = ctx.registry->find_image("ssr_output");
+    auto mr_view = ctx.registry->image_view("mr");
+    if (ssr_res == nullptr || ssr_res->view == VK_NULL_HANDLE) { return; }
+    if (mr_view == VK_NULL_HANDLE) { return; }
+
+    auto* cmd = ctx.cmd;
+    auto target_extent = ctx.target->extent();
+    uint32_t width = target_extent.width;
+    uint32_t height = target_extent.height;
+    uint32_t groups_x = (width + TILE_SIZE - 1) / TILE_SIZE;
+    uint32_t groups_y = (height + TILE_SIZE - 1) / TILE_SIZE;
+
+    auto* cache = ctx.descriptor_cache;
+
     std::array<FrameCacheBinding, 3> comp_bindings{};
     comp_bindings[0].binding = 0;
     comp_bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    comp_bindings[0].image.sampler = nearest_sampler_;
-    comp_bindings[0].image.imageView = ssr_view;
+    comp_bindings[0].image.sampler = core_->nearest_sampler();
+    comp_bindings[0].image.imageView = ssr_res->view;
     comp_bindings[0].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     comp_bindings[1].binding = 1;
     comp_bindings[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -409,111 +537,25 @@ void SsrPass::record(const FrameContext& ctx) {
     comp_bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     comp_bindings[2].binding = 2;
     comp_bindings[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    comp_bindings[2].image.sampler = nearest_sampler_;
+    comp_bindings[2].image.sampler = core_->nearest_sampler();
     comp_bindings[2].image.imageView = mr_view;
     comp_bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VkDescriptorSet composite_set = cache->acquire(composite_set_layout_, comp_bindings);
+    VkDescriptorSet composite_set = cache->acquire(core_->composite_set_layout(), comp_bindings);
 
-    // SSR output → GENERAL for write
-    insert_image_barrier(cmd, ssr_image,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-
-    // Pass 1: SSR Trace
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_layout_,
-                            0, 1, &global_set, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_layout_,
-                            1, 1, &trace_set, 0, nullptr);
-
-    SsrTracePushConstants trace_push{};
-    trace_push.viewport_width = width;
-    trace_push.viewport_height = height;
-    trace_push.hiz_mip_count = hiz_res->mip_count;
-    trace_push.max_steps = max_steps_;
-    trace_push.max_distance = max_distance_;
-    trace_push.thickness = thickness_;
-    trace_push.intensity = intensity_;
-
-    vkCmdPushConstants(cmd, trace_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(trace_push), &trace_push);
-    vkCmdDispatch(cmd, groups_x, groups_y, 1);
-
-    // Barrier: SSR write → composite read
-    insert_image_barrier(cmd, ssr_image,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    // Pass 2: SSR Composite
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_layout_,
-                            0, 1, &global_set, 0, nullptr);
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_layout_,
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, core_->composite_pipeline());
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, core_->composite_pipeline_layout(),
+                            0, 1, &ctx.global_descriptor_set, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, core_->composite_pipeline_layout(),
                             1, 1, &composite_set, 0, nullptr);
 
-    SsrCompositePushConstants comp_push{};
+    CompositePushConstants comp_push{};
     comp_push.viewport_width = width;
     comp_push.viewport_height = height;
-    comp_push.intensity = intensity_;
+    comp_push.intensity = core_->intensity();
 
-    vkCmdPushConstants(cmd, composite_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+    vkCmdPushConstants(cmd, core_->composite_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(comp_push), &comp_push);
     vkCmdDispatch(cmd, groups_x, groups_y, 1);
-}
-
-void SsrPass::pre_record(const FrameContext& ctx, GpuContext& gpu) {
-    bool needs_buffer = ctx.pp_resources && ctx.pp_resources->config().ssr;
-    if (needs_buffer && ctx.target) {
-        auto ext = ctx.target->extent();
-        ensure_prev_frame(gpu.device(), gpu.allocator(),
-                          gpu.command_pool(), gpu.graphics_queue(),
-                          ext.width, ext.height);
-    }
-}
-
-void SsrPass::post_record(const FrameContext& ctx) {
-    bool needs_copy = ctx.pp_resources && ctx.pp_resources->config().ssr;
-    if (needs_copy && ctx.target) {
-        copy_prev_frame(ctx.cmd, ctx.target->color_image(), ctx.target->extent());
-    }
-}
-
-void SsrPass::register_resources(ResourceRegistry& registry) {
-    registry.register_image("prev_frame_color",
-        {.frame_graph_id = 0, .image = prev_frame_image_, .view = prev_frame_view_});
-}
-
-PassSetup SsrPass::setup() const {
-    return {
-        .name = "ssr",
-        .phase = RenderPhase::PostProcess,
-        .sub_order = 0,
-    };
-}
-
-void SsrPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    auto depth = builder.import_named(ctx, "depth");
-    auto color = builder.import_named(ctx, "color");
-    auto mr = builder.import_named(ctx, "mr");
-    builder.read(depth, ResourceAccess::sampled_compute);
-    builder.write(color, ResourceAccess::storage_write_compute);
-    builder.read(mr, ResourceAccess::sampled_compute);
-
-    // SSR intermediate (full-res R16G16B16A16F) is a per-frame transient;
-    // declare it so Phase 3 aliasing can pack it with similar-shape
-    // resources. The prev_frame_color history stays pass-private —
-    // it's persistent across frames.
-    TextureDesc ssr_desc{};
-    ssr_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    ssr_desc.size_class = SizeClass::viewport;
-    auto ssr_out = builder.create("ssr_output", ssr_desc);
-    builder.write(ssr_out, ResourceAccess::storage_write_compute);
-    builder.read(ssr_out, ResourceAccess::sampled_compute);
-    // SSR-off path clears the output via vkCmdClearColorImage — the
-    // allocation needs TRANSFER_DST to support that operation.
-    builder.write(ssr_out, ResourceAccess::transfer_dst);
 }
 
 } // namespace fjell

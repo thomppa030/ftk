@@ -147,7 +147,7 @@ public:
   [[nodiscard]] HizPass &hiz_pass() { return passes_.get<HizPass>("hiz"); }
   [[nodiscard]] BloomCore &bloom_pass() { return passes_.get<BloomCore>("bloom_ds_0"); }
   [[nodiscard]] AoPass &gtao_pass() { return passes_.get<AoPass>("ao_trace"); }
-  [[nodiscard]] SsrPass &ssr_pass() { return passes_.get<SsrPass>("ssr"); }
+  [[nodiscard]] SsrCore &ssr_pass() { return passes_.get<SsrCore>("ssr_trace"); }
   [[nodiscard]] FogCore &volumetric_fog_pass() { return passes_.get<FogCore>("fog_inject"); }
   [[nodiscard]] ContactShadowPass &contact_shadow_pass() { return passes_.get<ContactShadowPass>("contact_shadow"); }
   [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }
