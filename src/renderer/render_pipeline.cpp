@@ -104,9 +104,9 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     const bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
     {
         FJELL_PROFILE_SCOPE_N("rp_imports_fill");
-        auto add_import = [&](std::string name, VkImage img, VkImageView view,
+        auto add_import = [&](std::string_view name, VkImage img, VkImageView view,
                                VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
-            decl_ctx.imports.emplace(std::move(name),
+            decl_ctx.imports.emplace(fg_name_hash(name),
                 ImportedImage{img, view, aspect, 0, 1, 1, false});
         };
         add_import("color",        target.color_image(),        target.color_view());
@@ -147,7 +147,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 img.layer_count = 1;
                 img.mip_count = hiz->hiz_mip_count;
                 img.persistent = true;
-                decl_ctx.imports.emplace("hiz_pyramid", img);
+                decl_ctx.imports.emplace(fg_name_hash("hiz_pyramid"), img);
             }
         }
         // AO output image is per-viewport: look up the active pp_resources
@@ -166,7 +166,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 img.layer_count = 1;
                 img.mip_count = 1;
                 img.persistent = true;
-                decl_ctx.imports.emplace("gtao_ao", img);
+                decl_ctx.imports.emplace(fg_name_hash("gtao_ao"), img);
             }
         }
         // Fog scatter ping-pong volumes: same per-viewport-import pattern
@@ -175,7 +175,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         // integrate all target this frame.
         if (auto* fog = pp_resources->volumetric_fog()) {
             if (fog->scatter_volumes[0].view != VK_NULL_HANDLE) {
-                auto add_scatter = [&](const char* name, uint32_t idx) {
+                auto add_scatter = [&](std::string_view name, uint32_t idx) {
                     ImportedImage img{};
                     img.image = fog->scatter_volumes[idx].image;
                     img.view = fog->scatter_volumes[idx].view;
@@ -184,7 +184,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                     img.layer_count = 1;
                     img.mip_count = 1;
                     img.persistent = true;
-                    decl_ctx.imports.emplace(name, img);
+                    decl_ctx.imports.emplace(fg_name_hash(name), img);
                 };
                 add_scatter("fog_scatter_cur", fog->cur_index());
                 add_scatter("fog_scatter_prev", fog->prev_index());

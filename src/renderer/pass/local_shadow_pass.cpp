@@ -467,7 +467,7 @@ void LocalShadowPass::collect_exports(DeclareContext& ctx) {
     img.layer_count = 1;
     img.mip_count = 1;
     img.persistent = true;
-    ctx.imports.emplace("local_shadow_atlas", img);
+    ctx.imports.emplace(fg_name_hash("local_shadow_atlas"), img);
 }
 
 // ── Recording ──────────────────────────────────────────────────────────

@@ -692,7 +692,7 @@ void ShadowPass::collect_exports(DeclareContext& ctx) {
     img.layer_count = CASCADE_COUNT;
     img.mip_count = 1;
     img.persistent = true;
-    ctx.imports.emplace("shadow_atlas", img);
+    ctx.imports.emplace(fg_name_hash("shadow_atlas"), img);
 }
 
 } // namespace fjell

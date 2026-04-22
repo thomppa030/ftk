@@ -24,7 +24,7 @@ PassSetup MeshletCullPass2::setup() const {
 }
 
 void MeshletCullPass2::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    auto it = ctx.imports.find("hiz_pyramid");
+    auto it = ctx.imports.find(fg_name_hash("hiz_pyramid"));
     if (it != ctx.imports.end()) {
         auto hiz = builder.import_named(ctx, "hiz_pyramid");
         builder.read(hiz, ResourceAccess::sampled_compute);

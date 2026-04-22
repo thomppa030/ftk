@@ -878,7 +878,7 @@ void SkyCubemapPass::collect_exports(DeclareContext& ctx) {
     img.layer_count = 6;
     img.mip_count = mips;
     img.persistent = true;
-    ctx.imports.emplace("sky_cubemap", img);
+    ctx.imports.emplace(fg_name_hash("sky_cubemap"), img);
 }
 
 // ── HDRI environment map support ─────────────────────────────────────────
