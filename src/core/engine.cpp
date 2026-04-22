@@ -39,6 +39,7 @@ extern "C" void fjell_input_clear_connections();
 #include "renderer/bindless.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "renderer/render_settings.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/resources/material_asset.hpp"
 #include "renderer/components/mesh_component.hpp"
@@ -174,6 +175,10 @@ void Engine::init_project(const std::filesystem::path& project_path) {
         project_mgr_.open(project_path);
         if (project_mgr_.active()) {
             window_.set_title("Fjell - " + project_mgr_.active()->config().name);
+            // Push the project's saved render settings into the live pipeline.
+            // Safe here because VulkanContext + passes are already constructed
+            // (see Engine ctor order: vulkan_context_ before init_project).
+            vulkan_context_->set_render_settings(project_mgr_.active()->config().render);
         }
     }
 
@@ -1093,6 +1098,8 @@ void Engine::bind_menu_bar() {
     connections_.push_back(menu_bar_.on_save_project.bind(
         [this]() {
             if (project_mgr_.active()) {
+                snapshot_render_settings(*vulkan_context_,
+                                          project_mgr_.active()->config().render);
                 project_mgr_.active()->save();
             }
         }));
@@ -1332,6 +1339,8 @@ void Engine::draw_ui() {
     if (ImGui::GetIO().KeyCtrl && ImGui::GetIO().KeyShift
         && ImGui::IsKeyPressed(ImGuiKey_S)) {
         if (project_mgr_.active()) {
+            snapshot_render_settings(*vulkan_context_,
+                                      project_mgr_.active()->config().render);
             project_mgr_.active()->save();
         }
     }

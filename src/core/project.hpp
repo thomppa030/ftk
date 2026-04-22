@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/asset_database.hpp"
+#include "renderer/render_settings.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -22,6 +23,8 @@ struct ProjectConfig {
 
     std::string default_scene{"scenes/main.fjell"};
     std::string layout;
+
+    RenderSettings render;
 };
 
 class Project {

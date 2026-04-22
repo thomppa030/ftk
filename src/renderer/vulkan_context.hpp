@@ -124,6 +124,13 @@ public:
   [[nodiscard]] bool mesh_shaders_available() const { return gpu_.mesh_shaders_available(); }
   [[nodiscard]] bool use_mesh_shaders() const { return gpu_.use_mesh_shaders(); }
   void set_use_mesh_shaders(bool enable);
+
+  // Apply a project's RenderSettings blob in one shot — called by
+  // Engine::init_project after passes are up. Walks the struct and
+  // calls existing setters; MSAA is not applied (would require
+  // swapchain/offscreen recreation) and stays as whatever the engine
+  // initialized with.
+  void set_render_settings(const struct RenderSettings& s);
   [[nodiscard]] MegaBuffer *mega_buffer() { return gpu_.mega_buffer(); }
   [[nodiscard]] MeshletBuffer *meshlet_buffer() { return gpu_.meshlet_buffer(); }
   [[nodiscard]] PipelineCache *pipeline_cache() { return gpu_.pipeline_cache(); }

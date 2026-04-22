@@ -164,6 +164,7 @@ add_executable(fjell
     renderer/pass_registry.cpp
     renderer/pass_setup.cpp
     renderer/render_pipeline.cpp
+    renderer/render_settings.cpp
     renderer/scene_gatherer.cpp
     renderer/vulkan_context.cpp
     animation/skeleton.cpp

@@ -55,6 +55,9 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
         config.name = j.value("name", "Untitled");
         config.default_scene = j.value("default_scene", "scenes/main.fjell");
         config.layout = j.value("layout", "");
+        if (j.contains("render")) {
+            from_json(j["render"], config.render);
+        }
 
         FJELL_CORE_INFO("Project opened: {} ({})", config.name, root.string());
         auto project = Project(root, config);
@@ -95,6 +98,7 @@ void Project::save() const {
     if (!config_.layout.empty()) {
         j["layout"] = config_.layout;
     }
+    to_json(j["render"], config_.render);
 
     std::ofstream file(path);
     if (!file.is_open()) {

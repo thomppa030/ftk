@@ -1,5 +1,6 @@
 #include "renderer/vulkan_context.hpp"
 #include "renderer/pass_setup.hpp"
+#include "renderer/render_settings.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "scripting/debug_draw_queue.hpp"
@@ -173,6 +174,45 @@ void VulkanContext::set_use_mesh_shaders(bool enable) {
 
         FJELL_GFX_INFO("Meshlet passes created (lazy init)");
     }
+}
+
+void VulkanContext::set_render_settings(const RenderSettings& s) {
+    // Quality
+    if (s.mesh_shaders != gpu_.use_mesh_shaders()) {
+        set_use_mesh_shaders(s.mesh_shaders);
+    }
+    if (auto* cp = cull_pass()) {
+        cp->set_enabled(s.gpu_cull);
+    }
+    // MSAA intentionally not applied — requires pipeline + offscreen
+    // recreation we don't support yet. Project's stored value becomes
+    // effective on next engine launch via gpu_context's init-time read.
+
+    // Global illumination
+    ddgi_pass().config().enabled               = s.ddgi.enabled;
+    ddgi_pass().config().gi_intensity          = s.ddgi.gi_intensity;
+    ddgi_pass().config().emissive_gi_boost     = s.ddgi.emissive_gi_boost;
+    ddgi_pass().config().infinite_bounces_mult = s.ddgi.infinite_bounces_mult;
+
+    ss_gi_pass().config().enabled        = s.ss_gi.enabled;
+    ss_gi_pass().config().intensity      = s.ss_gi.intensity;
+    ss_gi_pass().config().max_trace_dist = s.ss_gi.max_trace_dist;
+    ss_gi_pass().config().hysteresis     = s.ss_gi.hysteresis;
+
+    // Post-processing
+    gtao_pass().set_enabled(s.gtao.enabled);
+    bloom_pass().set_enabled(s.bloom.enabled);
+    ssr_pass().set_enabled(s.ssr.enabled);
+    ssr_pass().set_intensity(s.ssr.intensity);
+    ssr_pass().set_thickness(s.ssr.thickness);
+
+    // Tonemap
+    tonemap_pass().set_auto_exposure(s.tonemap.auto_exposure);
+    tonemap_pass().set_exposure(s.tonemap.exposure_ev);
+    tonemap_pass().set_adaptation_speed(s.tonemap.adaptation_speed);
+
+    // Frame graph
+    render_pipeline_.set_aliasing_enabled(s.frame_graph_aliasing);
 }
 
 void VulkanContext::sync_sprite_textures(Scene& scene, ResourceManager& resources, const Project* project) {
