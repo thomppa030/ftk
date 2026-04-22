@@ -9,6 +9,12 @@
 #define FJELL_PROFILE_SCOPE       ZoneScoped
 #define FJELL_PROFILE_SCOPE_N(name) ZoneScopedN(name)
 
+// Dynamic-name CPU zone — label is computed at runtime (per-pass
+// names during DAG declare/submit, per-viewport IDs, etc). Costs a
+// strlen() per frame; prefer FJELL_PROFILE_SCOPE_N for fixed names.
+#define FJELL_PROFILE_SCOPE_DYNAMIC(name_cstr) \
+    ZoneTransientN(___tracy_cpu_zone_transient, name_cstr, true)
+
 // GPU zone around a Vulkan record path. Requires a `FrameContext& ctx`
 // in scope (for `ctx.tracy_ctx` and `ctx.cmd`) and that the translation
 // unit has already included `<tracy/TracyVulkan.hpp>` — which in turn
@@ -33,6 +39,7 @@
 #define FJELL_PROFILE_FRAME         (void)0
 #define FJELL_PROFILE_SCOPE         (void)0
 #define FJELL_PROFILE_SCOPE_N(name) (void)0
+#define FJELL_PROFILE_SCOPE_DYNAMIC(name) (void)0
 #define FJELL_GPU_ZONE(ctx, name)          (void)0
 #define FJELL_GPU_ZONE_DYNAMIC(ctx, name)  (void)0
 

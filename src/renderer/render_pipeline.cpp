@@ -223,7 +223,10 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             } else {
                 pp.builder.queue(QueueType::graphics);
             }
-            p->declare(pp.builder, decl_ctx);
+            {
+                FJELL_PROFILE_SCOPE_DYNAMIC(entries_[i].name.c_str());
+                p->declare(pp.builder, decl_ctx);
+            }
             pending.push_back(std::move(pp));
         }
     }
