@@ -102,39 +102,41 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     const bool has_msaa = (msaa != VK_SAMPLE_COUNT_1_BIT);
-    auto add_import = [&](std::string name, VkImage img, VkImageView view,
-                           VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
-        decl_ctx.imports.emplace(std::move(name),
-            ImportedImage{img, view, aspect, 0, 1, 1, false});
-    };
-    add_import("color",        target.color_image(),        target.color_view());
-    add_import("depth",        target.depth_image(),        target.depth_view(),
-               VK_IMAGE_ASPECT_DEPTH_BIT);
-    add_import("mr",           target.mr_image(),           target.mr_view());
-    add_import("normal",       target.normal_image(),       target.normal_view());
-    add_import("velocity",     target.velocity_image(),     target.velocity_view());
-    add_import("screen_color", target.screen_color_image(), target.screen_color_view());
-    add_import("distortion",   target.distortion_image(),   target.distortion_view());
-    if (has_msaa) {
-        add_import("msaa_color",    target.msaa_color_image(),    target.msaa_color_view());
-        add_import("msaa_depth",    target.msaa_depth_image(),    target.msaa_depth_view(),
+    {
+        FJELL_PROFILE_SCOPE_N("rp_imports_fill");
+        auto add_import = [&](std::string name, VkImage img, VkImageView view,
+                               VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
+            decl_ctx.imports.emplace(std::move(name),
+                ImportedImage{img, view, aspect, 0, 1, 1, false});
+        };
+        add_import("color",        target.color_image(),        target.color_view());
+        add_import("depth",        target.depth_image(),        target.depth_view(),
                    VK_IMAGE_ASPECT_DEPTH_BIT);
-        add_import("msaa_mr",       target.msaa_mr_image(),       target.msaa_mr_view());
-        add_import("msaa_normal",   target.msaa_normal_image(),   target.msaa_normal_view());
-        add_import("msaa_velocity", target.msaa_velocity_image(), target.msaa_velocity_view());
-    } else {
-        // MSAA off: the msaa_* slots alias the non-MSAA images so
-        // passes that unconditionally import by the msaa name still
-        // resolve to a valid VkImage.
-        add_import("msaa_color",    target.color_image(),    target.color_view());
-        add_import("msaa_depth",    target.depth_image(),    target.depth_view(),
-                   VK_IMAGE_ASPECT_DEPTH_BIT);
-        add_import("msaa_mr",       target.mr_image(),       target.mr_view());
-        add_import("msaa_normal",   target.normal_image(),   target.normal_view());
-        add_import("msaa_velocity", target.velocity_image(), target.velocity_view());
-    }
+        add_import("mr",           target.mr_image(),           target.mr_view());
+        add_import("normal",       target.normal_image(),       target.normal_view());
+        add_import("velocity",     target.velocity_image(),     target.velocity_view());
+        add_import("screen_color", target.screen_color_image(), target.screen_color_view());
+        add_import("distortion",   target.distortion_image(),   target.distortion_view());
+        if (has_msaa) {
+            add_import("msaa_color",    target.msaa_color_image(),    target.msaa_color_view());
+            add_import("msaa_depth",    target.msaa_depth_image(),    target.msaa_depth_view(),
+                       VK_IMAGE_ASPECT_DEPTH_BIT);
+            add_import("msaa_mr",       target.msaa_mr_image(),       target.msaa_mr_view());
+            add_import("msaa_normal",   target.msaa_normal_image(),   target.msaa_normal_view());
+            add_import("msaa_velocity", target.msaa_velocity_image(), target.msaa_velocity_view());
+        } else {
+            // MSAA off: the msaa_* slots alias the non-MSAA images so
+            // passes that unconditionally import by the msaa name still
+            // resolve to a valid VkImage.
+            add_import("msaa_color",    target.color_image(),    target.color_view());
+            add_import("msaa_depth",    target.depth_image(),    target.depth_view(),
+                       VK_IMAGE_ASPECT_DEPTH_BIT);
+            add_import("msaa_mr",       target.mr_image(),       target.mr_view());
+            add_import("msaa_normal",   target.normal_image(),   target.normal_view());
+            add_import("msaa_velocity", target.velocity_image(), target.velocity_view());
+        }
 
-    if (pp_resources != nullptr) {
+        if (pp_resources != nullptr) {
         if (auto* hiz = pp_resources->hiz()) {
             if (hiz->ready() && hiz->hiz_sampled_view != VK_NULL_HANDLE) {
                 ImportedImage img{};
@@ -190,7 +192,8 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         }
     }
 
-    passes.collect_exports_all(decl_ctx);
+        passes.collect_exports_all(decl_ctx);
+    }
 
     // ── Collect declared passes + run DAG sort ────────────────────────
     struct PendingPass {
@@ -201,25 +204,28 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     std::vector<PendingPass> pending;
     pending.reserve(entries_.size());
 
-    for (size_t i = 0; i < entries_.size(); ++i) {
-        auto* p = entries_[i].pass;
-        if (p == nullptr) { continue; }
-        if (!state_for(entries_[i].name).enabled) { continue; }
-        PendingPass pp;
-        pp.entry_index = i;
-        pp.pass = p;
-        // Seed the builder's queue from the pass's async hint. Declare
-        // can override if it wants (unusual), but the default is what
-        // setup() advertised. Without an async-capable device, fall
-        // through to graphics unconditionally.
-        auto setup = p->setup();
-        if (async_compute_available && setup.async_hint == AsyncComputeHint::Prefer) {
-            pp.builder.queue(QueueType::async_compute);
-        } else {
-            pp.builder.queue(QueueType::graphics);
+    {
+        FJELL_PROFILE_SCOPE_N("rp_declare_loop");
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            auto* p = entries_[i].pass;
+            if (p == nullptr) { continue; }
+            if (!state_for(entries_[i].name).enabled) { continue; }
+            PendingPass pp;
+            pp.entry_index = i;
+            pp.pass = p;
+            // Seed the builder's queue from the pass's async hint. Declare
+            // can override if it wants (unusual), but the default is what
+            // setup() advertised. Without an async-capable device, fall
+            // through to graphics unconditionally.
+            auto setup = p->setup();
+            if (async_compute_available && setup.async_hint == AsyncComputeHint::Prefer) {
+                pp.builder.queue(QueueType::async_compute);
+            } else {
+                pp.builder.queue(QueueType::graphics);
+            }
+            p->declare(pp.builder, decl_ctx);
+            pending.push_back(std::move(pp));
         }
-        p->declare(pp.builder, decl_ctx);
-        pending.push_back(std::move(pp));
     }
 
     // Resource identity for topological sort. Imported images are keyed by
@@ -271,44 +277,47 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         return k.image != VK_NULL_HANDLE || !k.virtual_name.empty();
     };
 
-    std::unordered_map<ResKey, size_t, ResKeyHash> last_writer;
-    for (size_t j = 0; j < n; ++j) {
-        const auto& b = pending[j].builder;
-        for (const auto& acc : b.texture_accesses()) {
-            ResKey k = resolve_key(b, acc.handle);
-            if (!key_valid(k)) { continue; }
-            if (access_is_read(acc.access)) {
-                auto it = last_writer.find(k);
-                if (it != last_writer.end() && it->second != j) {
-                    adj[it->second].push_back(j);
-                    ++in_degree[j];
-                }
-            }
-            if (access_is_write(acc.access)) {
-                last_writer[k] = j;
-            }
-        }
-    }
-
-    // Kahn's algorithm. Tiebreaker = original entry index — preserves
-    // the legacy phase+sub_order ordering for passes the DAG can't
-    // constrain (empty-access viz passes, SSBO-only passes waiting on
-    // Phase 3 buffer tracking).
-    auto cmp = [&pending](size_t a, size_t b) {
-        return pending[a].entry_index > pending[b].entry_index;
-    };
-    std::priority_queue<size_t, std::vector<size_t>, decltype(cmp)> pq(cmp);
-    for (size_t i = 0; i < n; ++i) {
-        if (in_degree[i] == 0) { pq.push(i); }
-    }
     std::vector<size_t> dag_order;
     dag_order.reserve(n);
-    while (!pq.empty()) {
-        size_t idx = pq.top();
-        pq.pop();
-        dag_order.push_back(idx);
-        for (size_t next : adj[idx]) {
-            if (--in_degree[next] == 0) { pq.push(next); }
+    {
+        FJELL_PROFILE_SCOPE_N("rp_dag_sort");
+        std::unordered_map<ResKey, size_t, ResKeyHash> last_writer;
+        for (size_t j = 0; j < n; ++j) {
+            const auto& b = pending[j].builder;
+            for (const auto& acc : b.texture_accesses()) {
+                ResKey k = resolve_key(b, acc.handle);
+                if (!key_valid(k)) { continue; }
+                if (access_is_read(acc.access)) {
+                    auto it = last_writer.find(k);
+                    if (it != last_writer.end() && it->second != j) {
+                        adj[it->second].push_back(j);
+                        ++in_degree[j];
+                    }
+                }
+                if (access_is_write(acc.access)) {
+                    last_writer[k] = j;
+                }
+            }
+        }
+
+        // Kahn's algorithm. Tiebreaker = original entry index — preserves
+        // the legacy phase+sub_order ordering for passes the DAG can't
+        // constrain (empty-access viz passes, SSBO-only passes waiting on
+        // Phase 3 buffer tracking).
+        auto cmp = [&pending](size_t a, size_t b) {
+            return pending[a].entry_index > pending[b].entry_index;
+        };
+        std::priority_queue<size_t, std::vector<size_t>, decltype(cmp)> pq(cmp);
+        for (size_t i = 0; i < n; ++i) {
+            if (in_degree[i] == 0) { pq.push(i); }
+        }
+        while (!pq.empty()) {
+            size_t idx = pq.top();
+            pq.pop();
+            dag_order.push_back(idx);
+            for (size_t next : adj[idx]) {
+                if (--in_degree[next] == 0) { pq.push(next); }
+            }
         }
     }
 
@@ -336,6 +345,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // been thrown away anyway.
     std::vector<bool> alive(n, false);
     {
+        FJELL_PROFILE_SCOPE_N("rp_pass_cull");
         std::vector<size_t> work;
         work.reserve(n);
 
@@ -405,6 +415,8 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // ── Dispatch to the FrameGraph ────────────────────────────────────
     FrameGraph graph;
     graph.set_aliasing_enabled(aliasing_enabled_);
+    {
+    FJELL_PROFILE_SCOPE_N("rp_graph_submit");
     auto color_id        = graph.register_image(target.color_image());
     auto msaa_color_id   = has_msaa ? graph.register_image(target.msaa_color_image()) : color_id;
     auto depth_id        = graph.register_image(target.depth_image(), VK_IMAGE_ASPECT_DEPTH_BIT);
@@ -445,12 +457,14 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                 p->record(local);
             });
     }
+    } // rp_graph_submit
 
     // Allocate a VkImage per alias group from the cross-frame pool and
     // register each logical resource under the name it was declared
     // with. Passes rewire their record() reads through
     // ctx.registry->image_view(name) in C3.3+.
     if (ctx.transient_pool != nullptr) {
+        FJELL_PROFILE_SCOPE_N("rp_alias_bind");
         ctx.transient_pool->begin_frame(target.extent());
         const auto groups = graph.compute_alias_groups();
         const auto lifetimes = graph.compute_lifetimes();
