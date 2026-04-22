@@ -194,6 +194,7 @@ public:
     struct CreatedTexture {
         FgTexture handle;
         std::string name;
+        uint64_t name_hash;  // FNV-1a of name, computed in create()
         TextureDesc desc;
     };
     struct CreatedBuffer {

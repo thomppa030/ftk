@@ -235,14 +235,19 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // logical transient (one calls create("foo"), the other reads "foo" by
     // create'ing it again in its declare, or vice versa) resolve to the
     // same key and the DAG sort / liveness walk sees the edge.
+    // Virtual (created) resources use a 64-bit FNV-1a of the name as the
+    // key, hashed once in PassBuilder::create(). The DAG sort + cull hit
+    // the unordered_map hundreds of times per frame; string hashing +
+    // comparison was showing up as ~13µs/frame in Tracy before this.
     struct ResKey {
         VkImage image{VK_NULL_HANDLE};
         uint32_t base_layer{0};
         uint32_t layer_count{0};
-        std::string virtual_name;  // non-empty iff image == VK_NULL_HANDLE
+        uint64_t virtual_name_hash{0};  // non-zero iff image == VK_NULL_HANDLE
         bool operator==(const ResKey& o) const noexcept {
             return image == o.image && base_layer == o.base_layer
-                && layer_count == o.layer_count && virtual_name == o.virtual_name;
+                && layer_count == o.layer_count
+                && virtual_name_hash == o.virtual_name_hash;
         }
     };
     struct ResKeyHash {
@@ -250,7 +255,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             auto h1 = std::hash<void*>{}(static_cast<void*>(k.image));
             auto h2 = std::hash<uint32_t>{}(k.base_layer);
             auto h3 = std::hash<uint32_t>{}(k.layer_count);
-            auto h4 = std::hash<std::string>{}(k.virtual_name);
+            auto h4 = std::hash<uint64_t>{}(k.virtual_name_hash);
             return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3);
         }
     };
@@ -262,19 +267,19 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     auto resolve_key = [](const PassBuilder& b, FgTexture h) -> ResKey {
         for (const auto& imp : b.imported_textures()) {
             if (imp.handle.id == h.id) {
-                return {imp.image, imp.base_layer, imp.layer_count, {}};
+                return {imp.image, imp.base_layer, imp.layer_count, 0};
             }
         }
         for (const auto& cre : b.created_textures()) {
             if (cre.handle.id == h.id) {
-                return {VK_NULL_HANDLE, 0, 0, cre.name};
+                return {VK_NULL_HANDLE, 0, 0, cre.name_hash};
             }
         }
-        return {VK_NULL_HANDLE, 0, 0, {}};
+        return {VK_NULL_HANDLE, 0, 0, 0};
     };
 
     auto key_valid = [](const ResKey& k) {
-        return k.image != VK_NULL_HANDLE || !k.virtual_name.empty();
+        return k.image != VK_NULL_HANDLE || k.virtual_name_hash != 0;
     };
 
     std::vector<size_t> dag_order;

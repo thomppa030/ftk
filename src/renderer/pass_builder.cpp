@@ -6,9 +6,30 @@
 
 namespace fjell {
 
+namespace {
+// FNV-1a over a string_view. Used to key transient resources by a cheap
+// 64-bit hash instead of the string itself — the DAG machinery does a
+// lot of (writer/reader) lookups per frame, and the strings are all
+// short (`"bloom_mip_0"`, `"gtao_ao"`...) so collisions among ~20 names
+// are astronomically unlikely.
+constexpr uint64_t fnv1a64(std::string_view s) noexcept {
+    uint64_t h = 14695981039346656037ULL;
+    for (unsigned char b : s) {
+        h ^= static_cast<uint64_t>(b);
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+} // anonymous
+
 FgTexture PassBuilder::create(std::string_view name, const TextureDesc& desc) {
     FgTexture h{next_texture_id_++};
-    created_textures_.push_back({.handle = h, .name = std::string(name), .desc = desc});
+    created_textures_.push_back({
+        .handle = h,
+        .name = std::string(name),
+        .name_hash = fnv1a64(name),
+        .desc = desc,
+    });
     return h;
 }
 
