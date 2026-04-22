@@ -29,6 +29,21 @@ struct ImportedImage {
     bool persistent{false};
 };
 
+/// FNV-1a over a string_view. Used to key the DeclareContext::imports
+/// catalog and PassBuilder transient names by a cheap 64-bit hash
+/// instead of std::string — declare() is a hot per-frame path that
+/// does hundreds of lookups, and the strings are all short and
+/// well-known so collisions among the handful of names in play are
+/// astronomically unlikely.
+constexpr uint64_t fg_name_hash(std::string_view s) noexcept {
+    uint64_t h = 14695981039346656037ULL;
+    for (unsigned char b : s) {
+        h ^= static_cast<uint64_t>(b);
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
 /// State visible during pass declaration. Intentionally smaller than
 /// FrameContext: only contains information that is legal to read when
 /// the graph is being built (no command buffer, no transient pointers).
@@ -73,7 +88,11 @@ struct DeclareContext {
     /// PassBuilder::import_named(ctx, "name") to attach an access, which
     /// lets the graph see the cross-pass edge and emit the barrier
     /// automatically instead of passes hand-rolling inline transitions.
-    std::unordered_map<std::string, ImportedImage> imports;
+    ///
+    /// Keyed by fg_name_hash(name) — declare() is a hot per-frame path
+    /// that walked 150+ map lookups on std::string keys before; this
+    /// drops string alloc + hashing entirely.
+    std::unordered_map<uint64_t, ImportedImage> imports;
 };
 
 /// Records a pass's imported/created resources and its accesses against

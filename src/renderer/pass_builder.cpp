@@ -6,28 +6,12 @@
 
 namespace fjell {
 
-namespace {
-// FNV-1a over a string_view. Used to key transient resources by a cheap
-// 64-bit hash instead of the string itself — the DAG machinery does a
-// lot of (writer/reader) lookups per frame, and the strings are all
-// short (`"bloom_mip_0"`, `"gtao_ao"`...) so collisions among ~20 names
-// are astronomically unlikely.
-constexpr uint64_t fnv1a64(std::string_view s) noexcept {
-    uint64_t h = 14695981039346656037ULL;
-    for (unsigned char b : s) {
-        h ^= static_cast<uint64_t>(b);
-        h *= 1099511628211ULL;
-    }
-    return h;
-}
-} // anonymous
-
 FgTexture PassBuilder::create(std::string_view name, const TextureDesc& desc) {
     FgTexture h{next_texture_id_++};
     created_textures_.push_back({
         .handle = h,
         .name = std::string(name),
-        .name_hash = fnv1a64(name),
+        .name_hash = fg_name_hash(name),
         .desc = desc,
     });
     return h;
@@ -61,10 +45,10 @@ FgTexture PassBuilder::import(std::string_view name, VkImage image, VkImageView 
 
 FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view name,
                                      VkImageLayout initial_layout) {
-    std::string key(name);
-    auto it = ctx.imports.find(key);
+    auto it = ctx.imports.find(fg_name_hash(name));
     if (it == ctx.imports.end()) {
-        FJELL_GFX_WARN("PassBuilder::import_named: unknown image '{}'", key.c_str());
+        FJELL_GFX_WARN("PassBuilder::import_named: unknown image '{}'",
+                       std::string(name));
         return FgTexture{};
     }
     FgTexture h{next_texture_id_++};
