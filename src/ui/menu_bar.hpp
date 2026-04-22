@@ -40,6 +40,7 @@ public:
     // ── Actions — Engine binds handlers ─────────────────────────────────
     Delegate<void()> on_save_scene;
     Delegate<void()> on_load_scene;
+    Delegate<void()> on_save_project;
     Delegate<void(const std::filesystem::path&)> on_open_project;
     Delegate<void(const std::filesystem::path&, const std::string&)> on_create_project;
     Delegate<void()> on_close_project;

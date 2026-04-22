@@ -54,6 +54,9 @@ void MenuBar::draw_project_menu() {
     if (ImGui::MenuItem("Open Project...")) {
         open_browser_.open("Open Project", FileBrowser::Mode::select_directory);
     }
+    if (project_ && ImGui::MenuItem("Save Project", "Ctrl+Shift+S")) {
+        on_save_project.broadcast();
+    }
     if (project_ && ImGui::MenuItem("Close Project")) {
         on_close_project.broadcast();
     }

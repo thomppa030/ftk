@@ -1090,6 +1090,12 @@ void Engine::bind_menu_bar() {
         }));
     connections_.push_back(menu_bar_.on_load_scene.bind(
         [this]() { load_scene(current_scene_path_); }));
+    connections_.push_back(menu_bar_.on_save_project.bind(
+        [this]() {
+            if (project_mgr_.active()) {
+                project_mgr_.active()->save();
+            }
+        }));
     connections_.push_back(menu_bar_.on_close_project.bind(
         [this]() { project_mgr_.close(); }));
     connections_.push_back(menu_bar_.on_build_game.bind(
@@ -1312,14 +1318,21 @@ void Engine::draw_ui() {
         window_.set_title(title);
     }
 
-    // Global shortcuts (Ctrl+S, Ctrl+Z/Y, Ctrl+Space)
-    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) {
+    // Global shortcuts (Ctrl+S, Ctrl+Shift+S, Ctrl+Z/Y, Ctrl+Space)
+    if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift
+        && ImGui::IsKeyPressed(ImGuiKey_S)) {
         active_context().save();
         if (&active_context() == scene_context_) {
             save_material_assets();
             if (auto r = scene_.save(current_scene_path_); !r) {
                 FJELL_CORE_ERROR("{}", r.error());
             }
+        }
+    }
+    if (ImGui::GetIO().KeyCtrl && ImGui::GetIO().KeyShift
+        && ImGui::IsKeyPressed(ImGuiKey_S)) {
+        if (project_mgr_.active()) {
+            project_mgr_.active()->save();
         }
     }
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space)) {
