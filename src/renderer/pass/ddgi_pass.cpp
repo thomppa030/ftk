@@ -1235,6 +1235,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // ── 2. Build TLAS + dispatch trace (RT or SDF) ──
     // Build TLAS if RT backend is active (BLAS building done in prepare_accel_structures)
     if (backend_ == DdgiBackend::ray_traced && accel_manager_ && ctx.queue && ctx.mega_buffer) {
+        FJELL_PROFILE_SCOPE_N("ddgi_tlas_build");
+        FJELL_GPU_ZONE(ctx, "DDGI TLAS Build");
         const auto& cmds = ctx.queue->commands();
         if (!cmds.empty()) {
             // Only include objects that rays can reach from the probe grid
@@ -1316,6 +1318,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   && imgs.rt_trace_set != VK_NULL_HANDLE;
 
     if (use_rt) {
+        FJELL_PROFILE_SCOPE_N("ddgi_trace_rt");
+        FJELL_GPU_ZONE(ctx, "DDGI Trace RT");
         // Update TLAS descriptor (changes every frame)
         VkWriteDescriptorSetAccelerationStructureKHR tlas_write_as{};
         tlas_write_as.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
@@ -1372,6 +1376,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                                      &sbt_raygen_, &sbt_miss_, &sbt_hit_, &sbt_callable_,
                                      width, height, 1);
     } else if (backend_ == DdgiBackend::sdf_fallback) {
+        FJELL_PROFILE_SCOPE_N("ddgi_trace_sdf");
+        FJELL_GPU_ZONE(ctx, "DDGI Trace SDF");
         // SDF fallback trace (only when explicitly configured for SDF)
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, trace_pipeline_);
         vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -1436,24 +1442,32 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     } update_push{is_first_frame_ ? 1U : 0U, MAX_TRACE_DIST};
 
     // ── 5. Dispatch irradiance update ──
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, irradiance_update_pipeline_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
-    vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(update_push), &update_push);
-    vkCmdDispatch(ctx.cmd,
-                  (static_cast<uint32_t>(imgs.irr_width) + 7) / 8,
-                  (static_cast<uint32_t>(imgs.irr_height) + 7) / 8, 1);
+    {
+        FJELL_PROFILE_SCOPE_N("ddgi_update_irradiance");
+        FJELL_GPU_ZONE(ctx, "DDGI Update Irradiance");
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, irradiance_update_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+        vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(update_push), &update_push);
+        vkCmdDispatch(ctx.cmd,
+                      (static_cast<uint32_t>(imgs.irr_width) + 7) / 8,
+                      (static_cast<uint32_t>(imgs.irr_height) + 7) / 8, 1);
+    }
 
     // ── 6. Dispatch visibility update ──
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, visibility_update_pipeline_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
-    vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(update_push), &update_push);
-    vkCmdDispatch(ctx.cmd,
-                  (static_cast<uint32_t>(imgs.vis_width) + 7) / 8,
-                  (static_cast<uint32_t>(imgs.vis_height) + 7) / 8, 1);
+    {
+        FJELL_PROFILE_SCOPE_N("ddgi_update_visibility");
+        FJELL_GPU_ZONE(ctx, "DDGI Update Visibility");
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, visibility_update_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+        vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(update_push), &update_push);
+        vkCmdDispatch(ctx.cmd,
+                      (static_cast<uint32_t>(imgs.vis_width) + 7) / 8,
+                      (static_cast<uint32_t>(imgs.vis_height) + 7) / 8, 1);
+    }
 
     // ── 7. Barrier for probe offset/status computation ──
     barrier_memory();
@@ -1463,20 +1477,28 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 8. Dispatch probe offsets ──
     uint32_t total = static_cast<uint32_t>(imgs.total_probes);
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_offset_pipeline_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
-    vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(update_push), &update_push);
-    vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
+    {
+        FJELL_PROFILE_SCOPE_N("ddgi_probe_offsets");
+        FJELL_GPU_ZONE(ctx, "DDGI Probe Offsets");
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_offset_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+        vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(update_push), &update_push);
+        vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
+    }
 
     // ── 9. Dispatch probe status ──
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_status_pipeline_);
-    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-                            update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
-    vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                       0, sizeof(update_push), &update_push);
-    vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
+    {
+        FJELL_PROFILE_SCOPE_N("ddgi_probe_status");
+        FJELL_GPU_ZONE(ctx, "DDGI Probe Status");
+        vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, probe_status_pipeline_);
+        vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                update_pipeline_layout_, 0, 1, &imgs.update_set, 0, nullptr);
+        vkCmdPushConstants(ctx.cmd, update_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                           0, sizeof(update_push), &update_push);
+        vkCmdDispatch(ctx.cmd, (total + 31) / 32, 1, 1);
+    }
 
     // ── 10. Transition indirect image to GENERAL for sample output ──
     barrier_image(imgs.indirect_image,
@@ -1486,6 +1508,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 11. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
     if (!is_first_frame_) {
+        FJELL_PROFILE_SCOPE_N("ddgi_sample");
+        FJELL_GPU_ZONE(ctx, "DDGI Sample");
         // Update per-frame sample set descriptors (depth + normal change with viewport)
         VkDescriptorImageInfo s_depth{};
         s_depth.sampler = linear_sampler_;
