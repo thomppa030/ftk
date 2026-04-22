@@ -50,7 +50,7 @@ InputMappingEditorContext::InputMappingEditorContext(InputMappingEditorDeps deps
     : deps_{deps} {}
 
 void InputMappingEditorContext::init() {
-    init_shared_panels(deps_.vulkan_context);
+    init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
     history_panel().init(&command_history());
 }
 

@@ -61,6 +61,10 @@ void MenuBar::draw_project_menu() {
         on_close_project.broadcast();
     }
     ImGui::Separator();
+    if (project_ && ImGui::MenuItem("Settings")) {
+        on_open_settings.broadcast();
+    }
+    ImGui::Separator();
     if (project_ && ImGui::MenuItem("Build Game")) {
         on_build_game.broadcast();
     }

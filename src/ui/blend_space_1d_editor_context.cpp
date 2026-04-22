@@ -36,7 +36,7 @@ void BlendSpace1DEditorContext::init() {
                            deps_.vulkan_context->msaa_samples());
     viewport_manager_.add_viewport(ViewportSource::final_color, "BS1D Preview");
 
-    init_shared_panels(deps_.vulkan_context);
+    init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
     history_panel().init(&command_history());
 }
 

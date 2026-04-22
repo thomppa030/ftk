@@ -1,6 +1,5 @@
 #include "ui/stats_panel.hpp"
 #include "renderer/pipeline_cache.hpp"
-#include "renderer/render_pipeline.hpp"
 #include "renderer/render_stats.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
@@ -48,30 +47,18 @@ void StatsPanel::draw(float dt, const char* title) {
         ImGui::Text("Culled: %u/%u", stats.objects_culled, stats.objects_total);
         ImGui::SameLine(0, 20);
         ImGui::Text("MSAA: %ux", static_cast<uint32_t>(ctx_->msaa_samples()));
-        if (ctx_->mesh_shaders_available()) {
+        if (ctx_->mesh_shaders_available() && ctx_->use_mesh_shaders()) {
             ImGui::SameLine(0, 20);
-            bool mesh_on = ctx_->use_mesh_shaders();
-            if (ImGui::Checkbox("Mesh Shaders", &mesh_on)) {
-                ctx_->set_use_mesh_shaders(mesh_on);
+            ImGui::Text("Meshlets: %u", stats.meshlets_dispatched);
+            if (stats.two_pass_occlusion) {
+                ImGui::SameLine(0, 10);
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "2-Pass OC");
             }
-            if (mesh_on) {
+            if (stats.lod1_draws > 0 || stats.lod2_draws > 0 || stats.distance_culled > 0) {
                 ImGui::SameLine(0, 10);
-                ImGui::Text("Meshlets: %u", stats.meshlets_dispatched);
-                ImGui::SameLine(0, 10);
-                bool gpu_cull = ctx_->cull_pass()->enabled();
-                if (ImGui::Checkbox("GPU Cull", &gpu_cull)) {
-                    ctx_->cull_pass()->set_enabled(gpu_cull);
-                }
-                if (stats.two_pass_occlusion) {
-                    ImGui::SameLine(0, 10);
-                    ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "2-Pass OC");
-                }
-                if (stats.lod1_draws > 0 || stats.lod2_draws > 0 || stats.distance_culled > 0) {
-                    ImGui::SameLine(0, 10);
-                    ImGui::Text("LOD: %u/%u/%u D:%u",
-                                stats.lod0_draws, stats.lod1_draws, stats.lod2_draws,
-                                stats.distance_culled);
-                }
+                ImGui::Text("LOD: %u/%u/%u D:%u",
+                            stats.lod0_draws, stats.lod1_draws, stats.lod2_draws,
+                            stats.distance_culled);
             }
         }
 
@@ -91,85 +78,6 @@ void StatsPanel::draw(float dt, const char* title) {
                     ImGui::PopStyleColor();
                 }
             }
-        }
-
-        // Render pass controls
-        if (ImGui::CollapsingHeader("Render Passes")) {
-            auto& gtao = ctx_->gtao_pass();
-            bool gtao_on = gtao.enabled();
-            if (ImGui::Checkbox("GTAO", &gtao_on)) gtao.set_enabled(gtao_on);
-
-            auto& ssr = ctx_->ssr_pass();
-            bool ssr_on = ssr.enabled();
-            if (ImGui::Checkbox("SSR", &ssr_on)) ssr.set_enabled(ssr_on);
-            if (ssr_on) {
-                float intensity = ssr.intensity();
-                if (ImGui::SliderFloat("Intensity##ssr", &intensity, 0.0f, 2.0f)) ssr.set_intensity(intensity);
-                float thickness = ssr.thickness();
-                if (ImGui::SliderFloat("Thickness##ssr", &thickness, 0.01f, 2.0f)) ssr.set_thickness(thickness);
-            }
-
-            auto& bloom = ctx_->bloom_pass();
-            bool bloom_on = bloom.enabled();
-            if (ImGui::Checkbox("Bloom", &bloom_on)) bloom.set_enabled(bloom_on);
-
-            auto& ddgi_cfg = ctx_->ddgi_pass().config();
-            ImGui::Checkbox("DDGI", &ddgi_cfg.enabled);
-            if (ddgi_cfg.enabled) {
-                ImGui::SliderFloat("GI Intensity", &ddgi_cfg.gi_intensity, 0.01f, 2.0f);
-                ImGui::SliderFloat("Emissive GI Boost", &ddgi_cfg.emissive_gi_boost, 1.0f, 30.0f);
-                ImGui::SliderFloat("GI Bounces", &ddgi_cfg.infinite_bounces_mult, 0.0f, 3.0f);
-            }
-
-            auto& ss_gi_cfg = ctx_->ss_gi_pass().config();
-            bool ss_gi_on = ss_gi_cfg.enabled;
-            if (ImGui::Checkbox("SS-GI", &ss_gi_on)) ss_gi_cfg.enabled = ss_gi_on;
-            if (ss_gi_on) {
-                ImGui::SliderFloat("SS-GI Intensity", &ss_gi_cfg.intensity, 0.0f, 10.0f);
-                ImGui::SliderFloat("Max Trace Dist", &ss_gi_cfg.max_trace_dist, 1.0f, 100.0f);
-                ImGui::SliderFloat("Hysteresis", &ss_gi_cfg.hysteresis, 0.0f, 1.0f);
-            }
-
-            auto& tonemap = ctx_->tonemap_pass();
-            bool auto_exp = tonemap.auto_exposure();
-            if (ImGui::Checkbox("Auto Exposure", &auto_exp))
-                tonemap.set_auto_exposure(auto_exp);
-            if (!auto_exp) {
-                float ev = tonemap.exposure();
-                if (ImGui::SliderFloat("Exposure (EV)", &ev, -5.0f, 5.0f, "%.1f"))
-                    tonemap.set_exposure(ev);
-            } else {
-                ImGui::Text("EV: %.2f", tonemap.exposure());
-                float speed = tonemap.adaptation_speed();
-                if (ImGui::SliderFloat("Adaptation Speed", &speed, 0.1f, 5.0f))
-                    tonemap.set_adaptation_speed(speed);
-            }
-        }
-
-        if (ImGui::CollapsingHeader("Frame Graph")) {
-            auto& pipeline = ctx_->render_pipeline();
-            bool aliasing = pipeline.aliasing_enabled();
-            if (ImGui::Checkbox("Aliasing", &aliasing)) {
-                pipeline.set_aliasing_enabled(aliasing);
-            }
-            ImGui::SameLine(0, 10);
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("When off, each transient image gets its own VkImage.\n"
-                                  "Use to isolate regressions caused by aliasing reuse.");
-            }
-
-            const auto& st = pipeline.aliasing_stats();
-            const float ratio = st.logical_count == 0 ? 0.0f
-                : 100.0f * (1.0f - (static_cast<float>(st.physical_count)
-                                     / static_cast<float>(st.logical_count)));
-            ImGui::Text("Logical: %u  Physical: %u  (%.1f%% reduction)",
-                        st.logical_count, st.physical_count, ratio);
-            ImGui::Text("Pool: %u live, %.1f MiB",
-                        st.live_images,
-                        static_cast<double>(st.live_bytes) / (1024.0 * 1024.0));
-            ImGui::Text("Acquires: %u  New allocs: %u",
-                        st.acquires, st.allocations);
         }
     }
     ImGui::End();

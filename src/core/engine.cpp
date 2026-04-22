@@ -1105,6 +1105,10 @@ void Engine::bind_menu_bar() {
         }));
     connections_.push_back(menu_bar_.on_close_project.bind(
         [this]() { project_mgr_.close(); }));
+    connections_.push_back(menu_bar_.on_open_settings.bind(
+        [this]() {
+            active_context().project_settings_panel().toggle();
+        }));
     connections_.push_back(menu_bar_.on_build_game.bind(
         [this]() {
             if (project_mgr_.active()) {

@@ -1,0 +1,145 @@
+#include "ui/project_settings_panel.hpp"
+
+#include "core/project_manager.hpp"
+#include "core/project.hpp"
+#include "renderer/render_settings.hpp"
+#include "renderer/vulkan_context.hpp"
+
+#include <imgui.h>
+
+namespace fjell {
+
+void ProjectSettingsPanel::init(VulkanContext* vk, ProjectManager* projects) {
+    vk_ = vk;
+    projects_ = projects;
+}
+
+void ProjectSettingsPanel::draw(const char* title) {
+    if (!visible_) { return; }
+    ImGui::SetNextWindowSize(ImVec2(340, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin(title, &visible_)) {
+        if (projects_ == nullptr || projects_->active() == nullptr) {
+            ImGui::TextDisabled("No project open.");
+            ImGui::TextWrapped("Open or create a project via the Project menu to edit settings.");
+        } else {
+            ImGui::TextDisabled("Project: %s", projects_->active()->config().name.c_str());
+            ImGui::TextDisabled("Ctrl+Shift+S to persist changes to project.fjell.");
+            ImGui::Separator();
+            draw_render_section();
+        }
+    }
+    ImGui::End();
+}
+
+// Any edit in this section writes to the project's RenderSettings AND
+// re-applies the whole blob through VulkanContext — cheap, keeps the
+// live pipeline in sync with what the project will save.
+void ProjectSettingsPanel::draw_render_section() {
+    if (!ImGui::CollapsingHeader("Rendering", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    auto& s = projects_->active()->config().render;
+    bool dirty = false;
+
+    // ── Quality ────────────────────────────────────────────────────────
+    if (ImGui::TreeNodeEx("Quality", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // MSAA display-only: runtime changes would need swapchain + offscreen
+        // recreation we don't support yet. Stored value applies on next launch.
+        ImGui::Text("MSAA: %ux (fixed at launch)", static_cast<uint32_t>(s.msaa_samples));
+
+        if (vk_->mesh_shaders_available()) {
+            if (ImGui::Checkbox("Mesh Shaders", &s.mesh_shaders)) { dirty = true; }
+        } else {
+            ImGui::BeginDisabled();
+            bool off = false;
+            ImGui::Checkbox("Mesh Shaders (unsupported)", &off);
+            ImGui::EndDisabled();
+        }
+        if (ImGui::Checkbox("GPU Culling", &s.gpu_cull)) { dirty = true; }
+
+        ImGui::TreePop();
+    }
+
+    // ── Global Illumination ────────────────────────────────────────────
+    if (ImGui::TreeNodeEx("Global Illumination", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Checkbox("DDGI", &s.ddgi.enabled)) { dirty = true; }
+        if (s.ddgi.enabled) {
+            ImGui::Indent();
+            if (ImGui::SliderFloat("GI Intensity##ddgi", &s.ddgi.gi_intensity, 0.0f, 2.0f)) { dirty = true; }
+            if (ImGui::SliderFloat("Emissive Boost##ddgi", &s.ddgi.emissive_gi_boost, 1.0f, 30.0f)) { dirty = true; }
+            if (ImGui::SliderFloat("Infinite Bounces##ddgi", &s.ddgi.infinite_bounces_mult, 0.0f, 3.0f)) { dirty = true; }
+            ImGui::Unindent();
+        }
+
+        if (ImGui::Checkbox("SS-GI", &s.ss_gi.enabled)) { dirty = true; }
+        if (s.ss_gi.enabled) {
+            ImGui::Indent();
+            if (ImGui::SliderFloat("Intensity##ssgi", &s.ss_gi.intensity, 0.0f, 10.0f)) { dirty = true; }
+            if (ImGui::SliderFloat("Max Trace Dist##ssgi", &s.ss_gi.max_trace_dist, 1.0f, 100.0f)) { dirty = true; }
+            if (ImGui::SliderFloat("Hysteresis##ssgi", &s.ss_gi.hysteresis, 0.0f, 1.0f)) { dirty = true; }
+            ImGui::Unindent();
+        }
+
+        ImGui::TreePop();
+    }
+
+    // ── Post-Processing ────────────────────────────────────────────────
+    if (ImGui::TreeNodeEx("Post-Processing", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Checkbox("GTAO", &s.gtao.enabled)) { dirty = true; }
+        if (ImGui::Checkbox("Bloom", &s.bloom.enabled)) { dirty = true; }
+        if (ImGui::Checkbox("SSR", &s.ssr.enabled)) { dirty = true; }
+        if (s.ssr.enabled) {
+            ImGui::Indent();
+            if (ImGui::SliderFloat("Intensity##ssr", &s.ssr.intensity, 0.0f, 2.0f)) { dirty = true; }
+            if (ImGui::SliderFloat("Thickness##ssr", &s.ssr.thickness, 0.01f, 2.0f)) { dirty = true; }
+            ImGui::Unindent();
+        }
+        ImGui::TreePop();
+    }
+
+    // ── Tonemap ────────────────────────────────────────────────────────
+    if (ImGui::TreeNodeEx("Tonemap", ImGuiTreeNodeFlags_DefaultOpen)) {
+        if (ImGui::Checkbox("Auto Exposure", &s.tonemap.auto_exposure)) { dirty = true; }
+        if (!s.tonemap.auto_exposure) {
+            if (ImGui::SliderFloat("Exposure (EV)", &s.tonemap.exposure_ev, -5.0f, 5.0f, "%.1f")) { dirty = true; }
+        } else {
+            // Read current EV back from the pass for visual feedback (auto
+            // exposure drives the value — panel only controls the ceiling
+            // and the adaptation rate).
+            ImGui::Text("EV: %.2f", vk_->tonemap_pass().exposure());
+            if (ImGui::SliderFloat("Adaptation Speed", &s.tonemap.adaptation_speed, 0.1f, 5.0f)) { dirty = true; }
+        }
+        ImGui::TreePop();
+    }
+
+    // ── Frame Graph ────────────────────────────────────────────────────
+    if (ImGui::TreeNodeEx("Frame Graph")) {
+        if (ImGui::Checkbox("Aliasing", &s.frame_graph_aliasing)) { dirty = true; }
+        ImGui::SameLine(0, 10);
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("When off, each transient image gets its own VkImage.\n"
+                              "Use to isolate regressions caused by aliasing reuse.");
+        }
+
+        const auto& st = vk_->render_pipeline().aliasing_stats();
+        const float ratio = st.logical_count == 0 ? 0.0f
+            : 100.0f * (1.0f - (static_cast<float>(st.physical_count)
+                                 / static_cast<float>(st.logical_count)));
+        ImGui::Text("Logical: %u  Physical: %u  (%.1f%% reduction)",
+                    st.logical_count, st.physical_count, ratio);
+        ImGui::Text("Pool: %u live, %.1f MiB",
+                    st.live_images,
+                    static_cast<double>(st.live_bytes) / (1024.0 * 1024.0));
+        ImGui::Text("Acquires: %u  New allocs: %u",
+                    st.acquires, st.allocations);
+
+        ImGui::TreePop();
+    }
+
+    if (dirty) {
+        vk_->set_render_settings(s);
+    }
+}
+
+} // namespace fjell

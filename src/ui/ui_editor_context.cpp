@@ -33,7 +33,7 @@ UiEditorContext::UiEditorContext(UiEditorDeps deps)
 void UiEditorContext::init() {
     // Preview GameUi is initialized lazily when a .fjui file is opened
 
-    init_shared_panels(deps_.vulkan_context);
+    init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
     history_panel().init(&command_history());
 }
 
