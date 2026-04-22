@@ -9,6 +9,7 @@
 // mip 3) alias in the transient pool.
 
 #include "renderer/pass/bloom_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
@@ -344,6 +345,7 @@ void BloomDs0Pass::record(const FrameContext& ctx) {
     auto dst = resolve_mip(ctx, 0);
     if (dst.image == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_bloom_ds0");
     FJELL_GPU_ZONE(ctx, "Bloom Ds0");
 
     auto* cache = ctx.descriptor_cache;
@@ -395,6 +397,7 @@ void BloomDsPass::record(const FrameContext& ctx) {
     auto dst = resolve_mip(ctx, mip_index_);
     if (src.view == VK_NULL_HANDLE || dst.image == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_bloom_ds");
     char zone_name[16];
     std::snprintf(zone_name, sizeof(zone_name), "Bloom Ds%u", mip_index_);
     FJELL_GPU_ZONE_DYNAMIC(ctx, zone_name);
@@ -455,6 +458,7 @@ void BloomUsPass::record(const FrameContext& ctx) {
     auto dst = resolve_mip(ctx, dst_mip_);
     if (src.view == VK_NULL_HANDLE || dst.image == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_bloom_us");
     char zone_name[16];
     std::snprintf(zone_name, sizeof(zone_name), "Bloom Us%u", dst_mip_);
     FJELL_GPU_ZONE_DYNAMIC(ctx, zone_name);

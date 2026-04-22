@@ -1,4 +1,5 @@
 #include "renderer/pass/local_shadow_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu_context.hpp"
@@ -472,6 +473,7 @@ void LocalShadowPass::collect_exports(DeclareContext& ctx) {
 // ── Recording ──────────────────────────────────────────────────────────
 
 void LocalShadowPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_local_shadows");
     bool has_work = !spot_tiles_.empty() || !point_blocks_.empty();
     if (!has_work) {
         // No shadow-casting lights, but the atlas descriptor is still bound.

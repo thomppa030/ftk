@@ -1,4 +1,5 @@
 #include "renderer/pass/hiz_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -246,6 +247,7 @@ void HizPass::resize(uint32_t width, uint32_t height) {
 }
 
 void HizPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_hiz");
     // Prefer the viewport's per-instance Images (SceneViewport uses its
     // own PostProcessResources); fall back to default_images_ when the
     // caller doesn't provide a pp_resources bundle.

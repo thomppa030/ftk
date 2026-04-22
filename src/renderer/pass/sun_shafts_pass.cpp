@@ -1,4 +1,5 @@
 #include "renderer/pass/sun_shafts_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -429,6 +430,7 @@ void SunShaftsPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 void SunShaftsPass::record(const FrameContext& ctx) {
     if (!enabled_ || ctx.target == nullptr) return;
 
+    FJELL_PROFILE_SCOPE_N("record_sun_shafts");
     FJELL_GPU_ZONE(ctx, "Sun Shafts");
 
     auto& imgs = default_images_;

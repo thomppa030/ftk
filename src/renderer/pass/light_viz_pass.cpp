@@ -1,4 +1,5 @@
 #include "renderer/pass/light_viz_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
@@ -283,6 +284,7 @@ void LightVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || view_ == VK_NULL_HANDLE) return;
     if (tile_buffer_ == VK_NULL_HANDLE) return;
 
+    FJELL_PROFILE_SCOPE_N("record_viz_light_viz");
     FJELL_GPU_ZONE(ctx, "Viz: Light");
 
     // Update descriptor: point at the tile light SSBO

@@ -1,4 +1,5 @@
 #include "renderer/pass/opaque_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/resources/material.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -82,6 +83,7 @@ void OpaquePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void OpaquePass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_opaque");
 #ifdef FJELL_ENABLE_TRACY
     TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Color Opaque");
 #endif

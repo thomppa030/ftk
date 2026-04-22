@@ -1,4 +1,5 @@
 #include "renderer/pass/cull_viz_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/pass/cull_pass.hpp"
 #include "renderer/gpu/device.hpp"
@@ -265,6 +266,7 @@ void CullVizPass::record(const FrameContext& ctx, VkBuffer visibility_buffer,
     uint32_t draw_count = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
     if (draw_count == 0) return;
 
+    FJELL_PROFILE_SCOPE_N("record_viz_cull_viz");
     FJELL_GPU_ZONE(ctx, "Viz: Cull");
 
     // Update visibility descriptor

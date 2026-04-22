@@ -1,4 +1,5 @@
 #include "renderer/pass/meshlet_instance_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -576,6 +577,7 @@ void MeshletInstancePass::declare(PassBuilder& builder, const DeclareContext& ct
 }
 
 void MeshletInstancePass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_meshlet_instance");
 #ifdef FJELL_ENABLE_TRACY
     TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Meshlet Expand+Cull");
 #endif

@@ -969,9 +969,18 @@ bool FrameGraph::execute(VkCommandBuffer graphics_pre,
         VkCommandBuffer cb = cb_for(pass, i);
 
         if (pass.parallel_group == 0 || !can_parallelize) {
-            emit_barriers_for_pass(cb, pass);
-            pass.execute(cb);
-            apply_final_layouts(pass);
+            {
+                FJELL_PROFILE_SCOPE_N("fg_emit_barriers");
+                emit_barriers_for_pass(cb, pass);
+            }
+            {
+                FJELL_PROFILE_SCOPE_N("fg_pass_execute");
+                pass.execute(cb);
+            }
+            {
+                FJELL_PROFILE_SCOPE_N("fg_final_layouts");
+                apply_final_layouts(pass);
+            }
             ++i;
             continue;
         }

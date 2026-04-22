@@ -1,6 +1,7 @@
 #include "renderer/pass/instance_cull_pass.hpp"
 
 #include "core/base_path.hpp"
+#include "core/profiler.hpp"
 #include "core/log.hpp"
 #include "renderer/frame_graph.hpp"
 #include "renderer/gpu/device.hpp"
@@ -109,6 +110,7 @@ void InstanceCullPass::declare(PassBuilder& builder, const DeclareContext& /*ctx
 }
 
 void InstanceCullPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_instance_cull");
 #ifdef FJELL_ENABLE_TRACY
     TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Instance Cull");
 #endif

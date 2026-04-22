@@ -1,4 +1,5 @@
 #include "renderer/pass/shadow_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/gpu/device.hpp"
@@ -475,6 +476,7 @@ void ShadowPass::destroy() {
 void ShadowPass::record(const FrameContext& ctx) {
     if (!ctx.queue || ctx.queue->empty()) return;
 
+    FJELL_PROFILE_SCOPE_N("record_shadow");
     FJELL_GPU_ZONE(ctx, "Cascade Shadows");
 
     VkViewport viewport{};

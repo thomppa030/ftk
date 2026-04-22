@@ -1,4 +1,5 @@
 #include "renderer/pass/contact_shadow_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -348,6 +349,7 @@ void ContactShadowPass::declare(PassBuilder& builder, const DeclareContext& ctx)
 void ContactShadowPass::record(const FrameContext& ctx) {
     if (ctx.target == nullptr) return;
 
+    FJELL_PROFILE_SCOPE_N("record_contact_shadow");
     FJELL_GPU_ZONE(ctx, "Contact Shadow");
 
     auto extent = ctx.target->extent();

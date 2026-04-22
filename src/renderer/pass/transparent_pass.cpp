@@ -1,4 +1,5 @@
 #include "renderer/pass/transparent_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/resources/mega_buffer.hpp"
@@ -179,6 +180,7 @@ void TransparentPass::destroy() {
 }
 
 void TransparentPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_transparent");
 #ifdef FJELL_ENABLE_TRACY
     TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Color Transparent");
 #endif

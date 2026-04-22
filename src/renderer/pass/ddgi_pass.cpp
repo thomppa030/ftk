@@ -1,4 +1,5 @@
 #include "renderer/pass/ddgi_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/accel_structure.hpp"
 #include "renderer/gpu/device.hpp"
@@ -744,6 +745,7 @@ void DdgiPass::record(const FrameContext& ctx) {
     if (!config_.enabled) { return; }
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->ddgi() : nullptr;
     if (imgs == nullptr) { return; }
+    FJELL_PROFILE_SCOPE_N("record_ddgi");
     FJELL_GPU_ZONE(ctx, "DDGI");
     record_into(ctx, *imgs);
 }

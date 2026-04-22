@@ -8,6 +8,7 @@
 // is a graph transient deduped by name across the two nodes.
 
 #include "renderer/pass/ssr_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
@@ -399,6 +400,7 @@ void SsrTracePass::record(const FrameContext& ctx) {
     auto* ssr_res = ctx.registry->find_image("ssr_output");
     if (ssr_res == nullptr || ssr_res->image == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_ssr_trace");
     FJELL_GPU_ZONE(ctx, "SSR Trace");
 
     const VkImage ssr_image = ssr_res->image;
@@ -519,6 +521,7 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     if (ssr_res == nullptr || ssr_res->view == VK_NULL_HANDLE) { return; }
     if (mr_view == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_ssr_composite");
     FJELL_GPU_ZONE(ctx, "SSR Composite");
 
     auto* cmd = ctx.cmd;

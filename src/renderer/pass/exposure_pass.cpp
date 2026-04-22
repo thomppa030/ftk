@@ -1,4 +1,5 @@
 #include "renderer/pass/exposure_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -167,6 +168,7 @@ void ExposurePass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
     if (!target) return;
 
+    FJELL_PROFILE_SCOPE_N("record_exposure");
     FJELL_GPU_ZONE(ctx, "Exposure Histogram");
 
     auto extent = target->extent();

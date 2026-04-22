@@ -9,6 +9,7 @@
 // (binding 5 "ao_texture") read by every subsequent frag shader.
 
 #include "renderer/pass/gtao_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -351,6 +352,7 @@ void AoPass::record(const FrameContext& ctx) {
     auto& g = imgs != nullptr ? *imgs : default_images_;
     if (g.ao_view == VK_NULL_HANDLE) return;
 
+    FJELL_PROFILE_SCOPE_N("record_gtao_trace");
     FJELL_GPU_ZONE(ctx, "GTAO Trace");
     auto* cmd = ctx.cmd;
 
@@ -556,6 +558,7 @@ void AoBlurHPass::record(const FrameContext& ctx) {
     auto& g = imgs != nullptr ? *imgs : owner_->images();
     if (g.ao_view == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_gtao_blur_h");
     FJELL_GPU_ZONE(ctx, "GTAO Blur H");
 
     const auto* blur_res = ctx.registry->find_image("gtao_blur");
@@ -653,6 +656,7 @@ void AoBlurVPass::record(const FrameContext& ctx) {
     auto& g = imgs != nullptr ? *imgs : owner_->images();
     if (g.ao_view == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_gtao_blur_v");
     FJELL_GPU_ZONE(ctx, "GTAO Blur V");
 
     const auto* blur_res = ctx.registry->find_image("gtao_blur");

@@ -1,4 +1,5 @@
 #include "renderer/pass/uv_viz_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
@@ -149,6 +150,7 @@ void UvVizPass::destroy() {
 void UvVizPass::record(const FrameContext& ctx) {
     if (!ctx.target || !ctx.queue || ctx.queue->empty() || !viz_image_.valid()) return;
 
+    FJELL_PROFILE_SCOPE_N("record_viz_uv_viz");
     FJELL_GPU_ZONE(ctx, "Viz: UV");
 
     auto cmd = ctx.cmd;

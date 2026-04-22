@@ -1,4 +1,5 @@
 #include "renderer/pass/meshlet_cull_pass2.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/meshlet_instance_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -33,6 +34,7 @@ void MeshletCullPass2::declare(PassBuilder& builder, const DeclareContext& ctx) 
 }
 
 void MeshletCullPass2::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_meshlet_cull2");
 #ifdef FJELL_ENABLE_TRACY
     TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Meshlet Cull Pass 2");
 #endif

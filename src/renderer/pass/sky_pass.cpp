@@ -1,4 +1,5 @@
 #include "renderer/pass/sky_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
@@ -183,6 +184,7 @@ void SkyPass::destroy() {
 void SkyPass::record(const FrameContext& ctx) {
     if (!ctx.target) return;
 
+    FJELL_PROFILE_SCOPE_N("record_sky");
     FJELL_GPU_ZONE(ctx, "Sky");
 
     struct {

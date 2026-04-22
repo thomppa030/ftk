@@ -1,4 +1,5 @@
 #include "renderer/pass/screen_color_copy_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
@@ -28,6 +29,7 @@ void ScreenColorCopyPass::declare(PassBuilder& builder, const DeclareContext& ct
 }
 
 void ScreenColorCopyPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_screen_color_copy");
     auto* target = ctx.target;
     VkExtent2D ext = target->extent();
 

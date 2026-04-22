@@ -1,4 +1,5 @@
 #include "renderer/pass/sky_cubemap_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -824,6 +825,7 @@ void SkyCubemapPass::generate_brdf_lut() {
 }
 
 void SkyCubemapPass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_sky_cubemap");
     if (ctx.passes != nullptr) {
         auto& sky = ctx.passes->get<SkyPass>("sky");
         set_colors(sky.top_color(), sky.bottom_color());

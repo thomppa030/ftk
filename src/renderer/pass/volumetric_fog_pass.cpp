@@ -15,6 +15,7 @@
 // to emit the right transitions on the first access of the new frame.
 
 #include "renderer/pass/volumetric_fog_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/frame_descriptor_cache.hpp"
 #include "renderer/gpu/device.hpp"
@@ -425,6 +426,7 @@ void FogInjectPass::record(const FrameContext& ctx) {
     auto* imgs = images_for(ctx, this);
     if (imgs == nullptr || imgs->scatter_volumes[0].view == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_fog_inject");
     FJELL_GPU_ZONE(ctx, "Fog Inject");
 
     uint32_t cur = imgs->cur_index();
@@ -494,6 +496,7 @@ void FogTemporalPass::record(const FrameContext& ctx) {
     auto* imgs = images_for(ctx, core_);
     if (imgs == nullptr || imgs->scatter_volumes[0].view == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_fog_temporal");
     FJELL_GPU_ZONE(ctx, "Fog Temporal");
 
     uint32_t cur = imgs->cur_index();
@@ -578,6 +581,7 @@ void FogIntegratePass::record(const FrameContext& ctx) {
     const auto* integrated_res = ctx.registry->find_image("fog_integrated");
     if (integrated_res == nullptr || integrated_res->image == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_fog_integrate");
     FJELL_GPU_ZONE(ctx, "Fog Integrate");
 
     uint32_t cur = imgs->cur_index();
@@ -663,6 +667,7 @@ void FogCompositePass::record(const FrameContext& ctx) {
     const auto* integrated_res = ctx.registry->find_image("fog_integrated");
     if (integrated_res == nullptr || integrated_res->image == VK_NULL_HANDLE) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_fog_composite");
     FJELL_GPU_ZONE(ctx, "Fog Composite");
 
     auto* cmd = ctx.cmd;

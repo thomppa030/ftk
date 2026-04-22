@@ -1,4 +1,5 @@
 #include "renderer/pass/distortion_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass_builder.hpp"
@@ -25,6 +26,7 @@ void DistortionPass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
     if (target == nullptr) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_distortion");
     FJELL_GPU_ZONE(ctx, "Distortion");
 
     VkRenderingAttachmentInfo color_attachment{};

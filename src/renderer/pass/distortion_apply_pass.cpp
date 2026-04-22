@@ -1,4 +1,5 @@
 #include "renderer/pass/distortion_apply_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vk_utils.hpp"
@@ -111,6 +112,7 @@ void DistortionApplyPass::record(const FrameContext& ctx) {
     auto* target = ctx.target;
     if (target == nullptr) { return; }
 
+    FJELL_PROFILE_SCOPE_N("record_distortion_apply");
     FJELL_GPU_ZONE(ctx, "Distortion Apply");
 
     VkDescriptorImageInfo sc_info{};

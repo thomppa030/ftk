@@ -1,4 +1,5 @@
 #include "renderer/pass/wireframe_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/gpu/device.hpp"
@@ -171,6 +172,7 @@ void WireframePass::destroy() {
 void WireframePass::record(const FrameContext& ctx) {
     if (!ctx.target || !ctx.queue || ctx.queue->empty() || !viz_image_.valid()) return;
 
+    FJELL_PROFILE_SCOPE_N("record_viz_wireframe");
     FJELL_GPU_ZONE(ctx, "Viz: Wireframe");
 
     // Transition output image

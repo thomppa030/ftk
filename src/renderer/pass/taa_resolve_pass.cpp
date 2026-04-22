@@ -1,4 +1,5 @@
 #include "renderer/pass/taa_resolve_pass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/vk_utils.hpp"
 #include "renderer/gpu/vma_image.hpp"
@@ -222,6 +223,7 @@ void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
 }
 
 void TaaResolvePass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_taa");
     auto* imgs = ctx.pp_resources ? ctx.pp_resources->taa() : nullptr;
     record_into(ctx, imgs ? *imgs : default_images_);
 }

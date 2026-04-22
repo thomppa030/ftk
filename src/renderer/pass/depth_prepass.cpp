@@ -1,4 +1,5 @@
 #include "renderer/pass/depth_prepass.hpp"
+#include "core/profiler.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -206,6 +207,7 @@ void DepthPrePass::destroy() {
 }
 
 void DepthPrePass::record(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("record_depth_prepass");
     // Runtime recorder selection: mesh-shader path if supported and wired,
     // otherwise the vertex-shader path below. The graph sees the same
     // depth_attachment write either way.
