@@ -1,4 +1,5 @@
 #include "renderer/gpu/gpu_core.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "core/log.hpp"
 #include "core/window.hpp"
 
@@ -48,6 +49,10 @@ GpuCore::GpuCore(Window& window)
     if (vkAllocateCommandBuffers(device_.handle(), &alloc_info, command_buffers_.data()) != VK_SUCCESS) {
         throw std::runtime_error("Failed to allocate command buffers");
     }
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        set_cb_debug_name(device_.handle(), command_buffers_[i],
+                          "graphics_pre[" + std::to_string(i) + "]");
+    }
 
     // Sync objects
     VkSemaphoreCreateInfo sem_ci{};
@@ -81,6 +86,10 @@ GpuCore::GpuCore(Window& window)
         if (vkAllocateCommandBuffers(device_.handle(), &post_alloc, graphics_post_cbs_.data()) != VK_SUCCESS) {
             throw std::runtime_error("Failed to allocate post-compute graphics command buffers");
         }
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            set_cb_debug_name(device_.handle(), graphics_post_cbs_[i],
+                              "graphics_post[" + std::to_string(i) + "]");
+        }
 
         VkCommandPoolCreateInfo ac_pool_ci{};
         ac_pool_ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -98,6 +107,10 @@ GpuCore::GpuCore(Window& window)
         ac_alloc.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
         if (vkAllocateCommandBuffers(device_.handle(), &ac_alloc, async_compute_cbs_.data()) != VK_SUCCESS) {
             throw std::runtime_error("Failed to allocate async compute command buffers");
+        }
+        for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            set_cb_debug_name(device_.handle(), async_compute_cbs_[i],
+                              "async_compute[" + std::to_string(i) + "]");
         }
 
         // Timeline semaphores start at value 0. Phase 3 increments

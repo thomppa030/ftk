@@ -24,6 +24,22 @@ inline void set_image_debug_name(VkDevice device, VkImage image, const std::stri
     fn(device, &info);
 }
 
+/// Attach a human-readable name to a Vulkan command buffer. Same rules as
+/// set_image_debug_name; useful for distinguishing graphics_pre/post/async
+/// in validation messages.
+inline void set_cb_debug_name(VkDevice device, VkCommandBuffer cb, const std::string& name) {
+    if (cb == VK_NULL_HANDLE) { return; }
+    static auto fn = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(
+        vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));
+    if (fn == nullptr) { return; }
+    VkDebugUtilsObjectNameInfoEXT info{};
+    info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    info.objectType = VK_OBJECT_TYPE_COMMAND_BUFFER;
+    info.objectHandle = reinterpret_cast<uint64_t>(cb);
+    info.pObjectName = name.c_str();
+    fn(device, &info);
+}
+
 /// Lightweight helper to replace raw vkCreateImage + vkAllocateMemory + vkBindImageMemory
 /// with VMA-backed allocation. Used by render passes, offscreen targets, and other code
 /// that manages VkImage + VkDeviceMemory pairs directly (not via the Image class).
