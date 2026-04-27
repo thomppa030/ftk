@@ -356,7 +356,10 @@ void MeshletVizPass::record(const FrameContext& ctx) {
 
     vkCmdEndRendering(cmd);
 
-    // Transition color image to shader-readable
+    // final_layout reconciliation: viz output is sampled by ImGui outside
+    // the graph, so the framegraph's per-pass barrier emitter can't see the
+    // post-pass read. The graph's final_layout() hint records SHADER_READ;
+    // this inline barrier actually performs the transition.
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;

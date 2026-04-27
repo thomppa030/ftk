@@ -376,7 +376,9 @@ void CullVizPass::record(const FrameContext& ctx, VkBuffer visibility_buffer,
 
     vkCmdEndRendering(ctx.cmd);
 
-    // Transition to shader readable
+    // final_layout reconciliation: viz output is sampled by ImGui outside
+    // the graph. The framegraph's final_layout() hint records SHADER_READ;
+    // this inline barrier actually performs the transition.
     barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;

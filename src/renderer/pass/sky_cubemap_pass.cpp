@@ -787,7 +787,11 @@ void SkyCubemapPass::generate_brdf_lut() {
     uint32_t groups = (BRDF_LUT_SIZE + 7) / 8;
     vkCmdDispatch(cmd, groups, groups, 1);
 
-    // Transition BRDF LUT to SHADER_READ_ONLY
+    // final_layout reconciliation: BRDF LUT is generated once (one-shot init
+    // CB submitted outside the per-frame graph) and then sampled forever
+    // through the global descriptor at SHADER_READ_ONLY. The graph never
+    // sees this image as a writer, so it can't emit the final transition;
+    // we bake it here at end of init.
     {
         VkImageMemoryBarrier2 barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -1376,7 +1380,11 @@ void SkyCubemapPass::load_hdri(const std::string& path) {
         }
     }
 
-    // Final transition: all mips to SHADER_READ_ONLY_OPTIMAL
+    // final_layout reconciliation: HDRI prefilter runs in a one-shot init
+    // CB outside the per-frame graph. After this point all six faces and
+    // their mips are sampled through the global descriptor at
+    // SHADER_READ_ONLY; the graph never sees the writes, so we bake the
+    // post-init layout here.
     {
         VkImageMemoryBarrier2 b{};
         b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
