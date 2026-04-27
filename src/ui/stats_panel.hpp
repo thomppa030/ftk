@@ -13,6 +13,11 @@ public:
     void draw(float dt, const char* title = "Stats");
 
 private:
+    void draw_header();
+    void draw_rendering_section();
+    void draw_frame_graph_section();
+    void draw_shader_errors_section();
+
     static constexpr int FRAME_TIME_HISTORY_SIZE = 120;
 
     VulkanContext* ctx_{nullptr};

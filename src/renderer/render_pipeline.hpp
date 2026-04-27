@@ -82,6 +82,13 @@ public:
     /// runs with a transient pool present.
     [[nodiscard]] const AliasingStats& aliasing_stats() const noexcept { return aliasing_stats_; }
 
+    /// Peak aliasing values seen since startup. Useful for comparing runs
+    /// without watching the live counter for the worst-case frame.
+    [[nodiscard]] uint32_t peak_logical()     const noexcept { return peak_logical_; }
+    [[nodiscard]] uint32_t peak_physical()    const noexcept { return peak_physical_; }
+    [[nodiscard]] uint64_t peak_live_bytes()  const noexcept { return peak_live_bytes_; }
+    [[nodiscard]] uint64_t peak_bytes_saved() const noexcept { return peak_bytes_saved_; }
+
     /// Build the frame graph from registered passes and execute it.
     /// `ctx` is captured by reference into per-pass record lambdas; the
     /// caller must keep it alive until this function returns.
