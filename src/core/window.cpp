@@ -11,6 +11,14 @@ static int glfw_ref_count = 0;
 Window::Window(std::string_view title, uint32_t width, uint32_t height)
     : width_{width}, height_{height} {
     if (glfw_ref_count == 0) {
+        // RenderDoc's Vulkan layer doesn't expose VK_KHR_wayland_surface,
+        // so capturing on a Wayland session needs the GLFW backend forced
+        // to X11 (XWayland). Set FJELL_FORCE_X11=1 before launching through
+        // RenderDoc; leave unset for daily Wayland use.
+        const char* force_x11 = std::getenv("FJELL_FORCE_X11");
+        if (force_x11 != nullptr && force_x11[0] != '0' && force_x11[0] != '\0') {
+            glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+        }
         if (!glfwInit()) {
             throw std::runtime_error("Failed to initialize GLFW");
         }
