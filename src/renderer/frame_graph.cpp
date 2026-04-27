@@ -15,6 +15,35 @@ namespace fjell {
 
 namespace {
 
+// Targeted tracing for the GTAO-async layout race (Step 4). Set
+// FJELL_TRACE_LAYOUT=1 to dump every begin_frame reset and every
+// graph-emitted image barrier with handle, name, layouts, queue.
+[[nodiscard]] bool layout_trace_enabled() {
+    static const bool on = [] {
+        const char* v = std::getenv("FJELL_TRACE_LAYOUT");
+        return v != nullptr && v[0] != '\0' && v[0] != '0';
+    }();
+    return on;
+}
+
+[[nodiscard]] const char* layout_str(VkImageLayout l) {
+    switch (l) {
+        case VK_IMAGE_LAYOUT_UNDEFINED:                       return "UNDEFINED";
+        case VK_IMAGE_LAYOUT_GENERAL:                         return "GENERAL";
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:        return "COLOR_ATT";
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:return "DS_ATT";
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL: return "DS_RO";
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:        return "SHADER_RO";
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:            return "XFER_SRC";
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:            return "XFER_DST";
+        case VK_IMAGE_LAYOUT_PREINITIALIZED:                  return "PREINIT";
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL:        return "DEPTH_ATT";
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL:         return "DEPTH_RO";
+        case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:                 return "PRESENT";
+        default:                                              return "?";
+    }
+}
+
 ImageUsage image_usage_for(ResourceAccess a) {
     switch (a) {
         case ResourceAccess::color_attachment:
@@ -121,8 +150,15 @@ uint32_t FrameGraph::register_image(VkImage image, VkImageAspectFlags aspect,
 
 void FrameGraph::begin_frame() {
     passes_.clear();
+    const bool trace = layout_trace_enabled();
     for (auto& img : images_) {
         if (img.persistent) { continue; }
+        if (trace && !img.virtual_resource && img.image != VK_NULL_HANDLE) {
+            VkImageLayout prev = img.slices.empty() ? VK_IMAGE_LAYOUT_UNDEFINED
+                                                    : img.slices.front().layout;
+            FJELL_GFX_INFO("[layout] begin_frame reset img=0x{:x} prev={} -> UNDEFINED",
+                           reinterpret_cast<uintptr_t>(img.image), layout_str(prev));
+        }
         // Virtual resources get their VkImage re-bound every frame via
         // bind_virtual_image() after the pool acquires an allocation.
         // Clear the stale handle so a pass that ends up without an
@@ -818,6 +854,14 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
     dep.imageMemoryBarrierCount = 1;
     dep.pImageMemoryBarriers = &barrier;
 
+    if (layout_trace_enabled() && img.image != VK_NULL_HANDLE) {
+        FJELL_GFX_INFO("[layout] graph barrier img=0x{:x} {} -> {} on {} cb=0x{:x}",
+                       reinterpret_cast<uintptr_t>(img.image),
+                       layout_str(slice.layout), layout_str(new_layout),
+                       queue == QueueType::async_compute ? "compute" : "graphics",
+                       reinterpret_cast<uintptr_t>(cmd));
+    }
+
     vkCmdPipelineBarrier2(cmd, &dep);
 
     // Record the queue-translated stage back into the slice. The next
@@ -918,9 +962,15 @@ void FrameGraph::emit_barriers_for_pass(VkCommandBuffer cmd, const PassDecl& pas
 }
 
 void FrameGraph::apply_final_layouts(const PassDecl& pass) {
+    const bool trace = layout_trace_enabled();
     for (const auto& fl : pass.final_layouts) {
         auto& img = images_[fl.image_id];
         if (img.image == VK_NULL_HANDLE) { continue; }
+        if (trace) {
+            FJELL_GFX_INFO("[layout] final_layout pass='{}' img=0x{:x} -> {}",
+                           pass.name, reinterpret_cast<uintptr_t>(img.image),
+                           layout_str(fl.layout));
+        }
         auto indices = carve_slices(img, fl.range);
         for (size_t idx : indices) {
             img.slices[idx].layout = fl.layout;
