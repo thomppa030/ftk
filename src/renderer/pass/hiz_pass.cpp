@@ -387,6 +387,7 @@ PassSetup HizPass::setup() const {
         .name = "hiz_build",
         .phase = RenderPhase::DepthPrepass,
         .sub_order = 100,
+        .async_hint = AsyncComputeHint::Prefer,
     };
 }
 

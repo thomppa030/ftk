@@ -102,6 +102,7 @@ PassSetup LightCullPass::setup() const {
         .name = "light_cull",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 110,
+        .async_hint = AsyncComputeHint::Prefer,
     };
 }
 
