@@ -345,6 +345,7 @@ if(MSVC)
     set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
     target_compile_options(fjell PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
 # Treat VMA headers as system headers to suppress warnings from them
@@ -482,6 +483,7 @@ if(MSVC)
     set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
     target_compile_options(fjell-hub PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 # VMA system headers for fjell-hub
 if(VMA_INCLUDE_DIRS)
