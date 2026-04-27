@@ -37,7 +37,10 @@ struct RenderSettings {
     struct Gtao { bool enabled{true}; } gtao;
     struct Bloom { bool enabled{true}; } bloom;
     struct Ssr {
-        bool enabled{true};
+        // Reflection backend selection. RayTraced requires VK_KHR_ray_tracing_pipeline;
+        // it falls back to ScreenSpace at runtime if the device doesn't support RT.
+        enum class Mode : uint8_t { Off, ScreenSpace, RayTraced };
+        Mode mode{Mode::ScreenSpace};
         float intensity{1.0f};
         float thickness{0.3f};
     } ssr;

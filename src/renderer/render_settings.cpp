@@ -52,7 +52,7 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
         {"gtao",  {{"enabled", s.gtao.enabled}}},
         {"bloom", {{"enabled", s.bloom.enabled}}},
         {"ssr", {
-            {"enabled",   s.ssr.enabled},
+            {"mode",      static_cast<uint32_t>(s.ssr.mode)},
             {"intensity", s.ssr.intensity},
             {"thickness", s.ssr.thickness},
         }},
@@ -96,7 +96,18 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
     }
     if (j.contains("ssr")) {
         const auto& r = j["ssr"];
-        s.ssr.enabled   = r.value("enabled",   s.ssr.enabled);
+        // Read new "mode" key; fall back to legacy "enabled" bool for projects
+        // saved before the RT-reflection backend.
+        if (r.contains("mode")) {
+            uint32_t m = r.value("mode", static_cast<uint32_t>(s.ssr.mode));
+            if (m <= static_cast<uint32_t>(RenderSettings::Ssr::Mode::RayTraced)) {
+                s.ssr.mode = static_cast<RenderSettings::Ssr::Mode>(m);
+            }
+        } else if (r.contains("enabled")) {
+            s.ssr.mode = r.value("enabled", true)
+                ? RenderSettings::Ssr::Mode::ScreenSpace
+                : RenderSettings::Ssr::Mode::Off;
+        }
         s.ssr.intensity = r.value("intensity", s.ssr.intensity);
         s.ssr.thickness = r.value("thickness", s.ssr.thickness);
     }
@@ -133,7 +144,7 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     // Post-processing
     out.gtao.enabled  = ctx.gtao_pass().enabled();
     out.bloom.enabled = ctx.bloom_pass().enabled();
-    out.ssr.enabled   = ctx.ssr_pass().enabled();
+    out.ssr.mode      = ctx.ssr_pass().mode();
     out.ssr.intensity = ctx.ssr_pass().intensity();
     out.ssr.thickness = ctx.ssr_pass().thickness();
 

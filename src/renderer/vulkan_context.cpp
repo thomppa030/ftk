@@ -214,7 +214,13 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     // Post-processing
     gtao_pass().set_enabled(s.gtao.enabled);
     bloom_pass().set_enabled(s.bloom.enabled);
-    ssr_pass().set_enabled(s.ssr.enabled);
+    // RT mode requires hardware support; fall back to ScreenSpace when unavailable
+    // so a project authored on an RT-capable machine still renders on others.
+    auto requested_mode = s.ssr.mode;
+    if (requested_mode == RenderSettings::Ssr::Mode::RayTraced && !gpu_.device_ref().ray_tracing_supported()) {
+        requested_mode = RenderSettings::Ssr::Mode::ScreenSpace;
+    }
+    ssr_pass().set_mode(requested_mode);
     ssr_pass().set_intensity(s.ssr.intensity);
     ssr_pass().set_thickness(s.ssr.thickness);
 

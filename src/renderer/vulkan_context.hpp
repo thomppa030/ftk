@@ -136,6 +136,7 @@ public:
   [[nodiscard]] Device &device_ref() { return gpu_.device_ref(); }
   [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return gpu_.msaa_samples(); }
   [[nodiscard]] bool mesh_shaders_available() const { return gpu_.mesh_shaders_available(); }
+  [[nodiscard]] bool ray_tracing_supported() const { return gpu_.ray_tracing_supported(); }
   [[nodiscard]] bool use_mesh_shaders() const { return gpu_.use_mesh_shaders(); }
   void set_use_mesh_shaders(bool enable);
 

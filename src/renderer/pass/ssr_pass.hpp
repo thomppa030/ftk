@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/pass/render_pass.hpp"
+#include "renderer/render_settings.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -63,12 +64,16 @@ public:
     void copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent);
     [[nodiscard]] VkImageView prev_frame_view() const { return prev_frame_view_; }
 
-    void set_enabled(bool e) { enabled_ = e; }
+    using Mode = RenderSettings::Ssr::Mode;
+
+    void set_mode(Mode m) { mode_ = m; }
     void set_max_steps(uint32_t s) { max_steps_ = s; }
     void set_max_distance(float d) { max_distance_ = d; }
     void set_thickness(float t) { thickness_ = t; }
     void set_intensity(float i) { intensity_ = i; }
-    [[nodiscard]] bool enabled() const { return enabled_; }
+    [[nodiscard]] Mode mode() const { return mode_; }
+    [[nodiscard]] bool screen_space_active() const { return mode_ == Mode::ScreenSpace; }
+    [[nodiscard]] bool ray_traced_active() const { return mode_ == Mode::RayTraced; }
     [[nodiscard]] uint32_t max_steps() const { return max_steps_; }
     [[nodiscard]] float max_distance() const { return max_distance_; }
     [[nodiscard]] float thickness() const { return thickness_; }
@@ -102,7 +107,7 @@ private:
     VkPipelineLayout composite_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline composite_pipeline_{VK_NULL_HANDLE};
 
-    bool enabled_{true};
+    Mode mode_{Mode::ScreenSpace};
     uint32_t max_steps_{64};
     float max_distance_{100.0f};
     float thickness_{0.3f};

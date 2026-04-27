@@ -310,7 +310,7 @@ void SsrCore::ensure_prev_frame(VkDevice device, VmaAllocator allocator,
 }
 
 void SsrCore::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D extent) {
-    if (!enabled_ || prev_frame_image_ == VK_NULL_HANDLE) { return; }
+    if (!screen_space_active() || prev_frame_image_ == VK_NULL_HANDLE) { return; }
 
     emit_transition(cmd, src_color,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -338,8 +338,8 @@ void SsrCore::copy_prev_frame(VkCommandBuffer cmd, VkImage src_color, VkExtent2D
 }
 
 void SsrCore::pre_record(const FrameContext& ctx, GpuContext& gpu) {
-    bool needs_buffer = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
-    if (needs_buffer && ctx.target != nullptr) {
+    bool in_graph = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
+    if (in_graph && screen_space_active() && ctx.target != nullptr) {
         auto ext = ctx.target->extent();
         ensure_prev_frame(gpu.device(), gpu.allocator(),
                           gpu.command_pool(), gpu.graphics_queue(),
@@ -348,8 +348,8 @@ void SsrCore::pre_record(const FrameContext& ctx, GpuContext& gpu) {
 }
 
 void SsrCore::post_record(const FrameContext& ctx) {
-    bool needs_copy = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
-    if (needs_copy && ctx.target != nullptr) {
+    bool in_graph = (ctx.pp_resources != nullptr) && ctx.pp_resources->config().ssr;
+    if (in_graph && screen_space_active() && ctx.target != nullptr) {
         copy_prev_frame(ctx.cmd, ctx.target->color_image(), ctx.target->extent());
     }
 }
@@ -378,15 +378,14 @@ void SsrTracePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     ssr_desc.size_class = SizeClass::viewport;
     auto ssr_out = builder.create("ssr_output", ssr_desc);
 
-    if (enabled()) {
+    if (screen_space_active()) {
         builder.write(ssr_out, ResourceAccess::storage_write_compute);
     } else {
-        // Disabled path clears ssr_output via vkCmdClearColorImage so
-        // the composite reads zero. The graph barriers us into
-        // TRANSFER_DST; we honor the final_layout SHADER_READ promise
-        // inline after the clear. The composite still declares its
-        // read (and therefore runs), which is what we want — composite
-        // just samples a black image.
+        // Off / RayTraced path clears ssr_output via vkCmdClearColorImage
+        // so the composite reads zero from this resource. (When RayTraced,
+        // the composite reads rt_reflection_output instead.) The graph
+        // barriers us into TRANSFER_DST; we honor the final_layout
+        // SHADER_READ promise inline after the clear.
         builder.write(ssr_out, ResourceAccess::transfer_dst);
         builder.final_layout(ssr_out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                              VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -408,7 +407,7 @@ void SsrTracePass::record(const FrameContext& ctx) {
 
     auto* cmd = ctx.cmd;
 
-    if (!enabled()) {
+    if (!screen_space_active()) {
         // Graph barriered us into TRANSFER_DST. Clear, then emit the
         // matching TRANSFER_DST → SHADER_READ transition to honor the
         // final_layout promise.
@@ -512,9 +511,9 @@ void SsrCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) 
 void SsrCompositePass::record(const FrameContext& ctx) {
     if (core_ == nullptr) { return; }
     if (ctx.registry == nullptr) { return; }
-    // In the disabled path SsrTracePass clears ssr_output to black and the
-    // composite pass still runs — reflections cleanly fade to zero. No
-    // early-out based on enabled().
+    // When mode != ScreenSpace, SsrTracePass clears ssr_output to black so
+    // the composite reads zero from this branch. Composite still runs and
+    // blends in whichever reflection source matches the active mode.
 
     auto* ssr_res = ctx.registry->find_image("ssr_output");
     auto mr_view = ctx.registry->image_view("mr");

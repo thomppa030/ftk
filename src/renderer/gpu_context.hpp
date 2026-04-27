@@ -161,6 +161,7 @@ public:
     // ── MSAA / mesh shaders ─────────────────────────────────────────────
     [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return msaa_samples_; }
     [[nodiscard]] bool mesh_shaders_available() const { return core_.device().mesh_shader_supported(); }
+    [[nodiscard]] bool ray_tracing_supported() const { return core_.device().ray_tracing_supported(); }
     [[nodiscard]] bool use_mesh_shaders() const { return use_mesh_shaders_; }
     void set_use_mesh_shaders(bool enable) {
         use_mesh_shaders_ = enable && core_.device().mesh_shader_supported();

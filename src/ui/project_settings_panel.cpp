@@ -87,13 +87,39 @@ void ProjectSettingsPanel::draw_render_section() {
     if (ImGui::TreeNodeEx("Post-Processing", ImGuiTreeNodeFlags_DefaultOpen)) {
         if (ImGui::Checkbox("GTAO", &s.gtao.enabled)) { dirty = true; }
         if (ImGui::Checkbox("Bloom", &s.bloom.enabled)) { dirty = true; }
-        if (ImGui::Checkbox("SSR", &s.ssr.enabled)) { dirty = true; }
-        if (s.ssr.enabled) {
-            ImGui::Indent();
-            if (ImGui::SliderFloat("Intensity##ssr", &s.ssr.intensity, 0.0f, 2.0f)) { dirty = true; }
-            if (ImGui::SliderFloat("Thickness##ssr", &s.ssr.thickness, 0.01f, 2.0f)) { dirty = true; }
-            ImGui::Unindent();
+        // Reflections: Off / Screen-Space / Ray-Traced. RT requires hardware
+        // support; greyed out otherwise. Skinned meshes don't appear in RT
+        // reflections in V1 — the BLAS holds bind-pose vertices only.
+        ImGui::TextUnformatted("Reflections");
+        ImGui::Indent();
+        using Mode = RenderSettings::Ssr::Mode;
+        int mode_int = static_cast<int>(s.ssr.mode);
+        if (ImGui::RadioButton("Off##ssr", &mode_int, static_cast<int>(Mode::Off))) {
+            s.ssr.mode = Mode::Off; dirty = true;
         }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Screen-Space##ssr", &mode_int, static_cast<int>(Mode::ScreenSpace))) {
+            s.ssr.mode = Mode::ScreenSpace; dirty = true;
+        }
+        ImGui::SameLine();
+        bool rt_available = vk_->ray_tracing_supported();
+        ImGui::BeginDisabled(!rt_available);
+        if (ImGui::RadioButton("Ray-Traced##ssr", &mode_int, static_cast<int>(Mode::RayTraced))) {
+            s.ssr.mode = Mode::RayTraced; dirty = true;
+        }
+        ImGui::EndDisabled();
+        if (!rt_available && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("VK_KHR_ray_tracing_pipeline not supported on this GPU");
+        } else if (rt_available && s.ssr.mode == Mode::RayTraced && ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Skinned meshes reflect in bind pose (V1 limitation)");
+        }
+        if (s.ssr.mode != Mode::Off) {
+            if (ImGui::SliderFloat("Intensity##ssr", &s.ssr.intensity, 0.0f, 2.0f)) { dirty = true; }
+            if (s.ssr.mode == Mode::ScreenSpace) {
+                if (ImGui::SliderFloat("Thickness##ssr", &s.ssr.thickness, 0.01f, 2.0f)) { dirty = true; }
+            }
+        }
+        ImGui::Unindent();
         ImGui::TreePop();
     }
 
