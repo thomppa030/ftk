@@ -793,6 +793,7 @@ void SceneEditorContext::render_previews(VulkanContext& vk, Scene* scene, float 
     req.camera_position = cam->position();
     req.pp_resources = camera_preview_pp_.get();
     req.skip_shadows = true;
+    req.viewport_graph = camera_preview_graph_;
 
     vk.render_preview(req, light, scene, dt, selected_id_, pool);
 
@@ -816,13 +817,16 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
         camera_preview_target_ = std::make_unique<OffscreenPass>(
             vk.device_ref(), vk.allocator(), 320, 180, vk.msaa_samples());
 
-        PostProcessConfig preview_config{};
-        preview_config.hiz = false;
-        preview_config.gtao = false;
-        preview_config.bloom = false;
-        preview_config.ssr = false;
-        preview_config.volumetric_fog = false;
-        preview_config.tonemap = true;
+        // Pipeline-as-data: pp_config + per-call pass mask both flow from
+        // editor_preview.fjgraph. If the file fails to load (parse error,
+        // missing) we keep the preview disabled rather than fall back to
+        // a hand-rolled config — surfacing the failure beats hiding it.
+        camera_preview_graph_ = vk.get_or_load_graph("assets/render_graphs/editor_preview.fjgraph");
+        if (camera_preview_graph_ == nullptr) {
+            camera_preview_target_.reset();
+            return;
+        }
+        PostProcessConfig preview_config = pp_config_from_graph(*camera_preview_graph_);
 
         PostProcessResources::PassRefs refs{
             vk.hiz_pass(), vk.gtao_pass(), vk.volumetric_fog_pass(),
@@ -842,6 +846,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
         camera_preview_target_.reset();
         camera_preview_node_id_ = 0;
         camera_preview_skip_frames_ = 0;
+        camera_preview_graph_ = nullptr;
     }
 }
 
