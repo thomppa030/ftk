@@ -834,8 +834,19 @@ void FrameGraph::insert_barrier_for_slice(VkCommandBuffer cmd, const TrackedImag
     // The semaphore wait in submit_and_present already handles any cross-
     // queue ordering, so collapsing graphics-only bits on the compute CB
     // loses no information.
-    barrier.srcStageMask = stages_for_queue(slice.last_stage, queue);
-    barrier.srcAccessMask = slice.last_access;
+    //
+    // When the previous access used graphics-only stages and this barrier
+    // is recorded on the compute queue, the timeline-semaphore wait in
+    // submit_and_present is what actually synchronises against that work.
+    // The source side of this barrier reduces to a no-op execution
+    // dependency: keep the layout transition, but clear srcAccess and use
+    // a queue-legal srcStage so the (stage, access) pair stays valid.
+    // Otherwise srcAccess like DEPTH_STENCIL_ATTACHMENT_WRITE wouldn't
+    // satisfy any stage the compute queue accepts.
+    const VkPipelineStageFlags2 translated_src = stages_for_queue(slice.last_stage, queue);
+    const bool cross_queue = translated_src != slice.last_stage;
+    barrier.srcStageMask = cross_queue ? VK_PIPELINE_STAGE_2_NONE : translated_src;
+    barrier.srcAccessMask = cross_queue ? 0 : slice.last_access;
     barrier.dstStageMask = stages_for_queue(dst_stage, queue);
     barrier.dstAccessMask = dst_access;
     barrier.oldLayout = slice.layout;
