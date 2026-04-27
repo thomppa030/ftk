@@ -116,7 +116,12 @@ void LightCullPass::register_resources(ResourceRegistry& registry) {
 void LightCullPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto depth = builder.import_named(ctx, "depth");
     builder.read(depth, ResourceAccess::sampled_compute);
-    // Writes the forward+ tile SSBO; graph doesn't track buffers yet.
+    // Writes the forward+ tile SSBO. Consumers (opaque/transparent
+    // fragment shaders) reach it via the global descriptor (binding 3),
+    // not via declared accesses — that edge is invisible to the DAG.
+    // Step 6 wires buffer accesses for internal producer/consumer pairs;
+    // global-descriptor fanout stays on has_side_effects() until consumer
+    // passes are migrated too.
     builder.has_side_effects();
 }
 

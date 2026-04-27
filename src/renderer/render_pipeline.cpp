@@ -254,23 +254,26 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     // Resource identity for topological sort. Imported images are keyed by
-    // (VkImage, base_layer, layer_count) — stable across passes for the
-    // same physical resource. Created (transient) resources are keyed by
-    // the name they were declared with, so two passes referencing the same
-    // logical transient (one calls create("foo"), the other reads "foo" by
-    // create'ing it again in its declare, or vice versa) resolve to the
-    // same key and the DAG sort / liveness walk sees the edge.
-    // Virtual (created) resources use a 64-bit FNV-1a of the name as the
-    // key, hashed once in PassBuilder::create(). The DAG sort + cull hit
-    // the unordered_map hundreds of times per frame; string hashing +
-    // comparison was showing up as ~13µs/frame in Tracy before this.
+    // (VkImage, base_layer, layer_count); imported buffers by VkBuffer;
+    // both stable across passes for the same physical resource. Created
+    // (transient) resources are keyed by the FNV-1a hash of the name they
+    // were declared with, so two passes referencing the same logical
+    // transient resolve to the same key and the DAG sort / liveness walk
+    // sees the edge.
+    //
+    // The hash is computed once in PassBuilder::create(). The DAG sort +
+    // cull hit this map hundreds of times per frame; before the hash was
+    // pre-computed string hashing + comparison showed ~13µs/frame in
+    // Tracy.
     struct ResKey {
-        VkImage image{VK_NULL_HANDLE};
+        VkImage  image{VK_NULL_HANDLE};
+        VkBuffer buffer{VK_NULL_HANDLE};
         uint32_t base_layer{0};
         uint32_t layer_count{0};
-        uint64_t virtual_name_hash{0};  // non-zero iff image == VK_NULL_HANDLE
+        uint64_t virtual_name_hash{0};  // non-zero iff image == buffer == NULL
         bool operator==(const ResKey& o) const noexcept {
-            return image == o.image && base_layer == o.base_layer
+            return image == o.image && buffer == o.buffer
+                && base_layer == o.base_layer
                 && layer_count == o.layer_count
                 && virtual_name_hash == o.virtual_name_hash;
         }
@@ -281,7 +284,8 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             auto h2 = std::hash<uint32_t>{}(k.base_layer);
             auto h3 = std::hash<uint32_t>{}(k.layer_count);
             auto h4 = std::hash<uint64_t>{}(k.virtual_name_hash);
-            return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3);
+            auto h5 = std::hash<void*>{}(static_cast<void*>(k.buffer));
+            return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4);
         }
     };
 
@@ -289,22 +293,43 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     std::vector<std::vector<size_t>> adj(n);
     std::vector<uint32_t> in_degree(n, 0);
 
-    auto resolve_key = [](const PassBuilder& b, FgTexture h) -> ResKey {
+    auto resolve_texture_key = [](const PassBuilder& b, FgTexture h) -> ResKey {
         for (const auto& imp : b.imported_textures()) {
             if (imp.handle.id == h.id) {
-                return {imp.image, imp.base_layer, imp.layer_count, 0};
+                return {.image = imp.image,
+                        .base_layer = imp.base_layer,
+                        .layer_count = imp.layer_count};
             }
         }
         for (const auto& cre : b.created_textures()) {
             if (cre.handle.id == h.id) {
-                return {VK_NULL_HANDLE, 0, 0, cre.name_hash};
+                return {.virtual_name_hash = cre.name_hash};
             }
         }
-        return {VK_NULL_HANDLE, 0, 0, 0};
+        return {};
+    };
+
+    // Buffer keys: imported buffers identify by VkBuffer handle (offset/range
+    // is sub-resource detail the graph doesn't model yet — coarse buffer
+    // identity is enough for producer/consumer edges). Created (transient)
+    // buffers key on FNV-1a hash of name, mirroring the texture path.
+    auto resolve_buffer_key = [](const PassBuilder& b, FgBuffer h) -> ResKey {
+        for (const auto& imp : b.imported_buffers()) {
+            if (imp.handle.id == h.id) {
+                return {.buffer = imp.buffer};
+            }
+        }
+        for (const auto& cre : b.created_buffers()) {
+            if (cre.handle.id == h.id) {
+                return {.virtual_name_hash = cre.name_hash};
+            }
+        }
+        return {};
     };
 
     auto key_valid = [](const ResKey& k) {
-        return k.image != VK_NULL_HANDLE || k.virtual_name_hash != 0;
+        return k.image != VK_NULL_HANDLE || k.buffer != VK_NULL_HANDLE
+            || k.virtual_name_hash != 0;
     };
 
     std::vector<size_t> dag_order;
@@ -312,28 +337,37 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     {
         FJELL_PROFILE_SCOPE_N("rp_dag_sort");
         std::unordered_map<ResKey, size_t, ResKeyHash> last_writer;
+        // Add an edge from `last_writer[k]` to pass `j` for every read
+        // access whose key has been written earlier this frame. Update
+        // `last_writer[k]` for every write. Buffers and textures share
+        // the `ResKey` map — the discriminator is which field is set.
+        auto record_access = [&](size_t j, const ResKey& k, ResourceAccess access) {
+            if (!key_valid(k)) { return; }
+            if (access_is_read(access)) {
+                auto it = last_writer.find(k);
+                if (it != last_writer.end() && it->second != j) {
+                    adj[it->second].push_back(j);
+                    ++in_degree[j];
+                }
+            }
+            if (access_is_write(access)) {
+                last_writer[k] = j;
+            }
+        };
+
         for (size_t j = 0; j < n; ++j) {
             const auto& b = pending[j].builder;
             for (const auto& acc : b.texture_accesses()) {
-                ResKey k = resolve_key(b, acc.handle);
-                if (!key_valid(k)) { continue; }
-                if (access_is_read(acc.access)) {
-                    auto it = last_writer.find(k);
-                    if (it != last_writer.end() && it->second != j) {
-                        adj[it->second].push_back(j);
-                        ++in_degree[j];
-                    }
-                }
-                if (access_is_write(acc.access)) {
-                    last_writer[k] = j;
-                }
+                record_access(j, resolve_texture_key(b, acc.handle), acc.access);
+            }
+            for (const auto& acc : b.buffer_accesses()) {
+                record_access(j, resolve_buffer_key(b, acc.handle), acc.access);
             }
         }
 
         // Kahn's algorithm. Tiebreaker = original entry index — preserves
         // the legacy phase+sub_order ordering for passes the DAG can't
-        // constrain (empty-access viz passes, SSBO-only passes waiting on
-        // Phase 3 buffer tracking).
+        // constrain (e.g. empty-access viz passes).
         auto cmp = [&pending](size_t a, size_t b) {
             return pending[a].entry_index > pending[b].entry_index;
         };
@@ -363,16 +397,13 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
     // on. A pass is required when it declares never_cull(), when it
     // flags has_side_effects(), or when it writes to a persistent
     // resource whose state must carry across frames (shadow atlases,
-    // Hi-Z, sky cubemap — consumed by this frame through
-    // import_named, but also by next frame's read on the same images).
+    // Hi-Z, sky cubemap — consumed by this frame through import_named,
+    // but also by next frame's read on the same image/buffer).
     //
-    // Rationale: the graph only tracks images, so most real
-    // side-effects (SSBO writes, pass-private texture updates,
-    // descriptor writes into the bindless set, host readbacks) are
-    // invisible to the DAG. Passes that do those have to mark
-    // has_side_effects() explicitly. Anything else that isn't reached
-    // from a root can be dropped — the output it produced would have
-    // been thrown away anyway.
+    // Both texture and buffer accesses are walked. Passes that update
+    // pass-private textures or buffers bound through the global
+    // descriptor set still need has_side_effects() — those consumer
+    // edges live outside the DAG.
     std::vector<bool> alive(n, false);
     {
         FJELL_PROFILE_SCOPE_N("rp_pass_cull");
@@ -385,29 +416,43 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             const auto& b = pending[j].builder;
             for (const auto& acc : b.texture_accesses()) {
                 if (!access_is_write(acc.access)) { continue; }
-                ResKey k = resolve_key(b, acc.handle);
+                ResKey k = resolve_texture_key(b, acc.handle);
+                if (!key_valid(k)) { continue; }
+                writers_of[k].push_back(j);
+            }
+            for (const auto& acc : b.buffer_accesses()) {
+                if (!access_is_write(acc.access)) { continue; }
+                ResKey k = resolve_buffer_key(b, acc.handle);
                 if (!key_valid(k)) { continue; }
                 writers_of[k].push_back(j);
             }
         }
 
         // Seed the set with roots.
-        for (size_t j = 0; j < n; ++j) {
-            const auto& b = pending[j].builder;
-            bool root = b.is_never_cull() || b.has_side_effects_flag();
-            if (!root) {
-                for (const auto& imp : b.imported_textures()) {
-                    for (const auto& acc : b.texture_accesses()) {
-                        if (acc.handle.id != imp.handle.id) { continue; }
-                        if (!access_is_write(acc.access)) { continue; }
-                        if (imp.persistent) {
-                            root = true;
-                            break;
-                        }
+        auto pass_writes_persistent = [](const PassBuilder& b) {
+            for (const auto& imp : b.imported_textures()) {
+                if (!imp.persistent) { continue; }
+                for (const auto& acc : b.texture_accesses()) {
+                    if (acc.handle.id == imp.handle.id && access_is_write(acc.access)) {
+                        return true;
                     }
-                    if (root) { break; }
                 }
             }
+            for (const auto& imp : b.imported_buffers()) {
+                if (!imp.persistent) { continue; }
+                for (const auto& acc : b.buffer_accesses()) {
+                    if (acc.handle.id == imp.handle.id && access_is_write(acc.access)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        for (size_t j = 0; j < n; ++j) {
+            const auto& b = pending[j].builder;
+            bool root = b.is_never_cull() || b.has_side_effects_flag()
+                     || pass_writes_persistent(b);
             if (root) {
                 alive[j] = true;
                 work.push_back(j);
@@ -418,17 +463,23 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
             size_t j = work.back();
             work.pop_back();
             const auto& b = pending[j].builder;
-            for (const auto& acc : b.texture_accesses()) {
-                if (!access_is_read(acc.access)) { continue; }
-                ResKey k = resolve_key(b, acc.handle);
-                if (!key_valid(k)) { continue; }
+            auto walk_back = [&](const ResKey& k) {
+                if (!key_valid(k)) { return; }
                 auto it = writers_of.find(k);
-                if (it == writers_of.end()) { continue; }
+                if (it == writers_of.end()) { return; }
                 for (size_t w : it->second) {
                     if (alive[w]) { continue; }
                     alive[w] = true;
                     work.push_back(w);
                 }
+            };
+            for (const auto& acc : b.texture_accesses()) {
+                if (!access_is_read(acc.access)) { continue; }
+                walk_back(resolve_texture_key(b, acc.handle));
+            }
+            for (const auto& acc : b.buffer_accesses()) {
+                if (!access_is_read(acc.access)) { continue; }
+                walk_back(resolve_buffer_key(b, acc.handle));
             }
         }
     }
