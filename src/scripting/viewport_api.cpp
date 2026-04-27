@@ -1,9 +1,11 @@
 #include "fjell/api.h"
 #include "scripting/script_globals.hpp"
 #include "scripting/fjell/viewport_api.hpp"
-#include "renderer/vulkan_context.hpp"
+#include "renderer/fjgraph_asset.hpp"
+#include "renderer/post_process_resources.hpp"
 #include "renderer/scene_viewport.hpp"
 #include "renderer/resources/resource_manager.hpp"
+#include "renderer/vulkan_context.hpp"
 #include "scene/camera_node.hpp"
 #include "scene/scene.hpp"
 
@@ -24,10 +26,43 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_viewport_create(const char* name, uin
     cfg.pp_config.hiz            = (flags & VP_HIZ) != 0;
     cfg.samples = s.vulkan->msaa_samples();
     cfg.skip_shadows = (flags & VP_SHADOWS) == 0;
+    // Legacy path: cfg.viewport_graph stays null. RenderPipeline::execute
+    // falls back to global pass_state_ flags for any viewport that
+    // doesn't supply a graph.
 
     uint32_t bindless_idx = s.vulkan->create_scene_viewport(cfg);
 
     if (s.resources) s.resources->update_viewport_bindings(name, bindless_idx);
+
+    return bindless_idx;
+}
+
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_viewport_create_with_graph(
+        const char* name, uint32_t width, uint32_t height, const char* graph_path) {
+    auto& s = fjell::script_services();
+    if ((s.vulkan == nullptr) || (name == nullptr) || (graph_path == nullptr)) {
+        return 0;
+    }
+
+    const fjell::FjGraph* graph = s.vulkan->get_or_load_graph(graph_path);
+    if (graph == nullptr) { return 0; } // load failure already logged
+
+    fjell::SceneViewportConfig cfg;
+    cfg.name = name;
+    cfg.width = width;
+    cfg.height = height;
+    cfg.pp_config = fjell::pp_config_from_graph(*graph);
+    cfg.samples = s.vulkan->msaa_samples();
+    cfg.viewport_graph = graph;
+    // Skip shadows by default — the graph's ShadowPass entry decides
+    // whether shadows render at all, but `skip_shadows` is the per-viewport
+    // hint that the main viewport's shadow data is reused (cheap path).
+    // Authors can override later via a separate skip_shadows knob.
+    cfg.skip_shadows = true;
+
+    uint32_t bindless_idx = s.vulkan->create_scene_viewport(cfg);
+
+    if (s.resources) { s.resources->update_viewport_bindings(name, bindless_idx); }
 
     return bindless_idx;
 }

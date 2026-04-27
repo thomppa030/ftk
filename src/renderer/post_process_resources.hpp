@@ -30,6 +30,15 @@ struct PostProcessConfig {
     bool taa{false};
 };
 
+struct FjGraph;
+
+/// Derive a `PostProcessConfig` from a `.fjgraph`. Each config field is
+/// true iff the corresponding pass class is present in the graph and
+/// `enabled: true`. This is the load-bearing mapping that lets a viewport
+/// hand a single `.fjgraph` filename and have everything (which passes
+/// run + which per-viewport images to allocate) follow from one source.
+[[nodiscard]] PostProcessConfig pp_config_from_graph(const FjGraph& graph);
+
 /// Owns all per-viewport post-processing image state.
 /// One instance per viewport / SubViewport. Pass singletons provide the
 /// shared pipelines and descriptor set layouts; this class owns the

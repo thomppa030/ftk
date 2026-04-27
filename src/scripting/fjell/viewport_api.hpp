@@ -21,6 +21,13 @@ enum FjellViewportFlags : uint32_t {
 extern "C" {
 FJELL_SDK_EXPORT uint32_t fjell_viewport_create(const char* name, uint32_t width, uint32_t height,
                                 uint32_t flags);
+/// Newer entry point: pick a `.fjgraph` for the viewport instead of a
+/// flag bitmask. Topology, per-viewport image alloc, and pass enabling
+/// all flow from the graph file. `graph_path` is resolved relative to
+/// the engine's base path (typically `assets/render_graphs/foo.fjgraph`).
+FJELL_SDK_EXPORT uint32_t fjell_viewport_create_with_graph(const char* name,
+                                uint32_t width, uint32_t height,
+                                const char* graph_path);
 FJELL_SDK_EXPORT void     fjell_viewport_destroy(const char* name);
 FJELL_SDK_EXPORT void     fjell_viewport_set_camera(const char* name, uint32_t camera_node_id);
 FJELL_SDK_EXPORT uint32_t fjell_viewport_bindless_index(const char* name);
@@ -35,6 +42,14 @@ struct ViewportAPI {
     static uint32_t create(const char* name, uint32_t width = 512, uint32_t height = 512,
                            uint32_t flags = VP_MINIMAL) {
         return fjell_viewport_create(name, width, height, flags);
+    }
+
+    /// Create a scene viewport using a `.fjgraph` to describe the pipeline.
+    /// Cleaner than flags — the graph defines which passes run and which
+    /// per-viewport images are allocated, all in one file.
+    static uint32_t create_with_graph(const char* name, uint32_t width, uint32_t height,
+                                      const char* graph_path) {
+        return fjell_viewport_create_with_graph(name, width, height, graph_path);
     }
 
     /// Destroy a scene viewport.

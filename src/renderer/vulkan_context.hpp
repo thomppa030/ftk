@@ -112,6 +112,12 @@ public:
   /// builds.
   void reload_fjgraph(const std::string& path);
 
+  /// Get a cached `FjGraph` by file path. Loads on first request, caches
+  /// for subsequent ones. Returns null on parse failure (logged). Used
+  /// by SceneViewport to resolve its viewport graph at construction.
+  /// `path` is interpreted relative to `base_path::dir()`.
+  [[nodiscard]] const FjGraph* get_or_load_graph(const std::string& path);
+
   // ── Forwarding accessors to GpuContext ────────────────────────────────
   [[nodiscard]] GpuContext& gpu() { return gpu_; }
   [[nodiscard]] VkDevice device() const { return gpu_.device(); }
@@ -277,7 +283,8 @@ private:
   void render_scene_to(VkCommandBuffer cmd, OffscreenPass &target, Scene *scene,
                        float dt, uint32_t selected_id, ThreadPool &pool,
                        PostProcessResources *pp, bool skip_shadows = false,
-                       bool flip_tonemap_y = false);
+                       bool flip_tonemap_y = false,
+                       const FjGraph *viewport_graph = nullptr);
   void update_uniform_buffer(uint32_t frame_index, const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3 &camera_position,
@@ -302,6 +309,12 @@ private:
   // The .fjgraph that built the current pipeline. Held so the hot-reload
   // watcher (debug builds only) can diff a re-parsed graph against it.
   FjGraph loaded_graph_;
+
+  // Cache of additional graphs loaded for SceneViewports. Keyed by the
+  // path passed to get_or_load_graph (resolved through base_path).
+  // Lifetime is the VulkanContext's; viewports hold raw pointers into
+  // this map and unordered_map guarantees pointer stability under insert.
+  std::unordered_map<std::string, FjGraph> graph_cache_;
 
   // Particles / sprites
   // Rendering subsystems (particles, sprites, tilemaps, etc.)

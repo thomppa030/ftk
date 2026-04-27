@@ -1,4 +1,5 @@
 #include "renderer/render_pipeline.hpp"
+#include "renderer/fjgraph_asset.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/bloom_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
@@ -14,6 +15,7 @@
 
 #include <algorithm>
 #include <queue>
+#include <unordered_set>
 
 namespace fjell {
 
@@ -73,8 +75,28 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
                               uint32_t frame_index, ResourceRegistry& registry,
                               PassRegistry& passes, PostProcessResources* pp_resources,
                               const FrameContext& ctx,
-                              bool async_compute_available) {
+                              bool async_compute_available,
+                              const FjGraph* viewport_graph) {
     FJELL_PROFILE_SCOPE_N("render_pipeline_execute");
+
+    // Per-call viewport mask. When `viewport_graph` is non-null, only
+    // passes whose name appears in the graph (with `enabled: true`) run
+    // this frame. This is how a SceneViewport with `editor_preview.fjgraph`
+    // skips DDGI/SSR/etc on a per-call basis without touching the global
+    // pass_state_ that the main viewport uses.
+    std::unordered_set<std::string> viewport_enabled;
+    if (viewport_graph != nullptr) {
+        viewport_enabled.reserve(viewport_graph->passes.size());
+        for (const auto& entry : viewport_graph->passes) {
+            if (entry.enabled) { viewport_enabled.insert(entry.name); }
+        }
+    }
+    auto pass_enabled_for_viewport = [&](const std::string& name) {
+        if (viewport_graph == nullptr) {
+            return state_for(name).enabled;
+        }
+        return viewport_enabled.contains(name);
+    };
 
     // One-shot ordering pass by entry.order. The real topological sort
     // happens below on the declared DAG; this only fixes a deterministic
@@ -209,7 +231,7 @@ bool RenderPipeline::execute(VkCommandBuffer cmd, OffscreenPass& target,
         for (size_t i = 0; i < entries_.size(); ++i) {
             auto* p = entries_[i].pass;
             if (p == nullptr) { continue; }
-            if (!state_for(entries_[i].name).enabled) { continue; }
+            if (!pass_enabled_for_viewport(entries_[i].name)) { continue; }
             PendingPass pp;
             pp.entry_index = i;
             pp.pass = p;

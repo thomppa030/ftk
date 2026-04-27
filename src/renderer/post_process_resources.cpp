@@ -1,8 +1,48 @@
 #include "renderer/post_process_resources.hpp"
 
+#include "renderer/fjgraph_asset.hpp"
+
 #include <algorithm>
+#include <unordered_map>
 
 namespace fjell {
+
+PostProcessConfig pp_config_from_graph(const FjGraph& graph) {
+    // Fixed pass-class → config-field map. New post-processing passes
+    // need an entry here so per-viewport graphs can drive their
+    // image allocation.
+    static const std::unordered_map<std::string, void(*)(PostProcessConfig&, bool)> kSetters{
+        {"HizPass",        [](PostProcessConfig& c, bool v) { c.hiz = v; }},
+        {"GtaoTracePass",  [](PostProcessConfig& c, bool v) { c.gtao = v; }},
+        {"BloomDs0Pass",   [](PostProcessConfig& c, bool v) { c.bloom = v; }},
+        {"SsrTracePass",   [](PostProcessConfig& c, bool v) { c.ssr = v; }},
+        {"FogInjectPass",  [](PostProcessConfig& c, bool v) { c.volumetric_fog = v; }},
+        {"TonemapPass",    [](PostProcessConfig& c, bool v) { c.tonemap = v; }},
+        {"DdgiPass",       [](PostProcessConfig& c, bool v) { c.ddgi = v; }},
+        {"SsGiPass",       [](PostProcessConfig& c, bool v) { c.ss_gi = v; }},
+        {"TaaResolvePass", [](PostProcessConfig& c, bool v) { c.taa = v; }},
+    };
+
+    // Start with everything off; flip on each pass that the graph names.
+    // Any feature not present in the graph stays off — no per-viewport
+    // images allocated for it.
+    PostProcessConfig cfg{};
+    cfg.hiz = false;
+    cfg.gtao = false;
+    cfg.bloom = false;
+    cfg.ssr = false;
+    cfg.volumetric_fog = false;
+    cfg.tonemap = false;
+    cfg.ddgi = false;
+    cfg.ss_gi = false;
+    cfg.taa = false;
+
+    for (const auto& entry : graph.passes) {
+        auto it = kSetters.find(entry.class_name);
+        if (it != kSetters.end()) { it->second(cfg, entry.enabled); }
+    }
+    return cfg;
+}
 
 PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocator,
                                             uint32_t width, uint32_t height,

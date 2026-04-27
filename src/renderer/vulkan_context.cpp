@@ -235,6 +235,24 @@ void VulkanContext::sync_tilemap_textures(Scene& scene, ResourceManager& resourc
     tilemap_renderer_->sync_textures(scene, resources, project);
 }
 
+// ── .fjgraph cache ──────────────────────────────────────────────────────
+
+const FjGraph* VulkanContext::get_or_load_graph(const std::string& path) {
+    auto it = graph_cache_.find(path);
+    if (it != graph_cache_.end()) { return &it->second; }
+
+    auto resolved = base_path::resolve(path);
+    auto loaded = FjGraphParser::load(resolved);
+    if (!loaded) {
+        FJELL_GFX_ERROR("Failed to load .fjgraph '{}': {}", path, loaded.error());
+        return nullptr;
+    }
+
+    auto [inserted_it, _] = graph_cache_.emplace(path, std::move(*loaded));
+    FJELL_GFX_DEBUG("VulkanContext: cached .fjgraph '{}'", path);
+    return &inserted_it->second;
+}
+
 // ── Hot-reload ──────────────────────────────────────────────────────────
 
 namespace {
@@ -374,7 +392,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
 void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
                                     ThreadPool& pool, PostProcessResources* pp,
-                                    bool skip_shadows, bool flip_tonemap_y) {
+                                    bool skip_shadows, bool flip_tonemap_y,
+                                    const FjGraph* viewport_graph) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
 
     // Gather scene: frustum cull, build render queue and indirect batches
@@ -495,7 +514,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         cmd, target, target.sample_count(), active_sources_,
         pool, gpu_.secondary_pools(), current_frame_,
         resource_registry_, passes_, pp, current_ctx_,
-        gpu_.device_ref().async_compute_supported());
+        gpu_.device_ref().async_compute_supported(),
+        viewport_graph);
     // Accumulate across viewports — a frame uses async if *any* viewport
     // records to the async CB. Preview viewports have null
     // async_compute_cmd so they always return false.
@@ -578,7 +598,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                           req.camera_position, light, scene, req.target->extent());
     update_light_ssbo(current_frame_, scene);
     render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp,
-                    req.skip_shadows, req.flip_tonemap_y);
+                    req.skip_shadows, req.flip_tonemap_y, req.viewport_graph);
 
     vkEndCommandBuffer(cmd);
 
@@ -664,7 +684,8 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
                               vp.camera_position, light, scene, vp.target->extent());
         update_light_ssbo(current_frame_, scene);
-        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, pp, vp.skip_shadows);
+        render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, pp,
+                        vp.skip_shadows, /*flip_tonemap_y*/ false, vp.viewport_graph);
     }
 
     // --- UI editor preview offscreen pass ---

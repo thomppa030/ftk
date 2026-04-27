@@ -94,6 +94,10 @@ public:
     /// caller must keep it alive until this function returns.
     /// `async_compute_available` flips async-hinted passes onto the
     /// compute queue when true; false forces them back to graphics.
+    /// `viewport_graph` (optional) restricts the frame to passes named in
+    /// that graph; passes outside the graph or with `enabled: false` skip
+    /// for this call. Pass null to fall back to global pass_state_ flags
+    /// (used by the main viewport before per-viewport graphs are wired).
     /// Returns true if any pass recorded to the async compute CB — the
     /// caller uses this to decide whether to submit it and wait on its
     /// timeline semaphore.
@@ -103,7 +107,8 @@ public:
                                uint32_t frame_index, ResourceRegistry& registry,
                                PassRegistry& passes, PostProcessResources* pp_resources,
                                const FrameContext& ctx,
-                               bool async_compute_available);
+                               bool async_compute_available,
+                               const struct FjGraph* viewport_graph);
 
 private:
     struct PassState {

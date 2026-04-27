@@ -1,0 +1,34 @@
+// Lightweight pipeline for editor preview viewports (material thumbnails,
+// animation preview, camera preview). Drops DDGI, SS-GI, SSR, volumetric
+// fog, bloom, GTAO, distortion, debug viz — keeps shadows + tonemap so
+// what you see in the preview matches roughly what you'd see in the main
+// viewport at low quality.
+{
+    "name": "editor_preview",
+    "resources": {},
+
+    "passes": [
+        // Core geometry — required.
+        { "class": "DepthPrePass",     "name": "depth_prepass" },
+        { "class": "DepthResolvePass", "name": "depth_resolve" },
+        { "class": "InstanceCullPass", "name": "instance_cull" },
+
+        // Shadows — keeps lighting recognizable. SkyCubemapPass also writes
+        // the env cubemap that opaque samples for IBL.
+        { "class": "ShadowPass",       "name": "shadow" },
+        { "class": "LocalShadowPass",  "name": "local_shadows" },
+        { "class": "SkyCubemapPass",   "name": "sky_cubemap" },
+
+        // Color.
+        { "class": "OpaquePass",       "name": "opaque" },
+        { "class": "TransparentPass",  "name": "transparent" },
+        { "class": "SkyPass",          "name": "sky" },
+
+        // Forward+ tile cull — opaque needs the tile SSBO.
+        { "class": "LightCullPass",    "name": "light_cull" },
+
+        // Auto-exposure + tonemap — always on.
+        { "class": "ExposurePass",     "name": "exposure" },
+        { "class": "TonemapPass",      "name": "tonemap" }
+    ]
+}

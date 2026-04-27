@@ -25,6 +25,13 @@ struct SceneViewportConfig {
     VkSampleCountFlagBits samples{VK_SAMPLE_COUNT_1_BIT};
     bool expose_hdr{false};    // true = HDR color (R16F), false = tonemapped LDR (sRGB)
     bool skip_shadows{true};
+
+    /// `.fjgraph` describing which passes run for this viewport. Pointer
+    /// into VulkanContext::graph_cache_, owned by VulkanContext for the
+    /// lifetime of the viewport. When null (legacy path), `pp_config` and
+    /// the global `pass_state_` decide what runs — that path stays alive
+    /// while not every caller has migrated to graph filenames yet.
+    const FjGraph* viewport_graph{nullptr};
 };
 
 /// Camera/view parameters for a SceneViewport.

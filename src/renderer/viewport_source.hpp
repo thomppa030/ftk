@@ -8,6 +8,7 @@ namespace fjell {
 
 class OffscreenPass;
 class PostProcessResources;
+struct FjGraph;
 
 enum class ViewportSource : uint8_t {
     final_color,
@@ -54,6 +55,12 @@ struct ViewportRenderRequest {
     PostProcessResources* pp_resources{nullptr}; // null = use default
     bool skip_shadows{false};
     bool flip_tonemap_y{false}; // flip tonemap output for render-to-texture
+
+    /// `.fjgraph` that decides which passes run for this viewport. Null
+    /// falls back to RenderPipeline's global pass_state_ flags — used by
+    /// the main viewport during the migration window before per-viewport
+    /// graphs are wired everywhere. SceneViewports own their own graph.
+    const FjGraph* viewport_graph{nullptr};
 };
 
 } // namespace fjell

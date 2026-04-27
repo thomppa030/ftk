@@ -67,6 +67,7 @@ ViewportRenderRequest SceneViewport::build_request() const {
     req.pp_resources = pp_.get();
     req.skip_shadows = config_.skip_shadows;
     req.flip_tonemap_y = true;
+    req.viewport_graph = config_.viewport_graph;
     return req;
 }
 
