@@ -132,7 +132,8 @@ VulkanContext::VulkanContext(Window& window)
     default_config.ddgi = true;
     default_config.ss_gi = true;
     default_config.taa = true;
-    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass()};
+    default_config.rt_reflection = gpu_.device_ref().ray_tracing_supported();
+    PostProcessResources::PassRefs refs{hiz_pass(), gtao_pass(), volumetric_fog_pass(), tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(), rt_reflection_pass()};
     default_pp_ = std::make_unique<PostProcessResources>(gpu_.device(), gpu_.allocator(), 256, 256, default_config, refs);
 
     FJELL_GFX_INFO("Vulkan context ready");
@@ -1677,7 +1678,8 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
 
     PostProcessResources::PassRefs refs{
         hiz_pass(), gtao_pass(), volumetric_fog_pass(),
-        tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass()};
+        tonemap_pass(), ddgi_pass(), ss_gi_pass(), taa_resolve_pass(),
+        rt_reflection_pass()};
 
     auto viewport = std::make_unique<SceneViewport>(
         gpu_.device_ref(), gpu_.device(), gpu_.allocator(),

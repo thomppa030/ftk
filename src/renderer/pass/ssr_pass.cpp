@@ -47,7 +47,7 @@ struct CompositePushConstants {
     uint32_t viewport_width;
     uint32_t viewport_height;
     float intensity;
-    float pad;
+    uint32_t source; // 0 = ssr, 1 = rt
 };
 
 VkPipeline create_compute_pipeline(VkDevice device, VkPipelineLayout layout,
@@ -153,10 +153,11 @@ Result<> SsrCore::create(Device& device, const PassResources& resources) {
 
     // Composite set layout: binding 0 = ssr (read), 1 = scene color (rw), 2 = MR (read)
     {
-        std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
         bindings[0] = {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
         bindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
         bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+        bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
         VkDescriptorSetLayoutCreateInfo ci{};
         ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -495,11 +496,14 @@ PassSetup SsrCompositePass::setup() const {
 void SsrCompositePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     if (core_ == nullptr) { return; }
 
-    // Re-create ssr_output by name to dedup with SsrTracePass's declaration.
-    TextureDesc ssr_desc{};
-    ssr_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    ssr_desc.size_class = SizeClass::viewport;
-    auto ssr_out = builder.create("ssr_output", ssr_desc);
+    // ssr_output is a framegraph transient (created/cleared by SsrTracePass).
+    // rt_reflection_output is pass-private (owned by RtReflectionPass) and
+    // accessed through ResourceRegistry, not the graph — see the comment
+    // on RtReflectionPass::declare for the rationale.
+    TextureDesc refl_desc{};
+    refl_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    refl_desc.size_class = SizeClass::viewport;
+    auto ssr_out = builder.create("ssr_output", refl_desc);
     builder.read(ssr_out, ResourceAccess::sampled_compute);
 
     auto color = builder.import_named(ctx, "color");
@@ -516,9 +520,19 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     // blends in whichever reflection source matches the active mode.
 
     auto* ssr_res = ctx.registry->find_image("ssr_output");
+    auto* rt_res = ctx.registry->find_image("rt_reflection_output");
     auto mr_view = ctx.registry->image_view("mr");
     if (ssr_res == nullptr || ssr_res->view == VK_NULL_HANDLE) { return; }
     if (mr_view == VK_NULL_HANDLE) { return; }
+
+    // rt_reflection_output may be missing or have a null view on frames
+    // before RtReflectionPass has lazily allocated its image. Fall back to
+    // ssr_output's view for the binding — when in RT mode this just reads
+    // black for one or two frames until the RT pass catches up.
+    VkImageView rt_view = (rt_res != nullptr && rt_res->view != VK_NULL_HANDLE)
+        ? rt_res->view
+        : ssr_res->view;
+    bool rt_ready = rt_view != ssr_res->view;
 
     FJELL_PROFILE_SCOPE_N("record_ssr_composite");
     FJELL_GPU_ZONE(ctx, "SSR Composite");
@@ -532,7 +546,7 @@ void SsrCompositePass::record(const FrameContext& ctx) {
 
     auto* cache = ctx.descriptor_cache;
 
-    std::array<FrameCacheBinding, 3> comp_bindings{};
+    std::array<FrameCacheBinding, 4> comp_bindings{};
     comp_bindings[0].binding = 0;
     comp_bindings[0].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     comp_bindings[0].image.sampler = core_->nearest_sampler();
@@ -547,6 +561,11 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     comp_bindings[2].image.sampler = core_->nearest_sampler();
     comp_bindings[2].image.imageView = mr_view;
     comp_bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    comp_bindings[3].binding = 3;
+    comp_bindings[3].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    comp_bindings[3].image.sampler = core_->nearest_sampler();
+    comp_bindings[3].image.imageView = rt_view;
+    comp_bindings[3].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorSet composite_set = cache->acquire(core_->composite_set_layout(), comp_bindings);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, core_->composite_pipeline());
@@ -559,6 +578,7 @@ void SsrCompositePass::record(const FrameContext& ctx) {
     comp_push.viewport_width = width;
     comp_push.viewport_height = height;
     comp_push.intensity = core_->intensity();
+    comp_push.source = (core_->ray_traced_active() && rt_ready) ? 1u : 0u;
 
     vkCmdPushConstants(cmd, core_->composite_pipeline_layout(), VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(comp_push), &comp_push);

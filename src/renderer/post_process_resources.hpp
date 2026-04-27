@@ -4,6 +4,7 @@
 #include "renderer/pass/ddgi_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/hiz_pass.hpp"
+#include "renderer/pass/rt_reflection_pass.hpp"
 #include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/taa_resolve_pass.hpp"
@@ -28,6 +29,7 @@ struct PostProcessConfig {
     bool ddgi{false};
     bool ss_gi{false};
     bool taa{false};
+    bool rt_reflection{false};
 };
 
 struct FjGraph;
@@ -58,6 +60,7 @@ public:
         DdgiPass& ddgi;
         SsGiPass& ss_gi;
         TaaResolvePass& taa;
+        RtReflectionPass& rt_reflection;
     };
 
     PostProcessResources(VkDevice device, VmaAllocator allocator,
@@ -81,6 +84,7 @@ public:
     [[nodiscard]] DdgiPass::Images* ddgi() { return config_.ddgi ? &ddgi_images_ : nullptr; }
     [[nodiscard]] SsGiPass::Images* ss_gi() { return config_.ss_gi ? &ss_gi_images_ : nullptr; }
     [[nodiscard]] TaaResolvePass::Images* taa() { return config_.taa ? &taa_images_ : nullptr; }
+    [[nodiscard]] RtReflectionPass::Images* rt_reflection() { return config_.rt_reflection ? &rt_reflection_images_ : nullptr; }
 
     [[nodiscard]] const PostProcessConfig& config() const { return config_; }
 
@@ -103,6 +107,7 @@ private:
     DdgiPass::Images ddgi_images_;
     SsGiPass::Images ss_gi_images_;
     TaaResolvePass::Images taa_images_;
+    RtReflectionPass::Images rt_reflection_images_;
 };
 
 } // namespace fjell

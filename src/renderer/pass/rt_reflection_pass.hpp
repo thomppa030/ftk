@@ -29,15 +29,28 @@ class RtReflectionPass : public RenderPass {
 public:
     using Mode = RenderSettings::Ssr::Mode;
 
-    /// Per-pass descriptor + UBO state. Currently single-instance (shared
-    /// across viewports) — RT reflections aren't yet authored on a per-
-    /// viewport basis. Promote into PostProcessResources when a project
-    /// needs different reflection settings per camera.
-    struct State {
+    /// Per-viewport image and descriptor state. Owned by
+    /// PostProcessResources, one instance per viewport. Pass singleton
+    /// owns shared state (samplers, set layout, RT pipeline, SBT).
+    struct Images {
+        VkImage out_image{VK_NULL_HANDLE};
+        VmaAllocation out_alloc{VK_NULL_HANDLE};
+        VkImageView out_view{VK_NULL_HANDLE};
+        VkExtent2D out_extent{};
+        VkImageLayout out_layout{VK_IMAGE_LAYOUT_UNDEFINED};
+
         std::unique_ptr<Buffer> reflection_ubo;
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
         VkDescriptorSet trace_set{VK_NULL_HANDLE};
         bool first_use{true};
+
+        void create(VkDevice device, VmaAllocator allocator,
+                     VkDescriptorSetLayout set_layout,
+                     uint32_t width, uint32_t height);
+        void destroy(VkDevice device, VmaAllocator allocator);
+        void resize(VkDevice device, VmaAllocator allocator,
+                     VkDescriptorSetLayout set_layout,
+                     uint32_t width, uint32_t height);
     };
 
     Result<> create(Device& device, const PassResources& resources) override;
@@ -62,7 +75,11 @@ public:
     void set_intensity(float i) { intensity_ = i; }
     [[nodiscard]] float intensity() const { return intensity_; }
 
+    [[nodiscard]] VkDescriptorSetLayout trace_set_layout() const { return trace_set_layout_; }
+
 private:
+    void record_into(const FrameContext& ctx, Images& imgs);
+
     Device* device_{nullptr};
     VkDevice vk_device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
@@ -76,21 +93,19 @@ private:
     glm::vec3 sun_color_{1.0F};
     float sun_intensity_{1.5F};
 
-    // Samplers + RT pipeline. NULL when device lacks RT support.
+    // Shared (pass-singleton) state. NULL when device lacks RT support.
     VkSampler linear_sampler_{VK_NULL_HANDLE};
     VkSampler nearest_sampler_{VK_NULL_HANDLE};
     VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout rt_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline rt_pipeline_{VK_NULL_HANDLE};
 
-    // Shader binding table
+    // Shader binding table (shared)
     std::unique_ptr<Buffer> sbt_buffer_;
     VkStridedDeviceAddressRegionKHR sbt_raygen_{};
     VkStridedDeviceAddressRegionKHR sbt_miss_{};
     VkStridedDeviceAddressRegionKHR sbt_hit_{};
     VkStridedDeviceAddressRegionKHR sbt_callable_{};
-
-    State state_;
 };
 
 } // namespace fjell

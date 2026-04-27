@@ -292,6 +292,10 @@ void Device::create_logical_device() {
     features_12.descriptorBindingVariableDescriptorCount = VK_TRUE;
     features_12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
     features_12.descriptorBindingStorageBufferUpdateAfterBind = VK_TRUE;
+    // Needed by RtReflectionPass: it shares DdgiPass's UBO buffer and
+    // owns its own storage-image output, both rewritten per-frame.
+    features_12.descriptorBindingUniformBufferUpdateAfterBind = VK_TRUE;
+    features_12.descriptorBindingStorageImageUpdateAfterBind = VK_TRUE;
     // Needed for cross-queue sync between graphics and async compute
     // submissions (Phase 3). Harmless when async isn't used.
     features_12.timelineSemaphore = VK_TRUE;

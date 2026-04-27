@@ -21,6 +21,7 @@ PostProcessConfig pp_config_from_graph(const FjGraph& graph) {
         {"DdgiPass",       [](PostProcessConfig& c, bool v) { c.ddgi = v; }},
         {"SsGiPass",       [](PostProcessConfig& c, bool v) { c.ss_gi = v; }},
         {"TaaResolvePass", [](PostProcessConfig& c, bool v) { c.taa = v; }},
+        {"RtReflectionPass", [](PostProcessConfig& c, bool v) { c.rt_reflection = v; }},
     };
 
     // Start with everything off; flip on each pass that the graph names.
@@ -36,6 +37,7 @@ PostProcessConfig pp_config_from_graph(const FjGraph& graph) {
     cfg.ddgi = false;
     cfg.ss_gi = false;
     cfg.taa = false;
+    cfg.rt_reflection = false;
 
     for (const auto& entry : graph.passes) {
         auto it = kSetters.find(entry.class_name);
@@ -81,6 +83,11 @@ PostProcessResources::PostProcessResources(VkDevice device, VmaAllocator allocat
                            passes_->taa.image_set_layout(),
                            width, height);
     }
+    if (config_.rt_reflection && width > 0 && height > 0) {
+        rt_reflection_images_.create(device_, allocator_,
+                                      passes_->rt_reflection.trace_set_layout(),
+                                      width, height);
+    }
     // DDGI images are NOT created in the constructor — they're created on first
     // resize() to the real viewport size. This avoids the placeholder 256x256
     // images being destroyed while in-flight command buffers reference them.
@@ -95,6 +102,7 @@ PostProcessResources::~PostProcessResources() {
     ddgi_images_.destroy(device_, allocator_);
     ss_gi_images_.destroy(device_, allocator_);
     taa_images_.destroy(device_, allocator_);
+    rt_reflection_images_.destroy(device_, allocator_);
 }
 
 PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcept
@@ -105,7 +113,8 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
     , fog_images_(other.fog_images_), tonemap_images_(other.tonemap_images_)
     , ddgi_images_(std::move(other.ddgi_images_))
     , ss_gi_images_(std::move(other.ss_gi_images_))
-    , taa_images_(other.taa_images_) {
+    , taa_images_(other.taa_images_)
+    , rt_reflection_images_(std::move(other.rt_reflection_images_)) {
     passes_ = passes_storage_.get();
     other.device_ = VK_NULL_HANDLE;
     other.hiz_images_ = {};
@@ -115,6 +124,7 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
     other.ddgi_images_ = {};
     other.ss_gi_images_ = {};
     other.taa_images_ = {};
+    other.rt_reflection_images_ = {};
 }
 
 PostProcessResources& PostProcessResources::operator=(PostProcessResources&& other) noexcept {
@@ -127,6 +137,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
             ddgi_images_.destroy(device_, allocator_);
             ss_gi_images_.destroy(device_, allocator_);
             taa_images_.destroy(device_, allocator_);
+            rt_reflection_images_.destroy(device_, allocator_);
         }
         device_ = other.device_;
         allocator_ = other.allocator_;
@@ -140,6 +151,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         ddgi_images_ = std::move(other.ddgi_images_);
         ss_gi_images_ = std::move(other.ss_gi_images_);
         taa_images_ = other.taa_images_;
+        rt_reflection_images_ = std::move(other.rt_reflection_images_);
         other.device_ = VK_NULL_HANDLE;
         other.hiz_images_ = {};
         other.gtao_images_ = {};
@@ -148,6 +160,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         other.ddgi_images_ = {};
         other.ss_gi_images_ = {};
         other.taa_images_ = {};
+        other.rt_reflection_images_ = {};
     }
     return *this;
 }
@@ -178,6 +191,11 @@ void PostProcessResources::resize(uint32_t width, uint32_t height) {
         taa_images_.resize(device_, allocator_,
                            passes_->taa.image_set_layout(),
                            width, height);
+    }
+    if (config_.rt_reflection) {
+        rt_reflection_images_.resize(device_, allocator_,
+                                      passes_->rt_reflection.trace_set_layout(),
+                                      width, height);
     }
     if (config_.ddgi) {
         ddgi_images_.resize(device_, allocator_,

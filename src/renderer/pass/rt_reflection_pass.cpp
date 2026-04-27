@@ -5,6 +5,7 @@
 #include "core/profiler.hpp"
 #include "renderer/gpu/accel_structure.hpp"
 #include "renderer/gpu/device.hpp"
+#include "renderer/gpu/vma_image.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/ddgi_pass.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
@@ -124,14 +125,17 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
     bindings[13] = {13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
     bindings[14] = {14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
 
-    // UPDATE_AFTER_BIND on per-frame inputs (TLAS, screen-space samplers,
-    // DDGI atlases, instance data).
+    // UPDATE_AFTER_BIND on every binding rewritten per-frame. Bindings
+    // 7, 8, 14 (mega vertex/index, reflection UBO) are written once at
+    // first use and never touched again — those don't need the flag.
     std::array<VkDescriptorBindingFlags, BINDING_COUNT> flags{};
+    flags[0]  = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // DDGI UBO (per-viewport)
     flags[1]  = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
     flags[2]  = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // depth
     flags[3]  = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // normal
     flags[4]  = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // mr
     flags[5]  = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // sky
+    flags[6]  = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // reflection_out (re-bind on resize)
     flags[9]  = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // instance data
     flags[10] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // irradiance
     flags[11] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // visibility
@@ -267,14 +271,58 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
     sbt_hit_      = {sbt_addr + group_size * 2,   group_size, group_size};
     sbt_callable_ = {};
 
-    // ── Reflection UBO + descriptor pool + set ──
-    state_.reflection_ubo = std::make_unique<Buffer>(
-        resources.allocator, sizeof(ReflectionUbo),
+    // Per-viewport state (image + descriptor pool + UBO) is owned by
+    // PostProcessResources, created once per viewport at the right size.
+
+    FJELL_GFX_INFO("RT reflection pass created");
+    return {};
+}
+
+// ── Images (per-viewport) ──────────────────────────────────────────────
+
+void RtReflectionPass::Images::create(VkDevice device, VmaAllocator allocator,
+                                       VkDescriptorSetLayout set_layout,
+                                       uint32_t width, uint32_t height) {
+    out_extent = {width, height};
+    out_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    first_use = true;
+
+    VkImageCreateInfo ci{};
+    ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ci.extent = {width, height, 1};
+    ci.mipLevels = 1;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+    ci.usage = VK_IMAGE_USAGE_STORAGE_BIT
+             | VK_IMAGE_USAGE_SAMPLED_BIT
+             | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (create_vma_image(allocator, &ci, &out_image, &out_alloc) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate RT reflection output image");
+    }
+
+    VkImageViewCreateInfo vi{};
+    vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    vi.image = out_image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (vkCreateImageView(device, &vi, nullptr, &out_view) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create RT reflection output view");
+    }
+
+    // Reflection UBO (sun light) — host-mapped, written each frame.
+    reflection_ubo = std::make_unique<Buffer>(
+        allocator, sizeof(ReflectionUbo),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_MEMORY_USAGE_AUTO,
         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    state_.reflection_ubo->map();
+    reflection_ubo->map();
 
+    // Descriptor pool + set.
     std::array<VkDescriptorPoolSize, 5> pool_sizes{};
     pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,             2}; // DDGI UBO + reflection UBO
     pool_sizes[1] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1};
@@ -288,33 +336,52 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
     pool_ci.maxSets = 1;
     pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
     pool_ci.pPoolSizes = pool_sizes.data();
-    if (vkCreateDescriptorPool(vk_device_, &pool_ci, nullptr, &state_.desc_pool) != VK_SUCCESS) {
-        return make_error("Failed to create RT reflection descriptor pool");
+    if (vkCreateDescriptorPool(device, &pool_ci, nullptr, &desc_pool) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create RT reflection descriptor pool");
     }
 
     VkDescriptorSetAllocateInfo set_alloc{};
     set_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    set_alloc.descriptorPool = state_.desc_pool;
+    set_alloc.descriptorPool = desc_pool;
     set_alloc.descriptorSetCount = 1;
-    set_alloc.pSetLayouts = &trace_set_layout_;
-    if (vkAllocateDescriptorSets(vk_device_, &set_alloc, &state_.trace_set) != VK_SUCCESS) {
-        return make_error("Failed to allocate RT reflection descriptor set");
+    set_alloc.pSetLayouts = &set_layout;
+    if (vkAllocateDescriptorSets(device, &set_alloc, &trace_set) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate RT reflection descriptor set");
     }
+}
 
-    FJELL_GFX_INFO("RT reflection pass created");
-    return {};
+void RtReflectionPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
+    if (desc_pool != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device, desc_pool, nullptr);
+        desc_pool = VK_NULL_HANDLE;
+        trace_set = VK_NULL_HANDLE;
+    }
+    reflection_ubo.reset();
+    if (out_view != VK_NULL_HANDLE) {
+        vkDestroyImageView(device, out_view, nullptr);
+        out_view = VK_NULL_HANDLE;
+    }
+    if (out_image != VK_NULL_HANDLE) {
+        destroy_vma_image(allocator, out_image, out_alloc);
+        out_image = VK_NULL_HANDLE;
+        out_alloc = VK_NULL_HANDLE;
+    }
+    out_extent = {};
+    out_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    first_use = true;
+}
+
+void RtReflectionPass::Images::resize(VkDevice device, VmaAllocator allocator,
+                                       VkDescriptorSetLayout set_layout,
+                                       uint32_t width, uint32_t height) {
+    if (out_extent.width == width && out_extent.height == height) return;
+    vkDeviceWaitIdle(device);
+    destroy(device, allocator);
+    if (width > 0 && height > 0) create(device, allocator, set_layout, width, height);
 }
 
 void RtReflectionPass::destroy() {
     if (vk_device_ == VK_NULL_HANDLE) return;
-
-    state_.reflection_ubo.reset();
-    if (state_.desc_pool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(vk_device_, state_.desc_pool, nullptr);
-        state_.desc_pool = VK_NULL_HANDLE;
-        state_.trace_set = VK_NULL_HANDLE;
-    }
-    state_.first_use = true;
 
     sbt_buffer_.reset();
 
@@ -351,56 +418,76 @@ PassSetup RtReflectionPass::setup() const {
 }
 
 void RtReflectionPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
-    // Always declare the resource so the composite can import it
-    // unconditionally. When not active we clear it to black.
-    auto depth = builder.import_named(ctx, "depth");
-    auto normal = builder.import_named(ctx, "normal");
-    auto mr = builder.import_named(ctx, "mr");
-
-    TextureDesc out_desc{};
-    out_desc.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-    out_desc.size_class = SizeClass::viewport;
-    auto rt_out = builder.create("rt_reflection_output", out_desc);
+    // The output image lives in PostProcessResources (one per viewport),
+    // not the framegraph. We declare side-effects so the pass isn't
+    // culled, and import the screen-space inputs we read so the graph
+    // emits the right barriers for them.
+    builder.has_side_effects();
 
     if (ray_traced_active()) {
+        auto depth = builder.import_named(ctx, "depth");
+        auto normal = builder.import_named(ctx, "normal");
+        auto mr = builder.import_named(ctx, "mr");
         builder.read(depth, ResourceAccess::sampled_compute);
         builder.read(normal, ResourceAccess::sampled_compute);
         builder.read(mr, ResourceAccess::sampled_compute);
-        builder.write(rt_out, ResourceAccess::storage_write_compute);
-    } else {
-        // Clear path: graph hands us TRANSFER_DST, we clear, transition to
-        // SHADER_READ for the composite.
-        builder.write(rt_out, ResourceAccess::transfer_dst);
-        builder.final_layout(rt_out, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
-                             VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
     }
 }
 
 void RtReflectionPass::record(const FrameContext& ctx) {
-    if (ctx.registry == nullptr) return;
-    auto* rt_res = ctx.registry->find_image("rt_reflection_output");
-    if (rt_res == nullptr || rt_res->image == VK_NULL_HANDLE) return;
+    if (ctx.target == nullptr) return;
+    if (ctx.pp_resources == nullptr) return;
+    auto* imgs = ctx.pp_resources->rt_reflection();
+    if (imgs == nullptr || imgs->out_image == VK_NULL_HANDLE) return;
 
     FJELL_PROFILE_SCOPE_N("record_rt_reflection");
 
-    // ── Inactive path: clear and transition ──
+    // Publish the per-viewport image to the registry so the composite
+    // can find it. (PostProcessResources owns the image; the registry
+    // entry just points at it for the consumer to read.)
+    if (ctx.registry != nullptr) {
+        ctx.registry->register_image("rt_reflection_output",
+            {.frame_graph_id = 0,
+             .image = imgs->out_image,
+             .view = imgs->out_view,
+             .sampler = linear_sampler_});
+    }
+
+    // First-use seed: a fresh image starts in UNDEFINED. The composite
+    // expects SHADER_READ unconditionally, but several early-outs below
+    // (TLAS not ready, DDGI not allocated, etc.) can return before any
+    // barrier runs. Seed the layout once so even an early-out leaves
+    // the image in a valid layout for the composite.
+    if (imgs->out_layout == VK_IMAGE_LAYOUT_UNDEFINED) {
+        emit_image_barrier(ctx.cmd, imgs->out_image,
+            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        imgs->out_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    }
+
+    // ── Inactive path: clear and transition to SHADER_READ for composite ──
     if (!ray_traced_active()) {
+        emit_image_barrier(ctx.cmd, imgs->out_image,
+            imgs->out_layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+            VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+
         VkClearColorValue clear{};
         VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        vkCmdClearColorImage(ctx.cmd, rt_res->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        vkCmdClearColorImage(ctx.cmd, imgs->out_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                              &clear, 1, &range);
-        emit_image_barrier(ctx.cmd, rt_res->image,
+
+        emit_image_barrier(ctx.cmd, imgs->out_image,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
             VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        imgs->out_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return;
     }
 
     // ── Active path: prerequisites ──
     if (accel_manager_ == nullptr || !accel_manager_->tlas_valid(ctx.frame_index)) return;
-    if (ctx.target == nullptr) return;
-    if (ctx.pp_resources == nullptr) return;
     auto* ddgi_imgs = ctx.pp_resources->ddgi();
     if (ddgi_imgs == nullptr || ddgi_imgs->irradiance_view == VK_NULL_HANDLE) return;
 
@@ -421,20 +508,17 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         ReflectionUbo u{};
         u.sun_dir_intensity = glm::vec4(glm::normalize(-sun_direction_), sun_intensity_);
         u.sun_color = glm::vec4(sun_color_, 0.0F);
-        std::memcpy(state_.reflection_ubo->mapped(), &u, sizeof(u));
+        std::memcpy(imgs->reflection_ubo->mapped(), &u, sizeof(u));
     }
 
     auto cmd = ctx.cmd;
-    auto extent = ctx.target->extent();
 
-    // ── Pre-trace layout transitions ──
-    emit_image_barrier(cmd, rt_res->image,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
+    // ── Pre-trace: output to GENERAL, extend depth/normal/MR to RT stage ──
+    emit_image_barrier(cmd, imgs->out_image,
+        imgs->out_layout, VK_IMAGE_LAYOUT_GENERAL,
         VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT);
+        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT);
 
-    // Extend depth/normal/MR visibility to the RT stage. Same layout on
-    // both sides — execution dependency only.
     emit_image_barrier(cmd, ctx.target->depth_image(),
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
@@ -462,15 +546,15 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
     // ── Update descriptor set ──
     // First-use writes: static bindings (vertex/index SSBOs, output, UBOs).
-    if (state_.first_use) {
+    if (imgs->first_use) {
         std::array<VkWriteDescriptorSet, 3> static_writes{};
         for (auto& w : static_writes) {
             w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            w.dstSet = state_.trace_set;
+            w.dstSet = imgs->trace_set;
             w.descriptorCount = 1;
         }
 
-        VkDescriptorBufferInfo refl_ubo_info{state_.reflection_ubo->handle(), 0, sizeof(ReflectionUbo)};
+        VkDescriptorBufferInfo refl_ubo_info{imgs->reflection_ubo->handle(), 0, sizeof(ReflectionUbo)};
         static_writes[0].dstBinding = 14;
         static_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         static_writes[0].pBufferInfo = &refl_ubo_info;
@@ -487,14 +571,14 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(static_writes.size()),
                                static_writes.data(), 0, nullptr);
-        state_.first_use = false;
+        imgs->first_use = false;
     }
 
     // Per-frame writes: TLAS + screen images + DDGI atlases + storage output.
     {
-        // Reflection storage output.
+        // Reflection storage output (our own image).
         VkDescriptorImageInfo out_info{};
-        out_info.imageView = rt_res->view;
+        out_info.imageView = imgs->out_view;
         out_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
         // Screen-space samplers.
@@ -531,7 +615,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         std::array<VkWriteDescriptorSet, 12> w{};
         for (auto& wi : w) {
             wi.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            wi.dstSet = state_.trace_set;
+            wi.dstSet = imgs->trace_set;
             wi.descriptorCount = 1;
         }
         w[0].dstBinding = 0;  w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;             w[0].pBufferInfo = &ddgi_ubo_info;
@@ -552,7 +636,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
     // ── Bind + dispatch ──
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rt_pipeline_);
-    std::array<VkDescriptorSet, 2> sets = {state_.trace_set, ctx.bindless_set};
+    std::array<VkDescriptorSet, 2> sets = {imgs->trace_set, ctx.bindless_set};
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                             rt_pipeline_layout_, 0,
                             static_cast<uint32_t>(sets.size()), sets.data(),
@@ -570,13 +654,14 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
     device_->cmd_trace_rays_fn()(cmd,
         &sbt_raygen_, &sbt_miss_, &sbt_hit_, &sbt_callable_,
-        extent.width, extent.height, 1);
+        imgs->out_extent.width, imgs->out_extent.height, 1);
 
-    // ── Post-trace barrier: GENERAL → SHADER_READ for the composite ──
-    emit_image_barrier(cmd, rt_res->image,
+    // ── Post-trace: GENERAL → SHADER_READ for the composite ──
+    emit_image_barrier(cmd, imgs->out_image,
         VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_WRITE_BIT,
+        VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT,
         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    imgs->out_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 }
 
 } // namespace fjell
