@@ -19,7 +19,12 @@ FgTexture PassBuilder::create(std::string_view name, const TextureDesc& desc) {
 
 FgBuffer PassBuilder::create(std::string_view name, const BufferDesc& desc) {
     FgBuffer h{next_buffer_id_++};
-    created_buffers_.push_back({.handle = h, .name = std::string(name), .desc = desc});
+    created_buffers_.push_back({
+        .handle = h,
+        .name = std::string(name),
+        .name_hash = fg_name_hash(name),
+        .desc = desc,
+    });
     return h;
 }
 
@@ -67,13 +72,15 @@ FgTexture PassBuilder::import_named(const DeclareContext& ctx, std::string_view 
     return h;
 }
 
-FgBuffer PassBuilder::import(std::string_view name, VkBuffer buffer, VkDeviceSize size) {
+FgBuffer PassBuilder::import(std::string_view name, VkBuffer buffer, VkDeviceSize size,
+                              bool persistent) {
     FgBuffer h{next_buffer_id_++};
     imported_buffers_.push_back({
         .handle = h,
         .name = std::string(name),
         .buffer = buffer,
         .size = size,
+        .persistent = persistent,
     });
     return h;
 }

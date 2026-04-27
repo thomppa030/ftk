@@ -123,7 +123,12 @@ public:
                           VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT,
                           uint32_t base_layer = 0, uint32_t layer_count = 1,
                           VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED);
-    FgBuffer import(std::string_view name, VkBuffer buffer, VkDeviceSize size);
+    /// `persistent=true` marks the buffer as cross-frame-live. Pass-cull
+    /// keeps the producer alive even when no in-frame consumer reads it
+    /// (the read happens next frame). Mirrors the image-side pattern used
+    /// by exports like the shadow atlas.
+    FgBuffer import(std::string_view name, VkBuffer buffer, VkDeviceSize size,
+                    bool persistent = false);
 
     /// Import an image by the name it was registered under in the
     /// pipeline-provided DeclareContext catalog. Returns an invalid
@@ -209,6 +214,7 @@ public:
         std::string name;
         VkBuffer buffer;
         VkDeviceSize size;
+        bool persistent;
     };
     struct CreatedTexture {
         FgTexture handle;
@@ -219,6 +225,7 @@ public:
     struct CreatedBuffer {
         FgBuffer handle;
         std::string name;
+        uint64_t name_hash;  // FNV-1a of name, computed in create()
         BufferDesc desc;
     };
     struct FinalLayout {
