@@ -506,11 +506,7 @@ PassSetup GtaoTracePass::setup() const {
         .name = "ao_trace",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 100,
-        // .async_hint = AsyncComputeHint::Prefer — infra complete but
-        // flipping the hint surfaces a descriptor vs layout race on
-        // offscreen#N.resolve_color when post-process passes route to
-        // graphics_post_cmd. Pending a proper audit of ImGui-bound
-        // descriptor layouts across all three submits.
+        .async_hint = AsyncComputeHint::Prefer,
     };
 }
 
@@ -531,7 +527,7 @@ PassSetup AoBlurHPass::setup() const {
         .name = "ao_blur_h",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 101,
-        // .async_hint = AsyncComputeHint::Prefer — see GtaoTracePass.
+        .async_hint = AsyncComputeHint::Prefer,
     };
 }
 
@@ -617,7 +613,7 @@ PassSetup AoBlurVPass::setup() const {
         .name = "ao_blur_v",
         .phase = RenderPhase::GpuDriven,
         .sub_order = 102,
-        // .async_hint = AsyncComputeHint::Prefer — see GtaoTracePass.
+        .async_hint = AsyncComputeHint::Prefer,
     };
 }
 

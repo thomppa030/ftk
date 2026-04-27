@@ -134,6 +134,7 @@ void OffscreenPass::cleanup_images() {
     distortion_image_ = VK_NULL_HANDLE;
     distortion_allocation_ = VK_NULL_HANDLE;
     screen_color_needs_init_ = true;
+    color_needs_init_ = true;
 }
 
 void OffscreenPass::create(uint32_t width, uint32_t height) {

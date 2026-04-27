@@ -85,6 +85,18 @@ public:
     [[nodiscard]] bool screen_color_needs_init() const { return screen_color_needs_init_; }
     void mark_screen_color_initialized() { screen_color_needs_init_ = false; }
 
+    // Pre-baked descriptors (e.g. ImGui texture, post-process inputs) hold
+    // color/resolve_color at SHADER_READ_ONLY. The framegraph's slice
+    // tracker resets to UNDEFINED at begin_frame, but the validator checks
+    // image layouts at submit time against descriptor expectations. On the
+    // very first frame — before any pass has written to color — the image
+    // is still UNDEFINED, which trips the validator if a draw in the same
+    // submit references a SHADER_READ-bound descriptor for it. One-shot
+    // UNDEFINED -> SHADER_READ_ONLY transition makes the first frame
+    // match what later frames already exhibit.
+    [[nodiscard]] bool color_needs_init() const { return color_needs_init_; }
+    void mark_color_initialized() { color_needs_init_ = false; }
+
     // Distortion buffer — UV offsets for refraction effects.
     [[nodiscard]] VkImage distortion_image() const { return distortion_image_; }
     [[nodiscard]] VkImageView distortion_view() const { return distortion_view_; }
@@ -155,6 +167,7 @@ private:
     VmaAllocation screen_color_allocation_{VK_NULL_HANDLE};
     VkImageView screen_color_view_{VK_NULL_HANDLE};
     bool screen_color_needs_init_{true};
+    bool color_needs_init_{true};
 
     // Distortion buffer (single-sample, RG16F UV offsets for refraction)
     VkImage distortion_image_{VK_NULL_HANDLE};
