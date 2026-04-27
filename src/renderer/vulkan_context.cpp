@@ -510,11 +510,21 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
             gpu_.meshlet_buffer()->bounds_buffer_size()});
     }
 
+    // FJELL_DISABLE_ASYNC=1 forces every pass back onto the graphics queue.
+    // Tracy A/B knob: with vs. without async compute. Re-evaluated per
+    // frame because `getenv` is cheap and this is gated by a debug-only
+    // workflow.
+    static const bool kAsyncDisabled = []() {
+        const char* v = std::getenv("FJELL_DISABLE_ASYNC");
+        return v != nullptr && v[0] != '0' && v[0] != '\0';
+    }();
+    const bool async_available = !kAsyncDisabled
+                              && gpu_.device_ref().async_compute_supported();
     bool any_async = render_pipeline_.execute(
         cmd, target, target.sample_count(), active_sources_,
         pool, gpu_.secondary_pools(), current_frame_,
         resource_registry_, passes_, pp, current_ctx_,
-        gpu_.device_ref().async_compute_supported(),
+        async_available,
         viewport_graph);
     // Accumulate across viewports — a frame uses async if *any* viewport
     // records to the async CB. Preview viewports have null
@@ -1151,6 +1161,23 @@ void VulkanContext::submit_and_present() {
         // "compute output is ready for graphics". Using two values per
         // frame keeps the sync unambiguous — compute doesn't risk
         // consuming the wrong graphics pre-output.
+        //
+        // Status (2026-04-27 Tracy session, showcase scene):
+        // FJELL_DISABLE_ASYNC=1 measures ~5% *faster* (344 → 327 FPS) than
+        // the async path. CPU work is identical; the regression is
+        // GPU-side serialization plus 3× submit overhead. Suspect the
+        // chain is effectively serial in practice — graphics_post waits
+        // at FRAGMENT_SHADER for v2, so vertex/early fragment can run
+        // alongside compute, but the workload here is too small for the
+        // overlap to recover the per-submit and timeline cost.
+        //
+        // Three async passes total ~83µs of GPU compute; per-frame
+        // delta is ~130µs. To make this pay we'd need either bigger
+        // overlap candidates (DDGI probe update, bloom downsample) or
+        // a deeper graphics tail to hide compute behind. Both deferred
+        // until the workload supports them. FJELL_DISABLE_ASYNC=1 is
+        // the A/B knob; the async-hint flags on GTAO/HiZ/LightCull stay
+        // (the infrastructure is correct, just dormant on this scene).
         async_timeline_values_[recorded_frame_] += 2;
         uint64_t v1 = async_timeline_values_[recorded_frame_] - 1;
         uint64_t v2 = async_timeline_values_[recorded_frame_];
