@@ -105,6 +105,7 @@ add_executable(fjell
     renderer/pass/cull_viz_pass.cpp
     renderer/pass/gtao_pass.cpp
     renderer/pass/ssr_pass.cpp
+    renderer/pass/rt_reflection_pass.cpp
     renderer/pass/volumetric_fog_pass.cpp
     renderer/pass/sun_shafts_pass.cpp
     renderer/pass/contact_shadow_pass.cpp

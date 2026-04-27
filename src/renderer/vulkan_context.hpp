@@ -25,6 +25,7 @@
 #include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/gtao_pass.hpp"
 #include "renderer/pass/ss_gi_pass.hpp"
+#include "renderer/pass/rt_reflection_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
 #include "renderer/pass/contact_shadow_pass.hpp"
@@ -170,6 +171,7 @@ public:
   [[nodiscard]] BloomCore &bloom_pass() { return passes_.get<BloomCore>("bloom_ds_0"); }
   [[nodiscard]] AoPass &gtao_pass() { return passes_.get<AoPass>("ao_trace"); }
   [[nodiscard]] SsrCore &ssr_pass() { return passes_.get<SsrCore>("ssr_trace"); }
+  [[nodiscard]] RtReflectionPass &rt_reflection_pass() { return passes_.get<RtReflectionPass>("rt_reflection"); }
   [[nodiscard]] FogCore &volumetric_fog_pass() { return passes_.get<FogCore>("fog_inject"); }
   [[nodiscard]] ContactShadowPass &contact_shadow_pass() { return passes_.get<ContactShadowPass>("contact_shadow"); }
   [[nodiscard]] DdgiPass &ddgi_pass() { return passes_.get<DdgiPass>("ddgi"); }

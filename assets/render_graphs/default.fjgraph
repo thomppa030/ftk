@@ -66,6 +66,7 @@
         { "class": "AoBlurHPass",      "name": "ao_blur_h" },
         { "class": "AoBlurVPass",      "name": "ao_blur_v" },
         { "class": "SsrTracePass",     "name": "ssr_trace" },
+        { "class": "RtReflectionPass", "name": "rt_reflection" },
         { "class": "SsrCompositePass", "name": "ssr_composite" },
         { "class": "FogInjectPass",    "name": "fog_inject" },
         { "class": "FogTemporalPass",  "name": "fog_temporal" },

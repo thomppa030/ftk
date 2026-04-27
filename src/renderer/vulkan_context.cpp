@@ -84,6 +84,7 @@ VulkanContext::VulkanContext(Window& window)
         accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
         ddgi_pass().set_accel_manager(accel_manager_.get());
         ss_gi_pass().set_accel_manager(accel_manager_.get());
+        rt_reflection_pass().set_accel_manager(accel_manager_.get());
     }
 
     // Create render subsystems
@@ -223,6 +224,8 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     ssr_pass().set_mode(requested_mode);
     ssr_pass().set_intensity(s.ssr.intensity);
     ssr_pass().set_thickness(s.ssr.thickness);
+    rt_reflection_pass().set_mode(requested_mode);
+    rt_reflection_pass().set_intensity(s.ssr.intensity);
 
     // Tonemap
     tonemap_pass().set_auto_exposure(s.tonemap.auto_exposure);
@@ -865,6 +868,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
 
     // Forward sun data to SS-GI pass for closest-hit direct lighting
     ss_gi_pass().set_sun_light(dir_light.direction, dir_light.color, dir_light.intensity);
+    rt_reflection_pass().set_sun_light(dir_light.direction, dir_light.color, dir_light.intensity);
 
     const auto& matrices = shadow_pass().light_matrices();
     const auto& splits = shadow_pass().cascade_splits();

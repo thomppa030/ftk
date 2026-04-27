@@ -42,6 +42,7 @@
 #include "renderer/pass/shadow_pass.hpp"
 #include "renderer/pass/sky_cubemap_pass.hpp"
 #include "renderer/pass/sky_pass.hpp"
+#include "renderer/pass/rt_reflection_pass.hpp"
 #include "renderer/pass/ssr_pass.hpp"
 #include "renderer/pass/ss_gi_pass.hpp"
 #include "renderer/pass/subsystem_compute_pass.hpp"
@@ -92,6 +93,7 @@ FJELL_REGISTER_PASS(ScreenColorCopyPass)
 FJELL_REGISTER_PASS(ShadowPass)
 FJELL_REGISTER_PASS(SkyCubemapPass)
 FJELL_REGISTER_PASS(SkyPass)
+FJELL_REGISTER_PASS(RtReflectionPass)
 FJELL_REGISTER_PASS(SsrCompositePass)
 FJELL_REGISTER_PASS(SsrTracePass)
 FJELL_REGISTER_PASS(SsGiPass)
