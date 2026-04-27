@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+#include "renderer/fjgraph_parser.hpp"
 #include "renderer/pass_setup.hpp"
 #include "renderer/render_settings.hpp"
 #include "renderer/gpu/vk_check.hpp"
@@ -58,8 +59,20 @@ VulkanContext::VulkanContext(Window& window)
     PassResources pass_resources = gpu_.pass_resources();
     pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
 
-    // Create all render passes (centralized in pass_setup.cpp)
-    create_all_passes(passes_, gpu_, pass_resources);
+    // Load the default render pipeline from `assets/render_graphs/default.fjgraph`.
+    // Topology lives in data; pass behavior stays in C++ (PassFactory keys
+    // class names → constructors, registered in pass_registrations.cpp).
+    auto graph_result = FjGraphParser::load(
+        base_path::resolve("assets/render_graphs/default.fjgraph"));
+    if (!graph_result) {
+        throw std::runtime_error("Failed to load default.fjgraph: " +
+                                 graph_result.error());
+    }
+    auto create_result = create_passes_from_graph(
+        *graph_result, passes_, gpu_, pass_resources);
+    if (!create_result) {
+        throw std::runtime_error(create_result.error());
+    }
     meshlet_passes_created_ = passes_.has("meshlet_instance");
 
     // Create acceleration structure manager for DDGI RT backend
