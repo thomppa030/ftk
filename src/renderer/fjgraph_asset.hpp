@@ -42,10 +42,17 @@ struct FjGraphPass {
     std::string name;          // registry key (defaults from class_name + index)
     PassParams params;
 
+    /// Static enable flag. Default true. Hot-reload re-applies this via
+    /// `RenderPipeline::set_pass_enabled` so toggling a pass on or off is
+    /// as fast as saving the file.
+    bool enabled{true};
+
     std::optional<std::string> queue;       // "graphics" or "async_compute"
     std::optional<std::string> phase;       // RenderPhase enum name
     std::optional<int> sub_order;
-    std::optional<std::string> enabled_if;  // feature flag key
+    /// Feature-flag key — `enabled_if`. Reserved for v2 once the engine
+    /// has a unified feature registry; today, use the static `enabled`.
+    std::optional<std::string> enabled_if;
 };
 
 /// Top-level `.fjgraph` document. Parsed once per load; the resolver

@@ -162,6 +162,7 @@ add_executable(fjell
     renderer/gpu_context.cpp
     renderer/global_bindings.cpp
     renderer/fjgraph_parser.cpp
+    renderer/fjgraph_watcher.cpp
     renderer/pass_factory.cpp
     renderer/pass_registrations.cpp
     renderer/pass_registry.cpp

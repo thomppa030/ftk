@@ -176,6 +176,9 @@ Result<FjGraph> FjGraphParser::parse(std::string_view text,
             }
         }
 
+        if (entry.contains("enabled")) {
+            p.enabled = entry["enabled"].get<bool>();
+        }
         if (entry.contains("queue")) {
             p.queue = entry["queue"].get<std::string>();
         }

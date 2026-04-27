@@ -3,6 +3,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_factory.hpp"
 #include "renderer/pass_registry.hpp"
+#include "renderer/render_pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 
 // Mesh shader passes are still constructed in C++ (conditional on device
@@ -18,6 +19,7 @@ namespace fjell {
 
 Result<> create_passes_from_graph(const FjGraph& graph,
                                   PassRegistry& passes,
+                                  RenderPipeline& pipeline,
                                   GpuContext& gpu,
                                   const PassResources& resources) {
     auto& device = gpu.device_ref();
@@ -46,7 +48,15 @@ Result<> create_passes_from_graph(const FjGraph& graph,
     }
 
     passes.post_create_all(gpu);
+    passes.register_with_pipeline(pipeline);
+    apply_enabled_flags(graph, pipeline);
     return {};
+}
+
+void apply_enabled_flags(const FjGraph& graph, RenderPipeline& pipeline) {
+    for (const auto& entry : graph.passes) {
+        pipeline.set_pass_enabled(entry.name, entry.enabled);
+    }
 }
 
 bool create_meshlet_passes(PassRegistry& passes, GpuContext& gpu,

@@ -155,6 +155,9 @@ void Engine::init_subsystems() {
     vulkan_context_->set_animation_system(&animation_subsystem_->system());
 #ifndef NDEBUG
     shader_watcher_.emplace(base_path::resolve("../shaders"), base_path::resolve("shaders"));
+    fjgraph_watcher_.emplace(
+        base_path::resolve("assets/render_graphs/default.fjgraph"),
+        [this](const std::string& path) { vulkan_context_->reload_fjgraph(path); });
 #endif
 }
 
@@ -1576,6 +1579,7 @@ void Engine::run() {
         if (shader_watcher_ && shader_watcher_->poll()) {
             vulkan_context_->reload_pipeline();
         }
+        if (fjgraph_watcher_) { (void)fjgraph_watcher_->poll(); }
 #endif
 
         auto ctx = make_frame_context();

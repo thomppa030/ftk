@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/fjgraph_asset.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/render_pipeline.hpp"
@@ -103,6 +104,13 @@ public:
   void release_imgui_textures();
   void reload_pipeline();
   void sync_custom_depth_pipelines();
+
+  /// Re-parse `path` and apply its `enabled` flags to the live pipeline.
+  /// Pass-shape changes (adds, removes, param edits, queue/phase
+  /// overrides) are detected and logged but not applied — those still
+  /// require a restart in v1. Called by the inotify watcher in debug
+  /// builds.
+  void reload_fjgraph(const std::string& path);
 
   // ── Forwarding accessors to GpuContext ────────────────────────────────
   [[nodiscard]] GpuContext& gpu() { return gpu_; }
@@ -276,8 +284,6 @@ private:
                              const struct DirectionalLight &light, Scene *scene,
                              VkExtent2D extent);
 
-  void register_passes();
-
   FrameContext build_frame_context(VkCommandBuffer cmd, OffscreenPass &target,
                                    Scene *scene, float dt, uint32_t selected_id,
                                    PostProcessResources *pp, bool skip_shadows,
@@ -292,6 +298,10 @@ private:
 
   // ── Passes (owned by registry) ─────────────────────────────────────
   PassRegistry passes_;
+
+  // The .fjgraph that built the current pipeline. Held so the hot-reload
+  // watcher (debug builds only) can diff a re-parsed graph against it.
+  FjGraph loaded_graph_;
 
   // Particles / sprites
   // Rendering subsystems (particles, sprites, tilemaps, etc.)

@@ -22,6 +22,7 @@
 
 #ifndef NDEBUG
 #include "renderer/shader_watcher.hpp"
+#include "renderer/fjgraph_watcher.hpp"
 #endif
 
 #include <cstdint>
@@ -156,6 +157,7 @@ private:
 
 #ifndef NDEBUG
     std::optional<ShaderWatcher> shader_watcher_;
+    std::optional<FjGraphWatcher> fjgraph_watcher_;
 #endif
 
     // Project

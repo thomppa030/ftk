@@ -69,10 +69,11 @@ VulkanContext::VulkanContext(Window& window)
                                  graph_result.error());
     }
     auto create_result = create_passes_from_graph(
-        *graph_result, passes_, gpu_, pass_resources);
+        *graph_result, passes_, render_pipeline_, gpu_, pass_resources);
     if (!create_result) {
         throw std::runtime_error(create_result.error());
     }
+    loaded_graph_ = std::move(*graph_result);
     meshlet_passes_created_ = passes_.has("meshlet_instance");
 
     // Create acceleration structure manager for DDGI RT backend
@@ -122,8 +123,6 @@ VulkanContext::VulkanContext(Window& window)
     FJELL_GFX_DEBUG("Outline pipelines managed by PipelineCache");
     FJELL_GFX_DEBUG("Creating debug draw");
     debug_draw_ = std::make_unique<DebugDraw>(gpu_.device(), gpu_.allocator());
-
-    register_passes();
 
     // Default post-process resources for the main viewport (all passes enabled)
     PostProcessConfig default_config{};
@@ -236,10 +235,69 @@ void VulkanContext::sync_tilemap_textures(Scene& scene, ResourceManager& resourc
     tilemap_renderer_->sync_textures(scene, resources, project);
 }
 
-// ── Pass registration ────────────────────────────────────────────────────
+// ── Hot-reload ──────────────────────────────────────────────────────────
 
-void VulkanContext::register_passes() {
-    passes_.register_with_pipeline(render_pipeline_);
+namespace {
+
+// Compare params field-by-field. PassParams is small (3-5 keys per pass);
+// O(n*m) is fine.
+bool params_equal(const PassParams& a, const PassParams& b) {
+    auto count = [](const PassParams& p) {
+        size_t n = 0;
+        for ([[maybe_unused]] const auto& _ : p) { ++n; }
+        return n;
+    };
+    if (count(a) != count(b)) { return false; }
+    for (const auto& [k, v] : a) {
+        const auto* bv = b.find(k);
+        if (bv == nullptr || *bv != v) { return false; }
+    }
+    return true;
+}
+
+bool entries_shape_equal(const FjGraphPass& a, const FjGraphPass& b) {
+    return a.class_name == b.class_name &&
+           a.name       == b.name &&
+           a.queue      == b.queue &&
+           a.phase      == b.phase &&
+           a.sub_order  == b.sub_order &&
+           a.enabled_if == b.enabled_if &&
+           params_equal(a.params, b.params);
+}
+
+} // namespace
+
+void VulkanContext::reload_fjgraph(const std::string& path) {
+    auto reparsed = FjGraphParser::load(path);
+    if (!reparsed) {
+        FJELL_GFX_ERROR("FjGraphWatcher: parse failed: {}", reparsed.error());
+        return;
+    }
+
+    // Shape diff: same number of entries, identical class/name/params/queue/phase
+    // for each. Only `enabled` may differ. Anything else needs restart.
+    bool shape_ok = reparsed->passes.size() == loaded_graph_.passes.size();
+    if (shape_ok) {
+        for (size_t i = 0; i < reparsed->passes.size(); ++i) {
+            if (!entries_shape_equal(reparsed->passes[i],
+                                     loaded_graph_.passes[i])) {
+                shape_ok = false;
+                break;
+            }
+        }
+    }
+
+    if (!shape_ok) {
+        FJELL_GFX_WARN(
+            "FjGraphWatcher: pass shape changed (adds/removes/params/queue) — "
+            "restart the engine to apply. Saved graph remains parsed; only "
+            "'enabled' flag changes are honored live in v1.");
+        return;
+    }
+
+    apply_enabled_flags(*reparsed, render_pipeline_);
+    loaded_graph_ = std::move(*reparsed);
+    FJELL_GFX_INFO("FjGraphWatcher: applied enable-flag changes from {}", path);
 }
 
 // ── Command buffer recording ────────────────────────────────────────────
