@@ -1,5 +1,6 @@
 #include "generator.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -38,18 +39,50 @@ static void write_generated_cpp(const ComponentInfo& comp,
     if (has_shared) out << "extern \"C\" void fjell_gc_trace_shared(void*, void*);\n";
     if (has_weak || has_ref || has_shared) out << "\n";
 
-    // Field table
+    // Static enum label arrays (one per ENUM field)
     out << std::fixed;
+    auto label_symbol = [&](const std::string& field_name) {
+        return "fjreflect_" + comp.class_name + "_" + field_name + "_labels";
+    };
+    for (const auto& f : comp.fields) {
+        if (f.enum_labels.empty()) continue;
+        out << "static const char* const " << label_symbol(f.name) << "[] = {";
+        for (std::size_t e = 0; e < f.enum_labels.size(); ++e) {
+            if (e) out << ", ";
+            out << "\"" << f.enum_labels[e] << "\"";
+        }
+        out << "};\n";
+    }
+    if (std::any_of(comp.fields.begin(), comp.fields.end(),
+                    [](const auto& f) { return !f.enum_labels.empty(); })) {
+        out << "\n";
+    }
+
+    // Field table
     out << "extern \"C\" const FjellFieldDesc fjreflect_" << comp.class_name << "_fields[] = {\n";
     for (const auto& f : comp.fields) {
+        // For enum fields, override size with label count so the runtime can
+        // bound-check without a separate count field.
+        uint32_t size = f.enum_labels.empty() ? f.size
+                                              : static_cast<uint32_t>(f.enum_labels.size());
+
         out << "    {\"" << f.name << "\", " << f.fj_field_type
-            << ", " << f.offset << ", " << f.size
-            << ", nullptr, " << f.hint_min << "f, " << f.hint_max << "f, " << f.hint_speed << "f, ";
-        if (f.ref_target.empty()) {
+            << ", " << f.offset << ", " << size << ", ";
+        if (f.enum_labels.empty()) {
             out << "nullptr";
         } else {
-            out << "\"" << f.ref_target << "\"";
+            out << label_symbol(f.name);
         }
+        out << ", " << f.hint_min << "f, " << f.hint_max << "f, " << f.hint_speed << "f, ";
+        if (f.ref_target.empty()) out << "nullptr";
+        else out << "\"" << f.ref_target << "\"";
+        out << ", ";
+        if (f.tooltip.empty()) out << "nullptr";
+        else out << "\"" << f.tooltip << "\"";
+        out << ", ";
+        if (f.category.empty()) out << "nullptr";
+        else out << "\"" << f.category << "\"";
+        out << ", " << (f.is_readonly ? 1 : 0);
         out << "},\n";
     }
     out << "};\n\n";

@@ -44,6 +44,9 @@ static const bool log_registered = [] {
         .enum_labels = {},
         .min = 0.0f, .max = 0.0f, .speed = 0.0f,
         .ref_type_name = {},
+        .tooltip = {},
+        .category = {},
+        .readonly = false,
     }};
     AnimNotifyRegistry::instance().register_notify(std::move(info));
     return true;
@@ -80,6 +83,9 @@ static const bool log_state_registered = [] {
         .enum_labels = {},
         .min = 0.0f, .max = 0.0f, .speed = 0.0f,
         .ref_type_name = {},
+        .tooltip = {},
+        .category = {},
+        .readonly = false,
     }};
     AnimNotifyRegistry::instance().register_notify(std::move(info));
     return true;

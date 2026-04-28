@@ -17,14 +17,33 @@ namespace fjell {
 // skipped — those require ScriptManager context.
 inline void draw_reflected_fields(const std::vector<OwnedFieldDesc>& fields, void* base_ptr) {
     auto* base = static_cast<uint8_t*>(base_ptr);
+    std::string current_category;
+    bool category_open = true;
+    bool in_tree = false;
     for (std::size_t i = 0; i < fields.size(); ++i) {
         const auto& f = fields[i];
+
+        if (f.category != current_category) {
+            if (in_tree) { ImGui::TreePop(); in_tree = false; }
+            current_category = f.category;
+            if (current_category.empty()) {
+                category_open = true;
+            } else {
+                category_open = ImGui::TreeNodeEx(current_category.c_str(),
+                                                  ImGuiTreeNodeFlags_DefaultOpen |
+                                                  ImGuiTreeNodeFlags_SpanAvailWidth);
+                in_tree = category_open;
+            }
+        }
+        if (!category_open) continue;
+
         void* ptr = base + f.offset;
         float spd = f.speed > 0.0f ? f.speed : 0.1f;
         std::string label = display_name(f.name);
         const char* lbl = label.c_str();
 
         ImGui::PushID(static_cast<int>(i));
+        if (f.readonly) ImGui::BeginDisabled();
         switch (f.type) {
             case FJELL_FIELD_FLOAT:
                 ImGui::DragFloat(lbl, static_cast<float*>(ptr), spd, f.min, f.max);
@@ -73,8 +92,13 @@ inline void draw_reflected_fields(const std::vector<OwnedFieldDesc>& fields, voi
             default:
                 break; // Ref types need ScriptManager context
         }
+        if (f.readonly) ImGui::EndDisabled();
+        if (!f.tooltip.empty() && ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", f.tooltip.c_str());
+        }
         ImGui::PopID();
     }
+    if (in_tree) ImGui::TreePop();
 }
 
 } // namespace fjell

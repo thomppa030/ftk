@@ -89,15 +89,53 @@ static std::string trim(const std::string& s) {
     return s.substr(start, end - start + 1);
 }
 
-/// Extract attribute content from [[fj::...]] patterns on a line.
-/// Returns the full attribute string like "fj::property, fj::range(0, 100)"
+/// Extract attribute content from [[fj::...]] patterns starting at lines[idx].
+/// If the attribute spans multiple lines, joins them with spaces and writes the
+/// number of lines consumed (>= 1) into out_consumed. Returns empty string if
+/// no fj::-attribute starts on this line.
+static std::string extract_fj_attrs(const std::vector<std::string>& lines,
+                                     std::size_t idx,
+                                     std::size_t& out_consumed) {
+    out_consumed = 1;
+    const auto& first = lines[idx];
+    auto open = first.find("[[");
+    if (open == std::string::npos) return {};
+
+    // Try same-line close first
+    auto close = first.find("]]", open);
+    if (close != std::string::npos) {
+        auto content = first.substr(open + 2, close - open - 2);
+        if (content.find("fj::") == std::string::npos) return {};
+        return content;
+    }
+
+    // Multi-line: accumulate until ]] found. We don't know yet whether it's
+    // a fj:: attribute, so check after joining.
+    std::string joined = first.substr(open + 2);
+    for (std::size_t k = idx + 1; k < lines.size(); ++k) {
+        auto end = lines[k].find("]]");
+        if (end == std::string::npos) {
+            joined += ' ';
+            joined += lines[k];
+            continue;
+        }
+        joined += ' ';
+        joined += lines[k].substr(0, end);
+        out_consumed = k - idx + 1;
+        if (joined.find("fj::") == std::string::npos) return {};
+        return joined;
+    }
+    // Unterminated — bail
+    return {};
+}
+
+/// Backward-compatible single-line wrapper used by call sites that only have
+/// one line in hand (e.g. early action detection on a stand-alone line).
 static std::string extract_fj_attrs(const std::string& line) {
-    // Find [[...]] that contains "fj::"
     auto open = line.find("[[");
     if (open == std::string::npos) return {};
     auto close = line.find("]]", open);
     if (close == std::string::npos) return {};
-
     auto content = line.substr(open + 2, close - open - 2);
     if (content.find("fj::") == std::string::npos) return {};
     return content;
@@ -115,6 +153,75 @@ static bool parse_range(const std::string& attrs, float& min, float& max) {
         } catch (...) {}
     }
     return false;
+}
+
+/// Parse "fj::step(0.01)" — drag speed override.
+static bool parse_step(const std::string& attrs, float& step) {
+    std::regex re(R"(fj::step\(\s*([0-9.eE+-]+)\s*\))");
+    std::smatch m;
+    if (std::regex_search(attrs, m, re)) {
+        try {
+            step = std::stof(m[1]);
+            return true;
+        } catch (...) {}
+    }
+    return false;
+}
+
+/// Parse a single quoted-string argument: 'fj::<key>("text with spaces")'.
+/// Returns true on match; out receives the unquoted string.
+static bool parse_quoted_arg(const std::string& attrs, const std::string& key,
+                             std::string& out) {
+    // Match key("..."); string body excludes embedded "
+    std::regex re("fj::" + key + R"(\(\s*\"([^\"]*)\"\s*\))");
+    std::smatch m;
+    if (std::regex_search(attrs, m, re)) {
+        out = m[1].str();
+        return true;
+    }
+    return false;
+}
+
+/// Parse 'fj::enum(A, B, C)' — comma-separated identifiers (or quoted strings).
+/// Stores label list in out. Whitespace tolerated. Quotes optional.
+static bool parse_enum_labels(const std::string& attrs, std::vector<std::string>& out) {
+    auto pos = attrs.find("fj::enum(");
+    if (pos == std::string::npos) return false;
+    auto open = attrs.find('(', pos);
+    auto close = attrs.find(')', open);
+    if (open == std::string::npos || close == std::string::npos) return false;
+
+    auto body = attrs.substr(open + 1, close - open - 1);
+    std::string token;
+    auto flush = [&] {
+        auto t = trim(token);
+        if (t.size() >= 2 && t.front() == '"' && t.back() == '"') {
+            t = t.substr(1, t.size() - 2);
+        }
+        if (!t.empty()) out.push_back(t);
+        token.clear();
+    };
+    for (char c : body) {
+        if (c == ',') flush();
+        else token.push_back(c);
+    }
+    flush();
+    return !out.empty();
+}
+
+/// Apply all hint/decoration attributes to a FieldInfo.
+/// Range/step/tooltip/category/enum/color/readonly are independent of field type
+/// and the type-specific guards are applied later by the caller.
+static void apply_attrs(FieldInfo& fi, const std::string& attrs) {
+    if (parse_range(attrs, fi.hint_min, fi.hint_max)) {
+        fi.has_range = true;
+    }
+    parse_step(attrs, fi.hint_speed);
+    parse_quoted_arg(attrs, "tooltip", fi.tooltip);
+    parse_quoted_arg(attrs, "category", fi.category);
+    parse_enum_labels(attrs, fi.enum_labels);
+    fi.is_color = attrs.find("fj::color") != std::string::npos;
+    fi.is_readonly = attrs.find("fj::readonly") != std::string::npos;
 }
 
 /// Parse a field declaration after stripping attributes.
@@ -360,18 +467,44 @@ ParseResult parse_file(const std::string& filepath) {
                 continue;
             }
 
-            // Check for [[fj::...]] attributes
-            auto attrs = extract_fj_attrs(ln);
+            // Check for [[fj::...]] attributes (may span multiple lines)
+            std::size_t attr_consumed = 1;
+            auto attrs = extract_fj_attrs(lines, j, attr_consumed);
 
             bool is_property = attrs.find("fj::property") != std::string::npos;
             bool is_bind = attrs.find("fj::bind_list") != std::string::npos ? false
                          : attrs.find("fj::bind") != std::string::npos;
             bool is_bind_list = attrs.find("fj::bind_list") != std::string::npos;
 
-            // fj::bind and fj::bind_list imply fj::property
+            // fj::bind, fj::bind_list, and any decoration attribute imply fj::property
             if (is_bind || is_bind_list) is_property = true;
+            if (!is_property) {
+                static const char* implicit[] = {
+                    "fj::range", "fj::step", "fj::tooltip", "fj::category",
+                    "fj::color", "fj::enum", "fj::readonly",
+                };
+                for (const auto* k : implicit) {
+                    if (attrs.find(k) != std::string::npos) { is_property = true; break; }
+                }
+            }
 
             if (!attrs.empty() && is_property) {
+                // Multi-line attribute: field is on a line we haven't visited
+                // yet. Stash and skip past the continuation lines (counting
+                // their braces so brace_depth stays accurate).
+                if (attr_consumed > 1) {
+                    for (std::size_t k = 1; k < attr_consumed; ++k) {
+                        for (char c : lines[j + k]) {
+                            if (c == '{') brace_depth++;
+                            else if (c == '}') brace_depth--;
+                        }
+                    }
+                    pending_attrs = attrs;
+                    pending_line = static_cast<unsigned>(j + attr_consumed + 1);
+                    j += attr_consumed - 1;
+                    continue;
+                }
+
                 // Attribute and field might be on same line or attribute on its own line
                 std::string type_str, name_str;
                 if (parse_field_decl(ln, type_str, name_str)) {
@@ -433,8 +566,32 @@ ParseResult parse_file(const std::string& filepath) {
                 fi.line = pending_line;
                 fi.is_bind = is_bind;
                 fi.is_bind_list = is_bind_list;
-                if (parse_range(pending_attrs, fi.hint_min, fi.hint_max)) {
-                    fi.has_range = true;
+                apply_attrs(fi, pending_attrs);
+
+                if (fi.is_color) {
+                    if (fi.fj_field_type == "FJELL_FIELD_VEC3") {
+                        fi.fj_field_type = "FJELL_FIELD_COLOR3";
+                    } else if (fi.fj_field_type == "FJELL_FIELD_VEC4") {
+                        fi.fj_field_type = "FJELL_FIELD_COLOR4";
+                    } else {
+                        result.errors.push_back(
+                            filepath + ":" + std::to_string(j + 1) +
+                            ": error: [[fj::color]] requires vec3 or vec4, got '" +
+                            type_str + "' on '" + name_str + "'");
+                        pending_attrs.clear();
+                        continue;
+                    }
+                }
+                if (!fi.enum_labels.empty()) {
+                    if (fi.fj_field_type != "FJELL_FIELD_INT") {
+                        result.errors.push_back(
+                            filepath + ":" + std::to_string(j + 1) +
+                            ": error: [[fj::enum]] requires int field, got '" +
+                            type_str + "' on '" + name_str + "'");
+                        pending_attrs.clear();
+                        continue;
+                    }
+                    fi.fj_field_type = "FJELL_FIELD_ENUM";
                 }
 
                 comp.fields.push_back(std::move(fi));
@@ -486,10 +643,34 @@ ParseResult parse_file(const std::string& filepath) {
                             fi.line = static_cast<unsigned>(j + 1);
                             fi.is_bind = p_is_bind;
                             fi.is_bind_list = p_is_bind_list;
-                            if (parse_range(pending_attrs, fi.hint_min, fi.hint_max)) {
-                                fi.has_range = true;
+                            apply_attrs(fi, pending_attrs);
+
+                            bool keep = true;
+                            if (fi.is_color) {
+                                if (fi.fj_field_type == "FJELL_FIELD_VEC3") {
+                                    fi.fj_field_type = "FJELL_FIELD_COLOR3";
+                                } else if (fi.fj_field_type == "FJELL_FIELD_VEC4") {
+                                    fi.fj_field_type = "FJELL_FIELD_COLOR4";
+                                } else {
+                                    result.errors.push_back(
+                                        filepath + ":" + std::to_string(j + 1) +
+                                        ": error: [[fj::color]] requires vec3 or vec4, got '" +
+                                        type_str + "' on '" + name_str + "'");
+                                    keep = false;
+                                }
                             }
-                            comp.fields.push_back(std::move(fi));
+                            if (keep && !fi.enum_labels.empty()) {
+                                if (fi.fj_field_type != "FJELL_FIELD_INT") {
+                                    result.errors.push_back(
+                                        filepath + ":" + std::to_string(j + 1) +
+                                        ": error: [[fj::enum]] requires int field, got '" +
+                                        type_str + "' on '" + name_str + "'");
+                                    keep = false;
+                                } else {
+                                    fi.fj_field_type = "FJELL_FIELD_ENUM";
+                                }
+                            }
+                            if (keep) comp.fields.push_back(std::move(fi));
                         }
                     }
                 }
@@ -550,8 +731,9 @@ bool query_offsets(std::vector<ComponentInfo>& components,
                "    FJELL_FIELD_ENUM, FJELL_FIELD_WEAK_REF, FJELL_FIELD_REF,\n"
                "    FJELL_FIELD_SHARED_REF, FJELL_FIELD_WIDGET_PTR };\n";
         out << "struct FjellFieldDesc { const char* name; FjellFieldType type;\n"
-               "    uint32_t offset; uint32_t size; const char* ref_target;\n"
-               "    float min; float max; float step; const char* const* enum_names; };\n";
+               "    uint32_t offset; uint32_t size; const char* const* enum_labels;\n"
+               "    float min; float max; float speed; const char* ref_type_name;\n"
+               "    const char* tooltip; const char* category; uint8_t readonly; };\n";
         out << "enum FjellUiActionParam { FJELL_UI_ACTION_NONE=0, FJELL_UI_ACTION_INT,\n"
                "    FJELL_UI_ACTION_FLOAT, FJELL_UI_ACTION_VEC2 };\n";
         out << "struct FjellUiActionDesc { const char* name; FjellUiActionParam param_type; };\n\n";
