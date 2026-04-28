@@ -55,12 +55,14 @@ float sample_shadow_pcss(vec3 world_pos, int cascade, float NdotL_for_bias, floa
     // Rotate Poisson disk per-pixel to break up staircase aliasing
     mat2 rot = random_rotation(gl_FragCoord.xy);
 
+    // 16-tap rotated Poisson PCF — quality is indistinguishable from 25-tap
+    // with per-pixel rotation, ~36% fewer texture samples
     float shadow = 0.0;
-    for (int i = 0; i < 25; ++i) {
+    for (int i = 0; i < 16; ++i) {
         vec2 offset = rot * POISSON_DISK[i] * spread;
         shadow += texture(shadow_map, vec4(uv + offset, float(cascade), compare_depth));
     }
-    return shadow / 25.0;
+    return shadow / 16.0;
 }
 
 // Cascaded shadow map lookup with normal offset + cascade blending

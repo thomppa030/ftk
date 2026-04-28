@@ -65,8 +65,10 @@ float sample_point_shadow(vec3 world_pos, GpuPointLight light) {
     if (light.shadow_info.w == 0) return 1.0;
 
     vec3 to_frag = world_pos - light.position_radius.xyz;
-    float dist = length(to_frag);
-    vec3 dir = to_frag / dist;
+    float dist2 = dot(to_frag, to_frag);
+    float inv_dist = inversesqrt(max(dist2, 1e-8));
+    float dist = dist2 * inv_dist;
+    vec3 dir = to_frag * inv_dist;
 
     int face;
     vec2 face_uv;
@@ -137,20 +139,20 @@ vec3 accumulate_tile_lights(vec3 world_pos, vec3 N, vec3 V, float NdotV,
             light_col = sl.color_intensity.xyz;
             light_int = sl.color_intensity.w;
 
-            // Angular falloff
-            vec3 spot_dir = normalize(sl.direction_inner_cos.xyz);
+            // Angular falloff (sl.direction_inner_cos.xyz is pre-normalized CPU-side)
+            vec3 spot_dir = sl.direction_inner_cos.xyz;
             float cos_theta = dot(normalize(light_pos - world_pos), -spot_dir);
             spot_atten = smoothstep(sl.outer_cos, sl.direction_inner_cos.w, cos_theta);
         }
 
         vec3 Lp = light_pos - world_pos;
         float dist2 = dot(Lp, Lp);
-        float dist = sqrt(dist2);
 
-        // Skip if beyond radius
-        if (dist > light_radius) continue;
+        // Skip if beyond radius (compare squared, no sqrt)
+        if (dist2 > light_radius * light_radius) continue;
 
-        vec3 Ldir = Lp / dist;
+        float inv_dist = inversesqrt(max(dist2, 1e-8));
+        vec3 Ldir = Lp * inv_dist;
         vec3 Hp = normalize(V + Ldir);
 
         float NdotLp = max(dot(N, Ldir), 0.0);

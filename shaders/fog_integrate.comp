@@ -42,8 +42,10 @@ void main() {
     float transmittance = 1.0;
 
     int depth_slices = int(pc.volume_dims.z);
+    float inv_depth_slices = 1.0 / float(depth_slices);
 
-    float prev_depth = pc.near_plane;
+    // Carry d0 forward — d1 of slice z is d0 of slice z+1, so one slice_to_depth per iter
+    float d0 = pc.near_plane;
 
     for (int z = 0; z < depth_slices; ++z) {
         // Sample scattering and extinction
@@ -54,11 +56,10 @@ void main() {
         float extinction = scatter_ext.a;
 
         // Compute slice thickness
-        float t0 = float(z) / float(depth_slices);
-        float t1 = float(z + 1) / float(depth_slices);
-        float d0 = slice_to_depth(t0);
+        float t1 = float(z + 1) * inv_depth_slices;
         float d1 = slice_to_depth(t1);
         float slice_thickness = d1 - d0;
+        d0 = d1;
 
         // Frostbite energy-conserving integration
         float dt = extinction * slice_thickness;
