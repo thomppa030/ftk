@@ -225,25 +225,39 @@ void TilemapRenderer::destroy() {
 void TilemapRenderer::sync_textures(Scene& scene, ResourceManager& resources, const Project* project) {
     for (auto& obj : scene.objects()) {
         auto* tm = obj->components.get<TilemapComponent>();
-        if (!tm || tm->texture_loaded) continue;
-        if (tm->tileset_texture.empty()) continue;
+        if (!tm) continue;
 
-        std::string resolved = base_path::resolve_asset(tm->tileset_texture, project);
-        if (!std::filesystem::exists(resolved)) continue;
-
-        auto tex_result = tm->pixel_art
-            ? resources.load_texture_nearest(resolved)
-            : resources.load_texture(resolved);
-        if (tex_result) {
-            tm->texture_index = resources.bindless_index(*tex_result);
-            auto* texture = resources.get(*tex_result);
-            if (texture) {
-                tm->tex_width = texture->width();
-                tm->tex_height = texture->height();
-                tm->tileset_columns = tm->tex_width / static_cast<uint32_t>(tm->tile_size.x);
+        if (!tm->texture_loaded && !tm->tileset_texture.empty()) {
+            std::string resolved = base_path::resolve_asset(tm->tileset_texture, project);
+            if (std::filesystem::exists(resolved)) {
+                auto tex_result = tm->pixel_art
+                    ? resources.load_texture_nearest(resolved)
+                    : resources.load_texture(resolved);
+                if (tex_result) {
+                    tm->texture_index = resources.bindless_index(*tex_result);
+                    auto* texture = resources.get(*tex_result);
+                    if (texture) {
+                        tm->tex_width = texture->width();
+                        tm->tex_height = texture->height();
+                        tm->tileset_columns = tm->tex_width / static_cast<uint32_t>(tm->tile_size.x);
+                    }
+                    tm->texture_loaded = true;
+                    tm->dirty = true;
+                }
             }
-            tm->texture_loaded = true;
-            tm->dirty = true;
+        }
+
+        if (!tm->normal_loaded && !tm->normal_path.empty()) {
+            std::string resolved = base_path::resolve_asset(tm->normal_path, project);
+            if (std::filesystem::exists(resolved)) {
+                auto nm_result = tm->pixel_art
+                    ? resources.load_texture_nearest(resolved)
+                    : resources.load_texture(resolved);
+                if (nm_result) {
+                    tm->normal_index = resources.bindless_index(*nm_result);
+                    tm->normal_loaded = true;
+                }
+            }
         }
     }
 }
@@ -278,6 +292,11 @@ void TilemapRenderer::update_impl(const Scene& scene, const glm::mat4& /*view_pr
 
         pc.texture_index = tm->texture_index;
         pc.z_depth = origin.z;
+        pc.normal_index = tm->normal_index;
+        pc.flags = tm->lit ? 1u : 0u;
+        pc.roughness = tm->roughness;
+        pc.metallic = tm->metallic;
+        pc.emission = tm->emission;
 
         int cols = tm->map_size.x;
         int rows = tm->map_size.y;

@@ -223,25 +223,36 @@ void SpriteRenderer::sync_textures(Scene& scene, ResourceManager& resources, con
     FJELL_PROFILE_SCOPE_N("sprite_sync_textures");
     for (auto& obj : scene.objects()) {
         auto* sprite_ptr = obj->components.get<SpriteComponent>();
-        if (!sprite_ptr || sprite_ptr->texture_loaded) continue;
+        if (!sprite_ptr) continue;
 
         auto& sprite = *sprite_ptr;
-        if (sprite.texture_path.empty()) continue;
-
-        std::string resolved = base_path::resolve_asset(sprite.texture_path, project);
-        if (!std::filesystem::exists(resolved)) continue;
-
-        auto tex_result = sprite.pixel_art
-            ? resources.load_texture_nearest(resolved)
-            : resources.load_texture(resolved);
-        if (tex_result) {
-            sprite.texture_index = resources.bindless_index(*tex_result);
-            auto* texture = resources.get(*tex_result);
-            if (texture) {
-                sprite.tex_width = texture->width();
-                sprite.tex_height = texture->height();
+        if (!sprite.texture_loaded && !sprite.texture_path.empty()) {
+            std::string resolved = base_path::resolve_asset(sprite.texture_path, project);
+            if (std::filesystem::exists(resolved)) {
+                auto tex_result = sprite.pixel_art
+                    ? resources.load_texture_nearest(resolved)
+                    : resources.load_texture(resolved);
+                if (tex_result) {
+                    sprite.texture_index = resources.bindless_index(*tex_result);
+                    auto* texture = resources.get(*tex_result);
+                    if (texture) {
+                        sprite.tex_width = texture->width();
+                        sprite.tex_height = texture->height();
+                    }
+                    sprite.texture_loaded = true;
+                }
             }
-            sprite.texture_loaded = true;
+        }
+
+        if (!sprite.normal_loaded && !sprite.normal_path.empty()) {
+            std::string resolved = base_path::resolve_asset(sprite.normal_path, project);
+            if (std::filesystem::exists(resolved)) {
+                auto nm_result = resources.load_texture(resolved);
+                if (nm_result) {
+                    sprite.normal_index = resources.bindless_index(*nm_result);
+                    sprite.normal_loaded = true;
+                }
+            }
         }
     }
 }
@@ -304,11 +315,16 @@ void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_proje
         gs.flags = 0;
         if (sprite.flat)   gs.flags |= 1u;
         if (sprite.flip_h) gs.flags |= 2u;
+        if (sprite.lit)    gs.flags |= 4u;
         gs.size = half_size;
         gs.texture_index = sprite.texture_index;
         gs.opacity = sprite.opacity;
         gs.tint = sprite.tint;
         gs.uv_rect = sprite.uv_rect;
+        gs.normal_index = sprite.normal_index;
+        gs.roughness = sprite.roughness;
+        gs.metallic = sprite.metallic;
+        gs.emission = sprite.emission;
 
         uint32_t idx = static_cast<uint32_t>(sprites.size());
         sprites.push_back(gs);

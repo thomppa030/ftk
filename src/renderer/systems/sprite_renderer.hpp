@@ -42,15 +42,19 @@ private:
   void record_render(const FrameContext &ctx);
 
   struct GpuSprite {
-    glm::vec3 position;     // 12
-    uint32_t flags;         // 4  (bit 0: flat, bit 1: flip_h)
-    glm::vec2 size;         // 8
-    uint32_t texture_index; // 4
-    float opacity;          // 4
-    glm::vec4 tint;         // 16
-    glm::vec4 uv_rect;     // 16 {u_min, v_min, u_max, v_max}
+    glm::vec3 position;       // 12
+    uint32_t flags;           // 4   (bit 0: flat, bit 1: flip_h, bit 2: lit)
+    glm::vec2 size;           // 8
+    uint32_t texture_index;   // 4
+    float opacity;            // 4
+    glm::vec4 tint;           // 16
+    glm::vec4 uv_rect;        // 16  {u_min, v_min, u_max, v_max}
+    uint32_t normal_index;    // 4   bindless slot for normal map (0 = none)
+    float roughness;          // 4
+    float metallic;           // 4
+    float emission;           // 4
   };
-  static_assert(sizeof(GpuSprite) == 64);
+  static_assert(sizeof(GpuSprite) == 80);
 
   VkDevice device_{VK_NULL_HANDLE};
   VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};

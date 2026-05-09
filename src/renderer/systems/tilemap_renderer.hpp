@@ -47,6 +47,12 @@ private:
     struct PushConstants {
         uint32_t texture_index;
         float z_depth;
+        uint32_t normal_index;
+        uint32_t flags;       // bit 0: lit
+        float roughness;
+        float metallic;
+        float emission;
+        float _pad;
     };
 
     VkDevice device_{VK_NULL_HANDLE};
