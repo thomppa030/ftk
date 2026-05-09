@@ -818,9 +818,18 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
         int idx = static_cast<int>((taa_frame_count_++) % 16) + 1; // 1-based, 16-sample cycle
         jx = (halton(idx, 2) - 0.5f) / static_cast<float>(extent.width);
         jy = (halton(idx, 3) - 0.5f) / static_cast<float>(extent.height);
-        // Apply jitter as a translation in clip space (NDC offset)
-        jittered_projection[2][0] += jx * 2.0f;
-        jittered_projection[2][1] += jy * 2.0f;
+        // Apply jitter as a translation in clip space (NDC offset).
+        // Perspective: w = -view_z, so column 2 produces a constant NDC shift after divide.
+        // Orthographic: w = 1, so the same column scales with view-space z (depth-dependent
+        // shear). Use the translation column instead, where w = 1 unconditionally.
+        const bool is_perspective = projection[3][3] == 0.0f;
+        if (is_perspective) {
+            jittered_projection[2][0] += jx * 2.0f;
+            jittered_projection[2][1] += jy * 2.0f;
+        } else {
+            jittered_projection[3][0] += jx * 2.0f;
+            jittered_projection[3][1] += jy * 2.0f;
+        }
     }
 
     gatherer_.set_camera_state(camera_position, view, jittered_projection);
