@@ -53,19 +53,12 @@ void SpriteRenderer::create(Device& device, const PassResources& resources) {
         throw std::runtime_error("Failed to create sprite pipeline layout");
     }
 
-    // Shaders
-    auto vert_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite.vert.spv")));
-    auto frag_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite.frag.spv")));
-
-    VkPipelineShaderStageCreateInfo stages[2]{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vert_mod;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = frag_mod;
-    stages[1].pName = "main";
+    // Build all three bucket pipelines. Shared state first, then per-bucket
+    // overrides for shader pair, depth-write, and blend.
+    auto unlit_vert = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite.vert.spv")));
+    auto unlit_frag = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite.frag.spv")));
+    auto lit_vert   = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite_lit.vert.spv")));
+    auto lit_frag   = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite_lit.frag.spv")));
 
     VkPipelineVertexInputStateCreateInfo vertex_input{};
     vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -96,71 +89,106 @@ void SpriteRenderer::create(Device& device, const PassResources& resources) {
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.rasterizationSamples = sample_count_;
 
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    // Alpha blending
-    VkPipelineColorBlendAttachmentState blend{};
-    blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    blend.blendEnable = VK_TRUE;
-    blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.colorBlendOp = VK_BLEND_OP_ADD;
-    blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.alphaBlendOp = VK_BLEND_OP_ADD;
-
-    VkPipelineColorBlendAttachmentState mr_blend{};
-    mr_blend.colorWriteMask = 0; // Sprites don't write MR
-    mr_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState normal_blend{};
-    normal_blend.colorWriteMask = 0;
-    normal_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState velocity_blend{};
-    velocity_blend.colorWriteMask = 0;
-    velocity_blend.blendEnable = VK_FALSE;
-    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend, velocity_blend};
-
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 4;
-    color_blending.pAttachments = blend_attachments;
-
     VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT};
-
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
     rendering_info.colorAttachmentCount = 4;
     rendering_info.pColorAttachmentFormats = color_formats;
     rendering_info.depthAttachmentFormat = depth_format_;
 
-    VkGraphicsPipelineCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    ci.pNext = &rendering_info;
-    ci.stageCount = 2;
-    ci.pStages = stages;
-    ci.pVertexInputState = &vertex_input;
-    ci.pInputAssemblyState = &input_assembly;
-    ci.pViewportState = &viewport_state;
-    ci.pRasterizationState = &rasterizer;
-    ci.pMultisampleState = &multisampling;
-    ci.pDepthStencilState = &depth_stencil;
-    ci.pColorBlendState = &color_blending;
-    ci.pDynamicState = &dynamic_state;
-    ci.layout = layout_;
+    auto build_pipeline = [&](VkShaderModule vmod, VkShaderModule fmod,
+                              bool depth_write, bool alpha_blend,
+                              VkPipeline& out) {
+        VkPipelineShaderStageCreateInfo stages[2]{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = vmod;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = fmod;
+        stages[1].pName = "main";
 
-    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create sprite pipeline");
-    }
+        VkPipelineDepthStencilStateCreateInfo depth_stencil{};
+        depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth_stencil.depthTestEnable = VK_TRUE;
+        depth_stencil.depthWriteEnable = depth_write ? VK_TRUE : VK_FALSE;
+        depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    vkDestroyShaderModule(device_, vert_mod, nullptr);
-    vkDestroyShaderModule(device_, frag_mod, nullptr);
+        VkPipelineColorBlendAttachmentState color_blend{};
+        color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        if (alpha_blend) {
+            color_blend.blendEnable = VK_TRUE;
+            color_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            color_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            color_blend.colorBlendOp = VK_BLEND_OP_ADD;
+            color_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            color_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            color_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+        } else {
+            color_blend.blendEnable = VK_FALSE;
+        }
+
+        // Lit pipelines write the full GBuffer (color, MR, normal); unlit
+        // pipelines mask MR/normal/velocity to keep zeroes in the GBuffer
+        // (matches the existing unlit behaviour).
+        const bool write_gbuffer = (vmod == lit_vert);
+
+        VkPipelineColorBlendAttachmentState mr_blend{};
+        mr_blend.colorWriteMask = write_gbuffer
+            ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT)
+            : 0;
+        mr_blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState normal_blend{};
+        normal_blend.colorWriteMask = write_gbuffer
+            ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT)
+            : 0;
+        normal_blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState velocity_blend{};
+        velocity_blend.colorWriteMask = 0;
+        velocity_blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState blend_attachments[] = {color_blend, mr_blend, normal_blend, velocity_blend};
+
+        VkPipelineColorBlendStateCreateInfo color_blending{};
+        color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        color_blending.attachmentCount = 4;
+        color_blending.pAttachments = blend_attachments;
+
+        VkGraphicsPipelineCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        ci.pNext = &rendering_info;
+        ci.stageCount = 2;
+        ci.pStages = stages;
+        ci.pVertexInputState = &vertex_input;
+        ci.pInputAssemblyState = &input_assembly;
+        ci.pViewportState = &viewport_state;
+        ci.pRasterizationState = &rasterizer;
+        ci.pMultisampleState = &multisampling;
+        ci.pDepthStencilState = &depth_stencil;
+        ci.pColorBlendState = &color_blending;
+        ci.pDynamicState = &dynamic_state;
+        ci.layout = layout_;
+
+        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &out) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create sprite pipeline");
+        }
+    };
+
+    build_pipeline(unlit_vert, unlit_frag, /*depth_write=*/false, /*alpha_blend=*/true,
+                   pipelines_[static_cast<size_t>(Bucket::UnlitTransparent)]);
+    build_pipeline(lit_vert,   lit_frag,   /*depth_write=*/false, /*alpha_blend=*/true,
+                   pipelines_[static_cast<size_t>(Bucket::LitTransparent)]);
+    build_pipeline(lit_vert,   lit_frag,   /*depth_write=*/true,  /*alpha_blend=*/false,
+                   pipelines_[static_cast<size_t>(Bucket::LitOpaque)]);
+
+    vkDestroyShaderModule(device_, unlit_vert, nullptr);
+    vkDestroyShaderModule(device_, unlit_frag, nullptr);
+    vkDestroyShaderModule(device_, lit_vert, nullptr);
+    vkDestroyShaderModule(device_, lit_frag, nullptr);
 
     // Descriptor pool for 2 sprite SSBO sets
     VkDescriptorPoolSize pool_size{};
@@ -214,7 +242,7 @@ void SpriteRenderer::destroy() {
 
     for (auto& ssbo : sprite_ssbos_) ssbo.reset();
     safe_destroy(pool_, vkDestroyDescriptorPool);
-    safe_destroy(pipeline_, vkDestroyPipeline);
+    for (auto& pipe : pipelines_) safe_destroy(pipe, vkDestroyPipeline);
     safe_destroy(layout_, vkDestroyPipelineLayout);
     safe_destroy(sprite_set_layout_, vkDestroyDescriptorSetLayout);
 }
@@ -264,8 +292,17 @@ void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
+void SpriteRenderer::record_opaque(const FrameContext& ctx) {
+    record_bucket(ctx, Bucket::LitOpaque);
+}
+
 void SpriteRenderer::record_transparent(const FrameContext& ctx) {
-    record_render(ctx);
+    // Tilemap-style "behind sprites" ordering: lit billboards are still part of
+    // the transparent pass, drawn alongside unlit sprites in layer order. The
+    // SSBO is laid out [unlit | lit_billboard | lit_flat], so the two
+    // transparent buckets sit contiguously and we draw both ranges here.
+    record_bucket(ctx, Bucket::UnlitTransparent);
+    record_bucket(ctx, Bucket::LitTransparent);
 }
 
 void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_projection,
@@ -329,40 +366,61 @@ void SpriteRenderer::update_impl(const Scene& scene, const glm::mat4& view_proje
         uint32_t idx = static_cast<uint32_t>(sprites.size());
         sprites.push_back(gs);
 
+        Bucket bucket;
+        if (!sprite.lit)        bucket = Bucket::UnlitTransparent;
+        else if (sprite.flat)   bucket = Bucket::LitOpaque;
+        else                    bucket = Bucket::LitTransparent;
+
         glm::vec3 diff = camera_position - pos;
         float dist_sq = glm::dot(diff, diff);
-        sort_entries.push_back({sprite.sort_layer, sprite.sort_order,
+        sort_entries.push_back({bucket, sprite.sort_layer, sprite.sort_order,
                                 pos.y, dist_sq, idx, sprite.flat});
     }
 
-    // Sort: by layer first, then sub-order, then Y position (flat) or distance (billboard)
+    // Sort: bucket first (so SSBO layout = [unlit | lit_billboard | lit_flat]),
+    // then by layer / order / y / distance within each bucket as before.
     std::sort(sort_entries.begin(), sort_entries.end(),
               [](const SortEntry& a, const SortEntry& b) {
+                  if (a.bucket != b.bucket) return static_cast<uint8_t>(a.bucket) < static_cast<uint8_t>(b.bucket);
                   if (a.sort_layer != b.sort_layer) return a.sort_layer < b.sort_layer;
                   if (a.sort_order != b.sort_order) return a.sort_order < b.sort_order;
-                  // Flat sprites: lower Y draws first (behind) for top-down
                   if (a.flat && b.flat) return a.y_position > b.y_position;
-                  // Billboard sprites: back-to-front by distance
                   return a.distance > b.distance;
               });
 
-    // Write sorted sprites to SSBO
     uint32_t count = std::min(static_cast<uint32_t>(sort_entries.size()), MAX_SPRITES);
-    sprite_counts_[frame_index] = count;
+
+    auto& ranges = bucket_ranges_[frame_index];
+    for (auto& r : ranges) r = {0, 0};
 
     if (count > 0) {
         auto* dst = static_cast<GpuSprite*>(sprite_ssbos_[frame_index]->mapped());
         for (uint32_t i = 0; i < count; ++i) {
             dst[i] = sprites[sort_entries[i].index];
         }
+
+        // Walk sorted entries and record per-bucket ranges.
+        Bucket cur = sort_entries[0].bucket;
+        uint32_t cur_first = 0;
+        for (uint32_t i = 1; i <= count; ++i) {
+            if (i == count || sort_entries[i].bucket != cur) {
+                ranges[static_cast<size_t>(cur)] = {cur_first, i - cur_first};
+                if (i < count) {
+                    cur = sort_entries[i].bucket;
+                    cur_first = i;
+                }
+            }
+        }
     }
 }
 
-void SpriteRenderer::record_render(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("sprite_record_render");
-    if (sprite_counts_[ctx.frame_index] == 0) return;
+void SpriteRenderer::record_bucket(const FrameContext& ctx, Bucket bucket) {
+    FJELL_PROFILE_SCOPE_N("sprite_record_bucket");
+    const auto& range = bucket_ranges_[ctx.frame_index][static_cast<size_t>(bucket)];
+    if (range.count == 0) return;
 
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      pipelines_[static_cast<size_t>(bucket)]);
 
     VkViewport vp{};
     vp.width = static_cast<float>(ctx.target->extent().width);
@@ -374,12 +432,14 @@ void SpriteRenderer::record_render(const FrameContext& ctx) {
     sc.extent = ctx.target->extent();
     vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
 
-    // Bind set 0 = global, set 1 = bindless, set 2 = sprite SSBO
     VkDescriptorSet sets[] = {ctx.global_descriptor_set, ctx.bindless_set, sprite_sets_[ctx.frame_index]};
     vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 3, sets, 0, nullptr);
 
-    vkCmdDraw(ctx.cmd, sprite_counts_[ctx.frame_index] * 6, 1, 0, 0);
+    // Each sprite is 6 vertices. The vertex shader keys off gl_VertexIndex / 6
+    // to look up the sprite in the SSBO; firstVertex shifts that into the
+    // bucket's range without reuploading anything.
+    vkCmdDraw(ctx.cmd, range.count * 6, 1, range.first * 6, 0);
 }
 
 } // namespace fjell

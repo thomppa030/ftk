@@ -27,6 +27,7 @@ public:
 
   // RenderSubsystem lifecycle
   void update(const RenderSubsystemContext &ctx) override;
+  void record_opaque(const FrameContext &ctx) override;
   void record_transparent(const FrameContext &ctx) override;
   [[nodiscard]] int transparent_order() const override { return -50; }
 
@@ -39,7 +40,18 @@ private:
   void update_impl(const Scene &scene, const glm::mat4 &view_projection,
                    const glm::vec3 &camera_position, uint32_t frame_index,
                    bool playing);
-  void record_render(const FrameContext &ctx);
+  // Three pipeline buckets, partitioned by (lit, opaque-vs-transparent).
+  // Lit-flat sprites render in the opaque pass with depth write on so they
+  // act as proper 3D occluders; lit-billboards stay in transparent (no
+  // depth write) because their alpha edges shouldn't punch holes.
+  enum class Bucket : uint8_t {
+    UnlitTransparent = 0,
+    LitTransparent   = 1,  // lit billboard
+    LitOpaque        = 2,  // lit flat
+    Count            = 3,
+  };
+
+  void record_bucket(const FrameContext &ctx, Bucket bucket);
 
   struct GpuSprite {
     glm::vec3 position;       // 12
@@ -60,10 +72,10 @@ private:
   VkPipelineCache vk_pipeline_cache_{VK_NULL_HANDLE};
   VmaAllocator allocator_{VK_NULL_HANDLE};
 
-  // Pipeline
+  // Pipeline (one per bucket; same layout, different shader pair + state)
   VkDescriptorSetLayout sprite_set_layout_{VK_NULL_HANDLE};
   VkPipelineLayout layout_{VK_NULL_HANDLE};
-  VkPipeline pipeline_{VK_NULL_HANDLE};
+  std::array<VkPipeline, static_cast<size_t>(Bucket::Count)> pipelines_{};
 
   // Double-buffered SSBOs
   std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> sprite_ssbos_;
@@ -77,14 +89,21 @@ private:
   VkFormat depth_format_{VK_FORMAT_UNDEFINED};
   VkSampleCountFlagBits sample_count_{VK_SAMPLE_COUNT_1_BIT};
 
-  // Per-frame sprite count
-  std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> sprite_counts_{};
+  // Per-frame, per-bucket sprite range. range[bucket] = {first, count} into the
+  // double-buffered SSBO. Sprites within a bucket are sorted as before; the
+  // SSBO is laid out [unlit_transparent | lit_transparent | lit_opaque].
+  struct BucketRange {
+    uint32_t first{0};
+    uint32_t count{0};
+  };
+  std::array<std::array<BucketRange, static_cast<size_t>(Bucket::Count)>, MAX_FRAMES_IN_FLIGHT> bucket_ranges_{};
 
   static constexpr uint32_t MAX_SPRITES = 4096;
   static constexpr VkDeviceSize SSBO_SIZE = MAX_SPRITES * sizeof(GpuSprite);
 
   // Reusable per-frame scratch (avoid heap allocs every frame)
   struct SortEntry {
+    Bucket  bucket;     // primary partition
     int32_t sort_layer;
     int32_t sort_order;
     float y_position;   // for top-down depth (lower Y = in front)

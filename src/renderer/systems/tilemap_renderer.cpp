@@ -60,18 +60,10 @@ void TilemapRenderer::create(Device& device, const PassResources& resources) {
         throw std::runtime_error("Failed to create tilemap pipeline layout");
     }
 
-    auto vert_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/tilemap.vert.spv")));
-    auto frag_mod = create_shader_module(device_, read_spirv(base_path::resolve("shaders/tilemap.frag.spv")));
-
-    VkPipelineShaderStageCreateInfo stages[2]{};
-    stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = vert_mod;
-    stages[0].pName = "main";
-    stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = frag_mod;
-    stages[1].pName = "main";
+    auto unlit_vert = create_shader_module(device_, read_spirv(base_path::resolve("shaders/tilemap.vert.spv")));
+    auto unlit_frag = create_shader_module(device_, read_spirv(base_path::resolve("shaders/tilemap.frag.spv")));
+    auto lit_vert   = create_shader_module(device_, read_spirv(base_path::resolve("shaders/tilemap_lit.vert.spv")));
+    auto lit_frag   = create_shader_module(device_, read_spirv(base_path::resolve("shaders/tilemap_lit.frag.spv")));
 
     VkPipelineVertexInputStateCreateInfo vertex_input{};
     vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -102,40 +94,6 @@ void TilemapRenderer::create(Device& device, const PassResources& resources) {
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.rasterizationSamples = sample_count_;
 
-    VkPipelineDepthStencilStateCreateInfo depth_stencil{};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_FALSE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkPipelineColorBlendAttachmentState blend{};
-    blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    blend.blendEnable = VK_TRUE;
-    blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-    blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.colorBlendOp = VK_BLEND_OP_ADD;
-    blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-    blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blend.alphaBlendOp = VK_BLEND_OP_ADD;
-
-    VkPipelineColorBlendAttachmentState mr_blend{};
-    mr_blend.colorWriteMask = 0;
-    mr_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState normal_blend{};
-    normal_blend.colorWriteMask = 0;
-    normal_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState velocity_blend{};
-    velocity_blend.colorWriteMask = 0;
-    velocity_blend.blendEnable = VK_FALSE;
-    VkPipelineColorBlendAttachmentState blend_attachments[] = {blend, mr_blend, normal_blend, velocity_blend};
-    VkPipelineColorBlendStateCreateInfo color_blending{};
-    color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = 4;
-    color_blending.pAttachments = blend_attachments;
-
     VkFormat color_formats[] = {color_format_, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT};
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
@@ -143,27 +101,89 @@ void TilemapRenderer::create(Device& device, const PassResources& resources) {
     rendering_info.pColorAttachmentFormats = color_formats;
     rendering_info.depthAttachmentFormat = depth_format_;
 
-    VkGraphicsPipelineCreateInfo ci{};
-    ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    ci.pNext = &rendering_info;
-    ci.stageCount = 2;
-    ci.pStages = stages;
-    ci.pVertexInputState = &vertex_input;
-    ci.pInputAssemblyState = &input_assembly;
-    ci.pViewportState = &viewport_state;
-    ci.pRasterizationState = &rasterizer;
-    ci.pMultisampleState = &multisampling;
-    ci.pDepthStencilState = &depth_stencil;
-    ci.pColorBlendState = &color_blending;
-    ci.pDynamicState = &dynamic_state;
-    ci.layout = layout_;
+    auto build_pipeline = [&](VkShaderModule vmod, VkShaderModule fmod,
+                              bool depth_write, bool alpha_blend, bool write_gbuffer,
+                              VkPipeline& out) {
+        VkPipelineShaderStageCreateInfo stages[2]{};
+        stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = vmod;
+        stages[0].pName = "main";
+        stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = fmod;
+        stages[1].pName = "main";
 
-    if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &pipeline_) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create tilemap pipeline");
-    }
+        VkPipelineDepthStencilStateCreateInfo depth_stencil{};
+        depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth_stencil.depthTestEnable = VK_TRUE;
+        depth_stencil.depthWriteEnable = depth_write ? VK_TRUE : VK_FALSE;
+        depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    vkDestroyShaderModule(device_, vert_mod, nullptr);
-    vkDestroyShaderModule(device_, frag_mod, nullptr);
+        VkPipelineColorBlendAttachmentState color_blend{};
+        color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                      VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        if (alpha_blend) {
+            color_blend.blendEnable = VK_TRUE;
+            color_blend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+            color_blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            color_blend.colorBlendOp = VK_BLEND_OP_ADD;
+            color_blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            color_blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            color_blend.alphaBlendOp = VK_BLEND_OP_ADD;
+        } else {
+            color_blend.blendEnable = VK_FALSE;
+        }
+
+        VkPipelineColorBlendAttachmentState mr_blend{};
+        mr_blend.colorWriteMask = write_gbuffer
+            ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT) : 0;
+        mr_blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState normal_blend{};
+        normal_blend.colorWriteMask = write_gbuffer
+            ? (VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT) : 0;
+        normal_blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState velocity_blend{};
+        velocity_blend.colorWriteMask = 0;
+        velocity_blend.blendEnable = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState blend_attachments[] = {color_blend, mr_blend, normal_blend, velocity_blend};
+        VkPipelineColorBlendStateCreateInfo color_blending{};
+        color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        color_blending.attachmentCount = 4;
+        color_blending.pAttachments = blend_attachments;
+
+        VkGraphicsPipelineCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        ci.pNext = &rendering_info;
+        ci.stageCount = 2;
+        ci.pStages = stages;
+        ci.pVertexInputState = &vertex_input;
+        ci.pInputAssemblyState = &input_assembly;
+        ci.pViewportState = &viewport_state;
+        ci.pRasterizationState = &rasterizer;
+        ci.pMultisampleState = &multisampling;
+        ci.pDepthStencilState = &depth_stencil;
+        ci.pColorBlendState = &color_blending;
+        ci.pDynamicState = &dynamic_state;
+        ci.layout = layout_;
+
+        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &out) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create tilemap pipeline");
+        }
+    };
+
+    build_pipeline(unlit_vert, unlit_frag, /*depth_write=*/false, /*alpha_blend=*/true,  /*write_gbuffer=*/false,
+                   pipelines_[static_cast<size_t>(Bucket::UnlitTransparent)]);
+    build_pipeline(lit_vert,   lit_frag,   /*depth_write=*/true,  /*alpha_blend=*/false, /*write_gbuffer=*/true,
+                   pipelines_[static_cast<size_t>(Bucket::LitOpaque)]);
+
+    vkDestroyShaderModule(device_, unlit_vert, nullptr);
+    vkDestroyShaderModule(device_, unlit_frag, nullptr);
+    vkDestroyShaderModule(device_, lit_vert, nullptr);
+    vkDestroyShaderModule(device_, lit_frag, nullptr);
 
     // Descriptor pool
     VkDescriptorPoolSize pool_size{};
@@ -217,7 +237,7 @@ void TilemapRenderer::destroy() {
 
     for (auto& ssbo : tile_ssbos_) ssbo.reset();
     safe_destroy(pool_, vkDestroyDescriptorPool);
-    safe_destroy(pipeline_, vkDestroyPipeline);
+    for (auto& pipe : pipelines_) safe_destroy(pipe, vkDestroyPipeline);
     safe_destroy(layout_, vkDestroyPipelineLayout);
     safe_destroy(tile_set_layout_, vkDestroyDescriptorSetLayout);
 }
@@ -268,8 +288,16 @@ void TilemapRenderer::update(const RenderSubsystemContext& ctx) {
     }
 }
 
+void TilemapRenderer::record_opaque(const FrameContext& ctx) {
+    if (tile_buckets_[ctx.frame_index] == Bucket::LitOpaque) {
+        record_bucket(ctx, Bucket::LitOpaque);
+    }
+}
+
 void TilemapRenderer::record_transparent(const FrameContext& ctx) {
-    record_render(ctx);
+    if (tile_buckets_[ctx.frame_index] == Bucket::UnlitTransparent) {
+        record_bucket(ctx, Bucket::UnlitTransparent);
+    }
 }
 
 void TilemapRenderer::update_impl(const Scene& scene, const glm::mat4& /*view_projection*/,
@@ -297,6 +325,8 @@ void TilemapRenderer::update_impl(const Scene& scene, const glm::mat4& /*view_pr
         pc.roughness = tm->roughness;
         pc.metallic = tm->metallic;
         pc.emission = tm->emission;
+
+        tile_buckets_[frame_index] = tm->lit ? Bucket::LitOpaque : Bucket::UnlitTransparent;
 
         int cols = tm->map_size.x;
         int rows = tm->map_size.y;
@@ -343,11 +373,12 @@ void TilemapRenderer::update_impl(const Scene& scene, const glm::mat4& /*view_pr
     push_constants_[frame_index] = pc;
 }
 
-void TilemapRenderer::record_render(const FrameContext& ctx) {
-    FJELL_PROFILE_SCOPE_N("tilemap_record_render");
+void TilemapRenderer::record_bucket(const FrameContext& ctx, Bucket bucket) {
+    FJELL_PROFILE_SCOPE_N("tilemap_record_bucket");
     if (tile_counts_[ctx.frame_index] == 0) return;
 
-    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_);
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                      pipelines_[static_cast<size_t>(bucket)]);
 
     VkViewport vp{};
     vp.width = static_cast<float>(ctx.target->extent().width);

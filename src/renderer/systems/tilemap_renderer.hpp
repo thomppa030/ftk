@@ -27,6 +27,7 @@ public:
 
     // RenderSubsystem lifecycle
     void update(const RenderSubsystemContext& ctx) override;
+    void record_opaque(const FrameContext& ctx) override;
     void record_transparent(const FrameContext& ctx) override;
     [[nodiscard]] int transparent_order() const override { return -100; }
 
@@ -34,8 +35,17 @@ public:
     void sync_textures(Scene& scene, ResourceManager& resources, const Project* project = nullptr);
 
 private:
+    // Two pipeline buckets. Lit tilemaps render in the opaque pass with depth
+    // write on so they act as 3D-occluding floors; unlit stays transparent
+    // for the classic 2D-overlay path.
+    enum class Bucket : uint8_t {
+        UnlitTransparent = 0,
+        LitOpaque        = 1,
+        Count            = 2,
+    };
+
     void update_impl(const Scene& scene, const glm::mat4& view_projection, uint32_t frame_index);
-    void record_render(const FrameContext& ctx);
+    void record_bucket(const FrameContext& ctx, Bucket bucket);
 
     struct GpuTile {
         glm::vec2 position; // 8
@@ -61,7 +71,7 @@ private:
 
     VkDescriptorSetLayout tile_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
-    VkPipeline pipeline_{VK_NULL_HANDLE};
+    std::array<VkPipeline, static_cast<size_t>(Bucket::Count)> pipelines_{};
 
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> tile_ssbos_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> tile_sets_{};
@@ -73,7 +83,10 @@ private:
     VkFormat depth_format_{VK_FORMAT_UNDEFINED};
     VkSampleCountFlagBits sample_count_{VK_SAMPLE_COUNT_1_BIT};
 
+    // Per-frame tile count + which bucket the (single) drawn tilemap fell into.
+    // Multi-tilemap support would split this into per-bucket ranges.
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> tile_counts_{};
+    std::array<Bucket,   MAX_FRAMES_IN_FLIGHT> tile_buckets_{};
     std::array<PushConstants, MAX_FRAMES_IN_FLIGHT> push_constants_{};
 
     static constexpr uint32_t MAX_TILES = 16384;
