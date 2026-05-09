@@ -9,6 +9,7 @@
 #include "renderer/pass_registry.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/resource_registry.hpp"
+#include "renderer/systems/render_subsystem.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "renderer/resources/vertex.hpp"
@@ -292,6 +293,13 @@ void DepthPrePass::record(const FrameContext& ctx) {
                 idx++;
             }
         }
+    }
+
+    // Subsystem depth contributions (lit-opaque sprites, tilemaps, …).
+    // Each subsystem owns its pipeline + descriptor binding; they share the
+    // depth attachment we just bound.
+    for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
+        ctx.subsystems[i]->record_depth(ctx);
     }
 
     vkCmdEndRendering(ctx.cmd);

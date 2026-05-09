@@ -55,6 +55,11 @@ public:
     // Compute dispatch — called as a render pipeline pass (before color passes).
     virtual void record_compute(const FrameContext& ctx) { (void)ctx; }
 
+    // Draw into the depth pre-pass — called before the opaque pass so the
+    // subsystem's opaque geometry contributes to Hi-Z, contact shadows,
+    // and depth-driven post (SS-GI, SSR neighbour lookups).
+    virtual void record_depth(const FrameContext& ctx) { (void)ctx; }
+
     // Draw opaque geometry — called during the opaque color pass.
     virtual void record_opaque(const FrameContext& ctx) { (void)ctx; }
 

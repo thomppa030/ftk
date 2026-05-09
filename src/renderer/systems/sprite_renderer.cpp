@@ -185,6 +185,57 @@ void SpriteRenderer::create(Device& device, const PassResources& resources) {
     build_pipeline(lit_vert,   lit_frag,   /*depth_write=*/true,  /*alpha_blend=*/false,
                    pipelines_[static_cast<size_t>(Bucket::LitOpaque)]);
 
+    // Depth-only pipeline: no color attachments, depth write on. Reuses the
+    // lit vertex shader and a tiny alpha-discard fragment.
+    {
+        auto depth_frag = create_shader_module(device_, read_spirv(base_path::resolve("shaders/sprite_depth.frag.spv")));
+
+        VkPipelineShaderStageCreateInfo depth_stages[2]{};
+        depth_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        depth_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        depth_stages[0].module = lit_vert;
+        depth_stages[0].pName = "main";
+        depth_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        depth_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        depth_stages[1].module = depth_frag;
+        depth_stages[1].pName = "main";
+
+        VkPipelineDepthStencilStateCreateInfo depth_ds{};
+        depth_ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        depth_ds.depthTestEnable = VK_TRUE;
+        depth_ds.depthWriteEnable = VK_TRUE;
+        depth_ds.depthCompareOp = VK_COMPARE_OP_LESS;
+
+        VkPipelineColorBlendStateCreateInfo no_blend{};
+        no_blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        no_blend.attachmentCount = 0;
+
+        VkPipelineRenderingCreateInfo depth_rendering{};
+        depth_rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+        depth_rendering.colorAttachmentCount = 0;
+        depth_rendering.depthAttachmentFormat = depth_format_;
+
+        VkGraphicsPipelineCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        ci.pNext = &depth_rendering;
+        ci.stageCount = 2;
+        ci.pStages = depth_stages;
+        ci.pVertexInputState = &vertex_input;
+        ci.pInputAssemblyState = &input_assembly;
+        ci.pViewportState = &viewport_state;
+        ci.pRasterizationState = &rasterizer;
+        ci.pMultisampleState = &multisampling;
+        ci.pDepthStencilState = &depth_ds;
+        ci.pColorBlendState = &no_blend;
+        ci.pDynamicState = &dynamic_state;
+        ci.layout = layout_;
+
+        if (vkCreateGraphicsPipelines(device_, vk_pipeline_cache_, 1, &ci, nullptr, &depth_pipeline_) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create sprite depth pipeline");
+        }
+        vkDestroyShaderModule(device_, depth_frag, nullptr);
+    }
+
     vkDestroyShaderModule(device_, unlit_vert, nullptr);
     vkDestroyShaderModule(device_, unlit_frag, nullptr);
     vkDestroyShaderModule(device_, lit_vert, nullptr);
@@ -243,6 +294,7 @@ void SpriteRenderer::destroy() {
     for (auto& ssbo : sprite_ssbos_) ssbo.reset();
     safe_destroy(pool_, vkDestroyDescriptorPool);
     for (auto& pipe : pipelines_) safe_destroy(pipe, vkDestroyPipeline);
+    safe_destroy(depth_pipeline_, vkDestroyPipeline);
     safe_destroy(layout_, vkDestroyPipelineLayout);
     safe_destroy(sprite_set_layout_, vkDestroyDescriptorSetLayout);
 }
@@ -290,6 +342,30 @@ void SpriteRenderer::update(const RenderSubsystemContext& ctx) {
         update_impl(*ctx.scene, ctx.view_projection, ctx.camera_position,
                      ctx.frame_index, ctx.playing);
     }
+}
+
+void SpriteRenderer::record_depth(const FrameContext& ctx) {
+    FJELL_PROFILE_SCOPE_N("sprite_record_depth");
+    const auto& range = bucket_ranges_[ctx.frame_index][static_cast<size_t>(Bucket::LitOpaque)];
+    if (range.count == 0) return;
+
+    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, depth_pipeline_);
+
+    VkViewport vp{};
+    vp.width = static_cast<float>(ctx.target->extent().width);
+    vp.height = static_cast<float>(ctx.target->extent().height);
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
+
+    VkRect2D sc{};
+    sc.extent = ctx.target->extent();
+    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+
+    VkDescriptorSet sets[] = {ctx.global_descriptor_set, ctx.bindless_set, sprite_sets_[ctx.frame_index]};
+    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
+                            0, 3, sets, 0, nullptr);
+
+    vkCmdDraw(ctx.cmd, range.count * 6, 1, range.first * 6, 0);
 }
 
 void SpriteRenderer::record_opaque(const FrameContext& ctx) {

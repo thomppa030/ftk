@@ -27,6 +27,7 @@ public:
 
   // RenderSubsystem lifecycle
   void update(const RenderSubsystemContext &ctx) override;
+  void record_depth(const FrameContext &ctx) override;
   void record_opaque(const FrameContext &ctx) override;
   void record_transparent(const FrameContext &ctx) override;
   [[nodiscard]] int transparent_order() const override { return -50; }
@@ -76,6 +77,10 @@ private:
   VkDescriptorSetLayout sprite_set_layout_{VK_NULL_HANDLE};
   VkPipelineLayout layout_{VK_NULL_HANDLE};
   std::array<VkPipeline, static_cast<size_t>(Bucket::Count)> pipelines_{};
+  // Depth-only pipeline used in the depth prepass. Draws the same lit-opaque
+  // sprite range, but writes only depth (no color attachments). Lets lit-flat
+  // sprites contribute to Hi-Z, contact shadows, and SS-GI neighbour reads.
+  VkPipeline depth_pipeline_{VK_NULL_HANDLE};
 
   // Double-buffered SSBOs
   std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> sprite_ssbos_;

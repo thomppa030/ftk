@@ -27,6 +27,7 @@ public:
 
     // RenderSubsystem lifecycle
     void update(const RenderSubsystemContext& ctx) override;
+    void record_depth(const FrameContext& ctx) override;
     void record_opaque(const FrameContext& ctx) override;
     void record_transparent(const FrameContext& ctx) override;
     [[nodiscard]] int transparent_order() const override { return -100; }
@@ -72,6 +73,7 @@ private:
     VkDescriptorSetLayout tile_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     std::array<VkPipeline, static_cast<size_t>(Bucket::Count)> pipelines_{};
+    VkPipeline depth_pipeline_{VK_NULL_HANDLE};
 
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> tile_ssbos_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> tile_sets_{};
