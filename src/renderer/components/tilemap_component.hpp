@@ -19,12 +19,22 @@ struct TilemapComponent : NodeComponent {
     std::vector<int32_t> tiles;         // flat row-major, -1 = empty
     bool pixel_art{true};
 
+    // Lit pipeline opt-in. Tilemaps default to lit because the common case
+    // is a 2D-tiled floor in a 3D scene that should receive GI from above.
+    bool lit{true};
+    std::string normal_path;            // optional normal map (atlas-sized, matches tileset)
+    float roughness{1.0f};
+    float metallic{0.0f};
+    float emission{0.0f};
+
     // Runtime (not serialized)
     uint32_t texture_index{0};
+    uint32_t normal_index{0};
     uint32_t tileset_columns{0};        // computed from texture width / tile_size.x
     uint32_t tex_width{0};
     uint32_t tex_height{0};
     bool texture_loaded{false};
+    bool normal_loaded{false};
     bool dirty{true};                   // needs SSBO re-upload
 };
 

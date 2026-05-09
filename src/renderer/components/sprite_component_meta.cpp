@@ -35,6 +35,18 @@ static const bool registered = [] {
             if (ImGui::DragInt("##SpriteLayer", &sp->sort_layer, 1.0f)) changed = true;
             ImGui::SameLine(); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragInt("##SpriteOrder", &sp->sort_order, 1.0f)) changed = true;
+
+            ImGui::Separator();
+            if (ImGui::Checkbox("Lit (PBR + GI)", &sp->lit)) changed = true;
+            if (sp->lit) {
+                if (asset_ref_field({.label = "Normal Map", .id = "##SpriteNormal", .extensions = exts, .ctx = &ctx}, sp->normal_path)) { sp->normal_loaded = false; changed = true; }
+                ImGui::Text("Roughness"); ImGui::SetNextItemWidth(-1);
+                if (ImGui::DragFloat("##SpriteRoughness", &sp->roughness, 0.01f, 0.0f, 1.0f)) changed = true;
+                ImGui::Text("Metallic"); ImGui::SetNextItemWidth(-1);
+                if (ImGui::DragFloat("##SpriteMetallic", &sp->metallic, 0.01f, 0.0f, 1.0f)) changed = true;
+                ImGui::Text("Emission"); ImGui::SetNextItemWidth(-1);
+                if (ImGui::DragFloat("##SpriteEmission", &sp->emission, 0.05f, 0.0f, 100.0f)) changed = true;
+            }
             return changed;
         },
 
@@ -55,6 +67,11 @@ static const bool registered = [] {
             if (sp->pixels_per_unit > 0.0f) out["pixels_per_unit"] = sp->pixels_per_unit;
             if (sp->sort_layer != 0) out["sort_layer"] = sp->sort_layer;
             if (sp->sort_order != 0) out["sort_order"] = sp->sort_order;
+            if (sp->lit) out["lit"] = true;
+            if (!sp->normal_path.empty()) out["normal"] = sp->normal_path;
+            if (sp->roughness != 1.0f) out["roughness"] = sp->roughness;
+            if (sp->metallic != 0.0f) out["metallic"] = sp->metallic;
+            if (sp->emission != 0.0f) out["emission"] = sp->emission;
         },
 
         .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/, const Project* /*proj*/) {
@@ -71,6 +88,11 @@ static const bool registered = [] {
             sp.pixels_per_unit = j.value("pixels_per_unit", 0.0f);
             sp.sort_layer = j.value("sort_layer", 0);
             sp.sort_order = j.value("sort_order", 0);
+            sp.lit = j.value("lit", false);
+            sp.normal_path = j.value("normal", "");
+            sp.roughness = j.value("roughness", 1.0f);
+            sp.metallic = j.value("metallic", 0.0f);
+            sp.emission = j.value("emission", 0.0f);
         },
 
         .script_type_name = "SpriteComponent",

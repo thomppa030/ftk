@@ -23,11 +23,21 @@ struct SpriteComponent : NodeComponent {
     int32_t sort_layer{0};  // explicit z-order (lower = behind)
     int32_t sort_order{0};  // sub-order within layer
 
+    // Lit pipeline opt-in. When false the sprite uses the existing unlit path.
+    // When true it joins the PBR pipeline and receives DDGI / SS-GI / shadows.
+    bool lit{false};
+    std::string normal_path;     // optional normal map; empty = derive from quad plane
+    float roughness{1.0f};
+    float metallic{0.0f};
+    float emission{0.0f};        // scalar multiplier on tint, drives bloom
+
     // Runtime (not serialized)
     uint32_t texture_index{0};
+    uint32_t normal_index{0};
     uint32_t tex_width{0};
     uint32_t tex_height{0};
     bool texture_loaded{false};
+    bool normal_loaded{false};
 };
 
 } // namespace fjell

@@ -28,6 +28,18 @@ static const bool registered = [] {
             ImGui::Text("Sort Layer"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragInt("##TileSortLayer", &tm->sort_layer, 1.0f)) changed = true;
             if (ImGui::Button("Fill All (tile 0)")) { tm->tiles.assign(tm->map_size.x * tm->map_size.y, 0); tm->dirty = true; changed = true; }
+
+            ImGui::Separator();
+            if (ImGui::Checkbox("Lit (PBR + GI)", &tm->lit)) changed = true;
+            if (tm->lit) {
+                if (asset_ref_field({.label = "Normal Map", .id = "##TileNormal", .extensions = exts, .ctx = &ctx}, tm->normal_path)) { tm->normal_loaded = false; changed = true; }
+                ImGui::Text("Roughness"); ImGui::SetNextItemWidth(-1);
+                if (ImGui::DragFloat("##TileRoughness", &tm->roughness, 0.01f, 0.0f, 1.0f)) changed = true;
+                ImGui::Text("Metallic"); ImGui::SetNextItemWidth(-1);
+                if (ImGui::DragFloat("##TileMetallic", &tm->metallic, 0.01f, 0.0f, 1.0f)) changed = true;
+                ImGui::Text("Emission"); ImGui::SetNextItemWidth(-1);
+                if (ImGui::DragFloat("##TileEmission", &tm->emission, 0.05f, 0.0f, 100.0f)) changed = true;
+            }
             return changed;
         },
 
@@ -44,6 +56,11 @@ static const bool registered = [] {
             out["world_tile_size"] = tm->world_tile_size;
             out["sort_layer"] = tm->sort_layer;
             if (tm->pixel_art != true) out["pixel_art"] = tm->pixel_art;
+            if (!tm->lit) out["lit"] = false;  // default true for tilemaps
+            if (!tm->normal_path.empty()) out["normal"] = tm->normal_path;
+            if (tm->roughness != 1.0f) out["roughness"] = tm->roughness;
+            if (tm->metallic != 0.0f) out["metallic"] = tm->metallic;
+            if (tm->emission != 0.0f) out["emission"] = tm->emission;
             out["tiles"] = tm->tiles;
         },
 
@@ -55,6 +72,11 @@ static const bool registered = [] {
             tm.world_tile_size = j.value("world_tile_size", 1.0f);
             tm.sort_layer = j.value("sort_layer", -100);
             tm.pixel_art = j.value("pixel_art", true);
+            tm.lit = j.value("lit", true);
+            tm.normal_path = j.value("normal", "");
+            tm.roughness = j.value("roughness", 1.0f);
+            tm.metallic = j.value("metallic", 0.0f);
+            tm.emission = j.value("emission", 0.0f);
             if (j.contains("tiles")) tm.tiles = j["tiles"].get<std::vector<int32_t>>();
         },
 
