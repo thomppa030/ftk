@@ -273,7 +273,7 @@ add_executable(fjell
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
 
     # ImGuizmo
-    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
+    ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 
     # imnodes
     ${imnodes_SOURCE_DIR}/imnodes.cpp
@@ -294,7 +294,7 @@ target_include_directories(fjell PRIVATE
 target_include_directories(fjell SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
-    ${imguizmo_SOURCE_DIR}
+    ${imguizmo_SOURCE_DIR}/src
     ${imnodes_SOURCE_DIR}
     ${imgui_node_editor_SOURCE_DIR}
     ${miniaudio_SOURCE_DIR}
@@ -347,10 +347,10 @@ if(MSVC)
     string(REPLACE "\\" "/" _FJELL_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
     target_compile_definitions(fjell PRIVATE "FJELL_CXX_COMPILER=\"${_FJELL_CXX_COMPILER}\"")
     # Suppress warnings in third-party ImGuizmo source
-    set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
+    set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
     target_compile_options(fjell PRIVATE -Wall -Wextra -Wpedantic -Werror)
-    set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
+    set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
 # Treat VMA headers as system headers to suppress warnings from them
@@ -462,7 +462,7 @@ add_executable(fjell-hub
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
-    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
+    ${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp
 )
 
 target_include_directories(fjell-hub PRIVATE
@@ -472,7 +472,7 @@ target_include_directories(fjell-hub PRIVATE
 target_include_directories(fjell-hub SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}
     ${imgui_SOURCE_DIR}/backends
-    ${imguizmo_SOURCE_DIR}
+    ${imguizmo_SOURCE_DIR}/src
 )
 target_link_libraries(fjell-hub PRIVATE
     fjell-platform
@@ -485,10 +485,10 @@ target_link_libraries(fjell-hub PRIVATE
 if(MSVC)
     target_compile_options(fjell-hub PRIVATE /W4 /WX)
     target_compile_definitions(fjell-hub PRIVATE _CRT_SECURE_NO_WARNINGS)
-    set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
+    set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "/W0")
 else()
     target_compile_options(fjell-hub PRIVATE -Wall -Wextra -Wpedantic -Werror)
-    set_source_files_properties(${imguizmo_SOURCE_DIR}/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
+    set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
 endif()
 # VMA system headers for fjell-hub
 if(VMA_INCLUDE_DIRS)
