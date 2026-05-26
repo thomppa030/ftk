@@ -299,6 +299,8 @@ void Device::create_logical_device() {
     // Needed for cross-queue sync between graphics and async compute
     // submissions (Phase 3). Harmless when async isn't used.
     features_12.timelineSemaphore = VK_TRUE;
+    // Required by vkCmdDrawMeshTasksIndirectCountEXT (two-pass meshlet OC).
+    features_12.drawIndirectCount = VK_TRUE;
 
     // Vulkan 1.3 dynamic rendering
     VkPhysicalDeviceVulkan13Features features_13{};
@@ -356,11 +358,6 @@ void Device::create_logical_device() {
     create_info.pEnabledFeatures = &features;
     create_info.enabledExtensionCount = static_cast<uint32_t>(device_extensions_.size());
     create_info.ppEnabledExtensionNames = device_extensions_.data();
-
-    if (enable_validation_) {
-        create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers_.size());
-        create_info.ppEnabledLayerNames = validation_layers_.data();
-    }
 
     if (vkCreateDevice(physical_device_, &create_info, nullptr, &device_) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create logical device");
