@@ -8,10 +8,20 @@
 
 namespace fjell {
 
-// AgX tone mapping pass. Reads HDR input (from bloom composite or
-// raw scene color), outputs LDR sRGB.
+// Tone mapping pass. Reads HDR input (from bloom composite or raw scene
+// color), applies the selected operator, outputs LDR sRGB.
 class TonemapPass : public RenderPass {
 public:
+    // Must match FJ_TONEMAP_* constants in shaders/tonemap.frag.
+    enum class Operator : uint8_t {
+        Linear   = 0,
+        Reinhard = 1,
+        Aces     = 2,
+        Agx      = 3,
+        Hable    = 4,
+        Neutral  = 5,
+    };
+
     // Per-viewport output image. Input descriptor sets are no longer
     // owned per-viewport — TonemapPass::record_into() acquires them from
     // FrameContext::descriptor_cache against the current source views.
@@ -46,6 +56,9 @@ public:
 
     void set_exposure(float ev) { exposure_ = ev; }
     [[nodiscard]] float exposure() const { return exposure_; }
+
+    void set_operator(Operator op) { operator_ = op; }
+    [[nodiscard]] Operator tonemap_operator() const { return operator_; }
 
     void set_auto_exposure(bool on) { auto_exposure_ = on; }
     [[nodiscard]] bool auto_exposure() const { return auto_exposure_; }
@@ -84,6 +97,7 @@ private:
     VkPipeline pipeline_{VK_NULL_HANDLE};
 
     VkImageView source_view_{VK_NULL_HANDLE};
+    Operator operator_{Operator::Agx};
     float exposure_{0.0f};
     bool auto_exposure_{false};
     float adaptation_speed_{1.5f};

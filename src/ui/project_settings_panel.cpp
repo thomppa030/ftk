@@ -125,6 +125,16 @@ void ProjectSettingsPanel::draw_render_section() {
 
     // ── Tonemap ────────────────────────────────────────────────────────
     if (ImGui::TreeNodeEx("Tonemap", ImGuiTreeNodeFlags_DefaultOpen)) {
+        using TmOp = RenderSettings::Tonemap::Operator;
+        static constexpr const char* op_names[] = {
+            "Linear (Off)", "Reinhard", "ACES", "AgX", "Hable (Uncharted 2)", "Neutral (PBR)"
+        };
+        int op_int = static_cast<int>(s.tonemap.op);
+        if (ImGui::Combo("Operator", &op_int, op_names, IM_ARRAYSIZE(op_names))) {
+            s.tonemap.op = static_cast<TmOp>(op_int);
+            dirty = true;
+        }
+
         if (ImGui::Checkbox("Auto Exposure", &s.tonemap.auto_exposure)) { dirty = true; }
         if (!s.tonemap.auto_exposure) {
             if (ImGui::SliderFloat("Exposure (EV)", &s.tonemap.exposure_ev, -5.0f, 5.0f, "%.1f")) { dirty = true; }

@@ -123,11 +123,12 @@ Result<> TonemapPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create tonemap descriptor layout");
     }
 
-    // Pipeline layout with push constants for bloom params
+    // Pipeline layout with push constants: bloom_intensity, has_bloom, exposure (float)
+    // followed by operator (int). Must match the layout(push_constant) block in tonemap.frag.
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     push_range.offset = 0;
-    push_range.size = 3 * sizeof(float);
+    push_range.size = 3 * sizeof(float) + sizeof(int32_t);
 
     VkPipelineLayoutCreateInfo pipe_layout_ci{};
     pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -303,7 +304,12 @@ void TonemapPass::record_into(const FrameContext& ctx, Images& imgs, VkImageView
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 1, &input_set, 0, nullptr);
 
-    struct { float intensity; float active; float ev; } push{bloom_intensity, has_bloom, exposure};
+    struct {
+        float intensity;
+        float active;
+        float ev;
+        int32_t op;
+    } push{bloom_intensity, has_bloom, exposure, static_cast<int32_t>(operator_)};
     vkCmdPushConstants(cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);

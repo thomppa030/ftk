@@ -229,6 +229,7 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     rt_reflection_pass().set_intensity(s.ssr.intensity);
 
     // Tonemap
+    tonemap_pass().set_operator(static_cast<TonemapPass::Operator>(s.tonemap.op));
     tonemap_pass().set_auto_exposure(s.tonemap.auto_exposure);
     tonemap_pass().set_exposure(s.tonemap.exposure_ev);
     tonemap_pass().set_adaptation_speed(s.tonemap.adaptation_speed);

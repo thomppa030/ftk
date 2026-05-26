@@ -46,6 +46,16 @@ struct RenderSettings {
     } ssr;
 
     struct Tonemap {
+        // Must mirror TonemapPass::Operator and FJ_TONEMAP_* in tonemap.frag.
+        enum class Operator : uint8_t {
+            Linear   = 0,
+            Reinhard = 1,
+            Aces     = 2,
+            Agx      = 3,
+            Hable    = 4,
+            Neutral  = 5,
+        };
+        Operator op{Operator::Agx};
         bool auto_exposure{false};
         float exposure_ev{0.0f};
         float adaptation_speed{1.5f};

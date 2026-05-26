@@ -57,6 +57,7 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
             {"thickness", s.ssr.thickness},
         }},
         {"tonemap", {
+            {"operator",          static_cast<uint32_t>(s.tonemap.op)},
             {"auto_exposure",     s.tonemap.auto_exposure},
             {"exposure_ev",       s.tonemap.exposure_ev},
             {"adaptation_speed",  s.tonemap.adaptation_speed},
@@ -113,6 +114,12 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
     }
     if (j.contains("tonemap")) {
         const auto& t = j["tonemap"];
+        if (t.contains("operator")) {
+            uint32_t op = t.value("operator", static_cast<uint32_t>(s.tonemap.op));
+            if (op <= static_cast<uint32_t>(RenderSettings::Tonemap::Operator::Neutral)) {
+                s.tonemap.op = static_cast<RenderSettings::Tonemap::Operator>(op);
+            }
+        }
         s.tonemap.auto_exposure    = t.value("auto_exposure",    s.tonemap.auto_exposure);
         s.tonemap.exposure_ev      = t.value("exposure_ev",      s.tonemap.exposure_ev);
         s.tonemap.adaptation_speed = t.value("adaptation_speed", s.tonemap.adaptation_speed);
@@ -149,6 +156,8 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     out.ssr.thickness = ctx.ssr_pass().thickness();
 
     // Tonemap
+    out.tonemap.op = static_cast<RenderSettings::Tonemap::Operator>(
+        ctx.tonemap_pass().tonemap_operator());
     out.tonemap.auto_exposure    = ctx.tonemap_pass().auto_exposure();
     out.tonemap.exposure_ev      = ctx.tonemap_pass().exposure();
     out.tonemap.adaptation_speed = ctx.tonemap_pass().adaptation_speed();
