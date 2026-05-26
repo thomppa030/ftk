@@ -16,7 +16,7 @@ function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
     )
 
     # Collect include files so shaders recompile when includes change
-    file(GLOB SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl")
+    file(GLOB_RECURSE SHADER_INCLUDES "${SHADER_DIR}/include/*.glsl")
 
     foreach(SHADER ${SHADERS})
         get_filename_component(SHADER_NAME ${SHADER} NAME)
