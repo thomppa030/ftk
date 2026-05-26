@@ -72,6 +72,8 @@ struct ShaderMetadata {
     std::vector<FjslUniform> uniforms;
     std::string fragment_body; // contents of fragment() { ... }
     std::string vertex_body;   // contents of vertex() { ... } (empty = standard)
+    std::string light_body;    // contents of light() { ... } (empty = default PBR)
+    std::string user_globals;  // top-level helpers / constants the user authored
     uint32_t custom_texture_count{0};
     uint32_t custom_param_count{0}; // total floats needed for scalar uniforms
 };

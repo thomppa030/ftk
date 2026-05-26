@@ -1,0 +1,41 @@
+shader_type spatial;
+
+// Kajiya–Kay anisotropic specular with two offset highlights.
+// Demonstrates that SPECULAR_LIGHT can be replaced independently of
+// DIFFUSE_LIGHT. Diffuse stays standard PBR via the helpers exposed by
+// the spatial template (we just call them inline).
+
+uniform vec3 specular_tint_1 : hint_color = vec3(1.0, 0.85, 0.6);
+uniform vec3 specular_tint_2 : hint_color = vec3(0.55, 0.30, 0.15);
+uniform float shift_1 : hint_range(-1.0, 1.0, 0.01) = 0.2;
+uniform float shift_2 : hint_range(-1.0, 1.0, 0.01) = -0.3;
+uniform float specular_exponent : hint_range(1.0, 256.0, 1.0) = 64.0;
+
+float kk_strand(vec3 T, vec3 H, float exponent) {
+    float TdotH = dot(T, H);
+    float sin_th = sqrt(max(1.0 - TdotH * TdotH, 0.0));
+    return pow(sin_th, exponent);
+}
+
+void fragment() {
+    // Pure-PBR ALBEDO/ROUGHNESS unchanged. The hook below replaces only
+    // the specular term.
+}
+
+void light() {
+    // Lambert diffuse — keep it cheap, hair barely sees specular F0 anyway.
+    DIFFUSE_LIGHT += ALBEDO / 3.14159265;
+
+    // Build a tangent in world space along V cross N — without skinned
+    // tangents this is a reasonable strand direction for a sphere/cylinder.
+    vec3 T = normalize(cross(NORMAL, vec3(0.0, 1.0, 0.0)));
+    // Two shifted tangents give the classic two-tone highlight pair.
+    vec3 T1 = normalize(T + NORMAL * shift_1);
+    vec3 T2 = normalize(T + NORMAL * shift_2);
+
+    vec3 H = normalize(VIEW_DIR + LIGHT_DIR);
+    float s1 = kk_strand(T1, H, specular_exponent);
+    float s2 = kk_strand(T2, H, specular_exponent * 0.5);
+
+    SPECULAR_LIGHT += specular_tint_1 * s1 + specular_tint_2 * s2;
+}

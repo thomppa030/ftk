@@ -92,6 +92,68 @@ static std::string extract_function_body(const std::string& source, const std::s
     return source.substr(brace_start + 1, i - brace_start - 2);
 }
 
+// Remove the entire `<sig> { ... }` block for a given top-level function.
+// Used to strip fragment/vertex/light from the source so what's left
+// becomes user-authored file-scope code (helpers, constants).
+static void strip_function(std::string& source, const std::string& func_name) {
+    // Match an identifier-boundary occurrence to avoid stripping
+    // "fragment_helper" when looking for "fragment".
+    size_t search_from = 0;
+    while (search_from < source.size()) {
+        auto pos = source.find(func_name, search_from);
+        if (pos == std::string::npos) return;
+        // Check left boundary (start of source or non-identifier char before)
+        bool left_ok = (pos == 0) || !(std::isalnum(static_cast<unsigned char>(source[pos - 1])) || source[pos - 1] == '_');
+        // Right side must be optional whitespace + '('
+        size_t after = pos + func_name.size();
+        size_t scan = after;
+        while (scan < source.size() && std::isspace(static_cast<unsigned char>(source[scan]))) scan++;
+        bool right_ok = (scan < source.size() && source[scan] == '(');
+        if (!left_ok || !right_ok) {
+            search_from = pos + 1;
+            continue;
+        }
+        // Walk back to the start of the signature (newline before return type)
+        size_t sig_start = pos;
+        while (sig_start > 0 && source[sig_start - 1] != '\n') sig_start--;
+        // Find '{'
+        auto brace_start = source.find('{', scan);
+        if (brace_start == std::string::npos) return;
+        int depth = 1;
+        size_t i = brace_start + 1;
+        while (i < source.size() && depth > 0) {
+            if (source[i] == '{') depth++;
+            else if (source[i] == '}') depth--;
+            i++;
+        }
+        if (depth != 0) return;
+        source.erase(sig_start, i - sig_start);
+        search_from = sig_start;
+    }
+}
+
+// Return user-written file-scope code: everything except shader_type,
+// render_mode, uniform declarations, and the three reserved functions
+// (fragment/vertex/light). Lets users author helper functions, constants,
+// and structs that the spatial template injects at file scope.
+static std::string extract_user_globals(const std::string& source) {
+    std::string s = source;
+    // Strip shader_type / render_mode lines.
+    static const std::regex shader_type_re(R"(shader_type\s+\w+\s*;)");
+    static const std::regex render_mode_re(R"(render_mode\s+[^;]+;)");
+    s = std::regex_replace(s, shader_type_re, std::string{});
+    s = std::regex_replace(s, render_mode_re, std::string{});
+    // Strip uniform declarations.
+    static const std::regex uniform_re(
+        R"(uniform\s+\w+\s+\w+\s*(?::\s*\w+(?:\s*\([^)]*\))?)?\s*(?:=\s*[^;]+)?\s*;)");
+    s = std::regex_replace(s, uniform_re, std::string{});
+    // Strip the three reserved function definitions.
+    strip_function(s, "fragment");
+    strip_function(s, "vertex");
+    strip_function(s, "light");
+    return s;
+}
+
 ShaderMetadata parse_fjsl(const std::string& source) {
     ShaderMetadata meta;
 
@@ -209,6 +271,8 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     meta.custom_param_count = param_offset;
     meta.fragment_body = extract_function_body(source, "fragment");
     meta.vertex_body = extract_function_body(source, "vertex");
+    meta.light_body = extract_function_body(source, "light");
+    meta.user_globals = extract_user_globals(source);
 
     return meta;
 }
@@ -227,35 +291,54 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         }
     }
 
-    // Generate custom param reads
-    std::string param_reads;
+    // Generate custom param reads as file-scope #defines so they're visible
+    // inside fragment(), light(), and any user helper function — not just
+    // inside main(). Each macro reads from the materials SSBO using
+    // frag_draw_index, which is in scope throughout the fragment shader.
+    std::string param_defines;
+    const std::string mat_expr =
+        "materials[draws[frag_draw_index].material_id]";
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
 
         std::string type_str;
         switch (u.type) {
             case UniformType::Float: type_str = "float"; break;
-            case UniformType::Vec2: type_str = "vec2"; break;
-            case UniformType::Vec3: type_str = "vec3"; break;
-            case UniformType::Vec4: type_str = "vec4"; break;
+            case UniformType::Vec2:  type_str = "vec2";  break;
+            case UniformType::Vec3:  type_str = "vec3";  break;
+            case UniformType::Vec4:  type_str = "vec4";  break;
             default: break;
         }
 
         uint32_t count = uniform_float_count(u.type);
+        param_defines += "#define " + u.name + " (";
         if (count == 1) {
-            param_reads += "    " + type_str + " " + u.name +
-                           " = custom_params[mat.param_offset + " +
-                           std::to_string(u.slot) + "];\n";
+            param_defines += "custom_params[" + mat_expr + ".param_offset + " +
+                             std::to_string(u.slot) + "]";
         } else {
-            param_reads += "    " + type_str + " " + u.name + " = " + type_str + "(";
+            param_defines += type_str + "(";
             for (uint32_t i = 0; i < count; ++i) {
-                if (i > 0) param_reads += ", ";
-                param_reads += "custom_params[mat.param_offset + " +
-                               std::to_string(u.slot + i) + "]";
+                if (i > 0) param_defines += ", ";
+                param_defines += "custom_params[" + mat_expr + ".param_offset + " +
+                                 std::to_string(u.slot + i) + "]";
             }
-            param_reads += ");\n";
+            param_defines += ")";
+        }
+        param_defines += ")\n";
+    }
+
+    // Texture defines must also be moved to file scope, since the existing
+    // `mat` local is only defined inside main(). Rewrite them to the same
+    // frag_draw_index lookup so they work in light()/helpers too.
+    std::string tex_defines_global;
+    for (const auto& u : meta.uniforms) {
+        if (u.type == UniformType::Sampler2D) {
+            tex_defines_global += "#define " + u.name +
+                " textures[nonuniformEXT(" + mat_expr + ".texture_indices[" +
+                std::to_string(u.slot) + "])]\n";
         }
     }
+    tex_defines = tex_defines_global;
 
     // Substitute placeholders
     auto replace = [&](const std::string& placeholder, const std::string& replacement) {
@@ -265,9 +348,32 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
         }
     };
 
-    replace("/*FJSL_CUSTOM_TEXTURES*/", tex_defines);
-    replace("/*FJSL_CUSTOM_PARAMS*/", param_reads);
+    replace("/*FJSL_CUSTOM_TEXTURES*/", tex_defines + param_defines);
+    // The CUSTOM_PARAMS placeholder originally injected local reads inside
+    // main(); now param values come from the file-scope #defines emitted
+    // above, so the in-main slot becomes empty.
+    replace("/*FJSL_CUSTOM_PARAMS*/", std::string{});
+    replace("/*FJSL_USER_GLOBALS*/", meta.user_globals);
     replace("/*FJSL_USER_CODE*/", meta.fragment_body);
+
+    // light() body — user-provided replaces the default PBR. The default
+    // mirrors the standard GGX math so shaders without a custom light()
+    // render identically to the pre-hook template.
+    static const char* DEFAULT_LIGHT_BODY = R"GLSL(
+    vec3 H = normalize(VIEW_DIR + LIGHT_DIR);
+    float NdotV = max(dot(NORMAL, VIEW_DIR), 0.001);
+    float NdotH = max(dot(NORMAL, H), 0.0);
+    float HdotV = max(dot(H, VIEW_DIR), 0.0);
+    float D = distribution_GGX(NdotH, ROUGHNESS);
+    float G = geometry_smith(NdotV, NdotL, ROUGHNESS);
+    vec3  F = fresnel_schlick(HdotV, F0);
+    vec3 spec = (D * G * F) / (4.0 * NdotV * NdotL + 0.0001);
+    vec3 kD = (vec3(1.0) - F) * (1.0 - METALLIC);
+    DIFFUSE_LIGHT  += kD * ALBEDO / PI;
+    SPECULAR_LIGHT += spec;
+)GLSL";
+    replace("/*FJSL_LIGHT_USER_CODE*/",
+            meta.light_body.empty() ? std::string(DEFAULT_LIGHT_BODY) : meta.light_body);
 
     // Replace PBR lighting block with direct output for unlit shaders
     if (meta.render_mode == RenderMode::Unlit) {
