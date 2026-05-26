@@ -418,15 +418,17 @@ set(SHADER_DIR "${CMAKE_SOURCE_DIR}/shaders")
 set(SHADER_OUTPUT_DIR "${CMAKE_BINARY_DIR}/shaders")
 compile_shaders(fjell ${SHADER_DIR} ${SHADER_OUTPUT_DIR})
 
-# Copy shader includes and .fjsl files to build dir (needed at runtime for FJSL compilation)
-file(GLOB FJSL_SHADER_FILES "${SHADER_DIR}/*.fjsl")
-file(GLOB SHADER_INCLUDE_FILES "${SHADER_DIR}/include/*.glsl")
+# Mirror the shaders source tree into the build dir at every build via a
+# small inline cmake -P script. Using a script (not a one-shot file(GLOB) at
+# configure time) means newly-added .fjsl files and nested include/*/*.glsl
+# get picked up without re-running cmake. The script copies-if-different so
+# unchanged files don't cause incremental retriggering.
 add_custom_target(fjell_shader_resources ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${SHADER_OUTPUT_DIR}/include"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${SHADER_OUTPUT_DIR}/generated"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FJSL_SHADER_FILES} "${SHADER_OUTPUT_DIR}/"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different ${SHADER_INCLUDE_FILES} "${SHADER_OUTPUT_DIR}/include/"
-    COMMENT "Copying FJSL shaders and includes to build directory"
+    COMMAND ${CMAKE_COMMAND}
+            -DSHADER_SRC=${SHADER_DIR}
+            -DSHADER_DST=${SHADER_OUTPUT_DIR}
+            -P ${CMAKE_SOURCE_DIR}/cmake/MirrorShaderSources.cmake
+    COMMENT "Mirroring FJSL shaders and includes to build directory"
 )
 add_dependencies(fjell fjell_shader_resources)
 
