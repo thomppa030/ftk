@@ -29,4 +29,33 @@ vec3 oct_decode(vec2 o) {
     return normalize(v);
 }
 
+// ── Fresnel helpers ─────────────────────────────────────────────────────
+//
+// PBR Fresnel (Schlick with an F0 tint) lives in fjell_pbr.glsl as
+// `fresnel_schlick(cos_theta, F0)` / `fresnel_schlick_roughness(...)`.
+// Use those when you want physically-grounded specular reflectance.
+//
+// The helpers below are the stylized-rendering shortcut: a scalar value
+// that's 1 at grazing angles and 0 facing the camera, with an exponent
+// you can dial. Multiply it into ALBEDO/EMISSION/SPECULAR_LIGHT to get
+// rim highlights, energy shields, ghostly silhouettes, etc. Pass NORMAL
+// and VIEW_DIR from inside fragment() or light(); they're already in
+// scope in both.
+
+// Raw fresnel-style facing term: 0 facing camera, 1 at silhouette.
+// `power` shapes the falloff — 1.0 is wide, 5.0 is a tight rim.
+float fresnel_facing(vec3 normal, vec3 view_dir, float power) {
+    float NdotV = max(dot(normal, view_dir), 0.0);
+    return pow(1.0 - NdotV, power);
+}
+
+// Sub-surface-ish Fresnel: bias and scale let you push the curve so it
+// stays visible across the whole surface (bias) or compresses to the
+// edges (high scale). bias=0, scale=1 collapses to fresnel_facing.
+float fresnel_bias_scale(vec3 normal, vec3 view_dir,
+                         float bias, float scale, float power) {
+    float NdotV = max(dot(normal, view_dir), 0.0);
+    return clamp(bias + scale * pow(1.0 - NdotV, power), 0.0, 1.0);
+}
+
 #endif
