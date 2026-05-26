@@ -1,0 +1,24 @@
+shader_type sky;
+
+// Two-color zenith/horizon gradient with a soft sun disc and halo.
+// Set on a WorldEnvironmentNode via the Sky Shader inspector field.
+
+uniform vec3 zenith_color : hint_color = vec3(0.10, 0.30, 0.55);
+uniform vec3 horizon_color : hint_color = vec3(0.95, 0.65, 0.35);
+uniform float horizon_softness : hint_range(0.05, 1.0, 0.01) = 0.35;
+uniform float sun_size : hint_range(0.99, 0.99995, 0.0001) = 0.998;
+uniform float sun_halo : hint_range(0.9, 1.0, 0.001) = 0.985;
+uniform float sun_intensity : hint_range(0.0, 10.0, 0.1) = 3.0;
+
+void sky() {
+    // Vertical blend driven by view-up dot. Power shapes the horizon band.
+    float t = clamp(VIEW_DIR.y * 0.5 + 0.5, 0.0, 1.0);
+    t = pow(t, horizon_softness);
+    SKY = mix(horizon_color, zenith_color, t);
+
+    // Sun disc + glow.
+    float sun_dot = dot(VIEW_DIR, SUN_DIR);
+    float disc = smoothstep(sun_size, mix(sun_size, 1.0, 0.5), sun_dot);
+    float halo = pow(smoothstep(sun_halo, sun_size, sun_dot), 3.0);
+    SKY += SUN_COLOR * (disc * sun_intensity + halo * 0.4);
+}

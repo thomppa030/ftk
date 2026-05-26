@@ -377,6 +377,13 @@ void PropertiesPanel::draw() {
                                      .ctx = &ictx},
                                     env->hdri_path);
 
+                    static const std::string sky_shader_exts[] = {".fjsl"};
+                    asset_ref_field({.label = "Sky Shader",
+                                     .id = "##EnvSkyShader",
+                                     .extensions = sky_shader_exts,
+                                     .ctx = &ictx},
+                                    env->sky_shader);
+
                     const bool gradient_mode = env->hdri_path.empty();
                     ImGui::BeginDisabled(!gradient_mode);
                     ImGui::Text("Sky Top Color");

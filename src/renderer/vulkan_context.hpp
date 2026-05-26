@@ -254,7 +254,11 @@ public:
 
   void set_animation_system(class AnimationSystem* sys) { animation_system_ = sys; }
   void set_resource_manager(ResourceManager* rm) { resource_manager_ = rm; }
-  void set_project(const Project* p) { project_ = p; sky_cubemap_pass().set_project(p); }
+  void set_project(const Project* p) {
+    project_ = p;
+    sky_cubemap_pass().set_project(p);
+    sky_pass().set_project(p);
+  }
   void set_debug_draw_queue(class DebugDrawQueue* q) { debug_draw_queue_ = q; }
   [[nodiscard]] class DebugDrawQueue* debug_draw_queue() const { return debug_draw_queue_; }
 

@@ -54,6 +54,10 @@ public:
     [[nodiscard]] const std::string& depth_mesh_spv(uint32_t id) const;
     [[nodiscard]] const std::string& shadow_vert_spv(uint32_t id) const;
     [[nodiscard]] const std::string& outline_vert_spv(uint32_t id) const;
+    // Path to the compiled fragment SPV. Used by SkyPass (and any future
+    // owner of a custom pipeline shape) to build its own VkPipeline from
+    // an FJSL-generated fragment.
+    [[nodiscard]] const std::string& frag_spv_path(uint32_t id) const;
     [[nodiscard]] VkPipelineLayout layout() const { return layout_; }
     [[nodiscard]] VkPipelineLayout gpu_driven_layout() const { return gpu_driven_layout_; }
     [[nodiscard]] bool has_mesh_shaders() const { return meshlet_layout_ != VK_NULL_HANDLE; }
@@ -77,6 +81,7 @@ private:
         VkPipeline skinned_opaque{VK_NULL_HANDLE};
         VkPipeline skinned_transparent{VK_NULL_HANDLE};
         VkPipeline outline{VK_NULL_HANDLE};
+        std::string frag_spv;  // path to compiled fragment SPIR-V
         // Custom vertex SPIR-V paths (empty = use standard shaders)
         std::string vert_spv;
         std::string mesh_spv;
@@ -112,6 +117,7 @@ private:
     std::vector<Entry> entries_;
     std::unordered_map<std::string, uint32_t> path_to_id_;
     std::string template_source_;
+    std::string sky_template_;
     std::string mesh_template_;
     std::string depth_mesh_template_;
     std::string vertex_template_;

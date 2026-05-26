@@ -51,6 +51,7 @@ PipelineCache::PipelineCache(Device& device,
 
     // Load the spatial template (required)
     template_source_ = load_template("fjell_spatial_template.glsl");
+    sky_template_ = load_template("fjell_sky_template.glsl");
     if (template_source_.empty()) {
         throw std::runtime_error("Failed to open spatial template");
     }
@@ -188,8 +189,18 @@ void PipelineCache::compile_entry(Entry& entry) {
         // Parse FJSL
         next.metadata = parse_fjsl(source);
 
+        // Pick the template by shader_type. Spatial uses the full PBR
+        // template; sky uses the fullscreen sky template.
+        const std::string& tmpl = next.metadata.shader_type == "sky"
+            ? sky_template_
+            : template_source_;
+        if (tmpl.empty()) {
+            throw std::runtime_error("FJSL: no template loaded for shader_type '"
+                                     + next.metadata.shader_type + "'");
+        }
+
         // Generate complete fragment shader
-        std::string frag_source = generate_fragment_shader(next.metadata, template_source_);
+        std::string frag_source = generate_fragment_shader(next.metadata, tmpl);
 
         // Determine output name from fjsl filename
         std::string stem = std::filesystem::path(entry.fjsl_path).stem().string();
@@ -269,8 +280,14 @@ void PipelineCache::compile_entry(Entry& entry) {
             if (!outline_vertex_template_.empty()) next.outline_vert_spv = collect();
         }
 
-        // Create new pipelines into the temp entry
-        create_pipelines(next, frag_spv);
+        next.frag_spv = frag_spv;
+
+        // Sky shaders don't participate in any of the spatial pipelines
+        // (opaque/transparent/depth-prepass/shadow/outline). SkyPass owns
+        // its own VkPipeline built from this entry's frag_spv + metadata.
+        if (next.metadata.shader_type != "sky") {
+            create_pipelines(next, frag_spv);
+        }
 
     } catch (const std::exception& e) {
         // Compilation failed — keep old pipelines, store error
@@ -293,6 +310,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     entry.skinned_opaque = next.skinned_opaque;
     entry.skinned_transparent = next.skinned_transparent;
     entry.outline = next.outline;
+    entry.frag_spv = std::move(next.frag_spv);
     entry.vert_spv = std::move(next.vert_spv);
     entry.mesh_spv = std::move(next.mesh_spv);
     entry.depth_vert_spv = std::move(next.depth_vert_spv);
@@ -790,6 +808,10 @@ const std::string& PipelineCache::shadow_vert_spv(uint32_t id) const {
 
 const std::string& PipelineCache::outline_vert_spv(uint32_t id) const {
     return entries_[id].outline_vert_spv;
+}
+
+const std::string& PipelineCache::frag_spv_path(uint32_t id) const {
+    return entries_[id].frag_spv;
 }
 
 } // namespace fjell

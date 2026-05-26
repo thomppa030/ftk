@@ -125,6 +125,9 @@ struct WorldEnvironmentNode : Node3D {
     glm::vec3 sky_bottom_color{0.8f, 0.4f, 0.1f};
     float ibl_intensity{1.0f};
     std::string hdri_path;
+    // .fjsl path (shader_type sky;) — when non-empty, overrides all built-in
+    // sky modes. Compiled lazily by SkyPass; supports hot reload.
+    std::string sky_shader;
 
     // Contact shadows: screen-space ray march along the sun direction.
     bool contact_shadows_enabled{true};
@@ -148,6 +151,7 @@ struct WorldEnvironmentNode : Node3D {
         copy->sky_bottom_color = sky_bottom_color;
         copy->ibl_intensity = ibl_intensity;
         copy->hdri_path = hdri_path;
+        copy->sky_shader = sky_shader;
         copy->contact_shadows_enabled = contact_shadows_enabled;
         copy->contact_shadow_distance = contact_shadow_distance;
         copy->contact_shadow_thickness = contact_shadow_thickness;

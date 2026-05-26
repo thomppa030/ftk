@@ -164,6 +164,9 @@ nlohmann::json serialize_node(const Node& node) {
         if (!env->hdri_path.empty()) {
             j["sky"]["hdri_path"] = env->hdri_path;
         }
+        if (!env->sky_shader.empty()) {
+            j["sky"]["sky_shader"] = env->sky_shader;
+        }
     }
 
     return j;
@@ -381,6 +384,9 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 env->atmosphere_hdri_floor = js.value("atmosphere_hdri_floor", 0.1f);
                 if (js.contains("hdri_path")) {
                     env->hdri_path = js["hdri_path"].get<std::string>();
+                }
+                if (js.contains("sky_shader")) {
+                    env->sky_shader = js["sky_shader"].get<std::string>();
                 }
             }
             node = std::move(env);

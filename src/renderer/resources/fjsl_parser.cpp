@@ -147,10 +147,13 @@ static std::string extract_user_globals(const std::string& source) {
     static const std::regex uniform_re(
         R"(uniform\s+\w+\s+\w+\s*(?::\s*\w+(?:\s*\([^)]*\))?)?\s*(?:=\s*[^;]+)?\s*;)");
     s = std::regex_replace(s, uniform_re, std::string{});
-    // Strip the three reserved function definitions.
+    // Strip the reserved function definitions (fragment/vertex/light for
+    // spatial shaders; sky for shader_type sky). Whatever's left is the
+    // user's file-scope code — helpers, structs, constants.
     strip_function(s, "fragment");
     strip_function(s, "vertex");
     strip_function(s, "light");
+    strip_function(s, "sky");
     return s;
 }
 
@@ -166,7 +169,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         throw std::runtime_error("FJSL: missing shader_type declaration");
     }
 
-    if (meta.shader_type != "spatial") {
+    if (meta.shader_type != "spatial" && meta.shader_type != "sky") {
         throw std::runtime_error("FJSL: unsupported shader_type '" + meta.shader_type + "'");
     }
 
@@ -269,7 +272,12 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     }
 
     meta.custom_param_count = param_offset;
-    meta.fragment_body = extract_function_body(source, "fragment");
+    // Sky shaders supply their user code via sky() rather than fragment();
+    // route it through the same fragment_body slot so the existing
+    // /*FJSL_USER_CODE*/ substitution path works unchanged.
+    meta.fragment_body = meta.shader_type == "sky"
+        ? extract_function_body(source, "sky")
+        : extract_function_body(source, "fragment");
     meta.vertex_body = extract_function_body(source, "vertex");
     meta.light_body = extract_function_body(source, "light");
     meta.user_globals = extract_user_globals(source);
@@ -296,8 +304,12 @@ std::string generate_fragment_shader(const ShaderMetadata& meta,
     // inside main(). Each macro reads from the materials SSBO using
     // frag_draw_index, which is in scope throughout the fragment shader.
     std::string param_defines;
-    const std::string mat_expr =
-        "materials[draws[frag_draw_index].material_id]";
+    // Sky shaders are a single fullscreen pass with no draws[] SSBO — the
+    // sky's material row index is pushed directly as `push.sky_material_id`.
+    // Spatial shaders look up the material via per-draw data.
+    const std::string mat_expr = meta.shader_type == "sky"
+        ? "materials[push.sky_material_id]"
+        : "materials[draws[frag_draw_index].material_id]";
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
 
