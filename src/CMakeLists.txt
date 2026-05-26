@@ -63,6 +63,8 @@ add_executable(fjell
     renderer/resources/fjsl_parser.cpp
     renderer/resources/material.cpp
     renderer/resources/material_asset.cpp
+    renderer/resources/material_instance.cpp
+    renderer/components/mesh_component.cpp
     renderer/systems/vfx_asset.cpp
     renderer/systems/vfx_curve.cpp
     renderer/systems/vfx_module.cpp
@@ -202,6 +204,7 @@ add_executable(fjell
     scripting/asset_type_registry.cpp
     scripting/asset_type_registrations.cpp
     scripting/log_api.cpp
+    scripting/material_api.cpp
     scripting/audio_api.cpp
     scripting/camera_api.cpp
     scripting/input_api.cpp

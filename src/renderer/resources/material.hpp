@@ -10,6 +10,8 @@ namespace fjell {
 
 struct GpuMaterial;
 
+class MaterialInstance; // grants id rebinding for MID construction
+
 class Material {
 public:
     Material(uint32_t material_id, uint32_t base_color_idx, uint32_t normal_idx,
@@ -46,6 +48,7 @@ public:
     [[nodiscard]] float aabb_padding() const { return aabb_padding_; }
 
 private:
+    friend class MaterialInstance;
     uint32_t material_id_;
     uint32_t pipeline_id_{0};
     uint32_t base_color_idx_;

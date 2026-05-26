@@ -123,6 +123,11 @@ public:
 
     [[nodiscard]] uint32_t bindless_index(TextureHandle handle) const;
 
+    // Lower-level accessors used by material-instance and script-API code
+    // that needs to allocate new SSBO rows / look up shader metadata.
+    [[nodiscard]] BindlessTextures& bindless() { return bindless_; }
+    [[nodiscard]] PipelineCache* pipeline_cache() { return pipeline_cache_; }
+
     /// Set a callback that resolves "$viewport:name" texture references to bindless indices.
     using ViewportResolver = std::function<uint32_t(const std::string&)>;
     void set_viewport_resolver(ViewportResolver resolver);

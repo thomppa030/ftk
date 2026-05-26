@@ -57,7 +57,14 @@ void Node::clone_base_into(Node& target) const {
     target.source = source;
     target.preset_source = preset_source;
     if (const auto* mc = components.get<MeshComponent>()) {
-        target.components.add<MeshComponent>(*mc);
+        // Copy the renderable bits; the MaterialInstance (if any) is per-mesh
+        // runtime override state that doesn't transfer to a duplicate.
+        auto& dst = target.components.add<MeshComponent>();
+        dst.model_handle = mc->model_handle;
+        dst.material_handle = mc->material_handle;
+        dst.model = mc->model;
+        dst.material = mc->material;
+        dst.material_name = mc->material_name;
     }
     for (const auto& s : scripts) {
         ScriptEntry entry;

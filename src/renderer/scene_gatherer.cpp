@@ -167,10 +167,10 @@ void SceneGatherer::gather(const GatherInput& input) {
                     dc.prev_world_matrix = spatial->prev_world_matrix_;
                     dc.push.model = spatial->world_matrix_;
                     if (mesh->material) {
-                        dc.push.material_id = mesh->material->material_id();
+                        const uint32_t mid = mesh->resolved_material_id();
+                        dc.push.material_id = mid;
                         dc.pipeline_id = mesh->material->pipeline_id();
-                        dc.sort_key = RenderQueue::make_sort_key(
-                            dc.pipeline_id, mesh->material->material_id(), obj->id);
+                        dc.sort_key = RenderQueue::make_sort_key(dc.pipeline_id, mid, obj->id);
                         dc.transparent = mesh->material->force_transparent()
                                         || (mesh->material->params().base_color_factor.w < 1.0f);
                     }

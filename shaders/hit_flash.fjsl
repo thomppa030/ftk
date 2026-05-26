@@ -1,0 +1,13 @@
+shader_type spatial;
+
+// Mixes ALBEDO toward flash_color by flash_amount. Drives the classic
+// "white flash on damage" effect — script pulses flash_amount from
+// 1.0 → 0.0 over a few frames per hit. Standard PBR otherwise.
+
+uniform vec3 flash_color : hint_color = vec3(1.0, 1.0, 1.0);
+uniform float flash_amount : hint_range(0.0, 1.0, 0.01) = 0.0;
+
+void fragment() {
+    ALBEDO = mix(ALBEDO, flash_color, flash_amount);
+    EMISSION += flash_color * flash_amount * 0.5;
+}
