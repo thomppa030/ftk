@@ -1,7 +1,11 @@
 build/
+build-release/
+assets/screenshots/
 out/
 .fjcache/
 vendors/
+Plans/
+ProgrammingGuides/
 
 compile_commands.json
 
