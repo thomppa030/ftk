@@ -1658,7 +1658,17 @@ void Engine::run() {
         capture_service_.finish_after_present(*vulkan_context_,
                                               scene_context_->viewport_manager());
 
+        // Resize offscreen passes (using last frame's panel size) — safe
+        // because begin_frame's fence guarantees the GPU is no longer
+        // referencing this frame slot's resources.
         vulkan_context_->set_active_sources(scene_context_->viewport_manager().active_source_mask());
+        active_context().apply_resize(*vulkan_context_);
+
+        // Editor capture: resize the editor viewport + PP to the capture
+        // resolution BEFORE draw_ui, so ImGui::Image picks up the new
+        // tonemap descriptor instead of one we're about to free.
+        capture_service_.resize_for_capture(*vulkan_context_,
+                                            scene_context_->viewport_manager());
 
         imgui_layer_->begin_frame();
         if (active_context().is_playing()) {
@@ -1668,17 +1678,10 @@ void Engine::run() {
         }
         imgui_layer_->end_frame();
 
-        // Editor capture (scene mode): patch the active viewport panel size
-        // to the capture resolution. Runs AFTER draw_ui (which sets panel
-        // size from ImGui's content region) and BEFORE apply_resize so the
-        // normal render path produces the high-res image into the panel's
-        // OffscreenPass + default_pp.
+        // Editor capture (pane mode only): advance state machine. Scene
+        // mode already did its resize above.
         capture_service_.prepare_for_record(*vulkan_context_,
                                             scene_context_->viewport_manager());
-
-        // Resize offscreen passes — safe because begin_frame's fence guarantees
-        // the GPU is no longer referencing this frame slot's resources
-        active_context().apply_resize(*vulkan_context_);
 
         auto requests = active_context().build_render_requests();
 

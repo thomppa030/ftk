@@ -4,6 +4,7 @@
 #include "core/project.hpp"
 #include "renderer/gpu/swapchain.hpp"
 #include "renderer/gpu/vk_utils.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/viewport_manager.hpp"
@@ -210,48 +211,63 @@ void CaptureService::request(const Request& r) {
     state_ = State::armed;
 }
 
-void CaptureService::prepare_for_record(VulkanContext& vk,
+void CaptureService::resize_for_capture(VulkanContext& vk,
                                         ViewportManager& viewports) {
-    // Pane mode is a one-shot; it doesn't need warmup.
-    if (state_ == State::armed && request_.mode == Mode::pane) {
-        state_ = State::capture_ready;
+    // Called BEFORE draw_ui. Resizes the editor viewport's offscreen + PP
+    // to the capture resolution if a scene capture is active. Must run
+    // before ImGui draws the editor viewport panel so the ImGui texture
+    // descriptor reflects the resized tonemap output — resizing AFTER
+    // draw_ui would leave ImGui referencing a freed descriptor.
+    if (state_ != State::armed && state_ != State::warming
+            && state_ != State::capture_ready) {
+        return;
+    }
+    if (request_.mode != Mode::scene) { return; }
+
+    auto* panel = viewports.active_panel();
+    if (panel == nullptr) {
+        if (state_ == State::armed) {
+            FJELL_CORE_ERROR("Capture: no active editor viewport");
+        }
+        state_ = State::idle;
         return;
     }
 
-    // Scene mode: arm → warming (resize panel, render N warmup frames) →
-    // capture_ready (read back this frame's result).
     if (state_ == State::armed) {
-        auto* panel = viewports.active_panel();
-        if (panel == nullptr) {
-            FJELL_CORE_ERROR("Capture: no active editor viewport");
-            state_ = State::idle;
-            return;
-        }
-        // Idle the GPU before the about-to-happen resize. apply_resize
-        // recreates per-viewport images (DDGI grid, bloom mips), and the
-        // descriptor cache still holds combined-image-sampler entries
-        // pointing at the soon-to-be-destroyed views. Anything in flight
-        // referencing those descriptors races the recreation otherwise.
-        vk.wait_idle();
         saved_panel_id_ = panel->id;
         saved_panel_size_x_ = panel->size.x;
         saved_panel_size_y_ = panel->size.y;
-        panel->size.x = static_cast<float>(request_.width);
-        panel->size.y = static_cast<float>(request_.height);
         warmup_remaining_ = kWarmupFrames;
         state_ = State::warming;
-        return;
     }
 
-    // While warming: keep the panel size pinned at capture resolution.
-    // (draw_ui already overwrote panel.size with ImGui's content region;
-    // we re-pin it here.)
-    if (state_ == State::warming || state_ == State::capture_ready) {
-        auto* panel = viewports.active_panel();
-        if (panel != nullptr) {
-            panel->size.x = static_cast<float>(request_.width);
-            panel->size.y = static_cast<float>(request_.height);
+    // Pin panel size so this frame's record path uses capture-res aspect
+    // ratio in build_render_requests.
+    panel->size.x = static_cast<float>(request_.width);
+    panel->size.y = static_cast<float>(request_.height);
+
+    // Resize the offscreen + PP. PP::resize touches ImGui descriptors via
+    // TonemapPass::Images::resize → destroy → invalidate_imgui_texture.
+    // wait_idle ensures no in-flight CB references them.
+    if (panel->offscreen) {
+        if (panel->offscreen->extent().width != request_.width
+                || panel->offscreen->extent().height != request_.height) {
+            vk.wait_idle();
+            panel->offscreen->resize(request_.width, request_.height);
+            vk.default_pp().resize(request_.width, request_.height);
         }
+    }
+}
+
+void CaptureService::prepare_for_record(VulkanContext& vk,
+                                        ViewportManager& /*viewports*/) {
+    // Called AFTER draw_ui. Pane mode advances state here. Scene mode
+    // already did its resize in resize_for_capture; nothing to do here
+    // because draw_ui doesn't overwrite the offscreen sizes — only
+    // panel.size, which we don't use again this frame.
+    (void)vk;
+    if (state_ == State::armed && request_.mode == Mode::pane) {
+        state_ = State::capture_ready;
     }
 }
 
@@ -303,13 +319,8 @@ void CaptureService::do_scene_capture(VulkanContext& vk,
     destroy_staging(vk.allocator(), s);
 
     // Restore the panel size so the next frame's apply_resize puts the
-    // editor viewport back to its on-screen size. Idle the GPU first for
-    // the same reason as the resize-up: the next apply_resize will free
-    // the capture-resolution images and recreate at panel resolution,
-    // and the descriptor cache mustn't have in-flight references to the
-    // about-to-be-freed views.
+    // editor viewport back to its on-screen size.
     if (panel->id == saved_panel_id_) {
-        vk.wait_idle();
         panel->size.x = saved_panel_size_x_;
         panel->size.y = saved_panel_size_y_;
     }

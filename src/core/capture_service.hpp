@@ -44,10 +44,17 @@ public:
     void request(const Request& r);
     [[nodiscard]] bool has_pending() const { return state_ != State::idle; }
 
-    /// Called between begin_frame and apply_resize. If a scene capture is
-    /// armed, overrides the active editor panel size to the requested
-    /// resolution so apply_resize creates the OffscreenPass and PP at
-    /// capture resolution.
+    /// Called right after apply_resize, BEFORE draw_ui. If a scene capture
+    /// is armed/warming, resizes the editor viewport's offscreen + PP to
+    /// the capture resolution so the upcoming draw_ui's ImGui::Image picks
+    /// up the resized tonemap descriptor. Drains the GPU first because
+    /// PP::resize touches descriptors that may be referenced by in-flight
+    /// CBs.
+    void resize_for_capture(VulkanContext& vk, ViewportManager& viewports);
+
+    /// Called AFTER draw_ui (still before record_frame). Advances pane-mode
+    /// state to capture_ready; scene mode already did its work in
+    /// resize_for_capture.
     void prepare_for_record(VulkanContext& vk, ViewportManager& viewports);
 
     /// Called after submit_and_present. If a capture is pending, reads back
