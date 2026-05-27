@@ -292,6 +292,7 @@ void Engine::init_resources() {
 
     vulkan_context_->set_resource_manager(resource_manager_.get());
     vulkan_context_->set_project(project_mgr_.active());
+    capture_service_.set_project(project_mgr_.active());
 }
 
 void Engine::init_scene() {
@@ -1134,6 +1135,7 @@ void Engine::bind_menu_bar() {
         [this](const std::filesystem::path& path) {
             project_mgr_.open(path);
             vulkan_context_->set_project(project_mgr_.active());
+            capture_service_.set_project(project_mgr_.active());
             if (project_mgr_.active()) {
                 current_scene_path_ = project_mgr_.active()->resolve(
                     project_mgr_.active()->config().default_scene);
@@ -1165,6 +1167,8 @@ void Engine::bind_menu_bar() {
             import_file_browser_.open("Import Model", FileBrowser::Mode::select_file,
                                       {".glb", ".gltf", ".fbx"});
         }));
+    connections_.push_back(menu_bar_.on_open_capture.bind(
+        [this]() { capture_popup_.open(); }));
     connections_.push_back(import_file_browser_.on_selected.bind(
         [this](const std::string& path) {
             auto output_dir = project_mgr_.active()
@@ -1364,6 +1368,9 @@ void Engine::draw_ui() {
     if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) {
         active_context().command_history().redo();
     }
+    if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F9)) {
+        capture_popup_.open();
+    }
 
     // Context-specific shortcuts
     active_context().handle_shortcuts();
@@ -1384,6 +1391,8 @@ void Engine::draw_ui() {
     menu_bar_.set_vulkan_context(vulkan_context_.get());
     menu_bar_.set_viewport_manager(&scene_context_->viewport_manager());
     menu_bar_.draw();
+
+    capture_popup_.draw(capture_service_, scene_context_->viewport_manager());
 
     draw_context_tabs();
     setup_dockspace();
@@ -1643,10 +1652,13 @@ void Engine::run() {
         // Phase 3: Wait for frame slot — GPU is done with this slot after this
         if (!vulkan_context_->begin_frame(thread_pool_)) continue;
 
-        // Resize offscreen passes — safe because begin_frame's fence guarantees
-        // the GPU is no longer referencing this frame slot's resources
+        // If a capture was pending from the previous frame, the slot's
+        // fence has settled and the rendered tonemap output is now safe
+        // to read back.
+        capture_service_.finish_after_present(*vulkan_context_,
+                                              scene_context_->viewport_manager());
+
         vulkan_context_->set_active_sources(scene_context_->viewport_manager().active_source_mask());
-        active_context().apply_resize(*vulkan_context_);
 
         imgui_layer_->begin_frame();
         if (active_context().is_playing()) {
@@ -1655,6 +1667,18 @@ void Engine::run() {
             draw_ui();
         }
         imgui_layer_->end_frame();
+
+        // Editor capture (scene mode): patch the active viewport panel size
+        // to the capture resolution. Runs AFTER draw_ui (which sets panel
+        // size from ImGui's content region) and BEFORE apply_resize so the
+        // normal render path produces the high-res image into the panel's
+        // OffscreenPass + default_pp.
+        capture_service_.prepare_for_record(*vulkan_context_,
+                                            scene_context_->viewport_manager());
+
+        // Resize offscreen passes — safe because begin_frame's fence guarantees
+        // the GPU is no longer referencing this frame slot's resources
+        active_context().apply_resize(*vulkan_context_);
 
         auto requests = active_context().build_render_requests();
 

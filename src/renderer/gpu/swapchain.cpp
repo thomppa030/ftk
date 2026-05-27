@@ -102,7 +102,11 @@ void Swapchain::create_swapchain() {
     create_info.imageColorSpace = format.colorSpace;
     create_info.imageExtent = extent;
     create_info.imageArrayLayers = 1;
-    create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    // TRANSFER_SRC lets the editor screenshot tool read back the composited
+    // frame for pane capture. Universally supported on present-capable
+    // surfaces.
+    create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                             VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
     auto indices = device_.find_queue_families();
     uint32_t family_indices[] = {indices.graphics.value(), indices.present.value()};

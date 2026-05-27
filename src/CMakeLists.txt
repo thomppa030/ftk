@@ -34,6 +34,7 @@ add_executable(fjell
     core/base_path.cpp
     core/clock.cpp
     core/game_builder.cpp
+    core/capture_service.cpp
     core/engine.cpp
     core/layer_stack.cpp
     core/math/spline.cpp
@@ -219,6 +220,7 @@ add_executable(fjell
     scripting/debug_api.cpp
     scripting/scene_api.cpp
     ui/asset_ref_widget.cpp
+    ui/capture_popup.cpp
     ui/console.cpp
     ui/menu_bar.cpp
     ui/file_browser.cpp

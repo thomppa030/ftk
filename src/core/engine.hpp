@@ -14,6 +14,8 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "scene/scene.hpp"
 #include "import/import_dialog.hpp"
+#include "core/capture_service.hpp"
+#include "ui/capture_popup.hpp"
 #include "ui/content_browser.hpp"
 #include "ui/context_registry.hpp"
 #include "ui/icon_cache.hpp"
@@ -204,6 +206,10 @@ private:
 
     // Menu bar (owns file browsers, popup state, emits delegates)
     MenuBar menu_bar_;
+
+    // Editor screenshot capture
+    CaptureService capture_service_;
+    CapturePopup capture_popup_;
 
     // In-engine mesh importer
     ImportDialog import_dialog_;

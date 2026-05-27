@@ -43,7 +43,11 @@ void TonemapPass::Images::create(VkDevice device, VmaAllocator allocator,
     ci.arrayLayers = 1;
     ci.samples = VK_SAMPLE_COUNT_1_BIT;
     ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    // TRANSFER_SRC lets the editor screenshot tool read back the tonemapped
+    // output. Universally supported on R8G8B8A8_SRGB OPTIMAL tiling.
+    ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+               VK_IMAGE_USAGE_SAMPLED_BIT |
+               VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     if (create_vma_image(allocator, &ci, &image, &memory) != VK_SUCCESS) {

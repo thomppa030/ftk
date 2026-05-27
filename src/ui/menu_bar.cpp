@@ -100,6 +100,10 @@ void MenuBar::draw_view_menu() {
             vk_->set_show_sdf_debug(sdf);
         }
     }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Capture Screenshot...", "F9")) {
+        on_open_capture.broadcast();
+    }
     ImGui::EndMenu();
 }
 

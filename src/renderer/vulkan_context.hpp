@@ -280,6 +280,10 @@ public:
                       const DirectionalLight& light, Scene* scene,
                       float dt, uint32_t selected_id, ThreadPool& pool);
 
+  /// The swapchain image index of the last frame submitted for present.
+  /// Used by editor screenshot capture to read back the composited frame.
+  [[nodiscard]] uint32_t recorded_swapchain_image_index() const { return recorded_image_index_; }
+
 private:
   void
   record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
