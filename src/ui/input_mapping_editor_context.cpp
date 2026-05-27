@@ -7,8 +7,10 @@
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
 #include "ui/dockspace_layout.hpp"
+#include "ui/theme.hpp"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <GLFW/glfw3.h>
 
 #include <algorithm>
@@ -16,7 +18,17 @@
 
 namespace fjell {
 
-static const char* modifier_type_label(ModifierType type) {
+// ── Visual helpers ──────────────────────────────────────────────────
+
+namespace {
+
+ImU32 to_imu32(ImVec4 v) { return ImGui::ColorConvertFloat4ToU32(v); }
+
+// Engine palette → ImU32 (uses sRGB→linear from theme.hpp)
+ImU32 col_separator()   { return to_imu32(theme::srgb(0.055F, 0.055F, 0.063F)); }
+ImU32 col_text_muted()  { return to_imu32(theme::srgb(0.447F, 0.455F, 0.486F)); }
+
+const char* modifier_type_label(ModifierType type) {
     switch (type) {
         case ModifierType::scale: return "Scale";
         case ModifierType::deadzone: return "Deadzone";
@@ -26,7 +38,7 @@ static const char* modifier_type_label(ModifierType type) {
     return "Scale";
 }
 
-static const char* action_type_label(ActionType type) {
+const char* action_type_label(ActionType type) {
     switch (type) {
         case ActionType::button: return "Button";
         case ActionType::axis1d: return "Axis1D";
@@ -35,14 +47,82 @@ static const char* action_type_label(ActionType type) {
     return "Button";
 }
 
-static ImU32 action_type_color(ActionType type) {
+const char* action_type_short(ActionType type) {
     switch (type) {
-        case ActionType::button: return IM_COL32(120, 200, 120, 255);
-        case ActionType::axis1d: return IM_COL32(120, 170, 255, 255);
-        case ActionType::axis2d: return IM_COL32(255, 180, 100, 255);
+        case ActionType::button: return "BTN";
+        case ActionType::axis1d: return "1D";
+        case ActionType::axis2d: return "2D";
     }
-    return IM_COL32(255, 255, 255, 255);
+    return "?";
 }
+
+// Action type colors — tuned to the engine palette: amber for Button (matches accent),
+// muted blue for Axis1D, sage-tinted teal for Axis2D.
+ImU32 action_type_color(ActionType type) {
+    switch (type) {
+        case ActionType::button: return to_imu32(theme::accent());                       // amber
+        case ActionType::axis1d: return to_imu32(theme::srgb(0.486F, 0.624F, 0.808F));   // muted blue
+        case ActionType::axis2d: return to_imu32(theme::srgb(0.494F, 0.749F, 0.557F));   // sage (success)
+    }
+    return col_text_muted();
+}
+
+// Source category: keyboard / mouse / pad / none.
+enum class SrcKind : std::uint8_t { none, keyboard, mouse, pad };
+
+SrcKind source_kind(InputSource s) {
+    if (s == InputSource::none) return SrcKind::none;
+    if (is_keyboard_source(s)) return SrcKind::keyboard;
+    if (is_mouse_button_source(s) || is_mouse_axis_source(s)) return SrcKind::mouse;
+    if (is_pad_button_source(s) || is_pad_axis_source(s)) return SrcKind::pad;
+    return SrcKind::none;
+}
+
+const char* source_kind_tag(SrcKind k) {
+    switch (k) {
+        case SrcKind::keyboard: return "KB";
+        case SrcKind::mouse:    return "M";
+        case SrcKind::pad:      return "PAD";
+        case SrcKind::none:     return "";
+    }
+    return "";
+}
+
+ImU32 source_kind_color(SrcKind k) {
+    switch (k) {
+        case SrcKind::keyboard: return to_imu32(theme::srgb(0.486F, 0.624F, 0.808F));
+        case SrcKind::mouse:    return to_imu32(theme::accent());
+        case SrcKind::pad:      return to_imu32(theme::srgb(0.494F, 0.749F, 0.557F));
+        case SrcKind::none:     return col_text_muted();
+    }
+    return col_text_muted();
+}
+
+// Draw a small colored pill (used for action type and source kind tags).
+void draw_pill(const char* text, ImU32 color) {
+    ImVec2 text_size = ImGui::CalcTextSize(text);
+    ImVec2 pad{6.0F, 2.0F};
+    ImVec2 p0 = ImGui::GetCursorScreenPos();
+    ImVec2 p1{p0.x + text_size.x + pad.x * 2.0F, p0.y + text_size.y + pad.y * 2.0F};
+
+    auto* dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, p1, color, 4.0F);
+    dl->AddText({p0.x + pad.x, p0.y + pad.y}, IM_COL32(20, 22, 26, 255), text);
+
+    ImGui::Dummy({text_size.x + pad.x * 2.0F, text_size.y + pad.y * 2.0F});
+}
+
+// Push the bold font (Fonts[1] if loaded by theme::load_font).
+bool push_bold_font() {
+    auto& io = ImGui::GetIO();
+    if (io.Fonts->Fonts.Size > 1) {
+        ImGui::PushFont(io.Fonts->Fonts[1]);
+        return true;
+    }
+    return false;
+}
+
+} // namespace
 
 // ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -199,7 +279,7 @@ bool InputMappingEditorContext::handle_shortcuts() {
 void InputMappingEditorContext::draw_mappings() {
     auto title = ctx_title("Mappings");
 
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{16.0f, 12.0f});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{20.0F, 16.0F});
     if (!ImGui::Begin(title.c_str())) {
         ImGui::End();
         ImGui::PopStyleVar();
@@ -213,20 +293,21 @@ void InputMappingEditorContext::draw_mappings() {
         return;
     }
 
-    // Header bar: context name, consume checkbox, add action
+    // ── Header row (no separate box, just inline controls) ────────
     {
-        ImGui::SetNextItemWidth(200.0f);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted("Context");
+        ImGui::SameLine(0.0F, 8.0F);
+
+        ImGui::SetNextItemWidth(220.0F);
         char name_buf[128];
         std::snprintf(name_buf, sizeof(name_buf), "%s", context_.name.c_str());
         if (ImGui::InputText("##ContextName", name_buf, sizeof(name_buf))) {
             context_.name = name_buf;
             dirty_ = true;
         }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Context name");
-        }
 
-        ImGui::SameLine(0.0f, 16.0f);
+        ImGui::SameLine(0.0F, 20.0F);
         if (ImGui::Checkbox("Consume", &context_.consume)) {
             dirty_ = true;
         }
@@ -234,27 +315,35 @@ void InputMappingEditorContext::draw_mappings() {
             ImGui::SetTooltip("Consume matched inputs, blocking lower contexts");
         }
 
-        ImGui::SameLine(0.0f, 16.0f);
-        if (ImGui::Button("+ Add Action")) {
+        // Right-aligned: unsaved indicator + Add Action button
+        const char* add_label = "+  Add Action";
+        float add_w = ImGui::CalcTextSize(add_label).x + ImGui::GetStyle().FramePadding.x * 2.0F;
+
+        const char* unsaved_text = "● unsaved";
+        float unsaved_w = dirty_ ? ImGui::CalcTextSize(unsaved_text).x + 16.0F : 0.0F;
+
+        float right_edge = ImGui::GetContentRegionAvail().x;
+        ImGui::SameLine(0.0F, std::max(8.0F, right_edge - add_w - unsaved_w - 4.0F));
+
+        if (dirty_) {
+            ImGui::TextColored(theme::accent(), "%s", unsaved_text);
+            ImGui::SameLine(0.0F, 16.0F);
+        }
+
+        if (ImGui::Button(add_label)) {
             action_filter_[0] = '\0';
             scan_actions();
             ImGui::OpenPopup("add_action_popup");
         }
 
-        if (dirty_) {
-            ImGui::SameLine(0.0f, 12.0f);
-            ImGui::TextColored({1.0f, 0.8f, 0.3f, 1.0f}, "(unsaved)");
-        }
-
         draw_add_action_popup();
     }
 
-    ImGui::Spacing();
+    ImGui::Dummy({0.0F, 8.0F});
     ImGui::Separator();
-    ImGui::Spacing();
-    ImGui::Spacing();
+    ImGui::Dummy({0.0F, 4.0F});
 
-    // Collect unique actions in binding order
+    // ── Collect unique actions in binding order ───────────────────
     std::vector<std::string> action_order;
     for (const auto& binding : context_.bindings) {
         if (std::find(action_order.begin(), action_order.end(), binding.action) == action_order.end()) {
@@ -263,12 +352,21 @@ void InputMappingEditorContext::draw_mappings() {
     }
 
     if (action_order.empty()) {
-        ImGui::Spacing();
-        ImGui::TextDisabled("No actions mapped. Click '+ Add Action' to get started.");
+        ImGui::Dummy({0.0F, 24.0F});
+        ImVec2 win_size = ImGui::GetContentRegionAvail();
+        const char* msg = "No actions mapped yet.";
+        const char* hint = "Click \"+ Add Action\" above to start binding inputs.";
+        float msg_w = ImGui::CalcTextSize(msg).x;
+        float hint_w = ImGui::CalcTextSize(hint).x;
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (win_size.x - msg_w) * 0.5F);
+        ImGui::TextUnformatted(msg);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (win_size.x - hint_w) * 0.5F);
+        ImGui::TextDisabled("%s", hint);
     }
 
-    // Draw each action section
-    for (const auto& action_name : action_order) {
+    // ── Draw each action section ──────────────────────────────────
+    for (size_t i = 0; i < action_order.size(); ++i) {
+        const auto& action_name = action_order[i];
         ActionType type = ActionType::button;
         for (const auto& a : discovered_actions_) {
             if (a.name == action_name) {
@@ -277,6 +375,12 @@ void InputMappingEditorContext::draw_mappings() {
             }
         }
         draw_action_section(action_name, type);
+
+        if (i + 1 < action_order.size()) {
+            ImGui::Dummy({0.0F, 2.0F});
+            ImGui::Separator();
+            ImGui::Dummy({0.0F, 6.0F});
+        }
     }
 
     ImGui::End();
@@ -286,52 +390,79 @@ void InputMappingEditorContext::draw_action_section(const std::string& action_na
                                                      ActionType type) {
     ImGui::PushID(action_name.c_str());
 
-    // Action header with colored left strip
-    ImVec2 cursor = ImGui::GetCursorScreenPos();
-    float avail_w = ImGui::GetContentRegionAvail().x;
-    float header_h = ImGui::GetFrameHeight();
+    ImU32 type_color = action_type_color(type);
 
-    // Colored type indicator strip
+    // ── Action header row ─────────────────────────────────────────
+    // Colored type strip on the left (aligns with the row, not a card).
+    ImVec2 row_start = ImGui::GetCursorScreenPos();
+    float row_h = ImGui::GetFrameHeight();
     auto* dl = ImGui::GetWindowDrawList();
-    dl->AddRectFilled(cursor, {cursor.x + 4.0f, cursor.y + header_h},
-                      action_type_color(type), 2.0f);
+    dl->AddRectFilled({row_start.x, row_start.y + 2.0F},
+                      {row_start.x + 3.0F, row_start.y + row_h - 2.0F},
+                      type_color, 1.5F);
 
-    ImGui::Indent(14.0f);
+    ImGui::Indent(10.0F);
 
-    bool open = ImGui::TreeNodeEx("##action", ImGuiTreeNodeFlags_DefaultOpen |
-                                               ImGuiTreeNodeFlags_AllowOverlap);
+    bool open = ImGui::TreeNodeEx("##action",
+        ImGuiTreeNodeFlags_DefaultOpen |
+        ImGuiTreeNodeFlags_AllowOverlap |
+        ImGuiTreeNodeFlags_FramePadding |
+        ImGuiTreeNodeFlags_SpanAvailWidth);
 
-    ImGui::SameLine();
-    ImGui::Text("%s", action_name.c_str());
-    ImGui::SameLine(0.0f, 8.0f);
-    ImGui::TextDisabled("[%s]", action_type_label(type));
+    ImGui::SameLine(0.0F, 4.0F);
+    ImGui::AlignTextToFramePadding();
+    bool bold_pushed = push_bold_font();
+    ImGui::TextUnformatted(action_name.c_str());
+    if (bold_pushed) ImGui::PopFont();
 
-    // Right-aligned remove button
-    float remove_w = ImGui::CalcTextSize("Remove").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-    ImGui::SameLine(avail_w - remove_w);
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.0f, 0.0f, 0.0f, 0.0f});
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.6f, 0.3f, 0.3f, 1.0f});
-    if (ImGui::SmallButton("Remove")) {
-        remove_action_name_ = action_name;
+    // Type pill
+    ImGui::SameLine(0.0F, 10.0F);
+    ImGui::AlignTextToFramePadding();
+    draw_pill(action_type_label(type), type_color);
+
+    // Right-aligned remove
+    {
+        const char* x_label = "Remove";
+        float w = ImGui::CalcTextSize(x_label).x + ImGui::GetStyle().FramePadding.x * 2.0F + 4.0F;
+        float avail = ImGui::GetContentRegionAvail().x;
+        ImGui::SameLine(0.0F, std::max(8.0F, avail - w));
+
+        ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4{0.0F, 0.0F, 0.0F, 0.0F});
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::srgb(0.45F, 0.20F, 0.20F));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  theme::srgb(0.55F, 0.24F, 0.24F));
+        ImGui::PushStyleColor(ImGuiCol_Text,          theme::srgb(0.72F, 0.42F, 0.42F));
+        if (ImGui::SmallButton(x_label)) {
+            remove_action_name_ = action_name;
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Remove action and all its bindings");
+        }
+        ImGui::PopStyleColor(4);
     }
-    ImGui::PopStyleColor(2);
 
     if (open) {
-        ImGui::Spacing();
+        ImGui::Dummy({0.0F, 4.0F});
 
-        // Binding rows
+        bool has_any = false;
         for (int i = 0; i < static_cast<int>(context_.bindings.size()); ++i) {
             if (context_.bindings[i].action != action_name) continue;
+            has_any = true;
 
             ImGui::PushID(i);
             draw_binding_row(i);
             ImGui::PopID();
-            ImGui::Spacing();
         }
 
-        // Add binding buttons
-        ImGui::Spacing();
-        ImGui::Indent(20.0f);
+        if (!has_any) {
+            ImGui::Indent(16.0F);
+            ImGui::TextDisabled("No bindings yet.");
+            ImGui::Unindent(16.0F);
+        }
+
+        // ── Add binding row ───────────────────────────────────────
+        ImGui::Dummy({0.0F, 2.0F});
+        ImGui::Indent(16.0F);
+
         if (ImGui::SmallButton("+ Binding")) {
             InputBinding b;
             b.action = action_name;
@@ -339,8 +470,8 @@ void InputMappingEditorContext::draw_action_section(const std::string& action_na
             dirty_ = true;
         }
         if (type == ActionType::axis2d) {
-            ImGui::SameLine(0.0f, 8.0f);
-            if (ImGui::SmallButton("+ Composite")) {
+            ImGui::SameLine(0.0F, 8.0F);
+            if (ImGui::SmallButton("+ Composite (WASD)")) {
                 InputBinding b;
                 b.action = action_name;
                 b.up = InputSource::key_w;
@@ -351,14 +482,15 @@ void InputMappingEditorContext::draw_action_section(const std::string& action_na
                 dirty_ = true;
             }
         }
-        ImGui::Unindent(20.0f);
+
+        ImGui::Unindent(16.0F);
+        ImGui::Dummy({0.0F, 2.0F});
 
         ImGui::TreePop();
     }
 
-    ImGui::Unindent(14.0f);
-    ImGui::Spacing();
-    ImGui::Spacing();
+    ImGui::Unindent(10.0F);
+
     ImGui::PopID();
 }
 
@@ -367,33 +499,53 @@ void InputMappingEditorContext::draw_action_section(const std::string& action_na
 void InputMappingEditorContext::draw_binding_row(int binding_idx) {
     auto& binding = context_.bindings[binding_idx];
 
-    ImGui::Indent(20.0f);
+    ImGui::Indent(16.0F);
 
+    // Bullet on the left
+    ImVec2 cursor = ImGui::GetCursorScreenPos();
+    auto* dl = ImGui::GetWindowDrawList();
+    dl->AddCircleFilled({cursor.x - 8.0F, cursor.y + ImGui::GetFrameHeight() * 0.5F},
+                        2.0F, col_text_muted());
+
+    // ── Source(s) ─────────────────────────────────────────────────
     if (binding.is_composite()) {
-        draw_source_button("Up", binding.up, binding_idx, RebindTarget::up);
-        ImGui::SameLine(0.0f, 6.0f);
-        draw_source_button("Dn", binding.down, binding_idx, RebindTarget::down);
-        ImGui::SameLine(0.0f, 6.0f);
-        draw_source_button("Lt", binding.left, binding_idx, RebindTarget::left);
-        ImGui::SameLine(0.0f, 6.0f);
-        draw_source_button("Rt", binding.right, binding_idx, RebindTarget::right);
+        draw_source_button("UP", binding.up, binding_idx, RebindTarget::up);
+        ImGui::SameLine(0.0F, 6.0F);
+        draw_source_button("LF", binding.left, binding_idx, RebindTarget::left);
+        ImGui::SameLine(0.0F, 6.0F);
+        draw_source_button("RT", binding.right, binding_idx, RebindTarget::right);
+        ImGui::SameLine(0.0F, 6.0F);
+        draw_source_button("DN", binding.down, binding_idx, RebindTarget::down);
+
+        ImGui::SameLine(0.0F, 10.0F);
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("composite");
     } else {
-        draw_source_button("Key", binding.source, binding_idx, RebindTarget::source);
+        draw_source_button("", binding.source, binding_idx, RebindTarget::source);
     }
 
-    // Modifiers
-    ImGui::SameLine(0.0f, 12.0f);
-    draw_modifier_chips(binding_idx);
-
-    // Remove binding
-    ImGui::SameLine(0.0f, 8.0f);
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4{0.5f, 0.5f, 0.5f, 1.0f});
+    // Right-aligned remove "x"
+    float avail = ImGui::GetContentRegionAvail().x;
+    float x_w = ImGui::CalcTextSize("x").x + ImGui::GetStyle().FramePadding.x * 2.0F + 4.0F;
+    ImGui::SameLine(0.0F, std::max(8.0F, avail - x_w));
+    ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4{0.0F, 0.0F, 0.0F, 0.0F});
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::srgb(0.40F, 0.20F, 0.20F));
+    ImGui::PushStyleColor(ImGuiCol_Text,          theme::srgb(0.55F, 0.55F, 0.58F));
     if (ImGui::SmallButton("x")) {
         remove_binding_idx_ = binding_idx;
     }
-    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Remove binding");
+    }
+    ImGui::PopStyleColor(3);
 
-    ImGui::Unindent(20.0f);
+    // ── Modifiers on a second indented line ───────────────────────
+    ImGui::Indent(4.0F);
+    draw_modifier_chips(binding_idx);
+    ImGui::Unindent(4.0F);
+
+    ImGui::Unindent(16.0F);
+    ImGui::Dummy({0.0F, 4.0F});
 }
 
 bool InputMappingEditorContext::draw_source_button(const char* label, InputSource source,
@@ -401,22 +553,73 @@ bool InputMappingEditorContext::draw_source_button(const char* label, InputSourc
     bool is_this_rebinding = rebinding_ && rebind_binding_idx_ == binding_idx &&
                              rebind_target_ == target;
 
-    char btn_label[128];
+    SrcKind kind = source_kind(source);
+    bool is_empty = (source == InputSource::none);
+
+    char btn_label[160];
     if (is_this_rebinding) {
-        std::snprintf(btn_label, sizeof(btn_label), "%s: ...##%s", label, label);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.7f, 0.5f, 0.15f, 1.0f});
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4{0.8f, 0.6f, 0.2f, 1.0f});
-    } else if (source == InputSource::none) {
-        std::snprintf(btn_label, sizeof(btn_label), "%s: ---##%s", label, label);
+        std::snprintf(btn_label, sizeof(btn_label),
+                      "%s%spress any key...##rebind_%s",
+                      label[0] ? label : "",
+                      label[0] ? "  " : "",
+                      label);
+    } else if (is_empty) {
+        std::snprintf(btn_label, sizeof(btn_label),
+                      "%s%s(unbound)##empty_%s",
+                      label[0] ? label : "",
+                      label[0] ? "  " : "",
+                      label);
     } else {
         auto display = input_source_display_name(source);
-        std::snprintf(btn_label, sizeof(btn_label), "%s: %s##%s", label, display.c_str(), label);
+        const char* tag = source_kind_tag(kind);
+        if (label[0]) {
+            std::snprintf(btn_label, sizeof(btn_label), "%s  %s %s##b_%s",
+                          label, tag, display.c_str(), label);
+        } else {
+            std::snprintf(btn_label, sizeof(btn_label), "%s  %s##b",
+                          tag, display.c_str());
+        }
     }
 
-    bool clicked = ImGui::SmallButton(btn_label);
-
     if (is_this_rebinding) {
-        ImGui::PopStyleColor(2);
+        ImGui::PushStyleColor(ImGuiCol_Button,        theme::accent());
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::accent_hov());
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  theme::accent_hov());
+        ImGui::PushStyleColor(ImGuiCol_Text,          ImVec4{1.0F, 1.0F, 1.0F, 1.0F});
+    } else if (is_empty) {
+        ImGui::PushStyleColor(ImGuiCol_Button,        theme::srgb(0.090F, 0.094F, 0.106F));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::srgb(0.169F, 0.176F, 0.192F));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  theme::srgb(0.067F, 0.071F, 0.078F));
+        ImGui::PushStyleColor(ImGuiCol_Text,          theme::srgb(0.55F, 0.56F, 0.60F));
+    } else {
+        // Use engine's frame bg for non-empty: stays in palette, reads as a chip.
+        ImGui::PushStyleColor(ImGuiCol_Button,        theme::srgb(0.118F, 0.122F, 0.133F));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::srgb(0.169F, 0.176F, 0.192F));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  theme::srgb(0.090F, 0.094F, 0.106F));
+        ImGui::PushStyleColor(ImGuiCol_Text,          theme::srgb(0.898F, 0.902F, 0.918F));
+    }
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2{10.0F, 5.0F});
+
+    ImVec2 btn_pos = ImGui::GetCursorScreenPos();
+    bool clicked = ImGui::Button(btn_label);
+    ImVec2 btn_size = ImGui::GetItemRectSize();
+
+    ImGui::PopStyleVar(1);
+    ImGui::PopStyleColor(4);
+
+    // Category color stripe on the left edge of the button (bound only)
+    if (!is_empty && !is_this_rebinding) {
+        auto* dl = ImGui::GetWindowDrawList();
+        dl->AddRectFilled({btn_pos.x, btn_pos.y + 2.0F},
+                          {btn_pos.x + 3.0F, btn_pos.y + btn_size.y - 2.0F},
+                          source_kind_color(kind));
+    }
+
+    if (ImGui::IsItemHovered() && !is_this_rebinding) {
+        ImGui::SetTooltip("%s — click to rebind",
+                          is_empty ? "no source bound"
+                                   : input_source_display_name(source).c_str());
     }
 
     if (clicked && !rebinding_) {
@@ -431,68 +634,109 @@ bool InputMappingEditorContext::draw_source_button(const char* label, InputSourc
 void InputMappingEditorContext::draw_modifier_chips(int binding_idx) {
     auto& binding = context_.bindings[binding_idx];
 
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("Modifiers:");
+    ImGui::SameLine(0.0F, 8.0F);
+
+    if (binding.modifiers.empty()) {
+        if (ImGui::SmallButton("+ add")) {
+            binding.modifiers.push_back({ModifierType::scale, 1.0F});
+            dirty_ = true;
+        }
+        return;
+    }
+
     for (int mi = 0; mi < static_cast<int>(binding.modifiers.size()); ++mi) {
         auto& mod = binding.modifiers[mi];
         ImGui::PushID(mi + 1000);
 
-        char chip[64];
+        char chip[80];
         if (mod.type == ModifierType::negate || mod.type == ModifierType::swizzle) {
             std::snprintf(chip, sizeof(chip), "%s", modifier_type_label(mod.type));
         } else {
-            std::snprintf(chip, sizeof(chip), "%s:%.2f", modifier_type_label(mod.type), mod.value);
+            std::snprintf(chip, sizeof(chip), "%s  %.2f", modifier_type_label(mod.type), mod.value);
         }
 
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.25f, 0.25f, 0.4f, 1.0f});
+        // Stay in palette: amber-tinted chip, dimmed.
+        ImGui::PushStyleColor(ImGuiCol_Button,        theme::srgb(0.169F, 0.176F, 0.192F));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::srgb(0.220F, 0.227F, 0.251F));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,  theme::srgb(0.090F, 0.094F, 0.106F));
+        ImGui::PushStyleColor(ImGuiCol_Text,          theme::accent());
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,  ImVec2{8.0F, 3.0F});
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0F);
+
         if (ImGui::SmallButton(chip)) {
             ImGui::OpenPopup("edit_mod");
         }
-        ImGui::PopStyleColor();
+
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(4);
+
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click to edit modifier");
+        }
 
         if (ImGui::BeginPopup("edit_mod")) {
+            ImGui::TextUnformatted("Edit Modifier");
+            ImGui::Separator();
+            ImGui::Dummy({0.0F, 4.0F});
+
             int type_idx = static_cast<int>(mod.type);
             const char* type_names[] = {"Scale", "Deadzone", "Negate", "Swizzle"};
+            ImGui::SetNextItemWidth(160.0F);
             if (ImGui::Combo("Type", &type_idx, type_names, 4)) {
                 mod.type = static_cast<ModifierType>(type_idx);
                 dirty_ = true;
             }
             if (mod.type == ModifierType::scale || mod.type == ModifierType::deadzone) {
-                if (ImGui::DragFloat("Value", &mod.value, 0.01f, 0.0f, 10.0f)) {
+                ImGui::SetNextItemWidth(160.0F);
+                if (ImGui::DragFloat("Value", &mod.value, 0.01F, 0.0F, 10.0F, "%.3f")) {
                     dirty_ = true;
                 }
             }
-            if (ImGui::Button("Remove Modifier")) {
+            ImGui::Dummy({0.0F, 4.0F});
+            ImGui::Separator();
+            ImGui::PushStyleColor(ImGuiCol_Button,        theme::srgb(0.42F, 0.20F, 0.20F));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, theme::srgb(0.55F, 0.26F, 0.26F));
+            if (ImGui::Button("Remove modifier", ImVec2{160.0F, 0.0F})) {
                 binding.modifiers.erase(binding.modifiers.begin() + mi);
                 dirty_ = true;
                 ImGui::CloseCurrentPopup();
             }
+            ImGui::PopStyleColor(2);
             ImGui::EndPopup();
         }
 
-        ImGui::SameLine(0.0f, 4.0f);
+        ImGui::SameLine(0.0F, 4.0F);
         ImGui::PopID();
     }
 
-    // Add modifier
-    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4{0.2f, 0.2f, 0.3f, 1.0f});
-    if (ImGui::SmallButton("+mod")) {
-        binding.modifiers.push_back({ModifierType::scale, 1.0f});
+    // Trailing "+" to add another modifier
+    if (ImGui::SmallButton("+")) {
+        binding.modifiers.push_back({ModifierType::scale, 1.0F});
         dirty_ = true;
     }
-    ImGui::PopStyleColor();
+    (void)col_separator;
 }
 
 // ── Add Action popup ────────────────────────────────────────────────
 
 void InputMappingEditorContext::draw_add_action_popup() {
-    if (!ImGui::BeginPopup("add_action_popup")) return;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{14.0F, 12.0F});
+    if (!ImGui::BeginPopup("add_action_popup")) {
+        ImGui::PopStyleVar();
+        return;
+    }
 
-    ImGui::Text("Add Action");
+    ImGui::TextUnformatted("Add Action to Context");
     ImGui::Separator();
+    ImGui::Dummy({0.0F, 4.0F});
 
-    ImGui::SetNextItemWidth(200.0f);
-    ImGui::InputTextWithHint("##filter", "Filter...", action_filter_, sizeof(action_filter_));
+    ImGui::SetNextItemWidth(280.0F);
+    ImGui::InputTextWithHint("##filter", "Filter actions...", action_filter_, sizeof(action_filter_));
 
-    // Collect actions already in the context
+    ImGui::Dummy({0.0F, 4.0F});
+
     std::vector<std::string> existing;
     for (const auto& b : context_.bindings) {
         if (std::find(existing.begin(), existing.end(), b.action) == existing.end()) {
@@ -500,43 +744,96 @@ void InputMappingEditorContext::draw_add_action_popup() {
         }
     }
 
-    ImGui::BeginChild("action_list", ImVec2{250.0f, 200.0f}, ImGuiChildFlags_Borders);
+    std::string filter_lower(action_filter_);
+    std::transform(filter_lower.begin(), filter_lower.end(), filter_lower.begin(), ::tolower);
 
-    for (const auto& action : discovered_actions_) {
-        // Filter
-        if (action_filter_[0] != '\0') {
-            // Case-insensitive substring match
-            std::string name_lower = action.name;
-            std::string filter_lower(action_filter_);
-            std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
-            std::transform(filter_lower.begin(), filter_lower.end(), filter_lower.begin(), ::tolower);
-            if (name_lower.find(filter_lower) == std::string::npos) continue;
+    auto passes_filter = [&](const std::string& name) {
+        if (filter_lower.empty()) return true;
+        std::string n = name;
+        std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+        return n.find(filter_lower) != std::string::npos;
+    };
+
+    ImGui::BeginChild("action_list", ImVec2{320.0F, 280.0F});
+
+    auto draw_group = [&](const char* heading, ActionType filter_type) {
+        bool any = false;
+        for (const auto& a : discovered_actions_) {
+            if (a.type != filter_type) continue;
+            if (!passes_filter(a.name)) continue;
+            any = true; break;
         }
+        if (!any) return;
 
-        // Skip already-added actions
-        bool already = std::find(existing.begin(), existing.end(), action.name) != existing.end();
-        if (already) {
-            ImGui::TextDisabled("%s [%s] (added)", action.name.c_str(),
-                                action_type_label(action.type));
-            continue;
+        ImGui::Dummy({0.0F, 2.0F});
+        ImGui::TextDisabled("%s", heading);
+        ImGui::Separator();
+        ImGui::Dummy({0.0F, 2.0F});
+
+        for (const auto& action : discovered_actions_) {
+            if (action.type != filter_type) continue;
+            if (!passes_filter(action.name)) continue;
+
+            bool already = std::find(existing.begin(), existing.end(), action.name) != existing.end();
+
+            ImGui::PushID(action.name.c_str());
+            if (already) {
+                ImGui::BeginDisabled();
+                char label[256];
+                std::snprintf(label, sizeof(label), "%s   (already added)", action.name.c_str());
+                ImGui::Selectable(label);
+                ImGui::EndDisabled();
+            } else {
+                ImVec2 row_start = ImGui::GetCursorScreenPos();
+                float row_w = ImGui::GetContentRegionAvail().x;
+                float row_h = ImGui::GetFrameHeight();
+
+                bool clicked = ImGui::Selectable("##row", false, 0, ImVec2{row_w, row_h});
+
+                auto* dl = ImGui::GetWindowDrawList();
+                dl->AddText({row_start.x + 6.0F, row_start.y + 3.0F},
+                            to_imu32(theme::srgb(0.898F, 0.902F, 0.918F)),
+                            action.name.c_str());
+
+                const char* tag = action_type_short(action.type);
+                ImVec2 ts = ImGui::CalcTextSize(tag);
+                ImVec2 pill_pad{6.0F, 1.0F};
+                ImVec2 pill_p0{row_start.x + row_w - ts.x - pill_pad.x * 2.0F - 6.0F,
+                               row_start.y + (row_h - ts.y - pill_pad.y * 2.0F) * 0.5F};
+                ImVec2 pill_p1{pill_p0.x + ts.x + pill_pad.x * 2.0F,
+                               pill_p0.y + ts.y + pill_pad.y * 2.0F};
+                dl->AddRectFilled(pill_p0, pill_p1, action_type_color(action.type), 3.0F);
+                dl->AddText({pill_p0.x + pill_pad.x, pill_p0.y + pill_pad.y},
+                            IM_COL32(20, 22, 26, 255), tag);
+
+                if (clicked) {
+                    InputBinding b;
+                    b.action = action.name;
+                    context_.bindings.push_back(std::move(b));
+                    dirty_ = true;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::PopID();
         }
+    };
 
-        char label[256];
-        std::snprintf(label, sizeof(label), "%s [%s]", action.name.c_str(),
-                      action_type_label(action.type));
+    draw_group("BUTTONS", ActionType::button);
+    draw_group("1D AXES", ActionType::axis1d);
+    draw_group("2D AXES", ActionType::axis2d);
 
-        if (ImGui::Selectable(label)) {
-            // Add an empty binding for this action
-            InputBinding b;
-            b.action = action.name;
-            context_.bindings.push_back(std::move(b));
-            dirty_ = true;
-            ImGui::CloseCurrentPopup();
-        }
+    bool any_match = false;
+    for (const auto& a : discovered_actions_) {
+        if (passes_filter(a.name)) { any_match = true; break; }
+    }
+    if (!any_match) {
+        ImGui::Dummy({0.0F, 8.0F});
+        ImGui::TextDisabled("No actions match filter.");
     }
 
     ImGui::EndChild();
     ImGui::EndPopup();
+    ImGui::PopStyleVar();
 }
 
 } // namespace fjell
