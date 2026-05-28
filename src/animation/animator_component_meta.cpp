@@ -2,6 +2,8 @@
 #include "animation/animator_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
+#include "ui/icons_lc.hpp"
+#include "ui/inspector_widgets.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "renderer/resources/skeletal_model.hpp"
 #include "animation/animation_clip.hpp"
@@ -52,13 +54,24 @@ static const bool registered = [] {
                     changed = true;
                 }
             }
-            ImGui::Text("Clips");
+            section_header("CLIPS", ICON_LC_FILM);
             int remove_idx = -1;
+            float trash_w = ImGui::GetFrameHeight();
             for (size_t i = 0; i < anim->clip_paths.size(); ++i) {
                 ImGui::PushID(static_cast<int>(i));
-                char label[32];
-                std::snprintf(label, sizeof(label), "Clip %zu", i);
-                if (asset_ref_field({.label = label, .id = "##ClipPath", .extensions = clip_exts, .ctx = &ctx}, anim->clip_paths[i])) {
+                // Index gutter on the left, asset field stretches, remove button on the right.
+                char idx_label[24];
+                std::snprintf(idx_label, sizeof(idx_label), "%zu", i);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("%s", idx_label);
+                ImGui::SameLine(0.0f, 10.0f);
+
+                // Reserve room for the trash button to the right.
+                float spacing = ImGui::GetStyle().ItemSpacing.x;
+                float field_w = ImGui::GetContentRegionAvail().x - trash_w - spacing;
+                ImGui::BeginGroup();
+                ImGui::PushItemWidth(field_w);
+                if (asset_ref_field({.label = "", .id = "##ClipPath", .extensions = clip_exts, .ctx = &ctx}, anim->clip_paths[i])) {
                     if (ctx.project_mgr && !anim->clip_paths[i].empty()) {
                         auto resolved = base_path::resolve_asset(anim->clip_paths[i], ctx.project_mgr->active());
                         auto result = AnimationClip::load(resolved);
@@ -74,8 +87,18 @@ static const bool registered = [] {
                         }
                     }
                 }
+                ImGui::PopItemWidth();
+                ImGui::EndGroup();
+
                 ImGui::SameLine();
-                if (ImGui::SmallButton("X")) remove_idx = static_cast<int>(i);
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
+                if (ImGui::Button(ICON_LC_TRASH_2 "##remove", {trash_w, trash_w})) {
+                    remove_idx = static_cast<int>(i);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Remove clip slot");
+                }
+                ImGui::PopStyleVar();
                 ImGui::PopID();
             }
             if (remove_idx >= 0) {
@@ -83,7 +106,7 @@ static const bool registered = [] {
                 if (static_cast<size_t>(remove_idx) < anim->clips.size()) anim->clips.erase(anim->clips.begin() + remove_idx);
                 changed = true;
             }
-            if (ImGui::Button("+ Add Clip", {-1, 0})) anim->clip_paths.emplace_back();
+            if (ImGui::Button(ICON_LC_PLUS "  Add Clip", {-1, 0})) anim->clip_paths.emplace_back();
             ImGui::Spacing();
             ImGui::TextDisabled("Initialized: %s", anim->initialized() ? "yes" : "no");
             ImGui::TextDisabled("Bones: %u", anim->bone_count());

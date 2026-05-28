@@ -2,6 +2,7 @@
 #include "ui/content_browser.hpp"
 #include "ui/file_browser.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/icons_lc.hpp"
 #include "core/project_manager.hpp"
 
 #include <imgui.h>
@@ -51,8 +52,11 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
 
     ImGui::PushID(config.id);
 
-    // Label
-    ImGui::Text("%s", config.label);
+    // Label (skipped when empty — caller wants single-line layout, e.g. list items)
+    const bool has_label = config.label != nullptr && config.label[0] != '\0';
+    if (has_label) {
+        ImGui::TextUnformatted(config.label);
+    }
 
     // Display field — filename only, full path on hover
     auto display = path.empty()
@@ -60,9 +64,10 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
         : std::filesystem::path(path).filename().string();
 
     float button_width = ImGui::GetFrameHeight();
-    int num_buttons = 1; // clear always
+    int num_buttons = 0;
     if (config.ctx && config.ctx->content_browser) num_buttons++;
     if (config.ctx && config.ctx->file_browser) num_buttons++;
+    if (!path.empty()) num_buttons++;
     float buttons_total = static_cast<float>(num_buttons) * (button_width + ImGui::GetStyle().ItemSpacing.x);
 
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - buttons_total);
@@ -97,10 +102,13 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
         s_browse_result_ready = false;
     }
 
-    // Use Selected button
+    // Icon buttons — tighter FramePadding so they don't dominate the row.
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
+
+    // Use Selected button (pin glyph — "use the pinned/selected asset")
     if (config.ctx && config.ctx->content_browser) {
         ImGui::SameLine();
-        if (ImGui::Button("S", {button_width, 0})) {
+        if (ImGui::Button(ICON_LC_PIN "##pick", {button_width, button_width})) {
             auto selected = config.ctx->content_browser->selected_asset_path();
             if (!selected.empty() && matches_extension(selected, config.extensions)) {
                 path = selected;
@@ -115,12 +123,12 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     // Browse button
     if (config.ctx && config.ctx->file_browser) {
         ImGui::SameLine();
-        if (ImGui::Button("...", {button_width, 0})) {
+        if (ImGui::Button(ICON_LC_FOLDER "##browse", {button_width, button_width})) {
             s_browse_pending_id = config.id;
             s_browse_result_ready = false;
             std::vector<std::string> exts(config.extensions.begin(), config.extensions.end());
             config.ctx->file_browser->open(
-                std::string("Select ") + config.label,
+                std::string("Select ") + (has_label ? config.label : "asset"),
                 FileBrowser::Mode::select_file, exts);
         }
         if (ImGui::IsItemHovered()) {
@@ -131,7 +139,7 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     // Clear button
     if (!path.empty()) {
         ImGui::SameLine();
-        if (ImGui::Button("x", {button_width, 0})) {
+        if (ImGui::Button(ICON_LC_X "##clear", {button_width, button_width})) {
             path.clear();
             changed = true;
         }
@@ -139,6 +147,8 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
             ImGui::SetTooltip("Clear");
         }
     }
+
+    ImGui::PopStyleVar();
 
     // Per-type preview
     if (config.asset_type && config.asset_type->draw_preview &&
