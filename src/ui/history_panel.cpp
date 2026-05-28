@@ -1,5 +1,7 @@
 #include "ui/history_panel.hpp"
 #include "core/command_history.hpp"
+#include "ui/icons_lc.hpp"
+#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
@@ -59,10 +61,9 @@ void HistoryPanel::init(CommandHistory* history) {
 }
 
 void HistoryPanel::draw(const char* title) {
-    if (ImGui::Begin(title)) {
+    if (auto p = Panel(ICON_LC_HISTORY, title)) {
         if (!history_ || history_->commands().empty()) {
             ImGui::TextDisabled("No history");
-            ImGui::End();
             return;
         }
 
@@ -124,7 +125,6 @@ void HistoryPanel::draw(const char* title) {
             ImGui::SetScrollHereY(1.0f);
         }
     }
-    ImGui::End();
 }
 
 } // namespace fjell

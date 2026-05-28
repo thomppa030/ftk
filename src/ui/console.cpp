@@ -1,4 +1,6 @@
 #include "ui/console.hpp"
+#include "ui/icons_lc.hpp"
+#include "ui/panel_widget.hpp"
 #include "ui/theme.hpp"
 
 #include <spdlog/pattern_formatter.h>
@@ -36,9 +38,9 @@ void ConsoleSink::clear() {
 void ConsoleSink::draw(const char* title) {
     std::lock_guard lock(mutex_);
 
-    if (ImGui::Begin(title)) {
+    if (auto p = Panel(ICON_LC_TERMINAL, title)) {
         // Toolbar
-        if (ImGui::SmallButton("Clear")) {
+        if (ImGui::SmallButton(ICON_LC_TRASH_2 "  Clear")) {
             entries_.clear();
             selected_.clear();
             last_clicked_ = -1;
@@ -158,7 +160,6 @@ void ConsoleSink::draw(const char* title) {
 
         ImGui::EndChild();
     }
-    ImGui::End();
 }
 
 } // namespace fjell
