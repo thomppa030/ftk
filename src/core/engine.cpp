@@ -22,6 +22,7 @@ extern "C" void fjell_input_clear_connections();
 #include "platform/shared_library.hpp"
 #include "physics/physics_world.hpp"
 #include "ui/console.hpp"
+#include "ui/status_bar.hpp"
 #include "ui/theme.hpp"
 #include "ui/animation_editor_context.hpp"
 #include "ui/blend_space_1d_editor_context.hpp"
@@ -787,8 +788,11 @@ void Engine::create_default_scene() {
 
 void Engine::setup_dockspace() {
     ImGuiViewport* viewport = ImGui::GetMainViewport();
+    // Reserve the bottom strip for the status bar so panels don't overlap it.
+    ImVec2 host_size = viewport->WorkSize;
+    host_size.y = std::max(0.0f, host_size.y - StatusBar::HEIGHT);
     ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowSize(host_size);
     ImGui::SetNextWindowViewport(viewport->ID);
 
     ImGuiWindowFlags host_flags =
@@ -1404,6 +1408,8 @@ void Engine::draw_ui() {
     content_browser_.draw();
 
     vulkan_context_->draw_sdf_debug_window();
+
+    draw_status_bar();
 }
 
 TickContext Engine::make_frame_context() {
@@ -1859,6 +1865,73 @@ void Engine::draw_context_tabs() {
     ImGui::PopStyleVar();    // FramePadding
 
     ImGui::End();
+}
+
+void Engine::draw_status_bar() {
+    if (!StatusBar::begin()) {
+        StatusBar::end();
+        return;
+    }
+
+    // ── Left side: project / scene / mode ─────────────────────────────
+    const auto* project = project_mgr_.active();
+    if (project != nullptr) {
+        StatusBar::item(ICON_LC_PACKAGE, project->config().name);
+        StatusBar::separator();
+    }
+
+    if (!current_scene_path_.empty()) {
+        std::string scene_name = std::filesystem::path(current_scene_path_).stem().string();
+        StatusBar::item(ICON_LC_FILE, scene_name);
+        StatusBar::separator();
+    }
+
+    const bool playing = active_context().is_playing();
+    StatusBar::item(playing ? ICON_LC_PLAY : ICON_LC_PENCIL,
+                    playing ? "Playing" : "Editing");
+
+    // Selected entity (scene context only — other contexts have no scene selection)
+    if (scene_context_ != nullptr && &active_context() == scene_context_) {
+        uint32_t sel = scene_context_->selected_id();
+        if (sel != 0) {
+            if (const auto* node = scene_.find(sel)) {
+                StatusBar::separator();
+                StatusBar::item(ICON_LC_BOX, node->name);
+            }
+        }
+    }
+
+    // ── Right side: frame time + FPS + GPU ────────────────────────────
+    // Reserve enough width for "999.99 ms  ·  9999 FPS  ·  <gpu name>"
+    // and push following items to the right edge.
+    float dt_ms = clock_.delta_time() * 1000.0f;
+    float fps = dt_ms > 0.0f ? 1000.0f / dt_ms : 0.0f;
+
+    char frame_buf[64];
+    std::snprintf(frame_buf, sizeof(frame_buf), "%.2f ms", static_cast<double>(dt_ms));
+    char fps_buf[32];
+    std::snprintf(fps_buf, sizeof(fps_buf), "%.0f FPS", static_cast<double>(fps));
+
+    const std::string& gpu = vulkan_context_ ? vulkan_context_->gpu_name() : std::string{};
+
+    // Rough width estimate; ImGui doesn't expose a "reserve from right" so
+    // we measure all three items and the separators between them.
+    float spacing = 16.0f + 16.0f; // two separators (8px each side)
+    float reserve = ImGui::CalcTextSize(frame_buf).x
+                  + ImGui::CalcTextSize(fps_buf).x
+                  + ImGui::CalcTextSize(gpu.c_str()).x
+                  + spacing + 60.0f; // padding + icons
+    StatusBar::right_align(reserve);
+
+    StatusBar::item(ICON_LC_GAUGE, frame_buf);
+    StatusBar::separator();
+    StatusBar::item(nullptr, fps_buf);
+    if (!gpu.empty()) {
+        StatusBar::separator();
+        StatusBar::item(ICON_LC_MONITOR, gpu);
+    }
+
+    StatusBar::end();
 }
 
 } // namespace fjell

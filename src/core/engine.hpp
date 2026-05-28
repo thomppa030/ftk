@@ -87,6 +87,7 @@ private:
     void setup_dockspace();
     void draw_console();
     void draw_context_tabs();
+    void draw_status_bar();
     void bind_menu_bar();
 
     void load_scene(const std::string& path);
