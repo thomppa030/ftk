@@ -4,6 +4,8 @@
 #include "core/project.hpp"
 #include "renderer/render_settings.hpp"
 #include "renderer/vulkan_context.hpp"
+#include "ui/icons_lc.hpp"
+#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
@@ -17,7 +19,7 @@ void ProjectSettingsPanel::init(VulkanContext* vk, ProjectManager* projects) {
 void ProjectSettingsPanel::draw(const char* title) {
     if (!visible_) { return; }
     ImGui::SetNextWindowSize(ImVec2(340, 480), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin(title, &visible_)) {
+    if (auto p = Panel(ICON_LC_SETTINGS, title, &visible_)) {
         if (projects_ == nullptr || projects_->active() == nullptr) {
             ImGui::TextDisabled("No project open.");
             ImGui::TextWrapped("Open or create a project via the Project menu to edit settings.");
@@ -28,7 +30,6 @@ void ProjectSettingsPanel::draw(const char* title) {
             draw_render_section();
         }
     }
-    ImGui::End();
 }
 
 // Any edit in this section writes to the project's RenderSettings AND

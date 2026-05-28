@@ -5,6 +5,8 @@
 #include "scene/camera_node.hpp"
 #include "scene/light_node.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/icons_lc.hpp"
+#include "ui/panel_widget.hpp"
 #include "ui/viewport_manager.hpp"
 #include "renderer/camera.hpp"
 #include "renderer/components/mesh_component.hpp"
@@ -201,7 +203,7 @@ void HierarchyPanel::init(Scene* scene, ViewportManager* viewports,
 }
 
 void HierarchyPanel::draw() {
-    if (ImGui::Begin("Hierarchy")) {
+    if (auto p = Panel(ICON_LC_LIST_TREE, "Hierarchy")) {
         remove_pending_id_ = 0;
 
         // Sync selection with external changes to selected_id_
@@ -219,19 +221,15 @@ void HierarchyPanel::draw() {
         draw_order_.clear();
 
         // ── Toolbar row ──────────────────────────────────────────────
-        if (auto* ic = IconCache::instance()) ic->draw_panel_icon("hierarchy");
-        ImGui::SameLine();
         float h = ImGui::GetFrameHeight();
-        float scale = 1.3f;
-        ImGui::SetWindowFontScale(scale);
-        ImVec2 text_size = ImGui::CalcTextSize("+");
-        ImVec2 pad = {(h - text_size.x) * 0.5f, (h / scale - text_size.y) * 0.5f};
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, pad);
-        if (ImGui::Button("+")) {
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
+        if (ImGui::Button(ICON_LC_PLUS "##add", {h, h})) {
             ImGui::OpenPopup("##HierarchyAdd");
         }
         ImGui::PopStyleVar();
-        ImGui::SetWindowFontScale(1.0f);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Add object");
+        }
         ImGui::SameLine();
 
         // Type filter combo (fixed width, right-aligned)
@@ -317,7 +315,6 @@ void HierarchyPanel::draw() {
             selection_.erase(remove_pending_id_);
         }
     }
-    ImGui::End();
 }
 
 void HierarchyPanel::draw_node(Node& obj) {

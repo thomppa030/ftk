@@ -23,6 +23,7 @@
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "ui/material_params_widget.hpp"
+#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -67,7 +68,7 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
 }
 
 void PropertiesPanel::draw() {
-    if (ImGui::Begin("Properties")) {
+    if (auto p = Panel(ICON_LC_SLIDERS_HORIZONTAL, "Properties")) {
         auto* base = scene_->find(*selected_id_);
         auto* obj = base ? base->as_spatial() : nullptr;
         if (base) {
@@ -489,7 +490,6 @@ void PropertiesPanel::draw() {
         }
 
     }
-    ImGui::End();
 }
 
 void PropertiesPanel::draw_material_inspector_for(Material* mat) {

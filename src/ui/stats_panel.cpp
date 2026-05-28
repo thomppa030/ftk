@@ -4,6 +4,8 @@
 #include "renderer/render_stats.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/icons_lc.hpp"
+#include "ui/panel_widget.hpp"
 
 #include <imgui.h>
 
@@ -61,15 +63,12 @@ void StatsPanel::draw(float dt, const char* title) {
     frame_time_history_[frame_time_index_] = dt * 1000.0F;
     frame_time_index_ = (frame_time_index_ + 1) % FRAME_TIME_HISTORY_SIZE;
 
-    if (ImGui::Begin(title)) {
-        if (auto* ic = IconCache::instance()) { ic->draw_panel_icon("stats"); }
-
+    if (auto p = Panel(ICON_LC_GAUGE, title)) {
         draw_header();
         draw_rendering_section();
         draw_frame_graph_section();
         draw_shader_errors_section();
     }
-    ImGui::End();
 }
 
 void StatsPanel::draw_header() {

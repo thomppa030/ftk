@@ -1,6 +1,8 @@
 #include "ui/content_browser.hpp"
 #include "ui/asset_templates.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/icons_lc.hpp"
+#include "ui/panel_widget.hpp"
 #include "core/thread_pool.hpp"
 #include "core/log.hpp"
 #include "platform/platform.hpp"
@@ -189,31 +191,28 @@ void ContentBrowser::draw() {
         ImGuiWindowFlags_NoDocking |
         ImGuiWindowFlags_NoCollapse;
 
-    if (ImGui::Begin("Content Browser", &visible_, flags)) {
+    if (auto p = Panel(ICON_LC_FOLDER_OPEN, "Content Browser", &visible_, flags)) {
         if (root_.empty()) {
             ImGui::TextDisabled("No project open");
-            ImGui::End();
-            return;
+        } else {
+            // Breadcrumb navigation
+            draw_breadcrumb();
+
+            ImGui::Separator();
+
+            // Dual pane: directory tree left, file grid right
+            float tree_width = 200.0f;
+            ImGui::BeginChild("##DirTree", {tree_width, 0}, ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
+            draw_directory_tree();
+            ImGui::EndChild();
+
+            ImGui::SameLine();
+
+            ImGui::BeginChild("##FileGrid", {0, 0});
+            draw_file_grid();
+            ImGui::EndChild();
         }
-
-        // Breadcrumb navigation
-        draw_breadcrumb();
-
-        ImGui::Separator();
-
-        // Dual pane: directory tree left, file grid right
-        float tree_width = 200.0f;
-        ImGui::BeginChild("##DirTree", {tree_width, 0}, ImGuiChildFlags_Borders | ImGuiChildFlags_ResizeX);
-        draw_directory_tree();
-        ImGui::EndChild();
-
-        ImGui::SameLine();
-
-        ImGui::BeginChild("##FileGrid", {0, 0});
-        draw_file_grid();
-        ImGui::EndChild();
     }
-    ImGui::End();
 
     // Texture preview popup
     if (show_texture_preview_ && !preview_texture_path_.empty()) {
@@ -223,7 +222,7 @@ void ContentBrowser::draw() {
         }
 
         ImGui::SetNextWindowSize({400, 440}, ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Texture Preview", &show_texture_preview_)) {
+        if (auto pv = Panel(ICON_LC_IMAGE, "Texture Preview", &show_texture_preview_)) {
             auto filename = std::filesystem::path(preview_texture_path_).filename().string();
             ImGui::Text("%s", filename.c_str());
             if (preview_width_ > 0) {
@@ -246,7 +245,6 @@ void ContentBrowser::draw() {
                 ImGui::TextDisabled("Failed to load texture");
             }
         }
-        ImGui::End();
     }
     if (!show_texture_preview_ && preview_descriptor_) {
         preview_pending_release_ = true;
