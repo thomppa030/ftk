@@ -19,6 +19,7 @@
 #include "renderer/pass/grid_pass.hpp"
 #include "scripting/script_manager.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/icons_lc.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "ui/inspector_widgets.hpp"
 #include "ui/material_params_widget.hpp"
@@ -67,7 +68,6 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
 
 void PropertiesPanel::draw() {
     if (ImGui::Begin("Properties")) {
-        if (auto* ic = IconCache::instance()) ic->draw_panel_icon("component");
         auto* base = scene_->find(*selected_id_);
         auto* obj = base ? base->as_spatial() : nullptr;
         if (base) {
@@ -77,11 +77,13 @@ void PropertiesPanel::draw() {
             std::strncpy(name_buf, base->name.c_str(), sizeof(name_buf) - 1);
             name_buf[sizeof(name_buf) - 1] = '\0';
             std::string old_name = base->name;
-            ImGui::Text("Name");
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::InputText("##Name", name_buf, sizeof(name_buf))) {
-                base->name = name_buf;
-                scene_->mark_dirty();
+            if (auto t = PropertyTable("##name")) {
+                prop_row("Name", [&] {
+                    if (ImGui::InputText("##Name", name_buf, sizeof(name_buf))) {
+                        base->name = name_buf;
+                        scene_->mark_dirty();
+                    }
+                });
             }
             if (ImGui::IsItemDeactivatedAfterEdit() && history_ && base->name != old_name) {
                 history_->execute(std::make_unique<RenameCommand>(
@@ -89,12 +91,57 @@ void PropertiesPanel::draw() {
             }
 
             if (obj) {
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Transform");
-            ImGui::Text("Position");
+            section_header("TRANSFORM", ICON_LC_MOVE_3D);
+            float drag_speed = (grid_settings_ && grid_settings_->snap_enabled)
+                ? grid_settings_->cell_size : 0.1f;
+            if (auto t = PropertyTable("##xform")) {
+                prop_row("Position", [&] {
+                    if (ImGui::DragFloat3("##Position", &obj->transform.position.x, drag_speed)) {
+                        if (grid_settings_ && grid_settings_->snap_enabled) {
+                            obj->transform.position = snap_to_grid(obj->transform.position, grid_settings_->cell_size);
+                        }
+                        scene_->mark_dirty();
+                    }
+                    if (ImGui::IsItemActivated()) {
+                        drag_start_transform_ = obj->transform;
+                        drag_start_name_ = obj->name;
+                    }
+                    if (ImGui::IsItemDeactivatedAfterEdit() && history_) {
+                        history_->execute(std::make_unique<TransformCommand>(
+                            *scene_, obj->id, drag_start_transform_, obj->transform, obj->name));
+                    }
+                });
+                prop_row("Rotation", [&] {
+                    glm::vec3 euler = obj->transform.euler_degrees();
+                    if (ImGui::DragFloat3("##Rotation", &euler.x, 1.0f)) {
+                        obj->transform.set_euler_degrees(euler);
+                        scene_->mark_dirty();
+                    }
+                    if (ImGui::IsItemActivated()) {
+                        drag_start_transform_ = obj->transform;
+                        drag_start_name_ = obj->name;
+                    }
+                    if (ImGui::IsItemDeactivatedAfterEdit() && history_) {
+                        history_->execute(std::make_unique<TransformCommand>(
+                            *scene_, obj->id, drag_start_transform_, obj->transform, obj->name));
+                    }
+                });
+                prop_row("Scale", [&] {
+                    if (ImGui::DragFloat3("##Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f)) {
+                        scene_->mark_dirty();
+                    }
+                    if (ImGui::IsItemActivated()) {
+                        drag_start_transform_ = obj->transform;
+                        drag_start_name_ = obj->name;
+                    }
+                    if (ImGui::IsItemDeactivatedAfterEdit() && history_) {
+                        history_->execute(std::make_unique<TransformCommand>(
+                            *scene_, obj->id, drag_start_transform_, obj->transform, obj->name));
+                    }
+                });
+            }
             if (grid_settings_ && grid_settings_->snap_enabled) {
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Snap")) {
+                if (ImGui::SmallButton(ICON_LC_MAGNET " Snap to grid")) {
                     Transform before = obj->transform;
                     obj->transform.position = snap_to_grid(obj->transform.position, grid_settings_->cell_size);
                     scene_->mark_dirty();
@@ -104,68 +151,19 @@ void PropertiesPanel::draw() {
                     }
                 }
             }
-            float drag_speed = (grid_settings_ && grid_settings_->snap_enabled)
-                ? grid_settings_->cell_size : 0.1f;
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##Position", &obj->transform.position.x, drag_speed)) {
-                if (grid_settings_ && grid_settings_->snap_enabled) {
-                    obj->transform.position = snap_to_grid(obj->transform.position, grid_settings_->cell_size);
-                }
-                scene_->mark_dirty();
-            }
-            if (ImGui::IsItemActivated()) {
-                drag_start_transform_ = obj->transform;
-                drag_start_name_ = obj->name;
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit() && history_) {
-                history_->execute(std::make_unique<TransformCommand>(
-                    *scene_, obj->id, drag_start_transform_, obj->transform, obj->name));
-            }
-            ImGui::Text("Rotation");
-            ImGui::SetNextItemWidth(-1);
-            {
-                glm::vec3 euler = obj->transform.euler_degrees();
-                if (ImGui::DragFloat3("##Rotation", &euler.x, 1.0f)) {
-                    obj->transform.set_euler_degrees(euler);
-                    scene_->mark_dirty();
-                }
-                if (ImGui::IsItemActivated()) {
-                    drag_start_transform_ = obj->transform;
-                    drag_start_name_ = obj->name;
-                }
-                if (ImGui::IsItemDeactivatedAfterEdit() && history_) {
-                    history_->execute(std::make_unique<TransformCommand>(
-                        *scene_, obj->id, drag_start_transform_, obj->transform, obj->name));
-                }
-            }
-            ImGui::Text("Scale");
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::DragFloat3("##Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f)) scene_->mark_dirty();
-            if (ImGui::IsItemActivated()) {
-                drag_start_transform_ = obj->transform;
-                drag_start_name_ = obj->name;
-            }
-            if (ImGui::IsItemDeactivatedAfterEdit() && history_) {
-                history_->execute(std::make_unique<TransformCommand>(
-                    *scene_, obj->id, drag_start_transform_, obj->transform, obj->name));
-            }
 
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Gizmo");
-            ImGui::RadioButton("Move (W)", gizmo_op_, 0); ImGui::SameLine();
-            ImGui::RadioButton("Rot (E)", gizmo_op_, 1); ImGui::SameLine();
-            ImGui::RadioButton("Scl (R)", gizmo_op_, 2);
+            section_header("GIZMO", ICON_LC_MOVE);
+            ImGui::RadioButton(ICON_LC_MOVE "  Move (W)", gizmo_op_, 0); ImGui::SameLine();
+            ImGui::RadioButton(ICON_LC_ROTATE_3D "  Rot (E)", gizmo_op_, 1); ImGui::SameLine();
+            ImGui::RadioButton(ICON_LC_SCALE_3D "  Scl (R)", gizmo_op_, 2);
 
-            ImGui::Spacing();
             if (!obj->source.empty()) {
-                ImGui::TextDisabled("Source: %s", obj->source.c_str());
+                ImGui::Spacing();
+                ImGui::TextDisabled(ICON_LC_LINK "  Source: %s", obj->source.c_str());
             }
 
             // ── Components ────────────────────────────────────────────
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Components");
+            section_header("COMPONENTS", ICON_LC_PACKAGE);
 
             const InspectorContext ictx{
                 scene_, history_, resource_manager_, pipeline_cache_, bindless_, project_mgr_,
@@ -204,244 +202,255 @@ void PropertiesPanel::draw() {
 
             // Camera properties
             if (auto* cam = dynamic_cast<CameraNode*>(obj)) {
-                colored_separator({0.31f, 0.79f, 0.63f, 1.0f});
-                if (ImGui::CollapsingHeader("Camera", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    int proj_mode = static_cast<int>(cam->projection);
-                    const char* proj_modes[] = {"Perspective", "Orthographic"};
-                    ImGui::Text("Projection");
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::Combo("##CamProjection", &proj_mode, proj_modes, 2)) {
-                        cam->projection = static_cast<CameraProjection>(proj_mode);
-                        scene_->mark_dirty();
-                    }
+                section_header("CAMERA", ICON_LC_CAMERA);
+                if (auto t = PropertyTable("##cam")) {
+                    prop_row("Projection", [&] {
+                        int proj_mode = static_cast<int>(cam->projection);
+                        const char* proj_modes[] = {"Perspective", "Orthographic"};
+                        if (ImGui::Combo("##CamProjection", &proj_mode, proj_modes, 2)) {
+                            cam->projection = static_cast<CameraProjection>(proj_mode);
+                            scene_->mark_dirty();
+                        }
+                    });
                     if (cam->projection == CameraProjection::perspective) {
-                        ImGui::Text("FOV");
-                        ImGui::SetNextItemWidth(-1);
-                        if (ImGui::DragFloat("##CamFOV", &cam->fov, 0.5f, 1.0f, 179.0f))
-                            scene_->mark_dirty();
+                        prop_row("FOV", [&] {
+                            if (ImGui::DragFloat("##CamFOV", &cam->fov, 0.5f, 1.0f, 179.0f)) {
+                                scene_->mark_dirty();
+                            }
+                        });
                     } else {
-                        ImGui::Text("Ortho Size");
-                        ImGui::SetNextItemWidth(-1);
-                        if (ImGui::DragFloat("##CamOrthoSize", &cam->ortho_size, 0.1f, 0.1f, 1000.0f))
-                            scene_->mark_dirty();
+                        prop_row("Ortho Size", [&] {
+                            if (ImGui::DragFloat("##CamOrthoSize", &cam->ortho_size, 0.1f, 0.1f, 1000.0f)) {
+                                scene_->mark_dirty();
+                            }
+                        });
                     }
-                    ImGui::Text("Near Plane");
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##CamNear", &cam->near_plane, 0.01f, 0.001f, 100.0f))
-                        scene_->mark_dirty();
-                    ImGui::Text("Far Plane");
-                    ImGui::SetNextItemWidth(-1);
-                    if (ImGui::DragFloat("##CamFar", &cam->far_plane, 10.0f, 1.0f, 100000.0f))
-                        scene_->mark_dirty();
+                    prop_row("Near", [&] {
+                        if (ImGui::DragFloat("##CamNear", &cam->near_plane, 0.01f, 0.001f, 100.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
+                    prop_row("Far", [&] {
+                        if (ImGui::DragFloat("##CamFar", &cam->far_plane, 10.0f, 1.0f, 100000.0f)) {
+                            scene_->mark_dirty();
+                        }
+                    });
                 }
             }
 
             // Light properties
             if (auto* dl = dynamic_cast<DirectionalLightNode*>(obj)) {
-                colored_separator({0.96f, 0.78f, 0.26f, 1.0f});
-                if (ImGui::CollapsingHeader("Directional Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    ImGui::Text("Direction");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat3("##LightDir", &dl->direction.x, 0.01f, -1.0f, 1.0f);
-                    ImGui::Text("Color");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::ColorEdit3("##LightColor", &dl->color.x);
-                    ImGui::Text("Intensity");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##LightIntensity", &dl->intensity, 0.05f, 0.0f, 10.0f);
-                    ImGui::Spacing();
-                    ImGui::Text("Ambient");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::ColorEdit3("##AmbientColor", &dl->ambient_color.x);
-                    ImGui::Text("Ambient Intensity");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##AmbientIntensity", &dl->ambient_intensity, 0.05f, 0.0f, 2.0f);
+                section_header("DIRECTIONAL LIGHT", ICON_LC_SUN);
+                if (auto t = PropertyTable("##dirlight")) {
+                    prop_row("Direction", [&] {
+                        ImGui::DragFloat3("##LightDir", &dl->direction.x, 0.01f, -1.0f, 1.0f);
+                    });
+                    prop_row("Color", [&] {
+                        ImGui::ColorEdit3("##LightColor", &dl->color.x);
+                    });
+                    prop_row("Intensity", [&] {
+                        ImGui::DragFloat("##LightIntensity", &dl->intensity, 0.05f, 0.0f, 10.0f);
+                    });
+                    prop_row("Ambient", [&] {
+                        ImGui::ColorEdit3("##AmbientColor", &dl->ambient_color.x);
+                    });
+                    prop_row("Ambient Int.", [&] {
+                        ImGui::DragFloat("##AmbientIntensity", &dl->ambient_intensity, 0.05f, 0.0f, 2.0f);
+                    });
                 }
             }
             if (auto* pl = dynamic_cast<PointLightNode*>(obj)) {
-                colored_separator({0.96f, 0.78f, 0.26f, 1.0f});
-                if (ImGui::CollapsingHeader("Point Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    ImGui::Text("Color");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::ColorEdit3("##PLColor", &pl->color.x);
-                    ImGui::Text("Intensity");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##PLIntensity", &pl->intensity, 0.1f, 0.0f, 100.0f);
-                    ImGui::Text("Radius");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##PLRadius", &pl->radius, 0.5f, 0.1f, 500.0f);
-                    ImGui::Text("Volumetric Scatter");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##PLVolScatter", &pl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f);
-                    ImGui::Checkbox("Cast Shadows##PL", &pl->cast_shadows);
-                    if (pl->cast_shadows) {
-                        ImGui::Text("Shadow Bias");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat("##PLShadowBias", &pl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f");
+                section_header("POINT LIGHT", ICON_LC_LIGHTBULB);
+                if (auto t = PropertyTable("##ptlight")) {
+                    prop_row("Color", [&] {
+                        ImGui::ColorEdit3("##PLColor", &pl->color.x);
+                    });
+                    prop_row("Intensity", [&] {
+                        ImGui::DragFloat("##PLIntensity", &pl->intensity, 0.1f, 0.0f, 100.0f);
+                    });
+                    prop_row("Radius", [&] {
+                        ImGui::DragFloat("##PLRadius", &pl->radius, 0.5f, 0.1f, 500.0f);
+                    });
+                    prop_row("Vol. Scatter", [&] {
+                        ImGui::DragFloat("##PLVolScatter", &pl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f);
+                    });
+                }
+                ImGui::Checkbox("Cast Shadows##PL", &pl->cast_shadows);
+                if (pl->cast_shadows) {
+                    if (auto t = PropertyTable("##ptlight_shadow")) {
+                        prop_row("Shadow Bias", [&] {
+                            ImGui::DragFloat("##PLShadowBias", &pl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f");
+                        });
                     }
                 }
             }
             if (auto* sl = dynamic_cast<SpotLightNode*>(obj)) {
-                colored_separator({0.96f, 0.78f, 0.26f, 1.0f});
-                if (ImGui::CollapsingHeader("Spot Light", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    ImGui::Text("Direction");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat3("##SLDir", &sl->direction.x, 0.01f, -1.0f, 1.0f);
-                    ImGui::Text("Color");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::ColorEdit3("##SLColor", &sl->color.x);
-                    ImGui::Text("Intensity");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##SLIntensity", &sl->intensity, 0.1f, 0.0f, 100.0f);
-                    ImGui::Text("Radius");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##SLRadius", &sl->radius, 0.5f, 0.1f, 500.0f);
-                    ImGui::Text("Inner Angle");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##SLInner", &sl->inner_angle, 0.5f, 0.0f, 90.0f);
-                    ImGui::Text("Outer Angle");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##SLOuter", &sl->outer_angle, 0.5f, 0.0f, 90.0f);
-                    ImGui::Text("Volumetric Scatter");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::DragFloat("##SLVolScatter", &sl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f);
-                    ImGui::Checkbox("Cast Shadows##SL", &sl->cast_shadows);
-                    if (sl->cast_shadows) {
-                        ImGui::Text("Shadow Bias");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::DragFloat("##SLShadowBias", &sl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f");
+                section_header("SPOT LIGHT", ICON_LC_FLASHLIGHT);
+                if (auto t = PropertyTable("##spot")) {
+                    prop_row("Direction", [&] {
+                        ImGui::DragFloat3("##SLDir", &sl->direction.x, 0.01f, -1.0f, 1.0f);
+                    });
+                    prop_row("Color", [&] {
+                        ImGui::ColorEdit3("##SLColor", &sl->color.x);
+                    });
+                    prop_row("Intensity", [&] {
+                        ImGui::DragFloat("##SLIntensity", &sl->intensity, 0.1f, 0.0f, 100.0f);
+                    });
+                    prop_row("Radius", [&] {
+                        ImGui::DragFloat("##SLRadius", &sl->radius, 0.5f, 0.1f, 500.0f);
+                    });
+                    prop_row("Inner Angle", [&] {
+                        ImGui::DragFloat("##SLInner", &sl->inner_angle, 0.5f, 0.0f, 90.0f);
+                    });
+                    prop_row("Outer Angle", [&] {
+                        ImGui::DragFloat("##SLOuter", &sl->outer_angle, 0.5f, 0.0f, 90.0f);
+                    });
+                    prop_row("Vol. Scatter", [&] {
+                        ImGui::DragFloat("##SLVolScatter", &sl->vol_scatter_intensity, 0.05f, 0.0f, 10.0f);
+                    });
+                }
+                ImGui::Checkbox("Cast Shadows##SL", &sl->cast_shadows);
+                if (sl->cast_shadows) {
+                    if (auto t = PropertyTable("##spot_shadow")) {
+                        prop_row("Shadow Bias", [&] {
+                            ImGui::DragFloat("##SLShadowBias", &sl->shadow_bias, 0.0005f, 0.0f, 0.05f, "%.4f");
+                        });
                     }
                 }
             }
 
             if (auto* vf = dynamic_cast<VolumetricFogNode*>(obj)) {
-                colored_separator({0.55f, 0.70f, 0.85f, 1.0f});
-                if (ImGui::CollapsingHeader("Volumetric Fog", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    ImGui::Text("Density");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##FogDensity", &vf->density, 0.001f, 0.2f, "%.4f");
-                    ImGui::Text("Height Falloff");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##FogFalloff", &vf->height_falloff, 0.01f, 5.0f);
-                    ImGui::Text("Scattering");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##FogScatter", &vf->scattering, 0.0f, 1.0f);
-                    ImGui::Text("Anisotropy (Godrays)");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##FogAniso", &vf->anisotropy, -0.99f, 0.99f);
-                    ImGui::Text("Max Distance");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##FogDist", &vf->max_distance, 10.0f, 1000.0f);
-                    ImGui::Text("Temporal Blend");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##FogTemporal", &vf->temporal_blend, 0.0f, 0.99f);
-                    ImGui::Text("Fog Color");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::ColorEdit3("##FogColor", &vf->fog_color.r);
-
-                    ImGui::Spacing();
-                    ImGui::Checkbox("Sun Shafts##FogShafts", &vf->shafts_enabled);
-                    if (vf->shafts_enabled) {
-                        ImGui::Text("Shaft Intensity");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ShaftIntensity", &vf->shaft_intensity, 0.0f, 10.0f);
-                        ImGui::Text("Shaft Density Mult");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ShaftDensity", &vf->shaft_density_mult, 0.0f, 5.0f);
-                        ImGui::Text("Shaft Max Reach");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ShaftReach", &vf->shaft_max_reach, 10.0f, 1000.0f);
-                        ImGui::Text("Shaft Steps");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderInt("##ShaftSteps", &vf->shaft_step_count, 8, 128);
-                        ImGui::Text("Shaft Anisotropy");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ShaftAniso", &vf->shaft_anisotropy, 0.0f, 0.9f);
-                        ImGui::Text("Shaft Halo Inner (full within cos)");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ShaftHaloInner", &vf->shaft_halo_inner, 0.0f, 1.0f);
-                        ImGui::Text("Shaft Halo Outer (fade to zero at cos)");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ShaftHaloOuter", &vf->shaft_halo_outer, -1.0f, 1.0f);
+                section_header("VOLUMETRIC FOG", ICON_LC_CLOUD);
+                if (auto t = PropertyTable("##fog")) {
+                    prop_row("Density", [&] {
+                        ImGui::SliderFloat("##FogDensity", &vf->density, 0.001f, 0.2f, "%.4f");
+                    });
+                    prop_row("Height Falloff", [&] {
+                        ImGui::SliderFloat("##FogFalloff", &vf->height_falloff, 0.01f, 5.0f);
+                    });
+                    prop_row("Scattering", [&] {
+                        ImGui::SliderFloat("##FogScatter", &vf->scattering, 0.0f, 1.0f);
+                    });
+                    prop_row("Anisotropy", [&] {
+                        ImGui::SliderFloat("##FogAniso", &vf->anisotropy, -0.99f, 0.99f);
+                    });
+                    prop_row("Max Distance", [&] {
+                        ImGui::SliderFloat("##FogDist", &vf->max_distance, 10.0f, 1000.0f);
+                    });
+                    prop_row("Temporal", [&] {
+                        ImGui::SliderFloat("##FogTemporal", &vf->temporal_blend, 0.0f, 0.99f);
+                    });
+                    prop_row("Color", [&] {
+                        ImGui::ColorEdit3("##FogColor", &vf->fog_color.r);
+                    });
+                }
+                ImGui::Checkbox("Sun Shafts##FogShafts", &vf->shafts_enabled);
+                if (vf->shafts_enabled) {
+                    if (auto t = PropertyTable("##fog_shafts")) {
+                        prop_row("Intensity", [&] {
+                            ImGui::SliderFloat("##ShaftIntensity", &vf->shaft_intensity, 0.0f, 10.0f);
+                        });
+                        prop_row("Density Mult", [&] {
+                            ImGui::SliderFloat("##ShaftDensity", &vf->shaft_density_mult, 0.0f, 5.0f);
+                        });
+                        prop_row("Max Reach", [&] {
+                            ImGui::SliderFloat("##ShaftReach", &vf->shaft_max_reach, 10.0f, 1000.0f);
+                        });
+                        prop_row("Steps", [&] {
+                            ImGui::SliderInt("##ShaftSteps", &vf->shaft_step_count, 8, 128);
+                        });
+                        prop_row("Anisotropy", [&] {
+                            ImGui::SliderFloat("##ShaftAniso", &vf->shaft_anisotropy, 0.0f, 0.9f);
+                        });
+                        prop_row("Halo Inner", [&] {
+                            ImGui::SliderFloat("##ShaftHaloInner", &vf->shaft_halo_inner, 0.0f, 1.0f);
+                        });
+                        prop_row("Halo Outer", [&] {
+                            ImGui::SliderFloat("##ShaftHaloOuter", &vf->shaft_halo_outer, -1.0f, 1.0f);
+                        });
                     }
                 }
             }
 
             if (auto* env = dynamic_cast<WorldEnvironmentNode*>(obj)) {
-                colored_separator({0.4f, 0.6f, 0.9f, 1.0f});
-                if (ImGui::CollapsingHeader("World Environment", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    static const std::string hdri_exts[] = {".hdr", ".exr"};
-                    asset_ref_field({.label = "HDRI",
-                                     .id = "##EnvHDRI",
-                                     .extensions = hdri_exts,
-                                     .ctx = &ictx},
-                                    env->hdri_path);
+                section_header("WORLD ENVIRONMENT", ICON_LC_GLOBE);
+                static const std::string hdri_exts[] = {".hdr", ".exr"};
+                asset_ref_field({.label = "HDRI",
+                                 .id = "##EnvHDRI",
+                                 .extensions = hdri_exts,
+                                 .ctx = &ictx},
+                                env->hdri_path);
 
-                    static const std::string sky_shader_exts[] = {".fjsl"};
-                    asset_ref_field({.label = "Sky Shader",
-                                     .id = "##EnvSkyShader",
-                                     .extensions = sky_shader_exts,
-                                     .ctx = &ictx},
-                                    env->sky_shader);
+                static const std::string sky_shader_exts[] = {".fjsl"};
+                asset_ref_field({.label = "Sky Shader",
+                                 .id = "##EnvSkyShader",
+                                 .extensions = sky_shader_exts,
+                                 .ctx = &ictx},
+                                env->sky_shader);
 
-                    const bool gradient_mode = env->hdri_path.empty();
-                    ImGui::BeginDisabled(!gradient_mode);
-                    ImGui::Text("Sky Top Color");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::ColorEdit3("##SkyTop", &env->sky_top_color.x);
-                    ImGui::Text("Sky Bottom Color");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::ColorEdit3("##SkyBottom", &env->sky_bottom_color.x);
-                    ImGui::EndDisabled();
-                    if (!gradient_mode) {
-                        ImGui::TextDisabled("(gradient overridden by HDRI)");
+                const bool gradient_mode = env->hdri_path.empty();
+                ImGui::BeginDisabled(!gradient_mode);
+                if (auto t = PropertyTable("##env_sky")) {
+                    prop_row("Sky Top", [&] {
+                        ImGui::ColorEdit3("##SkyTop", &env->sky_top_color.x);
+                    });
+                    prop_row("Sky Bottom", [&] {
+                        ImGui::ColorEdit3("##SkyBottom", &env->sky_bottom_color.x);
+                    });
+                }
+                ImGui::EndDisabled();
+                if (!gradient_mode) {
+                    ImGui::TextDisabled("(gradient overridden by HDRI)");
+                }
+
+                if (auto t = PropertyTable("##env_ibl")) {
+                    prop_row("IBL Intensity", [&] {
+                        ImGui::SliderFloat("##IBLIntensity", &env->ibl_intensity, 0.0f, 5.0f);
+                    });
+                }
+
+                ImGui::Checkbox("Contact Shadows##EnvContact", &env->contact_shadows_enabled);
+                if (env->contact_shadows_enabled) {
+                    if (auto t = PropertyTable("##env_contact")) {
+                        prop_row("Distance", [&] {
+                            ImGui::SliderFloat("##ContactDist", &env->contact_shadow_distance, 0.05f, 2.0f);
+                        });
+                        prop_row("Thickness", [&] {
+                            ImGui::SliderFloat("##ContactThick", &env->contact_shadow_thickness, 0.01f, 0.5f);
+                        });
+                        prop_row("Steps", [&] {
+                            ImGui::SliderInt("##ContactSteps", &env->contact_shadow_steps, 4, 64);
+                        });
                     }
+                }
 
-                    ImGui::Text("IBL Intensity");
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::SliderFloat("##IBLIntensity", &env->ibl_intensity, 0.0f, 5.0f);
-
-                    ImGui::Spacing();
-                    ImGui::Checkbox("Contact Shadows##EnvContact", &env->contact_shadows_enabled);
-                    if (env->contact_shadows_enabled) {
-                        ImGui::Text("Contact Shadow Distance");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ContactDist", &env->contact_shadow_distance, 0.05f, 2.0f);
-                        ImGui::Text("Contact Shadow Thickness");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##ContactThick", &env->contact_shadow_thickness, 0.01f, 0.5f);
-                        ImGui::Text("Contact Shadow Steps");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderInt("##ContactSteps", &env->contact_shadow_steps, 4, 64);
-                    }
-
-                    ImGui::Spacing();
-                    ImGui::Checkbox("Atmospheric Scattering##EnvAtmos", &env->atmosphere_enabled);
-                    if (env->atmosphere_enabled) {
-                        ImGui::Text("Sun Intensity");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##AtmosSunI", &env->atmosphere_sun_intensity, 1.0f, 50.0f);
-                        ImGui::Text("Rayleigh Scale Height (m)");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##AtmosRayleighScale", &env->atmosphere_rayleigh_scale, 1000.0f, 20000.0f);
-                        ImGui::Text("Mie Scale Height (m)");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##AtmosMieScale", &env->atmosphere_mie_scale, 100.0f, 5000.0f);
-                        ImGui::Text("Mie Anisotropy");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##AtmosMieG", &env->atmosphere_mie_g, 0.0f, 0.99f);
-                        ImGui::Text("Mie Coefficient");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##AtmosMieCoeff", &env->atmosphere_mie_coeff, 1e-6f, 100e-6f, "%.1e");
-                        ImGui::Text("HDRI Floor (min visibility)");
-                        ImGui::SetNextItemWidth(-1);
-                        ImGui::SliderFloat("##AtmosHdriFloor", &env->atmosphere_hdri_floor, 0.0f, 1.0f);
+                ImGui::Checkbox("Atmospheric Scattering##EnvAtmos", &env->atmosphere_enabled);
+                if (env->atmosphere_enabled) {
+                    if (auto t = PropertyTable("##env_atmos")) {
+                        prop_row("Sun Intensity", [&] {
+                            ImGui::SliderFloat("##AtmosSunI", &env->atmosphere_sun_intensity, 1.0f, 50.0f);
+                        });
+                        prop_row("Rayleigh H (m)", [&] {
+                            ImGui::SliderFloat("##AtmosRayleighScale", &env->atmosphere_rayleigh_scale, 1000.0f, 20000.0f);
+                        });
+                        prop_row("Mie H (m)", [&] {
+                            ImGui::SliderFloat("##AtmosMieScale", &env->atmosphere_mie_scale, 100.0f, 5000.0f);
+                        });
+                        prop_row("Mie Aniso.", [&] {
+                            ImGui::SliderFloat("##AtmosMieG", &env->atmosphere_mie_g, 0.0f, 0.99f);
+                        });
+                        prop_row("Mie Coeff.", [&] {
+                            ImGui::SliderFloat("##AtmosMieCoeff", &env->atmosphere_mie_coeff, 1e-6f, 100e-6f, "%.1e");
+                        });
+                        prop_row("HDRI Floor", [&] {
+                            ImGui::SliderFloat("##AtmosHdriFloor", &env->atmosphere_hdri_floor, 0.0f, 1.0f);
+                        });
                     }
                 }
             }
 
             // Add Component popup — lists types not already present
-            if (ImGui::Button("Add Component", {-1, 0})) {
+            if (ImGui::Button(ICON_LC_PLUS "  Add Component", {-1, 0})) {
                 ImGui::OpenPopup("##AddBuiltinComponent");
             }
             if (ImGui::BeginPopup("##AddBuiltinComponent")) {
@@ -455,14 +464,12 @@ void PropertiesPanel::draw() {
             }
 
             // Scripts
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextColored({0.345f, 0.396f, 0.949f, 1.0f}, "Scripts");
+            section_header("SCRIPTS", ICON_LC_FILE_CODE);
             scripts_->draw_inspector(*obj);
 
             // Add script button
             if (scripts_->is_loaded() && !scripts_->script_types().empty()) {
-                if (ImGui::Button("Add Script", {-1, 0})) {
+                if (ImGui::Button(ICON_LC_PLUS "  Add Script", {-1, 0})) {
                     ImGui::OpenPopup("##AddScript");
                 }
                 if (ImGui::BeginPopup("##AddScript")) {
@@ -502,21 +509,23 @@ void PropertiesPanel::draw_material_inspector_for(Material* mat) {
         }
     }
 
-    ImGui::TextDisabled("Shader: %s", mat->shader_path().c_str());
+    ImGui::TextDisabled(ICON_LC_FILE_CODE "  Shader: %s", mat->shader_path().c_str());
 
     // UV scale (available on all materials)
     const auto& gpu = bindless_->material_at(mat->material_id());
     float uv_sc[2] = {gpu.base_params[7], gpu.base_params[8]};
     if (uv_sc[0] == 0.0f) uv_sc[0] = 1.0f;
     if (uv_sc[1] == 0.0f) uv_sc[1] = 1.0f;
-    ImGui::Text("UV Scale");
-    ImGui::SetNextItemWidth(-1);
-    if (ImGui::DragFloat2("##UVScale", uv_sc, 0.1f, 0.01f, 100.0f)) {
-        GpuMaterial updated = gpu;
-        updated.base_params[7] = uv_sc[0];
-        updated.base_params[8] = uv_sc[1];
-        bindless_->update_material(mat->material_id(), updated);
-        scene_->mark_dirty();
+    if (auto t = PropertyTable("##mat_uv")) {
+        prop_row("UV Scale", [&] {
+            if (ImGui::DragFloat2("##UVScale", uv_sc, 0.1f, 0.01f, 100.0f)) {
+                GpuMaterial updated = gpu;
+                updated.base_params[7] = uv_sc[0];
+                updated.base_params[8] = uv_sc[1];
+                bindless_->update_material(mat->material_id(), updated);
+                scene_->mark_dirty();
+            }
+        });
     }
 
     if (!has_custom) return;
