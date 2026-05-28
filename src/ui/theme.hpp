@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui/icons_lc.hpp"
+
 #include <imgui.h>
 
 #include <cmath>
@@ -31,42 +33,81 @@ inline ImVec4 accent_dim() { return srgb(0.831f, 0.627f, 0.329f, 0.40f); }
 inline ImVec4 accent_hov() { return srgb(0.722f, 0.537f, 0.243f); }          // #B8893E
 inline ImVec4 success()    { return srgb(0.494f, 0.749f, 0.557f); }           // #7EBF8E
 
-/// Load Inter font with oversampling. Call after ImGui::CreateContext()
-/// but before backend init. Returns true if font was loaded.
+/// Load editor fonts (Geist preferred, Inter as fallback) with Lucide icons
+/// merged into the default + bold weights. Call after ImGui::CreateContext()
+/// but before backend init. Returns true if at least the default font loaded.
 inline bool load_font(const std::string& font_dir) {
     auto& io = ImGui::GetIO();
 
-    auto regular = font_dir + "/Inter-Regular.ttf";
-    auto medium = font_dir + "/Inter-Medium.ttf";
-    auto bold = font_dir + "/Inter-Bold.ttf";
+    // Geist renders slightly smaller than Inter at the same point size; 14px
+    // is the Geist sweet spot, matches Vercel's own UI cadence.
+    constexpr float UI_FONT_SIZE = 14.0f;
+    constexpr float MONO_FONT_SIZE = 13.0f;
+
+    // Try Geist first, fall back to Inter so the editor still works in
+    // environments where Geist hasn't been synced yet.
+    auto pick_font = [&](const char* geist_name, const char* inter_name) -> std::string {
+        auto geist = font_dir + "/" + geist_name;
+        if (std::filesystem::exists(geist)) return geist;
+        auto inter = font_dir + "/" + inter_name;
+        if (std::filesystem::exists(inter)) return inter;
+        return {};
+    };
+
+    auto regular = pick_font("Geist-Regular.ttf", "Inter-Regular.ttf");
+    auto medium  = pick_font("Geist-Medium.ttf",  "Inter-Medium.ttf");
+    auto bold    = pick_font("Geist-Bold.ttf",    "Inter-Bold.ttf");
 
     ImFontConfig cfg;
     cfg.OversampleH = 3;
     cfg.OversampleV = 2;
     cfg.PixelSnapH = true;
 
-    // Main UI font — Medium weight at 15px for readability
-    if (std::filesystem::exists(medium)) {
-        io.FontDefault = io.Fonts->AddFontFromFileTTF(medium.c_str(), 15.0f, &cfg);
-    } else if (std::filesystem::exists(regular)) {
-        io.FontDefault = io.Fonts->AddFontFromFileTTF(regular.c_str(), 15.0f, &cfg);
+    // Main UI font — Medium weight for readability
+    if (!medium.empty()) {
+        io.FontDefault = io.Fonts->AddFontFromFileTTF(medium.c_str(), UI_FONT_SIZE, &cfg);
+    } else if (!regular.empty()) {
+        io.FontDefault = io.Fonts->AddFontFromFileTTF(regular.c_str(), UI_FONT_SIZE, &cfg);
     } else {
         return false;
     }
 
-    // Also load bold for headers (accessible via io.Fonts->Fonts[1])
-    if (std::filesystem::exists(bold)) {
-        io.Fonts->AddFontFromFileTTF(bold.c_str(), 15.0f, &cfg);
+    // Merge Lucide icon glyphs into the default font so they can be used
+    // inline with text (ICON_LC_PLAY " Play"). Range must be a static array —
+    // ImGui keeps the pointer until atlas Build().
+    auto lucide = font_dir + "/lucide.ttf";
+    auto merge_icons = [&]() {
+        if (!std::filesystem::exists(lucide)) return;
+        static const ImWchar icon_range[] = {
+            ICON_LC_RANGE_MIN, ICON_LC_RANGE_MAX, 0,
+        };
+        ImFontConfig icon_cfg;
+        icon_cfg.MergeMode = true;
+        icon_cfg.PixelSnapH = true;
+        icon_cfg.GlyphMinAdvanceX = ICON_LC_FONT_SIZE;  // monospace-ish for alignment
+        icon_cfg.GlyphOffset = {0.0f, 2.0f};            // nudge baseline to text
+        io.Fonts->AddFontFromFileTTF(lucide.c_str(), ICON_LC_FONT_SIZE,
+                                      &icon_cfg, icon_range);
+    };
+    merge_icons();
+
+    // Bold for headers (accessible via io.Fonts->Fonts[1])
+    if (!bold.empty()) {
+        io.Fonts->AddFontFromFileTTF(bold.c_str(), UI_FONT_SIZE, &cfg);
+        merge_icons();
     }
 
     // Monospace font for terminal/code editor (accessible via io.Fonts->Fonts[2])
-    auto mono = font_dir + "/JetBrainsMono-Regular.ttf";
+    auto mono = font_dir + "/GeistMono-Regular.ttf";
+    if (!std::filesystem::exists(mono)) {
+        mono = font_dir + "/JetBrainsMono-Regular.ttf";
+    }
     if (std::filesystem::exists(mono)) {
         ImFontConfig mono_cfg;
         mono_cfg.OversampleH = 2;
         mono_cfg.OversampleV = 1;
         mono_cfg.PixelSnapH = true;
-        io.Fonts->AddFontFromFileTTF(mono.c_str(), 14.0f, &mono_cfg);
+        io.Fonts->AddFontFromFileTTF(mono.c_str(), MONO_FONT_SIZE, &mono_cfg);
     }
 
     return true;
@@ -85,9 +126,9 @@ inline void apply(ImGuiStyle& style) {
     style.PopupRounding = 4.0f;
 
     style.WindowPadding = {10.0f, 8.0f};
-    style.FramePadding = {8.0f, 4.0f};
-    style.ItemSpacing = {8.0f, 4.0f};
-    style.ItemInnerSpacing = {4.0f, 4.0f};
+    style.FramePadding = {8.0f, 5.0f};
+    style.ItemSpacing = {8.0f, 6.0f};
+    style.ItemInnerSpacing = {6.0f, 4.0f};
     style.IndentSpacing = 16.0f;
     style.ScrollbarSize = 10.0f;
     style.GrabMinSize = 8.0f;
