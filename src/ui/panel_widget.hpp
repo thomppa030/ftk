@@ -85,7 +85,11 @@ private:
             ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[1]);
             pushed = true;
         }
-        ImGui::TextUnformatted(label);
+        // Strip the ImGui "##suffix" disambiguator (e.g. "History##ctx0")
+        // the same way the native title bar does — the suffix is for ID
+        // uniqueness, not display.
+        const char* label_end = ImGui::FindRenderedTextEnd(label);
+        ImGui::TextUnformatted(label, label_end);
         if (pushed) {
             ImGui::PopFont();
         }
