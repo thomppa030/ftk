@@ -136,10 +136,7 @@ public:
   [[nodiscard]] RenderStats &render_stats() { return gpu_.render_stats(); }
   [[nodiscard]] Device &device_ref() { return gpu_.device_ref(); }
   [[nodiscard]] VkSampleCountFlagBits msaa_samples() const { return gpu_.msaa_samples(); }
-  [[nodiscard]] bool mesh_shaders_available() const { return gpu_.mesh_shaders_available(); }
   [[nodiscard]] bool ray_tracing_supported() const { return gpu_.ray_tracing_supported(); }
-  [[nodiscard]] bool use_mesh_shaders() const { return gpu_.use_mesh_shaders(); }
-  void set_use_mesh_shaders(bool enable);
 
   // Apply a project's RenderSettings blob in one shot — called by
   // Engine::init_project after passes are up. Walks the struct and
@@ -373,7 +370,6 @@ private:
   int sdf_debug_axis_{1};       // default Y axis
   float sdf_debug_slice_{0.5f};
   bool playing_{false};
-  bool meshlet_passes_created_{false};
   bool has_pending_ddgi_toggle_{false};
   bool pending_ddgi_toggle_{false};
   bool ddgi_grid_initialized_{false};

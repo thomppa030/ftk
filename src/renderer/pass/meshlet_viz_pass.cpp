@@ -248,7 +248,7 @@ void MeshletVizPass::record(const FrameContext& ctx) {
 
     auto cmd = ctx.cmd;
     bool can_draw = ctx.target && ctx.queue && !ctx.queue->empty()
-                    && ctx.use_mesh_shaders && ctx.meshlet_set;
+                    && ctx.meshlet_set;
 
     // Transition to color attachment
     VkImageMemoryBarrier2 barrier{};

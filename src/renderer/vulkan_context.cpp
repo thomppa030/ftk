@@ -74,7 +74,6 @@ VulkanContext::VulkanContext(Window& window)
         throw std::runtime_error(create_result.error());
     }
     loaded_graph_ = std::move(*graph_result);
-    meshlet_passes_created_ = passes_.has("meshlet_instance");
 
     // Create acceleration structure manager for DDGI RT backend
     if (gpu_.device_ref().ray_tracing_supported()) {
@@ -152,49 +151,8 @@ VulkanContext::~VulkanContext() {
     passes_.destroy_all();
 }
 
-void VulkanContext::set_use_mesh_shaders(bool enable) {
-    gpu_.set_use_mesh_shaders(enable);
-
-    // Lazily create meshlet passes on first enable
-    if (enable && gpu_.use_mesh_shaders() && !meshlet_passes_created_) {
-        PassResources pass_resources = gpu_.pass_resources();
-        pass_resources.draw_data_layout = gatherer_.draw_data_descriptor().layout();
-
-        if (!create_meshlet_passes(passes_, gpu_, pass_resources)) {
-            FJELL_GFX_ERROR("Failed to create meshlet passes — disabling mesh shaders");
-            gpu_.set_use_mesh_shaders(false);
-            return;
-        }
-        meshlet_passes_created_ = true;
-
-        // Register new passes with the render pipeline
-        for (const auto& name : {"meshlet_instance", "meshlet_cull_pass2",
-                                  "mesh_shader_depth", "meshlet_viz", "cull", "cull_viz"}) {
-            passes_.register_pass_with_pipeline(name, render_pipeline_);
-        }
-
-        // Register custom vertex displacement depth pipelines for the newly
-        // created mesh shader depth pass (vertex prepass + shadow already have theirs).
-        auto* pc = gpu_.pipeline_cache();
-        if (pc) {
-            for (uint32_t id = 0; id < pc->shader_count(); ++id) {
-                if (!pc->has_custom_vertex(id)) continue;
-                const auto& depth_mesh = pc->depth_mesh_spv(id);
-                if (!depth_mesh.empty()) {
-                    mesh_shader_depth_pass()->register_custom_depth(id, depth_mesh);
-                }
-            }
-        }
-
-        FJELL_GFX_INFO("Meshlet passes created (lazy init)");
-    }
-}
-
 void VulkanContext::set_render_settings(const RenderSettings& s) {
     // Quality
-    if (s.mesh_shaders != gpu_.use_mesh_shaders()) {
-        set_use_mesh_shaders(s.mesh_shaders);
-    }
     if (auto* cp = cull_pass()) {
         cp->set_enabled(s.gpu_cull);
     }
@@ -354,9 +312,8 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.frame_index = current_frame_;
     ctx.indirect_batch = gatherer_.indirect_batch();
     ctx.mega_buffer = gpu_.mega_buffer();
-    ctx.use_mesh_shaders = gpu_.use_mesh_shaders();
     ctx.pipeline_cache = gpu_.pipeline_cache();
-    if (gpu_.use_mesh_shaders() && passes_.has("meshlet_instance")) {
+    if (passes_.has("meshlet_instance")) {
         ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
         ctx.gpu_driven_indirect = meshlet_instance_pass()->indirect_buffer(current_frame_);
         ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
@@ -378,9 +335,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
 #ifdef FJELL_ENABLE_TRACY
     ctx.tracy_ctx = gpu_.tracy_ctx();
 #endif
-    if (gpu_.use_mesh_shaders()) {
-        ctx.draw_mesh_tasks_indirect_fn = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
-    }
+    ctx.draw_mesh_tasks_indirect_fn = gpu_.device_ref().draw_mesh_tasks_indirect_fn();
     ctx.subsystems = subsystem_ptrs_.data();
     ctx.subsystem_count = static_cast<uint32_t>(subsystem_ptrs_.size());
     ctx.active_sources = active_sources_;
@@ -447,7 +402,6 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         FrameContext pre_ctx{};
         pre_ctx.frame_index = current_frame_;
         pre_ctx.indirect_batch = gatherer_.indirect_batch();
-        pre_ctx.use_mesh_shaders = gpu_.use_mesh_shaders();
         pre_ctx.pp_resources = pp;
         pre_ctx.target = &target;
         pre_ctx.queue = &gatherer_.render_queue();
@@ -1026,7 +980,7 @@ void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
     res.global_set_layout = gpu_.global_set_layout();
     res.material_set_layout = gpu_.bindless_textures().layout();
     res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
-    res.meshlet_layout = gpu_.use_mesh_shaders() ? gpu_.meshlet_descriptor().layout() : VK_NULL_HANDLE;
+    res.meshlet_layout = gpu_.meshlet_descriptor().layout();
     res.depth_format = gpu_.device_ref().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
@@ -1042,7 +996,7 @@ void VulkanContext::init_game_ui_shared(GameUi& ui, const FontAtlas& shared_atla
     res.global_set_layout = gpu_.global_set_layout();
     res.material_set_layout = gpu_.bindless_textures().layout();
     res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
-    res.meshlet_layout = gpu_.use_mesh_shaders() ? gpu_.meshlet_descriptor().layout() : VK_NULL_HANDLE;
+    res.meshlet_layout = gpu_.meshlet_descriptor().layout();
     res.depth_format = gpu_.device_ref().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
@@ -1056,7 +1010,7 @@ void VulkanContext::init_game_ui_world(GameUi& ui, const FontAtlas& shared_atlas
     res.global_set_layout = gpu_.global_set_layout();
     res.material_set_layout = gpu_.bindless_textures().layout();
     res.draw_data_layout = gatherer_.draw_data_descriptor().layout();
-    res.meshlet_layout = gpu_.use_mesh_shaders() ? gpu_.meshlet_descriptor().layout() : VK_NULL_HANDLE;
+    res.meshlet_layout = gpu_.meshlet_descriptor().layout();
     res.depth_format = gpu_.device_ref().find_depth_format();
     res.color_format = OffscreenPass::COLOR_FORMAT;
     res.sample_count = gpu_.msaa_samples();
@@ -1661,12 +1615,10 @@ void VulkanContext::sync_custom_depth_pipelines() {
     for (uint32_t id = 0; id < pc->shader_count(); ++id) {
         if (!pc->has_custom_vertex(id)) continue;
 
-        if (gpu_.mesh_shaders_available()) {
-            auto* msd = passes_.try_get<MeshShaderDepthPass>("mesh_shader_depth");
-            const auto& depth_mesh = pc->depth_mesh_spv(id);
-            if (msd && !depth_mesh.empty()) {
-                msd->register_custom_depth(id, depth_mesh);
-            }
+        auto* msd = passes_.try_get<MeshShaderDepthPass>("mesh_shader_depth");
+        const auto& depth_mesh = pc->depth_mesh_spv(id);
+        if (msd && !depth_mesh.empty()) {
+            msd->register_custom_depth(id, depth_mesh);
         }
 
         const auto& depth_vert = pc->depth_vert_spv(id);

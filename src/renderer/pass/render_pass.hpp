@@ -80,7 +80,6 @@ struct FrameContext {
     IndirectBatch* indirect_batch{nullptr};
     MegaBuffer* mega_buffer{nullptr};
     VkDescriptorSet meshlet_set{VK_NULL_HANDLE};
-    bool use_mesh_shaders{false};
     PipelineCache* pipeline_cache{nullptr};
 
     // Two-pass occlusion: GPU-driven dispatch from culled visible buffer

@@ -226,7 +226,7 @@ void MeshletInstancePass::destroy() {
 }
 
 void MeshletInstancePass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
-    if (!ctx.use_mesh_shaders || !ctx.indirect_batch) return;
+    if (!ctx.indirect_batch) return;
     uint32_t total_mi = ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
     if (total_mi > 0) {
         ensure_capacity(ctx.frame_index, total_mi);
@@ -581,7 +581,6 @@ void MeshletInstancePass::record(const FrameContext& ctx) {
 #ifdef FJELL_ENABLE_TRACY
     TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Meshlet Expand+Cull");
 #endif
-    if (!ctx.use_mesh_shaders) { return; }
     if (ctx.indirect_batch == nullptr) { return; }
 
     uint32_t total_draws = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);

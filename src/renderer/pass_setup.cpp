@@ -41,10 +41,8 @@ Result<> create_passes_from_graph(const FjGraph& graph,
         passes.add<RenderPass>(entry.name, std::move(pass));
     }
 
-    if (gpu.use_mesh_shaders()) {
-        if (!create_meshlet_passes(passes, gpu, resources)) {
-            return make_error("Failed to create meshlet passes");
-        }
+    if (!create_meshlet_passes(passes, gpu, resources)) {
+        return make_error("Failed to create meshlet passes");
     }
 
     passes.post_create_all(gpu);

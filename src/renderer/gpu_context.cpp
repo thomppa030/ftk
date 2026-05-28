@@ -116,12 +116,9 @@ GpuContext::GpuContext(Window& window)
         core_.vk_device(), core_.allocator(), core_.command_pool(), core_.graphics_queue());
 
     // Meshlet buffers + descriptor (uploaded at model load time)
-    if (core_.device().mesh_shader_supported()) {
-        meshlet_buffer_ = std::make_unique<MeshletBuffer>(
-            core_.vk_device(), core_.allocator(), core_.command_pool(), core_.graphics_queue());
-        meshlet_descriptor_.create(core_.vk_device(), core_.allocator());
-        use_mesh_shaders_ = false;
-    }
+    meshlet_buffer_ = std::make_unique<MeshletBuffer>(
+        core_.vk_device(), core_.allocator(), core_.command_pool(), core_.graphics_queue());
+    meshlet_descriptor_.create(core_.vk_device(), core_.allocator());
 
     // Query and clamp MSAA sample count
     auto max_samples = core_.device().max_msaa_samples();

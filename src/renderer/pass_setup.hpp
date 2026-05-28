@@ -15,10 +15,8 @@ struct PassResources;
 /// apply per-pass `enabled` flags from the graph. Each pass is
 /// instantiated via `PassFactory::make` keyed on the entry's `class`.
 ///
-/// Mesh shader passes are *not* in the graph — they're conditional on
-/// `gpu.use_mesh_shaders()` and continue to be created via
-/// `create_meshlet_passes()` from the call site. Future revisions can
-/// move them into the graph with `enabled_if: "mesh_shaders"`.
+/// Mesh shader passes are *not* in the graph — they're created
+/// unconditionally via `create_meshlet_passes()` from the call site.
 [[nodiscard]] Result<> create_passes_from_graph(const FjGraph& graph,
                                                 PassRegistry& passes,
                                                 RenderPipeline& pipeline,
@@ -33,7 +31,6 @@ struct PassResources;
 void apply_enabled_flags(const FjGraph& graph, RenderPipeline& pipeline);
 
 /// Create mesh shader passes (meshlet instance, cull, viz).
-/// Called lazily on first mesh shader enable if not created at startup.
 /// Returns false if any pass failed to create.
 [[nodiscard]] bool create_meshlet_passes(PassRegistry& passes, GpuContext& gpu,
                                          const PassResources& resources);

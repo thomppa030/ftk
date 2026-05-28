@@ -15,7 +15,6 @@ namespace fjell {
 struct RenderSettings {
     // ── Quality ──
     VkSampleCountFlagBits msaa_samples{VK_SAMPLE_COUNT_4_BIT};
-    bool mesh_shaders{false};
     bool gpu_cull{true};
 
     // ── Global Illumination ──

@@ -209,10 +209,7 @@ void DepthPrePass::destroy() {
 
 void DepthPrePass::record(const FrameContext& ctx) {
     FJELL_PROFILE_SCOPE_N("record_depth_prepass");
-    // Runtime recorder selection: mesh-shader path if supported and wired,
-    // otherwise the vertex-shader path below. The graph sees the same
-    // depth_attachment write either way.
-    if (ctx.use_mesh_shaders && ctx.passes != nullptr) {
+    if (ctx.passes != nullptr) {
         if (auto* msd = ctx.passes->try_get<MeshShaderDepthPass>("mesh_shader_depth")) {
             msd->record(ctx);
             return;

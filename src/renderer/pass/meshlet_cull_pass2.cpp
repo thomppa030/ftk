@@ -39,7 +39,7 @@ void MeshletCullPass2::record(const FrameContext& ctx) {
     TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Meshlet Cull Pass 2");
 #endif
     if (instance_pass_ == nullptr) { return; }
-    if (!ctx.use_mesh_shaders || ctx.indirect_batch == nullptr) { return; }
+    if (ctx.indirect_batch == nullptr) { return; }
 
     uint32_t total_draws = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
     if (total_draws == 0) { return; }

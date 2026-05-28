@@ -137,7 +137,7 @@ void CullPass::ensure_capacity(uint32_t frame_index, uint32_t count) {
 }
 
 void CullPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
-    if (!enabled_ || !ctx.use_mesh_shaders || !ctx.indirect_batch) return;
+    if (!enabled_ || !ctx.indirect_batch) return;
     uint32_t opaque_count = ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
     const auto* aabbs = ctx.indirect_batch->aabb_data(ctx.frame_index);
     if (opaque_count > 0 && aabbs) {

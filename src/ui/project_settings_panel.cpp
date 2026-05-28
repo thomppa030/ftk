@@ -48,14 +48,6 @@ void ProjectSettingsPanel::draw_render_section() {
         // recreation we don't support yet. Stored value applies on next launch.
         ImGui::Text("MSAA: %ux (fixed at launch)", static_cast<uint32_t>(s.msaa_samples));
 
-        if (vk_->mesh_shaders_available()) {
-            if (ImGui::Checkbox("Mesh Shaders", &s.mesh_shaders)) { dirty = true; }
-        } else {
-            ImGui::BeginDisabled();
-            bool off = false;
-            ImGui::Checkbox("Mesh Shaders (unsupported)", &off);
-            ImGui::EndDisabled();
-        }
         if (ImGui::Checkbox("GPU Culling", &s.gpu_cull)) { dirty = true; }
 
         ImGui::TreePop();

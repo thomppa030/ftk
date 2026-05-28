@@ -191,64 +191,41 @@ void OpaquePass::record(const FrameContext& ctx) {
 #ifdef FJELL_ENABLE_TRACY
         { TracyVkZone(static_cast<tracy::VkCtx*>(ctx.tracy_ctx), ctx.cmd, "Opaques");
 #endif
-        if (ctx.use_mesh_shaders && ctx.pipeline_cache->has_mesh_shaders()) {
-            std::array mesh_descriptor_sets = {
-                ctx.global_descriptor_set,
-                ctx.bindless_set,
-                ctx.draw_data_set,
-                ctx.meshlet_set};
+        std::array mesh_descriptor_sets = {
+            ctx.global_descriptor_set,
+            ctx.bindless_set,
+            ctx.draw_data_set,
+            ctx.meshlet_set};
 
-            const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-            auto indirect_buf = ctx.gpu_driven_indirect;
+        const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
+        auto indirect_buf = ctx.gpu_driven_indirect;
 
-            if (indirect_buf && !ranges.empty()) {
-                auto draw_indirect = ctx.draw_mesh_tasks_indirect_fn;
-                uint32_t seg_size = ctx.gpu_driven_segment_size;
+        if (indirect_buf && !ranges.empty()) {
+            auto draw_indirect = ctx.draw_mesh_tasks_indirect_fn;
+            uint32_t seg_size = ctx.gpu_driven_segment_size;
 
-                for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
-                    vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                      ctx.pipeline_cache->gpu_driven_pipeline(ranges[bin].pipeline_id));
-                    vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                            ctx.pipeline_cache->gpu_driven_layout(),
-                                            0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
-                                            mesh_descriptor_sets.data(), 0, nullptr);
-
-                    uint32_t bin_offset = bin * seg_size;
-                    vkCmdPushConstants(ctx.cmd, ctx.pipeline_cache->gpu_driven_layout(),
-                                      VK_SHADER_STAGE_TASK_BIT_EXT,
-                                      0, sizeof(uint32_t), &bin_offset);
-
-                    VkDeviceSize cmd_offset = bin * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-                    draw_indirect(ctx.cmd, indirect_buf, cmd_offset, 1,
-                                  sizeof(VkDrawMeshTasksIndirectCommandEXT));
-                }
-            }
-
-            ctx.render_stats->meshlets_dispatched +=
-                ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
-            ctx.render_stats->gpu_cull_active = true;
-        } else {
-            ctx.mega_buffer->bind(ctx.cmd);
-
-            const auto& ranges = ctx.indirect_batch->pipeline_ranges(ctx.frame_index);
-            for (const auto& range : ranges) {
-                auto pipeline = range.skinned
-                    ? ctx.pipeline_cache->skinned_opaque_pipeline(range.pipeline_id)
-                    : ctx.pipeline_cache->opaque_pipeline(range.pipeline_id);
-                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            for (uint32_t bin = 0; bin < static_cast<uint32_t>(ranges.size()); ++bin) {
+                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                  ctx.pipeline_cache->gpu_driven_pipeline(ranges[bin].pipeline_id));
                 vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                        ctx.pipeline_cache->layout(),
-                                        0, static_cast<uint32_t>(descriptor_sets.size()),
-                                        descriptor_sets.data(), 0, nullptr);
+                                        ctx.pipeline_cache->gpu_driven_layout(),
+                                        0, static_cast<uint32_t>(mesh_descriptor_sets.size()),
+                                        mesh_descriptor_sets.data(), 0, nullptr);
 
-                VkDeviceSize offset = range.first_draw * sizeof(VkDrawIndexedIndirectCommand);
-                vkCmdDrawIndexedIndirect(ctx.cmd,
-                                         ctx.indirect_batch->indirect_buffer(ctx.frame_index),
-                                         offset, range.draw_count,
-                                         sizeof(VkDrawIndexedIndirectCommand));
-                ctx.render_stats->indirect_draws++;
+                uint32_t bin_offset = bin * seg_size;
+                vkCmdPushConstants(ctx.cmd, ctx.pipeline_cache->gpu_driven_layout(),
+                                  VK_SHADER_STAGE_TASK_BIT_EXT,
+                                  0, sizeof(uint32_t), &bin_offset);
+
+                VkDeviceSize cmd_offset = bin * sizeof(VkDrawMeshTasksIndirectCommandEXT);
+                draw_indirect(ctx.cmd, indirect_buf, cmd_offset, 1,
+                              sizeof(VkDrawMeshTasksIndirectCommandEXT));
             }
         }
+
+        ctx.render_stats->meshlets_dispatched +=
+            ctx.indirect_batch->total_meshlet_instances(ctx.frame_index);
+        ctx.render_stats->gpu_cull_active = true;
         ctx.render_stats->draw_calls += ctx.indirect_batch->opaque_draw_count(ctx.frame_index);
         ctx.render_stats->triangle_count += ctx.indirect_batch->total_triangles(ctx.frame_index);
 

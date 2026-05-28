@@ -35,7 +35,6 @@ static VkSampleCountFlagBits sample_count_from_u32(uint32_t v) {
 void to_json(nlohmann::json& j, const RenderSettings& s) {
     j = nlohmann::json{
         {"msaa_samples", sample_count_to_u32(s.msaa_samples)},
-        {"mesh_shaders", s.mesh_shaders},
         {"gpu_cull",     s.gpu_cull},
         {"ddgi", {
             {"enabled",                s.ddgi.enabled},
@@ -72,7 +71,6 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
     if (j.contains("msaa_samples")) {
         s.msaa_samples = sample_count_from_u32(j.value("msaa_samples", 4u));
     }
-    s.mesh_shaders = j.value("mesh_shaders", s.mesh_shaders);
     s.gpu_cull     = j.value("gpu_cull",     s.gpu_cull);
 
     if (j.contains("ddgi")) {
@@ -130,7 +128,6 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
 void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     // Quality
     out.msaa_samples = ctx.msaa_samples();
-    out.mesh_shaders = ctx.use_mesh_shaders();
     if (auto* cp = ctx.cull_pass()) {
         out.gpu_cull = cp->enabled();
     }

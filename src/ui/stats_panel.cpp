@@ -106,17 +106,15 @@ void StatsPanel::draw_rendering_section() {
         metric_row("MSAA",        "%ux",
                    static_cast<uint32_t>(ctx_->msaa_samples()));
 
-        if (ctx_->mesh_shaders_available() && ctx_->use_mesh_shaders()) {
-            metric_row("Meshlets",  "%u", stats.meshlets_dispatched);
-            if (stats.two_pass_occlusion) {
-                metric_row("Occlusion", "2-Pass");
-            }
-            if (stats.lod1_draws > 0 || stats.lod2_draws > 0
-                || stats.distance_culled > 0) {
-                metric_row("LOD draws", "%u / %u / %u (D: %u)",
-                           stats.lod0_draws, stats.lod1_draws,
-                           stats.lod2_draws, stats.distance_culled);
-            }
+        metric_row("Meshlets",  "%u", stats.meshlets_dispatched);
+        if (stats.two_pass_occlusion) {
+            metric_row("Occlusion", "2-Pass");
+        }
+        if (stats.lod1_draws > 0 || stats.lod2_draws > 0
+            || stats.distance_culled > 0) {
+            metric_row("LOD draws", "%u / %u / %u (D: %u)",
+                       stats.lod0_draws, stats.lod1_draws,
+                       stats.lod2_draws, stats.distance_culled);
         }
         ImGui::EndTable();
     }

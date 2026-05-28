@@ -163,7 +163,8 @@ void Device::pick_physical_device() {
     gpu_name_ = props.deviceName;
     FJELL_GFX_INFO("GPU: {}", gpu_name_);
 
-    // Probe for VK_EXT_mesh_shader
+    // VK_EXT_mesh_shader is required. Fjell renders exclusively through the
+    // mesh-shader path; the vertex-shader fallback was retired.
     device_extensions_.assign(required_device_extensions_.begin(),
                               required_device_extensions_.end());
 
@@ -172,40 +173,46 @@ void Device::pick_physical_device() {
     std::vector<VkExtensionProperties> available_exts(ext_count);
     vkEnumerateDeviceExtensionProperties(physical_device_, nullptr, &ext_count, available_exts.data());
 
+    bool mesh_ext_present = false;
     for (const auto& ext : available_exts) {
         if (std::strcmp(ext.extensionName, VK_EXT_MESH_SHADER_EXTENSION_NAME) == 0) {
-            // Check that taskShader + meshShader features are actually supported
-            VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{};
-            mesh_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
-
-            VkPhysicalDeviceFeatures2 features2{};
-            features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-            features2.pNext = &mesh_features;
-            vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
-
-            if (mesh_features.taskShader && mesh_features.meshShader) {
-                mesh_shader_supported_ = true;
-                device_extensions_.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
-
-                // Query workgroup limits
-                VkPhysicalDeviceMeshShaderPropertiesEXT mesh_props{};
-                mesh_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
-                VkPhysicalDeviceProperties2 props2{};
-                props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-                props2.pNext = &mesh_props;
-                vkGetPhysicalDeviceProperties2(physical_device_, &props2);
-
-                mesh_shader_max_workgroup_size_ = mesh_props.maxMeshWorkGroupSize[0];
-                FJELL_GFX_INFO("Mesh shaders supported (max workgroup: {})",
-                               mesh_shader_max_workgroup_size_);
-            }
+            mesh_ext_present = true;
             break;
         }
     }
-
-    if (!mesh_shader_supported_) {
-        FJELL_GFX_INFO("Mesh shaders not available, using traditional vertex pipeline");
+    if (!mesh_ext_present) {
+        throw std::runtime_error(
+            "GPU does not support VK_EXT_mesh_shader (required). "
+            "Fjell requires a GPU with mesh shader support "
+            "(NVIDIA Turing+, AMD RDNA2+, or Intel Arc).");
     }
+
+    VkPhysicalDeviceMeshShaderFeaturesEXT mesh_features{};
+    mesh_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+
+    VkPhysicalDeviceFeatures2 features2{};
+    features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    features2.pNext = &mesh_features;
+    vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
+
+    if (!mesh_features.taskShader || !mesh_features.meshShader) {
+        throw std::runtime_error(
+            "GPU advertises VK_EXT_mesh_shader but does not enable taskShader/meshShader features.");
+    }
+
+    mesh_shader_supported_ = true;
+    device_extensions_.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+
+    VkPhysicalDeviceMeshShaderPropertiesEXT mesh_props{};
+    mesh_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT;
+    VkPhysicalDeviceProperties2 props2{};
+    props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+    props2.pNext = &mesh_props;
+    vkGetPhysicalDeviceProperties2(physical_device_, &props2);
+
+    mesh_shader_max_workgroup_size_ = mesh_props.maxMeshWorkGroupSize[0];
+    FJELL_GFX_INFO("Mesh shaders enabled (max workgroup: {})",
+                   mesh_shader_max_workgroup_size_);
 
     // Probe for VK_KHR_ray_tracing_pipeline + VK_KHR_acceleration_structure
     bool has_rt_pipeline = false;
