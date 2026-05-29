@@ -25,61 +25,72 @@ layout(location = 0) out vec4 out_color;
 layout(location = 1) out vec2 out_metallic_roughness;
 layout(location = 2) out vec2 out_normal;
 
+// Anti-aliased line mask for one grid level.
+// Returns coverage in [0, 1]: 1 on the line, 0 between lines.
+float grid_line(vec2 p, float scale, vec2 fw, float thickness) {
+    vec2 cell = p / scale;
+    vec2 d = 0.5 - abs(fract(cell) - 0.5);          // distance to nearest line (in cell units)
+    vec2 aa = fw / scale;                            // 1 pixel in cell units
+    vec2 hw = aa * thickness * 0.5;                  // line half-width
+    vec2 line = 1.0 - smoothstep(hw, hw + aa, d);
+    return max(line.x, line.y);
+}
+
 void main() {
-    float x = world_pos.x;
-    float z = world_pos.z;
+    vec2 p = world_pos.xz;
     float dist = length(ubo.camera_position.xyz - world_pos);
+    vec2 fw = fwidth(p);
+    float pixel_size = max(fw.x, fw.y);
 
-    // Compute how close we are to the nearest grid line (0..0.5 range)
-    vec2 cell = vec2(x, z) / grid.cell_size;
-    vec2 coarse_cell = vec2(x, z) / (grid.cell_size * 10.0);
-    // Distance from nearest grid line (edge, not center)
-    // fract gives 0..1 within a cell; nearest edge is at 0 or 1
-    vec2 d1 = 0.5 - abs(fract(cell) - 0.5);              // fine grid
-    vec2 d2 = 0.5 - abs(fract(coarse_cell) - 0.5);       // coarse grid (every 10)
+    // Pick a base scale so the smallest visible cell is at least ~6 pixels wide.
+    // Each LOD step is ×10; we blend the next step in as cells get larger on screen.
+    float MIN_PIXELS = 6.0;
+    float lod = max(0.0, log(max(pixel_size, 1e-6) * MIN_PIXELS / grid.cell_size) / log(10.0));
+    float lod_floor = floor(lod);
+    float lod_blend = fract(lod);
 
-    // Screen-space pixel size in world units at this fragment
-    vec2 fw = fwidth(vec2(x, z));
+    float s0 = grid.cell_size * pow(10.0, lod_floor);          // current finest visible level
+    float s1 = s0 * 10.0;                                       // next coarser
+    float s2 = s0 * 100.0;                                      // next-next coarser
 
-    // Line half-width in cell-fraction space for each grid level
-    vec2 hw1 = (fw / grid.cell_size) * grid.thickness * 0.5;
-    vec2 hw2 = (fw / (grid.cell_size * 10.0)) * grid.thickness * 2.0;
+    // Slightly thicker mid/coarse lines so every 10th and 100th cell read as emphasized.
+    float l0 = grid_line(p, s0, fw, grid.thickness);
+    float l1 = grid_line(p, s1, fw, grid.thickness * 1.3);
+    float l2 = grid_line(p, s2, fw, grid.thickness * 1.6);
 
-    // Anti-aliased line: 1.0 on line, 0.0 away from line
-    // aa band = 1 pixel feather outside the line edge
-    vec2 aa1 = fw / grid.cell_size;
-    vec2 aa2 = fw / (grid.cell_size * 10.0);
+    // l0 fades out as we transition to the next LOD; l1 is always on; l2 is emphasized.
+    float fine = l0 * (1.0 - lod_blend);
+    float mid = l1;
+    float coarse = l2;
 
-    vec2 line1 = 1.0 - smoothstep(hw1 - aa1, hw1 + aa1, d1);
-    float fine = max(line1.x, line1.y);
+    // Axis lines — use per-axis fwidth so each line's AA matches its own screen-space derivative.
+    float ax = 1.0 - smoothstep(fw.x * grid.thickness * 0.5, fw.x * (grid.thickness * 0.5 + 1.0), abs(p.x));
+    float az = 1.0 - smoothstep(fw.y * grid.thickness * 0.5, fw.y * (grid.thickness * 0.5 + 1.0), abs(p.y));
 
-    vec2 line2 = 1.0 - smoothstep(hw2 - aa2, hw2 + aa2, d2);
-    float coarse = max(line2.x, line2.y);
-
-    // Axis lines (world-space distance from axis)
-    float axis_hw = max(fw.x, fw.y) * grid.thickness;
-    float aa_axis = max(fw.x, fw.y) * 1.0;
-    float ax = 1.0 - smoothstep(axis_hw - aa_axis, axis_hw + aa_axis, abs(x));
-    float az = 1.0 - smoothstep(axis_hw - aa_axis, axis_hw + aa_axis, abs(z));
-
-    // Any line visible at all?
-    float any_line = max(max(fine, coarse), max(ax, az));
+    float any_line = max(max(fine, mid), max(coarse, max(ax, az)));
     if (any_line < 0.01) {
         out_color = vec4(0.0);
         out_metallic_roughness = vec2(0.0);
-    out_normal = vec2(0.0);
+        out_normal = vec2(0.0);
         return;
     }
 
-    // Compose — solid black lines, colored axes
-    vec3 color = vec3(0.08, 0.08, 0.09);
+    // Color: emphasized lines (every 10th, every 100th) are brighter.
+    vec3 fine_color = vec3(0.08, 0.08, 0.09);
+    vec3 mid_color = vec3(0.22, 0.22, 0.24);
+    vec3 coarse_color = vec3(0.40, 0.40, 0.42);
+    vec3 color = fine_color;
+    color = mix(color, mid_color, mid);
+    color = mix(color, coarse_color, coarse);
 
     color = mix(color, vec3(0.15, 0.25, 0.8), ax);
     color = mix(color, vec3(0.8, 0.2, 0.15), az);
 
-    // Distance fade — only affects alpha
+    // Distance fade — soft falloff inside fade_distance.
     float fade = 1.0 - smoothstep(grid.fade_distance * 0.3, grid.fade_distance, dist);
-    float alpha = any_line * 0.8 * fade * grid.opacity;
+    // Emphasized lines stay more opaque than fine lines.
+    float line_strength = max(max(fine * 0.6, mid * 0.85), max(coarse, max(ax, az)));
+    float alpha = line_strength * fade * grid.opacity;
 
     out_color = vec4(color, alpha);
     out_metallic_roughness = vec2(0.0);
