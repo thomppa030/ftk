@@ -7,39 +7,10 @@
 // VIEW_DIR, SUN_DIR, SUN_COLOR, and TIME are in scope.
 
 #include "fjell_common.glsl"
+#include "fjell_global_ubo.glsl"
+#include "fjell_gpu_types.glsl"
 
-// Mirror the spatial template's GpuMaterial layout so the same materials
-// SSBO row format works for sky shaders too. param_offset/count are
-// allocated by ResourceManager just like a normal material.
-struct GpuMaterial {
-    uint texture_indices[8];
-    float base_params[12];
-    uint param_offset;
-    uint param_count;
-    uint padding[2];
-};
-
-layout(set = 0, binding = 0) uniform GlobalUbo {
-    mat4 view;
-    mat4 projection;
-    vec4 light_direction;    // xyz = dir toward light, w = intensity
-    vec4 light_color;        // xyz = color
-    vec4 camera_position;
-    vec4 ambient_color;
-    mat4 cascade_vp[3];
-    vec4 cascade_splits;
-    uvec4 tile_info;
-    mat4 inv_projection;
-    mat4 inv_view_proj;
-    mat4 prev_view_proj;
-    mat4 unjittered_vp;
-    mat4 prev_unjittered_vp;
-    float time;
-    float gi_intensity;
-    float jitter_x;
-    float jitter_y;
-    float ss_gi_intensity;
-} ubo;
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
 

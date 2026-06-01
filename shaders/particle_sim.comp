@@ -34,12 +34,10 @@ layout(std430, set = 0, binding = 7) buffer SubEmitterEventCounters {
 };
 
 #include "include/particle_modules.glsl"
+#include "fjell_global_ubo.glsl"
 
 // Set 1 = global descriptors (for SDF + depth access)
-layout(set = 1, binding = 0) uniform GlobalUbo {
-    mat4 view;
-    mat4 projection;
-} global_ubo;
+FJELL_DECLARE_GLOBAL_UBO(1, 0, global_ubo);
 
 layout(set = 1, binding = 4) uniform sampler2D depth_texture;
 layout(set = 1, binding = 9) uniform sampler3D scene_sdf;

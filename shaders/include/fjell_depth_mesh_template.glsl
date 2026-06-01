@@ -1,34 +1,13 @@
 #version 460
 #extension GL_EXT_mesh_shader : require
 
+#include "fjell_global_ubo.glsl"
+#include "fjell_gpu_types.glsl"
+
 layout(local_size_x = 64) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
 
-layout(set = 0, binding = 0) uniform GlobalUbo {
-    mat4 view;
-    mat4 projection;
-    vec4 light_direction;
-    vec4 light_color;
-    vec4 camera_position;
-    vec4 ambient_color;
-    mat4 cascade_vp[3];
-    vec4 cascade_splits;
-    uvec4 tile_info;
-    mat4 inv_projection;
-    mat4 inv_view_proj;
-    mat4 prev_view_proj;
-    mat4 unjittered_vp;
-    mat4 prev_unjittered_vp;
-    float time;
-} ubo;
-
-struct GpuMaterial {
-    uint texture_indices[8];
-    float base_params[12];
-    uint param_offset;
-    uint param_count;
-    uint padding[2];
-};
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];

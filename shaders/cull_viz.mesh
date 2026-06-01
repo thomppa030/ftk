@@ -1,21 +1,12 @@
 #version 460
 #extension GL_EXT_mesh_shader : require
 
+#include "fjell_global_ubo.glsl"
+
 layout(local_size_x = 64) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
 
-layout(set = 0, binding = 0) uniform GlobalUbo {
-    mat4 view;
-    mat4 projection;
-    vec4 light_direction;
-    vec4 light_color;
-    vec4 camera_position;
-    vec4 ambient_color;
-    mat4 cascade_vp[3];
-    vec4 cascade_splits;
-    uvec4 tile_info;
-    mat4 inv_projection;
-} ubo;
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 #include "fjell_draw_data.glsl"
 

@@ -3,48 +3,16 @@
 
 // ── Global set (set 0) — all lighting resources ─────────────────────────
 
-layout(set = 0, binding = 0) uniform GlobalUbo {
-    mat4 view;
-    mat4 projection;
-    vec4 light_direction;    // xyz = dir toward light, w = intensity
-    vec4 light_color;        // xyz = color
-    vec4 camera_position;    // xyz = eye pos
-    vec4 ambient_color;      // xyz = color, w = IBL intensity
-    mat4 cascade_vp[3];
-    vec4 cascade_splits;     // xyz = split distances
-    uvec4 tile_info;         // x = tiles_x, y = tiles_y, z = point_count, w = spot_count
-    mat4 inv_projection;
-    mat4 inv_view_proj;
-    mat4 prev_view_proj;
-    mat4 unjittered_vp;
-    mat4 prev_unjittered_vp;
-    float time;
-} ubo;
+#include "fjell_global_ubo.glsl"
+#include "fjell_gpu_types.glsl"
+
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 layout(set = 0, binding = 5) uniform sampler2D ao_texture;
 layout(set = 0, binding = 6) uniform samplerCube sky_cubemap;
 layout(set = 0, binding = 7) uniform sampler2D brdf_lut;
 layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
-
-struct GpuPointLight {
-    vec4 position_radius;
-    vec4 color_intensity;
-    ivec4 shadow_info;      // x = atlas_x, y = atlas_y, z = tile_size, w = flags (0 = no shadow)
-    vec4 vol_params;
-};
-
-struct GpuSpotLight {
-    vec4 position_radius;
-    vec4 direction_inner_cos;
-    vec4 color_intensity;
-    float outer_cos;
-    int shadow_atlas_x;
-    int shadow_atlas_y;
-    int shadow_tile_size;       // 0 = no shadow
-    mat4 shadow_vp;             // light-space view-projection
-    vec4 vol_params;
-};
 
 layout(set = 0, binding = 2) readonly buffer LightBuffer {
     GpuPointLight point_lights[1024];
@@ -71,15 +39,6 @@ layout(push_constant) uniform PushConstants {
     float metallic;
     float roughness;
     uint material_id; // 0 = no material, use push metallic/roughness + particle color
-};
-
-// Material SSBO (same as spatial template)
-struct GpuMaterial {
-    uint texture_indices[8];
-    float base_params[12];
-    uint param_offset;
-    uint param_count;
-    uint padding[2];
 };
 
 layout(set = 2, binding = 1) readonly buffer MaterialBuffer {

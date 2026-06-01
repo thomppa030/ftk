@@ -4,21 +4,11 @@
 // Horizon-based with analytic cosine-weighted integration.
 
 #include "fjell_common.glsl"
+#include "fjell_global_ubo.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-layout(set = 0, binding = 0) uniform GlobalUbo {
-    mat4 view;
-    mat4 projection;
-    vec4 light_direction;
-    vec4 light_color;
-    vec4 camera_position;
-    vec4 ambient_color;
-    mat4 cascade_vp[3];
-    vec4 cascade_splits;
-    uvec4 tile_info;
-    mat4 inv_projection;
-} ubo;
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 layout(set = 0, binding = 4) uniform sampler2D depth_texture;
 

@@ -9,21 +9,12 @@
 // cross-subgroup prefix sum through shared memory. Thread 0 patches the
 // matching VkDrawIndexedIndirectCommand's instanceCount in-place.
 
+#include "fjell_global_ubo.glsl"
+
 layout(local_size_x = 64) in;
 
 // Set 0: global UBO (view, projection — for frustum planes).
-layout(set = 0, binding = 0) uniform GlobalUbo {
-    mat4 view;
-    mat4 projection;
-    vec4 light_direction;
-    vec4 light_color;
-    vec4 camera_position;
-    vec4 ambient_color;
-    mat4 cascade_vp[3];
-    vec4 cascade_splits;
-    uvec4 tile_info;
-    mat4 inv_projection;
-} ubo;
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 // Set 1: pass-local buffers.
 struct InstancedDraw {
