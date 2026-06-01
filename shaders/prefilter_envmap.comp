@@ -1,5 +1,7 @@
 #version 460
 
+#include "fjell_common.glsl"
+
 // Prefilter environment cubemap for split-sum specular IBL.
 // Each mip level is convolved with the GGX NDF at a specific roughness.
 // Dispatched per-mip: (mip_size/8, mip_size/8, 6).
@@ -14,8 +16,6 @@ layout(push_constant) uniform PushConstants {
     float roughness;     // roughness for this mip (0 = mirror, 1 = fully rough)
     uint sample_count;
 };
-
-const float PI = 3.14159265359;
 
 vec3 cube_dir(uint face, vec2 uv) {
     vec2 st = uv * 2.0 - 1.0;

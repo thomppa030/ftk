@@ -1,5 +1,7 @@
 #version 460
 
+#include "fjell_common.glsl"
+
 // Convert equirectangular HDR map to cubemap faces.
 // Dispatched as (face_size/8, face_size/8, 6) — one face per Z.
 
@@ -11,8 +13,6 @@ layout(set = 0, binding = 1, rgba16f) uniform writeonly image2DArray cubemap_out
 layout(push_constant) uniform PushConstants {
     uint face_size;
 };
-
-const float PI = 3.14159265359;
 
 vec3 cube_dir(uint face, vec2 uv) {
     // Map [0,1] UV to [-1,1] and compute world direction for each face

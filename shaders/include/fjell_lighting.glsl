@@ -1,11 +1,12 @@
 #ifndef FJELL_LIGHTING_GLSL
 #define FJELL_LIGHTING_GLSL
 
+#include "fjell_renderer_constants.glsl"
+
 // ── Local light shadow sampling ────────────────────────────────────────
 // Requires: local_shadow_atlas (sampler2DShadow, binding 11)
 //           POISSON_DISK[] and random_rotation() from fjell_shadow.glsl
 
-const float LOCAL_SHADOW_ATLAS_SIZE = 8192.0; // must match renderer_constants.hpp
 const float POINT_SHADOW_NEAR = 0.1;          // must match LocalShadowPass
 
 float sample_spot_shadow(vec3 world_pos, GpuSpotLight light) {
@@ -24,18 +25,18 @@ float sample_spot_shadow(vec3 world_pos, GpuSpotLight light) {
     float compare = proj.z - bias;
 
     // PCF: 9-tap rotated Poisson disk
-    float texel = 1.0 / LOCAL_SHADOW_ATLAS_SIZE;
+    float texel = 1.0 / LOCAL_SHADOW_ATLAS_SIZE_F;
     float spread = 2.5 * texel * tile_size / 512.0; // scale filter with tile resolution
     mat2 rot = random_rotation(gl_FragCoord.xy);
 
     float shadow = 0.0;
     for (int i = 0; i < 9; ++i) {
         vec2 offset = rot * POISSON_DISK[i] * spread;
-        vec2 sample_uv = suv + offset / tile_size * LOCAL_SHADOW_ATLAS_SIZE;
+        vec2 sample_uv = suv + offset / tile_size * LOCAL_SHADOW_ATLAS_SIZE_F;
         // Clamp to tile bounds to avoid bleeding
         sample_uv = clamp(sample_uv, vec2(0.001), vec2(0.999));
         vec2 atlas_uv = (vec2(float(light.shadow_atlas_x), float(light.shadow_atlas_y))
-                        + sample_uv * tile_size) / LOCAL_SHADOW_ATLAS_SIZE;
+                        + sample_uv * tile_size) / LOCAL_SHADOW_ATLAS_SIZE_F;
         shadow += texture(local_shadow_atlas, vec3(atlas_uv, compare));
     }
     return shadow / 9.0;
@@ -95,7 +96,7 @@ float sample_point_shadow(vec3 world_pos, GpuPointLight light) {
     for (int i = 0; i < 9; ++i) {
         vec2 offset = rot * POISSON_DISK[i] * spread;
         vec2 uv = clamp(face_uv + offset, vec2(0.001), vec2(0.999));
-        vec2 atlas_uv = (tile_origin + uv * float(tile_size)) / LOCAL_SHADOW_ATLAS_SIZE;
+        vec2 atlas_uv = (tile_origin + uv * float(tile_size)) / LOCAL_SHADOW_ATLAS_SIZE_F;
         shadow += texture(local_shadow_atlas, vec3(atlas_uv, compare));
     }
     return shadow / 9.0;

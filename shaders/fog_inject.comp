@@ -5,6 +5,7 @@
 #include "fjell_common.glsl"
 #include "fjell_global_ubo.glsl"
 #include "fjell_gpu_types.glsl"
+#include "fjell_renderer_constants.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -60,7 +61,6 @@ float henyey_greenstein(float g, float cos_theta) {
 // ── Local light shadow sampling for volumetric ─────────────────────
 // 4-tap PCF with per-froxel jitter to reduce blockiness across frames.
 
-const float LOCAL_SHADOW_ATLAS_SIZE = 8192.0;
 const float POINT_SHADOW_NEAR = 0.1;
 
 // 4-tap offsets for cheap volumetric PCF
@@ -92,15 +92,15 @@ float sample_spot_shadow_vol(vec3 world_pos, GpuSpotLight light, mat2 rot) {
 
     float tile_size = float(light.shadow_tile_size);
     float compare = proj.z - 0.003;
-    float texel = 1.0 / LOCAL_SHADOW_ATLAS_SIZE;
+    float texel = 1.0 / LOCAL_SHADOW_ATLAS_SIZE_F;
     float spread = 2.0 * texel * tile_size / 1024.0;
 
     float shadow = 0.0;
     for (int i = 0; i < 4; ++i) {
         vec2 offset = rot * VOL_PCF[i] * spread;
-        vec2 sample_suv = clamp(suv + offset / tile_size * LOCAL_SHADOW_ATLAS_SIZE, vec2(0.001), vec2(0.999));
+        vec2 sample_suv = clamp(suv + offset / tile_size * LOCAL_SHADOW_ATLAS_SIZE_F, vec2(0.001), vec2(0.999));
         vec2 atlas_uv = (vec2(float(light.shadow_atlas_x), float(light.shadow_atlas_y))
-                        + sample_suv * tile_size) / LOCAL_SHADOW_ATLAS_SIZE;
+                        + sample_suv * tile_size) / LOCAL_SHADOW_ATLAS_SIZE_F;
         shadow += texture(local_shadow_atlas, vec3(atlas_uv, compare));
     }
     return shadow / 4.0;
@@ -150,7 +150,7 @@ float sample_point_shadow_vol(vec3 world_pos, GpuPointLight light, mat2 rot) {
     for (int i = 0; i < 4; ++i) {
         vec2 offset = rot * VOL_PCF[i] * spread;
         vec2 uv = clamp(face_uv + offset, vec2(0.001), vec2(0.999));
-        vec2 atlas_uv = (tile_origin + uv * float(tile_size)) / LOCAL_SHADOW_ATLAS_SIZE;
+        vec2 atlas_uv = (tile_origin + uv * float(tile_size)) / LOCAL_SHADOW_ATLAS_SIZE_F;
         shadow += texture(local_shadow_atlas, vec3(atlas_uv, compare));
     }
     return shadow / 4.0;

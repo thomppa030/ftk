@@ -1,7 +1,7 @@
 #ifndef FJELL_SHADOW_GLSL
 #define FJELL_SHADOW_GLSL
 
-const float SHADOW_MAP_SIZE = 4096.0; // must match ShadowPass::MAP_SIZE
+#include "fjell_renderer_constants.glsl"
 
 // 25-sample Poisson disk — well-distributed for wide PCF
 const vec2 POISSON_DISK[25] = vec2[](
@@ -50,7 +50,7 @@ float sample_shadow_pcss(vec3 world_pos, int cascade, float NdotL_for_bias, floa
     float cascade_far = ubo.cascade_splits[cascade];
     float t = clamp((view_depth - cascade_near) / (cascade_far - cascade_near), 0.0, 1.0);
     float texels = 2.5 + float(cascade) * 1.0 + t * 1.5;
-    float spread = texels / SHADOW_MAP_SIZE;
+    float spread = texels / SHADOW_MAP_SIZE_F;
 
     // Rotate Poisson disk per-pixel to break up staircase aliasing
     mat2 rot = random_rotation(gl_FragCoord.xy);

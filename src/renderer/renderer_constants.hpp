@@ -6,11 +6,11 @@ namespace fjell {
 
 static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 3;
 
-// Must match GLSL constants in mesh.frag, light_cull.comp, light_heatmap.frag
+// Shader-visible constants are mirrored into fjell_renderer_constants.glsl
+// by cmake/GenerateShaderConstants.cmake — update here and reconfigure.
 static constexpr uint32_t MAX_LIGHTS_PER_TILE = 256;
 static constexpr uint32_t LIGHT_TILE_SIZE = 16;
 static constexpr uint32_t MAX_TILES = 16384;
-static constexpr uint32_t SHADOW_MAP_SIZE = 2048;
 static constexpr uint32_t MAX_PIPELINE_BINS = 16;
 
 // Local light shadow atlas

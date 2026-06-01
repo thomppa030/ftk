@@ -4,6 +4,7 @@
 #include "include/fjell_common.glsl"
 #include "include/fjell_global_ubo.glsl"
 #include "include/fjell_gpu_types.glsl"
+#include "include/fjell_renderer_constants.glsl"
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
@@ -20,8 +21,6 @@ layout(set = 0, binding = 2) readonly buffer LightBuffer {
     GpuPointLight point_lights[1024];
     GpuSpotLight spot_lights[1024];
 };
-
-const uint MAX_LIGHTS_PER_TILE = 256;
 
 layout(set = 0, binding = 3) readonly buffer TileLightIndexBuffer {
     uint tile_data[];
