@@ -8,6 +8,7 @@ FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 #include "fjell_draw_data.glsl"
 #include "fjell_meshlet.glsl"
+#include "fjell_cull.glsl"
 
 layout(set = 1, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
@@ -66,102 +67,12 @@ layout(push_constant) uniform PushConstants {
 
 shared vec4 shared_planes[6];
 
-void extract_frustum() {
-    mat4 vp = ubo.projection * ubo.view;
-
-    shared_planes[0] = vec4(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0],
-                            vp[2][3] + vp[2][0], vp[3][3] + vp[3][0]);
-    shared_planes[1] = vec4(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0],
-                            vp[2][3] - vp[2][0], vp[3][3] - vp[3][0]);
-    shared_planes[2] = vec4(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1],
-                            vp[2][3] + vp[2][1], vp[3][3] + vp[3][1]);
-    shared_planes[3] = vec4(vp[0][3] - vp[0][1], vp[1][3] - vp[1][1],
-                            vp[2][3] - vp[2][1], vp[3][3] - vp[3][1]);
-    shared_planes[4] = vec4(vp[0][3] + vp[0][2], vp[1][3] + vp[1][2],
-                            vp[2][3] + vp[2][2], vp[3][3] + vp[3][2]);
-    shared_planes[5] = vec4(vp[0][3] - vp[0][2], vp[1][3] - vp[1][2],
-                            vp[2][3] - vp[2][2], vp[3][3] - vp[3][2]);
-
-    for (int i = 0; i < 6; ++i) {
-        float len = length(shared_planes[i].xyz);
-        shared_planes[i] /= len;
-    }
-}
-
-bool sphere_frustum_test(vec3 center, float radius) {
-    for (int i = 0; i < 6; ++i) {
-        if (dot(shared_planes[i].xyz, center) + shared_planes[i].w < -radius) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool cone_cull(MeshletBounds b, mat4 model, vec3 camera_pos) {
-    float cutoff = b.cone_axis_cutoff.w;
-    // cutoff >= 1 means the cone is degenerate (normals span > 180°), skip
-    if (cutoff >= 1.0) return false;
-
-    // Transform cone apex and axis to world space
-    vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
-    vec3 axis = normalize(mat3(model) * b.cone_axis_cutoff.xyz);
-
-    // meshoptimizer perspective formula:
-    // dot(normalize(cone_apex - camera_position), cone_axis) >= cone_cutoff
-    return dot(normalize(apex - camera_pos), axis) >= cutoff;
-}
-
-bool occlusion_cull(vec3 center, float radius) {
-    if (hiz_mip_count == 0) return false;
-
-    // Project sphere center to clip space
-    vec4 clip = ubo.projection * ubo.view * vec4(center, 1.0);
-    if (clip.w <= 0.0) return false; // behind camera
-
-    vec3 ndc = clip.xyz / clip.w;
-
-    // Screen-space radius (pixels) using vertical projection scale
-    float screen_radius = (radius * abs(ubo.projection[1][1]) / clip.w)
-                          * float(viewport_height) * 0.5;
-
-    // UV-space AABB of the projected sphere
-    vec2 uv_center = ndc.xy * 0.5 + 0.5;
-    vec2 uv_extent = vec2(screen_radius / float(viewport_width),
-                          screen_radius / float(viewport_height));
-
-    vec2 uv_min = uv_center - uv_extent;
-    vec2 uv_max = uv_center + uv_extent;
-
-    // If sphere projects partially outside screen, don't cull (conservative)
-    if (uv_max.x < 0.0 || uv_min.x > 1.0 || uv_max.y < 0.0 || uv_min.y > 1.0)
-        return false;
-
-    uv_min = clamp(uv_min, vec2(0.0), vec2(1.0));
-    uv_max = clamp(uv_max, vec2(0.0), vec2(1.0));
-
-    // Pick mip where the sphere covers ~1 texel.
-    // Hi-Z mip 0 = half-res, so shift by 1.
-    float diameter = max(screen_radius * 2.0, 1.0);
-    float mip = ceil(log2(diameter)) - 1.0;
-    mip = clamp(mip, 0.0, float(hiz_mip_count - 1));
-
-    // Sample Hi-Z at 4 corners of the sphere's screen AABB (conservative max)
-    float d0 = textureLod(hiz_pyramid, uv_min, mip).r;
-    float d1 = textureLod(hiz_pyramid, vec2(uv_max.x, uv_min.y), mip).r;
-    float d2 = textureLod(hiz_pyramid, vec2(uv_min.x, uv_max.y), mip).r;
-    float d3 = textureLod(hiz_pyramid, uv_max, mip).r;
-    float max_depth = max(max(d0, d1), max(d2, d3));
-
-    // Sphere's nearest depth (conservative: center depth minus radius contribution)
-    float sphere_near_z = ndc.z;
-
-    // Occluded if the sphere's nearest point is behind the farthest occluder in the tile
-    return sphere_near_z > max_depth;
-}
-
 void main() {
     if (gl_LocalInvocationIndex == 0) {
-        extract_frustum();
+        mat4 vp = ubo.projection * ubo.view;
+        for (int i = 0; i < 6; ++i) {
+            shared_planes[i] = cull_frustum_plane(vp, i);
+        }
     }
     barrier();
 
@@ -180,14 +91,21 @@ void main() {
     vec3 scale = vec3(length(model[0].xyz), length(model[1].xyz), length(model[2].xyz));
     float radius = b.bounding_sphere.w * max(scale.x, max(scale.y, scale.z));
 
-    bool frustum_visible = sphere_frustum_test(center, radius);
+    vec4 planes[6];
+    for (int i = 0; i < 6; ++i) planes[i] = shared_planes[i];
+    bool frustum_visible = cull_sphere_frustum(planes, center, radius);
+
+    vec2 viewport = vec2(float(viewport_width), float(viewport_height));
+    vec3 camera_pos = ubo.camera_position.xyz;
 
     if (is_second_pass == 0) {
         // First pass: frustum + cone + occlusion against previous frame's Hi-Z
         if (!frustum_visible) return;
-        if (cone_cull(b, model, ubo.camera_position.xyz)) return;
+        if (cull_cone(b.cone_apex.xyz, b.cone_axis_cutoff.xyz, b.cone_axis_cutoff.w,
+                      model, camera_pos)) return;
 
-        bool occluded = occlusion_cull(center, radius);
+        bool occluded = cull_hiz_sphere(center, radius, ubo.view, ubo.projection,
+                                        camera_pos, viewport, int(hiz_mip_count), hiz_pyramid);
         if (occluded) {
             // Save to culled buffer for second pass retry
             uint culled_slot = atomicAdd(culled_count, 1);
@@ -197,7 +115,8 @@ void main() {
     } else {
         // Second pass: skip frustum/cone (already passed in first pass),
         // test only against the new Hi-Z pyramid
-        bool occluded = occlusion_cull(center, radius);
+        bool occluded = cull_hiz_sphere(center, radius, ubo.view, ubo.projection,
+                                        camera_pos, viewport, int(hiz_mip_count), hiz_pyramid);
         if (occluded) return;
     }
 

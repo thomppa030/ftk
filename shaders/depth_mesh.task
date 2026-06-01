@@ -35,27 +35,6 @@ struct TaskPayload {
 
 taskPayloadSharedEXT TaskPayload payload;
 
-// Frustum test: 6 planes from VP matrix
-bool frustum_test(vec4 sphere, mat4 mvp) {
-    vec4 center = vec4(sphere.xyz, 1.0);
-    float radius = sphere.w;
-
-    // Extract frustum planes from MVP matrix
-    vec4 planes[6];
-    planes[0] = mvp[3] + mvp[0]; // left
-    planes[1] = mvp[3] - mvp[0]; // right
-    planes[2] = mvp[3] + mvp[1]; // bottom
-    planes[3] = mvp[3] - mvp[1]; // top
-    planes[4] = mvp[3] + mvp[2]; // near
-    planes[5] = mvp[3] - mvp[2]; // far
-
-    for (int i = 0; i < 6; ++i) {
-        float d = dot(planes[i].xyz, center.xyz) + planes[i].w;
-        if (d < -radius * length(planes[i].xyz)) return false;
-    }
-    return true;
-}
-
 void main() {
     uint draw_idx = push.first_draw + gl_DrawID;
     DrawData dd = draws[draw_idx];

@@ -10,6 +10,7 @@ FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 #include "fjell_draw_data.glsl"
 #include "fjell_meshlet.glsl"
+#include "fjell_cull.glsl"
 
 layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
@@ -66,18 +67,6 @@ uint get_triangle_index(uint meshlet_tri_offset, uint local_tri, uint vertex_in_
     return (word >> (byte_in_word * 8)) & 0xFF;
 }
 
-// Evaluate cone cull test — must match meshlet_cull.comp exactly
-bool would_cone_cull(uint meshlet_idx, mat4 model) {
-    MeshletBounds b = bounds[meshlet_idx];
-    float cutoff = b.cone_axis_cutoff.w;
-    if (cutoff >= 1.0) return false;
-
-    vec3 apex = (model * vec4(b.cone_apex.xyz, 1.0)).xyz;
-    vec3 axis = normalize(mat3(model) * b.cone_axis_cutoff.xyz);
-    vec3 camera_pos = ubo.camera_position.xyz;
-
-    return dot(normalize(apex - camera_pos), axis) >= cutoff;
-}
 
 layout(location = 0) out vec3 frag_color[];
 layout(location = 1) out vec3 frag_world_normal[];
@@ -94,7 +83,9 @@ void main() {
     mat3 normal_matrix = transpose(inverse(mat3(model)));
 
     // Evaluate cone cull from current camera position
-    bool culled = would_cone_cull(meshlet_idx, model);
+    MeshletBounds b_for_cull = bounds[meshlet_idx];
+    bool culled = cull_cone(b_for_cull.cone_apex.xyz, b_for_cull.cone_axis_cutoff.xyz,
+                            b_for_cull.cone_axis_cutoff.w, model, ubo.camera_position.xyz);
 
     // Green = visible (not culled), red = would be cone-culled
     vec3 color = culled ? vec3(0.9, 0.15, 0.1) : vec3(0.2, 0.8, 0.3);

@@ -10,6 +10,7 @@
 // matching VkDrawIndexedIndirectCommand's instanceCount in-place.
 
 #include "fjell_global_ubo.glsl"
+#include "fjell_cull.glsl"
 
 layout(local_size_x = 64) in;
 
@@ -53,17 +54,10 @@ void main() {
     uint draw_id = gl_WorkGroupID.x;
     InstancedDraw d = draws[draw_id];
 
-    // Extract frustum planes from the view-projection (world space)
     mat4 vp = ubo.projection * ubo.view;
     vec4 planes[6];
-    planes[0] = vec4(vp[0][3] + vp[0][0], vp[1][3] + vp[1][0], vp[2][3] + vp[2][0], vp[3][3] + vp[3][0]);
-    planes[1] = vec4(vp[0][3] - vp[0][0], vp[1][3] - vp[1][0], vp[2][3] - vp[2][0], vp[3][3] - vp[3][0]);
-    planes[2] = vec4(vp[0][3] + vp[0][1], vp[1][3] + vp[1][1], vp[2][3] + vp[2][1], vp[3][3] + vp[3][1]);
-    planes[3] = vec4(vp[0][3] - vp[0][1], vp[1][3] - vp[1][1], vp[2][3] - vp[2][1], vp[3][3] - vp[3][1]);
-    planes[4] = vec4(vp[0][3] + vp[0][2], vp[1][3] + vp[1][2], vp[2][3] + vp[2][2], vp[3][3] + vp[3][2]);
-    planes[5] = vec4(vp[0][3] - vp[0][2], vp[1][3] - vp[1][2], vp[2][3] - vp[2][2], vp[3][3] - vp[3][2]);
     for (int i = 0; i < 6; ++i) {
-        planes[i] /= length(planes[i].xyz);
+        planes[i] = cull_frustum_plane(vp, i);
     }
 
     if (gl_LocalInvocationIndex == 0) {
@@ -87,26 +81,7 @@ void main() {
         mat4 m;
         if (in_range) {
             m = instance_transforms[d.first_instance + inst_id];
-
-            vec3 local_center = (d.local_aabb_min.xyz + d.local_aabb_max.xyz) * 0.5;
-            vec3 local_extent = (d.local_aabb_max.xyz - d.local_aabb_min.xyz) * 0.5;
-
-            vec3 world_center = (m * vec4(local_center, 1.0)).xyz;
-            mat3 abs_rot = mat3(
-                abs(m[0].xyz), abs(m[1].xyz), abs(m[2].xyz));
-            vec3 world_extent = abs_rot * local_extent;
-
-            vec3 world_min = world_center - world_extent;
-            vec3 world_max = world_center + world_extent;
-
-            visible = true;
-            for (int p = 0; p < 6; ++p) {
-                vec3 positive = mix(world_min, world_max, greaterThanEqual(planes[p].xyz, vec3(0.0)));
-                if (dot(planes[p].xyz, positive) + planes[p].w < 0.0) {
-                    visible = false;
-                    break;
-                }
-            }
+            visible = cull_obb_frustum(planes, d.local_aabb_min.xyz, d.local_aabb_max.xyz, m);
         }
 
         // Subgroup-level compaction via ballot + exclusive bit count.
