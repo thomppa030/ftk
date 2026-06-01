@@ -6,8 +6,14 @@
 
 namespace fjell {
 
-MeshletBuildResult build_meshlets(const Vertex* vertices, uint32_t vertex_count,
-                                  const uint32_t* indices, uint32_t index_count) {
+namespace {
+
+// Shared implementation — meshopt only needs a pointer to the first
+// position and the stride to walk the vertex array, so the same code
+// handles static (Vertex) and skinned (SkinnedVertex) layouts.
+MeshletBuildResult build_meshlets_impl(const float* positions, uint32_t vertex_count,
+                                       size_t vertex_stride,
+                                       const uint32_t* indices, uint32_t index_count) {
     MeshletBuildResult result;
     if (index_count == 0) return result;
 
@@ -20,7 +26,7 @@ MeshletBuildResult build_meshlets(const Vertex* vertices, uint32_t vertex_count,
     size_t meshlet_count = meshopt_buildMeshlets(
         mo_meshlets.data(), mo_vertices.data(), mo_triangles.data(),
         indices, index_count,
-        &vertices[0].position.x, vertex_count, sizeof(Vertex),
+        positions, vertex_count, vertex_stride,
         MAX_MESHLET_VERTICES, MAX_MESHLET_TRIANGLES,
         0.5f); // cone_weight: balance cluster size vs cone culling efficiency
 
@@ -32,20 +38,17 @@ MeshletBuildResult build_meshlets(const Vertex* vertices, uint32_t vertex_count,
     for (size_t i = 0; i < meshlet_count; ++i) {
         const auto& mo = mo_meshlets[i];
 
-        // Compute bounds using meshoptimizer
         auto mb = meshopt_computeMeshletBounds(
             &mo_vertices[mo.vertex_offset],
             &mo_triangles[mo.triangle_offset],
             mo.triangle_count,
-            &vertices[0].position.x, vertex_count, sizeof(Vertex));
+            positions, vertex_count, vertex_stride);
 
-        // Copy vertex indices
         uint32_t vert_base = static_cast<uint32_t>(result.meshlet_vertices.size());
         for (uint32_t v = 0; v < mo.vertex_count; ++v) {
             result.meshlet_vertices.push_back(mo_vertices[mo.vertex_offset + v]);
         }
 
-        // Copy triangle indices (already 3 bytes per triangle)
         uint32_t tri_base = static_cast<uint32_t>(result.meshlet_triangles.size());
         for (uint32_t t = 0; t < mo.triangle_count * 3; ++t) {
             result.meshlet_triangles.push_back(mo_triangles[mo.triangle_offset + t]);
@@ -70,6 +73,20 @@ MeshletBuildResult build_meshlets(const Vertex* vertices, uint32_t vertex_count,
                     meshlet_count, index_count / 3);
 
     return result;
+}
+
+} // namespace
+
+MeshletBuildResult build_meshlets(const Vertex* vertices, uint32_t vertex_count,
+                                  const uint32_t* indices, uint32_t index_count) {
+    return build_meshlets_impl(&vertices[0].position.x, vertex_count, sizeof(Vertex),
+                               indices, index_count);
+}
+
+MeshletBuildResult build_meshlets(const SkinnedVertex* vertices, uint32_t vertex_count,
+                                  const uint32_t* indices, uint32_t index_count) {
+    return build_meshlets_impl(&vertices[0].position.x, vertex_count, sizeof(SkinnedVertex),
+                               indices, index_count);
 }
 
 } // namespace fjell

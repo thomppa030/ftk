@@ -3,6 +3,7 @@
 #include "animation/skeleton.hpp"
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/frustum.hpp"
+#include "renderer/resources/meshlet.hpp"
 #include "renderer/resources/vertex.hpp"
 
 #include <glm/glm.hpp>
@@ -48,6 +49,12 @@ public:
     [[nodiscard]] const AABB& local_aabb() const { return local_aabb_; }
     [[nodiscard]] float bounding_radius() const { return bounding_radius_; }
 
+    // CPU-side meshlet build for the GPU-driven skinned mesh-shader path.
+    // One MeshletBuildResult covers the whole mesh (single LOD for now;
+    // skinned LOD chains would need a per-LOD bone-weight remap that
+    // hasn't been built yet).
+    [[nodiscard]] const MeshletBuildResult& meshlets() const { return meshlets_; }
+
     // Embedded skeleton (non-null when loaded from .fjskel).
     [[nodiscard]] const Skeleton* skeleton() const { return skeleton_.get(); }
     [[nodiscard]] const std::shared_ptr<Skeleton>& skeleton_shared() const { return skeleton_; }
@@ -69,6 +76,7 @@ private:
     std::vector<glm::vec3> collision_vertices_;
     std::vector<uint32_t> collision_indices_;
     std::shared_ptr<Skeleton> skeleton_;
+    MeshletBuildResult meshlets_;
 };
 
 } // namespace fjell

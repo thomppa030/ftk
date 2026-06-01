@@ -29,6 +29,16 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, VkDevice device,
     glm::vec3 center = (local_aabb_.min + local_aabb_.max) * 0.5f;
     bounding_radius_ = glm::length(local_aabb_.max - center);
 
+    // Build meshlets for the GPU-driven mesh-shader path. meshopt only
+    // walks position + stride so it handles SkinnedVertex the same as
+    // the static Vertex type.
+    if (!data.vertices.empty() && !data.indices.empty()) {
+        meshlets_ = build_meshlets(data.vertices.data(),
+                                   static_cast<uint32_t>(data.vertices.size()),
+                                   data.indices.data(),
+                                   static_cast<uint32_t>(data.indices.size()));
+    }
+
     // Build embedded skeleton from joint data if present
     if (!data.joints.empty()) {
         auto skel_result = Skeleton::from_joints(data.joints);

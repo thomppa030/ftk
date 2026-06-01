@@ -8,6 +8,7 @@
 namespace fjell {
 
 struct Vertex;
+struct SkinnedVertex;
 
 struct Meshlet {
     uint32_t vertex_offset;     // into meshlet_vertices[]
@@ -33,6 +34,9 @@ static constexpr uint32_t MAX_MESHLET_VERTICES = 64;
 static constexpr uint32_t MAX_MESHLET_TRIANGLES = 124;
 
 MeshletBuildResult build_meshlets(const Vertex* vertices, uint32_t vertex_count,
+                                  const uint32_t* indices, uint32_t index_count);
+
+MeshletBuildResult build_meshlets(const SkinnedVertex* vertices, uint32_t vertex_count,
                                   const uint32_t* indices, uint32_t index_count);
 
 } // namespace fjell
