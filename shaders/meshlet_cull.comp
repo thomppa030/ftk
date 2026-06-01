@@ -7,16 +7,10 @@ layout(local_size_x = 64) in;
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 #include "fjell_draw_data.glsl"
+#include "fjell_meshlet.glsl"
 
 layout(set = 1, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
-};
-
-struct MeshletInstance {
-    uint meshlet_index;
-    uint draw_index;
-    uint instance_index;
-    uint _pad;
 };
 
 layout(set = 1, binding = 1) readonly buffer InputInstances {
@@ -39,12 +33,6 @@ layout(set = 1, binding = 3) writeonly buffer OutputInstances {
 // Per-bin indirect dispatch commands: [groupCountX, groupCountY, groupCountZ] * N
 layout(set = 1, binding = 4) buffer OutputCmds {
     uint cmds[];
-};
-
-struct MeshletBounds {
-    vec4 bounding_sphere; // xyz = center (local space), w = radius
-    vec4 cone_apex;       // xyz = cone apex (local space)
-    vec4 cone_axis_cutoff; // xyz = axis, w = cutoff (cos half-angle)
 };
 
 layout(set = 1, binding = 5) readonly buffer BoundsBuffer {

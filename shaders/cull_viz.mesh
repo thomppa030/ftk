@@ -9,6 +9,7 @@ layout(triangles, max_vertices = 64, max_primitives = 124) out;
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 #include "fjell_draw_data.glsl"
+#include "fjell_meshlet.glsl"
 
 layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
@@ -16,21 +17,8 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
 
 #include "fjell_instance_transforms.glsl"
 
-struct Meshlet {
-    uint vertex_offset;
-    uint triangle_offset;
-    uint vertex_count;
-    uint triangle_count;
-};
-
 layout(set = 3, binding = 0) readonly buffer MeshletBuffer {
     Meshlet meshlets[];
-};
-
-struct MeshletBounds {
-    vec4 bounding_sphere; // xyz = center, w = radius
-    vec4 cone_apex;       // xyz = apex
-    vec4 cone_axis_cutoff; // xyz = axis, w = cutoff (cos half-angle)
 };
 
 layout(set = 3, binding = 1) readonly buffer BoundsBuffer {
@@ -48,8 +36,6 @@ layout(set = 3, binding = 3) readonly buffer MeshletTriangleBuffer {
 layout(set = 3, binding = 4) readonly buffer VertexBuffer {
     float vertex_data[];
 };
-
-const uint VERTEX_STRIDE = 15;
 
 vec3 fetch_position(uint vi) {
     uint b = vi * VERTEX_STRIDE;

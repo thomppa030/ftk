@@ -1,14 +1,9 @@
 #version 460
 #extension GL_EXT_mesh_shader : require
 
-layout(local_size_x = 1) in;
+#include "fjell_meshlet.glsl"
 
-struct MeshletInstance {
-    uint meshlet_index;
-    uint draw_index;
-    uint instance_index;
-    uint _pad;
-};
+layout(local_size_x = 1) in;
 
 layout(set = 3, binding = 5) readonly buffer VisibleInstances {
     MeshletInstance visible[];

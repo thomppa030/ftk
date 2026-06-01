@@ -9,22 +9,10 @@ layout(local_size_x = 32) in;
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 #include "fjell_draw_data.glsl"
+#include "fjell_meshlet.glsl"
 
 layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
-};
-
-struct Meshlet {
-    uint vertex_offset;
-    uint triangle_offset;
-    uint vertex_count;
-    uint triangle_count;
-};
-
-struct MeshletBounds {
-    vec4 bounding_sphere;
-    vec4 cone_apex;
-    vec4 cone_axis_cutoff;
 };
 
 layout(set = 3, binding = 0) readonly buffer MeshletBuffer {

@@ -3,6 +3,7 @@
 
 #include "fjell_global_ubo.glsl"
 #include "fjell_gpu_types.glsl"
+#include "fjell_meshlet.glsl"
 
 layout(local_size_x = 64) in;
 layout(triangles, max_vertices = 64, max_primitives = 124) out;
@@ -25,13 +26,6 @@ layout(set = 2, binding = 0) readonly buffer DrawDataBuffer {
 
 #include "fjell_instance_transforms.glsl"
 
-struct Meshlet {
-    uint vertex_offset;
-    uint triangle_offset;
-    uint vertex_count;
-    uint triangle_count;
-};
-
 layout(set = 3, binding = 0) readonly buffer MeshletBuffer {
     Meshlet meshlets[];
 };
@@ -49,7 +43,6 @@ layout(set = 3, binding = 4) readonly buffer VertexBuffer {
     float vertex_data[];
 };
 
-const uint VERTEX_STRIDE = 15; // 60 bytes / 4 = 15 floats
 // Layout: position(3) + color(3) + tex_coord(2) + normal(3) + tangent(4)
 
 vec3 fetch_position(uint vi) {

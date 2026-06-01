@@ -3,16 +3,10 @@
 layout(local_size_x = 64) in;
 
 #include "fjell_draw_data.glsl"
+#include "fjell_meshlet.glsl"
 
 layout(set = 0, binding = 0) readonly buffer DrawDataBuffer {
     DrawData draws[];
-};
-
-struct MeshletInstance {
-    uint meshlet_index;
-    uint draw_index;
-    uint instance_index;
-    uint _pad;
 };
 
 layout(set = 0, binding = 1) writeonly buffer InstanceBuffer {
