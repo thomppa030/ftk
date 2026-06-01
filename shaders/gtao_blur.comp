@@ -1,12 +1,11 @@
 #version 460
 
-// Depth-aware bilateral blur for GT-VBAO.
-// Separable: run twice with direction=0 (horizontal) and direction=1 (vertical).
-//
-// TODO: this is a depth-only bilateral. Concave corners (depth-continuous,
-// normal-discontinuous) still bleed AO across the seam. Wiring in the
-// framegraph "normal" image and adding a normal-similarity weight here is
-// the proper fix.
+// Cross-bilateral blur for GT-VBAO. Separable — run twice with direction=0
+// (horizontal) and direction=1 (vertical). Edge weight combines a depth
+// difference and a normal similarity term so concave corners (depth-
+// continuous, normal-discontinuous) don't bleed AO across the seam.
+
+#include "fjell_common.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -16,6 +15,7 @@ layout(set = 0, binding = 4) uniform sampler2D depth_texture;
 // Per-pass set (set 1)
 layout(set = 1, binding = 0, r8) uniform writeonly image2D blur_output;
 layout(set = 1, binding = 1) uniform sampler2D ao_input;
+layout(set = 1, binding = 2) uniform sampler2D normal_texture;
 
 layout(push_constant) uniform PushConstants {
     uvec2 viewport_size;      // half-res (AO image dimensions)
@@ -39,17 +39,24 @@ const float weights[4] = float[](
     0.0540540541   // +/- 3
 );
 
+// Reject below this dot(N, N_sample). Anything sharper than ~25° gets
+// progressively suppressed.
+const float NORMAL_SIMILARITY_FLOOR = 0.9;
+
 void main() {
     ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
     if (coord.x >= int(viewport_size.x) || coord.y >= int(viewport_size.y)) return;
 
-    float center_depth = texelFetch(depth_texture, to_full_res(coord), 0).r;
+    ivec2 full_coord = to_full_res(coord);
+    float center_depth = texelFetch(depth_texture, full_coord, 0).r;
     float center_ao = texelFetch(ao_input, coord, 0).r;
 
     if (center_depth >= 1.0) {
         imageStore(blur_output, coord, vec4(1.0));
         return;
     }
+
+    vec3 center_normal = oct_decode(texelFetch(normal_texture, full_coord, 0).rg);
 
     float total_ao = center_ao * weights[0];
     float total_weight = weights[0];
@@ -64,15 +71,24 @@ void main() {
             if (sample_coord.x < 0 || sample_coord.x >= int(viewport_size.x) ||
                 sample_coord.y < 0 || sample_coord.y >= int(viewport_size.y)) continue;
 
-            float sample_depth = texelFetch(depth_texture, to_full_res(sample_coord), 0).r;
+            ivec2 sample_full = to_full_res(sample_coord);
+            float sample_depth = texelFetch(depth_texture, sample_full, 0).r;
 
             // Depth-aware rejection: skip samples across depth discontinuities
             float depth_diff = abs(center_depth - sample_depth);
             if (depth_diff > depth_threshold) continue;
 
+            // Normal similarity: smoothstep from FLOOR..1 so concave corners
+            // (where the same depth meets a different surface normal) get
+            // softly down-weighted instead of bleeding AO across the seam.
+            vec3 sample_normal = oct_decode(texelFetch(normal_texture, sample_full, 0).rg);
+            float nd = max(dot(center_normal, sample_normal), 0.0);
+            float normal_weight = smoothstep(NORMAL_SIMILARITY_FLOOR, 1.0, nd);
+            if (normal_weight <= 0.0) continue;
+
             float sample_ao = texelFetch(ao_input, sample_coord, 0).r;
 
-            float w = weights[i];
+            float w = weights[i] * normal_weight;
             total_ao += sample_ao * w;
             total_weight += w;
         }

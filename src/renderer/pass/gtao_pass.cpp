@@ -233,8 +233,10 @@ Result<> AoPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create AO sampler");
     }
 
-    // Blur descriptor set: binding 0 = storage output, binding 1 = sampled input.
-    std::array<VkDescriptorSetLayoutBinding, 2> bindings{};
+    // Blur descriptor set: binding 0 = storage output, binding 1 = sampled
+    // input AO, binding 2 = sampled normal (oct-encoded R16G16) for the
+    // cross-bilateral weight.
+    std::array<VkDescriptorSetLayoutBinding, 3> bindings{};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].descriptorCount = 1;
@@ -243,6 +245,10 @@ Result<> AoPass::create(Device& device, const PassResources& resources) {
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     bindings[1].descriptorCount = 1;
     bindings[1].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo set_ci{};
     set_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -537,6 +543,9 @@ void AoBlurHPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto ao = builder.import_named(ctx, "gtao_ao");
     builder.read(ao, ResourceAccess::sampled_compute);
 
+    auto normal = builder.import_named(ctx, "normal");
+    builder.read(normal, ResourceAccess::sampled_compute);
+
     TextureDesc blur_desc{};
     blur_desc.format = VK_FORMAT_R8_UNORM;
     blur_desc.size_class = SizeClass::viewport;
@@ -567,7 +576,10 @@ void AoBlurHPass::record(const FrameContext& ctx) {
     uint32_t groups_x = (half_w + TILE_SIZE - 1) / TILE_SIZE;
     uint32_t groups_y = (half_h + TILE_SIZE - 1) / TILE_SIZE;
 
-    std::array<FrameCacheBinding, 2> bindings{};
+    auto normal_view = ctx.target ? ctx.target->normal_view() : VK_NULL_HANDLE;
+    if (normal_view == VK_NULL_HANDLE) { return; }
+
+    std::array<FrameCacheBinding, 3> bindings{};
     bindings[0].binding = 0;
     bindings[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].image.imageView = blur_res->view;
@@ -577,6 +589,11 @@ void AoBlurHPass::record(const FrameContext& ctx) {
     bindings[1].image.sampler = owner_->ao_sampler();
     bindings[1].image.imageView = g.ao_view;
     bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    bindings[2].binding = 2;
+    bindings[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].image.sampler = owner_->ao_sampler();
+    bindings[2].image.imageView = normal_view;
+    bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorSet set = ctx.descriptor_cache->acquire(owner_->blur_set_layout(), bindings);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, owner_->blur_pipeline());
@@ -631,6 +648,9 @@ void AoBlurVPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto blur = builder.create("gtao_blur", blur_desc);
     builder.read(blur, ResourceAccess::sampled_compute);
 
+    auto normal = builder.import_named(ctx, "normal");
+    builder.read(normal, ResourceAccess::sampled_compute);
+
     auto ao = builder.import_named(ctx, "gtao_ao");
     builder.write(ao, ResourceAccess::storage_write_compute);
     // blur_v is the last node to touch ao — claim the final SHADER_READ
@@ -665,7 +685,10 @@ void AoBlurVPass::record(const FrameContext& ctx) {
     uint32_t groups_x = (half_w + TILE_SIZE - 1) / TILE_SIZE;
     uint32_t groups_y = (half_h + TILE_SIZE - 1) / TILE_SIZE;
 
-    std::array<FrameCacheBinding, 2> bindings{};
+    auto normal_view = ctx.target ? ctx.target->normal_view() : VK_NULL_HANDLE;
+    if (normal_view == VK_NULL_HANDLE) { return; }
+
+    std::array<FrameCacheBinding, 3> bindings{};
     bindings[0].binding = 0;
     bindings[0].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[0].image.imageView = g.ao_view;
@@ -675,6 +698,11 @@ void AoBlurVPass::record(const FrameContext& ctx) {
     bindings[1].image.sampler = owner_->ao_sampler();
     bindings[1].image.imageView = blur_res->view;
     bindings[1].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    bindings[2].binding = 2;
+    bindings[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[2].image.sampler = owner_->ao_sampler();
+    bindings[2].image.imageView = normal_view;
+    bindings[2].image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VkDescriptorSet set = ctx.descriptor_cache->acquire(owner_->blur_set_layout(), bindings);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, owner_->blur_pipeline());
