@@ -861,6 +861,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.inv_projection = glm::inverse(jittered_projection);
     ubo.inv_view_proj = glm::inverse(jittered_projection * view);
     ubo.prev_view_proj = gatherer_.prev_view_proj();
+    ubo.prev_view = gatherer_.prev_view();
     ubo.time = elapsed_time_;
 
     gpu_.uniform_buffer(frame_index).write(&ubo, sizeof(ubo));

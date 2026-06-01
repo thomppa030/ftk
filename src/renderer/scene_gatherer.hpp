@@ -56,6 +56,7 @@ public:
     [[nodiscard]] const glm::mat4& view_matrix() const { return view_matrix_; }
     [[nodiscard]] const glm::mat4& projection_matrix() const { return projection_matrix_; }
     [[nodiscard]] const glm::mat4& prev_view_proj() const { return prev_view_proj_; }
+    [[nodiscard]] const glm::mat4& prev_view() const { return prev_view_; }
 
     void set_camera_state(const glm::vec3& pos, const glm::mat4& view,
                           const glm::mat4& projection) {
@@ -66,6 +67,7 @@ public:
 
     void update_prev_view_proj() {
         prev_view_proj_ = projection_matrix_ * view_matrix_;
+        prev_view_ = view_matrix_;
     }
 
 private:
@@ -74,6 +76,7 @@ private:
     glm::mat4 view_matrix_{1.0f};
     glm::mat4 projection_matrix_{1.0f};
     glm::mat4 prev_view_proj_{1.0f};
+    glm::mat4 prev_view_{1.0f};
 
     std::unique_ptr<IndirectBatch> indirect_batch_;
     DrawDataDescriptor draw_data_descriptor_;

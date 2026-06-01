@@ -19,6 +19,7 @@ layout(set = SET, binding = BIND) uniform GlobalUbo {                          \
     mat4 prev_view_proj;                                                       \
     mat4 unjittered_vp;                                                        \
     mat4 prev_unjittered_vp;                                                   \
+    mat4 prev_view;                                                            \
     float time;                                                                \
     float gi_intensity;                                                        \
     float jitter_x;                                                            \
