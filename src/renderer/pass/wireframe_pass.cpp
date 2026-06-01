@@ -100,7 +100,7 @@ Result<> WireframePass::create(Device& device, const PassResources& resources) {
     VkDescriptorSetLayout set_layout = resources.global_set_layout;
 
     VkPushConstantRange push_range{};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     push_range.offset = 0;
     push_range.size = sizeof(glm::mat4);
 
