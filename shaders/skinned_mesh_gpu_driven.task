@@ -1,0 +1,31 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+#include "fjell_meshlet.glsl"
+
+layout(local_size_x = 1) in;
+
+layout(set = 3, binding = 5) readonly buffer VisibleInstances {
+    MeshletInstance visible[];
+};
+
+layout(push_constant) uniform PushConstants {
+    uint bin_base_offset;
+} push;
+
+struct TaskPayload {
+    uint draw_index;
+    uint meshlet_index;
+    uint instance_index;
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+void main() {
+    uint instance_id = push.bin_base_offset + gl_WorkGroupID.x;
+    MeshletInstance inst = visible[instance_id];
+    payload.draw_index = inst.draw_index;
+    payload.meshlet_index = inst.meshlet_index;
+    payload.instance_index = inst.instance_index;
+    EmitMeshTasksEXT(1, 1, 1);
+}
