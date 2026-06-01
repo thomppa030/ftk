@@ -6,6 +6,7 @@ layout(set = 0, binding = 0) uniform sampler2D current_color;
 layout(set = 0, binding = 1) uniform sampler2D history_color;
 layout(set = 0, binding = 2) uniform sampler2D velocity_tex;
 layout(set = 0, binding = 3, rgba16f) writeonly uniform image2D resolve_output;
+layout(set = 0, binding = 4) uniform sampler2D depth_tex;
 
 layout(push_constant) uniform TaaPush {
     vec2 texel_size;
@@ -24,8 +25,25 @@ void main() {
 
     vec2 uv = (vec2(pixel) + 0.5) * texel_size;
 
-    // Read velocity and reproject
-    vec2 velocity = texture(velocity_tex, uv).rg;
+    // Pick velocity from the closest-depth pixel in the 3×3 neighborhood,
+    // not from the center. Around a moving silhouette the center pixel is
+    // often the background while the closest depth belongs to the foreground;
+    // reprojecting with the foreground velocity gives the right history.
+    // Otherwise the silhouette edge ghosts as TAA pulls in stale background.
+    vec2 closest_uv = uv;
+    float closest_depth = texture(depth_tex, uv).r;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            if (dx == 0 && dy == 0) continue;
+            vec2 tap_uv = uv + vec2(dx, dy) * texel_size;
+            float tap_depth = texture(depth_tex, tap_uv).r;
+            if (tap_depth < closest_depth) {
+                closest_depth = tap_depth;
+                closest_uv = tap_uv;
+            }
+        }
+    }
+    vec2 velocity = texture(velocity_tex, closest_uv).rg;
     vec2 history_uv = uv - velocity;
 
     // Current frame color (tonemapped for stable clamping)

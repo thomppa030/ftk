@@ -60,7 +60,8 @@ void TaaResolvePass::Images::create(VkDevice device, VmaAllocator allocator,
     // Descriptor pool: 4 image descriptors per set (current, history, velocity, output) × frames
     VkDescriptorPoolSize pool_size{};
     pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT * 3;
+    // 4 samplers per set: current_color, history, velocity, depth.
+    pool_size.descriptorCount = MAX_FRAMES_IN_FLIGHT * 4;
 
     VkDescriptorPoolSize storage_size{};
     storage_size.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -124,7 +125,8 @@ Result<> TaaResolvePass::create(Device& device, const PassResources& resources) 
     // binding 1 = history color (sampled)
     // binding 2 = velocity (sampled)
     // binding 3 = resolve output (storage image)
-    std::array<VkDescriptorSetLayoutBinding, 4> bindings{};
+    // binding 4 = depth (sampled) — for closest-depth velocity sampling
+    std::array<VkDescriptorSetLayoutBinding, 5> bindings{};
     for (uint32_t i = 0; i < 3; ++i) {
         bindings[i].binding = i;
         bindings[i].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
@@ -135,6 +137,10 @@ Result<> TaaResolvePass::create(Device& device, const PassResources& resources) 
     bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
     bindings[3].descriptorCount = 1;
     bindings[3].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bindings[4].binding = 4;
+    bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    bindings[4].descriptorCount = 1;
+    bindings[4].stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 
     VkDescriptorSetLayoutCreateInfo layout_ci{};
     layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -215,8 +221,10 @@ PassSetup TaaResolvePass::setup() const {
 void TaaResolvePass::declare(PassBuilder& builder, const DeclareContext& ctx) {
     auto color = builder.import_named(ctx, "color");
     auto velocity = builder.import_named(ctx, "velocity");
+    auto depth = builder.import_named(ctx, "depth");
     builder.read(color, ResourceAccess::sampled_compute);
     builder.read(velocity, ResourceAccess::sampled_compute);
+    builder.read(depth, ResourceAccess::sampled_compute);
     // History is pass-private; tonemap samples it through a non-catalog
     // view. Flag side-effecting so culling keeps this alive.
     builder.has_side_effects();
@@ -273,6 +281,12 @@ void TaaResolvePass::record_into(const FrameContext& ctx, Images& imgs) {
         imgs.history_view[read_idx], sampler_);
     vk_utils::write_image_descriptor(device_, set, 2,
         ctx.target->velocity_view(), sampler_);
+    // Depth is in DEPTH_STENCIL_READ_ONLY layout (not the plain SHADER_READ
+    // the helper defaults to). The framegraph already transitions it to this
+    // layout for sampled-compute reads.
+    vk_utils::write_image_descriptor(device_, set, 4,
+        ctx.target->depth_view(), sampler_,
+        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
 
     // Storage image write (binding 3)
     {
