@@ -2,36 +2,10 @@
 #extension GL_EXT_nonuniform_qualifier : require
 
 #include "fjell_common.glsl"
+#include "fjell_global_ubo.glsl"
+#include "fjell_gpu_types.glsl"
 
-struct GpuMaterial {
-    uint texture_indices[8];   // 32 bytes — slots 0-3: PBR, 4-7: custom
-    float base_params[12];     // 48 bytes — PBR params
-    uint param_offset;         // 4 bytes  — offset into params SSBO (in floats)
-    uint param_count;          // 4 bytes  — number of custom floats
-    uint padding[2];           // 8 bytes  — align to 96
-};
-
-layout(set = 0, binding = 0) uniform GlobalUbo {
-    mat4 view;
-    mat4 projection;
-    vec4 light_direction;    // xyz = dir toward light, w = intensity
-    vec4 light_color;        // xyz = color
-    vec4 camera_position;    // xyz = eye pos
-    vec4 ambient_color;      // xyz = color, w = intensity
-    mat4 cascade_vp[3];      // light-space matrices per cascade
-    vec4 cascade_splits;     // xyz = split distances
-    uvec4 tile_info;         // x = tiles_x, y = tiles_y, z = point_count, w = spot_count
-    mat4 inv_projection;
-    mat4 inv_view_proj;
-    mat4 prev_view_proj;
-    mat4 unjittered_vp;
-    mat4 prev_unjittered_vp;
-    float time;
-    float gi_intensity;
-    float jitter_x;
-    float jitter_y;
-    float ss_gi_intensity;
-} ubo;
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 layout(set = 0, binding = 1) uniform sampler2DArrayShadow shadow_map;
 layout(set = 0, binding = 5) uniform sampler2D ao_texture;
@@ -41,25 +15,6 @@ layout(set = 0, binding = 10) uniform sampler2D gi_indirect;
 layout(set = 0, binding = 11) uniform sampler2DShadow local_shadow_atlas;
 layout(set = 0, binding = 12) uniform sampler2D ss_gi_emissive;
 layout(set = 0, binding = 13) uniform sampler2D contact_shadow_tex;
-
-struct GpuPointLight {
-    vec4 position_radius;   // xyz = world pos, w = radius
-    vec4 color_intensity;   // xyz = color, w = intensity
-    ivec4 shadow_info;      // x = atlas_x, y = atlas_y, z = tile_size, w = flags (0 = no shadow)
-    vec4 vol_params;        // x = volumetric scatter intensity multiplier
-};
-
-struct GpuSpotLight {
-    vec4 position_radius;       // xyz = world pos, w = radius
-    vec4 direction_inner_cos;   // xyz = dir, w = cos(inner_angle)
-    vec4 color_intensity;       // xyz = color, w = intensity
-    float outer_cos;
-    int shadow_atlas_x;
-    int shadow_atlas_y;
-    int shadow_tile_size;       // 0 = no shadow
-    mat4 shadow_vp;             // light-space view-projection
-    vec4 vol_params;            // x = volumetric scatter intensity multiplier
-};
 
 layout(set = 0, binding = 2) readonly buffer LightBuffer {
     GpuPointLight point_lights[1024];

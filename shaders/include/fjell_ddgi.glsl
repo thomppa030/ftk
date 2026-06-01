@@ -5,6 +5,32 @@
 
 #include "fjell_common.glsl"
 
+// ── DDGIConstants UBO ───────────────────────────────────────────────────
+// Mirrors fjell::DdgiConstants on the C++ side. Every DDGI / RT shader binds
+// it at the same slot (set 0, binding 0 by default).
+
+#ifndef FJELL_DDGI_UBO_SET
+#define FJELL_DDGI_UBO_SET 0
+#endif
+#ifndef FJELL_DDGI_UBO_BINDING
+#define FJELL_DDGI_UBO_BINDING 0
+#endif
+
+layout(std140, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_UBO_BINDING) uniform DDGIConstants {
+    vec3 probe_grid_position;  float probe_sphere_scale;
+    vec3 probe_spacing;        float max_probe_offset;
+    vec3 reciprocal_spacing;   float self_shadow_bias;
+    ivec3 probe_counts;        uint debug_options;
+    int irr_tex_w;  int irr_tex_h;  int irr_side;  int probe_rays;
+    int vis_tex_w;  int vis_tex_h;  int vis_side;  int probe_update_offset;
+    int probe_update_count;    float hysteresis;
+    float infinite_bounces_mult; float pad0;
+    mat4 random_rotation;
+    vec3 camera_position;      float pad1;
+    mat4 inv_view_proj;
+    vec2 resolution;           float pad2; float pad3;
+} ddgi;
+
 // ── Spherical Fibonacci ─────────────────────────────────────────────────
 
 vec3 spherical_fibonacci(float i, float n) {
@@ -50,8 +76,7 @@ int get_probe_index_from_pixels(ivec2 pixels, int probe_with_border_side, int fu
 }
 
 // ── Probe grid coordinate system ────────────────────────────────────────
-// These functions use UBO members directly — the including shader must
-// declare the DDGIConstants UBO before #include-ing this file.
+// Uses the DDGIConstants UBO declared above.
 
 ivec3 ddgi_probe_index_to_grid(int probe_index) {
     int px = probe_index % ddgi.probe_counts.x;

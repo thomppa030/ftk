@@ -27,23 +27,9 @@ layout(std140, set = 0, binding = 14) uniform ReflectionConstants {
 
 // ── DDGI atlases for hit-point indirect ────────────────────────────────
 
-layout(std140, set = 0, binding = 0) uniform DDGIConstants {
-    vec3 probe_grid_position;  float probe_sphere_scale;
-    vec3 probe_spacing;        float max_probe_offset;
-    vec3 reciprocal_spacing;   float self_shadow_bias;
-    ivec3 probe_counts;        uint debug_options;
-    int irr_tex_w;  int irr_tex_h;  int irr_side;  int probe_rays;
-    int vis_tex_w;  int vis_tex_h;  int vis_side;  int probe_update_offset;
-    int probe_update_count;    float hysteresis;
-    float infinite_bounces_mult; float pad0;
-    mat4 random_rotation;
-    vec3 camera_position;      float pad1;
-    mat4 inv_view_proj;
-    vec2 resolution;           float pad2; float pad3;
-} ddgi;
+#include "fjell_ddgi.glsl"
 
-#include "include/fjell_common.glsl"
-#include "include/fjell_ddgi.glsl"
+#include "fjell_common.glsl"
 
 layout(set = 0, binding = 10) uniform sampler2D irradiance_tex;
 layout(set = 0, binding = 11) uniform sampler2D visibility_tex;
