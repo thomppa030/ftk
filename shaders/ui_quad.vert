@@ -1,24 +1,6 @@
 #version 460
 
-struct UiQuad {
-    vec4 rect;          // x, y, w, h (pixels)
-    vec4 color;         // background RGBA (or gradient start)
-    vec4 border_color;  // border RGBA
-    vec4 corners;       // border-radius (tl, tr, br, bl)
-    vec4 params;        // border_width, opacity, flags, gradient_angle
-    vec4 clip_rect;     // overflow:hidden scissor
-    vec4 gradient_to;   // gradient end color RGBA
-    vec2 viewport_size; // for px->NDC
-    vec2 shadow_params; // blur_radius, spread
-    uint texture_id;    // bindless texture index (0 = none)
-    uint material_id;   // material SSBO index (UINT32_MAX = none)
-    float z_layer;      // depth ordering (0 = far, 1 = near)
-    uint quad_flags;    // bitfield: bit 0 = opaque
-};
-
-layout(std430, set = 2, binding = 0) readonly buffer UiQuadBuffer {
-    UiQuad quads[];
-};
+#include "fjell_ui_common.glsl"
 
 layout(location = 0) out vec2 frag_uv;
 layout(location = 1) flat out uint frag_quad_index;

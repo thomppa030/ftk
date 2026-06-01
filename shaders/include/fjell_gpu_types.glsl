@@ -40,4 +40,13 @@ struct GpuMaterial {
     uint padding[2];
 };
 
+// Per-BLAS instance metadata used by the RT closest-hit shaders to fetch
+// vertices and material from a global vertex/index/material pool.
+struct RtInstanceData {
+    uint material_id;
+    uint first_index;
+    uint vertex_offset;
+    uint pad;
+};
+
 #endif // FJELL_GPU_TYPES_GLSL

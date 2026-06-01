@@ -1,18 +1,6 @@
 #version 460
 
-struct UiGlyph {
-    vec4 rect;           // x, y, w, h (pixels)
-    vec4 uv_rect;        // uv_x0, uv_y0, uv_x1, uv_y1
-    vec4 color;          // text color RGBA
-    vec4 params;         // opacity, atlas_index, px_range, reserved
-    vec4 clip_rect;      // overflow:hidden scissor
-    vec2 viewport_size;  // for px->NDC
-    vec2 _pad;
-};
-
-layout(std430, set = 2, binding = 1) readonly buffer UiGlyphBuffer {
-    UiGlyph glyphs[];
-};
+#include "fjell_ui_common.glsl"
 
 layout(location = 0) out vec2 frag_atlas_uv;
 layout(location = 1) out vec2 frag_screen_pos;

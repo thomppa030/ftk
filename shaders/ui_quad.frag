@@ -1,33 +1,8 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
-struct UiQuad {
-    vec4 rect;          // x, y, w, h (pixels)
-    vec4 color;         // background RGBA (or gradient start)
-    vec4 border_color;  // border RGBA
-    vec4 corners;       // border-radius (tl, tr, br, bl)
-    vec4 params;        // border_width, opacity, flags, gradient_angle
-    vec4 clip_rect;     // overflow:hidden scissor
-    vec4 gradient_to;   // gradient end color RGBA
-    vec2 viewport_size; // for px->NDC
-    vec2 shadow_params; // blur_radius, spread
-    uint texture_id;    // bindless texture index (0 = none)
-    uint material_id;   // material SSBO index (UINT32_MAX = none)
-    float z_layer;      // depth ordering
-    uint quad_flags;    // bitfield: bit 0 = opaque
-};
-
-struct GpuMaterial {
-    uint texture_indices[8];
-    float base_params[12];
-    uint param_offset;
-    uint param_count;
-    uint padding[2];
-};
-
-layout(std430, set = 2, binding = 0) readonly buffer UiQuadBuffer {
-    UiQuad quads[];
-};
+#include "fjell_ui_common.glsl"
+#include "fjell_gpu_types.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
 

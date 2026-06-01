@@ -40,13 +40,7 @@ layout(std430, set = 0, binding = 13) readonly buffer ProbeStatusSSBO {
 
 // ── Material access (set 1 = bindless) ─────────────────────────────────
 
-struct GpuMaterial {
-    uint texture_indices[8];
-    float base_params[12];
-    uint param_offset;
-    uint param_count;
-    uint padding[2];
-};
+#include "fjell_gpu_types.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
@@ -62,12 +56,6 @@ layout(set = 0, binding = 8) readonly buffer IndexBuffer {
     uint index_data[];
 };
 
-struct RtInstanceData {
-    uint material_id;
-    uint first_index;
-    uint vertex_offset;
-    uint pad;
-};
 layout(set = 0, binding = 9) readonly buffer InstanceDataBuffer {
     RtInstanceData rt_instances[];
 };

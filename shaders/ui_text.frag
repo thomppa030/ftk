@@ -1,21 +1,9 @@
 #version 460
 #extension GL_EXT_nonuniform_qualifier : require
 
+#include "fjell_ui_common.glsl"
+
 layout(set = 1, binding = 0) uniform sampler2D textures[];
-
-struct UiGlyph {
-    vec4 rect;
-    vec4 uv_rect;
-    vec4 color;
-    vec4 params;         // opacity, atlas_index, px_range, reserved
-    vec4 clip_rect;
-    vec2 viewport_size;
-    vec2 _pad;
-};
-
-layout(std430, set = 2, binding = 1) readonly buffer UiGlyphBuffer {
-    UiGlyph glyphs[];
-};
 
 layout(location = 0) in vec2 frag_atlas_uv;
 layout(location = 1) in vec2 frag_screen_pos;

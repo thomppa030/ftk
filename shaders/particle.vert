@@ -1,24 +1,9 @@
 #version 460
 
 #include "fjell_global_ubo.glsl"
+#include "particle_common.glsl"
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
-
-struct Particle {
-    vec3  position;
-    float lifetime;
-    vec3  velocity;
-    float max_lifetime;
-    vec4  color;
-    float size;
-    float size_end;
-    uint  emitter_index;
-    float stretch;
-    float rotation;
-    float rotation_speed;
-    uint  texture_index;
-    uint  flipbook_params;
-};
 
 layout(std430, set = 1, binding = 0) readonly buffer ParticleBuffer {
     Particle particles[];
