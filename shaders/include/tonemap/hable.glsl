@@ -13,6 +13,11 @@ vec3 fj_hable_partial(vec3 x) {
     return ((x * (A * x + C * B) + D * E) / (x * (A * x + B) + D * F)) - E / F;
 }
 
+// Note: the original Uncharted 2 curve includes a fixed 2× exposure bias
+// before the partial. We keep it for visual continuity with that look —
+// switching from ACES/AgX/Neutral/Reinhard to Hable therefore behaves as if
+// the exposure slider were 1 EV higher. Treat it as part of the operator's
+// look, not a hidden gain.
 vec3 tonemap_hable(vec3 color) {
     const float exposure_bias = 2.0;
     const float white = 11.2;

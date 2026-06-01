@@ -30,7 +30,7 @@ mat2 random_rotation(vec2 frag_coord) {
 
 // Sample shadow with rotated Poisson PCF
 // Requires: ubo.cascade_vp, ubo.cascade_splits, shadow_map (sampler2DArrayShadow)
-float sample_shadow_pcss(vec3 world_pos, int cascade, float NdotL_for_bias, float view_depth) {
+float sample_shadow_pcf(vec3 world_pos, int cascade, float NdotL_for_bias, float view_depth) {
     vec4 light_pos = ubo.cascade_vp[cascade] * vec4(world_pos, 1.0);
     vec3 proj = light_pos.xyz / light_pos.w;
     vec2 uv = proj.xy * 0.5 + 0.5;
@@ -84,7 +84,7 @@ float shadow_factor(vec3 world_pos, vec3 normal, float NdotL_for_bias) {
         }
     }
 
-    float shadow = sample_shadow_pcss(offset_pos, cascade, NdotL_for_bias, view_depth);
+    float shadow = sample_shadow_pcf(offset_pos, cascade, NdotL_for_bias, view_depth);
 
     // Blend with next cascade near split boundary
     if (cascade < 2) {
@@ -94,7 +94,7 @@ float shadow_factor(vec3 world_pos, vec3 normal, float NdotL_for_bias) {
 
         if (view_depth > blend_start) {
             float t = (view_depth - blend_start) / blend_range;
-            float shadow_next = sample_shadow_pcss(offset_pos, cascade + 1, NdotL_for_bias, view_depth);
+            float shadow_next = sample_shadow_pcf(offset_pos, cascade + 1, NdotL_for_bias, view_depth);
             shadow = mix(shadow, shadow_next, t);
         }
     }

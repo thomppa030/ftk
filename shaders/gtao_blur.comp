@@ -1,7 +1,12 @@
 #version 460
 
-// Depth-aware bilateral blur for GT-VBAO
-// Separable: run twice with direction=0 (horizontal) and direction=1 (vertical)
+// Depth-aware bilateral blur for GT-VBAO.
+// Separable: run twice with direction=0 (horizontal) and direction=1 (vertical).
+//
+// TODO: this is a depth-only bilateral. Concave corners (depth-continuous,
+// normal-discontinuous) still bleed AO across the seam. Wiring in the
+// framegraph "normal" image and adding a normal-similarity weight here is
+// the proper fix.
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
