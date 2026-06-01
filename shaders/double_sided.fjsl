@@ -2,9 +2,11 @@ shader_type spatial;
 render_mode cull_disabled;
 
 uniform vec3 tint : hint_color = vec3(0.3, 0.7, 0.2);
+uniform float roughness : hint_range(0.0, 1.0, 0.01) = 0.8;
+uniform float metallic : hint_range(0.0, 1.0, 0.01) = 0.0;
 
 void fragment() {
     ALBEDO = tint;
-    ROUGHNESS = 0.8;
-    METALLIC = 0.0;
+    ROUGHNESS = roughness;
+    METALLIC = metallic;
 }

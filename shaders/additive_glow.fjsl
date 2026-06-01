@@ -3,8 +3,9 @@ render_mode unlit, blend_add;
 
 uniform vec3 glow_color : hint_color = vec3(0.2, 0.6, 1.0);
 uniform float glow_strength : hint_range(0.0, 5.0, 0.1) = 2.0;
+uniform float glow_alpha : hint_range(0.0, 1.0, 0.01) = 0.5;
 
 void fragment() {
     ALBEDO = glow_color * glow_strength;
-    ALPHA = 0.5;
+    ALPHA = glow_alpha;
 }
