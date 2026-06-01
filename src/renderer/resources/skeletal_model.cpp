@@ -1,5 +1,6 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/resources/fjmesh.hpp"
+#include "renderer/resources/meshlet_buffer.hpp"
 #include "core/log.hpp"
 
 #include <cstdio>
@@ -11,10 +12,12 @@ namespace fjell {
 
 SkeletalModel::SkeletalModel(VmaAllocator allocator, VkDevice device,
                              VkCommandPool command_pool, VkQueue transfer_queue,
-                             FjSkinnedMeshData&& data)
+                             FjSkinnedMeshData&& data,
+                             MeshletBuffer* meshlet_buf)
     : vertex_buffer_{allocator,
                      data.vertices.size() * sizeof(SkinnedVertex),
-                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                         | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                      VMA_MEMORY_USAGE_AUTO}
     , index_buffer_{allocator,
                     data.indices.size() * sizeof(uint32_t),
@@ -37,7 +40,16 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, VkDevice device,
                                    static_cast<uint32_t>(data.vertices.size()),
                                    data.indices.data(),
                                    static_cast<uint32_t>(data.indices.size()));
+
+        // Upload meshlet records into the shared GPU buffer. The skinned
+        // mesh shader fetches verts from this model's own vertex_buffer_
+        // (per-draw bound at set 3 binding 4), so vertex_offset stays 0.
+        if (meshlet_buf && !meshlets_.meshlets.empty()) {
+            meshlet_range_ = meshlet_buf->upload(meshlets_, 0);
+        }
     }
+
+    vertex_buffer_size_ = data.vertices.size() * sizeof(SkinnedVertex);
 
     // Build embedded skeleton from joint data if present
     if (!data.joints.empty()) {

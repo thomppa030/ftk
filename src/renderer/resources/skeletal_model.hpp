@@ -4,6 +4,7 @@
 #include "renderer/gpu/buffer.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/meshlet.hpp"
+#include "renderer/resources/meshlet_buffer.hpp"
 #include "renderer/resources/vertex.hpp"
 
 #include <glm/glm.hpp>
@@ -32,11 +33,14 @@ struct FjSkinnedMeshData {
 // Used for skeletal animation — different vertex stride (SkinnedVertex, 92 bytes)
 // and separate draw path from static Model.
 // When loaded from .fjskel, also owns the embedded Skeleton.
+class MeshletBuffer;
+
 class SkeletalModel {
 public:
     SkeletalModel(VmaAllocator allocator, VkDevice device,
                   VkCommandPool command_pool, VkQueue transfer_queue,
-                  FjSkinnedMeshData&& data);
+                  FjSkinnedMeshData&& data,
+                  MeshletBuffer* meshlet_buf = nullptr);
 
     // Parse a .fjskel file (mesh + embedded skeleton).
     [[nodiscard]] static FjSkinnedMeshData load_fjskel(const std::string& path);
@@ -54,6 +58,14 @@ public:
     // skinned LOD chains would need a per-LOD bone-weight remap that
     // hasn't been built yet).
     [[nodiscard]] const MeshletBuildResult& meshlets() const { return meshlets_; }
+
+    // GPU range inside the shared MeshletBuffer (populated when meshlet_buf
+    // was passed at construction). vertex_offset is unused on the skinned
+    // path — the mesh shader fetches from vertex_buffer_ at zero base.
+    [[nodiscard]] const MeshletRange& meshlet_range() const { return meshlet_range_; }
+
+    [[nodiscard]] VkBuffer vertex_buffer_handle() const { return vertex_buffer_.handle(); }
+    [[nodiscard]] VkDeviceSize vertex_buffer_size() const { return vertex_buffer_size_; }
 
     // Embedded skeleton (non-null when loaded from .fjskel).
     [[nodiscard]] const Skeleton* skeleton() const { return skeleton_.get(); }
@@ -77,6 +89,8 @@ private:
     std::vector<uint32_t> collision_indices_;
     std::shared_ptr<Skeleton> skeleton_;
     MeshletBuildResult meshlets_;
+    MeshletRange meshlet_range_;
+    VkDeviceSize vertex_buffer_size_{0};
 };
 
 } // namespace fjell
