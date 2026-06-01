@@ -44,6 +44,7 @@ public:
     [[nodiscard]] VkPipeline opaque_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline transparent_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline gpu_driven_pipeline(uint32_t id) const;
+    [[nodiscard]] VkPipeline skinned_gpu_driven_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline skinned_opaque_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline skinned_transparent_pipeline(uint32_t id) const;
     [[nodiscard]] VkPipeline outline_pipeline(uint32_t id) const;
@@ -78,6 +79,7 @@ private:
         VkPipeline opaque{VK_NULL_HANDLE};
         VkPipeline transparent{VK_NULL_HANDLE};
         VkPipeline gpu_driven{VK_NULL_HANDLE};
+        VkPipeline skinned_gpu_driven{VK_NULL_HANDLE};
         VkPipeline skinned_opaque{VK_NULL_HANDLE};
         VkPipeline skinned_transparent{VK_NULL_HANDLE};
         VkPipeline outline{VK_NULL_HANDLE};

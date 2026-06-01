@@ -307,6 +307,7 @@ void PipelineCache::compile_entry(Entry& entry) {
     entry.opaque = next.opaque;
     entry.transparent = next.transparent;
     entry.gpu_driven = next.gpu_driven;
+    entry.skinned_gpu_driven = next.skinned_gpu_driven;
     entry.skinned_opaque = next.skinned_opaque;
     entry.skinned_transparent = next.skinned_transparent;
     entry.outline = next.outline;
@@ -630,6 +631,44 @@ void PipelineCache::create_pipelines(Entry& entry, const std::string& spv_path) 
 
         vkDestroyShaderModule(vk, gpu_task_module, nullptr);
         vkDestroyShaderModule(vk, gpu_mesh_module, nullptr);
+
+        // Skinned variant: same layout, same fragment, swap in the
+        // skinned mesh + task SPV. FJSL vertex hooks aren't supported on
+        // the skinned path yet, so we always use the stock skinned mesh
+        // shader regardless of has_custom_vertex.
+        auto skin_task_code = read_spirv(base_path::resolve("shaders/skinned_mesh_gpu_driven.task.spv"));
+        auto skin_mesh_code = read_spirv(base_path::resolve("shaders/skinned_mesh_gpu_driven.mesh.spv"));
+
+        VkShaderModule skin_task_module = create_shader_module(vk, skin_task_code);
+        VkShaderModule skin_mesh_module = create_shader_module(vk, skin_mesh_code);
+
+        std::array<VkPipelineShaderStageCreateInfo, 3> skin_stages{};
+        skin_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        skin_stages[0].stage = VK_SHADER_STAGE_TASK_BIT_EXT;
+        skin_stages[0].module = skin_task_module;
+        skin_stages[0].pName = "main";
+        skin_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        skin_stages[1].stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+        skin_stages[1].module = skin_mesh_module;
+        skin_stages[1].pName = "main";
+        skin_stages[2].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        skin_stages[2].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        skin_stages[2].module = frag_module;
+        skin_stages[2].pName = "main";
+
+        pipeline_ci.stageCount = static_cast<uint32_t>(skin_stages.size());
+        pipeline_ci.pStages = skin_stages.data();
+
+        if (vkCreateGraphicsPipelines(vk, vk_cache_, 1, &pipeline_ci, nullptr, &entry.skinned_gpu_driven) != VK_SUCCESS) {
+            vkDestroyShaderModule(vk, skin_task_module, nullptr);
+            vkDestroyShaderModule(vk, skin_mesh_module, nullptr);
+            vkDestroyShaderModule(vk, vert_module, nullptr);
+            vkDestroyShaderModule(vk, frag_module, nullptr);
+            throw std::runtime_error("Failed to create skinned GPU-driven pipeline for: " + entry.fjsl_path);
+        }
+
+        vkDestroyShaderModule(vk, skin_task_module, nullptr);
+        vkDestroyShaderModule(vk, skin_mesh_module, nullptr);
     }
 
     // ── Outline pipeline ──
@@ -721,6 +760,10 @@ void PipelineCache::destroy_entry_pipelines(Entry& entry) {
         vkDestroyPipeline(vk, entry.gpu_driven, nullptr);
         entry.gpu_driven = VK_NULL_HANDLE;
     }
+    if (entry.skinned_gpu_driven != VK_NULL_HANDLE) {
+        vkDestroyPipeline(vk, entry.skinned_gpu_driven, nullptr);
+        entry.skinned_gpu_driven = VK_NULL_HANDLE;
+    }
     if (entry.skinned_opaque != VK_NULL_HANDLE) {
         vkDestroyPipeline(vk, entry.skinned_opaque, nullptr);
         entry.skinned_opaque = VK_NULL_HANDLE;
@@ -769,6 +812,11 @@ VkPipeline PipelineCache::transparent_pipeline(uint32_t id) const {
 VkPipeline PipelineCache::gpu_driven_pipeline(uint32_t id) const {
     auto p = entries_[id].gpu_driven;
     return p != VK_NULL_HANDLE ? p : entries_[0].gpu_driven;
+}
+
+VkPipeline PipelineCache::skinned_gpu_driven_pipeline(uint32_t id) const {
+    auto p = entries_[id].skinned_gpu_driven;
+    return p != VK_NULL_HANDLE ? p : entries_[0].skinned_gpu_driven;
 }
 
 VkPipeline PipelineCache::skinned_opaque_pipeline(uint32_t id) const {
