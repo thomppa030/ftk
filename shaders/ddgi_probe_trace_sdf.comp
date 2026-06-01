@@ -105,31 +105,14 @@ void main() {
         vec3 hit_pos = ray_origin + direction * t;
         vec3 N = estimate_normal(hit_pos);
 
-        // Direct lighting from directional light
-        float NdotL = max(dot(N, light_direction), 0.0);
-
-        // Simple SDF shadow: trace toward light
-        float shadow = 1.0;
-        if (NdotL > 0.001) {
-            float shadow_t = 0.05;
-            for (int s = 0; s < 16; s++) {
-                float sd = sample_scene_sdf(hit_pos + light_direction * shadow_t);
-                if (sd < MIN_DIST) {
-                    shadow = 0.0;
-                    break;
-                }
-                shadow_t += max(sd, 0.02);
-                if (shadow_t > 20.0) break;
-            }
-        }
-
-        // Neutral albedo (no material info in SDF path)
+        // Neutral albedo — SDF path has no access to per-instance material
+        // data. RT path uses the real material color at the hit point; the
+        // shading model is otherwise the same so switching backends keeps
+        // scene brightness consistent for mid-gray albedos.
         vec3 albedo = vec3(0.5);
-        radiance = albedo * light_color * light_intensity * NdotL * shadow;
-
-        // Add sky ambient
-        vec3 sky_irradiance = textureLod(sky_cubemap, N, 5.0).rgb;
-        radiance += albedo * sky_irradiance * 0.3;
+        float NdotL = max(dot(N, light_direction), 0.0);
+        radiance = albedo * light_color * light_intensity * NdotL;
+        radiance += albedo * 0.15;
 
         distance = t;
     } else {
