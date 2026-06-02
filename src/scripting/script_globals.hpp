@@ -10,6 +10,7 @@ class Clock;
 class DebugDrawQueue;
 class Input;
 class InputActionMap;
+class NetManager;
 class Project;
 class ResourceManager;
 class Scene;
@@ -30,6 +31,7 @@ struct ScriptServices {
     TimerManager* timers{};
     Clock* clock{};
     DebugDrawQueue* debug_queue{};
+    NetManager* net{};
 
     // Per-frame (set by ScriptManager::prepare/update)
     Scene* scene{};

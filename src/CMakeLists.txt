@@ -219,6 +219,7 @@ add_executable(fjell
     scripting/debug_draw_queue.cpp
     scripting/debug_api.cpp
     scripting/scene_api.cpp
+    scripting/net_api.cpp
     net/enet_transport.cpp
     net/net_manager.cpp
     net/net_subsystem.cpp
