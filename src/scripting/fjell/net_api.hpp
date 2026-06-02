@@ -24,6 +24,8 @@ FJELL_SDK_EXPORT uint32_t fjell_net_spawn(uint32_t preset_handle_id,
                                           float x, float y, float z, uint32_t owner_peer);
 FJELL_SDK_EXPORT void     fjell_net_destroy(uint32_t net_id);
 FJELL_SDK_EXPORT void     fjell_net_set_owner(uint32_t net_id, uint32_t peer);
+FJELL_SDK_EXPORT void     fjell_net_send_rpc(uint32_t node_id, uint16_t rpc_index,
+                                             const uint8_t* payload, uint32_t size);
 }
 
 namespace fjell {
@@ -64,6 +66,12 @@ struct NetAPI {
     }
     static void destroy(uint32_t net_id)             { fjell_net_destroy(net_id); }
     static void set_owner(uint32_t net_id, PeerId p) { fjell_net_set_owner(net_id, p); }
+
+    // Called by generated RPC send-wrappers — not meant for direct script use.
+    static void send_rpc(uint32_t node_id, uint16_t rpc_index,
+                         const uint8_t* payload, uint32_t size) {
+        fjell_net_send_rpc(node_id, rpc_index, payload, size);
+    }
 };
 
 } // namespace fjell

@@ -55,6 +55,23 @@ struct ActionInfo {
     bool has_int_param{false}; // backward compat (= param == int_param)
 };
 
+enum class RpcTarget : uint8_t {
+    server,   // client → server
+    clients,  // server → all clients
+    all,      // sender → all peers
+};
+
+struct RpcParam {
+    std::string cpp_type;  // e.g. "glm::vec3", "int", "float"
+    std::string name;      // parameter name (for the generated wrapper signature)
+};
+
+struct RpcInfo {
+    std::string method_name;          // e.g. "request_fire" (the wrapper)
+    RpcTarget target{RpcTarget::server};
+    std::vector<RpcParam> params;     // fixed-size POD params, in order
+};
+
 struct ComponentInfo {
     std::string class_name;       // bare name: "CoinCollectible"
     std::string qualified_name;   // namespace-qualified: "fjell::CoinCollectible" (or bare if global)
@@ -65,6 +82,9 @@ struct ComponentInfo {
     bool is_ui_component{false};
     std::string widget_tag;       // from FJELL_UI_COMPONENT(T, "tag")
     std::vector<ActionInfo> actions;
+
+    // Networked RPC methods ([[fj::rpc(target)]])
+    std::vector<RpcInfo> rpcs;
 
     // Notify type (FJELL_NOTIFY)
     bool is_notify{false};

@@ -380,6 +380,79 @@ ParseResult parse_file(const std::string& filepath) {
 
             // Check for [[fj::action]] on void methods (UI widgets only for codegen)
             auto attrs_early = extract_fj_attrs(ln);
+
+            // ── [[fj::rpc(target)]] networked method ───────────────────────
+            if (!attrs_early.empty() && attrs_early.find("fj::rpc") != std::string::npos) {
+                // Declaration: [[fj::rpc(server)]] void request_fire(glm::vec3 dir, int w);
+                // (attribute may be on its own line, method on the next)
+                auto rpc_line = trim(trimmed);
+                if (auto be = rpc_line.find("]]"); be != std::string::npos) {
+                    rpc_line = trim(rpc_line.substr(be + 2));
+                }
+                if (rpc_line.empty() && j + 1 < lines.size()) {
+                    ++j;
+                    rpc_line = trim(lines[j]);
+                    for (char c : lines[j]) {
+                        if (c == '{') brace_depth++;
+                        else if (c == '}') brace_depth--;
+                    }
+                }
+
+                if (rpc_line.starts_with("void ")) {
+                    auto rest = rpc_line.substr(5);
+                    auto paren = rest.find('(');
+                    auto close = rest.find(')', paren);
+                    if (paren != std::string::npos && close != std::string::npos) {
+                        RpcInfo ri;
+                        ri.method_name = trim(rest.substr(0, paren));
+
+                        // target from fj::rpc(<target>)
+                        auto tpos = attrs_early.find("fj::rpc(");
+                        if (tpos != std::string::npos) {
+                            auto ts = tpos + 8;
+                            auto te = attrs_early.find(')', ts);
+                            auto targ = trim(attrs_early.substr(ts, te - ts));
+                            if (auto cp = targ.rfind("::"); cp != std::string::npos)
+                                targ = targ.substr(cp + 2);
+                            for (auto& c : targ) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                            if (targ == "clients") ri.target = RpcTarget::clients;
+                            else if (targ == "all") ri.target = RpcTarget::all;
+                            else ri.target = RpcTarget::server;
+                        }
+
+                        // parse comma-separated params "type name, type name"
+                        auto plist = trim(rest.substr(paren + 1, close - paren - 1));
+                        if (!plist.empty()) {
+                            size_t start = 0;
+                            while (start < plist.size()) {
+                                auto comma = plist.find(',', start);
+                                auto one = trim(plist.substr(start,
+                                    comma == std::string::npos ? std::string::npos : comma - start));
+                                // split last whitespace → type | name
+                                auto sp = one.find_last_of(" \t");
+                                RpcParam p;
+                                if (sp != std::string::npos) {
+                                    p.cpp_type = trim(one.substr(0, sp));
+                                    p.name = trim(one.substr(sp + 1));
+                                } else {
+                                    p.cpp_type = one;
+                                    p.name = "p" + std::to_string(ri.params.size());
+                                }
+                                // strip const/&
+                                if (p.cpp_type.starts_with("const ")) p.cpp_type = trim(p.cpp_type.substr(6));
+                                while (!p.cpp_type.empty() && (p.cpp_type.back() == '&' || p.cpp_type.back() == ' '))
+                                    p.cpp_type.pop_back();
+                                if (!p.cpp_type.empty()) ri.params.push_back(std::move(p));
+                                if (comma == std::string::npos) break;
+                                start = comma + 1;
+                            }
+                        }
+                        comp.rpcs.push_back(std::move(ri));
+                    }
+                }
+                pending_attrs.clear();
+                continue;
+            }
             if (!attrs_early.empty() && attrs_early.find("fj::action") != std::string::npos
                 && comp.is_ui_component) {
                 // Parse action: [[fj::action]] void method_name(int param) { ... }
@@ -737,7 +810,10 @@ bool query_offsets(std::vector<ComponentInfo>& components,
                "    const char* tooltip; const char* category; uint8_t readonly; };\n";
         out << "enum FjellUiActionParam { FJELL_UI_ACTION_NONE=0, FJELL_UI_ACTION_INT,\n"
                "    FJELL_UI_ACTION_FLOAT, FJELL_UI_ACTION_VEC2 };\n";
-        out << "struct FjellUiActionDesc { const char* name; FjellUiActionParam param_type; };\n\n";
+        out << "struct FjellUiActionDesc { const char* name; FjellUiActionParam param_type; };\n";
+        out << "enum FjellRpcTarget { FJELL_RPC_SERVER=0, FJELL_RPC_CLIENTS, FJELL_RPC_ALL };\n";
+        out << "struct FjellRpcDesc { const char* name; FjellRpcTarget target;\n"
+               "    uint32_t payload_size; void (*invoke)(void*, const uint8_t*, uint32_t); };\n\n";
 
         // Stub engine extern "C" symbols that registration macros reference.
         // Headers only declare classes + fields, no engine method bodies.

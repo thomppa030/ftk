@@ -234,6 +234,9 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                                     reg << "extern \"C\" void " << t["trace_symbol"].get<std::string>()
                                         << "(void*, void*);\n";
                                 }
+                                if (t.value("rpc_count", 0u) > 0) {
+                                    reg << "extern \"C\" const FjellRpcDesc fjreflect_" << name << "_rpcs[];\n";
+                                }
                             }
 
                             if (!script_types.empty()) {
@@ -242,12 +245,18 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                                     auto name = t["name"].get<std::string>();
                                     auto fields_sym = t["fields_symbol"].get<std::string>();
                                     auto count = t["field_count"].get<uint32_t>();
+                                    auto rpc_count = t.value("rpc_count", 0u);
                                     reg << "    {\"" << name << "\", " << fields_sym
                                         << ", " << count << ", ";
                                     if (t.contains("trace_symbol") && !t["trace_symbol"].is_null()) {
                                         reg << t["trace_symbol"].get<std::string>();
                                     } else {
                                         reg << "nullptr";
+                                    }
+                                    if (rpc_count > 0) {
+                                        reg << ", fjreflect_" << name << "_rpcs, " << rpc_count;
+                                    } else {
+                                        reg << ", nullptr, 0";
                                     }
                                     reg << "},\n";
                                 }

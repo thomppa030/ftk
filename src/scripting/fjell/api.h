@@ -30,7 +30,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 15
+#define FJELL_API_VERSION 16
 
 // ── Field types for inspector / serialization reflection ────────────────
 
@@ -87,6 +87,22 @@ typedef struct FjellActionDesc {
     FjellActionTrigger trigger;     // when to fire
     void*              trampoline;  // function pointer (cast to appropriate signature)
 } FjellActionDesc;
+
+// ── RPC descriptors for [[fj::rpc(target)]] networked methods ──────────
+
+typedef enum FjellRpcTarget {
+    FJELL_RPC_SERVER  = 0,  // client → server
+    FJELL_RPC_CLIENTS = 1,  // server → all clients
+    FJELL_RPC_ALL     = 2,  // sender → all peers (incl. self)
+} FjellRpcTarget;
+
+typedef struct FjellRpcDesc {
+    const char*    name;          // RPC method name (the wrapper, not the _impl)
+    FjellRpcTarget target;        // where the handler runs
+    uint32_t       payload_size;  // total bytes of POD params (fixed per RPC)
+    // Deserialize `in` (payload_size bytes) and call self->name_impl(args...).
+    void (*invoke)(void* self, const uint8_t* in, uint32_t size);
+} FjellRpcDesc;
 
 // ── UI widget action descriptors (for on:click validation) ─────────────
 

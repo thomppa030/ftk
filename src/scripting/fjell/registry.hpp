@@ -35,6 +35,8 @@ struct FjellGeneratedInfo {
     const FjellFieldDesc* fields;
     uint32_t field_count;
     void (*trace)(void* instance, void* visitor);
+    const FjellRpcDesc* rpcs;   // null if the component has no [[fj::rpc]] methods
+    uint32_t rpc_count;
 };
 
 // ── Opaque registry handle (engine-side) ────────────────────────────────
@@ -130,8 +132,16 @@ inline FjellNotifyAutoReg*& fjell_notify_auto_reg_head() {
 
 // ── Macro helpers ───────────────────────────────────────────────────────
 
+namespace fjell {
+// Grants generated RPC invoke trampolines access to private _impl handlers.
+// The generated code calls FjellRpcAccess<T>::invoke(self, args...), which is a
+// friend of T (declared in FJELL_COMPONENT) so it can reach a private handler.
+template <class T> struct FjellRpcAccess;
+} // namespace fjell
+
 #define FJELL_COMPONENT(T) \
     public: static constexpr const char* type_name = #T; \
+    template <class _FjAccessT> friend struct ::fjell::FjellRpcAccess; \
     private: \
     static inline FjellAutoReg _fjell_reg_{ \
         [](FjellTypeRegistry* r) { fjell::register_component<T>(r); }, \

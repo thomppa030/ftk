@@ -146,6 +146,11 @@ extern "C" FJELL_SDK_EXPORT void fjell_reg_component(FjellTypeRegistry* reg, con
     for (uint32_t i = 0; i < desc->field_count; ++i) {
         owned.fields.push_back(fjell::copy_field(desc->fields[i]));
     }
+    // Attach the generated RPC table (same .so), if this type declares any.
+    if (const auto* gen = fjell_find_generated(desc->name)) {
+        owned.rpcs = gen->rpcs;
+        owned.rpc_count = gen->rpc_count;
+    }
     reg->scripts.push_back(std::move(owned));
 }
 

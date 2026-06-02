@@ -162,6 +162,21 @@ std::vector<const OwnedFieldDesc*> replicated_descs(const Node& node,
     return out;
 }
 
+// Find the script component on a node whose type declares RPCs. Returns its
+// type (for the FjellRpcDesc[] table) and instance pointer, or {nullptr,...}.
+const OwnedScriptType* rpc_component(const Node& node, ScriptManager& scripts,
+                                     void*& instance_out) {
+    for (const auto& entry : node.scripts) {
+        if (!entry.instance) continue;
+        const auto* type = scripts.find_script_type(entry.type_name);
+        if (type && type->rpc_count > 0) {
+            instance_out = entry.instance.get();
+            return type;
+        }
+    }
+    return nullptr;
+}
+
 } // namespace
 
 void NetManager::ensure_scene_registered(Scene& scene, ScriptManager& scripts) {
@@ -379,6 +394,99 @@ NetId NetManager::net_id_for(uint32_t node_id) const {
     return it != node_to_net_.end() ? it->second : NET_ID_NONE;
 }
 
+// ── RPC ─────────────────────────────────────────────────────────────────────
+
+void NetManager::send_rpc(Scene& scene, ScriptManager& scripts, uint32_t node_id,
+                          uint16_t rpc_index, const uint8_t* payload, uint32_t size) {
+    if (role_ == NetRole::none || !transport_) return;
+
+    NetId net_id = net_id_for(node_id);
+    if (net_id == NET_ID_NONE) {
+        FJELL_CORE_WARN("NetManager: RPC on un-networked node {}", node_id);
+        return;
+    }
+
+    // Look up the target so we can resolve "all" (run locally + forward).
+    Node* node = scene.find(node_id);
+    void* inst = nullptr;
+    const OwnedScriptType* type = node ? rpc_component(*node, scripts, inst) : nullptr;
+    if (!type || rpc_index >= type->rpc_count) return;
+    const FjellRpcDesc& desc = type->rpcs[rpc_index];
+
+    auto build_and_send = [&](Channel ch, bool broadcast) {
+        std::vector<uint8_t> packet;
+        put(packet, static_cast<uint8_t>(PacketType::rpc_call));
+        put(packet, net_id);
+        put(packet, rpc_index);
+        put(packet, size);
+        if (size > 0) put_bytes(packet, payload, size);
+        if (broadcast) transport_->broadcast(packet, ch);
+        else transport_->send(SERVER_PEER, packet, ch);  // client → host
+    };
+
+    switch (desc.target) {
+    case FJELL_RPC_SERVER:
+        if (role_ == NetRole::server) {
+            desc.invoke(inst, payload, size);          // already authoritative
+        } else {
+            build_and_send(Channel::reliable, false);  // client → server
+        }
+        break;
+    case FJELL_RPC_CLIENTS:
+        if (role_ == NetRole::server) {
+            build_and_send(Channel::reliable, true);   // server → all clients
+        }
+        // a client calling a clients-RPC is a no-op (only the server may)
+        break;
+    case FJELL_RPC_ALL:
+        desc.invoke(inst, payload, size);              // run locally
+        if (role_ == NetRole::server) build_and_send(Channel::reliable, true);
+        else build_and_send(Channel::reliable, false);
+        break;
+    }
+}
+
+void NetManager::apply_rpc(Scene& scene, ScriptManager& scripts,
+                           std::span<const uint8_t> data) {
+    NetId net_id = NET_ID_NONE;
+    uint16_t rpc_index = 0;
+    uint32_t size = 0;
+    if (!take(data, net_id)) return;
+    if (!take(data, rpc_index)) return;
+    if (!take(data, size)) return;
+    if (data.size() < size) return;
+
+    uint32_t node_id = node_id_for(net_id);
+    Node* node = (node_id != 0) ? scene.find(node_id) : nullptr;
+    if (!node) return;
+
+    void* inst = nullptr;
+    const OwnedScriptType* type = rpc_component(*node, scripts, inst);
+    if (!type || rpc_index >= type->rpc_count) return;
+    const FjellRpcDesc& desc = type->rpcs[rpc_index];
+
+    // A server receiving a client→server RPC must validate ownership: the
+    // sender may only drive objects it owns (or the server trusts all? no —
+    // require ownership for server-targeted RPCs from clients).
+    if (role_ == NetRole::server && desc.target == FJELL_RPC_SERVER) {
+        // v1: accept (single sender per object); ownership tightening is a
+        // follow-up once per-peer sender identity is plumbed through receive.
+    }
+
+    desc.invoke(inst, size > 0 ? data.data() : nullptr, size);
+
+    // "all" RPCs received on the server are re-broadcast to clients.
+    if (role_ == NetRole::server && desc.target == FJELL_RPC_ALL && transport_) {
+        std::vector<uint8_t> packet;
+        put(packet, static_cast<uint8_t>(PacketType::rpc_call));
+        put(packet, net_id);
+        put(packet, rpc_index);
+        put(packet, size);
+        if (size > 0) put_bytes(packet, data.data(), size);
+        transport_->broadcast(packet, Channel::reliable);
+    }
+}
+
 // ── Ownership ─────────────────────────────────────────────────────────────
 
 void NetManager::set_owner(NetId net_id, PeerId peer) {
@@ -431,6 +539,9 @@ void NetManager::handle_receive(Scene& scene, ScriptManager& scripts,
         break;
     case PacketType::despawn:
         apply_despawn(scene, data);
+        break;
+    case PacketType::rpc_call:
+        apply_rpc(scene, scripts, data);
         break;
     default:
         FJELL_CORE_WARN("NetManager: unknown packet type {}", type);

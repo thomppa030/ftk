@@ -62,6 +62,14 @@ public:
     // Server destroys a networked object locally and tells all clients.
     void destroy(Scene& scene, NetId net_id);
 
+    // ── RPC ────────────────────────────────────────────────────────────
+    // Called by the generated send-wrapper. Routes an RPC_CALL by target:
+    // server-target → to the host; clients-target → broadcast to clients;
+    // all → run locally + forward. `node_id` is the calling component's node;
+    // `rpc_index` indexes its FjellRpcDesc[].
+    void send_rpc(Scene& scene, ScriptManager& scripts, uint32_t node_id,
+                  uint16_t rpc_index, const uint8_t* payload, uint32_t size);
+
     // ── Queries ────────────────────────────────────────────────────────
     [[nodiscard]] bool    is_server() const { return role_ == NetRole::server; }
     [[nodiscard]] bool    is_client() const { return role_ == NetRole::client; }
@@ -92,6 +100,7 @@ private:
         state_update = 1,  // delta of replicated fields + transform (unreliable)
         spawn        = 2,  // instantiate a preset on the client (reliable)
         despawn      = 3,  // remove a networked object on the client (reliable)
+        rpc_call     = 4,  // invoke a [[fj::rpc]] handler on the target (reliable)
     };
 
     // Last-sent bytes of an object's replicated fields, in field order. Used to
@@ -115,6 +124,7 @@ private:
     void apply_spawn(Scene& scene, ResourceManager& resources,
                      std::span<const uint8_t> data);
     void apply_despawn(Scene& scene, std::span<const uint8_t> data);
+    void apply_rpc(Scene& scene, ScriptManager& scripts, std::span<const uint8_t> data);
 
     std::unique_ptr<Transport> transport_;
     NetRole role_{NetRole::none};

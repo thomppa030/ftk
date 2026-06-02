@@ -57,3 +57,11 @@ extern "C" FJELL_SDK_EXPORT void fjell_net_set_owner(uint32_t net_id, uint32_t p
     auto* net = fjell::script_services().net;
     if (net) net->set_owner(net_id, peer);
 }
+
+extern "C" FJELL_SDK_EXPORT void fjell_net_send_rpc(uint32_t node_id, uint16_t rpc_index,
+                                                    const uint8_t* payload, uint32_t size) {
+    auto& s = fjell::script_services();
+    if (s.net && s.scene && s.manager) {
+        s.net->send_rpc(*s.scene, *s.manager, node_id, rpc_index, payload, size);
+    }
+}

@@ -54,6 +54,8 @@ struct OwnedScriptType {
     ScriptComponent* (*create)();
     std::vector<OwnedFieldDesc> fields;
     void (*trace)(void* instance, void* visitor){nullptr};
+    const FjellRpcDesc* rpcs{nullptr};  // borrowed from the game .so's static table
+    uint32_t rpc_count{0};
     bool loaded{true};
 };
 
