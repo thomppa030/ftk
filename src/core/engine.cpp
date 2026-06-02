@@ -151,6 +151,8 @@ void Engine::init_subsystems() {
     auto& net_scripts = script_subsystem_->manager();
     net_receive_subsystem_ = add_subsystem<NetReceiveSubsystem>(*net_manager_, net_scripts);
     net_send_subsystem_    = add_subsystem<NetSendSubsystem>(*net_manager_, net_scripts);
+    // NetManager resolves preset spawns through the resource manager, delivered
+    // per-frame via TickContext (created later in init_resources()).
 
     // NetReceive must run before scripts so they see up-to-date remote state.
     play_phase_0_.push_back(net_receive_subsystem_);
@@ -1433,6 +1435,7 @@ TickContext Engine::make_frame_context() {
         .dt = clock_.game_delta_time(),
         .physics = physics_subsystem_->world(),
         .project = project_mgr_.active(),
+        .resources = resource_manager_.get(),
     };
 }
 

@@ -6,6 +6,7 @@ class Clock;
 class Input;
 class PhysicsWorld;
 class Project;
+class ResourceManager;
 class Scene;
 
 struct TickContext {
@@ -14,8 +15,9 @@ struct TickContext {
     const Clock&   clock;
     float          dt;
 
-    PhysicsWorld*  physics{nullptr};
-    const Project* project{nullptr};
+    PhysicsWorld*    physics{nullptr};
+    const Project*   project{nullptr};
+    ResourceManager* resources{nullptr};
 };
 
 } // namespace fjell

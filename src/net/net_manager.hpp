@@ -8,6 +8,8 @@
 
 #include "net/transport.hpp"
 
+#include <glm/glm.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -18,6 +20,7 @@ namespace fjell {
 
 class Scene;
 class ScriptManager;
+class ResourceManager;
 
 // Network identity, distinct from a scene node id. Assigned by the server and
 // replicated so every peer agrees which object is which.
@@ -45,8 +48,19 @@ public:
     void shutdown();
 
     // ── Per-frame pumps (called by the net subsystems) ─────────────────
-    void receive_and_apply(Scene& scene, ScriptManager& scripts);  // drain + apply remote state
+    void receive_and_apply(Scene& scene, ScriptManager& scripts,
+                           ResourceManager& resources);  // drain + apply remote state
     void collect_and_send(Scene& scene, ScriptManager& scripts);    // serialize + send dirty state
+
+    // ── Spawn / despawn (server-authoritative) ─────────────────────────
+    // Server instantiates the preset locally, assigns a NetId, sets ownership,
+    // and replicates the spawn to all clients. Returns the new NetId (0 on
+    // failure or when called off the server).
+    NetId spawn(Scene& scene, ResourceManager& resources,
+                const std::string& preset_path, const glm::vec3& position,
+                PeerId owner);
+    // Server destroys a networked object locally and tells all clients.
+    void destroy(Scene& scene, NetId net_id);
 
     // ── Queries ────────────────────────────────────────────────────────
     [[nodiscard]] bool    is_server() const { return role_ == NetRole::server; }
@@ -75,7 +89,9 @@ public:
 private:
     // Packet types (first byte of every payload).
     enum class PacketType : uint8_t {
-        state_update = 1,  // delta of replicated fields + transform
+        state_update = 1,  // delta of replicated fields + transform (unreliable)
+        spawn        = 2,  // instantiate a preset on the client (reliable)
+        despawn      = 3,  // remove a networked object on the client (reliable)
     };
 
     // Last-sent bytes of an object's replicated fields, in field order. Used to
@@ -92,16 +108,20 @@ private:
 
     void handle_connect(PeerId peer);
     void handle_disconnect(PeerId peer);
-    void handle_receive(Scene& scene, ScriptManager& scripts,
+    void handle_receive(Scene& scene, ScriptManager& scripts, ResourceManager& resources,
                         PeerId peer, std::span<const uint8_t> data, Channel channel);
     void apply_state_update(Scene& scene, ScriptManager& scripts,
                             std::span<const uint8_t> data);
+    void apply_spawn(Scene& scene, ResourceManager& resources,
+                     std::span<const uint8_t> data);
+    void apply_despawn(Scene& scene, std::span<const uint8_t> data);
 
     std::unique_ptr<Transport> transport_;
     NetRole role_{NetRole::none};
     PeerId  local_peer_{SERVER_PEER};
     uint32_t server_tick_{0};
 
+    bool  scene_registered_{false};  // one-time bootstrap guard
     NetId next_net_id_{1};  // NET_ID_NONE (0) reserved
     std::unordered_map<NetId, uint32_t> net_to_node_;
     std::unordered_map<uint32_t, NetId> node_to_net_;
@@ -110,8 +130,9 @@ private:
 
     // Receive path stores the scene/scripts for the transport callback, which
     // can't carry them through ENet. Set at the top of receive_and_apply.
-    Scene*         rx_scene_{nullptr};
-    ScriptManager* rx_scripts_{nullptr};
+    Scene*           rx_scene_{nullptr};
+    ScriptManager*   rx_scripts_{nullptr};
+    ResourceManager* rx_resources_{nullptr};
 };
 
 } // namespace fjell

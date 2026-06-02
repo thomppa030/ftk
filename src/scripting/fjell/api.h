@@ -30,7 +30,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 14
+#define FJELL_API_VERSION 15
 
 // ── Field types for inspector / serialization reflection ────────────────
 

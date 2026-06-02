@@ -4,7 +4,9 @@
 #include "core/log.hpp"
 #include "scene/scene.hpp"
 #include "scene/node.hpp"
+#include "scene/preset_asset.hpp"
 #include "scripting/script_manager.hpp"
+#include "renderer/resources/resource_manager.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -39,6 +41,21 @@ template <typename T>
     return true;
 }
 
+// Length-prefixed string (uint16 length + bytes).
+void put_string(std::vector<uint8_t>& buf, const std::string& s) {
+    put(buf, static_cast<uint16_t>(s.size()));
+    put_bytes(buf, reinterpret_cast<const uint8_t*>(s.data()), s.size());
+}
+
+[[nodiscard]] bool take_string(std::span<const uint8_t>& sp, std::string& out) {
+    uint16_t len = 0;
+    if (!take(sp, len)) return false;
+    if (sp.size() < len) return false;
+    out.assign(reinterpret_cast<const char*>(sp.data()), len);
+    sp = sp.subspan(len);
+    return true;
+}
+
 } // namespace
 
 NetManager::NetManager() = default;
@@ -53,7 +70,8 @@ void NetManager::host(uint16_t port, uint32_t max_clients) {
     transport->on_connect    = [this](PeerId p) { handle_connect(p); };
     transport->on_disconnect = [this](PeerId p) { handle_disconnect(p); };
     transport->on_receive    = [this](PeerId p, std::span<const uint8_t> d, Channel c) {
-        if (rx_scene_ && rx_scripts_) handle_receive(*rx_scene_, *rx_scripts_, p, d, c);
+        if (rx_scene_ && rx_scripts_ && rx_resources_)
+            handle_receive(*rx_scene_, *rx_scripts_, *rx_resources_, p, d, c);
     };
 
     if (!transport->host(port, max_clients)) {
@@ -74,7 +92,8 @@ void NetManager::join(const std::string& address, uint16_t port) {
     transport->on_connect    = [this](PeerId p) { handle_connect(p); };
     transport->on_disconnect = [this](PeerId p) { handle_disconnect(p); };
     transport->on_receive    = [this](PeerId p, std::span<const uint8_t> d, Channel c) {
-        if (rx_scene_ && rx_scripts_) handle_receive(*rx_scene_, *rx_scripts_, p, d, c);
+        if (rx_scene_ && rx_scripts_ && rx_resources_)
+            handle_receive(*rx_scene_, *rx_scripts_, *rx_resources_, p, d, c);
     };
 
     if (!transport->connect(address, port)) {
@@ -98,6 +117,7 @@ void NetManager::shutdown() {
     role_ = NetRole::none;
     local_peer_ = SERVER_PEER;
     server_tick_ = 0;
+    scene_registered_ = false;
     next_net_id_ = 1;
     net_to_node_.clear();
     node_to_net_.clear();
@@ -105,6 +125,7 @@ void NetManager::shutdown() {
     shadow_.clear();
     rx_scene_ = nullptr;
     rx_scripts_ = nullptr;
+    rx_resources_ = nullptr;
 }
 
 // ── Replication helpers ─────────────────────────────────────────────────────
@@ -144,7 +165,8 @@ std::vector<const OwnedFieldDesc*> replicated_descs(const Node& node,
 } // namespace
 
 void NetManager::ensure_scene_registered(Scene& scene, ScriptManager& scripts) {
-    if (!net_to_node_.empty()) return;
+    if (scene_registered_) return;
+    scene_registered_ = true;
 
     // Collect node ids that carry a replicated component, sorted for a stable
     // NetId assignment that both peers compute identically.
@@ -166,11 +188,13 @@ void NetManager::ensure_scene_registered(Scene& scene, ScriptManager& scripts) {
 
 // ── Per-frame pumps ───────────────────────────────────────────────────────
 
-void NetManager::receive_and_apply(Scene& scene, ScriptManager& scripts) {
+void NetManager::receive_and_apply(Scene& scene, ScriptManager& scripts,
+                                   ResourceManager& resources) {
     if (!transport_) return;
     ensure_scene_registered(scene, scripts);
     rx_scene_ = &scene;
     rx_scripts_ = &scripts;
+    rx_resources_ = &resources;
     transport_->poll(0.0f);
 }
 
@@ -283,6 +307,66 @@ void NetManager::unregister_net_object(NetId net_id) {
         net_to_node_.erase(it);
     }
     ownership_.erase(net_id);
+    shadow_.erase(net_id);
+}
+
+// ── Spawn / despawn ─────────────────────────────────────────────────────────
+
+NetId NetManager::spawn(Scene& scene, ResourceManager& resources,
+                        const std::string& preset_path, const glm::vec3& position,
+                        PeerId owner) {
+    if (role_ != NetRole::server) {
+        FJELL_CORE_WARN("NetManager: spawn() called off the server, ignoring");
+        return NET_ID_NONE;
+    }
+
+    auto handle = resources.load_preset_asset(preset_path);
+    if (!handle) {
+        FJELL_CORE_ERROR("NetManager: spawn failed, can't load preset '{}'", preset_path);
+        return NET_ID_NONE;
+    }
+    PresetAsset* asset = resources.get(*handle);
+    if (!asset) return NET_ID_NONE;
+
+    Transform offset;
+    offset.position = position;
+    uint32_t node_id = asset->preset.instantiate(scene, -1, offset);
+    if (node_id == 0) return NET_ID_NONE;
+
+    NetId net_id = assign_net_id();
+    register_net_object(net_id, node_id);
+    set_owner(net_id, owner);
+
+    // Tell every client to instantiate the same preset.
+    std::vector<uint8_t> packet;
+    put(packet, static_cast<uint8_t>(PacketType::spawn));
+    put(packet, net_id);
+    put(packet, owner);
+    put_string(packet, preset_path);
+    put(packet, position);
+    if (transport_) transport_->broadcast(packet, Channel::reliable);
+
+    FJELL_CORE_INFO("NetManager: spawned '{}' as net {} (owner {})",
+                    preset_path, net_id, owner);
+    return net_id;
+}
+
+void NetManager::destroy(Scene& scene, NetId net_id) {
+    if (role_ != NetRole::server) {
+        FJELL_CORE_WARN("NetManager: destroy() called off the server, ignoring");
+        return;
+    }
+
+    uint32_t node_id = node_id_for(net_id);
+    if (node_id != 0) scene.queue_destroy(node_id);
+    unregister_net_object(net_id);
+
+    std::vector<uint8_t> packet;
+    put(packet, static_cast<uint8_t>(PacketType::despawn));
+    put(packet, net_id);
+    if (transport_) transport_->broadcast(packet, Channel::reliable);
+
+    FJELL_CORE_INFO("NetManager: despawned net {}", net_id);
 }
 
 uint32_t NetManager::node_id_for(NetId net_id) const {
@@ -332,6 +416,7 @@ void NetManager::handle_disconnect(PeerId peer) {
 }
 
 void NetManager::handle_receive(Scene& scene, ScriptManager& scripts,
+                                ResourceManager& resources,
                                 PeerId /*peer*/, std::span<const uint8_t> data,
                                 Channel /*channel*/) {
     uint8_t type = 0;
@@ -340,6 +425,12 @@ void NetManager::handle_receive(Scene& scene, ScriptManager& scripts,
     switch (static_cast<PacketType>(type)) {
     case PacketType::state_update:
         apply_state_update(scene, scripts, data);
+        break;
+    case PacketType::spawn:
+        apply_spawn(scene, resources, data);
+        break;
+    case PacketType::despawn:
+        apply_despawn(scene, data);
         break;
     default:
         FJELL_CORE_WARN("NetManager: unknown packet type {}", type);
@@ -400,6 +491,49 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
             }
         }
     }
+}
+
+void NetManager::apply_spawn(Scene& scene, ResourceManager& resources,
+                             std::span<const uint8_t> data) {
+    NetId net_id = NET_ID_NONE;
+    PeerId owner = SERVER_PEER;
+    std::string preset_path;
+    glm::vec3 position{};
+    if (!take(data, net_id)) return;
+    if (!take(data, owner)) return;
+    if (!take_string(data, preset_path)) return;
+    if (!take(data, position)) return;
+
+    // Already have it (duplicate/reordered reliable packet)? Ignore.
+    if (node_id_for(net_id) != 0) return;
+
+    auto handle = resources.load_preset_asset(preset_path);
+    if (!handle) {
+        FJELL_CORE_ERROR("NetManager: spawn of net {} failed, can't load '{}'",
+                         net_id, preset_path);
+        return;
+    }
+    PresetAsset* asset = resources.get(*handle);
+    if (!asset) return;
+
+    Transform offset;
+    offset.position = position;
+    uint32_t node_id = asset->preset.instantiate(scene, -1, offset);
+    if (node_id == 0) return;
+
+    register_net_object(net_id, node_id);
+    set_owner(net_id, owner);
+    FJELL_CORE_INFO("NetManager: spawned net {} from '{}'", net_id, preset_path);
+}
+
+void NetManager::apply_despawn(Scene& scene, std::span<const uint8_t> data) {
+    NetId net_id = NET_ID_NONE;
+    if (!take(data, net_id)) return;
+
+    uint32_t node_id = node_id_for(net_id);
+    if (node_id != 0) scene.queue_destroy(node_id);
+    unregister_net_object(net_id);
+    FJELL_CORE_INFO("NetManager: despawned net {}", net_id);
 }
 
 } // namespace fjell

@@ -6,7 +6,8 @@
 namespace fjell {
 
 void NetReceiveSubsystem::tick(const TickContext& ctx) {
-    net_.receive_and_apply(ctx.scene, scripts_);
+    if (!ctx.resources) return;
+    net_.receive_and_apply(ctx.scene, scripts_, *ctx.resources);
 }
 
 void NetReceiveSubsystem::on_play_stop(const TickContext& /*ctx*/) {
