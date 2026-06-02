@@ -210,8 +210,22 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
+# ENet — reliable UDP networking (multiplayer transport)
+FetchContent_Declare(
+    enet
+    GIT_REPOSITORY https://github.com/lsalzman/enet.git
+    GIT_TAG        v1.3.18
+    GIT_SHALLOW    TRUE
+    EXCLUDE_FROM_ALL
+)
 
-FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype tracy meshoptimizer ozz-animation assimp Catch2)
+
+FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype tracy meshoptimizer ozz-animation assimp Catch2 enet)
+
+# ENet's CMakeLists exports an unaliased `enet` target; give it the include dir.
+if(TARGET enet)
+    target_include_directories(enet INTERFACE "${enet_SOURCE_DIR}/include")
+endif()
 
 # Assimp has internal warnings that fail with -Werror in Release, suppress them
 if(TARGET assimp AND NOT MSVC)

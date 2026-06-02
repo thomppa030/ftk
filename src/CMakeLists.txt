@@ -322,6 +322,7 @@ target_link_libraries(fjell PRIVATE
     ozz_animation_offline
     msdfgen::msdfgen-ext
     Freetype::Freetype
+    enet
     ${CMAKE_DL_LIBS}
 )
 
