@@ -46,6 +46,9 @@ class AssetLoader;
 class AudioSubsystem;
 class DebugDrawQueue;
 class EditorContext;
+class NetManager;
+class NetReceiveSubsystem;
+class NetSendSubsystem;
 class PhysicsSubsystem;
 class ResourceManager;
 class SceneEditorContext;
@@ -145,6 +148,9 @@ private:
     SpriteAnimSubsystem* sprite_anim_subsystem_{};
     CameraSubsystem*    camera_subsystem_{};
     UiSubsystem*        ui_subsystem_{};
+    NetReceiveSubsystem* net_receive_subsystem_{};
+    NetSendSubsystem*    net_send_subsystem_{};
+    std::unique_ptr<NetManager> net_manager_;
     std::unique_ptr<DebugDrawQueue> debug_draw_queue_;
 
     // Phase groups (non-owning, built once in constructor)

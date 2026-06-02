@@ -11,6 +11,8 @@ extern "C" void fjell_input_clear_connections();
 #include "core/profiler.hpp"
 #include "animation/animation_subsystem.hpp"
 #include "audio/audio_subsystem.hpp"
+#include "net/net_manager.hpp"
+#include "net/net_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"
 #include "renderer/systems/sprite_anim_subsystem.hpp"
 #include "renderer/systems/vfx_subsystem.hpp"
@@ -145,12 +147,21 @@ void Engine::init_subsystems() {
     sprite_anim_subsystem_ = add_subsystem<SpriteAnimSubsystem>();
     camera_subsystem_    = add_subsystem<CameraSubsystem>();
 
+    net_manager_ = std::make_unique<NetManager>();
+    net_receive_subsystem_ = add_subsystem<NetReceiveSubsystem>(*net_manager_);
+    net_send_subsystem_    = add_subsystem<NetSendSubsystem>(*net_manager_);
+
+    // NetReceive must run before scripts so they see up-to-date remote state.
+    play_phase_0_.push_back(net_receive_subsystem_);
     play_phase_0_.push_back(script_subsystem_);
     play_phase_0_.push_back(camera_subsystem_);
     play_phase_1_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
     early_always_.push_back(animation_subsystem_);
     early_always_.push_back(sprite_anim_subsystem_);
+    // NetSend runs after physics + compute_world_matrices so it transmits final
+    // post-physics transforms, at its own fixed network rate.
+    late_always_.push_back(net_send_subsystem_);
     late_play_.push_back(audio_subsystem_);
 
     vulkan_context_->set_animation_system(&animation_subsystem_->system());
@@ -287,6 +298,7 @@ void Engine::init_resources() {
     ss.input_actions = &input_action_map_;
     ss.timers = &script_subsystem_->manager().timers();
     ss.clock = &clock_;
+    ss.net = net_manager_.get();
     debug_draw_queue_ = std::make_unique<DebugDrawQueue>();
     ss.debug_queue = debug_draw_queue_.get();
     vulkan_context_->set_debug_draw_queue(debug_draw_queue_.get());
