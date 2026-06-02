@@ -220,6 +220,7 @@ add_executable(fjell
     scripting/debug_api.cpp
     scripting/scene_api.cpp
     net/enet_transport.cpp
+    net/net_manager.cpp
     ui/asset_ref_widget.cpp
     ui/capture_popup.cpp
     ui/console.cpp
