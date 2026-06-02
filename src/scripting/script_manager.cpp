@@ -435,6 +435,9 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
 
     float dt = clock.game_delta_time();
 
+    // Scripts may spawn nodes during tick(); defer those adds so they don't
+    // invalidate this loop's iterator over objects_.
+    Scene::TickLock tick_lock(scene);
     for (auto& obj : scene.objects()) {
         for (auto& comp : obj->scripts) {
             if (comp.instance) {

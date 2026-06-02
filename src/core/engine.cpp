@@ -1437,6 +1437,9 @@ TickContext Engine::make_frame_context() {
 }
 
 void Engine::flush_pending() {
+    // Materialize nodes spawned mid-tick before anything else walks objects_.
+    scene_.flush_spawned();
+
     if (scene_.pending_destroy().empty()) return;
     script_subsystem_->manager().trace_doomed_refs(scene_, scene_.pending_destroy());
     if (physics_subsystem_->world()) {

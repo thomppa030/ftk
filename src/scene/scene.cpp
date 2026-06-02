@@ -244,13 +244,34 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
     if (node->id == 0) node->id = next_id_++;
     if (node->id >= next_id_) next_id_ = node->id + 1;
     uint32_t id = node->id;
-    id_to_index_[id] = static_cast<int>(objects_.size());
-    objects_.push_back(std::move(node));
     if (!id_generation_.contains(id)) {
         id_generation_[id] = 1;
     }
     dirty_ = true;
+
+    // Adding during a tick would invalidate the iterator the caller is walking
+    // over objects_; defer until flush_spawned() runs after the loop. The id is
+    // already assigned, so callers (and networking) can use it immediately.
+    if (iteration_depth_ > 0) {
+        pending_spawn_.push_back(std::move(node));
+        index_dirty_ = true;
+        return id;
+    }
+
+    id_to_index_[id] = static_cast<int>(objects_.size());
+    objects_.push_back(std::move(node));
     return id;
+}
+
+void Scene::flush_spawned() {
+    if (pending_spawn_.empty()) return;
+    for (auto& node : pending_spawn_) {
+        id_to_index_[node->id] = static_cast<int>(objects_.size());
+        objects_.push_back(std::move(node));
+    }
+    pending_spawn_.clear();
+    index_dirty_ = true;
+    dirty_ = true;
 }
 
 void Scene::remove(uint32_t id) {

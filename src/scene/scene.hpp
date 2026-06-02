@@ -75,6 +75,24 @@ public:
     void flush_destroyed();
     [[nodiscard]] std::span<const uint32_t> pending_destroy() const { return pending_destroy_; }
 
+    // Mid-tick mutation guard. While locked (e.g. during the script tick loop),
+    // add_node() defers insertion into a pending queue instead of mutating
+    // objects_, which would invalidate the iterator the caller is walking.
+    // flush_spawned() materializes the queue afterward. RAII helper: TickLock.
+    void lock_iteration()   { ++iteration_depth_; }
+    void unlock_iteration() { if (iteration_depth_ > 0) --iteration_depth_; }
+    [[nodiscard]] bool iterating() const { return iteration_depth_ > 0; }
+    void flush_spawned();
+    [[nodiscard]] bool has_pending_spawns() const { return !pending_spawn_.empty(); }
+
+    struct TickLock {
+        explicit TickLock(Scene& s) : scene_(s) { scene_.lock_iteration(); }
+        ~TickLock() { scene_.unlock_iteration(); }
+        TickLock(const TickLock&) = delete;
+        TickLock& operator=(const TickLock&) = delete;
+        Scene& scene_;
+    };
+
     // Point/spot lights
     [[nodiscard]] std::vector<PointLight>& point_lights() { return point_lights_; }
     [[nodiscard]] const std::vector<PointLight>& point_lights() const { return point_lights_; }
@@ -99,6 +117,9 @@ private:
     std::vector<uint8_t> computed_buf_; // reusable per-frame scratch
     std::unordered_map<uint32_t, uint32_t> id_generation_;
     std::vector<uint32_t> pending_destroy_;
+
+    int iteration_depth_{0};                              // >0 while a tick walks objects_
+    std::vector<std::unique_ptr<Node>> pending_spawn_;    // deferred adds, flushed post-tick
 };
 
 } // namespace fjell
