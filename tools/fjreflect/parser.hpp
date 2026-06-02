@@ -22,6 +22,7 @@ struct FieldInfo {
     bool has_range{false};
     bool is_color{false};      // [[fj::color]] — vec3/vec4 → COLOR3/COLOR4
     bool is_readonly{false};   // [[fj::readonly]] — disabled in inspector
+    bool is_replicated{false}; // [[fj::replicated]] — synced over the network
     std::string tooltip;       // [[fj::tooltip("...")]]
     std::string category;      // [[fj::category("...")]]
     std::vector<std::string> enum_labels; // [[fj::enum(A, B, C)]]

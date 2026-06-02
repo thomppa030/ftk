@@ -91,6 +91,7 @@ static OwnedFieldDesc copy_field(const FjellFieldDesc& fd) {
     ofd.max = fd.max;
     ofd.speed = fd.speed;
     ofd.readonly = fd.readonly != 0;
+    ofd.replicated = fd.replicated != 0;
     if (fd.ref_type_name) {
         ofd.ref_type_name = fd.ref_type_name;
     }

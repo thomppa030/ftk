@@ -83,6 +83,7 @@ static void write_generated_cpp(const ComponentInfo& comp,
         if (f.category.empty()) out << "nullptr";
         else out << "\"" << f.category << "\"";
         out << ", " << (f.is_readonly ? 1 : 0);
+        out << ", " << (f.is_replicated ? 1 : 0);
         out << "},\n";
     }
     out << "};\n\n";

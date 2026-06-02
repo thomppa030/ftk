@@ -45,6 +45,7 @@ struct OwnedFieldDesc {
     std::string tooltip;        // hover help (empty if none)
     std::string category;       // group header (empty if none)
     bool readonly{false};
+    bool replicated{false};     // [[fj::replicated]] — synced over the network
 };
 
 struct OwnedScriptType {

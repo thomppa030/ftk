@@ -30,7 +30,7 @@ extern "C" {
 // ── API version ─────────────────────────────────────────────────────────
 // Bump this when changing any SDK struct layout, vtable shape, or ABI contract.
 // Engine checks this at .so load time and rejects mismatches.
-#define FJELL_API_VERSION 13
+#define FJELL_API_VERSION 14
 
 // ── Field types for inspector / serialization reflection ────────────────
 
@@ -63,6 +63,7 @@ typedef struct FjellFieldDesc {
     const char*        tooltip;      // hover help in inspector (null if none)
     const char*        category;     // group header in inspector (null if none)
     uint8_t            readonly;     // 1 = inspector shows but disables editing
+    uint8_t            replicated;   // 1 = [[fj::replicated]], synced over the network
 } FjellFieldDesc;
 
 // ── Action types for [[fj::action]] input binding ────────────────────

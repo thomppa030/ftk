@@ -222,6 +222,7 @@ static void apply_attrs(FieldInfo& fi, const std::string& attrs) {
     parse_enum_labels(attrs, fi.enum_labels);
     fi.is_color = attrs.find("fj::color") != std::string::npos;
     fi.is_readonly = attrs.find("fj::readonly") != std::string::npos;
+    fi.is_replicated = attrs.find("fj::replicated") != std::string::npos;
 }
 
 /// Parse a field declaration after stripping attributes.
@@ -481,7 +482,7 @@ ParseResult parse_file(const std::string& filepath) {
             if (!is_property) {
                 static const char* implicit[] = {
                     "fj::range", "fj::step", "fj::tooltip", "fj::category",
-                    "fj::color", "fj::enum", "fj::readonly",
+                    "fj::color", "fj::enum", "fj::readonly", "fj::replicated",
                 };
                 for (const auto* k : implicit) {
                     if (attrs.find(k) != std::string::npos) { is_property = true; break; }
