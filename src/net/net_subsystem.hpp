@@ -14,10 +14,12 @@
 namespace fjell {
 
 class NetManager;
+class ScriptManager;
 
 class NetReceiveSubsystem final : public Subsystem {
 public:
-    explicit NetReceiveSubsystem(NetManager& net) : net_(net) {}
+    NetReceiveSubsystem(NetManager& net, ScriptManager& scripts)
+        : net_(net), scripts_(scripts) {}
 
     [[nodiscard]] std::string_view name() const override { return "NetReceive"; }
     [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
@@ -29,11 +31,13 @@ protected:
 
 private:
     NetManager& net_;
+    ScriptManager& scripts_;
 };
 
 class NetSendSubsystem final : public Subsystem {
 public:
-    explicit NetSendSubsystem(NetManager& net) : net_(net) {}
+    NetSendSubsystem(NetManager& net, ScriptManager& scripts)
+        : net_(net), scripts_(scripts) {}
 
     [[nodiscard]] std::string_view name() const override { return "NetSend"; }
     [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
@@ -45,6 +49,7 @@ public:
 
 private:
     NetManager& net_;
+    ScriptManager& scripts_;
     float accumulator_{0.0f};
     float interval_{1.0f / 30.0f};  // 30 Hz default
 };

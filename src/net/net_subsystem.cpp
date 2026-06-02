@@ -6,7 +6,7 @@
 namespace fjell {
 
 void NetReceiveSubsystem::tick(const TickContext& ctx) {
-    net_.receive_and_apply(ctx.scene);
+    net_.receive_and_apply(ctx.scene, scripts_);
 }
 
 void NetReceiveSubsystem::on_play_stop(const TickContext& /*ctx*/) {
@@ -18,7 +18,7 @@ void NetSendSubsystem::tick(const TickContext& ctx) {
     accumulator_ += ctx.dt;
     if (accumulator_ < interval_) return;
     accumulator_ -= interval_;
-    net_.collect_and_send(ctx.scene);
+    net_.collect_and_send(ctx.scene, scripts_);
 }
 
 } // namespace fjell

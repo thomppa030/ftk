@@ -148,8 +148,9 @@ void Engine::init_subsystems() {
     camera_subsystem_    = add_subsystem<CameraSubsystem>();
 
     net_manager_ = std::make_unique<NetManager>();
-    net_receive_subsystem_ = add_subsystem<NetReceiveSubsystem>(*net_manager_);
-    net_send_subsystem_    = add_subsystem<NetSendSubsystem>(*net_manager_);
+    auto& net_scripts = script_subsystem_->manager();
+    net_receive_subsystem_ = add_subsystem<NetReceiveSubsystem>(*net_manager_, net_scripts);
+    net_send_subsystem_    = add_subsystem<NetSendSubsystem>(*net_manager_, net_scripts);
 
     // NetReceive must run before scripts so they see up-to-date remote state.
     play_phase_0_.push_back(net_receive_subsystem_);

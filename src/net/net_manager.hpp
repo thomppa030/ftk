@@ -1,9 +1,9 @@
 // net_manager.hpp — Core multiplayer state: connection lifecycle, network
-// identity, and ownership. Owned by Engine, shared by the net subsystems.
+// identity, ownership, and replicated-field sync.
 //
-// PR 1 establishes the lifecycle and identity bookkeeping. State replication
-// (receive_and_apply / collect_and_send bodies) lands in later PRs; here they
-// only pump the transport.
+// Replication uses per-object shadow copies: each send tick the authority
+// memcmp's a node's [[fj::replicated]] fields and transform against the last
+// sent bytes and ships only what changed (delta compression).
 #pragma once
 
 #include "net/transport.hpp"
@@ -12,10 +12,12 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace fjell {
 
 class Scene;
+class ScriptManager;
 
 // Network identity, distinct from a scene node id. Assigned by the server and
 // replicated so every peer agrees which object is which.
@@ -43,8 +45,8 @@ public:
     void shutdown();
 
     // ── Per-frame pumps (called by the net subsystems) ─────────────────
-    void receive_and_apply(Scene& scene);  // drains transport, applies remote state
-    void collect_and_send(Scene& scene);    // serializes + sends dirty state
+    void receive_and_apply(Scene& scene, ScriptManager& scripts);  // drain + apply remote state
+    void collect_and_send(Scene& scene, ScriptManager& scripts);    // serialize + send dirty state
 
     // ── Queries ────────────────────────────────────────────────────────
     [[nodiscard]] bool    is_server() const { return role_ == NetRole::server; }
@@ -71,18 +73,45 @@ public:
     std::function<void(PeerId)> on_peer_disconnected;
 
 private:
+    // Packet types (first byte of every payload).
+    enum class PacketType : uint8_t {
+        state_update = 1,  // delta of replicated fields + transform
+    };
+
+    // Last-sent bytes of an object's replicated fields, in field order. Used to
+    // detect which fields changed since the previous send (delta compression).
+    struct ShadowState {
+        std::vector<uint8_t> data;
+    };
+
+    // v1 bootstrap: register every scene node that has a replicated component,
+    // assigning NetIds by ascending node id so host and client agree without a
+    // handshake. Spawn/despawn replication (PR 4) supersedes this for dynamic
+    // objects. Runs once per session, when the registry is still empty.
+    void ensure_scene_registered(Scene& scene, ScriptManager& scripts);
+
     void handle_connect(PeerId peer);
     void handle_disconnect(PeerId peer);
-    void handle_receive(PeerId peer, std::span<const uint8_t> data, Channel channel);
+    void handle_receive(Scene& scene, ScriptManager& scripts,
+                        PeerId peer, std::span<const uint8_t> data, Channel channel);
+    void apply_state_update(Scene& scene, ScriptManager& scripts,
+                            std::span<const uint8_t> data);
 
     std::unique_ptr<Transport> transport_;
     NetRole role_{NetRole::none};
     PeerId  local_peer_{SERVER_PEER};
+    uint32_t server_tick_{0};
 
     NetId next_net_id_{1};  // NET_ID_NONE (0) reserved
     std::unordered_map<NetId, uint32_t> net_to_node_;
     std::unordered_map<uint32_t, NetId> node_to_net_;
     std::unordered_map<NetId, PeerId>   ownership_;
+    std::unordered_map<NetId, ShadowState> shadow_;
+
+    // Receive path stores the scene/scripts for the transport callback, which
+    // can't carry them through ENet. Set at the top of receive_and_apply.
+    Scene*         rx_scene_{nullptr};
+    ScriptManager* rx_scripts_{nullptr};
 };
 
 } // namespace fjell
