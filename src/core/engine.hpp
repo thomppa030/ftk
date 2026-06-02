@@ -84,6 +84,7 @@ private:
     void init_editor();
 
     void create_default_scene();
+    void save_scene();
     void save_material_assets();
 
     void draw_ui();

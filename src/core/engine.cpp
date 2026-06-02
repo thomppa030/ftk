@@ -723,6 +723,19 @@ Engine::~Engine() {
     FJELL_CORE_INFO("Engine shut down");
 }
 
+void Engine::save_scene() {
+    // Flush live script-component state into each node's serialized JSON before
+    // writing — otherwise inspector edits (e.g. asset Refs) made since load are
+    // lost, since the file is written from the stored JSON, not the instances.
+    if (!active_context().is_playing()) {
+        script_subsystem_->manager().serialize_all(scene_);
+    }
+    save_material_assets();
+    if (auto r = scene_.save(current_scene_path_); !r) {
+        FJELL_CORE_ERROR("{}", r.error());
+    }
+}
+
 void Engine::save_material_assets() {
     auto* cache = vulkan_context_->pipeline_cache();
     auto& bindless = vulkan_context_->bindless_textures();
@@ -1110,12 +1123,7 @@ void Engine::load_input_actions() {
 
 void Engine::bind_menu_bar() {
     connections_.push_back(menu_bar_.on_save_scene.bind(
-        [this]() {
-            save_material_assets();
-            if (auto r = scene_.save(current_scene_path_); !r) {
-                FJELL_CORE_ERROR("{}", r.error());
-            }
-        }));
+        [this]() { save_scene(); }));
     connections_.push_back(menu_bar_.on_load_scene.bind(
         [this]() { load_scene(current_scene_path_); }));
     connections_.push_back(menu_bar_.on_save_project.bind(
@@ -1360,10 +1368,7 @@ void Engine::draw_ui() {
         && ImGui::IsKeyPressed(ImGuiKey_S)) {
         active_context().save();
         if (&active_context() == scene_context_) {
-            save_material_assets();
-            if (auto r = scene_.save(current_scene_path_); !r) {
-                FJELL_CORE_ERROR("{}", r.error());
-            }
+            save_scene();
         }
     }
     if (ImGui::GetIO().KeyCtrl && ImGui::GetIO().KeyShift
