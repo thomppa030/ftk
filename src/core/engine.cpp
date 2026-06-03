@@ -197,6 +197,10 @@ void Engine::init_project(const std::filesystem::path& project_path) {
             // Safe here because VulkanContext + passes are already constructed
             // (see Engine ctor order: vulkan_context_ before init_project).
             vulkan_context_->set_render_settings(project_mgr_.active()->config().render);
+            const auto tick_rate =
+                static_cast<float>(project_mgr_.active()->config().network.tick_rate);
+            net_send_subsystem_->set_tick_rate(tick_rate);
+            net_manager_->set_tick_rate(tick_rate);  // match the interp timeline to send rate
         }
     }
 

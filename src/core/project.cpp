@@ -58,6 +58,12 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
         if (j.contains("render")) {
             from_json(j["render"], config.render);
         }
+        if (j.contains("network")) {
+            const auto& n = j["network"];
+            config.network.max_players = n.value("max_players", 16U);
+            config.network.tick_rate   = n.value("tick_rate", 30U);
+            config.network.port        = static_cast<uint16_t>(n.value("port", 7777U));
+        }
 
         FJELL_CORE_INFO("Project opened: {} ({})", config.name, root.string());
         auto project = Project(root, config);
@@ -99,6 +105,12 @@ void Project::save() const {
         j["layout"] = config_.layout;
     }
     to_json(j["render"], config_.render);
+
+    j["network"] = {
+        {"max_players", config_.network.max_players},
+        {"tick_rate", config_.network.tick_rate},
+        {"port", config_.network.port},
+    };
 
     std::ofstream file(path);
     if (!file.is_open()) {

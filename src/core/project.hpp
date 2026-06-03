@@ -25,6 +25,12 @@ struct ProjectConfig {
     std::string layout;
 
     RenderSettings render;
+
+    struct NetworkConfig {
+        uint32_t max_players{16};
+        uint32_t tick_rate{30};  // state-update send rate, Hz
+        uint16_t port{7777};
+    } network;
 };
 
 class Project {
