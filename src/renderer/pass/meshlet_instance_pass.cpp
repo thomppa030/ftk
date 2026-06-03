@@ -14,6 +14,8 @@
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
+#include <vector>
+
 #ifdef FJELL_ENABLE_TRACY
 #include <tracy/TracyVulkan.hpp>
 #endif
@@ -233,6 +235,10 @@ void MeshletInstancePass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*
     }
 }
 
+void MeshletInstancePass::reclaim_retired(uint32_t frame_index) {
+    retired_[frame_index].clear();
+}
+
 void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_instances) {
     if (max_instances <= capacities_[frame_index]) return;
 
@@ -240,6 +246,18 @@ void MeshletInstancePass::ensure_capacity(uint32_t frame_index, uint32_t max_ins
     if (new_cap < 256) new_cap = 256;
 
     VkDeviceSize instance_size = static_cast<VkDeviceSize>(new_cap) * sizeof(GpuMeshletInstance);
+
+    // Retire (don't inline-free) the outgoing buffers — a pending command
+    // buffer (async cull especially) may still reference the old handles.
+    auto retire = [&](std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT>& bufs) {
+        if (bufs[frame_index]) retired_[frame_index].push_back(std::move(bufs[frame_index]));
+    };
+    retire(instance_buffers_);
+    retire(visible_buffers_);
+    retire(expand_counters_);
+    retire(indirect_buffers_);
+    retire(culled_buffers_);
+    retire(culled_counters_);
 
     instance_buffers_[frame_index] = std::make_unique<Buffer>(
         allocator_, instance_size,
@@ -418,24 +436,21 @@ void MeshletInstancePass::dispatch_cull_internal(VkCommandBuffer cmd,
                                                   uint32_t viewport_height,
                                                   uint32_t hiz_mip_count,
                                                   uint32_t is_second_pass) {
-    // For first pass: zero all N indirect dispatch commands
-    // For second pass: skip zeroing (append to existing results)
+    // For first pass: init all N indirect dispatch commands to (X=0, Y=1, Z=1).
+    // For second pass: skip (append to existing results).
+    //
+    // Build the whole command array host-side and upload in ONE vkCmdUpdateBuffer.
+    // The previous fill-then-per-command-update wrote overlapping regions of the
+    // same buffer with two transfer ops and no barrier between them — a
+    // WRITE_AFTER_WRITE hazard (caught by synchronization validation) that let
+    // the driver clobber the Y/Z=1 writes with the zero-fill (or vice versa).
     if (is_second_pass == 0) {
         uint32_t cmd_count = std::max(num_bins, 1u);
-        VkDeviceSize init_size = cmd_count * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-        vkCmdFillBuffer(cmd, indirect_buffers_[frame_index]->handle(),
-                        0, init_size, 0);
-
-        // Write Y=1, Z=1 for each command
-        for (uint32_t i = 0; i < cmd_count; ++i) {
-            uint32_t one = 1;
-            VkDeviceSize y_offset = i * sizeof(VkDrawMeshTasksIndirectCommandEXT) + sizeof(uint32_t);
-            VkDeviceSize z_offset = y_offset + sizeof(uint32_t);
-            vkCmdUpdateBuffer(cmd, indirect_buffers_[frame_index]->handle(),
-                              y_offset, sizeof(uint32_t), &one);
-            vkCmdUpdateBuffer(cmd, indirect_buffers_[frame_index]->handle(),
-                              z_offset, sizeof(uint32_t), &one);
-        }
+        std::vector<VkDrawMeshTasksIndirectCommandEXT> init(cmd_count,
+            VkDrawMeshTasksIndirectCommandEXT{0, 1, 1});
+        vkCmdUpdateBuffer(cmd, indirect_buffers_[frame_index]->handle(), 0,
+                          cmd_count * sizeof(VkDrawMeshTasksIndirectCommandEXT),
+                          init.data());
     }
 
     // Barrier: transfer → compute
