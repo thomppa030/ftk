@@ -8,6 +8,9 @@ namespace fjell {
 void NetReceiveSubsystem::tick(const TickContext& ctx) {
     if (!ctx.resources) return;
     net_.receive_and_apply(ctx.scene, scripts_, *ctx.resources);
+    // Smooth remote objects between snapshots. Runs at the front of phase 0, so
+    // the interpolated transforms land before compute_world_matrices.
+    net_.interpolate_remotes(ctx.scene, ctx.dt);
 }
 
 void NetReceiveSubsystem::on_play_stop(const TickContext& /*ctx*/) {

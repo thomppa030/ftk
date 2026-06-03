@@ -123,6 +123,10 @@ void NetManager::shutdown() {
     node_to_net_.clear();
     ownership_.clear();
     shadow_.clear();
+    interp_.clear();
+    net_time_ = 0.0f;
+    newest_sample_t_ = 0.0f;
+    net_time_primed_ = false;
     rx_scene_ = nullptr;
     rx_scripts_ = nullptr;
     rx_resources_ = nullptr;
@@ -323,6 +327,7 @@ void NetManager::unregister_net_object(NetId net_id) {
     }
     ownership_.erase(net_id);
     shadow_.erase(net_id);
+    interp_.erase(net_id);
 }
 
 // ── Spawn / despawn ─────────────────────────────────────────────────────────
@@ -595,12 +600,104 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
             data = data.subspan(sz);
         }
 
-        if (apply && has_transform) {
-            if (Node3D* spatial = node ? node->as_spatial() : nullptr) {
-                spatial->transform.position = position;
-                spatial->transform.rotation = rotation;
+        if (apply && has_transform && node && node->as_spatial()) {
+            // Don't snap — buffer the sample. interpolate_remotes() writes the
+            // smoothed transform each frame. (Owned objects took the apply==false
+            // path above; their prediction is handled separately.)
+            push_interp_sample(net_id, position, rotation);
+        }
+    }
+}
+
+void NetManager::push_interp_sample(NetId net_id, const glm::vec3& pos,
+                                    const glm::quat& rot) {
+    InterpBuffer& buf = interp_[net_id];
+
+    // Stamp on a per-object monotonic timeline: exactly one nominal tick past the
+    // previous sample, independent of arrival jitter. The first sample (and any
+    // after a stall, where the global timeline has moved on) pins to the shared
+    // newest stamp so every object shares one timeline.
+    float t = tick_interval_;
+    if (buf.count > 0) {
+        const size_t newest = (buf.head + INTERP_HISTORY - 1) % INTERP_HISTORY;
+        t = buf.samples[newest].t + tick_interval_;
+    } else {
+        t = std::max(newest_sample_t_, tick_interval_);
+    }
+
+    buf.samples[buf.head] = {t, pos, rot};
+    buf.head = (buf.head + 1) % INTERP_HISTORY;
+    if (buf.count < INTERP_HISTORY) ++buf.count;
+
+    newest_sample_t_ = std::max(newest_sample_t_, t);
+
+    // Seed the render clock the first time we ever see a sample: place it
+    // interp_delay_ behind, so it starts inside the (about-to-fill) buffer.
+    if (!net_time_primed_) {
+        net_time_ = t - interp_delay_;
+        net_time_primed_ = true;
+    }
+}
+
+void NetManager::interpolate_remotes(Scene& scene, float dt) {
+    // Only clients render interpolated remote state; the server holds truth.
+    if (role_ != NetRole::client || !net_time_primed_) return;
+
+    // Advance the render clock at a constant nominal rate (one second of timeline
+    // per real second). It must NOT chase the newest stamp directly: that target
+    // steps up a whole tick on each (jittery) arrival, so a proportional pull
+    // springs back and forth → rubberbanding. Instead run free and apply only a
+    // gentle correction when buffer depth drifts outside a dead-band around
+    // interp_delay_. Inside the band, motion is perfectly linear.
+    net_time_ += dt;
+    const float depth = newest_sample_t_ - net_time_;  // how far behind newest we render
+    const float lo = interp_delay_ - tick_interval_;   // dead-band: ±1 tick of slack
+    const float hi = interp_delay_ + tick_interval_;
+    if (depth < lo) {
+        net_time_ -= (lo - depth) * std::min(1.0f, 2.0f * dt);  // about to starve, ease back
+    } else if (depth > hi) {
+        net_time_ += (depth - hi) * std::min(1.0f, 2.0f * dt);  // buffer grew, ease forward
+    }
+    const float render_time = net_time_;
+
+    for (auto& [net_id, buf] : interp_) {
+        if (is_local_authority(net_id)) continue;  // owned: predicted, not interpolated
+        if (buf.count == 0) continue;
+
+        uint32_t node_id = node_id_for(net_id);
+        Node* node = (node_id != 0) ? scene.find(node_id) : nullptr;
+        Node3D* spatial = node ? node->as_spatial() : nullptr;
+        if (!spatial) continue;
+
+        // Find the pair of samples that brackets render_time. Samples are ordered
+        // oldest→newest as (head, head+1, ...) modulo the ring.
+        const size_t oldest = buf.head + (INTERP_HISTORY - buf.count);
+        const InterpSnapshot& first = buf.samples[oldest % INTERP_HISTORY];
+        const InterpSnapshot& last  =
+            buf.samples[(buf.head + INTERP_HISTORY - 1) % INTERP_HISTORY];
+
+        glm::vec3 pos = last.position;
+        glm::quat rot = last.rotation;
+        if (render_time <= first.t) {
+            pos = first.position;  // before history → hold oldest (buffer filling)
+            rot = first.rotation;
+        } else if (render_time < last.t) {
+            for (size_t k = 1; k < buf.count; ++k) {
+                const InterpSnapshot& a = buf.samples[(oldest + k - 1) % INTERP_HISTORY];
+                const InterpSnapshot& b = buf.samples[(oldest + k) % INTERP_HISTORY];
+                if (render_time <= b.t && b.t > a.t) {
+                    const float alpha = std::clamp((render_time - a.t) / (b.t - a.t),
+                                                   0.0f, 1.0f);
+                    pos = glm::mix(a.position, b.position, alpha);
+                    rot = glm::slerp(a.rotation, b.rotation, alpha);
+                    break;
+                }
             }
         }
+        // else render_time >= last.t → hold newest (starved; no extrapolation).
+
+        spatial->transform.position = pos;
+        spatial->transform.rotation = rot;
     }
 }
 
