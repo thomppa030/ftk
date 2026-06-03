@@ -35,6 +35,11 @@ struct Blas {
     VkDeviceAddress device_address{0};
     uint32_t first_index{0};    // LOD 0 first_index in MegaBuffer
     uint32_t vertex_offset{0};  // LOD 0 vertex_offset in MegaBuffer
+    // MegaBuffer::generation() when this BLAS baked its absolute vertex/index
+    // device addresses. If the mega-buffer later grows (new device address),
+    // this goes stale and the BLAS must be rebuilt before the TLAS references
+    // it — otherwise traceRay dereferences freed memory (GPU READ_INVALID).
+    uint32_t mega_generation{0};
 };
 
 /// Manages BLAS + TLAS for DDGI ray tracing.
@@ -74,6 +79,16 @@ public:
                     const std::vector<const Model*>& draw_models,
                     const std::vector<ParticleEmitterInfo>& particle_emitters = {});
 
+    /// Free per-frame TLAS/instance buffers + TLAS handles that build_tlas
+    /// retired (on growth) the LAST time this slot was used. Call once per
+    /// frame AFTER the slot's in-flight fence has signaled (begin_frame).
+    /// build_tlas reallocates these per-frame buffers when the instance count
+    /// grows; an RT-tracing pass recorded earlier in the SAME frame already
+    /// bound the old buffer/TLAS, so freeing inline is a use-after-free that
+    /// the GPU hits as a dangling read (DEVICE_LOST). Retire instead, reclaim
+    /// here when the slot is provably idle.
+    void reclaim_retired(uint32_t frame_index);
+
     /// Create compute pipeline for particle → TLAS extraction (call once).
     void create_particle_tlas_pipeline(VkPipelineCache pipeline_cache);
 
@@ -91,6 +106,10 @@ public:
 private:
     VkDeviceAddress buffer_address(VkBuffer buffer) const;
     void build_blas(const Model* model, const MegaBuffer& mega);
+
+    // Destroy a BLAS's acceleration structure handle (GPU must be idle).
+    // Used to retire a stale BLAS before rebuilding against a moved mega-buffer.
+    void destroy_blas(Blas& blas);
 
     Device& device_;
     VkDevice vk_device_;
@@ -123,6 +142,12 @@ private:
         uint32_t rt_instance_count{0};
     };
     std::array<FrameTlas, MAX_FRAMES_IN_FLIGHT> frames_{};
+
+    // Per-slot graveyard: buffers/TLAS handles replaced by build_tlas growth,
+    // kept alive until the slot's fence signals (reclaim_retired). See
+    // reclaim_retired() for why inline free is a use-after-free here.
+    std::array<std::vector<std::unique_ptr<Buffer>>, MAX_FRAMES_IN_FLIGHT> retired_buffers_;
+    std::array<std::vector<VkAccelerationStructureKHR>, MAX_FRAMES_IN_FLIGHT> retired_tlas_;
 };
 
 } // namespace fjell

@@ -13,6 +13,7 @@ namespace fjell {
 
 struct MegaMeshEntry {
     uint32_t vertex_offset{0};
+    uint32_t vertex_count{0};
     uint32_t first_index{0};
     uint32_t index_count{0};
     uint32_t meshlet_offset{0};
@@ -40,6 +41,12 @@ public:
         return static_cast<VkDeviceSize>(index_offset_) * sizeof(uint32_t);
     }
 
+    /// Increments every time the vertex or index buffer is reallocated (grow).
+    /// A reallocation gives the buffer a NEW device address, which invalidates
+    /// any consumer that baked the old address — notably ray-tracing BLAS
+    /// geometry. Such consumers stamp this value and rebuild when it changes.
+    [[nodiscard]] uint32_t generation() const { return generation_; }
+
 private:
     void grow_vertex_buffer(VkDeviceSize new_size);
     void grow_index_buffer(VkDeviceSize new_size);
@@ -57,6 +64,9 @@ private:
 
     VkDeviceSize vertex_capacity_;
     VkDeviceSize index_capacity_;
+
+    // Bumped on every grow_* — see generation().
+    uint32_t generation_{0};
 
     static constexpr VkDeviceSize INITIAL_VERTEX_SIZE = 16 * 1024 * 1024;
     static constexpr VkDeviceSize INITIAL_INDEX_SIZE = 8 * 1024 * 1024;

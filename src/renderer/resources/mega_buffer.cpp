@@ -104,6 +104,7 @@ MegaMeshEntry MegaBuffer::upload(const std::vector<Vertex>& vertices,
 
     MegaMeshEntry entry{};
     entry.vertex_offset = vertex_offset_;
+    entry.vertex_count = static_cast<uint32_t>(vertices.size());
     entry.first_index = index_offset_;
     entry.index_count = static_cast<uint32_t>(indices.size());
 
@@ -138,6 +139,7 @@ void MegaBuffer::grow_vertex_buffer(VkDeviceSize new_size) {
 
     vertex_buffer_ = std::move(new_buffer);
     vertex_capacity_ = new_size;
+    ++generation_;  // new VkBuffer = new device address; baked BLAS addrs now stale
 }
 
 void MegaBuffer::grow_index_buffer(VkDeviceSize new_size) {
@@ -158,6 +160,7 @@ void MegaBuffer::grow_index_buffer(VkDeviceSize new_size) {
 
     index_buffer_ = std::move(new_buffer);
     index_capacity_ = new_size;
+    ++generation_;  // new VkBuffer = new device address; baked BLAS addrs now stale
 }
 
 } // namespace fjell
