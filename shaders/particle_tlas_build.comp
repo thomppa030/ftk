@@ -29,12 +29,27 @@ layout(std430, set = 0, binding = 2) buffer CounterBuffer {
     uint instance_count;
 };
 
+// Per-instance data the closest-hit shaders read by gl_InstanceID. MUST be
+// written at the SAME compacted idx as instances[idx] so TLAS slot and
+// rt_instances slot describe the same particle (matches GpuRtInstance: 4 uints).
+struct RtInstanceOut {
+    uint material_id;
+    uint first_index;
+    uint vertex_offset;
+    uint pad;
+};
+layout(std430, set = 0, binding = 3) writeonly buffer RtInstanceBuffer {
+    RtInstanceOut rt_instances[];
+};
+
 layout(push_constant) uniform PushConstants {
     uint particle_offset;  // base_offset of this emitter in the particle buffer
     uint particle_count;   // max_particles for this emitter
     uint material_id;
     float particle_size;   // average size for transform scale
     uvec2 blas_address;    // device address of the mesh BLAS (uint64 as two uint32s)
+    uint first_index;      // emitter BLAS geometry offsets (for rt_instances)
+    uint vertex_offset;
 };
 
 void main() {
@@ -65,4 +80,13 @@ void main() {
     inst.accel_struct_ref = blas_address;
 
     instances[idx] = inst;
+
+    // Write per-instance geometry data at the SAME idx so the hit shader's
+    // rt_instances[gl_InstanceID] resolves to THIS particle's mesh.
+    RtInstanceOut rt;
+    rt.material_id = material_id;
+    rt.first_index = first_index;
+    rt.vertex_offset = vertex_offset;
+    rt.pad = 0u;
+    rt_instances[idx] = rt;
 }

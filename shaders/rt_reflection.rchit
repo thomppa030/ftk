@@ -146,14 +146,37 @@ vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
 void main() {
     float hit_t = gl_HitTEXT;
 
-    RtInstanceData inst = rt_instances[gl_InstanceID];
-    GpuMaterial mat = materials[inst.material_id];
+    // Guard against a TLAS instance whose rt_instances entry doesn't exist
+    // (the TLAS instance count can exceed the per-instance data array under
+    // rapid spawn/despawn churn). Reading past the bound SSBO loses the GPU
+    // device; .length() is the bound buffer's element count.
+    if (gl_InstanceID >= rt_instances.length()) {
+        payload = vec4(0.0, 0.0, 0.0, hit_t);
+        return;
+    }
 
+    RtInstanceData inst = rt_instances[gl_InstanceID];
+
+    // Bounds-guard every buffer read below. A wrong (but in-range) rt_instances
+    // entry under spawn/despawn churn yields a bad first_index/material_id; an
+    // unchecked index_data[]/vertex_data[]/materials[] read past its SSBO loses
+    // the GPU device. Clamp -> drop the hit instead of faulting.
     uint prim = gl_PrimitiveID;
     uint idx_base = inst.first_index + prim * 3;
+    if (inst.material_id >= materials.length()
+        || idx_base + 2 >= index_data.length()) {
+        payload = vec4(0.0, 0.0, 0.0, hit_t);
+        return;
+    }
+    GpuMaterial mat = materials[inst.material_id];
     uint i0 = index_data[idx_base + 0] + inst.vertex_offset;
     uint i1 = index_data[idx_base + 1] + inst.vertex_offset;
     uint i2 = index_data[idx_base + 2] + inst.vertex_offset;
+    uint max_vtx = max(i0, max(i1, i2));
+    if ((max_vtx + 1) * FLOATS_PER_VERTEX > vertex_data.length()) {
+        payload = vec4(0.0, 0.0, 0.0, hit_t);
+        return;
+    }
 
     vec3 bary = vec3(1.0 - bary_coord.x - bary_coord.y, bary_coord.x, bary_coord.y);
 
