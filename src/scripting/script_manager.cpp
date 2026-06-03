@@ -470,21 +470,84 @@ void ScriptManager::update(Scene& scene, const Input& input, const Clock& clock,
 
 void ScriptManager::call_begin_play(Scene& scene) {
     FJELL_PROFILE_SCOPE_N("script_begin_play");
-    for (auto& obj : scene.objects()) {
-        for (auto& comp : obj->scripts) {
-            if (comp.instance) {
-                comp.instance->world_ = &world_;
-                try {
-                    comp.instance->begin_play();
-                } catch (const std::exception& e) {
-                    FJELL_CORE_ERROR("Exception in {}.begin_play on '{}': {}",
-                                     comp.type_name, obj->name, e.what());
-                } catch (...) {
-                    FJELL_CORE_ERROR("Unknown exception in {}.begin_play on '{}'",
-                                     comp.type_name, obj->name);
+    // begin_play() may spawn nodes (e.g. a server spawning a player on connect);
+    // defer those adds so they don't invalidate this loop's iterator, then flush
+    // them once the loop completes. Same contract as update().
+    {
+        Scene::TickLock tick_lock(scene);
+        for (auto& obj : scene.objects()) {
+            for (auto& comp : obj->scripts) {
+                if (comp.instance) {
+                    comp.instance->world_ = &world_;
+                    try {
+                        comp.instance->begin_play();
+                    } catch (const std::exception& e) {
+                        FJELL_CORE_ERROR("Exception in {}.begin_play on '{}': {}",
+                                         comp.type_name, obj->name, e.what());
+                    } catch (...) {
+                        FJELL_CORE_ERROR("Unknown exception in {}.begin_play on '{}'",
+                                         comp.type_name, obj->name);
+                    }
                 }
             }
         }
+    }
+    // Nodes spawned during begin_play need their own script lifecycle.
+    initialize_spawned(scene, scene.flush_spawned());
+}
+
+void ScriptManager::initialize_spawned(Scene& scene, const std::vector<uint32_t>& ids) {
+    if (ids.empty() || !is_loaded()) return;
+
+    // Spawning can cascade (begin_play spawns more), so defer adds and re-flush.
+    std::vector<uint32_t> to_init = ids;
+    while (!to_init.empty()) {
+        // Instantiate scripts for this batch of new nodes (mirrors deserialize_all).
+        for (uint32_t node_id : to_init) {
+            Node* obj = scene.find(node_id);
+            auto* spatial = obj ? obj->as_spatial() : nullptr;
+            if (!spatial) continue;
+            for (auto& comp : obj->scripts) {
+                if (comp.instance) continue;  // already live
+                const auto* ctype = find_script_type(comp.type_name);
+                if (!ctype || !ctype->loaded || !ctype->create) continue;
+
+                comp.instance.reset(ctype->create());
+                comp.instance->node_ = spatial;
+                comp.instance->world_ = &world_;
+                comp.instance->transform_ = &spatial->transform;
+                comp.instance->id_ = obj->id;
+                comp.instance->name_ = obj->name.c_str();
+                if (!comp.serialized.empty()) {
+                    auto_deserialize_fields(ctype->fields, comp.instance.get(), comp.serialized);
+                }
+            }
+        }
+
+        // begin_play this batch; their spawns defer behind the lock.
+        std::vector<uint32_t> next;
+        {
+            Scene::TickLock tick_lock(scene);
+            for (uint32_t node_id : to_init) {
+                Node* obj = scene.find(node_id);
+                if (!obj) continue;
+                for (auto& comp : obj->scripts) {
+                    if (!comp.instance) continue;
+                    comp.instance->world_ = &world_;
+                    try {
+                        comp.instance->begin_play();
+                    } catch (const std::exception& e) {
+                        FJELL_CORE_ERROR("Exception in {}.begin_play on '{}': {}",
+                                         comp.type_name, obj->name, e.what());
+                    } catch (...) {
+                        FJELL_CORE_ERROR("Unknown exception in {}.begin_play on '{}'",
+                                         comp.type_name, obj->name);
+                    }
+                }
+            }
+        }
+        next = scene.flush_spawned();
+        to_init = std::move(next);
     }
 }
 

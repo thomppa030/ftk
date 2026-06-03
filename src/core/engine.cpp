@@ -1458,7 +1458,12 @@ TickContext Engine::make_frame_context() {
 
 void Engine::flush_pending() {
     // Materialize nodes spawned mid-tick before anything else walks objects_.
-    scene_.flush_spawned();
+    auto spawned = scene_.flush_spawned();
+    // Give freshly-spawned nodes their script lifecycle (instantiate + begin_play)
+    // while playing — the play-start passes already ran without them.
+    if (!spawned.empty() && active_context().is_playing()) {
+        script_subsystem_->manager().initialize_spawned(scene_, spawned);
+    }
 
     if (scene_.pending_destroy().empty()) return;
     script_subsystem_->manager().trace_doomed_refs(scene_, scene_.pending_destroy());

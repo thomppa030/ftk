@@ -82,7 +82,10 @@ public:
     void lock_iteration()   { ++iteration_depth_; }
     void unlock_iteration() { if (iteration_depth_ > 0) --iteration_depth_; }
     [[nodiscard]] bool iterating() const { return iteration_depth_ > 0; }
-    void flush_spawned();
+    // Materialize deferred spawns into objects_. Returns the ids of the nodes
+    // that were added, so the caller can run script lifecycle (instantiate +
+    // begin_play) on freshly-spawned nodes during play.
+    std::vector<uint32_t> flush_spawned();
     [[nodiscard]] bool has_pending_spawns() const { return !pending_spawn_.empty(); }
 
     struct TickLock {

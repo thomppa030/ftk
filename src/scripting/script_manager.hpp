@@ -105,6 +105,12 @@ public:
     void call_begin_play(Scene& scene);
     void call_end_play(Scene& scene);
 
+    // Instantiate scripts and call begin_play for nodes spawned mid-play (the
+    // play-start deserialize/begin_play passes already ran, so freshly-spawned
+    // nodes would otherwise have no live script instances). ids are the nodes
+    // returned by Scene::flush_spawned().
+    void initialize_spawned(Scene& scene, const std::vector<uint32_t>& ids);
+
     void trace_doomed_refs(Scene& scene, std::span<const uint32_t> doomed_ids);
     void dispatch_collision_events(Scene& scene, class PhysicsWorld& physics);
 

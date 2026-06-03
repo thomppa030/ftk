@@ -263,15 +263,19 @@ uint32_t Scene::add_node(std::unique_ptr<Node> node) {
     return id;
 }
 
-void Scene::flush_spawned() {
-    if (pending_spawn_.empty()) return;
+std::vector<uint32_t> Scene::flush_spawned() {
+    if (pending_spawn_.empty()) return {};
+    std::vector<uint32_t> spawned;
+    spawned.reserve(pending_spawn_.size());
     for (auto& node : pending_spawn_) {
+        spawned.push_back(node->id);
         id_to_index_[node->id] = static_cast<int>(objects_.size());
         objects_.push_back(std::move(node));
     }
     pending_spawn_.clear();
     index_dirty_ = true;
     dirty_ = true;
+    return spawned;
 }
 
 void Scene::remove(uint32_t id) {
