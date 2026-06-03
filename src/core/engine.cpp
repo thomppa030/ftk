@@ -148,6 +148,14 @@ void Engine::init_subsystems() {
     camera_subsystem_    = add_subsystem<CameraSubsystem>();
 
     net_manager_ = std::make_unique<NetManager>();
+    // Forward connection events to script components (server-side). These fire
+    // from the transport poll inside NetReceive's tick — main thread, scene safe.
+    net_manager_->on_peer_connected = [this](PeerId peer) {
+        script_subsystem_->manager().dispatch_player_connected(scene_, peer);
+    };
+    net_manager_->on_peer_disconnected = [this](PeerId peer) {
+        script_subsystem_->manager().dispatch_player_disconnected(scene_, peer);
+    };
     auto& net_scripts = script_subsystem_->manager();
     net_receive_subsystem_ = add_subsystem<NetReceiveSubsystem>(*net_manager_, net_scripts);
     net_send_subsystem_    = add_subsystem<NetSendSubsystem>(*net_manager_, net_scripts);

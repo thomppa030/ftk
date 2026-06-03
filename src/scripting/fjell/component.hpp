@@ -11,6 +11,12 @@ namespace fjell {
 struct Node3D;  // SDK handle — defined in fjell/node.hpp
 class ScriptManager;
 
+// Network peer identity. Identical alias to fjell/net_api.hpp's PeerId, so both
+// headers can be included together. Declared here to avoid pulling the net API
+// (and its NetRole enum, which collides with the engine-internal one) into every
+// component TU.
+using PeerId = uint32_t;
+
 class ScriptComponent {
 public:
     virtual ~ScriptComponent() = default;
@@ -25,6 +31,11 @@ public:
     virtual void on_collision_exit(uint32_t other_id) { (void)other_id; }
     virtual void on_trigger_enter(uint32_t other_id) { (void)other_id; }
     virtual void on_trigger_exit(uint32_t other_id) { (void)other_id; }
+
+    // Networking: fire on the SERVER when a client connects/disconnects, so game
+    // code can spawn/own a player per peer. PeerId is the connecting peer.
+    virtual void on_player_connected(PeerId peer) { (void)peer; }
+    virtual void on_player_disconnected(PeerId peer) { (void)peer; }
 
     [[nodiscard]] uint32_t id() const { return id_; }
     [[nodiscard]] const char* name() const { return name_; }

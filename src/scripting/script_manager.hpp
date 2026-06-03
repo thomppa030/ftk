@@ -108,6 +108,12 @@ public:
     void trace_doomed_refs(Scene& scene, std::span<const uint32_t> doomed_ids);
     void dispatch_collision_events(Scene& scene, class PhysicsWorld& physics);
 
+    // Network connection events: call every script component's on_player_*
+    // virtual. Fired on the server when a peer connects/disconnects. peer is the
+    // connecting/leaving PeerId (uint32_t in the SDK).
+    void dispatch_player_connected(Scene& scene, uint32_t peer);
+    void dispatch_player_disconnected(Scene& scene, uint32_t peer);
+
     [[nodiscard]] const OwnedScriptType* find_script_type(const std::string& name) const;
     [[nodiscard]] const std::vector<OwnedScriptType>& script_types() const { return script_type_list_; }
 

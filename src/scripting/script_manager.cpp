@@ -578,6 +578,22 @@ void ScriptManager::dispatch_collision_events(Scene& scene, PhysicsWorld& physic
     }
 }
 
+void ScriptManager::dispatch_player_connected(Scene& scene, uint32_t peer) {
+    for (const auto& obj : scene.objects()) {
+        for (auto& comp : obj->scripts) {
+            if (comp.instance) comp.instance->on_player_connected(peer);
+        }
+    }
+}
+
+void ScriptManager::dispatch_player_disconnected(Scene& scene, uint32_t peer) {
+    for (const auto& obj : scene.objects()) {
+        for (auto& comp : obj->scripts) {
+            if (comp.instance) comp.instance->on_player_disconnected(peer);
+        }
+    }
+}
+
 // ── Auto-serialization from field descriptors ───────────────────────────
 
 void ScriptManager::auto_serialize_fields(const std::vector<OwnedFieldDesc>& fields,
