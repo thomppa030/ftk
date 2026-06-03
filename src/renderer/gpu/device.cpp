@@ -214,6 +214,21 @@ void Device::pick_physical_device() {
     FJELL_GFX_INFO("Mesh shaders enabled (max workgroup: {})",
                    mesh_shader_max_workgroup_size_);
 
+    // VK_EXT_device_fault: on VK_ERROR_DEVICE_LOST, lets us query the faulting
+    // address/vendor info to pin which GPU op lost the device. Optional.
+    for (const auto& ext : available_exts) {
+        if (std::strcmp(ext.extensionName, VK_EXT_DEVICE_FAULT_EXTENSION_NAME) == 0) {
+            device_fault_supported_ = true;
+            break;
+        }
+    }
+    if (device_fault_supported_) {
+        device_extensions_.push_back(VK_EXT_DEVICE_FAULT_EXTENSION_NAME);
+        FJELL_GFX_INFO("VK_EXT_device_fault enabled (device-loss diagnostics)");
+    } else {
+        FJELL_GFX_INFO("VK_EXT_device_fault not available");
+    }
+
     // Probe for VK_KHR_ray_tracing_pipeline + VK_KHR_acceleration_structure
     bool has_rt_pipeline = false;
     bool has_accel_struct = false;
@@ -350,6 +365,14 @@ void Device::create_logical_device() {
 
         // bufferDeviceAddress is required for acceleration structures
         features_12.bufferDeviceAddress = VK_TRUE;
+    }
+
+    VkPhysicalDeviceFaultFeaturesEXT fault_features{};
+    if (device_fault_supported_) {
+        fault_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FAULT_FEATURES_EXT;
+        fault_features.deviceFault = VK_TRUE;
+        fault_features.pNext = chain_tail;
+        chain_tail = &fault_features;
     }
 
     features_13.pNext = chain_tail;
@@ -579,6 +602,67 @@ VkFormat Device::find_supported_format(
         }
     }
     throw std::runtime_error("Failed to find supported format");
+}
+
+void Device::dump_device_fault(const char* context) const {
+    if (!device_fault_supported_) {
+        FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — VK_EXT_device_fault unavailable, "
+                           "cannot query faulting op", context);
+        return;
+    }
+
+    auto pfn = reinterpret_cast<PFN_vkGetDeviceFaultInfoEXT>(
+        vkGetDeviceProcAddr(device_, "vkGetDeviceFaultInfoEXT"));
+    if (!pfn) {
+        FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT not loaded", context);
+        return;
+    }
+
+    VkDeviceFaultCountsEXT counts{};
+    counts.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_COUNTS_EXT;
+    if (pfn(device_, &counts, nullptr) != VK_SUCCESS) {
+        FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT(counts) failed", context);
+        return;
+    }
+
+    std::vector<VkDeviceFaultAddressInfoEXT> addrs(counts.addressInfoCount);
+    std::vector<VkDeviceFaultVendorInfoEXT> vendors(counts.vendorInfoCount);
+    std::vector<std::byte> vendor_bin(counts.vendorBinarySize);
+
+    VkDeviceFaultInfoEXT info{};
+    info.sType = VK_STRUCTURE_TYPE_DEVICE_FAULT_INFO_EXT;
+    info.pAddressInfos = addrs.empty() ? nullptr : addrs.data();
+    info.pVendorInfos = vendors.empty() ? nullptr : vendors.data();
+    info.pVendorBinaryData = vendor_bin.empty() ? nullptr : vendor_bin.data();
+    if (pfn(device_, &counts, &info) != VK_SUCCESS) {
+        FJELL_GFX_CRITICAL("DEVICE_LOST during '{}' — vkGetDeviceFaultInfoEXT(data) failed", context);
+        return;
+    }
+
+    FJELL_GFX_CRITICAL("=== DEVICE FAULT during '{}' ===", context);
+    FJELL_GFX_CRITICAL("  description: {}", info.description);
+    FJELL_GFX_CRITICAL("  address infos: {}, vendor infos: {}, vendor binary: {} bytes",
+                       counts.addressInfoCount, counts.vendorInfoCount, counts.vendorBinarySize);
+    for (uint32_t i = 0; i < counts.addressInfoCount; ++i) {
+        const auto& a = addrs[i];
+        const char* kind = "?";
+        switch (a.addressType) {
+            case VK_DEVICE_FAULT_ADDRESS_TYPE_READ_INVALID_EXT: kind = "READ_INVALID"; break;
+            case VK_DEVICE_FAULT_ADDRESS_TYPE_WRITE_INVALID_EXT: kind = "WRITE_INVALID"; break;
+            case VK_DEVICE_FAULT_ADDRESS_TYPE_EXECUTE_INVALID_EXT: kind = "EXECUTE_INVALID"; break;
+            case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_UNKNOWN_EXT: kind = "IP_UNKNOWN"; break;
+            case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_INVALID_EXT: kind = "IP_INVALID"; break;
+            case VK_DEVICE_FAULT_ADDRESS_TYPE_INSTRUCTION_POINTER_FAULT_EXT: kind = "IP_FAULT"; break;
+            default: break;
+        }
+        FJELL_GFX_CRITICAL("  [addr {}] type={} reported=0x{:x} precision=0x{:x}",
+                           i, kind, a.reportedAddress, a.addressPrecision);
+    }
+    for (uint32_t i = 0; i < counts.vendorInfoCount; ++i) {
+        const auto& v = vendors[i];
+        FJELL_GFX_CRITICAL("  [vendor {}] '{}' code=0x{:x} data=0x{:x}",
+                           i, v.description, v.vendorFaultCode, v.vendorFaultData);
+    }
 }
 
 VkSampleCountFlagBits Device::max_msaa_samples() const {

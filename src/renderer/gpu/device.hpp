@@ -96,6 +96,12 @@ public:
         const std::vector<VkFormat>& candidates, VkImageTiling tiling,
         VkFormatFeatureFlags features) const;
 
+    // Device-loss diagnostics. Call after a VK_ERROR_DEVICE_LOST; if
+    // VK_EXT_device_fault is supported, queries and logs the faulting
+    // address ranges + vendor info to pin the GPU op that lost the device.
+    [[nodiscard]] bool device_fault_supported() const { return device_fault_supported_; }
+    void dump_device_fault(const char* context) const;
+
 private:
     void create_instance();
     void setup_debug_messenger();
@@ -131,6 +137,8 @@ private:
     PFN_vkCmdDrawMeshTasksEXT pfn_draw_mesh_tasks_{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectEXT pfn_draw_mesh_tasks_indirect_{nullptr};
     PFN_vkCmdDrawMeshTasksIndirectCountEXT pfn_draw_mesh_tasks_indirect_count_{nullptr};
+
+    bool device_fault_supported_{false};
 
     bool ray_tracing_supported_{false};
     PFN_vkCreateRayTracingPipelinesKHR pfn_create_rt_pipelines_{nullptr};
