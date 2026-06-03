@@ -118,6 +118,7 @@ private:
         spawn        = 2,  // instantiate a preset on the client (reliable)
         despawn      = 3,  // remove a networked object on the client (reliable)
         rpc_call     = 4,  // invoke a [[fj::rpc]] handler on the target (reliable)
+        welcome      = 5,  // server → new client: "your assigned peer id" (reliable)
     };
 
     // Last-sent bytes of an object's replicated fields, in field order. Used to
@@ -164,6 +165,7 @@ private:
                      std::span<const uint8_t> data);
     void apply_despawn(Scene& scene, std::span<const uint8_t> data);
     void apply_rpc(Scene& scene, ScriptManager& scripts, std::span<const uint8_t> data);
+    void apply_welcome(std::span<const uint8_t> data);  // client learns its own peer id
 
     std::unique_ptr<Transport> transport_;
     NetRole role_{NetRole::none};
@@ -176,6 +178,19 @@ private:
     std::unordered_map<uint32_t, NetId> node_to_net_;
     std::unordered_map<NetId, PeerId>   ownership_;
     std::unordered_map<NetId, ShadowState> shadow_;
+
+    // Client-side prediction reconciliation for OWNED objects. The owning client
+    // moves its object locally each tick (responsive input); when the server's
+    // authoritative state arrives we don't snap — we ease toward it (hiding small
+    // divergences) unless the error is large (teleport/respawn), which snaps.
+    struct PendingCorrection {
+        glm::vec3 position{0.0f};
+        glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+        bool active{false};
+    };
+    std::unordered_map<NetId, PendingCorrection> corrections_;
+    float correction_rate_{10.0f};   // ease ~rate*dt toward server state per frame
+    float snap_threshold_{2.0f};     // metres of error above which we hard-snap
 
     // Client-side render-time interpolation of remote objects.
     //

@@ -124,6 +124,7 @@ void NetManager::shutdown() {
     ownership_.clear();
     shadow_.clear();
     interp_.clear();
+    corrections_.clear();
     net_time_ = 0.0f;
     newest_sample_t_ = 0.0f;
     net_time_primed_ = false;
@@ -328,6 +329,7 @@ void NetManager::unregister_net_object(NetId net_id) {
     ownership_.erase(net_id);
     shadow_.erase(net_id);
     interp_.erase(net_id);
+    corrections_.erase(net_id);
 }
 
 // ── Spawn / despawn ─────────────────────────────────────────────────────────
@@ -521,6 +523,14 @@ bool NetManager::is_local_authority(NetId net_id) const {
 // ── Transport callbacks ─────────────────────────────────────────────────────
 
 void NetManager::handle_connect(PeerId peer) {
+    // Tell the freshly-connected client which peer id the server assigned it, so
+    // it can recognize objects it owns (is_local_authority) and predict them.
+    if (role_ == NetRole::server && transport_) {
+        std::vector<uint8_t> packet;
+        put(packet, static_cast<uint8_t>(PacketType::welcome));
+        put(packet, peer);
+        transport_->send(peer, packet, Channel::reliable);
+    }
     if (on_peer_connected) on_peer_connected(peer);
 }
 
@@ -547,6 +557,9 @@ void NetManager::handle_receive(Scene& scene, ScriptManager& scripts,
         break;
     case PacketType::rpc_call:
         apply_rpc(scene, scripts, data);
+        break;
+    case PacketType::welcome:
+        apply_welcome(data);
         break;
     default:
         FJELL_CORE_WARN("NetManager: unknown packet type {}", type);
@@ -600,11 +613,24 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
             data = data.subspan(sz);
         }
 
-        if (apply && has_transform && node && node->as_spatial()) {
-            // Don't snap — buffer the sample. interpolate_remotes() writes the
-            // smoothed transform each frame. (Owned objects took the apply==false
-            // path above; their prediction is handled separately.)
-            push_interp_sample(net_id, position, rotation);
+        if (has_transform && node && node->as_spatial()) {
+            if (apply) {
+                // Remote object: don't snap — buffer the sample.
+                // interpolate_remotes() writes the smoothed transform each frame.
+                push_interp_sample(net_id, position, rotation);
+            } else {
+                // Owned object: the client predicts it locally. Reconcile against
+                // the server's authoritative transform — snap on a large error
+                // (teleport/respawn), otherwise ease toward it (reconcile_predicted).
+                Node3D* spatial = node->as_spatial();
+                if (glm::distance(spatial->transform.position, position) > snap_threshold_) {
+                    spatial->transform.position = position;
+                    spatial->transform.rotation = rotation;
+                    corrections_[net_id].active = false;
+                } else {
+                    corrections_[net_id] = {position, rotation, true};
+                }
+            }
         }
     }
 }
@@ -660,6 +686,23 @@ void NetManager::interpolate_remotes(Scene& scene, float dt) {
     }
     const float render_time = net_time_;
 
+    // Reconcile predicted (owned) objects toward the last authoritative state.
+    // Easing the predicted base toward the server hides small divergences; the
+    // script's own movement this frame still applies on top, so input stays
+    // responsive. Large errors were already hard-snapped in apply_state_update.
+    const float blend = std::min(1.0f, correction_rate_ * dt);
+    for (auto& [net_id, corr] : corrections_) {
+        if (!corr.active) continue;
+        uint32_t node_id = node_id_for(net_id);
+        Node* node = (node_id != 0) ? scene.find(node_id) : nullptr;
+        Node3D* spatial = node ? node->as_spatial() : nullptr;
+        if (!spatial) continue;
+        spatial->transform.position =
+            glm::mix(spatial->transform.position, corr.position, blend);
+        spatial->transform.rotation =
+            glm::slerp(spatial->transform.rotation, corr.rotation, blend);
+    }
+
     for (auto& [net_id, buf] : interp_) {
         if (is_local_authority(net_id)) continue;  // owned: predicted, not interpolated
         if (buf.count == 0) continue;
@@ -699,6 +742,14 @@ void NetManager::interpolate_remotes(Scene& scene, float dt) {
         spatial->transform.position = pos;
         spatial->transform.rotation = rot;
     }
+}
+
+void NetManager::apply_welcome(std::span<const uint8_t> data) {
+    PeerId assigned = SERVER_PEER;
+    if (!take(data, assigned)) return;
+    if (role_ != NetRole::client) return;  // only a client adopts a server-assigned id
+    local_peer_ = assigned;
+    FJELL_CORE_INFO("NetManager: assigned peer id {}", local_peer_);
 }
 
 void NetManager::apply_spawn(Scene& scene, ResourceManager& resources,
