@@ -20,6 +20,7 @@ Swapchain::Swapchain(Device& device, VmaAllocator allocator, Window& window)
     create_image_views();
     create_depth_resources();
     create_render_finished_semaphores();
+    create_acquire_semaphores();
 }
 
 Swapchain::Swapchain(Device& device, VmaAllocator allocator, Window& window, VkSurfaceKHR surface)
@@ -28,12 +29,15 @@ Swapchain::Swapchain(Device& device, VmaAllocator allocator, Window& window, VkS
     create_image_views();
     create_depth_resources();
     create_render_finished_semaphores();
+    create_acquire_semaphores();
 }
 
 Swapchain::~Swapchain() {
     auto vk_device = device_.handle();
 
     for (auto sem : render_finished_)
+        vkDestroySemaphore(vk_device, sem, nullptr);
+    for (auto sem : acquire_semaphores_)
         vkDestroySemaphore(vk_device, sem, nullptr);
 
     cleanup();
@@ -71,6 +75,14 @@ void Swapchain::recreate() {
     for (auto sem : render_finished_)
         vkDestroySemaphore(device_.handle(), sem, nullptr);
     render_finished_.clear();
+    // Recreate acquire semaphores too — a skipped/failed frame can leave one
+    // signaled-but-unwaited, and the device-idle above means none is in flight,
+    // so destroying them here clears any orphaned signal that would otherwise
+    // trip "semaphore must not have any pending operations" on the next acquire.
+    for (auto sem : acquire_semaphores_)
+        vkDestroySemaphore(device_.handle(), sem, nullptr);
+    acquire_semaphores_.clear();
+    acquire_index_ = 0;
 
     cleanup();
 
@@ -78,7 +90,7 @@ void Swapchain::recreate() {
     create_image_views();
     create_depth_resources();
     create_render_finished_semaphores();
-
+    create_acquire_semaphores();
 }
 
 void Swapchain::create_swapchain() {
@@ -213,6 +225,28 @@ void Swapchain::create_render_finished_semaphores() {
             throw std::runtime_error("Failed to create render finished semaphore");
         }
     }
+}
+
+void Swapchain::create_acquire_semaphores() {
+    VkSemaphoreCreateInfo sem_info{};
+    sem_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    // image_count + 1: at most image_count frames can be acquired-but-unpresented,
+    // so one extra guarantees the rotating index never lands on a semaphore still
+    // pending from an in-flight acquire.
+    acquire_semaphores_.resize(images_.size() + 1);
+    for (auto& sem : acquire_semaphores_) {
+        if (vkCreateSemaphore(device_.handle(), &sem_info, nullptr, &sem) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create acquire semaphore");
+        }
+    }
+    acquire_index_ = 0;
+}
+
+VkSemaphore Swapchain::next_acquire_semaphore() {
+    VkSemaphore sem = acquire_semaphores_[acquire_index_];
+    acquire_index_ = (acquire_index_ + 1) % static_cast<uint32_t>(acquire_semaphores_.size());
+    return sem;
 }
 
 VkSurfaceFormatKHR Swapchain::choose_surface_format(

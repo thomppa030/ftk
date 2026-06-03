@@ -116,6 +116,25 @@ void GlobalBindings::finalize(VkDevice device, uint32_t frames_in_flight) {
         descriptor_sets_[i] = pool_->allocate(*layout_);
     }
 
+    // Auxiliary pool for preview sets — freeable, so previews can return their
+    // set on teardown. Sized for a handful of concurrent offscreen viewports;
+    // one set's worth of each descriptor type, times AUX_SET_CAPACITY.
+    constexpr uint32_t AUX_SET_CAPACITY = 16;
+    std::vector<VkDescriptorPoolSize> aux_sizes;
+    aux_sizes.reserve(type_counts.size());
+    for (const auto& [type, count] : type_counts) {
+        aux_sizes.push_back({type, count * AUX_SET_CAPACITY});
+    }
+    VkDescriptorPoolCreateInfo aux_ci{};
+    aux_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    aux_ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    aux_ci.maxSets = AUX_SET_CAPACITY;
+    aux_ci.poolSizeCount = static_cast<uint32_t>(aux_sizes.size());
+    aux_ci.pPoolSizes = aux_sizes.data();
+    if (vkCreateDescriptorPool(device, &aux_ci, nullptr, &aux_pool_) != VK_SUCCESS) {
+        throw std::runtime_error("GlobalBindings: failed to create auxiliary descriptor pool");
+    }
+
     finalized_ = true;
 
     // Log binding table
@@ -209,6 +228,39 @@ void GlobalBindings::write_buffer(uint32_t frame_index, const std::string& name,
     pending_writes_.push_back(write);
 }
 
+void GlobalBindings::write_image_to(VkDescriptorSet set, const std::string& name,
+                                     VkImageView view, VkSampler sampler,
+                                     VkImageLayout image_layout) {
+    assert(finalized_ && "GlobalBindings::write_image_to() called before finalize()");
+
+    auto it = name_to_binding_.find(name);
+    assert(it != name_to_binding_.end() && "GlobalBindings: unknown binding name for write");
+
+    uint32_t binding = it->second;
+    VkDescriptorType type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    for (const auto& e : entries_) {
+        if (e.decl.binding == binding) {
+            type = e.decl.type;
+            break;
+        }
+    }
+
+    auto& info = pending_image_infos_.emplace_back();
+    info.sampler = sampler;
+    info.imageView = view;
+    info.imageLayout = image_layout;
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = set;
+    write.dstBinding = binding;
+    write.descriptorType = type;
+    write.descriptorCount = 1;
+    write.pImageInfo = &info;
+
+    pending_writes_.push_back(write);
+}
+
 void GlobalBindings::flush_writes() {
     if (pending_writes_.empty()) return;
 
@@ -221,7 +273,58 @@ void GlobalBindings::flush_writes() {
     pending_buffer_infos_.clear();
 }
 
+VkDescriptorSet GlobalBindings::allocate_set() {
+    assert(finalized_ && "GlobalBindings::allocate_set() called before finalize()");
+
+    VkDescriptorSetLayout vk_layout = layout_->handle();
+    VkDescriptorSetAllocateInfo alloc_info{};
+    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    alloc_info.descriptorPool = aux_pool_;
+    alloc_info.descriptorSetCount = 1;
+    alloc_info.pSetLayouts = &vk_layout;
+
+    VkDescriptorSet set{VK_NULL_HANDLE};
+    if (vkAllocateDescriptorSets(device_, &alloc_info, &set) != VK_SUCCESS) {
+        throw std::runtime_error("GlobalBindings: failed to allocate auxiliary set "
+                                 "(raise AUX_SET_CAPACITY?)");
+    }
+    return set;
+}
+
+void GlobalBindings::free_set(VkDescriptorSet set) {
+    if (set == VK_NULL_HANDLE) return;
+    vkFreeDescriptorSets(device_, aux_pool_, 1, &set);
+}
+
+void GlobalBindings::copy_from_frame(VkDescriptorSet dst, uint32_t src_frame_index) {
+    assert(finalized_ && "GlobalBindings::copy_from_frame() called before finalize()");
+
+    VkDescriptorSet src = descriptor_sets_[src_frame_index];
+
+    std::vector<VkCopyDescriptorSet> copies;
+    copies.reserve(entries_.size());
+    for (const auto& e : entries_) {
+        VkCopyDescriptorSet c{};
+        c.sType = VK_STRUCTURE_TYPE_COPY_DESCRIPTOR_SET;
+        c.srcSet = src;
+        c.srcBinding = e.decl.binding;
+        c.srcArrayElement = 0;
+        c.dstSet = dst;
+        c.dstBinding = e.decl.binding;
+        c.dstArrayElement = 0;
+        c.descriptorCount = e.decl.count;
+        copies.push_back(c);
+    }
+
+    vkUpdateDescriptorSets(device_, 0, nullptr,
+                           static_cast<uint32_t>(copies.size()), copies.data());
+}
+
 void GlobalBindings::destroy() {
+    if (aux_pool_ != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(device_, aux_pool_, nullptr);
+        aux_pool_ = VK_NULL_HANDLE;
+    }
     pool_.reset();
     layout_.reset();
     device_ = VK_NULL_HANDLE;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <vulkan/vulkan.h>
 
 #include <cstdint>
 
@@ -55,6 +56,13 @@ struct ViewportRenderRequest {
     PostProcessResources* pp_resources{nullptr}; // null = use default
     bool skip_shadows{false};
     bool flip_tonemap_y{false}; // flip tonemap output for render-to-texture
+
+    /// Private global descriptor set for this offscreen viewport. When set,
+    /// render_preview copies the per-frame global bindings into it and
+    /// overwrites the view-dependent images here, instead of mutating the
+    /// shared per-frame set the main command buffer binds (which races a
+    /// pending CB → DEVICE_LOST). Null = legacy shared-set path.
+    VkDescriptorSet global_set{VK_NULL_HANDLE};
 
     /// `.fjgraph` that decides which passes run for this viewport. Null
     /// falls back to RenderPipeline's global pass_state_ flags — used by

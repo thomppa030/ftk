@@ -292,17 +292,21 @@ private:
                        float dt, uint32_t selected_id, ThreadPool &pool,
                        PostProcessResources *pp, bool skip_shadows = false,
                        bool flip_tonemap_y = false,
-                       const FjGraph *viewport_graph = nullptr);
+                       const FjGraph *viewport_graph = nullptr,
+                       VkDescriptorSet global_set = VK_NULL_HANDLE);
   void update_uniform_buffer(uint32_t frame_index, const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3 &camera_position,
                              const struct DirectionalLight &light, Scene *scene,
                              VkExtent2D extent);
 
+  // `global_set` overrides the per-frame global descriptor set bound for the
+  // frame (used by previews that own a private set); null = per-frame set.
   FrameContext build_frame_context(VkCommandBuffer cmd, OffscreenPass &target,
                                    Scene *scene, float dt, uint32_t selected_id,
                                    PostProcessResources *pp, bool skip_shadows,
-                                   bool flip_tonemap_y);
+                                   bool flip_tonemap_y,
+                                   VkDescriptorSet global_set = VK_NULL_HANDLE);
 
   // ── GPU infrastructure ────────────────────────────────────────────────
   GpuContext gpu_;
@@ -343,6 +347,12 @@ private:
   uint32_t recorded_frame_{0};
   uint32_t recorded_image_index_{0};
   uint32_t pending_image_index_{0};
+  // Acquire semaphore for the in-flight frame, owned by the swapchain and
+  // rotated per acquire (not per frame-slot) so a skipped/failed frame can't
+  // orphan a signal. pending_ is set at acquire; recorded_ is what
+  // submit_and_present waits on for the frame it submits.
+  VkSemaphore pending_acquire_semaphore_{VK_NULL_HANDLE};
+  VkSemaphore recorded_acquire_semaphore_{VK_NULL_HANDLE};
   bool has_recorded_frame_{false};
   // True when the main-viewport pipeline actually recorded commands
   // into the async compute CB this frame — drives whether submit_and_

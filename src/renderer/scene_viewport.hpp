@@ -71,6 +71,12 @@ public:
 
     void set_view(const SceneViewportView& view) { view_ = view; }
 
+    /// Private global descriptor set for this viewport, so render_preview never
+    /// rewrites the shared per-frame set an in-flight CB binds. Owned by
+    /// GlobalBindings (allocated/freed by VulkanContext alongside the viewport).
+    void set_global_set(VkDescriptorSet set) { global_set_ = set; }
+    [[nodiscard]] VkDescriptorSet global_set() const { return global_set_; }
+
     [[nodiscard]] const std::string& name() const { return config_.name; }
     [[nodiscard]] uint32_t bindless_index() const { return bindless_index_; }
     [[nodiscard]] OffscreenPass& offscreen_pass() { return *offscreen_; }
@@ -89,6 +95,7 @@ private:
     VkSampler output_sampler_{VK_NULL_HANDLE};
     VkDevice vk_device_{VK_NULL_HANDLE};
     VkImageView last_synced_view_{VK_NULL_HANDLE};
+    VkDescriptorSet global_set_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell

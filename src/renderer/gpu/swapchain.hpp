@@ -34,6 +34,13 @@ public:
     [[nodiscard]] uint32_t image_count() const { return static_cast<uint32_t>(images_.size()); }
     [[nodiscard]] const std::vector<VkSemaphore>& render_finished_semaphores() const { return render_finished_; }
 
+    /// Next acquire semaphore to hand to vkAcquireNextImageKHR. Rotates through
+    /// a pool sized to image_count+1 so a skipped/failed frame can never leave
+    /// a still-signaled semaphore that the next acquire would reuse (the
+    /// "semaphore must not have any pending operations" desync). Owned and
+    /// recreated by the swapchain so recreate() can never orphan a signal.
+    [[nodiscard]] VkSemaphore next_acquire_semaphore();
+
     friend class GpuCore;
 
 private:
@@ -41,6 +48,7 @@ private:
     void create_image_views();
     void create_depth_resources();
     void create_render_finished_semaphores();
+    void create_acquire_semaphores();
     void cleanup();
 
     [[nodiscard]] VkSurfaceFormatKHR choose_surface_format(
@@ -68,6 +76,10 @@ private:
     VkImageView depth_image_view_{VK_NULL_HANDLE};
 
     std::vector<VkSemaphore> render_finished_;
+
+    // Acquire-semaphore pool (image_count+1), rotated by next_acquire_semaphore().
+    std::vector<VkSemaphore> acquire_semaphores_;
+    uint32_t acquire_index_{0};
 };
 
 } // namespace fjell

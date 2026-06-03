@@ -292,7 +292,8 @@ void VulkanContext::reload_fjgraph(const std::string& path) {
 FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPass& target,
                                                  Scene* scene, float dt, uint32_t selected_id,
                                                  PostProcessResources* pp, bool skip_shadows,
-                                                 bool flip_tonemap_y) {
+                                                 bool flip_tonemap_y,
+                                                 VkDescriptorSet global_set) {
     FrameContext ctx{};
     ctx.cmd = cmd;
     // Async compute CB is set on the main-viewport path in render_frame
@@ -301,7 +302,9 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.target = &target;
     ctx.queue = &gatherer_.render_queue();
     ctx.camera_position = gatherer_.camera_position();
-    ctx.global_descriptor_set = gpu_.global_descriptor_set(current_frame_);
+    // Previews bind their own private global set; everyone else the per-frame set.
+    ctx.global_descriptor_set = global_set != VK_NULL_HANDLE
+        ? global_set : gpu_.global_descriptor_set(current_frame_);
     ctx.bindless_set = gpu_.bindless_textures().descriptor_set();
     ctx.draw_data_set = gatherer_.draw_data_descriptor().descriptor_set(current_frame_);
     ctx.debug_draw = debug_draw_.get();
@@ -359,7 +362,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
                                     Scene* scene, float dt, uint32_t selected_id,
                                     ThreadPool& pool, PostProcessResources* pp,
                                     bool skip_shadows, bool flip_tonemap_y,
-                                    const FjGraph* viewport_graph) {
+                                    const FjGraph* viewport_graph,
+                                    VkDescriptorSet global_set) {
     FJELL_PROFILE_SCOPE_N("render_scene_to");
 
     // Gather scene: frustum cull, build render queue and indirect batches
@@ -419,7 +423,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
-                                        pp, skip_shadows, flip_tonemap_y);
+                                        pp, skip_shadows, flip_tonemap_y, global_set);
     // Hand the async CB + post-compute graphics CB to the graph, but
     // only for the main frame CB — preview viewports get their own
     // one-shot CBs from render_preview and have no paired compute/post
@@ -542,30 +546,60 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
         vkCmdPipelineBarrier2(cmd, &dep);
     }
 
-    // Update global descriptor bindings that may be stale after apply_resize
+    // Update the view-dependent global image bindings to point at THIS
+    // viewport's targets. A preview with its own global_set writes into that
+    // private set (inheriting the per-frame set's static bindings via a copy)
+    // so it never mutates the shared per-frame set the main command buffer
+    // binds — rewriting a set an in-flight CB references is a DEVICE_LOST.
+    // Without a private set (legacy callers) fall back to the per-frame set.
     {
         auto& gb = gpu_.global_bindings();
-        gb.write_image(current_frame_, "depth_texture",
-            req.target->depth_view(), gpu_.depth_sampler(),
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
         VkImageView ao_view = gtao_imgs ? gtao_imgs->ao_view : gtao_pass().ao_view();
-        gb.write_image(current_frame_, "ao_texture",
-            ao_view, gtao_pass().ao_sampler(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image(current_frame_, "screen_color",
-            req.target->screen_color_view(), tonemap_pass().output_sampler(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        // GI indirect: use fallback for preview viewports
-        gb.write_image(current_frame_, "gi_indirect",
-            gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image(current_frame_, "ss_gi_emissive",
-            gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        gb.write_image(current_frame_, "contact_shadow",
-            contact_shadow_pass().shadow_view(),
-            contact_shadow_pass().shadow_sampler(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+        if (req.global_set != VK_NULL_HANDLE) {
+            // Inherit sky/shadow/sdf/ubo/etc. from the (idle) per-frame set,
+            // then overwrite only the view-dependent images.
+            gb.copy_from_frame(req.global_set, current_frame_);
+            gb.write_image_to(req.global_set, "depth_texture",
+                req.target->depth_view(), gpu_.depth_sampler(),
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+            gb.write_image_to(req.global_set, "ao_texture",
+                ao_view, gtao_pass().ao_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image_to(req.global_set, "screen_color",
+                req.target->screen_color_view(), tonemap_pass().output_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image_to(req.global_set, "gi_indirect",
+                gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image_to(req.global_set, "ss_gi_emissive",
+                gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image_to(req.global_set, "contact_shadow",
+                contact_shadow_pass().shadow_view(),
+                contact_shadow_pass().shadow_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        } else {
+            gb.write_image(current_frame_, "depth_texture",
+                req.target->depth_view(), gpu_.depth_sampler(),
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+            gb.write_image(current_frame_, "ao_texture",
+                ao_view, gtao_pass().ao_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image(current_frame_, "screen_color",
+                req.target->screen_color_view(), tonemap_pass().output_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image(current_frame_, "gi_indirect",
+                gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image(current_frame_, "ss_gi_emissive",
+                gpu_.gi_fallback_view(), gpu_.gi_fallback_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            gb.write_image(current_frame_, "contact_shadow",
+                contact_shadow_pass().shadow_view(),
+                contact_shadow_pass().shadow_sampler(),
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
         gb.flush_writes();
     }
 
@@ -573,7 +607,8 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
                           req.camera_position, light, scene, req.target->extent());
     update_light_ssbo(current_frame_, scene);
     render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp,
-                    req.skip_shadows, req.flip_tonemap_y, req.viewport_graph);
+                    req.skip_shadows, req.flip_tonemap_y, req.viewport_graph,
+                    req.global_set);
 
     vkEndCommandBuffer(cmd);
 
@@ -1092,7 +1127,7 @@ void VulkanContext::submit_and_present() {
     if (!has_recorded_frame_) return;
 
     auto& render_finished = gpu_.swapchain().render_finished_semaphores();
-    VkSemaphore image_available = gpu_.image_available_semaphore(recorded_frame_);
+    VkSemaphore image_available = recorded_acquire_semaphore_;
     VkFence fence = gpu_.in_flight_fence(recorded_frame_);
     VkSemaphore timeline = gpu_.async_compute_timeline(recorded_frame_);
 
@@ -1122,8 +1157,9 @@ void VulkanContext::submit_and_present() {
         submit.signalSemaphoreInfoCount = 1;
         submit.pSignalSemaphoreInfos = &signal;
 
-        if (vkQueueSubmit2(gpu_.graphics_queue(), 1, &submit, fence) != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("vkQueueSubmit2 (single) failed");
+        if (VkResult r = vkQueueSubmit2(gpu_.graphics_queue(), 1, &submit, fence); r != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("vkQueueSubmit2 (single) failed: VkResult={}", static_cast<int>(r));
+            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("graphics single submit");
             has_recorded_frame_ = false;
             return;
         }
@@ -1187,8 +1223,9 @@ void VulkanContext::submit_and_present() {
         pre_submit.signalSemaphoreInfoCount = 1;
         pre_submit.pSignalSemaphoreInfos = &pre_signal;
 
-        if (vkQueueSubmit2(gpu_.graphics_queue(), 1, &pre_submit, VK_NULL_HANDLE) != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_pre) failed");
+        if (VkResult r = vkQueueSubmit2(gpu_.graphics_queue(), 1, &pre_submit, VK_NULL_HANDLE); r != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_pre) failed: VkResult={}", static_cast<int>(r));
+            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("graphics_pre submit");
             has_recorded_frame_ = false;
             return;
         }
@@ -1219,8 +1256,9 @@ void VulkanContext::submit_and_present() {
         comp_submit.signalSemaphoreInfoCount = 1;
         comp_submit.pSignalSemaphoreInfos = &comp_signal;
 
-        if (vkQueueSubmit2(gpu_.async_compute_queue(), 1, &comp_submit, VK_NULL_HANDLE) != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("vkQueueSubmit2 (async compute) failed");
+        if (VkResult r = vkQueueSubmit2(gpu_.async_compute_queue(), 1, &comp_submit, VK_NULL_HANDLE); r != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("vkQueueSubmit2 (async compute) failed: VkResult={}", static_cast<int>(r));
+            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("async compute submit");
             has_recorded_frame_ = false;
             return;
         }
@@ -1253,8 +1291,9 @@ void VulkanContext::submit_and_present() {
         post_submit.signalSemaphoreInfoCount = 1;
         post_submit.pSignalSemaphoreInfos = &post_signal;
 
-        if (vkQueueSubmit2(gpu_.graphics_queue(), 1, &post_submit, fence) != VK_SUCCESS) {
-            FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_post) failed");
+        if (VkResult r = vkQueueSubmit2(gpu_.graphics_queue(), 1, &post_submit, fence); r != VK_SUCCESS) {
+            FJELL_GFX_CRITICAL("vkQueueSubmit2 (graphics_post) failed: VkResult={}", static_cast<int>(r));
+            if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("graphics_post submit");
             has_recorded_frame_ = false;
             return;
         }
@@ -1301,6 +1340,26 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // GPU is now done with this frame slot — safe to destroy/resize resources.
     apply_pending_ddgi_toggle();
 
+    // Free buffers that capacity growth retired for this slot last time it was
+    // in flight. Safe now that the slot's fence has signaled — the command
+    // buffers that referenced the old buffers have completed. Freeing them
+    // inline at growth time (during record) would be a UAF.
+    if (auto* batch = gatherer_.indirect_batch()) {
+        batch->reclaim_retired(current_frame_);
+    }
+    for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
+        if (auto* sb = gatherer_.shadow_batch(c)) sb->reclaim_retired(current_frame_);
+    }
+    if (auto* mip = meshlet_instance_pass()) {
+        mip->reclaim_retired(current_frame_);
+    }
+    // Free RT TLAS/instance buffers that build_tlas retired the last time this
+    // slot was used — safe now the slot's fence has signaled. (Inline free in
+    // build_tlas would UAF an RT trace recorded earlier in the same frame.)
+    if (accel_manager_) {
+        accel_manager_->reclaim_retired(current_frame_);
+    }
+
     // Reclaim descriptor sets from the previous iteration of this slot.
     gpu_.descriptor_cache().begin_frame(current_frame_);
 
@@ -1310,10 +1369,15 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
         gpu_.secondary_pools().reset_frame(current_frame_);
     }
 
+    // Rotating acquire semaphore (owned by the swapchain, not the frame slot).
+    // Decoupling it from current_frame_ means a skipped/failed frame can't leave
+    // this slot's semaphore signaled-but-unwaited for the next reuse.
+    VkSemaphore acquire_sem = gpu_.swapchain().next_acquire_semaphore();
+
     uint32_t image_index;
     VkResult result = vkAcquireNextImageKHR(vk_device, gpu_.swapchain().handle(),
                           std::numeric_limits<uint64_t>::max(),
-                          gpu_.image_available_semaphore(current_frame_), VK_NULL_HANDLE,
+                          acquire_sem, VK_NULL_HANDLE,
                           &image_index);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_NOT_READY) {
@@ -1331,6 +1395,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // signaled on the error/recreate path so the next vkWaitForFences doesn't hang
     vkResetFences(vk_device, 1, &frame_fence);
     pending_image_index_ = image_index;
+    pending_acquire_semaphore_ = acquire_sem;
     return true;
 }
 
@@ -1504,6 +1569,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
     recorded_frame_ = current_frame_;
     recorded_image_index_ = pending_image_index_;
+    recorded_acquire_semaphore_ = pending_acquire_semaphore_;
     has_recorded_frame_ = true;
 }
 
@@ -1647,6 +1713,9 @@ uint32_t VulkanContext::create_scene_viewport(const SceneViewportConfig& config)
     auto viewport = std::make_unique<SceneViewport>(
         gpu_.device_ref(), gpu_.device(), gpu_.allocator(),
         config, refs, bindless_idx);
+    // Private global set — keeps the viewport's view-dependent image bindings
+    // off the shared per-frame set bound by the main command buffer.
+    viewport->set_global_set(gpu_.global_bindings().allocate_set());
 
     scene_viewports_[config.name] = std::move(viewport);
     return bindless_idx;
@@ -1656,6 +1725,7 @@ void VulkanContext::destroy_scene_viewport(const std::string& name) {
     auto it = scene_viewports_.find(name);
     if (it == scene_viewports_.end()) return;
     wait_idle();
+    gpu_.global_bindings().free_set(it->second->global_set());
     scene_viewports_.erase(it);
 }
 
@@ -1672,7 +1742,9 @@ uint32_t VulkanContext::scene_viewport_bindless_index(const std::string& name) c
 void VulkanContext::render_scene_viewports(Scene* scene, float dt, uint32_t selected_id,
                                             const DirectionalLight& light, ThreadPool& pool) {
     for (auto& [name, viewport] : scene_viewports_) {
-        render_preview(viewport->build_request(), light, scene, dt, selected_id, pool);
+        ViewportRenderRequest req = viewport->build_request();
+        req.global_set = viewport->global_set();
+        render_preview(req, light, scene, dt, selected_id, pool);
         viewport->sync_bindless(gpu_.bindless_textures());
     }
 }

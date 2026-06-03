@@ -63,6 +63,25 @@ public:
     [[nodiscard]] uint32_t binding_number(const std::string& name) const;
     [[nodiscard]] bool has_binding(const std::string& name) const;
 
+    // ── Auxiliary sets (previews) ──────────────────────────────────────
+    //
+    // Offscreen viewports (camera preview, SceneViewport) must not write the
+    // shared per-frame sets the main command buffer binds — doing so while a
+    // prior frame's CB is still pending is an unsynchronized descriptor update
+    // (DEVICE_LOST). They own an auxiliary set instead: copy the per-frame
+    // set's static bindings, then overwrite the view-dependent images.
+
+    /// Allocate a private global set (same layout). Free with free_set().
+    [[nodiscard]] VkDescriptorSet allocate_set();
+
+    /// Return an auxiliary set to the pool. Caller guarantees no in-flight CB
+    /// still binds it (previews call vk.wait_idle() before teardown).
+    void free_set(VkDescriptorSet set);
+
+    /// Copy every binding from the per-frame set into `dst` (one vkUpdate).
+    /// Source must be idle — call after that frame slot's fence has signaled.
+    void copy_from_frame(VkDescriptorSet dst, uint32_t src_frame_index);
+
     // ── Phase 2: Descriptor writes ─────────────────────────────────────
 
     /// Stage an image descriptor write. Call flush_writes() to submit.
@@ -73,6 +92,12 @@ public:
     /// Stage a buffer descriptor write. Call flush_writes() to submit.
     void write_buffer(uint32_t frame_index, const std::string& name,
                       VkBuffer buffer, VkDeviceSize offset, VkDeviceSize range);
+
+    /// Stage an image write targeting an explicit set (e.g. a preview's
+    /// auxiliary set from allocate_set()) instead of a per-frame set.
+    void write_image_to(VkDescriptorSet set, const std::string& name,
+                        VkImageView view, VkSampler sampler,
+                        VkImageLayout image_layout);
 
     /// Submit all staged writes via vkUpdateDescriptorSets, then clear.
     void flush_writes();
@@ -100,6 +125,11 @@ private:
     std::unique_ptr<DescriptorSetLayout> layout_;
     std::unique_ptr<DescriptorPool> pool_;
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> descriptor_sets_{};
+
+    // Separate, freeable pool for auxiliary (preview) sets. Created with
+    // FREE_DESCRIPTOR_SET_BIT so free_set() reclaims individual sets — the
+    // main per-frame pool above is allocate-once and never freed.
+    VkDescriptorPool aux_pool_{VK_NULL_HANDLE};
 
     // Write batching (stable addresses via deque)
     std::deque<VkDescriptorImageInfo> pending_image_infos_;
