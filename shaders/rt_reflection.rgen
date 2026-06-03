@@ -99,8 +99,10 @@ void main() {
     float perceptual_roughness = mr.g;
     float alpha = perceptual_roughness * perceptual_roughness;
 
-    // Skip near-mirror metals only when truly featureless — but we always
-    // trace something, even on rough dielectrics: composite weights it down.
+    if (metallic < 0.1 && perceptual_roughness > 0.5) {
+        imageStore(reflection_out, pixel, vec4(0.0));
+        return;
+    }
 
     vec3 view_dir = normalize(ddgi.camera_position - world_pos);
 

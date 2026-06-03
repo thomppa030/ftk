@@ -74,9 +74,10 @@ void main() {
             ivec2 sample_full = to_full_res(sample_coord);
             float sample_depth = texelFetch(depth_texture, sample_full, 0).r;
 
-            // Depth-aware rejection: skip samples across depth discontinuities
             float depth_diff = abs(center_depth - sample_depth);
-            if (depth_diff > depth_threshold) continue;
+            float depth_weight = exp(-depth_diff * depth_diff
+                                     / max(depth_threshold * depth_threshold, 1e-12));
+            if (depth_weight <= 0.001) continue;
 
             // Normal similarity: smoothstep from FLOOR..1 so concave corners
             // (where the same depth meets a different surface normal) get
@@ -88,7 +89,7 @@ void main() {
 
             float sample_ao = texelFetch(ao_input, sample_coord, 0).r;
 
-            float w = weights[i] * normal_weight;
+            float w = weights[i] * normal_weight * depth_weight;
             total_ao += sample_ao * w;
             total_weight += w;
         }

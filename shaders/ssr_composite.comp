@@ -34,15 +34,8 @@ void main() {
     float metallic = mr.r;
     float roughness = mr.g;
 
-    // Fresnel-at-grazing factor: metallic → F0 ≈ 1, dielectric → F0 ≈ 0.04.
-    // SSR also attenuates by roughness (it traces a single mirror reflection
-    // and relies on this term to fake glossy/blurry highlights). RT already
-    // roughness-biased its hit via GGX importance sampling, so multiplying
-    // again would double-dip.
-    float reflection_strength = mix(0.04, 1.0, metallic);
-    if (source == 0u) {
-        reflection_strength *= (1.0 - roughness * roughness);
-    }
+    // Fresnel-at-grazing × roughness falloff.
+    float reflection_strength = mix(0.04, 1.0, metallic) * (1.0 - roughness * roughness);
 
     color.rgb += refl.rgb * refl.a * intensity * reflection_strength;
 

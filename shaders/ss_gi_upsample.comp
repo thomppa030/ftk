@@ -26,8 +26,8 @@ layout(push_constant) uniform PushConstants {
 const float GAUSSIAN_SIGMA = 3.0;
 const int KERNEL_RADIUS = 5;
 
-float spatial_weight(int dx, int dy) {
-    float d2 = float(dx * dx + dy * dy);
+float spatial_weight(vec2 d) {
+    float d2 = dot(d, d);
     return exp(-d2 / (2.0 * GAUSSIAN_SIGMA * GAUSSIAN_SIGMA));
 }
 
@@ -49,10 +49,9 @@ void main() {
     vec2 center_normal_enc = textureLod(normal_tex, screen_uv, 0).rg;
     vec3 center_normal = oct_decode(center_normal_enc);
 
-    // Find which probe this pixel is nearest to
     float spacing = float(probe_spacing);
-    vec2 probe_coord = full_pixel / spacing;
-    ivec2 center_probe = ivec2(round(probe_coord - 0.5));
+    vec2 probe_coord = full_pixel / spacing - 0.5;
+    ivec2 base_probe = ivec2(floor(probe_coord));
 
     // 11x11 bilateral Gaussian blur across probe grid
     vec3 sum = vec3(0.0);
@@ -60,12 +59,15 @@ void main() {
 
     for (int dy = -KERNEL_RADIUS; dy <= KERNEL_RADIUS; dy++) {
         for (int dx = -KERNEL_RADIUS; dx <= KERNEL_RADIUS; dx++) {
-            ivec2 probe_id = center_probe + ivec2(dx, dy);
+            ivec2 probe_id = base_probe + ivec2(dx, dy);
             if (probe_id.x < 0 || probe_id.y < 0 ||
                 probe_id.x >= int(probe_count.x) || probe_id.y >= int(probe_count.y))
                 continue;
 
-            float g = spatial_weight(dx, dy);
+            // Distance in probe units from the pixel's continuous probe_coord,
+            // so the Gaussian shifts smoothly across cells instead of snapping.
+            vec2 d = vec2(probe_id) - probe_coord;
+            float g = spatial_weight(d);
 
             // Probe center in screen space for bilateral check
             vec2 probe_pixel = (vec2(probe_id) + 0.5) * spacing;

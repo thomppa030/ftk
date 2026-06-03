@@ -65,8 +65,8 @@ vec3 reconstruct_normal(vec3 vpos, ivec2 full_coord) {
     vec3 pu = reconstruct_view_pos(cU, texelFetch(depth_texture, cU, 0).r);
     vec3 pd = reconstruct_view_pos(cD, texelFetch(depth_texture, cD, 0).r);
 
-    vec3 dx = (abs(pr.z - vpos.z) < abs(vpos.z - pl.z)) ? (pr - vpos) : (vpos - pl);
-    vec3 dy = (abs(pu.z - vpos.z) < abs(vpos.z - pd.z)) ? (pu - vpos) : (vpos - pd);
+    vec3 dx = (pr - pl) * 0.5;
+    vec3 dy = (pu - pd) * 0.5;
 
     vec3 n = cross(dx, dy);
     float len = length(n);
@@ -105,13 +105,16 @@ void main() {
     float screenRadius = (radius * 0.5 * float(viewport_size.y)) / abs(viewPos.z);
     screenRadius = min(screenRadius, max_pixel_radius);
 
-    if (screenRadius < 1.0) {
+    float ao_strength = smoothstep(0.5, 1.5, screenRadius);
+    if (ao_strength <= 0.0) {
         imageStore(ao_output, coord, vec4(1.0));
         return;
     }
+    screenRadius = max(screenRadius, 1.0);
 
-    float stepSize = screenRadius / float(NUM_STEPS);
     float noise = ign(vec2(coord));
+    float stepSize = screenRadius / float(NUM_STEPS);
+    float stepJitter = 0.5 + noise;
 
     float ao = 0.0;
 
@@ -126,7 +129,7 @@ void main() {
 
         // March positive direction
         for (int step = 1; step <= NUM_STEPS; ++step) {
-            vec2 offset = direction * (float(step) * stepSize);
+            vec2 offset = direction * ((float(step) - 1.0 + stepJitter) * stepSize);
             ivec2 halfCoord = ivec2(vec2(coord) + 0.5 + offset);
             halfCoord = clamp(halfCoord, ivec2(0), ivec2(viewport_size) - 1);
 
@@ -160,7 +163,7 @@ void main() {
 
         // March negative direction
         for (int step = 1; step <= NUM_STEPS; ++step) {
-            vec2 offset = -direction * (float(step) * stepSize);
+            vec2 offset = -direction * ((float(step) - 1.0 + stepJitter) * stepSize);
             ivec2 halfCoord = ivec2(vec2(coord) + 0.5 + offset);
             halfCoord = clamp(halfCoord, ivec2(0), ivec2(viewport_size) - 1);
 
@@ -215,6 +218,7 @@ void main() {
 
     ao /= float(NUM_DIRECTIONS);
     ao = clamp(pow(ao, intensity), 0.0, 1.0);
+    ao = mix(1.0, ao, ao_strength);
 
     imageStore(ao_output, coord, vec4(ao, ao, ao, 1.0));
 }
