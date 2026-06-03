@@ -10,6 +10,7 @@
 // Engine exports (resolved at dlopen via -rdynamic)
 extern "C" {
 FJELL_SDK_EXPORT uint32_t fjell_scene_find_node(const char* name);
+FJELL_SDK_EXPORT uint32_t fjell_scene_find_child(uint32_t parent_id, const char* name);
 FJELL_SDK_EXPORT void     fjell_scene_destroy(uint32_t node_id);
 FJELL_SDK_EXPORT float*   fjell_scene_get_position(uint32_t node_id);
 FJELL_SDK_EXPORT float*   fjell_scene_get_scale(uint32_t node_id);
@@ -30,6 +31,12 @@ struct PresetAsset;
 struct SceneAPI {
     static uint32_t find_node(const char* name) {
         return fjell_scene_find_node(name);
+    }
+
+    /// Find a direct child of parent_id by name (0 if none). Use to resolve a
+    /// per-instance child (e.g. a spawned player's "Camera") unambiguously.
+    static uint32_t find_child(uint32_t parent_id, const char* name) {
+        return fjell_scene_find_child(parent_id, name);
     }
 
     /// Spawn an empty node at a position.

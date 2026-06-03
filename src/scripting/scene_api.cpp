@@ -15,6 +15,20 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node(const char* name) {
     return 0;
 }
 
+// Find a direct child of parent_id by name. Disambiguates duplicate names
+// across instances (e.g. each spawned player has its own "Camera" child).
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_child(uint32_t parent_id,
+                                                            const char* name) {
+    auto* scene = fjell::script_services().scene;
+    if (!scene || !name) return 0;
+    for (const auto& obj : scene->objects()) {
+        if (obj->parent_id == static_cast<int32_t>(parent_id) && obj->name == name) {
+            return obj->id;
+        }
+    }
+    return 0;
+}
+
 extern "C" FJELL_SDK_EXPORT void fjell_scene_destroy(uint32_t node_id) {
     auto* scene = fjell::script_services().scene;
     if (scene) scene->queue_destroy(node_id);
