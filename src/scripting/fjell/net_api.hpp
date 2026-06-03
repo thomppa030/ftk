@@ -17,6 +17,7 @@ extern "C" {
 FJELL_SDK_EXPORT int      fjell_net_role();                 // 0 none, 1 server, 2 client
 FJELL_SDK_EXPORT uint32_t fjell_net_local_peer();
 FJELL_SDK_EXPORT int      fjell_net_is_local_authority(uint32_t node_id);
+FJELL_SDK_EXPORT int      fjell_net_is_owned_by_local(uint32_t node_id);
 FJELL_SDK_EXPORT void     fjell_net_host(uint16_t port, uint32_t max_clients);
 FJELL_SDK_EXPORT void     fjell_net_join(const char* address, uint16_t port);
 FJELL_SDK_EXPORT void     fjell_net_disconnect();
@@ -48,6 +49,13 @@ struct NetAPI {
 
     [[nodiscard]] static bool is_local_authority(uint32_t node_id) {
         return fjell_net_is_local_authority(node_id) != 0;
+    }
+
+    // True only if the LOCAL player owns this object (use for camera/input
+    // possession). Differs from is_local_authority, which is also true on the
+    // server for objects it doesn't possess.
+    [[nodiscard]] static bool is_owned_by_local(uint32_t node_id) {
+        return fjell_net_is_owned_by_local(node_id) != 0;
     }
 
     static void host(uint16_t port, uint32_t max_clients = 16) {

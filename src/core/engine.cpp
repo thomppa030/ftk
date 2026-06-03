@@ -321,6 +321,7 @@ void Engine::init_resources() {
     vulkan_context_->set_resource_manager(resource_manager_.get());
     vulkan_context_->set_project(project_mgr_.active());
     capture_service_.set_project(project_mgr_.active());
+    resource_manager_->set_project(project_mgr_.active());
 }
 
 void Engine::init_scene() {
@@ -1459,9 +1460,12 @@ TickContext Engine::make_frame_context() {
 void Engine::flush_pending() {
     // Materialize nodes spawned mid-tick before anything else walks objects_.
     auto spawned = scene_.flush_spawned();
-    // Give freshly-spawned nodes their script lifecycle (instantiate + begin_play)
-    // while playing — the play-start passes already ran without them.
     if (!spawned.empty() && active_context().is_playing()) {
+        // A spawned node may carry an InputComponent (e.g. a player's camera);
+        // load its contexts before begin_play so scripts can bind/activate input.
+        load_input_contexts();
+        // Give freshly-spawned nodes their script lifecycle (instantiate +
+        // begin_play) — the play-start passes already ran without them.
         script_subsystem_->manager().initialize_spawned(scene_, spawned);
     }
 
@@ -1543,6 +1547,12 @@ void Engine::start_play() {
 
         script_subsystem_->notify_play_start(ctx);
         ui_subsystem_->notify_play_start(ctx);
+
+        // begin_play may have spawned nodes carrying InputComponents (e.g. a
+        // server spawning each player + its camera). Re-scan so their contexts
+        // load now that they're in the scene — the binds above already attached
+        // to the actions; loading the context just enables dispatch.
+        load_input_contexts();
     }
 
     vulkan_context_->set_playing(true);

@@ -90,8 +90,10 @@ public:
     // Input action assets (.fjaction)
     Result<InputActionHandle> load_input_action(const std::string& path);
 
-    // Preset assets (.fjp)
-    Result<PresetAssetHandle> load_preset_asset(const std::string& path);
+    // Preset assets (.fjp). project resolves asset paths inside the preset
+    // (skeletal meshes, materials, …) relative to the project root.
+    Result<PresetAssetHandle> load_preset_asset(const std::string& path,
+                                                const Project* project = nullptr);
 
 
     // Generic asset loading by ref_type_name (for inspector picker)
@@ -131,6 +133,11 @@ public:
     /// Set a callback that resolves "$viewport:name" texture references to bindless indices.
     using ViewportResolver = std::function<uint32_t(const std::string&)>;
     void set_viewport_resolver(ViewportResolver resolver);
+
+    // Active project, used as the default for resolving relative asset paths
+    // inside loaded assets (presets, materials) when no project is passed
+    // explicitly. Set when the project opens.
+    void set_project(const Project* project) { project_ = project; }
 
     /// Re-resolve all materials that reference "$viewport:name" with the given bindless index.
     /// Call after a scene viewport is created so materials pick up the new texture.
@@ -194,6 +201,7 @@ private:
     TextureHandle default_black_handle_;
 
     ViewportResolver viewport_resolver_;
+    const Project*   project_{nullptr};  // default for relative asset-path resolution
 
     // Tracks which materials reference which viewport, for deferred binding.
     // Key: viewport name, Value: list of {material_id, custom_texture_slot}

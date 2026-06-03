@@ -125,12 +125,14 @@ void NetManager::shutdown() {
     shadow_.clear();
     interp_.clear();
     corrections_.clear();
+    spawn_info_.clear();
     net_time_ = 0.0f;
     newest_sample_t_ = 0.0f;
     net_time_primed_ = false;
     rx_scene_ = nullptr;
     rx_scripts_ = nullptr;
     rx_resources_ = nullptr;
+    rx_project_ = nullptr;
 }
 
 // ── Replication helpers ─────────────────────────────────────────────────────
@@ -209,25 +211,41 @@ void NetManager::ensure_scene_registered(Scene& scene, ScriptManager& scripts) {
 // ── Per-frame pumps ───────────────────────────────────────────────────────
 
 void NetManager::receive_and_apply(Scene& scene, ScriptManager& scripts,
-                                   ResourceManager& resources) {
+                                   ResourceManager& resources, const Project* project) {
     if (!transport_) return;
     ensure_scene_registered(scene, scripts);
     rx_scene_ = &scene;
     rx_scripts_ = &scripts;
     rx_resources_ = &resources;
+    rx_project_ = project;
+
+    // Defer spawns applied during poll() (apply_spawn → instantiate → add_node):
+    // adding directly would mutate objects_ mid-iteration, AND would bypass the
+    // engine's flush_pending, which is what materializes spawns, runs their script
+    // lifecycle (begin_play), and loads any InputComponent contexts they carry.
+    // Holding the lock here makes those adds defer to the pending queue; the
+    // engine's flush_pending (right after this phase-0 tick) does the rest — so a
+    // network-spawned player gets the same begin_play + possession + input as a
+    // locally-spawned one.
+    Scene::TickLock lock(scene);
     transport_->poll(0.0f);
 }
 
 void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
     if (!transport_) return;
     ensure_scene_registered(scene, scripts);
+    if (role_ == NetRole::none) { transport_->flush(); return; }
 
-    // Only the authority sends state. For v1 that's the server (it owns the
-    // truth for every object); owned-client send arrives with prediction.
-    if (role_ != NetRole::server) {
-        transport_->flush();
-        return;
-    }
+    // Each peer authors only the objects it has authority over:
+    //   server → every object EXCEPT those a client owns (the client authors those)
+    //   client → only the objects it owns (its own player)
+    // This prevents the server's stale copy of a client-owned object from fighting
+    // that client's prediction (which yanked it back to spawn).
+    const bool is_server = (role_ == NetRole::server);
+    auto authored_here = [&](NetId net_id) {
+        PeerId owner = owner_of(net_id);
+        return is_server ? (owner == SERVER_PEER) : is_owned_by_local(net_id);
+    };
 
     ++server_tick_;
 
@@ -240,6 +258,7 @@ void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
     uint16_t object_count = 0;
 
     for (const auto& [net_id, node_id] : net_to_node_) {
+        if (!authored_here(net_id)) continue;  // not ours to author
         Node* node = scene.find(node_id);
         if (!node) continue;
 
@@ -304,7 +323,8 @@ void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
 
     if (object_count > 0) {
         std::memcpy(packet.data() + count_pos, &object_count, sizeof(object_count));
-        transport_->broadcast(packet, Channel::unreliable);
+        if (is_server) transport_->broadcast(packet, Channel::unreliable);
+        else transport_->send(SERVER_PEER, packet, Channel::unreliable);  // client → server
     }
     transport_->flush();
 }
@@ -330,19 +350,33 @@ void NetManager::unregister_net_object(NetId net_id) {
     shadow_.erase(net_id);
     interp_.erase(net_id);
     corrections_.erase(net_id);
+    spawn_info_.erase(net_id);
 }
 
 // ── Spawn / despawn ─────────────────────────────────────────────────────────
 
+std::vector<uint8_t> NetManager::build_spawn_packet(NetId net_id) const {
+    std::vector<uint8_t> packet;
+    auto it = spawn_info_.find(net_id);
+    if (it == spawn_info_.end()) return packet;
+    const SpawnInfo& info = it->second;
+    put(packet, static_cast<uint8_t>(PacketType::spawn));
+    put(packet, net_id);
+    put(packet, info.owner);
+    put_string(packet, info.preset_path);
+    put(packet, info.position);
+    return packet;
+}
+
 NetId NetManager::spawn(Scene& scene, ResourceManager& resources,
                         const std::string& preset_path, const glm::vec3& position,
-                        PeerId owner) {
+                        PeerId owner, const Project* project) {
     if (role_ != NetRole::server) {
         FJELL_CORE_WARN("NetManager: spawn() called off the server, ignoring");
         return NET_ID_NONE;
     }
 
-    auto handle = resources.load_preset_asset(preset_path);
+    auto handle = resources.load_preset_asset(preset_path, project);
     if (!handle) {
         FJELL_CORE_ERROR("NetManager: spawn failed, can't load preset '{}'", preset_path);
         return NET_ID_NONE;
@@ -358,15 +392,13 @@ NetId NetManager::spawn(Scene& scene, ResourceManager& resources,
     NetId net_id = assign_net_id();
     register_net_object(net_id, node_id);
     set_owner(net_id, owner);
+    spawn_info_[net_id] = {preset_path, owner, position};
 
-    // Tell every client to instantiate the same preset.
-    std::vector<uint8_t> packet;
-    put(packet, static_cast<uint8_t>(PacketType::spawn));
-    put(packet, net_id);
-    put(packet, owner);
-    put_string(packet, preset_path);
-    put(packet, position);
-    if (transport_) transport_->broadcast(packet, Channel::reliable);
+    // Tell every connected client to instantiate the same preset.
+    if (transport_) {
+        auto packet = build_spawn_packet(net_id);
+        transport_->broadcast(packet, Channel::reliable);
+    }
 
     FJELL_CORE_INFO("NetManager: spawned '{}' as net {} (owner {})",
                     preset_path, net_id, owner);
@@ -520,17 +552,35 @@ bool NetManager::is_local_authority(NetId net_id) const {
     return true;  // single-player: always authoritative
 }
 
+bool NetManager::is_owned_by_local(NetId net_id) const {
+    // Possession is about the local player, not server authority: the object's
+    // owner must equal this peer's id. On the host, local_peer_ == SERVER_PEER, so
+    // the host possesses objects it spawned for itself (owner 0) but NOT a client's
+    // player (owner 1). Offline (role none) everything is "owned" by the player.
+    if (role_ == NetRole::none) return true;
+    return owner_of(net_id) == local_peer_;
+}
+
 // ── Transport callbacks ─────────────────────────────────────────────────────
 
 void NetManager::handle_connect(PeerId peer) {
-    // Tell the freshly-connected client which peer id the server assigned it, so
-    // it can recognize objects it owns (is_local_authority) and predict them.
     if (role_ == NetRole::server && transport_) {
-        std::vector<uint8_t> packet;
-        put(packet, static_cast<uint8_t>(PacketType::welcome));
-        put(packet, peer);
-        transport_->send(peer, packet, Channel::reliable);
+        // WELCOME first (reliable, ordered): the client learns its peer id before
+        // any spawn arrives, so ownership/authority resolves correctly.
+        std::vector<uint8_t> welcome;
+        put(welcome, static_cast<uint8_t>(PacketType::welcome));
+        put(welcome, peer);
+        transport_->send(peer, welcome, Channel::reliable);
+
+        // Replay every already-spawned networked object so the late-joiner catches
+        // up on objects created before it connected (e.g. the host's own player).
+        for (const auto& [net_id, info] : spawn_info_) {
+            auto packet = build_spawn_packet(net_id);
+            if (!packet.empty()) transport_->send(peer, packet, Channel::reliable);
+        }
     }
+    // on_peer_connected (spawning this peer's player) runs AFTER the replay, so the
+    // new peer's own spawn is broadcast on top of the existing-object catch-up.
     if (on_peer_connected) on_peer_connected(peer);
 }
 
@@ -540,14 +590,14 @@ void NetManager::handle_disconnect(PeerId peer) {
 
 void NetManager::handle_receive(Scene& scene, ScriptManager& scripts,
                                 ResourceManager& resources,
-                                PeerId /*peer*/, std::span<const uint8_t> data,
+                                PeerId peer, std::span<const uint8_t> data,
                                 Channel /*channel*/) {
     uint8_t type = 0;
     if (!take(data, type)) return;
 
     switch (static_cast<PacketType>(type)) {
     case PacketType::state_update:
-        apply_state_update(scene, scripts, data);
+        apply_state_update(scene, scripts, peer, data);
         break;
     case PacketType::spawn:
         apply_spawn(scene, resources, data);
@@ -568,11 +618,24 @@ void NetManager::handle_receive(Scene& scene, ScriptManager& scripts,
 }
 
 void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
-                                    std::span<const uint8_t> data) {
+                                    PeerId sender, std::span<const uint8_t> data) {
     uint32_t tick = 0;
     uint16_t object_count = 0;
     if (!take(data, tick)) return;
     if (!take(data, object_count)) return;
+
+    // The server relays client-authored updates to the other clients. Rebuild a
+    // forward packet as we go (only the objects we accept from this sender).
+    const bool relay = (role_ == NetRole::server);
+    std::vector<uint8_t> fwd;
+    size_t fwd_count_pos = 0;
+    uint16_t fwd_count = 0;
+    if (relay) {
+        put(fwd, static_cast<uint8_t>(PacketType::state_update));
+        put(fwd, tick);
+        fwd_count_pos = fwd.size();
+        put(fwd, static_cast<uint16_t>(0));
+    }
 
     for (uint16_t o = 0; o < object_count; ++o) {
         NetId net_id = NET_ID_NONE;
@@ -590,9 +653,19 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
         uint16_t dirty_mask = 0;
         if (!take(data, dirty_mask)) return;
 
-        // Resolve the local node. A client must not apply state to objects it
-        // has authority over (that would clobber its own prediction).
-        const bool apply = !is_local_authority(net_id);
+        // Decide whether to accept this object's state from THIS sender:
+        //   server: accept only if the sender owns the object (client authority);
+        //   client: accept anything it doesn't own itself (the server sent it).
+        bool accept;
+        bool owned_local;  // for the predict-vs-interpolate branch below
+        if (role_ == NetRole::server) {
+            accept = (owner_of(net_id) == sender) && (sender != SERVER_PEER);
+            owned_local = false;  // server snaps client-owned objects directly
+        } else {
+            owned_local = is_owned_by_local(net_id);
+            accept = !owned_local;
+        }
+
         uint32_t node_id = node_id_for(net_id);
         Node* node = (node_id != 0) ? scene.find(node_id) : nullptr;
 
@@ -600,28 +673,23 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
         auto descs = node ? replicated_descs(*node, scripts, cinst)
                           : std::vector<const OwnedFieldDesc*>{};
 
-        // Walk every set bit, consuming its bytes from the packet regardless of
-        // whether we apply them — the stream must stay aligned.
+        // Capture the slice of field bytes for relay, and apply if accepted.
+        const uint8_t* fields_begin = data.data();
         for (size_t i = 0; i < descs.size(); ++i) {
             if (!(dirty_mask & (1u << i))) continue;
             const uint32_t sz = descs[i]->size;
             if (data.size() < sz) return;
-            if (apply && cinst) {
+            if (accept && cinst) {
                 auto* dst = const_cast<uint8_t*>(cinst) + descs[i]->offset;
                 std::memcpy(dst, data.data(), sz);
             }
             data = data.subspan(sz);
         }
+        const size_t fields_len = static_cast<size_t>(data.data() - fields_begin);
 
-        if (has_transform && node && node->as_spatial()) {
-            if (apply) {
-                // Remote object: don't snap — buffer the sample.
-                // interpolate_remotes() writes the smoothed transform each frame.
-                push_interp_sample(net_id, position, rotation);
-            } else {
-                // Owned object: the client predicts it locally. Reconcile against
-                // the server's authoritative transform — snap on a large error
-                // (teleport/respawn), otherwise ease toward it (reconcile_predicted).
+        if (accept && has_transform && node && node->as_spatial()) {
+            if (owned_local) {
+                // (client only) reconcile our prediction toward the authority.
                 Node3D* spatial = node->as_spatial();
                 if (glm::distance(spatial->transform.position, position) > snap_threshold_) {
                     spatial->transform.position = position;
@@ -630,8 +698,33 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
                 } else {
                     corrections_[net_id] = {position, rotation, true};
                 }
+            } else if (role_ == NetRole::server) {
+                // Server: snap to the client's authoritative transform directly.
+                Node3D* spatial = node->as_spatial();
+                spatial->transform.position = position;
+                spatial->transform.rotation = rotation;
+            } else {
+                // Client: smooth remote object between snapshots.
+                push_interp_sample(net_id, position, rotation);
             }
         }
+
+        // Append accepted objects to the relay packet.
+        if (relay && accept) {
+            put(fwd, net_id);
+            put(fwd, has_transform);
+            if (has_transform) { put(fwd, position); put(fwd, rotation); }
+            put(fwd, dirty_mask);
+            if (fields_len > 0) put_bytes(fwd, fields_begin, fields_len);
+            ++fwd_count;
+        }
+    }
+
+    // Relay accepted client updates to all clients (the sender's own copy is its
+    // prediction; harmless to echo, and other clients need it).
+    if (relay && fwd_count > 0 && transport_) {
+        std::memcpy(fwd.data() + fwd_count_pos, &fwd_count, sizeof(fwd_count));
+        transport_->broadcast(fwd, Channel::unreliable);
     }
 }
 
@@ -766,7 +859,7 @@ void NetManager::apply_spawn(Scene& scene, ResourceManager& resources,
     // Already have it (duplicate/reordered reliable packet)? Ignore.
     if (node_id_for(net_id) != 0) return;
 
-    auto handle = resources.load_preset_asset(preset_path);
+    auto handle = resources.load_preset_asset(preset_path, rx_project_);
     if (!handle) {
         FJELL_CORE_ERROR("NetManager: spawn of net {} failed, can't load '{}'",
                          net_id, preset_path);
@@ -782,7 +875,7 @@ void NetManager::apply_spawn(Scene& scene, ResourceManager& resources,
 
     register_net_object(net_id, node_id);
     set_owner(net_id, owner);
-    FJELL_CORE_INFO("NetManager: spawned net {} from '{}'", net_id, preset_path);
+    FJELL_CORE_INFO("NetManager: spawned net {} from '{}' (owner {})", net_id, preset_path, owner);
 }
 
 void NetManager::apply_despawn(Scene& scene, std::span<const uint8_t> data) {

@@ -693,13 +693,14 @@ std::string ResourceManager::asset_path_of(InputActionHandle handle) const {
 
 // ── Preset assets ────────────────────────────────────────────────────────
 
-Result<PresetAssetHandle> ResourceManager::load_preset_asset(const std::string& path) {
+Result<PresetAssetHandle> ResourceManager::load_preset_asset(const std::string& path,
+                                                             const Project* project) {
     auto it = preset_assets_.name_to_handle.find(path);
     if (it != preset_assets_.name_to_handle.end()) {
         return it->second;
     }
 
-    auto result = Preset::load(path, *this);
+    auto result = Preset::load(path, *this, project ? project : project_);
     if (!result) {
         return make_error(result.error());
     }

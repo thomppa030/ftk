@@ -415,11 +415,18 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
 
         auto skel_model_result = resources.load_skeletal_model(
             base_path::resolve_asset(source, project));
-        if (!skel_model_result) return nullptr;
+        if (!skel_model_result) {
+            FJELL_CORE_ERROR("deserialize_node: skeletal '{}' load failed: {}",
+                             source, skel_model_result.error());
+            return nullptr;
+        }
 
         auto skel_model_handle = *skel_model_result;
         auto* skel_model = resources.get(skel_model_handle);
-        if (!skel_model) return nullptr;
+        if (!skel_model) {
+            FJELL_CORE_ERROR("deserialize_node: skeletal '{}' handle resolved null", source);
+            return nullptr;
+        }
 
         auto node = std::make_unique<Node3D>();
         node->name = name;

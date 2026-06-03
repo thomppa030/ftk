@@ -23,6 +23,13 @@ extern "C" FJELL_SDK_EXPORT int fjell_net_is_local_authority(uint32_t node_id) {
     return net->is_local_authority(net_id) ? 1 : 0;
 }
 
+extern "C" FJELL_SDK_EXPORT int fjell_net_is_owned_by_local(uint32_t node_id) {
+    auto* net = fjell::script_services().net;
+    if (!net) return 1;  // single-player: the local player owns everything
+    fjell::NetId net_id = net->net_id_for(node_id);
+    return net->is_owned_by_local(net_id) ? 1 : 0;
+}
+
 extern "C" FJELL_SDK_EXPORT void fjell_net_host(uint16_t port, uint32_t max_clients) {
     auto* net = fjell::script_services().net;
     if (net) net->host(port, max_clients);
@@ -45,7 +52,8 @@ extern "C" FJELL_SDK_EXPORT uint32_t fjell_net_spawn(uint32_t preset_handle_id,
     if (!s.net || !s.scene || !s.resources) return 0;
     std::string path = s.resources->asset_path_of(fjell::PresetAssetHandle{preset_handle_id});
     if (path.empty()) return 0;
-    return s.net->spawn(*s.scene, *s.resources, path, glm::vec3{x, y, z}, owner_peer);
+    return s.net->spawn(*s.scene, *s.resources, path, glm::vec3{x, y, z}, owner_peer,
+                        s.project);
 }
 
 extern "C" FJELL_SDK_EXPORT void fjell_net_destroy(uint32_t net_id) {

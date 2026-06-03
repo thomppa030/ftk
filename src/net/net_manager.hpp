@@ -23,6 +23,7 @@ namespace fjell {
 class Scene;
 class ScriptManager;
 class ResourceManager;
+class Project;
 
 // Network identity, distinct from a scene node id. Assigned by the server and
 // replicated so every peer agrees which object is which.
@@ -51,7 +52,8 @@ public:
 
     // ── Per-frame pumps (called by the net subsystems) ─────────────────
     void receive_and_apply(Scene& scene, ScriptManager& scripts,
-                           ResourceManager& resources);  // drain + apply remote state
+                           ResourceManager& resources,
+                           const Project* project);  // drain + apply remote state
     void collect_and_send(Scene& scene, ScriptManager& scripts);    // serialize + send dirty state
 
     // Advance the interpolation clock and write each remote (non-authority)
@@ -75,7 +77,7 @@ public:
     // failure or when called off the server).
     NetId spawn(Scene& scene, ResourceManager& resources,
                 const std::string& preset_path, const glm::vec3& position,
-                PeerId owner);
+                PeerId owner, const Project* project);
     // Server destroys a networked object locally and tells all clients.
     void destroy(Scene& scene, NetId net_id);
 
@@ -104,7 +106,17 @@ public:
     // ── Ownership (who may write a given object) ───────────────────────
     void set_owner(NetId net_id, PeerId peer);
     [[nodiscard]] PeerId owner_of(NetId net_id) const;
-    [[nodiscard]] bool   is_local_authority(NetId net_id) const;
+
+    // "May this peer write the object's authoritative state?" — true on the
+    // server for everything (it owns the truth) and on a client for objects it
+    // owns. Used to gate replication writes / prediction.
+    [[nodiscard]] bool is_local_authority(NetId net_id) const;
+
+    // "Does the local *player* control this object?" — true only when the object's
+    // owner equals this peer's id. Distinct from is_local_authority: the server is
+    // authoritative over every object, but the host player only *possesses* the
+    // ones it owns. Use this for camera/input possession, NOT is_local_authority.
+    [[nodiscard]] bool is_owned_by_local(NetId net_id) const;
 
     // Connection events surfaced to scripts (wired to ScriptComponent in Step 7).
     // PR 1 just logs; the engine sets these to forward into script callbacks later.
@@ -160,9 +172,10 @@ private:
     void handle_receive(Scene& scene, ScriptManager& scripts, ResourceManager& resources,
                         PeerId peer, std::span<const uint8_t> data, Channel channel);
     void apply_state_update(Scene& scene, ScriptManager& scripts,
-                            std::span<const uint8_t> data);
+                            PeerId sender, std::span<const uint8_t> data);
     void apply_spawn(Scene& scene, ResourceManager& resources,
-                     std::span<const uint8_t> data);
+                     std::span<const uint8_t> data);  // uses rx_project_ for path resolution
+    [[nodiscard]] std::vector<uint8_t> build_spawn_packet(NetId net_id) const;
     void apply_despawn(Scene& scene, std::span<const uint8_t> data);
     void apply_rpc(Scene& scene, ScriptManager& scripts, std::span<const uint8_t> data);
     void apply_welcome(std::span<const uint8_t> data);  // client learns its own peer id
@@ -178,6 +191,16 @@ private:
     std::unordered_map<uint32_t, NetId> node_to_net_;
     std::unordered_map<NetId, PeerId>   ownership_;
     std::unordered_map<NetId, ShadowState> shadow_;
+
+    // Server: remembers how each networked object was spawned, so a late-joining
+    // client can be brought up to date (replay spawns it missed). Spawn position
+    // is the initial one; the subsequent state_update stream carries live motion.
+    struct SpawnInfo {
+        std::string preset_path;
+        PeerId      owner{SERVER_PEER};
+        glm::vec3   position{0.0f};
+    };
+    std::unordered_map<NetId, SpawnInfo> spawn_info_;
 
     // Client-side prediction reconciliation for OWNED objects. The owning client
     // moves its object locally each tick (responsive input); when the server's
@@ -211,6 +234,7 @@ private:
     Scene*           rx_scene_{nullptr};
     ScriptManager*   rx_scripts_{nullptr};
     ResourceManager* rx_resources_{nullptr};
+    const Project*   rx_project_{nullptr};  // for resolving asset paths in spawned presets
 };
 
 } // namespace fjell
