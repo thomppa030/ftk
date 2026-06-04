@@ -105,15 +105,31 @@ void main() {
     int chosen_sample = 0;
 
     if (output_resolution_half == 1) {
-        float closer_depth = 0.0;
+        // Pick the 2x2 sample whose depth is closest to the block average.
+        // Choosing the farthest (or nearest) sample lands on the background
+        // surface at depth discontinuities, so the reconstructed position —
+        // and the probe cell it falls in — jumps across edges. That shows up
+        // as angle-dependent jitter at grazing angles, where a half-res block
+        // spans a wide depth range. The median-like pick stays on the
+        // representative surface.
+        float depths[4];
+        float avg = 0.0;
+        int valid = 0;
         for (int j = 0; j < 4; ++j) {
-            float d = texelFetch(depth_tex, coords * 2 + pixel_offsets[j], 0).r;
-            if (d > closer_depth) {
-                closer_depth = d;
+            depths[j] = texelFetch(depth_tex, coords * 2 + pixel_offsets[j], 0).r;
+            if (depths[j] < 1.0) { avg += depths[j]; ++valid; }
+        }
+        avg = valid > 0 ? avg / float(valid) : 1.0;
+
+        float best_diff = 1e9;
+        for (int j = 0; j < 4; ++j) {
+            float diff = abs(depths[j] - avg);
+            if (depths[j] < 1.0 && diff < best_diff) {
+                best_diff = diff;
                 chosen_sample = j;
             }
         }
-        raw_depth = closer_depth;
+        raw_depth = depths[chosen_sample];
     } else {
         raw_depth = texelFetch(depth_tex, coords, 0).r;
     }
