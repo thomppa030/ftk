@@ -44,6 +44,10 @@ struct DdgiConfig {
     float gi_intensity{1.0f};
     float emissive_gi_boost{4.0f};
     float infinite_bounces_mult{0.8f};
+    // Probes traced+updated per frame, round-robin (0 = all). Spreading the
+    // 2048-probe update over several frames cuts the per-frame ray cost;
+    // hysteresis hides the staggering.
+    int probes_per_frame_batch{512};
     bool half_res_output{true};
     bool enabled{true};
 };
@@ -132,6 +136,10 @@ public:
         int32_t vis_width{0};
         int32_t vis_height{0};
         int32_t total_probes{0};
+
+        // Round-robin batch cursor — per-viewport, since each viewport owns its
+        // own radiance image and atlases (a shared cursor would desync them).
+        int32_t probe_update_offset{0};
 
         bool images_need_init{true};
 
