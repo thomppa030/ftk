@@ -149,6 +149,11 @@ public:
         VkImageView last_sky_view{VK_NULL_HANDLE};
         VkSampler last_sky_sampler{VK_NULL_HANDLE};
 
+        // Cached depth/normal views on the sample set — only change on resize,
+        // so skip the per-frame descriptor rewrite when they're unchanged.
+        VkImageView last_depth_view{VK_NULL_HANDLE};
+        VkImageView last_normal_view{VK_NULL_HANDLE};
+
         // ImGui debug textures
         VkDescriptorSet indirect_imgui_desc{VK_NULL_HANDLE};
         VkDescriptorSet irradiance_imgui_desc{VK_NULL_HANDLE};
