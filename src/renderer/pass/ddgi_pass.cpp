@@ -1534,23 +1534,32 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (!is_first_frame_) {
         FJELL_PROFILE_SCOPE_N("ddgi_sample");
         FJELL_GPU_ZONE(ctx, "DDGI Sample");
-        // Update per-frame sample set descriptors (depth + normal change with viewport)
-        VkDescriptorImageInfo s_depth{};
-        s_depth.sampler = linear_sampler_;
-        s_depth.imageView = ctx.target->depth_view();
-        s_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        // Rewrite the depth/normal sample descriptors only when the views
+        // change (on viewport resize) — they're stable frame to frame, so the
+        // per-frame UPDATE_AFTER_BIND write is wasted work otherwise. Mirrors
+        // the sky-view caching above.
+        VkImageView depth_view = ctx.target->depth_view();
+        VkImageView normal_view = ctx.target->normal_view();
+        if (depth_view != imgs.last_depth_view || normal_view != imgs.last_normal_view) {
+            VkDescriptorImageInfo s_depth{};
+            s_depth.sampler = linear_sampler_;
+            s_depth.imageView = depth_view;
+            s_depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
-        VkDescriptorImageInfo s_normal{};
-        s_normal.sampler = linear_sampler_;
-        s_normal.imageView = ctx.target->normal_view();
-        s_normal.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            VkDescriptorImageInfo s_normal{};
+            s_normal.sampler = linear_sampler_;
+            s_normal.imageView = normal_view;
+            s_normal.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        std::array<VkWriteDescriptorSet, 2> sw{};
-        for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set; w.descriptorCount = 1; }
-        sw[0].dstBinding = 1; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[0].pImageInfo = &s_depth;
-        sw[1].dstBinding = 2; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_normal;
+            std::array<VkWriteDescriptorSet, 2> sw{};
+            for (auto& w : sw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.sample_set; w.descriptorCount = 1; }
+            sw[0].dstBinding = 1; sw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[0].pImageInfo = &s_depth;
+            sw[1].dstBinding = 2; sw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; sw[1].pImageInfo = &s_normal;
 
-        vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
+            vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(sw.size()), sw.data(), 0, nullptr);
+            imgs.last_depth_view = depth_view;
+            imgs.last_normal_view = normal_view;
+        }
 
         uint32_t half_res_val = config_.half_res_output ? 1u : 0u;
         vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, sample_pipeline_);
