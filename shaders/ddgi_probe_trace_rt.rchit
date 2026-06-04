@@ -12,6 +12,18 @@ layout(push_constant) uniform PushConstants {
     float emissive_gi_boost;
 };
 
+// ── DDGI atlases for hit-point indirect (multi-bounce) ──────────────────
+// The probe grid's own irradiance/visibility, so a probe ray that lands on
+// a surface picks up the light already gathered there. Binding numbers are
+// the DDGI trace set's layout (see DdgiPass), distinct from the reflection
+// set even though both sample the same atlases.
+
+#include "fjell_ddgi.glsl"
+
+layout(set = 0, binding = 5) uniform sampler2D probe_offset_tex;
+layout(set = 0, binding = 9) uniform sampler2D irradiance_tex;
+layout(set = 0, binding = 10) uniform sampler2D visibility_tex;
+
 // ── Material access (set 1 = bindless) ──────────────────────────────────
 
 #include "fjell_gpu_types.glsl"
@@ -60,6 +72,69 @@ vec3 get_vertex_position(uint vertex_index) {
 vec2 get_vertex_texcoord(uint vertex_index) {
     uint base = vertex_index * FLOATS_PER_VERTEX + TEXCOORD_OFFSET;
     return vec2(vertex_data[base], vertex_data[base + 1]);
+}
+
+// Irradiance reaching a point from the probe cage: trilinearly weight the
+// 8 surrounding probes, attenuating each by Chebyshev visibility so probes
+// occluded from the point don't leak. Returns hemisphere-integrated
+// irradiance. The canonical implementation also lives in
+// ddgi_sample_irradiance.comp; keep them in sync.
+
+vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
+    vec3 Wo = normalize(ddgi.camera_position - world_pos);
+    float min_dist = 1.0;
+    vec3 bias_vector = (normal * 0.2 + Wo * 0.8) * (0.75 * min_dist) * ddgi.self_shadow_bias;
+    vec3 biased_pos = world_pos + bias_vector;
+
+    ivec3 base_grid = ddgi_world_to_grid(biased_pos);
+    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
+    vec3 alpha = clamp((biased_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
+
+    vec3 sum_irradiance = vec3(0.0);
+    float sum_weight = 0.0;
+
+    for (int i = 0; i < 8; ++i) {
+        ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
+        ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
+        int probe_idx = ddgi_grid_to_probe_index(probe_grid);
+
+        vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx, probe_offset_tex, true);
+        vec3 trilinear = mix(1.0 - alpha, alpha, offset);
+        float weight = 1.0;
+
+        vec3 dir_to_probe = normalize(probe_pos - world_pos);
+        float dir_dot_n = (dot(dir_to_probe, normal) + 1.0) * 0.5;
+        weight *= (dir_dot_n * dir_dot_n) + 0.2;
+
+        vec3 probe_to_biased = biased_pos - probe_pos;
+        float dist_to_biased = length(probe_to_biased);
+        vec3 probe_to_biased_dir = probe_to_biased / max(dist_to_biased, 0.001);
+
+        vec2 vis_uv = get_probe_uv(probe_to_biased_dir, probe_idx, ddgi.vis_tex_w, ddgi.vis_tex_h, ddgi.vis_side);
+        vec2 visibility = textureLod(visibility_tex, vis_uv, 0).rg;
+        float mean_dist = visibility.x;
+
+        if (dist_to_biased > mean_dist) {
+            float variance = abs(mean_dist * mean_dist - visibility.y);
+            float diff = dist_to_biased - mean_dist;
+            float cheb = variance / (variance + diff * diff);
+            cheb = max(cheb * cheb, 0.0);
+            weight *= max(0.05, cheb);
+        }
+
+        weight = max(0.000001, weight);
+
+        vec2 irr_uv = get_probe_uv(normal, probe_idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
+        vec3 probe_irradiance = textureLod(irradiance_tex, irr_uv, 0).rgb;
+
+        weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
+
+        sum_irradiance += weight * probe_irradiance;
+        sum_weight += weight;
+    }
+
+    if (sum_weight < 1e-6) return vec3(0.0);
+    return 0.5 * PI * (sum_irradiance / sum_weight) * 0.95;
 }
 
 void main() {
@@ -129,8 +204,14 @@ void main() {
     float NdotL = max(dot(N, light_direction), 0.0);
     vec3 radiance = albedo * light_color * light_intensity * NdotL;
 
-    // Sky ambient
-    radiance += albedo * 0.15;
+    // Indirect bounce: the irradiance feeding this trace was gathered last
+    // frame, so reflecting it off the hit surface here adds one more bounce
+    // each frame and settles toward a full multi-bounce solution.
+    // infinite_bounces_mult is the per-bounce energy retained (< 1 to keep
+    // the feedback from diverging).
+    vec3 world_pos = gl_WorldRayOriginEXT + gl_WorldRayDirectionEXT * hit_t;
+    vec3 indirect = sample_ddgi_irradiance(world_pos, N) * albedo;
+    radiance += indirect * ddgi.infinite_bounces_mult;
 
     // Emissive GI is handled exclusively by the SS-GI pass.
 
