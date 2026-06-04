@@ -15,6 +15,10 @@ layout(std430, set = 0, binding = 4) readonly buffer ProbeStatusSSBO {
 
 layout(set = 0, binding = 5) uniform sampler2D probe_offset_tex;
 
+// Scene SDF, used only to tell whether a probe sits inside solid geometry.
+// Negative inside, positive outside; a point outside the volume reads as far.
+layout(set = 0, binding = 11) uniform sampler3D scene_sdf;
+
 // ── Push constants ──────────────────────────────────────────────────────
 
 layout(push_constant) uniform PushConstants {
@@ -23,7 +27,22 @@ layout(push_constant) uniform PushConstants {
     vec3 light_color;
     float max_trace_dist;
     float emissive_gi_boost;
+    vec3 sdf_volume_min;
+    float pad_pc0;
+    vec3 sdf_volume_max;
+    float pad_pc1;
 };
+
+// A probe counts as buried only this far inside a surface, so probes resting
+// near a wall (sdf ~ 0) are left alone while ones truly embedded are caught.
+const float SDF_BURIAL_MARGIN = 0.05;
+
+float sample_scene_sdf(vec3 world_pos) {
+    vec3 uvw = (world_pos - sdf_volume_min) / (sdf_volume_max - sdf_volume_min);
+    if (any(lessThan(uvw, vec3(0.0))) || any(greaterThan(uvw, vec3(1.0))))
+        return max_trace_dist;
+    return texture(scene_sdf, uvw).r;
+}
 
 
 // ── Ray payload ─────────────────────────────────────────────────────────
@@ -47,6 +66,19 @@ void main() {
     // Probe world position
     ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
     vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
+
+    // Burial test from the SDF, not from back-face hits: with single-sided
+    // walls a probe sitting in open space still has many rays strike the far
+    // walls from behind, which a back-face count misreads as burial. The SDF
+    // is unambiguous — only a probe whose origin is inside a surface is buried.
+    // A buried probe records a negative distance (no radiance) on every ray so
+    // the offset/status passes relocate it out and disable it, matching the
+    // SDF trace backend's convention.
+    if (sample_scene_sdf(ray_origin) < -SDF_BURIAL_MARGIN) {
+        imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset),
+                   vec4(0.0, 0.0, 0.0, -1.0));
+        return;
+    }
 
     // Ray direction: jittered spherical Fibonacci
     vec3 direction = normalize(mat3(ddgi.random_rotation) * spherical_fibonacci(float(ray_index), float(ddgi.probe_rays)));

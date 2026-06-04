@@ -187,6 +187,14 @@ public:
     void set_accel_manager(AccelStructureManager* mgr) { accel_manager_ = mgr; }
     void set_particle_system(class ParticleSystem* ps) { particle_system_ = ps; }
 
+    /// World-space bounds of the scene SDF volume, used by the RT trace to
+    /// test whether a probe is buried. Kept current by the owner since the
+    /// SDF volume can move while the probe grid stays frozen.
+    void set_sdf_bounds(const glm::vec3& min, const glm::vec3& max) {
+        sdf_volume_min_ = min;
+        sdf_volume_max_ = max;
+    }
+
     /// Push constants for the SDF trace shader.
     struct TracePushConstants {
         glm::vec3 light_direction;
@@ -199,13 +207,22 @@ public:
         float pad1;
     };
 
-    /// Push constants for the RT trace shader.
+    /// Push constants for the RT trace shader. Laid out to match the shader's
+    /// std430 push-constant block: each vec3 is 16-byte aligned, so the two
+    /// trailing pads keep sdf_volume_min/max on 16-byte boundaries.
     struct RtTracePushConstants {
         glm::vec3 light_direction;
         float light_intensity;
         glm::vec3 light_color;
         float max_trace_dist;
         float emissive_gi_boost;
+        float pad0;
+        float pad1;
+        float pad2;
+        glm::vec3 sdf_volume_min;
+        float pad3;
+        glm::vec3 sdf_volume_max;
+        float pad4;
     };
 
     /// Max ray distance used in RT trace push constants.
@@ -227,6 +244,10 @@ private:
     glm::vec3 light_direction_{-0.3f, -1.0f, -0.5f};
     float light_intensity_{1.5f};
     glm::vec3 light_color_{1.0f, 1.0f, 0.95f};
+
+    // Scene SDF volume bounds (set by owner; used for the RT burial test)
+    glm::vec3 sdf_volume_min_{-10.0f};
+    glm::vec3 sdf_volume_max_{10.0f};
 
     // Compute pipelines
     VkDescriptorSetLayout trace_set_layout_{VK_NULL_HANDLE};
