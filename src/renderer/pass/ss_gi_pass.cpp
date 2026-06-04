@@ -103,6 +103,7 @@ void SsGiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     safe_view(resolved_view); safe_img(resolved_image, resolved_memory);
     safe_view(history_view); safe_img(history_image, history_memory);
     safe_view(indirect_view); safe_img(indirect_image, indirect_memory);
+    safe_view(prev_depth_view); safe_img(prev_depth_image, prev_depth_memory);
     constants_ubo.reset();
 
     if (desc_pool != VK_NULL_HANDLE) {
@@ -136,6 +137,7 @@ void SsGiPass::Images::invalidate_imgui_texture() {
 Result<> SsGiPass::create(Device& device, const PassResources& resources) {
     device_ = &device;
     vk_device_ = device.handle();
+    allocator_ = resources.allocator;
 
     // ── Samplers ──
     VkSamplerCreateInfo sampler_ci{};
@@ -524,6 +526,44 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     auto cmd = ctx.cmd;
 
+    // ── Previous-frame depth: create lazily, recreate on resize ──
+    // Full-screen depth copy used by the resolve to reject history on
+    // disocclusion. Created here (not in Images::create) because the depth
+    // format and target extent are only known at record time.
+    VkExtent2D target_extent = ctx.target->extent();
+    if (imgs.prev_depth_image == VK_NULL_HANDLE ||
+        imgs.depth_extent.width != target_extent.width ||
+        imgs.depth_extent.height != target_extent.height) {
+        if (imgs.prev_depth_view != VK_NULL_HANDLE)
+            vkDestroyImageView(vk_device_, imgs.prev_depth_view, nullptr);
+        destroy_vma_image(allocator_, imgs.prev_depth_image, imgs.prev_depth_memory);
+
+        VkFormat depth_format = device_->find_depth_format();
+        VkImageCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.format = depth_format;
+        ci.extent = {target_extent.width, target_extent.height, 1};
+        ci.mipLevels = 1;
+        ci.arrayLayers = 1;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        create_vma_image(allocator_, &ci, &imgs.prev_depth_image, &imgs.prev_depth_memory);
+
+        VkImageViewCreateInfo vi{};
+        vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        vi.image = imgs.prev_depth_image;
+        vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vi.format = depth_format;
+        vi.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+        vkCreateImageView(vk_device_, &vi, nullptr, &imgs.prev_depth_view);
+
+        imgs.depth_extent = target_extent;
+        imgs.prev_depth_valid = false;
+    }
+
     // Update constants
     update_constants(imgs, ctx);
 
@@ -632,12 +672,13 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         tw[2].dstBinding = 4; tw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; tw[2].pImageInfo = &pi;
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(tw.size()), tw.data(), 0, nullptr);
 
-        // Resolve set: depth, normal, prev_depth
+        // Resolve set: depth, normal, prev_depth (previous frame's depth copy)
+        VkDescriptorImageInfo pdi{nearest_sampler_, imgs.prev_depth_view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
         std::array<VkWriteDescriptorSet, 3> rw{};
         for (auto& w : rw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.resolve_set; w.descriptorCount = 1; }
         rw[0].dstBinding = 2; rw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rw[0].pImageInfo = &di;
         rw[1].dstBinding = 3; rw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rw[1].pImageInfo = &ni;
-        rw[2].dstBinding = 4; rw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rw[2].pImageInfo = &di; // prev_depth = current for now
+        rw[2].dstBinding = 4; rw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rw[2].pImageInfo = &pdi;
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rw.size()), rw.data(), 0, nullptr);
 
         // Upsample set: depth, normal
@@ -768,6 +809,17 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
+    // prev_depth holds last frame's depth and must be readable by the resolve.
+    // On the first frame after (re)create it has no data yet — seed the layout
+    // so the sample is valid; the resolve rejects history while frame_index < 2.
+    if (!imgs.prev_depth_valid) {
+        barrier_image(imgs.prev_depth_image,
+                      VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                      VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                      VK_IMAGE_ASPECT_DEPTH_BIT);
+    }
+
     // ── 5. Dispatch resolve (temporal accumulation) ──
     {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, resolve_pipeline_);
@@ -808,6 +860,43 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                    imgs.resolved_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                    imgs.history_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                    1, &copy_region);
+
+    // ── 6b. Copy this frame's depth into prev_depth for next frame ──
+    // The resolve above has already read prev_depth (last frame's copy), so it
+    // is now safe to overwrite. Next frame's resolve compares against this.
+    barrier_image(ctx.target->depth_image(),
+                  VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                  VK_IMAGE_ASPECT_DEPTH_BIT);
+    barrier_image(imgs.prev_depth_image,
+                  imgs.prev_depth_valid ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
+                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                  VK_IMAGE_ASPECT_DEPTH_BIT);
+
+    VkImageCopy depth_copy{};
+    depth_copy.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+    depth_copy.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+    depth_copy.extent = {imgs.depth_extent.width, imgs.depth_extent.height, 1};
+    vkCmdCopyImage(cmd,
+                   ctx.target->depth_image(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   imgs.prev_depth_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1, &depth_copy);
+
+    // Restore both depth images to their sampled layout.
+    barrier_image(ctx.target->depth_image(),
+                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT,
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                  VK_IMAGE_ASPECT_DEPTH_BIT);
+    barrier_image(imgs.prev_depth_image,
+                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                  VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+                  VK_IMAGE_ASPECT_DEPTH_BIT);
+    imgs.prev_depth_valid = true;
 
     // ── 7. Barriers for upsample ──
     barrier_image(imgs.resolved_image,

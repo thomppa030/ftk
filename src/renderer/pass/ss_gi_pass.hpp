@@ -60,6 +60,15 @@ public:
         VmaAllocation history_memory{VK_NULL_HANDLE};
         VkImageView history_view{VK_NULL_HANDLE};
 
+        // Previous frame's depth, full-screen res. Copied from the scene depth
+        // each frame after the resolve reads it, so next frame's resolve can
+        // reject history on depth change (disocclusion).
+        VkImage prev_depth_image{VK_NULL_HANDLE};
+        VmaAllocation prev_depth_memory{VK_NULL_HANDLE};
+        VkImageView prev_depth_view{VK_NULL_HANDLE};
+        VkExtent2D depth_extent{};
+        bool prev_depth_valid{false};
+
         // Upsampled indirect output: half-res screen
         VkImage indirect_image{VK_NULL_HANDLE};
         VmaAllocation indirect_memory{VK_NULL_HANDLE};
@@ -142,6 +151,7 @@ private:
 
     Device* device_{nullptr};
     VkDevice vk_device_{VK_NULL_HANDLE};
+    VmaAllocator allocator_{nullptr};
     SsGiConfig config_;
     uint32_t frame_counter_{0};
     glm::mat4 prev_view_proj_{1.0f};
