@@ -5,6 +5,7 @@
 #include "scene/scene.hpp"
 #include "scene/node.hpp"
 #include "scene/preset_asset.hpp"
+#include "scene/component_registry.hpp"
 #include "scripting/script_manager.hpp"
 #include "renderer/resources/resource_manager.hpp"
 
@@ -193,6 +194,90 @@ const OwnedScriptType* rpc_component(const Node& node, ScriptManager& scripts,
     return nullptr;
 }
 
+// Stable 32-bit key for a replicated engine component, derived from its
+// ComponentMeta::json_key so sender and receiver agree without sharing a numeric
+// id (FNV-1a; the same key string always hashes identically across builds).
+uint32_t component_net_key(std::string_view json_key) {
+    uint32_t h = 2166136261u;
+    for (char c : json_key) {
+        h ^= static_cast<uint8_t>(c);
+        h *= 16777619u;
+    }
+    return h;
+}
+
+// Serialize every replicated engine component on a node into the packet as a
+// section: comp_count(u8) then per component { key_hash(u32), size(u16), bytes }.
+// Mirrors how replicated script fields are packed; the bytes are opaque to the
+// netcode (only each component's net_serialize knows the layout).
+void put_component_section(std::vector<uint8_t>& packet, Node& node) {
+    const size_t count_pos = packet.size();
+    packet.push_back(0);  // comp_count placeholder
+    uint8_t comp_count = 0;
+
+    node.components.for_each([&](ComponentTypeId id, void* ptr) {
+        const auto* meta = ComponentRegistry::instance().find(id);
+        if (!meta || !meta->net_serialize) return;
+
+        std::vector<uint8_t> bytes;
+        meta->net_serialize(ptr, bytes);
+        if (bytes.empty()) return;  // nothing to sync (e.g. animator with no params)
+
+        put(packet, component_net_key(meta->json_key));
+        put(packet, static_cast<uint16_t>(bytes.size()));
+        put_bytes(packet, bytes.data(), bytes.size());
+        ++comp_count;
+    });
+
+    packet[count_pos] = comp_count;
+}
+
+// Advance `data` past a component section without applying it (the object wasn't
+// accepted from this sender, but its bytes still need consuming so the rest of
+// the packet parses). Returns false on truncation.
+[[nodiscard]] bool skip_component_section(std::span<const uint8_t>& data) {
+    uint8_t comp_count = 0;
+    if (!take(data, comp_count)) return false;
+    for (uint8_t i = 0; i < comp_count; ++i) {
+        uint32_t key = 0;
+        uint16_t size = 0;
+        if (!take(data, key)) return false;
+        if (!take(data, size)) return false;
+        if (data.size() < size) return false;
+        data = data.subspan(size);
+    }
+    return true;
+}
+
+// Read a component section written by put_component_section and dispatch each
+// block to the matching component's net_deserialize (looked up by key hash).
+// Advances `data` past the whole section. Returns false on truncation.
+[[nodiscard]] bool apply_component_section(std::span<const uint8_t>& data, Node& node) {
+    uint8_t comp_count = 0;
+    if (!take(data, comp_count)) return false;
+
+    for (uint8_t i = 0; i < comp_count; ++i) {
+        uint32_t key_hash = 0;
+        uint16_t size = 0;
+        if (!take(data, key_hash)) return false;
+        if (!take(data, size)) return false;
+        if (data.size() < size) return false;
+
+        auto block = data.subspan(0, size);
+        data = data.subspan(size);
+
+        // Find the component on this node whose meta key matches the hash.
+        node.components.for_each([&](ComponentTypeId id, void* ptr) {
+            const auto* meta = ComponentRegistry::instance().find(id);
+            if (meta && meta->net_deserialize &&
+                component_net_key(meta->json_key) == key_hash) {
+                meta->net_deserialize(ptr, block);
+            }
+        });
+    }
+    return true;
+}
+
 } // namespace
 
 void NetManager::ensure_scene_registered(Scene& scene, ScriptManager& scripts) {
@@ -274,7 +359,9 @@ void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
         const uint8_t* instance = nullptr;
         auto descs = replicated_descs(*node, scripts, instance);
 
-        // Build this object's current replicated bytes (fields then transform).
+        // Build this object's current replicated bytes (fields, then transform,
+        // then the engine-component section). Concatenated into one buffer so the
+        // single per-object shadow catches a change in any of the three.
         std::vector<uint8_t> current;
         for (const auto* f : descs) {
             put_bytes(current, instance + f->offset, f->size);
@@ -285,6 +372,8 @@ void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
             put(current, spatial->transform.position);
             put(current, spatial->transform.rotation);
         }
+        const size_t comp_off = current.size();
+        put_component_section(current, *node);  // self-delimiting (comp_count + blocks)
         if (current.empty()) continue;  // nothing replicated on this object
 
         // Diff against the shadow to find which fields changed.
@@ -301,14 +390,19 @@ void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
             if (changed) dirty_mask |= static_cast<uint16_t>(1u << i);
             off += sz;
         }
+        const size_t transform_len = comp_off - off;  // transform bytes between fields and comps
         bool transform_changed = has_transform;
         if (has_transform && !first_send) {
             transform_changed =
                 std::memcmp(current.data() + off, shadow.data() + off,
-                            current.size() - off) != 0;
+                            transform_len) != 0;
         }
+        const bool comp_changed = first_send ||
+            shadow.size() != current.size() ||
+            std::memcmp(current.data() + comp_off, shadow.data() + comp_off,
+                        current.size() - comp_off) != 0;
 
-        if (dirty_mask == 0 && !transform_changed) continue;  // unchanged, skip
+        if (dirty_mask == 0 && !transform_changed && !comp_changed) continue;  // unchanged
 
         put(packet, net_id);
         put(packet, static_cast<uint8_t>(has_transform ? 1 : 0));
@@ -325,6 +419,9 @@ void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
             }
             off += sz;
         }
+        // Component section: always sent in full (it's small) so the receiver can
+        // re-drive each component's state regardless of which field changed.
+        put_bytes(packet, current.data() + comp_off, current.size() - comp_off);
 
         shadow = std::move(current);
         ++object_count;
@@ -694,7 +791,18 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
             }
             data = data.subspan(sz);
         }
-        const size_t fields_len = static_cast<size_t>(data.data() - fields_begin);
+
+        // Engine-component section follows the field bytes. Apply it to the node
+        // when accepted; otherwise just skip past it so the next object parses
+        // correctly. Either way `data` advances over the whole section, and the
+        // combined field+component slice is captured for relay.
+        const uint8_t* payload_begin = fields_begin;  // fields + component section
+        if (accept && node) {
+            if (!apply_component_section(data, *node)) return;
+        } else if (!skip_component_section(data)) {
+            return;
+        }
+        const size_t payload_len = static_cast<size_t>(data.data() - payload_begin);
 
         if (accept && has_transform && node && node->as_spatial()) {
             if (owned_local) {
@@ -718,13 +826,14 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
             }
         }
 
-        // Append accepted objects to the relay packet.
+        // Append accepted objects to the relay packet (field bytes + component
+        // section forwarded verbatim).
         if (relay && accept) {
             put(fwd, net_id);
             put(fwd, has_transform);
             if (has_transform) { put(fwd, position); put(fwd, rotation); }
             put(fwd, dirty_mask);
-            if (fields_len > 0) put_bytes(fwd, fields_begin, fields_len);
+            if (payload_len > 0) put_bytes(fwd, payload_begin, payload_len);
             ++fwd_count;
         }
     }
