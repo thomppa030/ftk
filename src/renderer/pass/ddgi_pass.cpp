@@ -502,7 +502,8 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         // binding 8: per-instance data SSBO (material_id, first_index, vertex_offset)
         // binding 9:  irradiance atlas (for multi-bounce GI in closest-hit)
         // binding 10: visibility atlas (for multi-bounce GI in closest-hit)
-        std::array<VkDescriptorSetLayoutBinding, 11> rt_bindings{};
+        // binding 11: scene SDF (raygen burial test)
+        std::array<VkDescriptorSetLayoutBinding, 12> rt_bindings{};
         rt_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1,
                           VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR, nullptr};
         rt_bindings[1] = {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1,
@@ -525,9 +526,11 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
                           VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
         rt_bindings[10] = {10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+        rt_bindings[11] = {11, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                           VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
 
         // Enable UPDATE_AFTER_BIND on bindings updated every frame
-        std::array<VkDescriptorBindingFlags, 11> rt_bind_flags{};
+        std::array<VkDescriptorBindingFlags, 12> rt_bind_flags{};
         rt_bind_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
         rt_bind_flags[6] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // vertex buffer
         rt_bind_flags[7] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // index buffer
@@ -949,7 +952,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
         pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 4u : 3u};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 13u : 9u};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 14u : 9u};
         pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 6u : 5u};
         pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 7u : 3u};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? 1u : 0u};
@@ -1138,8 +1141,14 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rt_visibility.imageView = imgs.visibility_view;
             rt_visibility.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-            // Write bindings 0, 2-5, 9-10 (skip 1=TLAS, 6-8=buffers, updated per-frame)
-            std::array<VkWriteDescriptorSet, 7> rtw{};
+            // Scene SDF — raygen burial test
+            VkDescriptorImageInfo rt_sdf{};
+            rt_sdf.sampler = sdf_sampler;
+            rt_sdf.imageView = sdf_view;
+            rt_sdf.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+            // Write bindings 0, 2-5, 9-11 (skip 1=TLAS, 6-8=buffers, updated per-frame)
+            std::array<VkWriteDescriptorSet, 8> rtw{};
             for (auto& w : rtw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.rt_trace_set; w.descriptorCount = 1; }
             rtw[0].dstBinding = 0; rtw[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; rtw[0].pBufferInfo = &rt_ubo;
             rtw[1].dstBinding = 2; rtw[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; rtw[1].pImageInfo = &rt_radiance;
@@ -1148,6 +1157,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             rtw[4].dstBinding = 5; rtw[4].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[4].pImageInfo = &rt_offset;
             rtw[5].dstBinding = 9; rtw[5].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[5].pImageInfo = &rt_irradiance;
             rtw[6].dstBinding = 10; rtw[6].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[6].pImageInfo = &rt_visibility;
+            rtw[7].dstBinding = 11; rtw[7].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rtw[7].pImageInfo = &rt_sdf;
 
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rtw.size()), rtw.data(), 0, nullptr);
         }
@@ -1365,6 +1375,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         rt_push.light_color = light_color_;
         rt_push.max_trace_dist = MAX_TRACE_DIST;
         rt_push.emissive_gi_boost = config_.emissive_gi_boost;
+        rt_push.sdf_volume_min = sdf_volume_min_;
+        rt_push.sdf_volume_max = sdf_volume_max_;
 
         vkCmdPushConstants(ctx.cmd, rt_trace_pipeline_layout_,
                            VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,

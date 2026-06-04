@@ -870,6 +870,10 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ss_gi_pass().set_sun_light(dir_light.direction, dir_light.color, dir_light.intensity);
     rt_reflection_pass().set_sun_light(dir_light.direction, dir_light.color, dir_light.intensity);
 
+    // Keep DDGI's copy of the SDF bounds current for the RT burial test —
+    // the volume can move while the probe grid stays frozen.
+    ddgi_pass().set_sdf_bounds(scene_sdf_pass().volume_min(), scene_sdf_pass().volume_max());
+
     const auto& matrices = shadow_pass().light_matrices();
     const auto& splits = shadow_pass().cascade_splits();
     for (uint32_t i = 0; i < ShadowPass::CASCADE_COUNT; ++i) {
