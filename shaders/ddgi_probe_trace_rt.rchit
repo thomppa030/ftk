@@ -125,7 +125,7 @@ vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
         weight = max(0.000001, weight);
 
         vec2 irr_uv = get_probe_uv(normal, probe_idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
-        vec3 probe_irradiance = textureLod(irradiance_tex, irr_uv, 0).rgb;
+        vec3 probe_irradiance = ddgi_decode_irradiance(textureLod(irradiance_tex, irr_uv, 0).rgb);
 
         weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
 

@@ -83,6 +83,10 @@ void main() {
             result.w = 1.0;
         }
 
+        // Blend in perceptual space: encode the fresh result so it matches the
+        // already-encoded history, then mix. Decode happens at every read site.
+        result.rgb = ddgi_encode_irradiance(result.rgb);
+
         vec4 previous_value = imageLoad(irradiance_image, coords);
 
         if (first_frame == 0) {
