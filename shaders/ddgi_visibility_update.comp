@@ -74,7 +74,10 @@ void main() {
         return;
     }
 
-    groupMemoryBarrier();
+    // Flush the interior image writes before the border copy reads them; see
+    // ddgi_irradiance_update.comp for why memoryBarrierImage() and why this
+    // relies on a probe tile fitting one 8x8 workgroup.
+    memoryBarrierImage();
     barrier();
 
     uint probe_pixel_x = gl_GlobalInvocationID.x % probe_with_border_side;

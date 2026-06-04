@@ -106,8 +106,15 @@ void main() {
         return;
     }
 
-    // Border pixels: wait for interior, then copy
-    groupMemoryBarrier();
+    // Border pixels copy from an interior texel of the same probe, so the
+    // interior writes above must be visible first. Use memoryBarrierImage()
+    // (not groupMemoryBarrier(), which orders shared memory — there is none
+    // here; the data is in the image) to flush those writes, then barrier()
+    // to sync the threads. This is correct only because a probe's
+    // (side + 2)-wide tile equals the 8x8 workgroup, so interior and border
+    // share a workgroup. If irradiance_side_length changes so the tile no
+    // longer fits one workgroup, split interior/border into two dispatches.
+    memoryBarrierImage();
     barrier();
 
     uint probe_pixel_x = gl_GlobalInvocationID.x % probe_with_border_side;
