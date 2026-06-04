@@ -845,10 +845,20 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.vis_tex_h = imgs.vis_height;
     constants.vis_side = config_.visibility_side_length;
 
-    // Update all probes every frame (no temporal batching)
+    // Round-robin a slice of probes each frame to cut per-frame ray cost.
+    // The first frame must seed every probe, and batch == 0 means "all".
     int total = imgs.total_probes;
-    constants.probe_update_offset = 0;
-    constants.probe_update_count = total;
+    int batch = config_.probes_per_frame_batch;
+    if (is_first_frame_ || batch <= 0 || batch >= total) {
+        constants.probe_update_offset = 0;
+        constants.probe_update_count = total;
+    } else {
+        if (imgs.probe_update_offset >= total) imgs.probe_update_offset = 0;
+        constants.probe_update_offset = imgs.probe_update_offset;
+        constants.probe_update_count = std::min(batch, total - imgs.probe_update_offset);
+        imgs.probe_update_offset += constants.probe_update_count;
+        if (imgs.probe_update_offset >= total) imgs.probe_update_offset = 0;
+    }
 
     constants.hysteresis = config_.hysteresis;
     constants.infinite_bounces_mult = config_.infinite_bounces_mult;
