@@ -59,21 +59,19 @@ void main() {
     int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
     if (probe_index >= total_probes) return;
 
-    // Skip inactive probes
-    uint status = probe_status[probe_index];
-    if (status == PROBE_STATUS_OFF) return;
-
     // Probe world position
     ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
     vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
 
-    // Burial test from the SDF, not from back-face hits: with single-sided
-    // walls a probe sitting in open space still has many rays strike the far
-    // walls from behind, which a back-face count misreads as burial. The SDF
-    // is unambiguous — only a probe whose origin is inside a surface is buried.
+    // Burial test from the SDF, re-evaluated EVERY frame so a probe revives the
+    // moment it is no longer inside geometry. This is the burial authority — we
+    // deliberately do NOT early-out on a sticky PROBE_STATUS_OFF here, because a
+    // probe that stopped tracing can never refresh its radiance or discover it
+    // has been uncovered (it would stay frozen with stale irradiance). The SDF
+    // is unambiguous: with single-sided walls a back-face ray count misreads an
+    // open-space probe as buried, but origin-inside-surface does not.
     // A buried probe records a negative distance (no radiance) on every ray so
-    // the offset/status passes relocate it out and disable it, matching the
-    // SDF trace backend's convention.
+    // the offset/status passes relocate it out, matching the SDF trace backend.
     if (sample_scene_sdf(ray_origin) < -SDF_BURIAL_MARGIN) {
         imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset),
                    vec4(0.0, 0.0, 0.0, -1.0));
