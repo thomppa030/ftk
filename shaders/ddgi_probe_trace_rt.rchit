@@ -87,9 +87,11 @@ vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
     vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
     vec3 biased_pos = world_pos + bias_vector;
 
-    ivec3 base_grid = ddgi_world_to_grid(biased_pos);
+    // Cage cell + trilinear from the UNBIASED position; bias only feeds the
+    // visibility distance (see ddgi_sample_irradiance.comp).
+    ivec3 base_grid = ddgi_world_to_grid(world_pos);
     vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
-    vec3 alpha = clamp((biased_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
+    vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
 
     vec3 sum_irradiance = vec3(0.0);
     float sum_weight = 0.0;
