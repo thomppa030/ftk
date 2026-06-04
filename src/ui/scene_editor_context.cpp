@@ -30,6 +30,7 @@
 #include "scene/preset.hpp"
 #include "scene/light_node.hpp"
 #include "scripting/script_subsystem.hpp"
+#include "net/net_manager.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/icon_cache.hpp"
 
@@ -40,6 +41,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <cstdio>
 #include <limits>
 
 #include <filesystem>
@@ -577,6 +579,48 @@ void SceneEditorContext::draw_play_toolbar() {
             request_stop();
         } else {
             request_play();
+        }
+    }
+
+    // Net mode selector — sits just left of the play button. The engine never
+    // acts on this; it sets NetManager's launch mode, which the running game
+    // script reads in begin_play to host/join/stay offline. Hidden while playing
+    // (mode is latched for the session) and when there's no NetManager.
+    if (deps_.net_manager && !is_playing()) {
+        static const char* const kModeLabels[] = {"Offline", "Host", "Join"};
+        auto mode = deps_.net_manager->launch_mode();
+        int mode_idx = static_cast<int>(mode);
+
+        const char* label = kModeLabels[mode_idx];
+        float combo_w = 78.0f;
+        float combo_h = ImGui::GetFrameHeight();
+        float combo_x = box_x - combo_w - pad;
+        float combo_y = box_y + (box_h - combo_h) * 0.5f;
+
+        ImGui::SetCursorScreenPos({combo_x, combo_y});
+        ImGui::SetNextItemWidth(combo_w);
+        if (ImGui::BeginCombo("##net_mode", label, ImGuiComboFlags_None)) {
+            for (int i = 0; i < 3; ++i) {
+                bool selected = (mode_idx == i);
+                if (ImGui::Selectable(kModeLabels[i], selected)) {
+                    deps_.net_manager->set_launch_mode(static_cast<NetLaunchMode>(i));
+                }
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        // Join address field, shown only in Join mode.
+        if (mode == NetLaunchMode::join) {
+            char addr_buf[64];
+            const std::string& addr = deps_.net_manager->join_address();
+            std::snprintf(addr_buf, sizeof(addr_buf), "%s", addr.c_str());
+
+            ImGui::SetCursorScreenPos({combo_x, combo_y + combo_h + 4.0f});
+            ImGui::SetNextItemWidth(combo_w);
+            if (ImGui::InputText("##net_addr", addr_buf, sizeof(addr_buf))) {
+                deps_.net_manager->set_join_address(addr_buf);
+            }
         }
     }
 

@@ -16,6 +16,8 @@
 extern "C" {
 FJELL_SDK_EXPORT int      fjell_net_role();                 // 0 none, 1 server, 2 client
 FJELL_SDK_EXPORT uint32_t fjell_net_local_peer();
+FJELL_SDK_EXPORT int      fjell_net_launch_mode();          // 0 offline, 1 host, 2 join
+FJELL_SDK_EXPORT const char* fjell_net_join_address();
 FJELL_SDK_EXPORT int      fjell_net_is_local_authority(uint32_t node_id);
 FJELL_SDK_EXPORT int      fjell_net_is_owned_by_local(uint32_t node_id);
 FJELL_SDK_EXPORT void     fjell_net_host(uint16_t port, uint32_t max_clients);
@@ -37,6 +39,10 @@ struct PresetAsset;
 // engine-internal headers.
 enum class NetRole : int { none = 0, server = 1, client = 2 };
 
+// Mirrors the engine's NetLaunchMode — what the editor's Net dropdown is set to.
+// Read it in begin_play to decide whether to host(), join(), or stay offline.
+enum class NetLaunchMode : int { offline = 0, host = 1, join = 2 };
+
 using PeerId = uint32_t;
 constexpr PeerId SERVER_PEER = 0;
 
@@ -46,6 +52,14 @@ struct NetAPI {
     [[nodiscard]] static bool    is_client()   { return role() == NetRole::client; }
     [[nodiscard]] static bool    is_networked(){ return role() != NetRole::none; }
     [[nodiscard]] static PeerId  local_peer()  { return fjell_net_local_peer(); }
+
+    // What the editor's Net dropdown is set to (Offline/Host/Join). Read this in
+    // begin_play to launch networking. join_address() is the configured server
+    // address for Join mode.
+    [[nodiscard]] static NetLaunchMode launch_mode() {
+        return static_cast<NetLaunchMode>(fjell_net_launch_mode());
+    }
+    [[nodiscard]] static const char* join_address() { return fjell_net_join_address(); }
 
     [[nodiscard]] static bool is_local_authority(uint32_t node_id) {
         return fjell_net_is_local_authority(node_id) != 0;

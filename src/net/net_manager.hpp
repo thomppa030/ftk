@@ -36,6 +36,16 @@ enum class NetRole : uint8_t {
     client,  // connected to a host
 };
 
+// What the editor's Net dropdown is set to. The engine never acts on this — it's
+// stored here so the running game script can read it (via NetAPI::launch_mode())
+// in begin_play and decide whether to host(), join(), or stay offline. Keeping
+// the policy in the script keeps the engine game-agnostic.
+enum class NetLaunchMode : uint8_t {
+    offline,  // single-player; script does nothing
+    host,     // script should host()
+    join,     // script should join() the configured address
+};
+
 class NetManager {
 public:
     NetManager();
@@ -95,6 +105,16 @@ public:
     [[nodiscard]] bool    is_connected() const { return role_ != NetRole::none; }
     [[nodiscard]] NetRole role() const { return role_; }
     [[nodiscard]] PeerId  local_peer() const { return local_peer_; }
+
+    // ── Launch mode (editor → script) ───────────────────────────────────
+    // Set by the editor's Net dropdown before Play; read by the game script in
+    // begin_play to decide host/join/offline. Defaults track FJELL_NET_MODE so
+    // the env-var workflow still works when launched headless. The engine itself
+    // never acts on these.
+    void set_launch_mode(NetLaunchMode mode) { launch_mode_ = mode; }
+    [[nodiscard]] NetLaunchMode launch_mode() const { return launch_mode_; }
+    void set_join_address(std::string address) { join_address_ = std::move(address); }
+    [[nodiscard]] const std::string& join_address() const { return join_address_; }
 
     // ── Network identity (NetId ↔ scene node id) ───────────────────────
     [[nodiscard]] NetId assign_net_id();  // server only
@@ -184,6 +204,9 @@ private:
     NetRole role_{NetRole::none};
     PeerId  local_peer_{SERVER_PEER};
     uint32_t server_tick_{0};
+
+    NetLaunchMode launch_mode_{NetLaunchMode::offline};
+    std::string   join_address_{"127.0.0.1"};
 
     bool  scene_registered_{false};  // one-time bootstrap guard
     NetId next_net_id_{1};  // NET_ID_NONE (0) reserved

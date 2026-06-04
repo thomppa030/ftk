@@ -30,6 +30,7 @@ class ScriptSubsystem;
 class ThreadPool;
 class ContentBrowser;
 class FileBrowser;
+class NetManager;
 class VulkanContext;
 class Window;
 struct DirectionalLight;
@@ -50,6 +51,7 @@ struct SceneEditorDeps {
     Window* window;
     ContentBrowser* content_browser{nullptr};
     FileBrowser* file_browser{nullptr};
+    NetManager* net_manager{nullptr};
     bool game_mode;
 
     // Play lifecycle callbacks (Engine provides these)

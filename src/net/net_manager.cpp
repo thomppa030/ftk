@@ -12,6 +12,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <type_traits>
 
@@ -58,7 +59,15 @@ void put_string(std::vector<uint8_t>& buf, const std::string& s) {
 
 } // namespace
 
-NetManager::NetManager() = default;
+NetManager::NetManager() {
+    // Seed the launch mode from FJELL_NET_MODE so the env-var workflow keeps
+    // working for headless / scripted runs; the editor's Net dropdown overrides
+    // it interactively before Play.
+    if (const char* mode = std::getenv("FJELL_NET_MODE")) {
+        if (std::strcmp(mode, "host") == 0) launch_mode_ = NetLaunchMode::host;
+        else if (std::strcmp(mode, "join") == 0) launch_mode_ = NetLaunchMode::join;
+    }
+}
 NetManager::~NetManager() { shutdown(); }
 
 // ── Lifecycle ───────────────────────────────────────────────────────────
