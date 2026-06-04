@@ -165,6 +165,8 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     ddgi_pass().config().gi_intensity          = s.ddgi.gi_intensity;
     ddgi_pass().config().emissive_gi_boost     = s.ddgi.emissive_gi_boost;
     ddgi_pass().config().infinite_bounces_mult = s.ddgi.infinite_bounces_mult;
+    ddgi_pass().config().normal_bias           = s.ddgi.normal_bias;
+    ddgi_pass().config().view_bias             = s.ddgi.view_bias;
 
     ss_gi_pass().config().enabled        = s.ss_gi.enabled;
     ss_gi_pass().config().intensity      = s.ss_gi.intensity;

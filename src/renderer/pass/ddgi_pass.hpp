@@ -35,6 +35,11 @@ struct DdgiConfig {
     int irradiance_side_length{6};
     int visibility_side_length{6};
     float self_shadow_bias{0.3f};
+    // Sample-position bias as a fraction of probe spacing. Normal-leaning so
+    // the sample lifts off the surface rather than sliding along it at grazing
+    // angles (which would skate across probe cells). view_bias is small.
+    float normal_bias{0.25f};
+    float view_bias{0.08f};
     float max_probe_offset{0.5f};
     float gi_intensity{1.0f};
     float emissive_gi_boost{4.0f};
@@ -70,7 +75,7 @@ struct GpuDdgiConstants {
     int32_t probe_update_count{0};
     float hysteresis{0.97f};
     float infinite_bounces_mult{0.0f};
-    float pad0{0.0f};
+    float normal_bias{0.0f};   // sample bias along the surface normal (× spacing)
 
     glm::mat4 random_rotation{1.0f};
 
@@ -81,7 +86,7 @@ struct GpuDdgiConstants {
     glm::mat4 inv_view_proj{1.0f};
 
     glm::vec2 resolution;
-    float pad2{0.0f};
+    float view_bias{0.0f};     // sample bias toward the camera (× spacing)
     float pad3{0.0f};
 };
 

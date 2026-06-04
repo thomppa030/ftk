@@ -852,6 +852,8 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
 
     constants.hysteresis = config_.hysteresis;
     constants.infinite_bounces_mult = config_.infinite_bounces_mult;
+    constants.normal_bias = config_.normal_bias;
+    constants.view_bias = config_.view_bias;
 
     // Random rotation for ray jitter
     static std::mt19937 rng{42};

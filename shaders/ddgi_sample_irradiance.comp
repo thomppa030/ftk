@@ -30,8 +30,13 @@ vec3 world_position_from_depth(vec2 uv, float depth) {
 
 vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
     vec3 Wo = normalize(ddgi.camera_position - world_pos);
-    float min_dist = 1.0;
-    vec3 bias_vector = (normal * 0.2 + Wo * 0.8) * (0.75 * min_dist) * ddgi.self_shadow_bias;
+    // Bias the sample off the surface before the cage lookup. Lean on the
+    // normal so the offset lifts away from the surface; keep the view term
+    // small. A view-dominant bias goes tangential at grazing angles and
+    // skates the sample across probe cells, which reads as blocky shimmer.
+    // Scale by spacing so the bias stays a fixed fraction of a cell.
+    float cell = min(ddgi.probe_spacing.x, min(ddgi.probe_spacing.y, ddgi.probe_spacing.z));
+    vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
     vec3 biased_pos = world_pos + bias_vector;
 
     ivec3 base_grid = ddgi_world_to_grid(biased_pos);

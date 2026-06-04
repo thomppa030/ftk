@@ -24,11 +24,11 @@ layout(std140, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_UBO_BINDING) unifo
     int irr_tex_w;  int irr_tex_h;  int irr_side;  int probe_rays;
     int vis_tex_w;  int vis_tex_h;  int vis_side;  int probe_update_offset;
     int probe_update_count;    float hysteresis;
-    float infinite_bounces_mult; float pad0;
+    float infinite_bounces_mult; float normal_bias;
     mat4 random_rotation;
     vec3 camera_position;      float pad1;
     mat4 inv_view_proj;
-    vec2 resolution;           float pad2; float pad3;
+    vec2 resolution;           float view_bias; float pad3;
 } ddgi;
 
 // ── Perceptual irradiance encoding ──────────────────────────────────────

@@ -41,6 +41,8 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
             {"gi_intensity",           s.ddgi.gi_intensity},
             {"emissive_gi_boost",      s.ddgi.emissive_gi_boost},
             {"infinite_bounces_mult",  s.ddgi.infinite_bounces_mult},
+            {"normal_bias",            s.ddgi.normal_bias},
+            {"view_bias",              s.ddgi.view_bias},
         }},
         {"ss_gi", {
             {"enabled",         s.ss_gi.enabled},
@@ -79,6 +81,8 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
         s.ddgi.gi_intensity          = d.value("gi_intensity",          s.ddgi.gi_intensity);
         s.ddgi.emissive_gi_boost     = d.value("emissive_gi_boost",     s.ddgi.emissive_gi_boost);
         s.ddgi.infinite_bounces_mult = d.value("infinite_bounces_mult", s.ddgi.infinite_bounces_mult);
+        s.ddgi.normal_bias           = d.value("normal_bias",           s.ddgi.normal_bias);
+        s.ddgi.view_bias             = d.value("view_bias",             s.ddgi.view_bias);
     }
     if (j.contains("ss_gi")) {
         const auto& g = j["ss_gi"];

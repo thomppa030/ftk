@@ -86,8 +86,9 @@ vec2 get_vertex_texcoord(uint vertex_index) {
 
 vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
     vec3 Wo = normalize(ddgi.camera_position - world_pos);
-    float min_dist = 1.0;
-    vec3 bias_vector = (normal * 0.2 + Wo * 0.8) * (0.75 * min_dist) * ddgi.self_shadow_bias;
+    // Normal-leaning, spacing-scaled bias (see ddgi_sample_irradiance.comp).
+    float cell = min(ddgi.probe_spacing.x, min(ddgi.probe_spacing.y, ddgi.probe_spacing.z));
+    vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
     vec3 biased_pos = world_pos + bias_vector;
 
     ivec3 base_grid = ddgi_world_to_grid(biased_pos);
