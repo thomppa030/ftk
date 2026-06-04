@@ -64,6 +64,7 @@ void main() {
     }
 
     vec3 full_offset = vec3(1e4);
+    bool relocated = false;
 
     bool inside_geometry = (float(backfaces_count) / float(ddgi.probe_rays)) > 0.25;
     if (inside_geometry && closest_backface_index != -1) {
@@ -76,6 +77,7 @@ void main() {
 
         float scale = min(min(max_off.x, max_off.y), max_off.z) - 0.001;
         full_offset = current_offset.xyz - backface_dir * scale;
+        relocated = true;
     } else if (closest_frontface_distance < 0.05) {
         vec3 farthest_dir = min(0.2, farthest_frontface_distance) *
             normalize(mat3(ddgi.random_rotation) * spherical_fibonacci(float(farthest_frontface_index), float(ddgi.probe_rays)));
@@ -84,11 +86,17 @@ void main() {
 
         if (dot(farthest_dir, closest_dir) < 0.5) {
             full_offset = current_offset.xyz + farthest_dir;
+            relocated = true;
         }
     }
 
-    if (all(lessThan(abs(full_offset), cell_offset_limit))) {
-        current_offset.xyz = full_offset;
+    // Clamp the new offset to the cell limit per-axis rather than rejecting
+    // the whole update when one axis exceeds it. Rejecting made probes in
+    // conflicted geometry oscillate — each frame they recompute an offset
+    // past the limit and get held in place. Clamping slides them to the cell
+    // boundary and lets them settle.
+    if (relocated) {
+        current_offset.xyz = clamp(full_offset, -cell_offset_limit, cell_offset_limit);
     }
 
     int pxy = ddgi.probe_counts.x * ddgi.probe_counts.y;
