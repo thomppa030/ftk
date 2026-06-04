@@ -815,13 +815,11 @@ void NetManager::apply_state_update(Scene& scene, ScriptManager& scripts,
                 } else {
                     corrections_[net_id] = {position, rotation, true};
                 }
-            } else if (role_ == NetRole::server) {
-                // Server: snap to the client's authoritative transform directly.
-                Node3D* spatial = node->as_spatial();
-                spatial->transform.position = position;
-                spatial->transform.rotation = rotation;
             } else {
-                // Client: smooth remote object between snapshots.
+                // Remote object we don't own — smooth between 30 Hz snapshots
+                // instead of snapping. Runs on the client (host's player) AND on
+                // the server (each client's player), so motion looks identical in
+                // every window. interpolate_remotes drives the actual transform.
                 push_interp_sample(net_id, position, rotation);
             }
         }
@@ -850,16 +848,35 @@ void NetManager::push_interp_sample(NetId net_id, const glm::vec3& pos,
                                     const glm::quat& rot) {
     InterpBuffer& buf = interp_[net_id];
 
-    // Stamp on a per-object monotonic timeline: exactly one nominal tick past the
-    // previous sample, independent of arrival jitter. The first sample (and any
-    // after a stall, where the global timeline has moved on) pins to the shared
-    // newest stamp so every object shares one timeline.
-    float t = tick_interval_;
+    // Stamp on a per-object monotonic timeline: normally exactly one nominal tick
+    // past this object's previous sample, independent of arrival jitter.
+    //
+    // But re-anchor ahead of the render clock whenever the object's own newest
+    // sample has fallen behind it. That happens (a) for a brand-new object that
+    // joins an already-running session, and (b) for an existing object that went
+    // idle — no transform change means no samples, so the render clock marches
+    // past its stale ring while net_time_primed_ stays true and buf.count stays
+    // > 0. In both cases, continuing from "newest + tick" would stamp the new
+    // sample in the past, leaving the object frozen on a stale sample until the
+    // clock crawled back up to it — the "cranky for a few seconds, then smooth"
+    // feel. Anchoring to net_time_ + interp_delay_ puts the fresh sample exactly
+    // one interp delay ahead of render_time, the steady-state relationship.
+    float t;
+    float prev_newest = -1.0f;
     if (buf.count > 0) {
         const size_t newest = (buf.head + INTERP_HISTORY - 1) % INTERP_HISTORY;
-        t = buf.samples[newest].t + tick_interval_;
-    } else {
+        prev_newest = buf.samples[newest].t;
+    }
+
+    if (!net_time_primed_) {
+        // Very first sample of the session: anchor the shared timeline here.
         t = std::max(newest_sample_t_, tick_interval_);
+    } else if (prev_newest >= net_time_) {
+        // Continuous stream: keep the monotonic per-object cadence.
+        t = prev_newest + tick_interval_;
+    } else {
+        // New or resuming-after-idle: re-anchor just ahead of the render clock.
+        t = net_time_ + interp_delay_;
     }
 
     buf.samples[buf.head] = {t, pos, rot};
@@ -877,8 +894,9 @@ void NetManager::push_interp_sample(NetId net_id, const glm::vec3& pos,
 }
 
 void NetManager::interpolate_remotes(Scene& scene, float dt) {
-    // Only clients render interpolated remote state; the server holds truth.
-    if (role_ != NetRole::client || !net_time_primed_) return;
+    // Both peers interpolate the objects they don't own: the client smooths the
+    // host's player, the server smooths each client's player. Offline does nothing.
+    if (role_ == NetRole::none || !net_time_primed_) return;
 
     // Advance the render clock at a constant nominal rate (one second of timeline
     // per real second). It must NOT chase the newest stamp directly: that target
@@ -915,7 +933,7 @@ void NetManager::interpolate_remotes(Scene& scene, float dt) {
     }
 
     for (auto& [net_id, buf] : interp_) {
-        if (is_local_authority(net_id)) continue;  // owned: predicted, not interpolated
+        if (is_owned_by_local(net_id)) continue;  // owned: driven by input/prediction
         if (buf.count == 0) continue;
 
         uint32_t node_id = node_id_for(net_id);
