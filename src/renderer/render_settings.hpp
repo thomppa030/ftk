@@ -23,6 +23,8 @@ struct RenderSettings {
         float gi_intensity{1.0f};
         float emissive_gi_boost{4.0f};
         float infinite_bounces_mult{0.8f};
+        float normal_bias{0.25f};
+        float view_bias{0.08f};
     } ddgi;
 
     struct SsGi {

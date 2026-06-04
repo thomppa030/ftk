@@ -82,13 +82,16 @@ vec2 get_vertex_texcoord(uint vertex_index) {
 
 vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
     vec3 Wo = normalize(ddgi.camera_position - world_pos);
-    float min_dist = 1.0;
-    vec3 bias_vector = (normal * 0.2 + Wo * 0.8) * (0.75 * min_dist) * ddgi.self_shadow_bias;
+    // Normal-leaning, spacing-scaled bias (see ddgi_sample_irradiance.comp).
+    float cell = min(ddgi.probe_spacing.x, min(ddgi.probe_spacing.y, ddgi.probe_spacing.z));
+    vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
     vec3 biased_pos = world_pos + bias_vector;
 
-    ivec3 base_grid = ddgi_world_to_grid(biased_pos);
+    // Cage cell + trilinear from the UNBIASED position; bias only feeds the
+    // visibility distance (see ddgi_sample_irradiance.comp).
+    ivec3 base_grid = ddgi_world_to_grid(world_pos);
     vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
-    vec3 alpha = clamp((biased_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
+    vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
 
     vec3 sum_irradiance = vec3(0.0);
     float sum_weight = 0.0;
@@ -125,7 +128,7 @@ vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
         weight = max(0.000001, weight);
 
         vec2 irr_uv = get_probe_uv(normal, probe_idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
-        vec3 probe_irradiance = textureLod(irradiance_tex, irr_uv, 0).rgb;
+        vec3 probe_irradiance = ddgi_decode_irradiance(textureLod(irradiance_tex, irr_uv, 0).rgb);
 
         weight *= trilinear.x * trilinear.y * trilinear.z + 0.001;
 

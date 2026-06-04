@@ -24,12 +24,29 @@ layout(std140, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_UBO_BINDING) unifo
     int irr_tex_w;  int irr_tex_h;  int irr_side;  int probe_rays;
     int vis_tex_w;  int vis_tex_h;  int vis_side;  int probe_update_offset;
     int probe_update_count;    float hysteresis;
-    float infinite_bounces_mult; float pad0;
+    float infinite_bounces_mult; float normal_bias;
     mat4 random_rotation;
     vec3 camera_position;      float pad1;
     mat4 inv_view_proj;
-    vec2 resolution;           float pad2; float pad3;
+    vec2 resolution;           float view_bias; float pad3;
 } ddgi;
+
+// ── Perceptual irradiance encoding ──────────────────────────────────────
+// Probe irradiance is stored gamma-compressed so the temporal hysteresis
+// blend happens in perceptual space. Dark values are spread over more of
+// the range there, so blending them is far less noisy — without this the
+// multi-bounce feedback shimmers in shadowed regions. Encode on every store,
+// decode on every load. Inverse pair: ^(1/5) <-> ^5.
+
+const float DDGI_IRRADIANCE_GAMMA = 5.0;
+
+vec3 ddgi_encode_irradiance(vec3 v) {
+    return pow(max(v, vec3(0.0)), vec3(1.0 / DDGI_IRRADIANCE_GAMMA));
+}
+
+vec3 ddgi_decode_irradiance(vec3 v) {
+    return pow(max(v, vec3(0.0)), vec3(DDGI_IRRADIANCE_GAMMA));
+}
 
 // ── Spherical Fibonacci ─────────────────────────────────────────────────
 
