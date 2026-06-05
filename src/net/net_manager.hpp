@@ -9,6 +9,7 @@
 #include "net/transport.hpp"
 #include "net/net_types.hpp"
 #include "net/net_scene.hpp"
+#include "net/prediction_state.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -56,11 +57,7 @@ public:
     // Tell the interpolator the server's send rate so the synthetic sample
     // timeline (and the render delay) match the real packet cadence. Wired from
     // project config alongside NetSendSubsystem::set_tick_rate.
-    void set_tick_rate(float hz) {
-        if (hz <= 0.0f) return;
-        tick_interval_ = 1.0f / hz;
-        interp_delay_  = 2.0f / hz;   // render ~2 ticks behind newest
-    }
+    void set_tick_rate(float hz) { prediction_.set_tick_rate(hz); }
 
     // ── Spawn / despawn (server-authoritative) ─────────────────────────
     // Server instantiates the preset locally, assigns a NetId, sets ownership,
@@ -140,27 +137,6 @@ private:
         std::vector<uint8_t> data;
     };
 
-    // A short history of received transform samples for a remote object, each
-    // stamped on a synthetic timeline (one tick_interval_ apart, jitter-free).
-    // Each frame the render-time transform is interpolated between the two
-    // samples that bracket `net_time_`, which trails interp_delay_ behind the
-    // newest. A multi-sample ring (not just the last two) gives render_time room
-    // to sit several ticks back without clamping, so jitter is absorbed instead
-    // of producing freezes/snaps.
-    struct InterpSnapshot {
-        float      t{0.0f};
-        glm::vec3  position{0.0f};
-        glm::quat  rotation{1.0f, 0.0f, 0.0f, 0.0f};
-    };
-    static constexpr size_t INTERP_HISTORY = 8;
-    struct InterpBuffer {
-        InterpSnapshot samples[INTERP_HISTORY];  // ring; newest at (head-1)
-        size_t head{0};   // next write index
-        size_t count{0};  // number of valid samples (<= INTERP_HISTORY)
-    };
-
-    // Push a freshly-received transform sample for a remote object into its ring.
-    void push_interp_sample(NetId net_id, const glm::vec3& pos, const glm::quat& rot);
 
     // v1 bootstrap: register every scene node that has a replicated component,
     // assigning NetIds by ascending node id so host and client agree without a
@@ -203,32 +179,9 @@ private:
     };
     std::unordered_map<NetId, SpawnInfo> spawn_info_;
 
-    // Client-side prediction reconciliation for OWNED objects. The owning client
-    // moves its object locally each tick (responsive input); when the server's
-    // authoritative state arrives we don't snap — we ease toward it (hiding small
-    // divergences) unless the error is large (teleport/respawn), which snaps.
-    struct PendingCorrection {
-        glm::vec3 position{0.0f};
-        glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
-        bool active{false};
-    };
-    std::unordered_map<NetId, PendingCorrection> corrections_;
-    float correction_rate_{10.0f};   // ease ~rate*dt toward server state per frame
-    float snap_threshold_{2.0f};     // metres of error above which we hard-snap
-
-    // Client-side render-time interpolation of remote objects.
-    //
-    // Samples are stamped on a synthetic timeline spaced by the nominal send
-    // interval, NOT by arrival time — network jitter (two packets in one frame,
-    // or a late one) would otherwise collapse or stretch the gap between samples
-    // and make the blend snap or freeze. net_time_ (the render clock) chases that
-    // timeline interp_delay_ behind, so there's always a bracketing pair.
-    std::unordered_map<NetId, InterpBuffer> interp_;
-    float net_time_{0.0f};          // shared render clock (drift-corrected, not raw dt sum)
-    float newest_sample_t_{0.0f};   // timeline stamp of the most recent sample, any object
-    bool  net_time_primed_{false};  // false until the first sample seeds net_time_
-    float tick_interval_{1.0f / 30.0f};  // expected server send period (from config)
-    float interp_delay_{2.0f / 30.0f};   // render ~2 ticks behind newest for jitter headroom
+    // Render-time interpolation of remote objects + smoothed correction of owned
+    // (predicted) objects. Owns the interp buffers, render clock, and tuning.
+    PredictionState prediction_;
 
     // Receive path stores the scene/scripts for the transport callback, which
     // can't carry them through ENet. Set at the top of receive_and_apply.

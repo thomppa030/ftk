@@ -222,6 +222,7 @@ add_executable(fjell
     scripting/net_api.cpp
     net/enet_transport.cpp
     net/net_manager.cpp
+    net/prediction_state.cpp
     net/net_subsystem.cpp
     ui/asset_ref_widget.cpp
     ui/capture_popup.cpp
