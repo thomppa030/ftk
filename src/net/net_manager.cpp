@@ -1,5 +1,6 @@
 #include "net/net_manager.hpp"
 
+#include "net/packet_codec.hpp"
 #include "net/enet_transport.hpp"
 #include "core/log.hpp"
 #include "scene/scene.hpp"
@@ -18,47 +19,14 @@
 #include <type_traits>
 
 namespace fjell {
-namespace {
 
-// Append raw bytes / trivially-copyable values to a byte buffer.
-template <typename T>
-void put(std::vector<uint8_t>& buf, const T& value) {
-    static_assert(std::is_trivially_copyable_v<T>);
-    const auto* p = reinterpret_cast<const uint8_t*>(&value);
-    buf.insert(buf.end(), p, p + sizeof(T));
-}
-
-void put_bytes(std::vector<uint8_t>& buf, const uint8_t* data, size_t n) {
-    buf.insert(buf.end(), data, data + n);
-}
-
-// Read a trivially-copyable value from a span at an offset, advancing it.
-// Returns false if the span is too short (truncated/malformed packet).
-template <typename T>
-[[nodiscard]] bool take(std::span<const uint8_t>& sp, T& out) {
-    static_assert(std::is_trivially_copyable_v<T>);
-    if (sp.size() < sizeof(T)) return false;
-    std::memcpy(&out, sp.data(), sizeof(T));
-    sp = sp.subspan(sizeof(T));
-    return true;
-}
-
-// Length-prefixed string (uint16 length + bytes).
-void put_string(std::vector<uint8_t>& buf, const std::string& s) {
-    put(buf, static_cast<uint16_t>(s.size()));
-    put_bytes(buf, reinterpret_cast<const uint8_t*>(s.data()), s.size());
-}
-
-[[nodiscard]] bool take_string(std::span<const uint8_t>& sp, std::string& out) {
-    uint16_t len = 0;
-    if (!take(sp, len)) return false;
-    if (sp.size() < len) return false;
-    out.assign(reinterpret_cast<const char*>(sp.data()), len);
-    sp = sp.subspan(len);
-    return true;
-}
-
-} // namespace
+// Wire-format primitives now live in packet_codec.hpp; pull them into this TU's
+// scope so the existing call sites (put/take/put_string/...) resolve unchanged.
+using netcodec::put;
+using netcodec::put_bytes;
+using netcodec::take;
+using netcodec::put_string;
+using netcodec::take_string;
 
 NetManager::NetManager() {
     // Seed the launch mode from FJELL_NET_MODE so the env-var workflow keeps
