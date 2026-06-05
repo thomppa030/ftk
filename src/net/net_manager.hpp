@@ -94,6 +94,10 @@ public:
     [[nodiscard]] std::vector<PeerInfo> peers() const {
         return transport_ ? transport_->peers() : std::vector<PeerInfo>{};
     }
+    // Inject artificial latency/jitter/loss for testing (no-op when offline).
+    void set_conditioning(float latency_ms, float jitter_ms, float loss_pct) {
+        if (transport_) transport_->set_conditioning(latency_ms, jitter_ms, loss_pct);
+    }
 
     // ── Launch mode (editor → script) ───────────────────────────────────
     // Set by the editor's Net dropdown before Play; read by the game script in

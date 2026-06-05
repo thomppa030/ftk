@@ -4,6 +4,7 @@
 
 #include <enet/enet.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace fjell {
@@ -118,10 +119,13 @@ void EnetTransport::disconnect() {
     host_ = nullptr;
     is_host_ = false;
     next_peer_id_ = 1;
+    delayed_.clear();  // drop conditioning-delayed packets bound for the dead host
 }
 
 void EnetTransport::poll(float timeout_ms) {
     if (!host_) return;
+
+    flush_delayed();  // release any conditioning-delayed packets that are due
 
     ENetEvent event{};
     int serviced = enet_host_service(as_host(host_),
@@ -172,35 +176,88 @@ void EnetTransport::poll(float timeout_ms) {
     }
 }
 
-void EnetTransport::send(PeerId peer, std::span<const uint8_t> data, Channel channel) {
-    ENetPeer* target = as_peer(peer_for(peer));
-    if (!target) return;
+// Drop on the unreliable channel only, with probability sim_loss_pct_. Dropping
+// a reliable packet would just make ENet resend it — a confusing slider — so
+// loss applies to the state stream, which is the realistic case.
+bool EnetTransport::should_drop(Channel channel) {
+    if (sim_loss_pct_ <= 0.0f || channel == Channel::reliable) return false;
+    std::uniform_real_distribution<float> d(0.0f, 100.0f);
+    return d(rng_) < sim_loss_pct_;
+}
 
-    enet_uint32 flags = (channel == Channel::reliable) ? ENET_PACKET_FLAG_RELIABLE
-                                                        : ENET_PACKET_FLAG_UNSEQUENCED;
-    ENetPacket* packet = enet_packet_create(data.data(), data.size_bytes(), flags);
-    if (!packet) return;
-    if (enet_peer_send(target, static_cast<enet_uint8>(channel), packet) != 0) {
-        // enet_peer_send takes ownership only on success; destroy on failure.
-        enet_packet_destroy(packet);
-        return;
-    }
-    stats_.bytes_sent += data.size_bytes();
-    ++stats_.packets_sent;
+void EnetTransport::send(PeerId peer, std::span<const uint8_t> data, Channel channel) {
+    if (!peer_for(peer)) return;
+    if (should_drop(channel)) return;
+    enqueue_or_dispatch(peer, false, channel, data);
 }
 
 void EnetTransport::broadcast(std::span<const uint8_t> data, Channel channel) {
     if (!host_) return;
+    if (should_drop(channel)) return;
+    enqueue_or_dispatch(SERVER_PEER, true, channel, data);
+}
 
+void EnetTransport::enqueue_or_dispatch(PeerId peer, bool broadcast, Channel channel,
+                                        std::span<const uint8_t> data) {
+    // No conditioning → straight to the wire. Otherwise queue with a release time
+    // latency ± jitter in the future; flush_delayed() releases it during poll().
+    if (sim_latency_ms_ <= 0.0f && sim_jitter_ms_ <= 0.0f) {
+        dispatch(peer, broadcast, channel, std::vector<uint8_t>(data.begin(), data.end()));
+        return;
+    }
+    float delay = sim_latency_ms_;
+    if (sim_jitter_ms_ > 0.0f) {
+        std::uniform_real_distribution<float> j(-sim_jitter_ms_, sim_jitter_ms_);
+        delay = std::max(0.0f, delay + j(rng_));
+    }
+    delayed_.push_back({Clock::now() + std::chrono::microseconds(
+                            static_cast<int64_t>(delay * 1000.0f)),
+                        peer, broadcast, channel,
+                        std::vector<uint8_t>(data.begin(), data.end())});
+}
+
+void EnetTransport::dispatch(PeerId peer, bool broadcast, Channel channel,
+                             const std::vector<uint8_t>& bytes) {
     enet_uint32 flags = (channel == Channel::reliable) ? ENET_PACKET_FLAG_RELIABLE
                                                         : ENET_PACKET_FLAG_UNSEQUENCED;
-    ENetPacket* packet = enet_packet_create(data.data(), data.size_bytes(), flags);
+    ENetPacket* packet = enet_packet_create(bytes.data(), bytes.size(), flags);
     if (!packet) return;
-    enet_host_broadcast(as_host(host_), static_cast<enet_uint8>(channel), packet);
 
-    // Count the wire bytes once per recipient so the rate reflects actual load.
-    stats_.bytes_sent += data.size_bytes() * peers_.size();
-    stats_.packets_sent += peers_.size();
+    if (broadcast) {
+        if (!host_) { enet_packet_destroy(packet); return; }
+        enet_host_broadcast(as_host(host_), static_cast<enet_uint8>(channel), packet);
+        stats_.bytes_sent += bytes.size() * peers_.size();
+        stats_.packets_sent += peers_.size();
+    } else {
+        ENetPeer* target = as_peer(peer_for(peer));
+        if (!target) { enet_packet_destroy(packet); return; }
+        if (enet_peer_send(target, static_cast<enet_uint8>(channel), packet) != 0) {
+            enet_packet_destroy(packet);  // ENet takes ownership only on success
+            return;
+        }
+        stats_.bytes_sent += bytes.size();
+        ++stats_.packets_sent;
+    }
+}
+
+void EnetTransport::flush_delayed() {
+    if (delayed_.empty()) return;
+    const auto now = Clock::now();
+    auto it = delayed_.begin();
+    while (it != delayed_.end()) {
+        if (it->release <= now) {
+            dispatch(it->peer, it->broadcast, it->channel, it->bytes);
+            it = delayed_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void EnetTransport::set_conditioning(float latency_ms, float jitter_ms, float loss_pct) {
+    sim_latency_ms_ = std::max(0.0f, latency_ms);
+    sim_jitter_ms_  = std::max(0.0f, jitter_ms);
+    sim_loss_pct_   = std::clamp(loss_pct, 0.0f, 100.0f);
 }
 
 void EnetTransport::flush() {

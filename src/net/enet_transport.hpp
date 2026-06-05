@@ -3,8 +3,11 @@
 
 #include "net/transport.hpp"
 
+#include <chrono>
 #include <cstdint>
+#include <random>
 #include <unordered_map>
+#include <vector>
 
 // ENet's own headers typedef these from anonymous structs, so we can't portably
 // forward-declare them. The .cpp includes <enet/enet.h>; here we keep the
@@ -46,8 +49,26 @@ public:
     [[nodiscard]] TransportStats stats() const override { return stats_; }
     [[nodiscard]] std::vector<PeerInfo> peers() const override;
 
+    void set_conditioning(float latency_ms, float jitter_ms, float loss_pct) override;
+
 private:
     [[nodiscard]] void* peer_for(PeerId id) const;  // ENetPeer*
+
+    // Roll for simulated loss (unreliable channel only).
+    [[nodiscard]] bool should_drop(Channel channel);
+
+    // Either dispatch immediately (no conditioning) or queue for delayed release.
+    void enqueue_or_dispatch(PeerId peer, bool broadcast, Channel channel,
+                             std::span<const uint8_t> data);
+
+    // Hand a packet to ENet now. `broadcast` selects host-broadcast vs per-peer
+    // send. Shared by the immediate path and the delayed-release path so
+    // conditioning is transparent to the stats counters.
+    void dispatch(PeerId peer, bool broadcast, Channel channel,
+                  const std::vector<uint8_t>& bytes);
+
+    // Release any conditioning-delayed packets whose time has come.
+    void flush_delayed();
 
     EnetGlobal global_;
     void*      host_{nullptr};  // ENetHost*
@@ -58,6 +79,23 @@ private:
     bool   is_host_{false};
 
     TransportStats stats_;
+
+    // Network conditioning (testing only). When latency/jitter are zero, packets
+    // dispatch immediately; otherwise they queue and release after the delay.
+    float sim_latency_ms_{0.0f};
+    float sim_jitter_ms_{0.0f};
+    float sim_loss_pct_{0.0f};
+
+    using Clock = std::chrono::steady_clock;
+    struct DelayedPacket {
+        Clock::time_point release;
+        PeerId            peer{SERVER_PEER};
+        bool              broadcast{false};
+        Channel           channel{Channel::unreliable};
+        std::vector<uint8_t> bytes;
+    };
+    std::vector<DelayedPacket> delayed_;
+    std::mt19937 rng_{0xC0FFEEu};  // fixed seed: reproducible loss patterns
 };
 
 } // namespace fjell

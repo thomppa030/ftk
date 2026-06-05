@@ -70,6 +70,12 @@ public:
     [[nodiscard]] virtual TransportStats stats() const { return {}; }
     [[nodiscard]] virtual std::vector<PeerInfo> peers() const { return {}; }
 
+    // ── Network conditioning (testing tool, no-op unless overridden) ─────
+    // Inject artificial latency/jitter/loss locally so v1 interpolation and
+    // prediction can be validated under realistic conditions from one machine.
+    virtual void set_conditioning(float /*latency_ms*/, float /*jitter_ms*/,
+                                  float /*loss_pct*/) {}
+
     // Callbacks, set by the owner (NetManager) before host()/connect().
     std::function<void(PeerId)> on_connect;
     std::function<void(PeerId)> on_disconnect;
