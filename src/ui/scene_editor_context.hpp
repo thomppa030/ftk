@@ -2,6 +2,7 @@
 
 #include "ui/editor_context.hpp"
 #include "ui/hierarchy_panel.hpp"
+#include "ui/net_panel.hpp"
 #include "ui/node_editor_panel.hpp"
 #include "ui/properties_panel.hpp"
 #include "ui/viewport_manager.hpp"
@@ -136,6 +137,7 @@ private:
     PropertiesPanel properties_panel_;
     NodeEditorPanel node_editor_panel_;
     ViewportManager viewport_manager_;
+    NetPanel net_panel_;
 
     // Context-owned state
     uint32_t selected_id_{0};

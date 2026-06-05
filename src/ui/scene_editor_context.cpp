@@ -102,6 +102,7 @@ void SceneEditorContext::init() {
 
     init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
     history_panel().init(&command_history());
+    net_panel_.init(deps_.net_manager);
 }
 
 void SceneEditorContext::shutdown() {
@@ -196,6 +197,7 @@ void SceneEditorContext::draw(float dt) {
     }
 
     draw_shared_panels(dt);
+    net_panel_.draw(dt, ctx_title("Network").c_str());
 }
 
 void SceneEditorContext::draw_picking(ViewportPanel& vp) {
@@ -648,7 +650,8 @@ void SceneEditorContext::draw_play_toolbar() {
 
 std::vector<std::string> SceneEditorContext::docked_window_names() const {
     return {"Hierarchy", ctx_title("History"), "Viewport",
-            "Properties", ctx_title("Stats"), ctx_title("Console")};
+            "Properties", ctx_title("Stats"), ctx_title("Console"),
+            ctx_title("Network")};
 }
 
 void SceneEditorContext::setup_dockspace(ImGuiID main_area) {

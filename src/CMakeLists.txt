@@ -241,6 +241,7 @@ add_executable(fjell
     ui/icon_cache.cpp
     ui/properties_panel.cpp
     ui/stats_panel.cpp
+    ui/net_panel.cpp
     ui/project_settings_panel.cpp
     ui/node_editor_panel.cpp
     ui/editor_context.cpp
