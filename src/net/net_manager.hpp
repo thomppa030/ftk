@@ -12,6 +12,7 @@
 #include "net/prediction_state.hpp"
 #include "net/spawn_replicator.hpp"
 #include "net/rpc_router.hpp"
+#include "net/replication_graph.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -124,38 +125,23 @@ public:
     std::function<void(PeerId)> on_peer_disconnected;
 
 private:
-    // Last-sent bytes of an object's replicated fields, in field order. Used to
-    // detect which fields changed since the previous send (delta compression).
-    struct ShadowState {
-        std::vector<uint8_t> data;
-    };
-
-
-    // v1 bootstrap: register every scene node that has a replicated component,
-    // assigning NetIds by ascending node id so host and client agree without a
-    // handshake. Spawn/despawn replication (PR 4) supersedes this for dynamic
-    // objects. Runs once per session, when the registry is still empty.
-    void ensure_scene_registered(Scene& scene, ScriptManager& scripts);
-
     void handle_connect(PeerId peer);
     void handle_disconnect(PeerId peer);
     void handle_receive(Scene& scene, ScriptManager& scripts, ResourceManager& resources,
                         PeerId peer, std::span<const uint8_t> data, Channel channel);
-    void apply_state_update(Scene& scene, ScriptManager& scripts,
-                            PeerId sender, std::span<const uint8_t> data);
     void apply_welcome(std::span<const uint8_t> data);  // client learns its own peer id
 
     std::unique_ptr<Transport> transport_;
     NetRole role_{NetRole::none};
     PeerId  local_peer_{SERVER_PEER};
-    uint32_t server_tick_{0};
 
     NetLaunchMode launch_mode_{NetLaunchMode::offline};
     std::string   join_address_{"127.0.0.1"};
 
-    bool  scene_registered_{false};  // one-time bootstrap guard
     NetScene net_scene_;  // NetId<->node, ownership, authority/possession queries
-    std::unordered_map<NetId, ShadowState> shadow_;
+
+    // Per-object state collect/apply + shadow diff + scene registration.
+    ReplicationGraph replication_;
 
     // Server-authoritative spawn/despawn + late-join replay (owns spawn records).
     SpawnReplicator spawn_replicator_;

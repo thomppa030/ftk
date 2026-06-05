@@ -225,6 +225,7 @@ add_executable(fjell
     net/prediction_state.cpp
     net/spawn_replicator.cpp
     net/rpc_router.cpp
+    net/replication_graph.cpp
     net/net_subsystem.cpp
     ui/asset_ref_widget.cpp
     ui/capture_popup.cpp
