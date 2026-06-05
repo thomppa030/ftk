@@ -223,6 +223,7 @@ add_executable(fjell
     net/enet_transport.cpp
     net/net_manager.cpp
     net/prediction_state.cpp
+    net/spawn_replicator.cpp
     net/net_subsystem.cpp
     ui/asset_ref_widget.cpp
     ui/capture_popup.cpp

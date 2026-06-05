@@ -10,6 +10,7 @@
 #include "net/net_types.hpp"
 #include "net/net_scene.hpp"
 #include "net/prediction_state.hpp"
+#include "net/spawn_replicator.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -122,15 +123,6 @@ public:
     std::function<void(PeerId)> on_peer_disconnected;
 
 private:
-    // Packet types (first byte of every payload).
-    enum class PacketType : uint8_t {
-        state_update = 1,  // delta of replicated fields + transform (unreliable)
-        spawn        = 2,  // instantiate a preset on the client (reliable)
-        despawn      = 3,  // remove a networked object on the client (reliable)
-        rpc_call     = 4,  // invoke a [[fj::rpc]] handler on the target (reliable)
-        welcome      = 5,  // server → new client: "your assigned peer id" (reliable)
-    };
-
     // Last-sent bytes of an object's replicated fields, in field order. Used to
     // detect which fields changed since the previous send (delta compression).
     struct ShadowState {
@@ -150,10 +142,6 @@ private:
                         PeerId peer, std::span<const uint8_t> data, Channel channel);
     void apply_state_update(Scene& scene, ScriptManager& scripts,
                             PeerId sender, std::span<const uint8_t> data);
-    void apply_spawn(Scene& scene, ResourceManager& resources,
-                     std::span<const uint8_t> data);  // uses rx_project_ for path resolution
-    [[nodiscard]] std::vector<uint8_t> build_spawn_packet(NetId net_id) const;
-    void apply_despawn(Scene& scene, std::span<const uint8_t> data);
     void apply_rpc(Scene& scene, ScriptManager& scripts, std::span<const uint8_t> data);
     void apply_welcome(std::span<const uint8_t> data);  // client learns its own peer id
 
@@ -169,15 +157,8 @@ private:
     NetScene net_scene_;  // NetId<->node, ownership, authority/possession queries
     std::unordered_map<NetId, ShadowState> shadow_;
 
-    // Server: remembers how each networked object was spawned, so a late-joining
-    // client can be brought up to date (replay spawns it missed). Spawn position
-    // is the initial one; the subsequent state_update stream carries live motion.
-    struct SpawnInfo {
-        std::string preset_path;
-        PeerId      owner{SERVER_PEER};
-        glm::vec3   position{0.0f};
-    };
-    std::unordered_map<NetId, SpawnInfo> spawn_info_;
+    // Server-authoritative spawn/despawn + late-join replay (owns spawn records).
+    SpawnReplicator spawn_replicator_;
 
     // Render-time interpolation of remote objects + smoothed correction of owned
     // (predicted) objects. Owns the interp buffers, render clock, and tuning.

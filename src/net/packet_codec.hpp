@@ -14,6 +14,21 @@
 #include <type_traits>
 #include <vector>
 
+namespace fjell {
+
+// Packet types — the first byte of every payload. Shared by all net components
+// that read/write the wire (replication, spawn, rpc), so it lives with the codec
+// rather than inside any one of them.
+enum class PacketType : uint8_t {
+    state_update = 1,  // delta of replicated fields + transform (unreliable)
+    spawn        = 2,  // instantiate a preset on the client (reliable)
+    despawn      = 3,  // remove a networked object on the client (reliable)
+    rpc_call     = 4,  // invoke a [[fj::rpc]] handler on the target (reliable)
+    welcome      = 5,  // server → new client: "your assigned peer id" (reliable)
+};
+
+} // namespace fjell
+
 namespace fjell::netcodec {
 
 // Append a trivially-copyable value's raw bytes to a buffer.
