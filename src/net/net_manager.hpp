@@ -11,6 +11,7 @@
 #include "net/net_scene.hpp"
 #include "net/prediction_state.hpp"
 #include "net/spawn_replicator.hpp"
+#include "net/rpc_router.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -142,7 +143,6 @@ private:
                         PeerId peer, std::span<const uint8_t> data, Channel channel);
     void apply_state_update(Scene& scene, ScriptManager& scripts,
                             PeerId sender, std::span<const uint8_t> data);
-    void apply_rpc(Scene& scene, ScriptManager& scripts, std::span<const uint8_t> data);
     void apply_welcome(std::span<const uint8_t> data);  // client learns its own peer id
 
     std::unique_ptr<Transport> transport_;
@@ -159,6 +159,9 @@ private:
 
     // Server-authoritative spawn/despawn + late-join replay (owns spawn records).
     SpawnReplicator spawn_replicator_;
+
+    // Routes [[fj::rpc]] calls by target (stateless).
+    RpcRouter rpc_router_;
 
     // Render-time interpolation of remote objects + smoothed correction of owned
     // (predicted) objects. Owns the interp buffers, render clock, and tuning.
