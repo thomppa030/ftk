@@ -87,6 +87,14 @@ public:
     [[nodiscard]] NetRole role() const { return role_; }
     [[nodiscard]] PeerId  local_peer() const { return local_peer_; }
 
+    // ── Observability (for the net panel) ───────────────────────────────
+    [[nodiscard]] TransportStats stats() const {
+        return transport_ ? transport_->stats() : TransportStats{};
+    }
+    [[nodiscard]] std::vector<PeerInfo> peers() const {
+        return transport_ ? transport_->peers() : std::vector<PeerInfo>{};
+    }
+
     // ── Launch mode (editor → script) ───────────────────────────────────
     // Set by the editor's Net dropdown before Play; read by the game script in
     // begin_play to decide host/join/offline. Defaults track FJELL_NET_MODE so

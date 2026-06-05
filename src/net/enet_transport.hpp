@@ -43,6 +43,9 @@ public:
     void broadcast(std::span<const uint8_t> data, Channel channel) override;
     void flush() override;
 
+    [[nodiscard]] TransportStats stats() const override { return stats_; }
+    [[nodiscard]] std::vector<PeerInfo> peers() const override;
+
 private:
     [[nodiscard]] void* peer_for(PeerId id) const;  // ENetPeer*
 
@@ -53,6 +56,8 @@ private:
     std::unordered_map<PeerId, void*> peers_;  // values are ENetPeer*
     PeerId next_peer_id_{1};   // SERVER_PEER (0) is reserved for the host
     bool   is_host_{false};
+
+    TransportStats stats_;
 };
 
 } // namespace fjell

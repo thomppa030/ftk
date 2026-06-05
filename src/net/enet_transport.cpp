@@ -140,6 +140,8 @@ void EnetTransport::poll(float timeout_ms) {
         case ENET_EVENT_TYPE_RECEIVE: {
             PeerId id = get_peer_id(event.peer);
             auto channel = static_cast<Channel>(event.channelID);
+            stats_.bytes_recv += event.packet->dataLength;
+            ++stats_.packets_recv;
             if (on_receive) {
                 on_receive(id,
                            std::span<const uint8_t>(event.packet->data,
@@ -181,7 +183,10 @@ void EnetTransport::send(PeerId peer, std::span<const uint8_t> data, Channel cha
     if (enet_peer_send(target, static_cast<enet_uint8>(channel), packet) != 0) {
         // enet_peer_send takes ownership only on success; destroy on failure.
         enet_packet_destroy(packet);
+        return;
     }
+    stats_.bytes_sent += data.size_bytes();
+    ++stats_.packets_sent;
 }
 
 void EnetTransport::broadcast(std::span<const uint8_t> data, Channel channel) {
@@ -192,6 +197,10 @@ void EnetTransport::broadcast(std::span<const uint8_t> data, Channel channel) {
     ENetPacket* packet = enet_packet_create(data.data(), data.size_bytes(), flags);
     if (!packet) return;
     enet_host_broadcast(as_host(host_), static_cast<enet_uint8>(channel), packet);
+
+    // Count the wire bytes once per recipient so the rate reflects actual load.
+    stats_.bytes_sent += data.size_bytes() * peers_.size();
+    stats_.packets_sent += peers_.size();
 }
 
 void EnetTransport::flush() {
@@ -201,6 +210,19 @@ void EnetTransport::flush() {
 void* EnetTransport::peer_for(PeerId id) const {
     auto it = peers_.find(id);
     return it != peers_.end() ? it->second : nullptr;
+}
+
+std::vector<PeerInfo> EnetTransport::peers() const {
+    std::vector<PeerInfo> out;
+    out.reserve(peers_.size());
+    for (const auto& [id, raw] : peers_) {
+        const ENetPeer* p = as_peer(raw);
+        // packetLoss is a ratio of ENET_PEER_PACKET_LOSS_SCALE; scale to percent.
+        const float loss = 100.0f * static_cast<float>(p->packetLoss) /
+                           static_cast<float>(ENET_PEER_PACKET_LOSS_SCALE);
+        out.push_back({id, p->roundTripTime, loss});
+    }
+    return out;
 }
 
 } // namespace fjell
