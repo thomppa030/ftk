@@ -813,6 +813,15 @@ void SceneEditorContext::draw_play_overlay() {
     }
 
     ImGui::End(); // ##PlayView
+
+    // The network panel is a debug/testing tool whose whole point is to be used
+    // *during* play — that's when conditioning sliders and live RTT/bandwidth
+    // matter. The rest of the editor chrome stays hidden, but this one floats on
+    // top of the play view. Only shown while networked, to avoid clutter in
+    // single-player playtests.
+    if (deps_.net_manager && deps_.net_manager->is_connected()) {
+        net_panel_.draw(ImGui::GetIO().DeltaTime, ctx_title("Network").c_str());
+    }
 }
 
 // --- Viewport ---
