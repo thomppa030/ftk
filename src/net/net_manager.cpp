@@ -96,10 +96,7 @@ void NetManager::shutdown() {
     local_peer_ = SERVER_PEER;
     server_tick_ = 0;
     scene_registered_ = false;
-    next_net_id_ = 1;
-    net_to_node_.clear();
-    node_to_net_.clear();
-    ownership_.clear();
+    net_scene_.clear();
     shadow_.clear();
     interp_.clear();
     corrections_.clear();
@@ -319,7 +316,7 @@ void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
 
     uint16_t object_count = 0;
 
-    for (const auto& [net_id, node_id] : net_to_node_) {
+    for (const auto& [net_id, node_id] : net_scene_.objects()) {
         if (!authored_here(net_id)) continue;  // not ours to author
         Node* node = scene.find(node_id);
         if (!node) continue;
@@ -406,21 +403,17 @@ void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
 // ── Network identity ──────────────────────────────────────────────────────
 
 NetId NetManager::assign_net_id() {
-    return next_net_id_++;
+    return net_scene_.assign_net_id();
 }
 
 void NetManager::register_net_object(NetId net_id, uint32_t node_id) {
-    net_to_node_[net_id] = node_id;
-    node_to_net_[node_id] = net_id;
+    net_scene_.register_object(net_id, node_id);
 }
 
 void NetManager::unregister_net_object(NetId net_id) {
-    auto it = net_to_node_.find(net_id);
-    if (it != net_to_node_.end()) {
-        node_to_net_.erase(it->second);
-        net_to_node_.erase(it);
-    }
-    ownership_.erase(net_id);
+    // Identity + ownership live in NetScene; the other per-object state still
+    // lives on the facade until those components are extracted, so clear it here.
+    net_scene_.unregister_object(net_id);
     shadow_.erase(net_id);
     interp_.erase(net_id);
     corrections_.erase(net_id);
@@ -498,13 +491,11 @@ void NetManager::destroy(Scene& scene, NetId net_id) {
 }
 
 uint32_t NetManager::node_id_for(NetId net_id) const {
-    auto it = net_to_node_.find(net_id);
-    return it != net_to_node_.end() ? it->second : 0;
+    return net_scene_.node_id_for(net_id);
 }
 
 NetId NetManager::net_id_for(uint32_t node_id) const {
-    auto it = node_to_net_.find(node_id);
-    return it != node_to_net_.end() ? it->second : NET_ID_NONE;
+    return net_scene_.net_id_for(node_id);
 }
 
 // ── RPC ─────────────────────────────────────────────────────────────────────
@@ -603,36 +594,19 @@ void NetManager::apply_rpc(Scene& scene, ScriptManager& scripts,
 // ── Ownership ─────────────────────────────────────────────────────────────
 
 void NetManager::set_owner(NetId net_id, PeerId peer) {
-    ownership_[net_id] = peer;
+    net_scene_.set_owner(net_id, peer);
 }
 
 PeerId NetManager::owner_of(NetId net_id) const {
-    auto it = ownership_.find(net_id);
-    return it != ownership_.end() ? it->second : SERVER_PEER;
+    return net_scene_.owner_of(net_id);
 }
 
 bool NetManager::is_local_authority(NetId net_id) const {
-    // The server is authoritative over everything. A client has authority only
-    // over objects EXPLICITLY owned by its peer; everything else (the default)
-    // belongs to the server, so the client applies the server's state to it.
-    // Note local_peer_ is unreliable until peer-id assignment (PR 6), so we key
-    // strictly off an explicit ownership entry, not the default.
-    if (role_ == NetRole::server) return true;
-    if (role_ == NetRole::client) {
-        auto it = ownership_.find(net_id);
-        return it != ownership_.end() && it->second == local_peer_ &&
-               local_peer_ != SERVER_PEER;
-    }
-    return true;  // single-player: always authoritative
+    return net_scene_.is_local_authority(net_id, role_, local_peer_);
 }
 
 bool NetManager::is_owned_by_local(NetId net_id) const {
-    // Possession is about the local player, not server authority: the object's
-    // owner must equal this peer's id. On the host, local_peer_ == SERVER_PEER, so
-    // the host possesses objects it spawned for itself (owner 0) but NOT a client's
-    // player (owner 1). Offline (role none) everything is "owned" by the player.
-    if (role_ == NetRole::none) return true;
-    return owner_of(net_id) == local_peer_;
+    return net_scene_.is_owned_by_local(net_id, role_, local_peer_);
 }
 
 // ── Transport callbacks ─────────────────────────────────────────────────────

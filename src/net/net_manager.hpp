@@ -7,6 +7,8 @@
 #pragma once
 
 #include "net/transport.hpp"
+#include "net/net_types.hpp"
+#include "net/net_scene.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -24,27 +26,6 @@ class Scene;
 class ScriptManager;
 class ResourceManager;
 class Project;
-
-// Network identity, distinct from a scene node id. Assigned by the server and
-// replicated so every peer agrees which object is which.
-using NetId = uint32_t;
-constexpr NetId NET_ID_NONE = 0;
-
-enum class NetRole : uint8_t {
-    none,    // not networked (single-player / edit mode)
-    server,  // authoritative host
-    client,  // connected to a host
-};
-
-// What the editor's Net dropdown is set to. The engine never acts on this — it's
-// stored here so the running game script can read it (via NetAPI::launch_mode())
-// in begin_play and decide whether to host(), join(), or stay offline. Keeping
-// the policy in the script keeps the engine game-agnostic.
-enum class NetLaunchMode : uint8_t {
-    offline,  // single-player; script does nothing
-    host,     // script should host()
-    join,     // script should join() the configured address
-};
 
 class NetManager {
 public:
@@ -209,10 +190,7 @@ private:
     std::string   join_address_{"127.0.0.1"};
 
     bool  scene_registered_{false};  // one-time bootstrap guard
-    NetId next_net_id_{1};  // NET_ID_NONE (0) reserved
-    std::unordered_map<NetId, uint32_t> net_to_node_;
-    std::unordered_map<uint32_t, NetId> node_to_net_;
-    std::unordered_map<NetId, PeerId>   ownership_;
+    NetScene net_scene_;  // NetId<->node, ownership, authority/possession queries
     std::unordered_map<NetId, ShadowState> shadow_;
 
     // Server: remembers how each networked object was spawned, so a late-joining
