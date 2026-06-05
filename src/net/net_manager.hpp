@@ -127,8 +127,8 @@ public:
 private:
     void handle_connect(PeerId peer);
     void handle_disconnect(PeerId peer);
-    void handle_receive(Scene& scene, ScriptManager& scripts, ResourceManager& resources,
-                        PeerId peer, std::span<const uint8_t> data, Channel channel);
+    void handle_receive(const NetContext& ctx, PeerId peer,
+                        std::span<const uint8_t> data, Channel channel);
     void apply_welcome(std::span<const uint8_t> data);  // client learns its own peer id
 
     std::unique_ptr<Transport> transport_;
@@ -153,12 +153,10 @@ private:
     // (predicted) objects. Owns the interp buffers, render clock, and tuning.
     PredictionState prediction_;
 
-    // Receive path stores the scene/scripts for the transport callback, which
-    // can't carry them through ENet. Set at the top of receive_and_apply.
-    Scene*           rx_scene_{nullptr};
-    ScriptManager*   rx_scripts_{nullptr};
-    ResourceManager* rx_resources_{nullptr};
-    const Project*   rx_project_{nullptr};  // for resolving asset paths in spawned presets
+    // Points at a stack-local NetContext only for the duration of a poll() (set
+    // at the top of receive_and_apply, cleared after). ENet's receive callback
+    // fires inside poll() and can't carry the context, so it reads it from here.
+    const NetContext* rx_ctx_{nullptr};
 };
 
 } // namespace fjell

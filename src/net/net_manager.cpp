@@ -48,8 +48,7 @@ void NetManager::host(uint16_t port, uint32_t max_clients) {
     transport->on_connect    = [this](PeerId p) { handle_connect(p); };
     transport->on_disconnect = [this](PeerId p) { handle_disconnect(p); };
     transport->on_receive    = [this](PeerId p, std::span<const uint8_t> d, Channel c) {
-        if (rx_scene_ && rx_scripts_ && rx_resources_)
-            handle_receive(*rx_scene_, *rx_scripts_, *rx_resources_, p, d, c);
+        if (rx_ctx_) handle_receive(*rx_ctx_, p, d, c);
     };
 
     if (!transport->host(port, max_clients)) {
@@ -70,8 +69,7 @@ void NetManager::join(const std::string& address, uint16_t port) {
     transport->on_connect    = [this](PeerId p) { handle_connect(p); };
     transport->on_disconnect = [this](PeerId p) { handle_disconnect(p); };
     transport->on_receive    = [this](PeerId p, std::span<const uint8_t> d, Channel c) {
-        if (rx_scene_ && rx_scripts_ && rx_resources_)
-            handle_receive(*rx_scene_, *rx_scripts_, *rx_resources_, p, d, c);
+        if (rx_ctx_) handle_receive(*rx_ctx_, p, d, c);
     };
 
     if (!transport->connect(address, port)) {
@@ -98,10 +96,7 @@ void NetManager::shutdown() {
     replication_.clear();
     prediction_.clear();
     spawn_replicator_.clear();
-    rx_scene_ = nullptr;
-    rx_scripts_ = nullptr;
-    rx_resources_ = nullptr;
-    rx_project_ = nullptr;
+    rx_ctx_ = nullptr;
 }
 
 // ── Per-frame pumps ───────────────────────────────────────────────────────
@@ -110,10 +105,11 @@ void NetManager::receive_and_apply(Scene& scene, ScriptManager& scripts,
                                    ResourceManager& resources, const Project* project) {
     if (!transport_) return;
     replication_.ensure_scene_registered(scene, scripts, net_scene_);
-    rx_scene_ = &scene;
-    rx_scripts_ = &scripts;
-    rx_resources_ = &resources;
-    rx_project_ = project;
+
+    // The receive callback (fired inside poll()) reads its collaborators from
+    // rx_ctx_; this NetContext is valid only for the poll below, then cleared.
+    NetContext ctx{&scene, &scripts, &resources, project};
+    rx_ctx_ = &ctx;
 
     // Defer spawns applied during poll() (apply_spawn → instantiate → add_node):
     // adding directly would mutate objects_ mid-iteration, AND would bypass the
@@ -125,6 +121,8 @@ void NetManager::receive_and_apply(Scene& scene, ScriptManager& scripts,
     // locally-spawned one.
     Scene::TickLock lock(scene);
     transport_->poll(0.0f);
+
+    rx_ctx_ = nullptr;
 }
 
 void NetManager::collect_and_send(Scene& scene, ScriptManager& scripts) {
@@ -231,28 +229,26 @@ void NetManager::handle_disconnect(PeerId peer) {
     if (on_peer_disconnected) on_peer_disconnected(peer);
 }
 
-void NetManager::handle_receive(Scene& scene, ScriptManager& scripts,
-                                ResourceManager& resources,
-                                PeerId peer, std::span<const uint8_t> data,
-                                Channel /*channel*/) {
+void NetManager::handle_receive(const NetContext& ctx, PeerId peer,
+                                std::span<const uint8_t> data, Channel /*channel*/) {
     uint8_t type = 0;
     if (!take(data, type)) return;
 
     switch (static_cast<PacketType>(type)) {
     case PacketType::state_update:
-        replication_.apply_state_update(scene, scripts, net_scene_, prediction_,
+        replication_.apply_state_update(*ctx.scene, *ctx.scripts, net_scene_, prediction_,
                                         transport_.get(), role_, peer, local_peer_, data);
         break;
     case PacketType::spawn:
-        spawn_replicator_.apply_spawn(scene, resources, net_scene_, rx_project_, data);
+        spawn_replicator_.apply_spawn(*ctx.scene, *ctx.resources, net_scene_, ctx.project, data);
         break;
     case PacketType::despawn: {
-        NetId despawned = spawn_replicator_.apply_despawn(scene, net_scene_, data);
+        NetId despawned = spawn_replicator_.apply_despawn(*ctx.scene, net_scene_, data);
         if (despawned != NET_ID_NONE) unregister_net_object(despawned);
         break;
     }
     case PacketType::rpc_call:
-        rpc_router_.apply(scene, scripts, net_scene_, transport_.get(), role_, data);
+        rpc_router_.apply(*ctx.scene, *ctx.scripts, net_scene_, transport_.get(), role_, data);
         break;
     case PacketType::welcome:
         apply_welcome(data);

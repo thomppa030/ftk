@@ -12,6 +12,23 @@
 
 namespace fjell {
 
+class Scene;
+class ScriptManager;
+class ResourceManager;
+class Project;
+
+// The collaborators a received packet needs to be applied to the world. ENet's
+// receive callback fires inside poll() and can't carry these through, so the
+// receive path stashes a pointer to a stack-local NetContext for the duration of
+// the poll and the callback reads it — explicit lifetime, no long-lived
+// member pointers.
+struct NetContext {
+    Scene*           scene{nullptr};
+    ScriptManager*   scripts{nullptr};
+    ResourceManager* resources{nullptr};
+    const Project*   project{nullptr};
+};
+
 // Network identity, distinct from a scene node id. Assigned by the server and
 // replicated so every peer agrees which object is which.
 using NetId = uint32_t;
