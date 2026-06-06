@@ -497,6 +497,7 @@ void Engine::init_editor() {
             .window = &window_,
             .content_browser = &content_browser_,
             .file_browser = &asset_file_browser_,
+            .net_manager = net_manager_.get(),
             .game_mode = game_mode_,
             .start_play = [this]() { start_play(); },
             .stop_play = [this]() { stop_play(); },

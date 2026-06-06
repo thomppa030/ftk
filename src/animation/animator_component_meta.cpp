@@ -16,6 +16,7 @@
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
+#include <cstring>
 
 namespace fjell {
 
@@ -158,6 +159,52 @@ static const bool registered = [] {
         },
 
         .script_type_name = {},
+
+        // Replicate the state-machine parameters that gameplay code feeds the
+        // animator (e.g. "speed", "is_jumping"). Remote instances run the same
+        // FSM locally off these, so transitions and blends are reproduced without
+        // streaming raw clip/time. Single-clip playback has no params and so
+        // contributes nothing here.
+        .net_serialize = [](const void* ptr, std::vector<uint8_t>& out) {
+            const auto* anim = static_cast<const AnimatorComponent*>(ptr);
+            const auto& params =
+                const_cast<AnimatorComponent*>(anim)->state_machine().params_mutable();
+            auto put_u16 = [&](uint16_t v) {
+                out.push_back(static_cast<uint8_t>(v & 0xFF));
+                out.push_back(static_cast<uint8_t>(v >> 8));
+            };
+            put_u16(static_cast<uint16_t>(params.size()));
+            for (const auto& [name, value] : params) {
+                put_u16(static_cast<uint16_t>(name.size()));
+                out.insert(out.end(), name.begin(), name.end());
+                const auto* vp = reinterpret_cast<const uint8_t*>(&value);
+                out.insert(out.end(), vp, vp + sizeof(float));
+            }
+        },
+
+        .net_deserialize = [](void* ptr, std::span<const uint8_t> in) {
+            auto* anim = static_cast<AnimatorComponent*>(ptr);
+            size_t pos = 0;
+            auto take_u16 = [&](uint16_t& v) -> bool {
+                if (pos + 2 > in.size()) return false;
+                v = static_cast<uint16_t>(in[pos] | (in[pos + 1] << 8));
+                pos += 2;
+                return true;
+            };
+            uint16_t count = 0;
+            if (!take_u16(count)) return;
+            for (uint16_t i = 0; i < count; ++i) {
+                uint16_t name_len = 0;
+                if (!take_u16(name_len)) return;
+                if (pos + name_len + sizeof(float) > in.size()) return;
+                std::string name(reinterpret_cast<const char*>(in.data() + pos), name_len);
+                pos += name_len;
+                float value = 0.0f;
+                std::memcpy(&value, in.data() + pos, sizeof(float));
+                pos += sizeof(float);
+                anim->set_param(name, value);
+            }
+        },
     });
     return true;
 }();

@@ -10,6 +10,7 @@
 #include <functional>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace fjell {
 
@@ -23,6 +24,22 @@ enum class Channel : uint8_t {
 };
 
 constexpr uint8_t CHANNEL_COUNT = 2;
+
+// Cumulative byte/packet counters since the session began. The net panel samples
+// these once a second and diffs to show per-second rates.
+struct TransportStats {
+    uint64_t bytes_sent{0};
+    uint64_t bytes_recv{0};
+    uint64_t packets_sent{0};
+    uint64_t packets_recv{0};
+};
+
+// Per-connected-peer link quality, surfaced for the net panel.
+struct PeerInfo {
+    PeerId   id{SERVER_PEER};
+    uint32_t rtt_ms{0};    // mean round-trip time
+    float    loss_pct{0};  // mean packet loss, 0..100
+};
 
 class Transport {
 public:
@@ -47,6 +64,17 @@ public:
 
     // Force-flush queued outgoing packets immediately (otherwise sent on poll).
     virtual void flush() = 0;
+
+    // ── Observability (for the net panel) ───────────────────────────────
+    // Default to empty so non-instrumented transports need not implement them.
+    [[nodiscard]] virtual TransportStats stats() const { return {}; }
+    [[nodiscard]] virtual std::vector<PeerInfo> peers() const { return {}; }
+
+    // ── Network conditioning (testing tool, no-op unless overridden) ─────
+    // Inject artificial latency/jitter/loss locally so v1 interpolation and
+    // prediction can be validated under realistic conditions from one machine.
+    virtual void set_conditioning(float /*latency_ms*/, float /*jitter_ms*/,
+                                  float /*loss_pct*/) {}
 
     // Callbacks, set by the owner (NetManager) before host()/connect().
     std::function<void(PeerId)> on_connect;

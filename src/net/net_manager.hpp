@@ -7,6 +7,12 @@
 #pragma once
 
 #include "net/transport.hpp"
+#include "net/net_types.hpp"
+#include "net/net_scene.hpp"
+#include "net/prediction_state.hpp"
+#include "net/spawn_replicator.hpp"
+#include "net/rpc_router.hpp"
+#include "net/replication_graph.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -24,17 +30,6 @@ class Scene;
 class ScriptManager;
 class ResourceManager;
 class Project;
-
-// Network identity, distinct from a scene node id. Assigned by the server and
-// replicated so every peer agrees which object is which.
-using NetId = uint32_t;
-constexpr NetId NET_ID_NONE = 0;
-
-enum class NetRole : uint8_t {
-    none,    // not networked (single-player / edit mode)
-    server,  // authoritative host
-    client,  // connected to a host
-};
 
 class NetManager {
 public:
@@ -65,11 +60,7 @@ public:
     // Tell the interpolator the server's send rate so the synthetic sample
     // timeline (and the render delay) match the real packet cadence. Wired from
     // project config alongside NetSendSubsystem::set_tick_rate.
-    void set_tick_rate(float hz) {
-        if (hz <= 0.0f) return;
-        tick_interval_ = 1.0f / hz;
-        interp_delay_  = 2.0f / hz;   // render ~2 ticks behind newest
-    }
+    void set_tick_rate(float hz) { prediction_.set_tick_rate(hz); }
 
     // ── Spawn / despawn (server-authoritative) ─────────────────────────
     // Server instantiates the preset locally, assigns a NetId, sets ownership,
@@ -95,6 +86,28 @@ public:
     [[nodiscard]] bool    is_connected() const { return role_ != NetRole::none; }
     [[nodiscard]] NetRole role() const { return role_; }
     [[nodiscard]] PeerId  local_peer() const { return local_peer_; }
+
+    // ── Observability (for the net panel) ───────────────────────────────
+    [[nodiscard]] TransportStats stats() const {
+        return transport_ ? transport_->stats() : TransportStats{};
+    }
+    [[nodiscard]] std::vector<PeerInfo> peers() const {
+        return transport_ ? transport_->peers() : std::vector<PeerInfo>{};
+    }
+    // Inject artificial latency/jitter/loss for testing (no-op when offline).
+    void set_conditioning(float latency_ms, float jitter_ms, float loss_pct) {
+        if (transport_) transport_->set_conditioning(latency_ms, jitter_ms, loss_pct);
+    }
+
+    // ── Launch mode (editor → script) ───────────────────────────────────
+    // Set by the editor's Net dropdown before Play; read by the game script in
+    // begin_play to decide host/join/offline. Defaults track FJELL_NET_MODE so
+    // the env-var workflow still works when launched headless. The engine itself
+    // never acts on these.
+    void set_launch_mode(NetLaunchMode mode) { launch_mode_ = mode; }
+    [[nodiscard]] NetLaunchMode launch_mode() const { return launch_mode_; }
+    void set_join_address(std::string address) { join_address_ = std::move(address); }
+    [[nodiscard]] const std::string& join_address() const { return join_address_; }
 
     // ── Network identity (NetId ↔ scene node id) ───────────────────────
     [[nodiscard]] NetId assign_net_id();  // server only
@@ -124,117 +137,38 @@ public:
     std::function<void(PeerId)> on_peer_disconnected;
 
 private:
-    // Packet types (first byte of every payload).
-    enum class PacketType : uint8_t {
-        state_update = 1,  // delta of replicated fields + transform (unreliable)
-        spawn        = 2,  // instantiate a preset on the client (reliable)
-        despawn      = 3,  // remove a networked object on the client (reliable)
-        rpc_call     = 4,  // invoke a [[fj::rpc]] handler on the target (reliable)
-        welcome      = 5,  // server → new client: "your assigned peer id" (reliable)
-    };
-
-    // Last-sent bytes of an object's replicated fields, in field order. Used to
-    // detect which fields changed since the previous send (delta compression).
-    struct ShadowState {
-        std::vector<uint8_t> data;
-    };
-
-    // A short history of received transform samples for a remote object, each
-    // stamped on a synthetic timeline (one tick_interval_ apart, jitter-free).
-    // Each frame the render-time transform is interpolated between the two
-    // samples that bracket `net_time_`, which trails interp_delay_ behind the
-    // newest. A multi-sample ring (not just the last two) gives render_time room
-    // to sit several ticks back without clamping, so jitter is absorbed instead
-    // of producing freezes/snaps.
-    struct InterpSnapshot {
-        float      t{0.0f};
-        glm::vec3  position{0.0f};
-        glm::quat  rotation{1.0f, 0.0f, 0.0f, 0.0f};
-    };
-    static constexpr size_t INTERP_HISTORY = 8;
-    struct InterpBuffer {
-        InterpSnapshot samples[INTERP_HISTORY];  // ring; newest at (head-1)
-        size_t head{0};   // next write index
-        size_t count{0};  // number of valid samples (<= INTERP_HISTORY)
-    };
-
-    // Push a freshly-received transform sample for a remote object into its ring.
-    void push_interp_sample(NetId net_id, const glm::vec3& pos, const glm::quat& rot);
-
-    // v1 bootstrap: register every scene node that has a replicated component,
-    // assigning NetIds by ascending node id so host and client agree without a
-    // handshake. Spawn/despawn replication (PR 4) supersedes this for dynamic
-    // objects. Runs once per session, when the registry is still empty.
-    void ensure_scene_registered(Scene& scene, ScriptManager& scripts);
-
     void handle_connect(PeerId peer);
     void handle_disconnect(PeerId peer);
-    void handle_receive(Scene& scene, ScriptManager& scripts, ResourceManager& resources,
-                        PeerId peer, std::span<const uint8_t> data, Channel channel);
-    void apply_state_update(Scene& scene, ScriptManager& scripts,
-                            PeerId sender, std::span<const uint8_t> data);
-    void apply_spawn(Scene& scene, ResourceManager& resources,
-                     std::span<const uint8_t> data);  // uses rx_project_ for path resolution
-    [[nodiscard]] std::vector<uint8_t> build_spawn_packet(NetId net_id) const;
-    void apply_despawn(Scene& scene, std::span<const uint8_t> data);
-    void apply_rpc(Scene& scene, ScriptManager& scripts, std::span<const uint8_t> data);
+    void handle_receive(const NetContext& ctx, PeerId peer,
+                        std::span<const uint8_t> data, Channel channel);
     void apply_welcome(std::span<const uint8_t> data);  // client learns its own peer id
 
     std::unique_ptr<Transport> transport_;
     NetRole role_{NetRole::none};
     PeerId  local_peer_{SERVER_PEER};
-    uint32_t server_tick_{0};
 
-    bool  scene_registered_{false};  // one-time bootstrap guard
-    NetId next_net_id_{1};  // NET_ID_NONE (0) reserved
-    std::unordered_map<NetId, uint32_t> net_to_node_;
-    std::unordered_map<uint32_t, NetId> node_to_net_;
-    std::unordered_map<NetId, PeerId>   ownership_;
-    std::unordered_map<NetId, ShadowState> shadow_;
+    NetLaunchMode launch_mode_{NetLaunchMode::offline};
+    std::string   join_address_{"127.0.0.1"};
 
-    // Server: remembers how each networked object was spawned, so a late-joining
-    // client can be brought up to date (replay spawns it missed). Spawn position
-    // is the initial one; the subsequent state_update stream carries live motion.
-    struct SpawnInfo {
-        std::string preset_path;
-        PeerId      owner{SERVER_PEER};
-        glm::vec3   position{0.0f};
-    };
-    std::unordered_map<NetId, SpawnInfo> spawn_info_;
+    NetScene net_scene_;  // NetId<->node, ownership, authority/possession queries
 
-    // Client-side prediction reconciliation for OWNED objects. The owning client
-    // moves its object locally each tick (responsive input); when the server's
-    // authoritative state arrives we don't snap — we ease toward it (hiding small
-    // divergences) unless the error is large (teleport/respawn), which snaps.
-    struct PendingCorrection {
-        glm::vec3 position{0.0f};
-        glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
-        bool active{false};
-    };
-    std::unordered_map<NetId, PendingCorrection> corrections_;
-    float correction_rate_{10.0f};   // ease ~rate*dt toward server state per frame
-    float snap_threshold_{2.0f};     // metres of error above which we hard-snap
+    // Per-object state collect/apply + shadow diff + scene registration.
+    ReplicationGraph replication_;
 
-    // Client-side render-time interpolation of remote objects.
-    //
-    // Samples are stamped on a synthetic timeline spaced by the nominal send
-    // interval, NOT by arrival time — network jitter (two packets in one frame,
-    // or a late one) would otherwise collapse or stretch the gap between samples
-    // and make the blend snap or freeze. net_time_ (the render clock) chases that
-    // timeline interp_delay_ behind, so there's always a bracketing pair.
-    std::unordered_map<NetId, InterpBuffer> interp_;
-    float net_time_{0.0f};          // shared render clock (drift-corrected, not raw dt sum)
-    float newest_sample_t_{0.0f};   // timeline stamp of the most recent sample, any object
-    bool  net_time_primed_{false};  // false until the first sample seeds net_time_
-    float tick_interval_{1.0f / 30.0f};  // expected server send period (from config)
-    float interp_delay_{2.0f / 30.0f};   // render ~2 ticks behind newest for jitter headroom
+    // Server-authoritative spawn/despawn + late-join replay (owns spawn records).
+    SpawnReplicator spawn_replicator_;
 
-    // Receive path stores the scene/scripts for the transport callback, which
-    // can't carry them through ENet. Set at the top of receive_and_apply.
-    Scene*           rx_scene_{nullptr};
-    ScriptManager*   rx_scripts_{nullptr};
-    ResourceManager* rx_resources_{nullptr};
-    const Project*   rx_project_{nullptr};  // for resolving asset paths in spawned presets
+    // Routes [[fj::rpc]] calls by target (stateless).
+    RpcRouter rpc_router_;
+
+    // Render-time interpolation of remote objects + smoothed correction of owned
+    // (predicted) objects. Owns the interp buffers, render clock, and tuning.
+    PredictionState prediction_;
+
+    // Points at a stack-local NetContext only for the duration of a poll() (set
+    // at the top of receive_and_apply, cleared after). ENet's receive callback
+    // fires inside poll() and can't carry the context, so it reads it from here.
+    const NetContext* rx_ctx_{nullptr};
 };
 
 } // namespace fjell

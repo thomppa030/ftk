@@ -30,6 +30,7 @@
 #include "scene/preset.hpp"
 #include "scene/light_node.hpp"
 #include "scripting/script_subsystem.hpp"
+#include "net/net_manager.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/icon_cache.hpp"
 
@@ -40,6 +41,7 @@
 
 #include <glm/gtc/type_ptr.hpp>
 
+#include <cstdio>
 #include <limits>
 
 #include <filesystem>
@@ -100,6 +102,7 @@ void SceneEditorContext::init() {
 
     init_shared_panels(deps_.vulkan_context, deps_.project_mgr);
     history_panel().init(&command_history());
+    net_panel_.init(deps_.net_manager);
 }
 
 void SceneEditorContext::shutdown() {
@@ -194,6 +197,7 @@ void SceneEditorContext::draw(float dt) {
     }
 
     draw_shared_panels(dt);
+    net_panel_.draw(dt, ctx_title("Network").c_str());
 }
 
 void SceneEditorContext::draw_picking(ViewportPanel& vp) {
@@ -580,6 +584,48 @@ void SceneEditorContext::draw_play_toolbar() {
         }
     }
 
+    // Net mode selector — sits just left of the play button. The engine never
+    // acts on this; it sets NetManager's launch mode, which the running game
+    // script reads in begin_play to host/join/stay offline. Hidden while playing
+    // (mode is latched for the session) and when there's no NetManager.
+    if (deps_.net_manager && !is_playing()) {
+        static const char* const kModeLabels[] = {"Offline", "Host", "Join"};
+        auto mode = deps_.net_manager->launch_mode();
+        int mode_idx = static_cast<int>(mode);
+
+        const char* label = kModeLabels[mode_idx];
+        float combo_w = 78.0f;
+        float combo_h = ImGui::GetFrameHeight();
+        float combo_x = box_x - combo_w - pad;
+        float combo_y = box_y + (box_h - combo_h) * 0.5f;
+
+        ImGui::SetCursorScreenPos({combo_x, combo_y});
+        ImGui::SetNextItemWidth(combo_w);
+        if (ImGui::BeginCombo("##net_mode", label, ImGuiComboFlags_None)) {
+            for (int i = 0; i < 3; ++i) {
+                bool selected = (mode_idx == i);
+                if (ImGui::Selectable(kModeLabels[i], selected)) {
+                    deps_.net_manager->set_launch_mode(static_cast<NetLaunchMode>(i));
+                }
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        // Join address field, shown only in Join mode.
+        if (mode == NetLaunchMode::join) {
+            char addr_buf[64];
+            const std::string& addr = deps_.net_manager->join_address();
+            std::snprintf(addr_buf, sizeof(addr_buf), "%s", addr.c_str());
+
+            ImGui::SetCursorScreenPos({combo_x, combo_y + combo_h + 4.0f});
+            ImGui::SetNextItemWidth(combo_w);
+            if (ImGui::InputText("##net_addr", addr_buf, sizeof(addr_buf))) {
+                deps_.net_manager->set_join_address(addr_buf);
+            }
+        }
+    }
+
     // Perspective / Orthographic toggle (top-right of viewport)
     {
         const char* label = vp->camera.mode() == EditorCameraMode::perspective
@@ -604,7 +650,8 @@ void SceneEditorContext::draw_play_toolbar() {
 
 std::vector<std::string> SceneEditorContext::docked_window_names() const {
     return {"Hierarchy", ctx_title("History"), "Viewport",
-            "Properties", ctx_title("Stats"), ctx_title("Console")};
+            "Properties", ctx_title("Stats"), ctx_title("Console"),
+            ctx_title("Network")};
 }
 
 void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
@@ -766,6 +813,15 @@ void SceneEditorContext::draw_play_overlay() {
     }
 
     ImGui::End(); // ##PlayView
+
+    // The network panel is a debug/testing tool whose whole point is to be used
+    // *during* play — that's when conditioning sliders and live RTT/bandwidth
+    // matter. The rest of the editor chrome stays hidden, but this one floats on
+    // top of the play view. Only shown while networked, to avoid clutter in
+    // single-player playtests.
+    if (deps_.net_manager && deps_.net_manager->is_connected()) {
+        net_panel_.draw(ImGui::GetIO().DeltaTime, ctx_title("Network").c_str());
+    }
 }
 
 // --- Viewport ---

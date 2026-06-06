@@ -30,6 +30,16 @@ extern "C" FJELL_SDK_EXPORT int fjell_net_is_owned_by_local(uint32_t node_id) {
     return net->is_owned_by_local(net_id) ? 1 : 0;
 }
 
+extern "C" FJELL_SDK_EXPORT int fjell_net_launch_mode() {
+    auto* net = fjell::script_services().net;
+    return net ? static_cast<int>(net->launch_mode()) : 0;
+}
+
+extern "C" FJELL_SDK_EXPORT const char* fjell_net_join_address() {
+    auto* net = fjell::script_services().net;
+    return net ? net->join_address().c_str() : "127.0.0.1";
+}
+
 extern "C" FJELL_SDK_EXPORT void fjell_net_host(uint16_t port, uint32_t max_clients) {
     auto* net = fjell::script_services().net;
     if (net) net->host(port, max_clients);

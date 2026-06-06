@@ -222,6 +222,10 @@ add_executable(fjell
     scripting/net_api.cpp
     net/enet_transport.cpp
     net/net_manager.cpp
+    net/prediction_state.cpp
+    net/spawn_replicator.cpp
+    net/rpc_router.cpp
+    net/replication_graph.cpp
     net/net_subsystem.cpp
     ui/asset_ref_widget.cpp
     ui/capture_popup.cpp
@@ -237,6 +241,7 @@ add_executable(fjell
     ui/icon_cache.cpp
     ui/properties_panel.cpp
     ui/stats_panel.cpp
+    ui/net_panel.cpp
     ui/project_settings_panel.cpp
     ui/node_editor_panel.cpp
     ui/editor_context.cpp
