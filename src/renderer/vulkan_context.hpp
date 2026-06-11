@@ -126,6 +126,7 @@ public:
   [[nodiscard]] VmaAllocator allocator() const { return gpu_.allocator(); }
   [[nodiscard]] VkCommandPool command_pool() const { return gpu_.command_pool(); }
   [[nodiscard]] VkQueue graphics_queue() const { return gpu_.graphics_queue(); }
+  [[nodiscard]] UploadContext& upload_context() { return gpu_.upload_context(); }
   [[nodiscard]] BindlessTextures &bindless_textures() { return gpu_.bindless_textures(); }
   [[nodiscard]] VkInstance instance() const { return gpu_.instance(); }
   [[nodiscard]] VkFormat swapchain_format() const { return gpu_.swapchain_format(); }

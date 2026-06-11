@@ -12,6 +12,7 @@ namespace fjell {
 
 class Texture;
 class BindlessTextures;
+class UploadContext;
 
 struct GlyphInfo {
     float uv_x0, uv_y0;   // top-left UV in atlas
@@ -50,7 +51,7 @@ public:
     void create(const std::string& font_path,
                 VkDevice device, VmaAllocator allocator,
                 VkPhysicalDevice physical_device,
-                VkCommandPool command_pool, VkQueue queue,
+                UploadContext& upload,
                 BindlessTextures& bindless);
 
     void destroy();

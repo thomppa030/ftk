@@ -76,7 +76,7 @@ static LoadedImage load_image_from_source(
 }
 
 Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_device,
-             VkCommandPool command_pool, VkQueue queue,
+             UploadContext& upload,
              const std::string& path, MegaBuffer* mega,
              MeshletBuffer* meshlet_buf) {
     auto gltf_path = std::filesystem::path(path);
@@ -108,7 +108,7 @@ Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_
     for (auto& image : asset.images) {
         auto [pixels, tex_w, tex_h] = load_image_from_source(asset, image, base_dir);
         textures_.push_back(std::make_unique<Texture>(
-            device, allocator, physical_device, command_pool, queue,
+            device, allocator, physical_device, upload,
             pixels.data(), tex_w, tex_h));
     }
 
@@ -207,7 +207,7 @@ Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_
                     meshes_.push_back(std::make_unique<Mesh>(entry));
                 } else {
                     meshes_.push_back(std::make_unique<Mesh>(
-                        allocator, device, command_pool, queue,
+                        allocator, upload,
                         vertices, indices));
                 }
             }
@@ -227,8 +227,7 @@ Model::Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_
                    meshes_.size(), textures_.size(), total_meshlet_count());
 }
 
-Model::Model(VmaAllocator allocator, VkDevice device,
-             VkCommandPool command_pool, VkQueue queue,
+Model::Model(VmaAllocator allocator, UploadContext& upload,
              const PrimitiveMeshData& data, MegaBuffer* mega,
              MeshletBuffer* meshlet_buf) {
     for (const auto& v : data.vertices) {
@@ -253,7 +252,7 @@ Model::Model(VmaAllocator allocator, VkDevice device,
         meshes_.push_back(std::make_unique<Mesh>(entry));
     } else {
         meshes_.push_back(std::make_unique<Mesh>(
-            allocator, device, command_pool, queue,
+            allocator, upload,
             data.vertices, data.indices));
     }
 
@@ -463,8 +462,7 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     return data;
 }
 
-Model::Model(VmaAllocator allocator, VkDevice device,
-             VkCommandPool command_pool, VkQueue queue,
+Model::Model(VmaAllocator allocator, UploadContext& upload,
              FjMeshData&& data, MegaBuffer* mega,
              MeshletBuffer* meshlet_buf) {
     collision_vertices_ = std::move(data.collision_vertices);
@@ -557,7 +555,7 @@ Model::Model(VmaAllocator allocator, VkDevice device,
             meshes_.push_back(std::make_unique<Mesh>(entry));
         } else {
             meshes_.push_back(std::make_unique<Mesh>(
-                allocator, device, command_pool, queue,
+                allocator, upload,
                 sub_vertices, sub_indices));
         }
     }

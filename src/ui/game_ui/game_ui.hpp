@@ -27,6 +27,7 @@ namespace fjell {
 
 class Device;
 class BindlessTextures;
+class UploadContext;
 class Input;
 class ResourceManager;
 struct PassResources;
@@ -50,7 +51,7 @@ public:
     void create(Device& device, VmaAllocator allocator,
                 const PassResources& resources,
                 BindlessTextures& bindless,
-                VkCommandPool command_pool, VkQueue queue,
+                UploadContext& upload,
                 const std::string& font_path,
                 VkFormat output_format = VK_FORMAT_UNDEFINED);
 

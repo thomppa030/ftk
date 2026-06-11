@@ -93,15 +93,14 @@ template struct ResourceManager::Pool<Material, MaterialHandle>;
 
 ResourceManager::ResourceManager(VkDevice device, VmaAllocator allocator,
                                  VkPhysicalDevice physical_device,
-                                 VkCommandPool command_pool, VkQueue queue,
+                                 UploadContext& upload,
                                  BindlessTextures& bindless, MegaBuffer* mega_buffer,
                                  MeshletBuffer* meshlet_buffer,
                                  PipelineCache* pipeline_cache)
     : device_{device}
     , allocator_{allocator}
     , physical_device_{physical_device}
-    , command_pool_{command_pool}
-    , queue_{queue}
+    , upload_{upload}
     , bindless_{bindless}
     , mega_buffer_{mega_buffer}
     , meshlet_buffer_{meshlet_buffer}
@@ -114,7 +113,7 @@ ResourceManager::ResourceManager(VkDevice device, VmaAllocator allocator,
     const std::array<uint8_t, 4> black = {0, 0, 0, 255};
 
     auto register_default = [&](const std::string& name, const uint8_t* pixels) -> TextureHandle {
-        auto tex = std::make_unique<Texture>(device_, allocator_, physical_device_, command_pool_, queue_,
+        auto tex = std::make_unique<Texture>(device_, allocator_, physical_device_, upload_,
                                              pixels, 1, 1);
         uint32_t bindless_idx = bindless_.add(*tex);
         auto handle = textures_.insert(name, std::move(tex));
@@ -142,8 +141,8 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
         // Direct .fjmesh load
         if (ext == ".fjmesh") {
             auto data = Model::load_fjmesh(path);
-            auto model = std::make_unique<Model>(allocator_, device_, command_pool_,
-                                                  queue_, std::move(data), mega_buffer_,
+            auto model = std::make_unique<Model>(allocator_, upload_,
+                                                  std::move(data), mega_buffer_,
                                                   meshlet_buffer_);
             return models_.insert(path, std::move(model));
         }
@@ -158,8 +157,8 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
                 if (!ec && cache_time >= src_time) {
                     FJELL_GFX_DEBUG("Loading cached .fjmesh for: {}", path);
                     auto data = Model::load_fjmesh(cached.string());
-                    auto model = std::make_unique<Model>(allocator_, device_, command_pool_,
-                                                          queue_, std::move(data), mega_buffer_,
+                    auto model = std::make_unique<Model>(allocator_, upload_,
+                                                          std::move(data), mega_buffer_,
                                                           meshlet_buffer_);
                     return models_.insert(path, std::move(model));
                 }
@@ -167,7 +166,7 @@ Result<ModelHandle> ResourceManager::load_model(const std::string& path) {
         }
 
         // Fall back to glTF loading (existing path)
-        auto model = std::make_unique<Model>(allocator_, device_, physical_device_, command_pool_, queue_,
+        auto model = std::make_unique<Model>(allocator_, device_, physical_device_, upload_,
                                               path, mega_buffer_, meshlet_buffer_);
         return models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
@@ -197,7 +196,7 @@ Result<ModelHandle> ResourceManager::create_primitive(const std::string& type) {
         return make_error("Unknown primitive type: " + type);
     }
 
-    auto model = std::make_unique<Model>(allocator_, device_, command_pool_, queue_, data, mega_buffer_, meshlet_buffer_);
+    auto model = std::make_unique<Model>(allocator_, upload_, data, mega_buffer_, meshlet_buffer_);
     return models_.insert(key, std::move(model));
 }
 
@@ -209,7 +208,7 @@ Result<TextureHandle> ResourceManager::load_texture(const std::string& path) {
     }
 
     try {
-        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, command_pool_, queue_, path);
+        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, upload_, path);
         uint32_t bindless_idx = bindless_.add(*texture);
         auto handle = textures_.insert(path, std::move(texture));
         texture_to_bindless_[handle.index()] = bindless_idx;
@@ -228,7 +227,7 @@ Result<TextureHandle> ResourceManager::load_texture_nearest(const std::string& p
     }
 
     try {
-        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, command_pool_, queue_, path, true);
+        auto texture = std::make_unique<Texture>(device_, allocator_, physical_device_, upload_, path, true);
         uint32_t bindless_idx = bindless_.add(*texture);
         auto handle = textures_.insert(key, std::move(texture));
         texture_to_bindless_[handle.index()] = bindless_idx;
@@ -540,8 +539,8 @@ Result<SkeletalModelHandle> ResourceManager::load_skeletal_model(const std::stri
 
     try {
         auto data = SkeletalModel::load_fjskel(path);
-        auto model = std::make_unique<SkeletalModel>(allocator_, device_, command_pool_,
-                                                      queue_, std::move(data), meshlet_buffer_);
+        auto model = std::make_unique<SkeletalModel>(allocator_, upload_,
+                                                      std::move(data), meshlet_buffer_);
         return skeletal_models_.insert(path, std::move(model));
     } catch (const std::exception& e) {
         return make_error("Failed to load skeletal model '" + path + "': " + e.what());

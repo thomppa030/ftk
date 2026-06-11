@@ -79,7 +79,8 @@ VulkanContext::VulkanContext(Window& window)
     if (gpu_.device_ref().ray_tracing_supported()) {
         accel_manager_ = std::make_unique<AccelStructureManager>(
             gpu_.device_ref(), gpu_.allocator(),
-            gpu_.command_pool(), gpu_.graphics_queue());
+            gpu_.command_pool(), gpu_.graphics_queue(),
+            gpu_.upload_context());
         accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
         ddgi_pass().set_accel_manager(accel_manager_.get());
         ss_gi_pass().set_accel_manager(accel_manager_.get());
@@ -614,6 +615,11 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
 
     vkEndCommandBuffer(cmd);
 
+    // This one-shot submit reads meshes/textures that may still sit in the
+    // upload batch (it doesn't wait the upload timeline like the frame
+    // submit does) — settle them first. Cheap when nothing is pending.
+    gpu_.upload_context().wait_all();
+
     VkSubmitInfo submit{};
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
@@ -1028,8 +1034,7 @@ void VulkanContext::init_game_ui(GameUi& ui, const std::string& font_path,
     res.sample_count = gpu_.msaa_samples();
 
     ui.create(gpu_.device_ref(), gpu_.allocator(), res, gpu_.bindless_textures(),
-              gpu_.command_pool(), gpu_.graphics_queue(),
-              font_path, output_format);
+              gpu_.upload_context(), font_path, output_format);
 }
 
 void VulkanContext::init_game_ui_shared(GameUi& ui, const FontAtlas& shared_atlas,
@@ -1132,6 +1137,18 @@ void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
 void VulkanContext::submit_and_present() {
     if (!has_recorded_frame_) return;
 
+    // Submit any uploads batched since the last flush. The frame submit
+    // below waits on the buffer lane's timeline (the image lane shares the
+    // graphics queue, where submission order already suffices).
+    auto& upload = gpu_.upload_context();
+    upload.flush();
+
+    VkSemaphoreSubmitInfo upload_wait{};
+    upload_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    upload_wait.semaphore = upload.buffer_timeline();
+    upload_wait.value = upload.last_buffer_value();
+    upload_wait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
     auto& render_finished = gpu_.swapchain().render_finished_semaphores();
     VkSemaphore image_available = recorded_acquire_semaphore_;
     VkFence fence = gpu_.in_flight_fence(recorded_frame_);
@@ -1140,10 +1157,11 @@ void VulkanContext::submit_and_present() {
     // Fast path: no async work this frame → single graphics submit,
     // same as pre-Phase-3 behavior.
     if (!recorded_async_this_frame_) {
-        VkSemaphoreSubmitInfo wait{};
-        wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        wait.semaphore = image_available;
-        wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        std::array<VkSemaphoreSubmitInfo, 2> waits{};
+        waits[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        waits[0].semaphore = image_available;
+        waits[0].stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        waits[1] = upload_wait;
 
         VkCommandBufferSubmitInfo cmd_info{};
         cmd_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -1156,8 +1174,8 @@ void VulkanContext::submit_and_present() {
 
         VkSubmitInfo2 submit{};
         submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submit.waitSemaphoreInfoCount = 1;
-        submit.pWaitSemaphoreInfos = &wait;
+        submit.waitSemaphoreInfoCount = static_cast<uint32_t>(waits.size());
+        submit.pWaitSemaphoreInfos = waits.data();
         submit.commandBufferInfoCount = 1;
         submit.pCommandBufferInfos = &cmd_info;
         submit.signalSemaphoreInfoCount = 1;
@@ -1201,10 +1219,11 @@ void VulkanContext::submit_and_present() {
         uint64_t v2 = async_timeline_values_[recorded_frame_];
 
         // ── Submit 1: graphics pre ────────────────────────────────────
-        VkSemaphoreSubmitInfo pre_wait{};
-        pre_wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        pre_wait.semaphore = image_available;
-        pre_wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        std::array<VkSemaphoreSubmitInfo, 2> pre_waits{};
+        pre_waits[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        pre_waits[0].semaphore = image_available;
+        pre_waits[0].stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        pre_waits[1] = upload_wait;
 
         VkCommandBufferSubmitInfo pre_cmd{};
         pre_cmd.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -1222,8 +1241,8 @@ void VulkanContext::submit_and_present() {
 
         VkSubmitInfo2 pre_submit{};
         pre_submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        pre_submit.waitSemaphoreInfoCount = 1;
-        pre_submit.pWaitSemaphoreInfos = &pre_wait;
+        pre_submit.waitSemaphoreInfoCount = static_cast<uint32_t>(pre_waits.size());
+        pre_submit.pWaitSemaphoreInfos = pre_waits.data();
         pre_submit.commandBufferInfoCount = 1;
         pre_submit.pCommandBufferInfos = &pre_cmd;
         pre_submit.signalSemaphoreInfoCount = 1;

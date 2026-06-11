@@ -16,10 +16,12 @@ struct MeshletRange {
     uint32_t vertex_offset{0};   // mega buffer vertex offset (for vertex fetch)
 };
 
+class UploadContext;
+class DeferredDeleter;
+
 class MeshletBuffer {
 public:
-    MeshletBuffer(VkDevice device, VmaAllocator allocator,
-                  VkCommandPool command_pool, VkQueue queue);
+    MeshletBuffer(VmaAllocator allocator, UploadContext& upload, DeferredDeleter& deleter);
 
     MeshletRange upload(const MeshletBuildResult& result, uint32_t mega_vertex_offset);
 
@@ -39,10 +41,9 @@ private:
     void grow_buffer(std::unique_ptr<Buffer>& buf, VkDeviceSize new_size,
                      VkDeviceSize used, VkBufferUsageFlags usage);
 
-    VkDevice device_;
     VmaAllocator allocator_;
-    VkCommandPool command_pool_;
-    VkQueue queue_;
+    UploadContext& upload_;
+    DeferredDeleter& deleter_;
 
     std::unique_ptr<Buffer> meshlet_buffer_;
     std::unique_ptr<Buffer> bounds_buffer_;

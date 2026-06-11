@@ -1,4 +1,5 @@
 #include "renderer/gpu/accel_structure.hpp"
+#include "renderer/gpu/upload_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/resources/model.hpp"
@@ -31,12 +32,14 @@ static VmaAllocationCreateFlags as_dedicated_flag() {
 }
 
 AccelStructureManager::AccelStructureManager(Device& device, VmaAllocator allocator,
-                                             VkCommandPool command_pool, VkQueue queue)
+                                             VkCommandPool command_pool, VkQueue queue,
+                                             UploadContext& upload)
     : device_{device}
     , vk_device_{device.handle()}
     , allocator_{allocator}
     , command_pool_{command_pool}
-    , queue_{queue} {
+    , queue_{queue}
+    , upload_{upload} {
     // Query scratch buffer alignment requirement
     VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props{};
     as_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
@@ -138,6 +141,10 @@ void AccelStructureManager::ensure_blas_entry(const void* key, const MegaMeshEnt
         entry_blas_map_.erase(it);
     }
     if (entry.index_count == 0) return;
+
+    // The build's one-shot submit reads the mega buffer without waiting the
+    // upload timeline — settle any batched geometry uploads first.
+    upload_.wait_all();
 
     VkDeviceAddress vertex_addr = buffer_address(mega.vertex_buffer_handle());
     VkDeviceAddress index_addr = buffer_address(mega.index_buffer_handle());
@@ -248,6 +255,10 @@ const Blas* AccelStructureManager::find_blas(const void* key) const {
 }
 
 void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& mega) {
+    // The build's one-shot submit reads the mega buffer without waiting the
+    // upload timeline — settle any batched geometry uploads first.
+    upload_.wait_all();
+
     // Use LOD 0 (highest quality) for BLAS
     const auto& lod_levels = model->lod_levels();
     if (lod_levels.empty() || model->mega_entries().empty()) return;

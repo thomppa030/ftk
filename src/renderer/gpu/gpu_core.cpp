@@ -132,6 +132,8 @@ GpuCore::GpuCore(Window& window)
         }
     }
 
+    upload_ = std::make_unique<UploadContext>(device_, allocator_);
+
     FJELL_GFX_INFO("GpuCore initialized");
 }
 
@@ -142,6 +144,7 @@ GpuCore::~GpuCore() {
     // them while both are still alive, once the GPU can't touch them.
     vkDeviceWaitIdle(dev);
     deferred_deleter_.flush_all();
+    upload_.reset();
 
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (image_available_[i] != VK_NULL_HANDLE)

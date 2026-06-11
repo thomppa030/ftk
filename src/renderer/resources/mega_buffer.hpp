@@ -20,10 +20,12 @@ struct MegaMeshEntry {
     uint32_t meshlet_count{0};
 };
 
+class UploadContext;
+class DeferredDeleter;
+
 class MegaBuffer {
 public:
-    MegaBuffer(VkDevice device, VmaAllocator allocator,
-               VkCommandPool command_pool, VkQueue queue);
+    MegaBuffer(VmaAllocator allocator, UploadContext& upload, DeferredDeleter& deleter);
 
     MegaMeshEntry upload(const std::vector<Vertex>& vertices,
                          const std::vector<uint32_t>& indices);
@@ -51,10 +53,9 @@ private:
     void grow_vertex_buffer(VkDeviceSize new_size);
     void grow_index_buffer(VkDeviceSize new_size);
 
-    VkDevice device_;
     VmaAllocator allocator_;
-    VkCommandPool command_pool_;
-    VkQueue queue_;
+    UploadContext& upload_;
+    DeferredDeleter& deleter_;
 
     std::unique_ptr<Buffer> vertex_buffer_;
     std::unique_ptr<Buffer> index_buffer_;

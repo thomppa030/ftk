@@ -20,7 +20,7 @@ namespace fjell {
 void GameUi::create(Device& device, VmaAllocator allocator,
                     const PassResources& resources,
                     BindlessTextures& bindless,
-                    VkCommandPool command_pool, VkQueue queue,
+                    UploadContext& upload,
                     const std::string& font_path,
                     VkFormat output_format) {
     bindless_ = &bindless;
@@ -28,7 +28,7 @@ void GameUi::create(Device& device, VmaAllocator allocator,
 
     if (!font_path.empty() && std::filesystem::exists(font_path)) {
         font_atlas_.create(font_path, device.handle(), allocator,
-                           device.physical_device(), command_pool, queue, bindless);
+                           device.physical_device(), upload, bindless);
     }
 }
 

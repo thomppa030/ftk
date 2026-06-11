@@ -116,6 +116,9 @@ public:
     // ── Deferred destruction ────────────────────────────────────────────
     [[nodiscard]] DeferredDeleter& deferred_deleter() { return core_.deferred_deleter(); }
 
+    // ── Batched GPU uploads ─────────────────────────────────────────────
+    [[nodiscard]] UploadContext& upload_context() { return core_.upload_context(); }
+
     // ── Global descriptors ──────────────────────────────────────────────
     [[nodiscard]] GlobalBindings& global_bindings() { return global_bindings_; }
     [[nodiscard]] const GlobalBindings& global_bindings() const { return global_bindings_; }

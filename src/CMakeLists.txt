@@ -58,6 +58,7 @@ add_executable(fjell
     renderer/fly_camera.cpp
     renderer/gpu/device.cpp
     renderer/gpu/gpu_core.cpp
+    renderer/gpu/upload_context.cpp
     renderer/gpu/image.cpp
     renderer/indirect_batch.cpp
     renderer/instance_provider.cpp
@@ -468,6 +469,7 @@ add_executable(fjell-hub
     ui/console.cpp
     renderer/gpu/device.cpp
     renderer/gpu/gpu_core.cpp
+    renderer/gpu/upload_context.cpp
     renderer/gpu/swapchain.cpp
     renderer/gpu/image.cpp
     renderer/gpu/buffer.cpp

@@ -10,16 +10,16 @@
 
 namespace fjell {
 
+class UploadContext;
+
 class Texture {
 public:
     Texture(VkDevice device, VmaAllocator allocator,
-            VkPhysicalDevice physical_device,
-            VkCommandPool command_pool, VkQueue queue,
+            VkPhysicalDevice physical_device, UploadContext& upload,
             const std::string& path, bool nearest = false);
 
     Texture(VkDevice device, VmaAllocator allocator,
-            VkPhysicalDevice physical_device,
-            VkCommandPool command_pool, VkQueue queue,
+            VkPhysicalDevice physical_device, UploadContext& upload,
             const uint8_t* pixels, uint32_t width, uint32_t height,
             VkFormat format = VK_FORMAT_R8G8B8A8_SRGB,
             uint32_t mip_levels = 0,
@@ -40,8 +40,8 @@ public:
 
 private:
     void upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
-                VkCommandPool command_pool,
-                VkQueue queue, const void* pixels, uint32_t width, uint32_t height,
+                UploadContext& upload_ctx,
+                const void* pixels, uint32_t width, uint32_t height,
                 VkFormat format = VK_FORMAT_R8G8B8A8_SRGB,
                 uint32_t mip_levels = 0,
                 bool clamp_to_edge = false,

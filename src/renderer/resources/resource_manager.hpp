@@ -28,6 +28,7 @@ class MegaBuffer;
 class MeshletBuffer;
 class Model;
 class PipelineCache;
+class UploadContext;
 class Project;
 class Texture;
 class Material;
@@ -37,7 +38,7 @@ class ResourceManager {
 public:
     ResourceManager(VkDevice device, VmaAllocator allocator,
                     VkPhysicalDevice physical_device,
-                    VkCommandPool command_pool, VkQueue queue,
+                    UploadContext& upload,
                     BindlessTextures& bindless, MegaBuffer* mega_buffer = nullptr,
                     MeshletBuffer* meshlet_buffer = nullptr,
                     PipelineCache* pipeline_cache = nullptr);
@@ -175,8 +176,7 @@ private:
     VkDevice device_;
     VmaAllocator allocator_;
     VkPhysicalDevice physical_device_;
-    VkCommandPool command_pool_;
-    VkQueue queue_;
+    UploadContext& upload_;
     BindlessTextures& bindless_;
     MegaBuffer* mega_buffer_;
     MeshletBuffer* meshlet_buffer_;

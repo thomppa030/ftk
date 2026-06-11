@@ -1,5 +1,5 @@
 #include "renderer/resources/texture.hpp"
-#include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/upload_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "core/log.hpp"
 
@@ -11,8 +11,7 @@
 namespace fjell {
 
 Texture::Texture(VkDevice device, VmaAllocator allocator,
-                 VkPhysicalDevice physical_device,
-                 VkCommandPool command_pool, VkQueue queue,
+                 VkPhysicalDevice physical_device, UploadContext& upload_ctx,
                  const std::string& path, bool nearest)
     : device_{device} {
     int width, height, channels;
@@ -24,7 +23,7 @@ Texture::Texture(VkDevice device, VmaAllocator allocator,
     // Pixel art: no mipmaps, nearest filter, clamp to edge
     uint32_t mip = nearest ? 1 : 0;
     bool clamp = nearest;
-    upload(allocator, physical_device, command_pool, queue, pixels,
+    upload(allocator, physical_device, upload_ctx, pixels,
            static_cast<uint32_t>(width), static_cast<uint32_t>(height),
            VK_FORMAT_R8G8B8A8_SRGB, mip, clamp, nearest);
     stbi_image_free(pixels);
@@ -33,12 +32,11 @@ Texture::Texture(VkDevice device, VmaAllocator allocator,
 }
 
 Texture::Texture(VkDevice device, VmaAllocator allocator,
-                 VkPhysicalDevice physical_device,
-                 VkCommandPool command_pool, VkQueue queue,
+                 VkPhysicalDevice physical_device, UploadContext& upload_ctx,
                  const uint8_t* pixels, uint32_t width, uint32_t height,
                  VkFormat format, uint32_t mip_levels, bool clamp_to_edge, bool nearest)
     : device_{device} {
-    upload(allocator, physical_device, command_pool, queue, pixels, width, height, format, mip_levels, clamp_to_edge, nearest);
+    upload(allocator, physical_device, upload_ctx, pixels, width, height, format, mip_levels, clamp_to_edge, nearest);
 
     FJELL_GFX_DEBUG("Texture loaded from memory: {}x{}", width, height);
 }
@@ -50,19 +48,15 @@ Texture::~Texture() {
 }
 
 void Texture::upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
-                     VkCommandPool command_pool,
-                     VkQueue queue, const void* pixels, uint32_t width, uint32_t height,
+                     UploadContext& upload_ctx,
+                     const void* pixels, uint32_t width, uint32_t height,
                      VkFormat format, uint32_t mip_levels_override, bool clamp_to_edge,
                      bool nearest) {
     VkDeviceSize image_size = static_cast<VkDeviceSize>(width) * height * 4;
     uint32_t mip_levels = mip_levels_override > 0 ? mip_levels_override :
         static_cast<uint32_t>(std::floor(std::log2(std::max(width, height)))) + 1;
 
-    Buffer staging{allocator, image_size,
-                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                   VMA_MEMORY_USAGE_AUTO,
-                   VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
-    staging.write(pixels, image_size);
+    StagingSlice staging = upload_ctx.stage_for_image(pixels, image_size);
 
     image_ = std::make_unique<Image>(
         allocator, width, height,
@@ -71,33 +65,23 @@ void Texture::upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
         VK_IMAGE_USAGE_SAMPLED_BIT,
         VMA_MEMORY_USAGE_AUTO, mip_levels);
 
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandPool = command_pool;
-    alloc_info.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    vk_check(vkAllocateCommandBuffers(device_, &alloc_info, &cmd),
-             "Failed to allocate texture upload command buffer");
-
-    VkCommandBufferBeginInfo begin_info{};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vk_check(vkBeginCommandBuffer(cmd, &begin_info),
-             "Failed to begin texture upload command buffer");
+    // Recorded into the upload batch; the flush at frame submission runs
+    // this before any rendering on the same queue, so the image is
+    // SHADER_READ_ONLY by the time anything samples it.
+    VkCommandBuffer cmd = upload_ctx.image_cb();
 
     image_->transition_layout(cmd, VK_IMAGE_LAYOUT_UNDEFINED,
                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mip_levels);
 
     VkBufferImageCopy region{};
+    region.bufferOffset = staging.offset;
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.mipLevel = 0;
     region.imageSubresource.baseArrayLayer = 0;
     region.imageSubresource.layerCount = 1;
     region.imageExtent = {width, height, 1};
 
-    vkCmdCopyBufferToImage(cmd, staging.handle(), image_->handle(),
+    vkCmdCopyBufferToImage(cmd, staging.buffer, image_->handle(),
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     if (mip_levels > 1) {
@@ -106,19 +90,6 @@ void Texture::upload(VmaAllocator allocator, VkPhysicalDevice physical_device,
         image_->transition_layout(cmd, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
     }
-
-    vk_check(vkEndCommandBuffer(cmd),
-             "Failed to end texture upload command buffer");
-
-    VkSubmitInfo submit_info{};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &cmd;
-    vk_check(vkQueueSubmit(queue, 1, &submit_info, VK_NULL_HANDLE),
-             "Failed to submit texture upload command");
-    vkQueueWaitIdle(queue);
-
-    vkFreeCommandBuffers(device_, command_pool, 1, &cmd);
 
     image_->create_view(device_, format, VK_IMAGE_ASPECT_COLOR_BIT, mip_levels);
 

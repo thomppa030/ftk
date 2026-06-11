@@ -35,10 +35,11 @@ struct FjSkinnedMeshData {
 // When loaded from .fjskel, also owns the embedded Skeleton.
 class MeshletBuffer;
 
+class UploadContext;
+
 class SkeletalModel {
 public:
-    SkeletalModel(VmaAllocator allocator, VkDevice device,
-                  VkCommandPool command_pool, VkQueue transfer_queue,
+    SkeletalModel(VmaAllocator allocator, UploadContext& upload,
                   FjSkinnedMeshData&& data,
                   MeshletBuffer* meshlet_buf = nullptr);
 

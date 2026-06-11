@@ -1,4 +1,5 @@
 #include "renderer/resources/skeletal_model.hpp"
+#include "renderer/gpu/upload_context.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "core/log.hpp"
@@ -10,19 +11,18 @@
 
 namespace fjell {
 
-SkeletalModel::SkeletalModel(VmaAllocator allocator, VkDevice device,
-                             VkCommandPool command_pool, VkQueue transfer_queue,
+SkeletalModel::SkeletalModel(VmaAllocator allocator, UploadContext& upload,
                              FjSkinnedMeshData&& data,
                              MeshletBuffer* meshlet_buf)
     : vertex_buffer_{allocator,
                      data.vertices.size() * sizeof(SkinnedVertex),
                      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
                          | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-                     VMA_MEMORY_USAGE_AUTO}
+                     VMA_MEMORY_USAGE_AUTO, 0, 0, upload.sharing_families()}
     , index_buffer_{allocator,
                     data.indices.size() * sizeof(uint32_t),
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                    VMA_MEMORY_USAGE_AUTO}
+                    VMA_MEMORY_USAGE_AUTO, 0, 0, upload.sharing_families()}
     , index_count_{static_cast<uint32_t>(data.indices.size())}
     , joint_count_{data.joint_count}
     , local_aabb_{data.aabb}
@@ -61,23 +61,11 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, VkDevice device,
         }
     }
 
-    // Stage and upload vertex data
     VkDeviceSize vert_size = data.vertices.size() * sizeof(SkinnedVertex);
-    Buffer vert_staging{allocator, vert_size,
-                        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                        VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
-    vert_staging.write(data.vertices.data(), vert_size);
-    Buffer::copy(device, command_pool, transfer_queue,
-                 vert_staging, vertex_buffer_, vert_size);
+    upload.upload_buffer(vertex_buffer_.handle(), 0, data.vertices.data(), vert_size);
 
-    // Stage and upload index data
     VkDeviceSize idx_size = data.indices.size() * sizeof(uint32_t);
-    Buffer idx_staging{allocator, idx_size,
-                       VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                       VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
-    idx_staging.write(data.indices.data(), idx_size);
-    Buffer::copy(device, command_pool, transfer_queue,
-                 idx_staging, index_buffer_, idx_size);
+    upload.upload_buffer(index_buffer_.handle(), 0, data.indices.data(), idx_size);
 
     FJELL_GFX_DEBUG("SkeletalModel created: {} verts, {} indices, {} joints{}",
                     data.vertices.size(), data.indices.size(), joint_count_,

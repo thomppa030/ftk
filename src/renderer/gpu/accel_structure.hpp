@@ -42,11 +42,14 @@ struct Blas {
     uint32_t mega_generation{0};
 };
 
+class UploadContext;
+
 /// Manages BLAS + TLAS for DDGI ray tracing.
 class AccelStructureManager {
 public:
     AccelStructureManager(Device& device, VmaAllocator allocator,
-                          VkCommandPool command_pool, VkQueue queue);
+                          VkCommandPool command_pool, VkQueue queue,
+                          UploadContext& upload);
     ~AccelStructureManager();
 
     AccelStructureManager(const AccelStructureManager&) = delete;
@@ -116,6 +119,7 @@ private:
     VmaAllocator allocator_;
     VkCommandPool command_pool_;
     VkQueue queue_;
+    UploadContext& upload_;
     VkDeviceSize scratch_alignment_{256}; // minAccelerationStructureScratchOffsetAlignment
 
     std::unordered_map<const Model*, Blas> blas_map_;

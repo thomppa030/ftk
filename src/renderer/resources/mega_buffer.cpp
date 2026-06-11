@@ -1,33 +1,43 @@
 #include "renderer/resources/mega_buffer.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
+#include "renderer/gpu/device.hpp"
+#include "renderer/gpu/upload_context.hpp"
 #include "core/log.hpp"
 
 #include <stdexcept>
 
 namespace fjell {
 
-MegaBuffer::MegaBuffer(VkDevice device, VmaAllocator allocator,
-                       VkCommandPool command_pool, VkQueue queue)
-    : device_{device}
-    , allocator_{allocator}
-    , command_pool_{command_pool}
-    , queue_{queue}
+namespace {
+
+constexpr VkBufferUsageFlags MEGA_VERTEX_USAGE =
+    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+
+constexpr VkBufferUsageFlags MEGA_INDEX_USAGE =
+    VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+    VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+    VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+    VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+
+} // namespace
+
+MegaBuffer::MegaBuffer(VmaAllocator allocator, UploadContext& upload,
+                       DeferredDeleter& deleter)
+    : allocator_{allocator}
+    , upload_{upload}
+    , deleter_{deleter}
     , vertex_capacity_{INITIAL_VERTEX_SIZE}
     , index_capacity_{INITIAL_INDEX_SIZE} {
     vertex_buffer_ = std::make_unique<Buffer>(
-        allocator_, vertex_capacity_,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_AUTO);
+        allocator_, vertex_capacity_, MEGA_VERTEX_USAGE,
+        VMA_MEMORY_USAGE_AUTO, 0, 0, upload_.sharing_families());
 
     index_buffer_ = std::make_unique<Buffer>(
-        allocator_, index_capacity_,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_AUTO);
+        allocator_, index_capacity_, MEGA_INDEX_USAGE,
+        VMA_MEMORY_USAGE_AUTO, 0, 0, upload_.sharing_families());
 
     FJELL_GFX_INFO("MegaBuffer created: {}MB vertex, {}MB index",
                    vertex_capacity_ / (1024 * 1024),
@@ -50,57 +60,10 @@ MegaMeshEntry MegaBuffer::upload(const std::vector<Vertex>& vertices,
         grow_index_buffer((index_byte_offset + index_size) * 2);
     }
 
-    // Stage and copy vertex data
-    Buffer vertex_staging{allocator_, vertex_size,
-                          VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                          VMA_MEMORY_USAGE_AUTO,
-                          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
-    vertex_staging.write(vertices.data(), vertex_size);
-
-    // Stage and copy index data
-    Buffer index_staging{allocator_, index_size,
-                         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                         VMA_MEMORY_USAGE_AUTO,
-                         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT};
-    index_staging.write(indices.data(), index_size);
-
-    // Submit both copies in one command buffer
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandPool = command_pool_;
-    alloc_info.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    vkAllocateCommandBuffers(device_, &alloc_info, &cmd);
-
-    VkCommandBufferBeginInfo begin_info{};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin_info);
-
-    VkBufferCopy vertex_copy{};
-    vertex_copy.srcOffset = 0;
-    vertex_copy.dstOffset = vertex_byte_offset;
-    vertex_copy.size = vertex_size;
-    vkCmdCopyBuffer(cmd, vertex_staging.handle(), vertex_buffer_->handle(), 1, &vertex_copy);
-
-    VkBufferCopy index_copy{};
-    index_copy.srcOffset = 0;
-    index_copy.dstOffset = index_byte_offset;
-    index_copy.size = index_size;
-    vkCmdCopyBuffer(cmd, index_staging.handle(), index_buffer_->handle(), 1, &index_copy);
-
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo submit_info{};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &cmd;
-    vkQueueSubmit(queue_, 1, &submit_info, VK_NULL_HANDLE);
-    vkQueueWaitIdle(queue_);
-
-    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
+    upload_.upload_buffer(vertex_buffer_->handle(), vertex_byte_offset,
+                          vertices.data(), vertex_size);
+    upload_.upload_buffer(index_buffer_->handle(), index_byte_offset,
+                          indices.data(), index_size);
 
     MegaMeshEntry entry{};
     entry.vertex_offset = vertex_offset_;
@@ -125,18 +88,16 @@ void MegaBuffer::grow_vertex_buffer(VkDeviceSize new_size) {
     FJELL_GFX_INFO("MegaBuffer: growing vertex buffer to {}MB", new_size / (1024 * 1024));
 
     auto new_buffer = std::make_unique<Buffer>(
-        allocator_, new_size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_AUTO);
+        allocator_, new_size, MEGA_VERTEX_USAGE,
+        VMA_MEMORY_USAGE_AUTO, 0, 0, upload_.sharing_families());
 
     if (vertex_offset_ > 0) {
         VkDeviceSize used = static_cast<VkDeviceSize>(vertex_offset_) * sizeof(Vertex);
-        Buffer::copy(device_, command_pool_, queue_, *vertex_buffer_, *new_buffer, used);
+        upload_.copy_buffer(vertex_buffer_->handle(), new_buffer->handle(), used);
     }
 
+    // In-flight frames still read the old buffer — retire, don't destroy.
+    deleter_.retire(std::move(vertex_buffer_));
     vertex_buffer_ = std::move(new_buffer);
     vertex_capacity_ = new_size;
     ++generation_;  // new VkBuffer = new device address; baked BLAS addrs now stale
@@ -146,18 +107,15 @@ void MegaBuffer::grow_index_buffer(VkDeviceSize new_size) {
     FJELL_GFX_INFO("MegaBuffer: growing index buffer to {}MB", new_size / (1024 * 1024));
 
     auto new_buffer = std::make_unique<Buffer>(
-        allocator_, new_size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_AUTO);
+        allocator_, new_size, MEGA_INDEX_USAGE,
+        VMA_MEMORY_USAGE_AUTO, 0, 0, upload_.sharing_families());
 
     if (index_offset_ > 0) {
         VkDeviceSize used = static_cast<VkDeviceSize>(index_offset_) * sizeof(uint32_t);
-        Buffer::copy(device_, command_pool_, queue_, *index_buffer_, *new_buffer, used);
+        upload_.copy_buffer(index_buffer_->handle(), new_buffer->handle(), used);
     }
 
+    deleter_.retire(std::move(index_buffer_));
     index_buffer_ = std::move(new_buffer);
     index_capacity_ = new_size;
     ++generation_;  // new VkBuffer = new device address; baked BLAS addrs now stale

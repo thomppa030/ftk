@@ -12,10 +12,11 @@
 
 namespace fjell {
 
+class UploadContext;
+
 class Mesh {
 public:
-    Mesh(VmaAllocator allocator, VkDevice device,
-         VkCommandPool command_pool, VkQueue transfer_queue,
+    Mesh(VmaAllocator allocator, UploadContext& upload,
          std::span<const Vertex> vertices,
          std::span<const uint32_t> indices);
 

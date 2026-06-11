@@ -3,6 +3,7 @@
 #include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/swapchain.hpp"
+#include "renderer/gpu/upload_context.hpp"
 #include "renderer/renderer_constants.hpp"
 
 #include <vk_mem_alloc.h>
@@ -10,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace fjell {
@@ -96,6 +98,9 @@ public:
     // ── Deferred destruction ────────────────────────────────────────────
     [[nodiscard]] DeferredDeleter& deferred_deleter() { return deferred_deleter_; }
 
+    // ── Batched GPU uploads ─────────────────────────────────────────────
+    [[nodiscard]] UploadContext& upload_context() { return *upload_; }
+
     void wait_idle();
 
 private:
@@ -107,6 +112,7 @@ private:
     Swapchain swapchain_;
 
     DeferredDeleter deferred_deleter_;
+    std::unique_ptr<UploadContext> upload_;
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     std::vector<VkCommandBuffer> command_buffers_;

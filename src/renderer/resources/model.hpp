@@ -52,19 +52,17 @@ class Model {
 public:
     // Load from glTF/GLB file (existing path)
     Model(VmaAllocator allocator, VkDevice device, VkPhysicalDevice physical_device,
-          VkCommandPool command_pool, VkQueue queue,
+          UploadContext& upload,
           const std::string& path, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);
 
     // Create from primitive mesh data (cube/plane/sphere)
-    Model(VmaAllocator allocator, VkDevice device,
-          VkCommandPool command_pool, VkQueue queue,
+    Model(VmaAllocator allocator, UploadContext& upload,
           const PrimitiveMeshData& data, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);
 
     // Create from pre-loaded .fjmesh data (no parsing, no meshlet building)
-    Model(VmaAllocator allocator, VkDevice device,
-          VkCommandPool command_pool, VkQueue queue,
+    Model(VmaAllocator allocator, UploadContext& upload,
           FjMeshData&& data, MegaBuffer* mega = nullptr,
           MeshletBuffer* meshlet_buf = nullptr);
 
