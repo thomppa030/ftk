@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,11 @@ struct QueueFamilyIndices {
     // in parallel with graphics. Left empty when no such family exists —
     // passes that opt into async degrade gracefully to the graphics queue.
     std::optional<uint32_t> async_compute;
+    // Dedicated transfer family (TRANSFER bit set, GRAPHICS and COMPUTE
+    // clear) — the DMA engine. Copies submitted here run in parallel with
+    // rendering. Left empty when no such family exists — uploads degrade
+    // gracefully to the graphics queue.
+    std::optional<uint32_t> transfer;
 
     [[nodiscard]] bool is_complete() const {
         return graphics.has_value() && present.has_value();
@@ -53,6 +59,20 @@ public:
     [[nodiscard]] VkQueue async_compute_queue() const { return async_compute_queue_; }
     [[nodiscard]] bool async_compute_supported() const {
         return async_compute_queue_ != VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkQueue transfer_queue() const { return transfer_queue_; }
+    [[nodiscard]] bool transfer_queue_supported() const {
+        return transfer_queue_ != VK_NULL_HANDLE;
+    }
+
+    /// Queue families that may access upload-destination buffers: graphics,
+    /// plus the dedicated transfer and async compute families when they
+    /// exist. With two or more entries, buffers written by the upload path
+    /// must be created VK_SHARING_MODE_CONCURRENT over these families so
+    /// their content stays defined across queues without ownership
+    /// transfers. The span is stable for the Device's lifetime.
+    [[nodiscard]] std::span<const uint32_t> upload_sharing_families() const {
+        return {upload_families_.data(), upload_family_count_};
     }
 
     /// When async compute is supported, returns a pointer to a stable
@@ -126,6 +146,11 @@ private:
     VkQueue graphics_queue_{VK_NULL_HANDLE};
     VkQueue present_queue_{VK_NULL_HANDLE};
     VkQueue async_compute_queue_{VK_NULL_HANDLE};
+    VkQueue transfer_queue_{VK_NULL_HANDLE};
+    // Families for upload-destination buffer sharing — see
+    // upload_sharing_families().
+    std::array<uint32_t, 3> upload_families_{};
+    uint32_t upload_family_count_{0};
     // {graphics_family, async_compute_family} — stable for the lifetime
     // of the Device, filled in create_logical_device when async is
     // supported. Empty otherwise.

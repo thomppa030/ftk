@@ -280,6 +280,9 @@ void Device::create_logical_device() {
     if (indices.async_compute.has_value()) {
         unique_families.insert(indices.async_compute.value());
     }
+    if (indices.transfer.has_value()) {
+        unique_families.insert(indices.transfer.value());
+    }
 
     float priority = 1.0f;
     for (uint32_t family : unique_families) {
@@ -406,6 +409,22 @@ void Device::create_logical_device() {
         FJELL_GFX_INFO("Async compute not supported (no dedicated compute queue family)");
     }
 
+    // Upload sharing families: graphics always; dedicated transfer and
+    // async compute when present. Two or more entries means upload
+    // destinations need VK_SHARING_MODE_CONCURRENT.
+    upload_families_[upload_family_count_++] = indices.graphics.value();
+    if (indices.transfer.has_value()) {
+        vkGetDeviceQueue(device_, indices.transfer.value(), 0, &transfer_queue_);
+        upload_families_[upload_family_count_++] = indices.transfer.value();
+        FJELL_GFX_INFO("Dedicated transfer queue supported (queue family {})",
+                       indices.transfer.value());
+    } else {
+        FJELL_GFX_INFO("No dedicated transfer queue family — uploads use the graphics queue");
+    }
+    if (indices.async_compute.has_value()) {
+        upload_families_[upload_family_count_++] = indices.async_compute.value();
+    }
+
     // Load mesh shader extension function pointers
     if (mesh_shader_supported_) {
         pfn_draw_mesh_tasks_ = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(
@@ -483,6 +502,20 @@ QueueFamilyIndices Device::find_queue_families(VkPhysicalDevice device) const {
         bool has_graphics = (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
         if (has_compute && !has_graphics) {
             indices.async_compute = i;
+            break;
+        }
+    }
+
+    // Dedicated transfer: the DMA engine family (TRANSFER bit, no GRAPHICS
+    // or COMPUTE). Copies submitted there overlap with rendering instead of
+    // contending for the graphics queue. Same reasoning as async compute:
+    // a shared family wouldn't actually run in parallel, so skip it.
+    for (uint32_t i = 0; i < count; ++i) {
+        bool has_transfer = (families[i].queueFlags & VK_QUEUE_TRANSFER_BIT) != 0;
+        bool has_graphics = (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0;
+        bool has_compute = (families[i].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
+        if (has_transfer && !has_graphics && !has_compute) {
+            indices.transfer = i;
             break;
         }
     }
