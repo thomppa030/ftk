@@ -2,6 +2,7 @@
 
 #include "core/result.hpp"
 #include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -45,7 +46,8 @@ public:
     static constexpr uint32_t MAX_TEXTURES = 1024;
     static constexpr uint32_t MAX_MATERIALS = 1024;
 
-    [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator);
+    [[nodiscard]] Result<> create(VkDevice device, VmaAllocator allocator,
+                                  DeferredDeleter& deleter);
     void destroy();
 
     // Register a texture and get its bindless index.
@@ -94,6 +96,7 @@ private:
 
     VkDevice device_{VK_NULL_HANDLE};
     VmaAllocator allocator_{VK_NULL_HANDLE};
+    DeferredDeleter* deleter_{nullptr};
 
     VkDescriptorSetLayout layout_{VK_NULL_HANDLE};
     VkDescriptorPool pool_{VK_NULL_HANDLE};

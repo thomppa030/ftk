@@ -8,9 +8,11 @@
 
 namespace fjell {
 
-Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator) {
+Result<> BindlessTextures::create(VkDevice device, VmaAllocator allocator,
+                                  DeferredDeleter& deleter) {
     device_ = device;
     allocator_ = allocator;
+    deleter_ = &deleter;
 
     // Default sampler for empty slots
     VkSamplerCreateInfo sampler_ci{};
@@ -296,7 +298,10 @@ void BindlessTextures::update_material_buffer() {
     if (params_dirty_ && !params_.empty()) {
         VkDeviceSize needed = params_.size() * sizeof(float);
         if (needed > params_ssbo_->size()) {
-            // Grow the params SSBO and re-bind descriptor
+            // Grow the params SSBO and re-bind the descriptor. In-flight
+            // frames still read the old buffer through the previous
+            // descriptor — retire it instead of destroying it inline.
+            deleter_->retire(std::move(params_ssbo_));
             VkDeviceSize new_size = needed * 2;
             params_ssbo_ = std::make_unique<Buffer>(
                 allocator_, new_size,

@@ -138,6 +138,11 @@ GpuCore::GpuCore(Window& window)
 GpuCore::~GpuCore() {
     auto dev = device_.handle();
 
+    // Retired resources may reference the allocator and device — destroy
+    // them while both are still alive, once the GPU can't touch them.
+    vkDeviceWaitIdle(dev);
+    deferred_deleter_.flush_all();
+
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         if (image_available_[i] != VK_NULL_HANDLE)
             vkDestroySemaphore(dev, image_available_[i], nullptr);

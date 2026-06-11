@@ -104,7 +104,8 @@ GpuContext::GpuContext(Window& window)
     vk_pipeline_cache_ = load_pipeline_cache(core_.vk_device());
 
     create_descriptor_resources();
-    if (auto r = bindless_textures_.create(core_.vk_device(), core_.allocator()); !r) {
+    if (auto r = bindless_textures_.create(core_.vk_device(), core_.allocator(),
+                                           core_.deferred_deleter()); !r) {
         throw std::runtime_error(r.error());
     }
 

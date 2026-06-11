@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/gpu/swapchain.hpp"
 #include "renderer/renderer_constants.hpp"
@@ -92,6 +93,9 @@ public:
         return in_flight_[frame_index];
     }
 
+    // ── Deferred destruction ────────────────────────────────────────────
+    [[nodiscard]] DeferredDeleter& deferred_deleter() { return deferred_deleter_; }
+
     void wait_idle();
 
 private:
@@ -101,6 +105,8 @@ private:
     Device device_;
     VmaAllocator allocator_{VK_NULL_HANDLE};
     Swapchain swapchain_;
+
+    DeferredDeleter deferred_deleter_;
 
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     std::vector<VkCommandBuffer> command_buffers_;

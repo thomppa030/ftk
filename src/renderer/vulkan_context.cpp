@@ -1346,6 +1346,10 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // GPU is now done with this frame slot — safe to destroy/resize resources.
     apply_pending_ddgi_toggle();
 
+    // Destroy resources retired the last time this slot recorded, and point
+    // new retirements at this slot.
+    gpu_.deferred_deleter().begin_frame(current_frame_);
+
     // Free buffers that capacity growth retired for this slot last time it was
     // in flight. Safe now that the slot's fence has signaled — the command
     // buffers that referenced the old buffers have completed. Freeing them

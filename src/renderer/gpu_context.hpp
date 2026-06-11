@@ -113,6 +113,9 @@ public:
         return core_.in_flight_fence(frame_index);
     }
 
+    // ── Deferred destruction ────────────────────────────────────────────
+    [[nodiscard]] DeferredDeleter& deferred_deleter() { return core_.deferred_deleter(); }
+
     // ── Global descriptors ──────────────────────────────────────────────
     [[nodiscard]] GlobalBindings& global_bindings() { return global_bindings_; }
     [[nodiscard]] const GlobalBindings& global_bindings() const { return global_bindings_; }
