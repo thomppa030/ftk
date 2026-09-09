@@ -83,6 +83,7 @@ struct ParticleComputePush {
 };
 static_assert(sizeof(ParticleComputePush) == 20);
 
+class DeferredDeleter;
 class Device;
 class Scene;
 
@@ -156,6 +157,9 @@ private:
     VmaAllocator allocator_{VK_NULL_HANDLE};
     VkCommandPool command_pool_{VK_NULL_HANDLE};
     VkQueue queue_{VK_NULL_HANDLE};
+    DeferredDeleter* deleter_{nullptr}; // retires replaced buffers instead of
+                                        // freeing them while a frame in
+                                        // flight might still be reading them
 
     // Compute pipeline (shared set layout for all 3 shaders)
     VkDescriptorSetLayout compute_set_layout_{VK_NULL_HANDLE};

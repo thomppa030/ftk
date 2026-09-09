@@ -1,5 +1,6 @@
 #include "renderer/systems/particle_system.hpp"
 #include "renderer/frustum.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/material.hpp"
@@ -42,6 +43,7 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     color_format_ = resources.color_format;
     depth_format_ = resources.depth_format;
     sample_count_ = resources.sample_count;
+    deleter_ = resources.deferred_deleter;
 
     auto families = device.find_queue_families();
     VkCommandPoolCreateInfo pool_ci{};
@@ -1111,18 +1113,38 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     mega_dead_list_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t));
     mega_indirect_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t));
 
-    // Free old descriptor sets if they exist
+    // Retire old descriptor sets through the deferred deleter rather than
+    // freeing them immediately — a frame still in flight when this runs
+    // may still have a command buffer bound to one of these (same reason
+    // the buffer replacements above go through retire() instead of a bare
+    // reset), and freeing a set a submitted command buffer references is
+    // undefined behavior per the Vulkan spec.
     if (compute_set_ != VK_NULL_HANDLE) {
-        vkFreeDescriptorSets(device_, pool_, 1, &compute_set_);
+        VkDescriptorSet doomed = compute_set_;
+        VkDescriptorPool doomed_pool = pool_;
+        VkDevice dev = device_;
+        deleter_->defer([dev, doomed_pool, doomed]() mutable {
+            vkFreeDescriptorSets(dev, doomed_pool, 1, &doomed);
+        });
         compute_set_ = VK_NULL_HANDLE;
     }
     if (mesh_compute_set_ != VK_NULL_HANDLE) {
-        vkFreeDescriptorSets(device_, pool_, 1, &mesh_compute_set_);
+        VkDescriptorSet doomed = mesh_compute_set_;
+        VkDescriptorPool doomed_pool = pool_;
+        VkDevice dev = device_;
+        deleter_->defer([dev, doomed_pool, doomed]() mutable {
+            vkFreeDescriptorSets(dev, doomed_pool, 1, &doomed);
+        });
         mesh_compute_set_ = VK_NULL_HANDLE;
     }
     for (auto& rs : render_sets_) {
         if (rs != VK_NULL_HANDLE) {
-            vkFreeDescriptorSets(device_, pool_, 1, &rs);
+            VkDescriptorSet doomed = rs;
+            VkDescriptorPool doomed_pool = pool_;
+            VkDevice dev = device_;
+            deleter_->defer([dev, doomed_pool, doomed]() mutable {
+                vkFreeDescriptorSets(dev, doomed_pool, 1, &doomed);
+            });
             rs = VK_NULL_HANDLE;
         }
     }
@@ -1130,8 +1152,15 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     total_particle_capacity_ = total_particles;
     emitter_capacity_ = emitter_count;
 
+    // These four buffers are fully recreated on every growth (no in-place
+    // resize like the sparse GrowableBuffers above) — the old instance is
+    // retired through DeferredDeleter rather than destroyed immediately,
+    // since a frame still in flight when this runs may still be reading
+    // it. This is what lets sync_emitters skip vkDeviceWaitIdle/
+    // vkQueueWaitIdle before calling rebuild_mega_buffers.
     VkDeviceSize emitter_data_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(GpuEmitterData);
 
+    if (emitter_data_buffer_) deleter_->retire(std::move(emitter_data_buffer_));
     emitter_data_buffer_ = std::make_unique<Buffer>(
         allocator_, emitter_data_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1140,6 +1169,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     // Module buffer: MODULE_BUDGET_BYTES per emitter.
     VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * MODULE_BUDGET_BYTES;
+    if (module_buffer_) deleter_->retire(std::move(module_buffer_));
     module_buffer_ = std::make_unique<Buffer>(
         allocator_, module_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1150,6 +1180,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     constexpr VkDeviceSize EVENT_SIZE = 64; // sizeof(SubEmitterEvent) in GLSL
     constexpr VkDeviceSize MAX_EVENTS = 256;
     VkDeviceSize event_buf_size = std::max(EVENT_SIZE, static_cast<VkDeviceSize>(emitter_count) * MAX_EVENTS * EVENT_SIZE);
+    if (sub_event_buffer_) deleter_->retire(std::move(sub_event_buffer_));
     sub_event_buffer_ = std::make_unique<Buffer>(
         allocator_, event_buf_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -1157,6 +1188,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     // Sub-emitter event counters: one uint32 per emitter
     VkDeviceSize counter_buf_size = std::max(static_cast<VkDeviceSize>(4), static_cast<VkDeviceSize>(emitter_count) * sizeof(uint32_t));
+    if (sub_event_counter_buffer_) deleter_->retire(std::move(sub_event_counter_buffer_));
     sub_event_counter_buffer_ = std::make_unique<Buffer>(
         allocator_, counter_buf_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -1271,11 +1303,13 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     constexpr VkBufferUsageFlags STORAGE_FLAGS = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     VkDeviceSize instance_size = static_cast<VkDeviceSize>(total_particles) * sizeof(GpuMeshInstance);
     if (instance_size == 0) instance_size = sizeof(GpuMeshInstance); // minimum 1 slot
+    if (mesh_instance_buffer_) deleter_->retire(std::move(mesh_instance_buffer_));
     mesh_instance_buffer_ = std::make_unique<Buffer>(
         allocator_, instance_size, STORAGE_FLAGS, VMA_MEMORY_USAGE_AUTO);
 
     VkDeviceSize instance_count_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(uint32_t);
     if (instance_count_size == 0) instance_count_size = sizeof(uint32_t);
+    if (mesh_instance_count_buffer_) deleter_->retire(std::move(mesh_instance_count_buffer_));
     mesh_instance_count_buffer_ = std::make_unique<Buffer>(
         allocator_, instance_count_size,
         STORAGE_FLAGS | VK_BUFFER_USAGE_TRANSFER_DST_BIT, VMA_MEMORY_USAGE_AUTO);
@@ -1283,6 +1317,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     // Mesh indirect buffer: one VkDrawIndexedIndirectCommand per emitter
     VkDeviceSize mesh_indirect_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(VkDrawIndexedIndirectCommand);
     if (mesh_indirect_size == 0) mesh_indirect_size = sizeof(VkDrawIndexedIndirectCommand);
+    if (mesh_indirect_buffer_) deleter_->retire(std::move(mesh_indirect_buffer_));
     mesh_indirect_buffer_ = std::make_unique<Buffer>(
         allocator_, mesh_indirect_size,
         STORAGE_FLAGS | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -1601,18 +1636,21 @@ void ParticleSystem::sync_emitters(Scene& scene) {
 
     bool needs_realloc = total > total_particle_capacity_ || count > emitter_capacity_;
 
+    // No device/queue idle wait needed before growing: the four sparse
+    // buffers grow in place (ensure_capacity above), and the buffers/
+    // descriptor sets rebuild_mega_buffers still fully recreates are
+    // retired through DeferredDeleter instead of being freed immediately
+    // — see its call sites. init_emitter_range submits and waits for its
+    // own init command buffer regardless of this branch, so neither path
+    // needs an additional wait beforehand.
     if (needs_realloc) {
-        vkDeviceWaitIdle(device_);
         uint32_t new_total = std::max(total, total_particle_capacity_ * 2);
         uint32_t new_count = std::max(count, emitter_capacity_ * 2);
         if (new_total == 0) new_total = total;
         if (new_count == 0) new_count = count;
         rebuild_mega_buffers(new_total, new_count);
-        init_emitter_range(first_new, count);
-    } else {
-        vkQueueWaitIdle(queue_);
-        init_emitter_range(first_new, count);
     }
+    init_emitter_range(first_new, count);
 }
 
 void ParticleSystem::upload_primitives(MegaBuffer& mega_buffer) {
