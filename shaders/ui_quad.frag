@@ -3,26 +3,11 @@
 
 #include "fjell_ui_common.glsl"
 #include "fjell_gpu_types.glsl"
+#include "fjell_global_ubo.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
 
-layout(set = 0, binding = 0) uniform GlobalUBO {
-    mat4 view;
-    mat4 projection;
-    vec4 light_direction;
-    vec4 light_color;
-    vec4 camera_position;
-    vec4 ambient_color;
-    mat4 cascade_vp[3];
-    vec4 cascade_splits;
-    uvec4 tile_info;
-    mat4 inv_projection;
-    mat4 inv_view_proj;
-    mat4 prev_view_proj;
-    mat4 unjittered_vp;
-    mat4 prev_unjittered_vp;
-    float time;
-} ubo;
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
     GpuMaterial materials[];
