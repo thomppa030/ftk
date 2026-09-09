@@ -18,6 +18,10 @@
 // backs nothing and can be skipped entirely.
 #define DDGI_SLOT_UNALLOCATED 0xFFFFFFFFu
 
+// A slot with no row in this frame's trace list: it was not traced, so
+// there is no radiance for the update passes to read.
+#define DDGI_NO_TRACE_ROW 0xFFFFFFFFu
+
 #ifndef FJELL_DDGI_UBO_SET
 #define FJELL_DDGI_UBO_SET 0
 #endif
@@ -214,6 +218,33 @@ int ddgi_slot_to_level(int probe_index) {
 /// update passes check this before spending rays on a slot.
 bool ddgi_slot_allocated(int probe_index) {
     return ddgi_slot_grid[probe_index].w != DDGI_SLOT_UNALLOCATED;
+}
+#endif
+
+// Compacted list of the slots holding a probe this frame. The trace
+// dispatches over this rather than over a range of slot indices: with
+// demand-driven allocation most of the pool is empty at any moment, so a
+// slot-indexed window launches mostly-idle invocations. Mirrors Lumen's
+// ProbeTraceData, built by ddgi_clipmap_alloc.comp.
+#ifdef FJELL_DDGI_TRACE_LIST_BINDING
+layout(std430, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_TRACE_LIST_BINDING) readonly buffer DdgiTraceList {
+    uint ddgi_trace_count;
+    uint ddgi_trace_slots[];
+};
+#endif
+
+// slot -> its row in the trace list. The update passes walk the atlas, so
+// they start from a slot and need the row, the opposite direction from the
+// trace itself.
+#ifdef FJELL_DDGI_SLOT_ROW_BINDING
+layout(std430, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_SLOT_ROW_BINDING) readonly buffer DdgiSlotTraceRow {
+    uint ddgi_slot_trace_row[];
+};
+
+/// Row holding this slot's radiance this frame, or -1 if it was not traced.
+int ddgi_slot_row(int probe_index) {
+    uint row = ddgi_slot_trace_row[probe_index];
+    return (row == DDGI_NO_TRACE_ROW) ? -1 : int(row);
 }
 #endif
 

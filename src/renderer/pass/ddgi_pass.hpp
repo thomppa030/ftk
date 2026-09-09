@@ -218,6 +218,18 @@ public:
         // Frame each slot was last marked as wanted, one uint per probe.
         std::unique_ptr<Buffer> probe_last_used_buffer;
 
+        // This frame's live probes: leading count, then slot indices. The
+        // trace dispatches over the count rather than over the pool.
+        std::unique_ptr<Buffer> trace_list_buffer;
+
+        // slot -> row in trace_list_buffer, for the atlas-keyed passes.
+        std::unique_ptr<Buffer> slot_trace_row_buffer;
+
+        // Trace dispatch dimensions, written on the GPU from the live count.
+        std::unique_ptr<Buffer> trace_args_buffer;
+
+        VkDescriptorSet trace_args_set{VK_NULL_HANDLE};
+
         // Probe status SSBO (uint per probe)
         std::unique_ptr<Buffer> probe_status_buffer;
 
@@ -392,6 +404,12 @@ public:
         uint32_t output_resolution_half;
     };
 
+    /// Round-robin window the trace-args pass clamps the live count to.
+    struct TraceArgsPushConstants {
+        uint32_t update_offset;
+        uint32_t update_count;
+    };
+
     static constexpr uint32_t ALLOC_PHASE_CLEAR = 0;
     static constexpr uint32_t ALLOC_PHASE_REUSE = 1;
     static constexpr uint32_t ALLOC_PHASE_ALLOC = 2;
@@ -439,6 +457,10 @@ private:
     VkDescriptorSetLayout mark_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout mark_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline clipmap_mark_pipeline_{VK_NULL_HANDLE};
+
+    VkDescriptorSetLayout trace_args_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout trace_args_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline trace_args_pipeline_{VK_NULL_HANDLE};
 
     // The clipmap level this pass traces. Pass-level rather than
     // per-viewport: every viewport samples the same world probes, so the

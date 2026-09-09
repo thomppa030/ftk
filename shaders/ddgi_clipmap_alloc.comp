@@ -54,6 +54,32 @@ layout(std430, set = 0, binding = 6) buffer ProbeLastUsed {
     uint probe_last_used[];
 };
 
+// Compacted list of the slots that actually hold a probe this frame, so
+// the trace dispatches over what exists rather than over a window of slot
+// indices that is mostly empty. Lumen's ProbeTraceAllocator /
+// ProbeTraceData serve the same purpose.
+layout(std430, set = 0, binding = 7) buffer TraceList {
+    uint trace_count;
+    uint trace_slots[];
+};
+
+// Row this slot occupies in the trace list, or DDGI_NO_TRACE_ROW. The
+// update passes are keyed by atlas pixel and so resolve slot -> row, the
+// reverse of trace_slots.
+layout(std430, set = 0, binding = 8) buffer SlotTraceRow {
+    uint slot_trace_row[];
+};
+
+// Append a live slot to this frame's trace list, recording where it landed
+// so the update passes can find its radiance rows.
+void append_trace(uint slot) {
+    uint at = atomicAdd(trace_count, 1u);
+    if (at < uint(ddgi_total_probes())) {
+        trace_slots[at] = slot;
+        slot_trace_row[slot] = at;
+    }
+}
+
 #define ALLOC_PHASE_CLEAR 0u
 #define ALLOC_PHASE_REUSE 1u
 #define ALLOC_PHASE_ALLOC 2u
@@ -135,6 +161,7 @@ void main() {
                 if (wanted_now) probe_last_used[slot] = frame_number;
                 imageStore(indirection_next, indirection_texel(new_cell), uvec4(slot, 0, 0, 0));
                 slot_grid[slot] = uvec4(uvec3(new_cell), uint(level));
+                append_trace(slot);
                 return;
             }
         }
@@ -192,6 +219,7 @@ void main() {
     imageStore(indirection_next, indirection_texel(cell), uvec4(slot, 0, 0, 0));
     slot_grid[slot] = uvec4(uvec3(cell), uint(level));
     probe_last_used[slot] = frame_number;
+    append_trace(slot);
 
     // Its contents belong to a different world position, so the irradiance
     // update must overwrite rather than blend into it.
