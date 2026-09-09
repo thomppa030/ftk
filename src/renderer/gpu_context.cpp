@@ -114,11 +114,11 @@ GpuContext::GpuContext(Window& window)
 
     // Multi-draw indirect setup
     mega_buffer_ = std::make_unique<MegaBuffer>(
-        core_.allocator(), core_.upload_context(), core_.deferred_deleter());
+        core_.device(), core_.allocator(), core_.upload_context(), core_.deferred_deleter());
 
     // Meshlet buffers + descriptor (uploaded at model load time)
     meshlet_buffer_ = std::make_unique<MeshletBuffer>(
-        core_.allocator(), core_.upload_context(), core_.deferred_deleter());
+        core_.device(), core_.allocator(), core_.upload_context(), core_.deferred_deleter());
     meshlet_descriptor_.create(core_.vk_device(), core_.allocator());
 
     // Query and clamp MSAA sample count

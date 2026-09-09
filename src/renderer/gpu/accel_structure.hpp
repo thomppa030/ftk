@@ -43,13 +43,14 @@ struct Blas {
 };
 
 class UploadContext;
+class DeferredDeleter;
 
 /// Manages BLAS + TLAS for DDGI ray tracing.
 class AccelStructureManager {
 public:
     AccelStructureManager(Device& device, VmaAllocator allocator,
                           VkCommandPool command_pool, VkQueue queue,
-                          UploadContext& upload);
+                          UploadContext& upload, DeferredDeleter& deleter);
     ~AccelStructureManager();
 
     AccelStructureManager(const AccelStructureManager&) = delete;
@@ -113,6 +114,8 @@ private:
     // Destroy a BLAS's acceleration structure handle (GPU must be idle).
     // Used to retire a stale BLAS before rebuilding against a moved mega-buffer.
     void destroy_blas(Blas& blas);
+    // Hand a stale BLAS to the deferred deleter (frame-fenced destruction).
+    void retire_blas(Blas blas);
 
     Device& device_;
     VkDevice vk_device_;
@@ -120,6 +123,7 @@ private:
     VkCommandPool command_pool_;
     VkQueue queue_;
     UploadContext& upload_;
+    DeferredDeleter& deleter_;
     VkDeviceSize scratch_alignment_{256}; // minAccelerationStructureScratchOffsetAlignment
 
     std::unordered_map<const Model*, Blas> blas_map_;

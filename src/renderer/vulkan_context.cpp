@@ -80,7 +80,7 @@ VulkanContext::VulkanContext(Window& window)
         accel_manager_ = std::make_unique<AccelStructureManager>(
             gpu_.device_ref(), gpu_.allocator(),
             gpu_.command_pool(), gpu_.graphics_queue(),
-            gpu_.upload_context());
+            gpu_.upload_context(), gpu_.deferred_deleter());
         accel_manager_->create_particle_tlas_pipeline(gpu_.vk_pipeline_cache());
         ddgi_pass().set_accel_manager(accel_manager_.get());
         ss_gi_pass().set_accel_manager(accel_manager_.get());

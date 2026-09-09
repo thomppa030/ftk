@@ -1,4 +1,5 @@
 #include "renderer/gpu/accel_structure.hpp"
+#include "renderer/gpu/deferred_deleter.hpp"
 #include "renderer/gpu/upload_context.hpp"
 #include "renderer/gpu/vk_check.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -33,13 +34,14 @@ static VmaAllocationCreateFlags as_dedicated_flag() {
 
 AccelStructureManager::AccelStructureManager(Device& device, VmaAllocator allocator,
                                              VkCommandPool command_pool, VkQueue queue,
-                                             UploadContext& upload)
+                                             UploadContext& upload, DeferredDeleter& deleter)
     : device_{device}
     , vk_device_{device.handle()}
     , allocator_{allocator}
     , command_pool_{command_pool}
     , queue_{queue}
-    , upload_{upload} {
+    , upload_{upload}
+    , deleter_{deleter} {
     // Query scratch buffer alignment requirement
     VkPhysicalDeviceAccelerationStructurePropertiesKHR as_props{};
     as_props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
@@ -126,18 +128,28 @@ void AccelStructureManager::ensure_blas(const Model* model, const MegaBuffer& me
         if (it->second.mega_generation == mega.generation()) return;
         // Stale: the mega-buffer reallocated (new device address). The baked
         // addresses now dangle; retire and rebuild against the current buffer.
-        vkDeviceWaitIdle(vk_device_);
-        destroy_blas(it->second);
+        // In-flight frames may still trace against the old BLAS — keep it
+        // alive until their fences signal.
+        retire_blas(std::move(it->second));
         blas_map_.erase(it);
     }
     build_blas(model, mega);
 }
 
+void AccelStructureManager::retire_blas(Blas blas) {
+    deleter_.defer([dev = vk_device_, destroy_fn = device_.destroy_accel_struct_fn(),
+                    doomed = std::move(blas)]() mutable {
+        if (doomed.handle != VK_NULL_HANDLE) {
+            destroy_fn(dev, doomed.handle, nullptr);
+        }
+        doomed.buffer.reset();
+    });
+}
+
 void AccelStructureManager::ensure_blas_entry(const void* key, const MegaMeshEntry& entry, const MegaBuffer& mega) {
     if (auto it = entry_blas_map_.find(key); it != entry_blas_map_.end()) {
         if (it->second.mega_generation == mega.generation()) return;
-        vkDeviceWaitIdle(vk_device_);
-        destroy_blas(it->second);
+        retire_blas(std::move(it->second));
         entry_blas_map_.erase(it);
     }
     if (entry.index_count == 0) return;
