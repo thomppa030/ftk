@@ -22,7 +22,11 @@ struct RenderSettings {
         bool enabled{true};
         float gi_intensity{1.0f};
         float emissive_gi_boost{4.0f};
-        float infinite_bounces_mult{0.8f};
+        // See DdgiConfig::infinite_bounces_mult in ddgi_pass.hpp for why
+        // this default was lowered from 0.8 (steady-state feedback settles
+        // at direct_light / (1 - this) — 0.8 meant 5x, kept clamping bright
+        // white content every frame instead of rarely).
+        float infinite_bounces_mult{0.5f};
         float normal_bias{0.25f};
         float view_bias{0.08f};
     } ddgi;

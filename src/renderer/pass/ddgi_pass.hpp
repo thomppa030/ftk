@@ -43,7 +43,18 @@ struct DdgiConfig {
     float max_probe_offset{0.5f};
     float gi_intensity{1.0f};
     float emissive_gi_boost{4.0f};
-    float infinite_bounces_mult{0.8f};
+    // Per-bounce energy retained in the multi-bounce feedback loop
+    // (ddgi_probe_trace_rt.rchit adds sample_ddgi_irradiance() * this back
+    // into each ray hit's radiance). The feedback is a geometric series —
+    // steady-state total indirect settles at direct_light / (1 - this), so
+    // 0.8 converges to 5x the direct term. That's enough to keep pushing a
+    // probe's stored irradiance above the 30.0 clamp on bright, saturated
+    // surfaces (bright white light on a bright white material) every frame,
+    // not rarely — a visible clamped plateau instead of the intended subtle
+    // multi-bounce boost. 0.5 -> 2x steady-state, still a clearly visible
+    // bounce contribution without living at the clamp ceiling for common
+    // bright content.
+    float infinite_bounces_mult{0.5f};
     // Probes traced+updated per frame, round-robin (0 = all). Spreading the
     // 2048-probe update over several frames cuts the per-frame ray cost;
     // hysteresis hides the staggering.

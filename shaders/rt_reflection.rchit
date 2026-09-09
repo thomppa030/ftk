@@ -141,7 +141,12 @@ vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
     }
 
     if (sum_weight < 1e-6) return vec3(0.0);
-    return 0.5 * PI * (sum_irradiance / sum_weight) * 0.95;
+    // See the canonical comment in ddgi_sample_irradiance.comp — a
+    // previous `0.5 * PI` factor here was an uncancelled extra term
+    // (verified numerically: ~1.49x incident irradiance for a fully-lit
+    // white surface, a physically impossible energy gain). 0.95 kept —
+    // matches `energy_conservation` in ddgi_irradiance_update.comp.
+    return (sum_irradiance / sum_weight) * 0.95;
 }
 
 // ── Main ───────────────────────────────────────────────────────────────

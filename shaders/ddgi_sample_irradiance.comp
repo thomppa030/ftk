@@ -104,8 +104,27 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
     // All cage probes disabled (e.g. deep inside geometry) — no indirect.
     if (sum_weight < 1e-6) return vec3(0.0);
 
+    // sum_irradiance already holds albedo * incident_light (see the store
+    // side in ddgi_irradiance_update.comp / ddgi_probe_trace_rt.rchit —
+    // no /PI there, matching how mesh.frag composites this result: it
+    // multiplies by the RECEIVING surface's albedo directly, no /PI,
+    // matching both the Mastering Graphics Programming with Vulkan
+    // reference (ch14/15 pbr.glsl: indirect_irradiance * base_colour) and
+    // Unreal's Lumen composite (DiffuseIndirectComposite.usf: comment
+    // confirms the diffuse term "already has the 1/PI for Lambert" baked
+    // in upstream of the final multiply, same convention). A previous
+    // `0.5 * PI` factor here was an uncancelled extra term with no
+    // corresponding /PI anywhere upstream or downstream — verified
+    // numerically against an idealized fully-lit white Lambertian surface
+    // (energy conservation requires reflected irradiance <= incident
+    // irradiance for albedo=1; the old constant produced ~1.49x incident,
+    // a physically impossible gain, uniform across all albedo values —
+    // see Plans/gi-shadow-artifact-investigation.md for the derivation).
+    // 0.95 is kept: it's the same deliberate small energy-loss damping
+    // factor used as `energy_conservation` in ddgi_irradiance_update.comp,
+    // unrelated to the PI error.
     vec3 net = sum_irradiance / sum_weight;
-    return 0.5 * PI * net * 0.95;
+    return net * 0.95;
 }
 
 // ── Main ────────────────────────────────────────────────────────────────

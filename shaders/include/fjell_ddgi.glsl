@@ -37,10 +37,40 @@ layout(std140, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_UBO_BINDING) unifo
 // the range there, so blending them is far less noisy — without this the
 // multi-bounce feedback shimmers in shadowed regions. Encode on every store,
 // decode on every load. Inverse pair: ^(1/5) <-> ^5.
+//
+// pow(x, 1/5) was tuned and validated only against dark/shadowed probes
+// (see the commit that introduced it — shimmer fix). The same curve shape
+// that compresses dark values well makes bright ones numerically unstable:
+// pow(x, 5) is extremely steep near x=1, so a tiny wobble in a bright
+// probe's encoded value (temporal blend, filtering, anything) blows up
+// into a large swing in decoded linear radiance — an encoded error of just
+// 0.01 near x≈2 swings the decode by roughly a full unit. This showed up
+// as a soft bright glow around geometry lit by a bright white light on a
+// bright white material — the one case that pushes irradiance high enough
+// to reach that unstable region. Per-ray radiance is already clamped to
+// 30.0 upstream (ddgi_irradiance_update.comp) before it's averaged into
+// the probe's stored value, so this DOES stay bounded in the normal
+// per-frame path — but multi-bounce feedback (a probe's own irradiance
+// feeding back into future ray hits) and temporal-blend overshoot aren't
+// covered by that per-ray clamp and can drift above it over several
+// frames. Re-clamping here at exactly the same 30.0 ceiling stops the
+// encode curve from ever operating past the sensitivity it already has at
+// its intended maximum — this doesn't reduce existing sensitivity (that
+// would need a gentler gamma exponent and risks reintroducing the
+// dark-region shimmer the original curve fixed), it just stops unbounded
+// inputs from making it categorically worse.
+//
+// A Reinhard-style soft-compress before the gamma curve was tried first
+// and rejected: composing it with pow(x,5) makes the DECODE side's
+// sensitivity to encoded-value noise strictly worse at every point above
+// v=1 (verified numerically — stacks two steep functions instead of
+// replacing one), the opposite of the intended fix.
 
 const float DDGI_IRRADIANCE_GAMMA = 5.0;
+const float IRRADIANCE_ENCODE_CEILING = 30.0; // matches the per-ray radiance clamp
 
 vec3 ddgi_encode_irradiance(vec3 v) {
+    v = min(v, vec3(IRRADIANCE_ENCODE_CEILING));
     return pow(max(v, vec3(0.0)), vec3(1.0 / DDGI_IRRADIANCE_GAMMA));
 }
 
