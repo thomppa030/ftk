@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <glm/glm.hpp>
+#include <optional>
 
 namespace fjell {
 
@@ -109,6 +110,15 @@ struct PbrParams {
     bool has_normal_map{false};
     glm::vec2 uv_scale{1.0f, 1.0f};
     glm::vec3 emission_color{0.0f};  // RT GI: emissive contribution for probe tracing
+
+    // RT GI: what this material bounces as diffuse indirect. Unset for most
+    // materials — DDGI falls back to base_color_factor * base color texture,
+    // which is correct when ALBEDO comes from the standard PBR base color.
+    // Set when the FJSL shader overrides ALBEDO from a single custom
+    // hint_color uniform (solid_lit.fjsl, chrome.fjsl, etc.) — the RT/SDF
+    // trace shaders can't run custom fragment() logic, so base_color_factor
+    // (left at its default) would otherwise silently bounce the wrong color.
+    std::optional<glm::vec3> gi_albedo_override;
 };
 
 } // namespace fjell

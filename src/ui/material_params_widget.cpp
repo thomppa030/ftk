@@ -128,11 +128,17 @@ bool draw_material_params(const ShaderMetadata& meta,
         ImGui::PopID();
     }
 
-    // Recompute emission_color in base_params[9..11] for RT GI
+    // Recompute emission_color (base_params[9..11]) and gi_albedo_override
+    // (base_params[12..14]) for RT GI — see resource_manager.cpp's material
+    // load path, which this mirrors so a live-edited color stays in sync
+    // with what DDGI/RT reflections bounce off the surface.
     if (changed) {
         float emission_strength = 0.0f;
         glm::vec3 glow_color{0.0f};
         bool has_glow_color = false;
+
+        const FjslUniform* sole_color_uniform = nullptr;
+        int color_uniform_count = 0;
 
         for (const auto& u : meta.uniforms) {
             if (u.type == UniformType::Sampler2D) continue;
@@ -146,6 +152,12 @@ bool draw_material_params(const ShaderMetadata& meta,
             } else if ((u.name == "glow_color" || u.name == "emission_color") && fcount >= 3) {
                 glow_color = {bindless.read_param(abs), bindless.read_param(abs + 1), bindless.read_param(abs + 2)};
                 has_glow_color = true;
+            }
+
+            if (u.hint == UniformHint::Color
+                && (u.type == UniformType::Vec3 || u.type == UniformType::Vec4)) {
+                sole_color_uniform = &u;
+                ++color_uniform_count;
             }
         }
 
@@ -162,6 +174,15 @@ bool draw_material_params(const ShaderMetadata& meta,
         updated.base_params[9] = emission.x;
         updated.base_params[10] = emission.y;
         updated.base_params[11] = emission.z;
+
+        if (color_uniform_count == 1) {
+            uint32_t abs = gpu.param_offset + sole_color_uniform->slot;
+            updated.base_params[12] = bindless.read_param(abs);
+            updated.base_params[13] = bindless.read_param(abs + 1);
+            updated.base_params[14] = bindless.read_param(abs + 2);
+            updated.has_gi_albedo_override = 1;
+        }
+
         bindless.update_material(material.material_id(), updated);
     }
 

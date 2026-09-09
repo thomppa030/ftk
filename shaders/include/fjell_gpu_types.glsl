@@ -23,20 +23,26 @@ struct GpuSpotLight {
     vec4 vol_params;            // x = volumetric scatter intensity multiplier
 };
 
-// 96-byte bindless material record. Mirrors fjell::GpuMaterial in bindless.hpp.
-//   texture_indices[0..3] : PBR slots (base color, normal, MR, emissive)
-//   texture_indices[4..7] : custom FJSL sampler2D uniforms
-//   base_params[0..3]     : base_color_factor (rgba)
-//   base_params[4]        : metallic_factor
-//   base_params[5]        : roughness_factor
-//   base_params[6]        : has_normal_map (0/1)
-//   base_params[7..8]     : uv_scale
-//   base_params[9..11]    : reserved
+// 112-byte bindless material record. Mirrors fjell::GpuMaterial in bindless.hpp.
+//   texture_indices[0..3]  : PBR slots (base color, normal, MR, emissive)
+//   texture_indices[4..7]  : custom FJSL sampler2D uniforms
+//   base_params[0..3]      : base_color_factor (rgba)
+//   base_params[4]         : metallic_factor
+//   base_params[5]         : roughness_factor
+//   base_params[6]         : has_normal_map (0/1)
+//   base_params[7..8]      : uv_scale
+//   base_params[9..11]     : emission_color (RT GI emissive contribution)
+//   base_params[12..14]    : gi_albedo_override (RT/SDF GI diffuse bounce
+//                            color; only valid when has_gi_albedo_override
+//                            != 0 — otherwise fall back to
+//                            base_color_factor * base color texture)
+//   has_gi_albedo_override : 0/1, see base_params[12..14]
 struct GpuMaterial {
     uint texture_indices[8];
-    float base_params[12];
+    float base_params[15];
     uint param_offset;
     uint param_count;
+    uint has_gi_albedo_override;
     uint padding[2];
 };
 

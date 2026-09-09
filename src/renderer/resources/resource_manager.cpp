@@ -412,6 +412,35 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
             params.emission_color = glm::vec3(emission_strength);
         }
 
+        // GI diffuse albedo override for RT GI: the DDGI RT/SDF trace
+        // shaders can't run a custom fragment() body, so they normally read
+        // base_color_factor as the bounce color. That's wrong for a shader
+        // that overrides ALBEDO from a custom uniform instead (solid_lit.fjsl,
+        // chrome.fjsl, unlit.fjsl, ...) — base_color_factor is left at its
+        // unused default (white) in that case, so DDGI would silently bounce
+        // white regardless of the material's real color. Detectable
+        // unambiguously when the shader has exactly one hint_color uniform:
+        // that's "the" surface color by construction of the hint, whether or
+        // not fragment() happens to also read it. Shaders with zero or
+        // multiple hint_color uniforms are left alone (ambiguous which one
+        // is "the" albedo, or none override ALBEDO from a custom color).
+        const FjslUniform* sole_color_uniform = nullptr;
+        int color_uniform_count = 0;
+        for (const auto& u : shader_meta->uniforms) {
+            if (u.hint == UniformHint::Color
+                && (u.type == UniformType::Vec3 || u.type == UniformType::Vec4)) {
+                sole_color_uniform = &u;
+                ++color_uniform_count;
+            }
+        }
+        if (color_uniform_count == 1) {
+            std::vector<float> values = sole_color_uniform->default_value;
+            auto p_it = asset.params.find(sole_color_uniform->name);
+            if (p_it != asset.params.end()) values = p_it->second;
+            if (values.size() >= 3) {
+                params.gi_albedo_override = glm::vec3{values[0], values[1], values[2]};
+            }
+        }
     }
 
     // Rebuild material with updated emission params

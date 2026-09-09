@@ -41,6 +41,13 @@ GpuMaterial Material::gpu_material() const {
     m.base_params[10] = params_.emission_color.y;
     m.base_params[11] = params_.emission_color.z;
 
+    if (params_.gi_albedo_override) {
+        m.base_params[12] = params_.gi_albedo_override->x;
+        m.base_params[13] = params_.gi_albedo_override->y;
+        m.base_params[14] = params_.gi_albedo_override->z;
+        m.has_gi_albedo_override = 1;
+    }
+
     // Custom params reference
     m.param_offset = custom_param_offset_;
     m.param_count = custom_param_count_;
