@@ -780,18 +780,31 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     // ── Descriptor pool ──
 
     constexpr uint32_t RENDER_SET_COUNT = MAX_FRAMES_IN_FLIGHT;
+    // rebuild_mega_buffers() (buffer-capacity growth) retires the old
+    // compute_set_/mesh_compute_set_/render_sets_ through DeferredDeleter,
+    // then immediately allocates their replacements from this same pool —
+    // but DeferredDeleter::defer() doesn't run the free until that frame
+    // slot's fence signals again, frames later (see deferred_deleter.hpp).
+    // So for one generation, this pool must hold BOTH the doomed sets
+    // (not yet freed) and their freshly-allocated replacements at once.
+    // Sizing for only the steady-state count here made vkAllocateDescriptorSets
+    // fail deterministically on every growth past the first, leaving
+    // mesh_compute_set_ VK_NULL_HANDLE for the rest of the run and crashing
+    // record_render's mesh-instance compute dispatch. 2x covers one full
+    // overlapping generation.
+    constexpr uint32_t POOL_GENERATIONS = 2;
     VkDescriptorPoolSize pool_sizes[2]{};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     // 8 compute + 3 per render frame + 8 mesh compute + 1 per render (instance SSBO)
-    pool_sizes[0].descriptorCount = 8 + RENDER_SET_COUNT * 4 + 8;
+    pool_sizes[0].descriptorCount = (8 + RENDER_SET_COUNT * 4 + 8) * POOL_GENERATIONS;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = RENDER_SET_COUNT; // depth texture per frame
+    pool_sizes[1].descriptorCount = RENDER_SET_COUNT * POOL_GENERATIONS; // depth texture per frame
 
     VkDescriptorPoolCreateInfo desc_pool_ci{};
     desc_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     desc_pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT |
                          VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-    desc_pool_ci.maxSets = 2 + RENDER_SET_COUNT; // 1 compute + 1 mesh compute + N render
+    desc_pool_ci.maxSets = (2 + RENDER_SET_COUNT) * POOL_GENERATIONS; // 1 compute + 1 mesh compute + N render
     desc_pool_ci.poolSizeCount = 2;
     desc_pool_ci.pPoolSizes = pool_sizes;
     if (vkCreateDescriptorPool(device_, &desc_pool_ci, nullptr, &pool_) != VK_SUCCESS) {
@@ -2181,7 +2194,12 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
     // GLSL's barrier() only orders invocations within one workgroup, and
     // max_particles routinely spans several (local_size_x = 256) — see
     // particle_mesh_instance.comp's header comment.
-    if (mesh_instance_pipeline_ != VK_NULL_HANDLE) {
+    // mesh_compute_set_ is reallocated by rebuild_mega_buffers() and can be
+    // transiently VK_NULL_HANDLE if that allocation ever fails (pool
+    // exhaustion — see the POOL_GENERATIONS comment at pool_ creation).
+    // Skip the dispatch rather than binding a null set into vkCmdDispatch,
+    // which is an immediate device-loss-class crash, not a validation warning.
+    if (mesh_instance_pipeline_ != VK_NULL_HANDLE && mesh_compute_set_ != VK_NULL_HANDLE) {
         auto bind_mesh_compute_set = [&]() {
             vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mesh_compute_layout_,
                                     0, 1, &mesh_compute_set_, 0, nullptr);
