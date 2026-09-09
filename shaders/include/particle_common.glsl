@@ -47,6 +47,16 @@ struct EmitterData {
     uint  sub_event_source;   // parent emitter index (0xFFFFFFFF = not a child)
     uint  sub_burst_count;    // particles per event (child only)
     float sub_vel_inherit;    // velocity inheritance factor (child only)
+    // Mesh particle draw range (MegaBuffer), for GPU-side indirect command
+    // construction — mesh entries never change per-emitter after resolve.
+    uint  mesh_vertex_offset;
+    uint  mesh_first_index;
+    uint  mesh_index_count;
+    // std430 rounds this array's per-element stride up to 16-byte alignment
+    // (192 bytes) regardless of the struct's own packed size (188) — this
+    // trailing word makes that explicit rather than relying on implicit
+    // compiler padding. Matches GpuEmitterData's C++ layout exactly.
+    uint  _pad1;
 };
 
 // Sub-emitter event (64 bytes, written by sim, consumed by emit)

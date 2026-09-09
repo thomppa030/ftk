@@ -1937,6 +1937,12 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
                 default: gpu.mesh_entry = mesh_cube_; break;
             }
         }
+        // Mirror the resolved mesh draw range onto the GPU emitter record so
+        // the mesh-instance compute pass can build its indirect command
+        // without any CPU round-trip.
+        data.mesh_vertex_offset = gpu.mesh_entry.vertex_offset;
+        data.mesh_first_index = gpu.mesh_entry.first_index;
+        data.mesh_index_count = gpu.mesh_entry.index_count;
 
         // Detect distortion emitter from render modules.
         // Distortion is a standalone render mode (billboard quads → UV offset buffer).

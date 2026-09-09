@@ -48,8 +48,21 @@ struct GpuEmitterData {
     uint32_t sub_event_source;    // parent emitter index (0xFFFFFFFF = not a child)
     uint32_t sub_burst_count;     // particles per event (child only)
     float    sub_vel_inherit;     // velocity inheritance factor (child only)
+    // Mesh particle draw range (MegaBuffer), for GPU-side indirect command
+    // construction — mesh entries never change per-emitter after resolve,
+    // so this rides along with the rest of the per-emitter constants.
+    uint32_t mesh_vertex_offset;
+    uint32_t mesh_first_index;
+    uint32_t mesh_index_count;
+    // Explicit tail padding: std430 rounds an array's per-element stride up
+    // to the alignment of its largest member (16, from the vec3/vec4
+    // fields above), so the GPU reads this struct at 192-byte intervals
+    // regardless of its own packed size. Without this, C++ writes at 188
+    // and the GPU reads at 192 — a silent 4-byte drift per emitter that
+    // corrupts every emitter past index 0.
+    uint32_t _pad1;
 };
-static_assert(sizeof(GpuEmitterData) == 176);
+static_assert(sizeof(GpuEmitterData) == 192);
 
 // Push constants for lit particle fragment shader (12 bytes)
 struct ParticleLitPush {
