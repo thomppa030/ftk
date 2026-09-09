@@ -103,6 +103,51 @@ struct DdgiClipmapLevel {
         return glm::all(glm::greaterThanEqual(grid_coord, glm::ivec3(0)))
             && glm::all(glm::lessThan(grid_coord, probe_counts));
     }
+
+    /// How many whole cells the origin moved between two snapped
+    /// origins, as an exact integer cell count. Both origins are
+    /// snapped to the same cell grid, so their difference is always a
+    /// whole multiple of cell_size — the rounding here only absorbs
+    /// float representation error, it is not hiding a fractional shift.
+    [[nodiscard]] glm::ivec3 shift_in_cells(const glm::vec3& previous_origin) const {
+        return glm::ivec3(glm::round((snapped_origin - previous_origin) / cell_size));
+    }
+
+    /// Translate a grid coordinate expressed against the CURRENT origin
+    /// into the same world cell's coordinate against a PREVIOUS origin.
+    ///
+    /// This is the core of the reallocation pass: for each cell of the
+    /// newly-positioned level, ask "did the old level already have a
+    /// probe for this exact world cell?". If the result is covered(),
+    /// the cell keeps whatever slot it already had (the common case —
+    /// a one-cell shift retains all but one slab). If not, the cell is
+    /// newly uncovered and needs a freshly allocated slot with no
+    /// carried-over irradiance.
+    [[nodiscard]] glm::ivec3 grid_to_previous_grid(const glm::ivec3& grid_coord,
+                                                    const glm::vec3& previous_origin) const {
+        return grid_coord + shift_in_cells(previous_origin);
+    }
+
+    /// Number of cells in this level that were NOT covered by the level
+    /// at `previous_origin` — i.e. how many probe slots must be
+    /// reallocated and retraced after this shift.
+    ///
+    /// Equivalently: the count of freed slots, since the level's cell
+    /// count is fixed. The reallocation pass relies on those two counts
+    /// being equal so it can pair them off directly instead of running
+    /// an atomic free-list. Computed in closed form rather than by
+    /// iterating, so it stays cheap enough to call per shift on the CPU.
+    [[nodiscard]] int newly_covered_cell_count(const glm::vec3& previous_origin) const {
+        glm::ivec3 shift = glm::abs(shift_in_cells(previous_origin));
+        // Overlap along each axis is the extent minus the shift,
+        // clamped at zero — a shift at or beyond the full extent means
+        // no overlap at all on that axis (the teleport / large-jump
+        // case, where every cell is newly covered).
+        glm::ivec3 overlap = glm::max(probe_counts - shift, glm::ivec3(0));
+        int total = probe_counts.x * probe_counts.y * probe_counts.z;
+        int retained = overlap.x * overlap.y * overlap.z;
+        return total - retained;
+    }
 };
 
 } // namespace fjell

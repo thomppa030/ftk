@@ -133,6 +133,137 @@ TEST_CASE("world_to_grid and covers agree with world_min/world_max", "[ddgi_clip
     REQUIRE_FALSE(level.covers(far_cell));
 }
 
+// ── Reallocation math ───────────────────────────────────────────────────
+// The allocation compute pass pairs freed slots with newly-covered cells
+// by index rather than through an atomic free-list, which is only valid
+// if those two sets are always the same size. These cover the shift
+// shapes where that identity is least obvious.
+
+namespace {
+
+/// Brute-force reference: walk every cell of the current level and count
+/// how many were NOT covered by the level at previous_origin. The closed
+/// form in newly_covered_cell_count() must agree with this everywhere.
+int brute_force_newly_covered(const fjell::DdgiClipmapLevel& level,
+                              const glm::vec3& previous_origin) {
+    int count = 0;
+    for (int z = 0; z < level.probe_counts.z; ++z) {
+        for (int y = 0; y < level.probe_counts.y; ++y) {
+            for (int x = 0; x < level.probe_counts.x; ++x) {
+                glm::ivec3 cell(x, y, z);
+                if (!level.covers(level.grid_to_previous_grid(cell, previous_origin))) {
+                    ++count;
+                }
+            }
+        }
+    }
+    return count;
+}
+
+} // namespace
+
+TEST_CASE("A level that has not moved reallocates nothing", "[ddgi_clipmap]") {
+    DdgiClipmapLevel level;
+    level.cell_size = glm::vec3(2.0f);
+    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.recenter(glm::vec3(1.0f));
+
+    glm::vec3 origin = level.snapped_origin;
+    // Same snapped cell — recenter() reports no move, and every cell
+    // must keep its existing slot. Any nonzero result here would mean
+    // the whole volume retraces on frames where nothing happened.
+    level.recenter(glm::vec3(1.5f, 1.3f, 0.8f));
+    REQUIRE(level.newly_covered_cell_count(origin) == 0);
+}
+
+TEST_CASE("An axis-aligned one-cell shift reallocates exactly one slab", "[ddgi_clipmap]") {
+    DdgiClipmapLevel level;
+    level.cell_size = glm::vec3(2.0f);
+    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.recenter(glm::vec3(0.0f));
+
+    glm::vec3 origin_before = level.snapped_origin;
+    // Push the camera exactly one cell along X.
+    level.recenter(glm::vec3(2.0f, 0.0f, 0.0f));
+    REQUIRE(level.shift_in_cells(origin_before) == glm::ivec3(1, 0, 0));
+
+    // One 8x8 slab of the 8x8x8 volume falls off the trailing edge.
+    REQUIRE(level.newly_covered_cell_count(origin_before) == 8 * 8);
+    REQUIRE(level.newly_covered_cell_count(origin_before)
+            == brute_force_newly_covered(level, origin_before));
+}
+
+TEST_CASE("Diagonal shifts do not double-count the shared corner", "[ddgi_clipmap]") {
+    // A naive "sum of three slabs" would count the overlapping edges
+    // and corner more than once on a diagonal shift. The
+    // closed form subtracts the retained box instead, so it must match
+    // the brute-force walk exactly.
+    DdgiClipmapLevel level;
+    level.cell_size = glm::vec3(2.0f);
+    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.recenter(glm::vec3(0.0f));
+
+    glm::vec3 origin_before = level.snapped_origin;
+    level.recenter(glm::vec3(4.0f, 6.0f, 2.0f));
+
+    glm::ivec3 shift = level.shift_in_cells(origin_before);
+    REQUIRE(shift != glm::ivec3(0));
+
+    REQUIRE(level.newly_covered_cell_count(origin_before)
+            == brute_force_newly_covered(level, origin_before));
+}
+
+TEST_CASE("A shift larger than the level extent reallocates every cell", "[ddgi_clipmap]") {
+    // The teleport / large-jump case. Overlap must clamp at zero rather
+    // than going negative, which would make the closed form report a
+    // count larger than the volume (and, in the shader, walk off the end
+    // of the slot pool).
+    DdgiClipmapLevel level;
+    level.cell_size = glm::vec3(2.0f);
+    level.probe_counts = glm::ivec3(8, 8, 8);
+    level.recenter(glm::vec3(0.0f));
+
+    glm::vec3 origin_before = level.snapped_origin;
+    level.recenter(glm::vec3(1000.0f, 0.0f, 0.0f));
+
+    int total = 8 * 8 * 8;
+    REQUIRE(level.newly_covered_cell_count(origin_before) == total);
+    REQUIRE(level.newly_covered_cell_count(origin_before)
+            == brute_force_newly_covered(level, origin_before));
+}
+
+TEST_CASE("Closed-form reallocation count matches brute force across many shifts", "[ddgi_clipmap]") {
+    // Sweep a range of shifts including negative, mixed-sign, and
+    // exactly-at-extent magnitudes. The pairing of freed slots to
+    // newly-covered cells in the allocation pass depends on this
+    // identity holding everywhere, not just on the cases above.
+    DdgiClipmapLevel level;
+    level.cell_size = glm::vec3(2.0f);
+    level.probe_counts = glm::ivec3(6, 4, 6);
+
+    for (int dx = -8; dx <= 8; dx += 2) {
+        for (int dy = -6; dy <= 6; dy += 2) {
+            for (int dz = -8; dz <= 8; dz += 2) {
+                level.full_reset = true; // fresh level per iteration
+                level.recenter(glm::vec3(0.0f));
+                glm::vec3 origin_before = level.snapped_origin;
+
+                level.recenter(glm::vec3(dx, dy, dz) * level.cell_size);
+
+                int closed_form = level.newly_covered_cell_count(origin_before);
+                int brute = brute_force_newly_covered(level, origin_before);
+                REQUIRE(closed_form == brute);
+
+                // The identity the allocation pass actually relies on:
+                // as many slots are freed as there are cells to fill.
+                int total = level.probe_counts.x * level.probe_counts.y * level.probe_counts.z;
+                REQUIRE(closed_form >= 0);
+                REQUIRE(closed_form <= total);
+            }
+        }
+    }
+}
+
 TEST_CASE("snap_to_grid handles negative coordinates via floor, not truncation", "[ddgi_clipmap]") {
     // Lumen's SnapToGrid explicitly uses floor() "to round negative
     // numbers down" rather than toward zero — verify Fjell's port keeps
