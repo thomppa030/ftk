@@ -9,6 +9,9 @@
 
 #include <imgui.h>
 
+#include <cstddef>
+#include <iterator>
+
 namespace fjell {
 
 void ProjectSettingsPanel::init(VulkanContext* vk, ProjectManager* projects) {
@@ -28,6 +31,7 @@ void ProjectSettingsPanel::draw(const char* title) {
             ImGui::TextDisabled("Ctrl+Shift+S to persist changes to project.fjell.");
             ImGui::Separator();
             draw_render_section();
+            draw_debug_section();
         }
     }
 }
@@ -170,6 +174,33 @@ void ProjectSettingsPanel::draw_render_section() {
 
     if (dirty) {
         vk_->set_render_settings(s);
+    }
+}
+
+// Runtime-only diagnostic — deliberately NOT part of RenderSettings, never
+// written to project.fjell. Replaces the final pixel color with one
+// isolated lighting term so each additive contribution (direct light, IBL
+// diffuse/specular, DDGI, SS-GI, emissive) can be inspected on its own.
+void ProjectSettingsPanel::draw_debug_section() {
+    if (!ImGui::CollapsingHeader("Debug: Lighting Channels")) {
+        return;
+    }
+    ImGui::TextWrapped("Replaces the final pixel color with one isolated "
+                       "lighting term. Diagnostic only, not saved.");
+
+    static const char* kChannelNames[] = {
+        "Off (normal shading)",
+        "Direct light (sun + tile lights)",
+        "IBL diffuse",
+        "IBL specular",
+        "DDGI indirect",
+        "SS-GI indirect",
+        "Emissive",
+    };
+    int channel = vk_->debug_light_channel();
+    if (ImGui::Combo("Channel", &channel, kChannelNames,
+                     static_cast<int>(std::size(kChannelNames)))) {
+        vk_->set_debug_light_channel(channel);
     }
 }
 

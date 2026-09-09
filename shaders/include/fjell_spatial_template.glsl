@@ -314,6 +314,19 @@ void main() {
 
     vec3 color = ambient + Lo * mix(final_ao, 1.0, 0.5) + EMISSION;
 
+    // Debug: isolate one lighting term as the final pixel color. See
+    // DebugLightChannel in uniform_types.hpp / DEBUG_LIGHT_CHANNEL_* here.
+    if (ubo.debug_light_channel != DEBUG_LIGHT_CHANNEL_OFF) {
+        switch (ubo.debug_light_channel) {
+            case DEBUG_LIGHT_CHANNEL_DIRECT:       color = Lo; break;
+            case DEBUG_LIGHT_CHANNEL_IBL_DIFFUSE:  color = diffuse_ibl * final_ao * ibl_intensity; break;
+            case DEBUG_LIGHT_CHANNEL_IBL_SPECULAR: color = specular_ibl * final_ao * ibl_intensity; break;
+            case DEBUG_LIGHT_CHANNEL_DDGI:         color = gi_sample; break;
+            case DEBUG_LIGHT_CHANNEL_SSGI:         color = ss_gi_sample; break;
+            case DEBUG_LIGHT_CHANNEL_EMISSIVE:     color = EMISSION; break;
+        }
+    }
+
     out_color = vec4(color, ALPHA);
     out_metallic_roughness = vec2(METALLIC, ROUGHNESS);
     out_normal = oct_encode(N);

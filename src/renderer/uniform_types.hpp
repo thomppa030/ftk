@@ -26,7 +26,24 @@ struct GlobalUbo {
     float jitter_x{0.0f};                   // TAA sub-pixel jitter (halton / resolution)
     float jitter_y{0.0f};
     float ss_gi_intensity{0.0f};            // SS-GI emissive indirect multiplier
-    float ubo_pad[3]{};                     // pad to 16-byte alignment
+    // Debug: isolate one lighting term as the final pixel color instead of
+    // the full composite. 0 = off (normal shading). See DebugLightChannel
+    // in this header for the term each nonzero value shows. Diagnostic
+    // only — never left nonzero outside an explicit debug session.
+    int debug_light_channel{0};
+    float ubo_pad[2]{};                     // pad to 16-byte alignment
+};
+
+// Values for GlobalUbo::debug_light_channel. Keep in sync with the
+// DEBUG_LIGHT_CHANNEL_* constants in fjell_lighting.glsl.
+enum class DebugLightChannel : int {
+    Off           = 0,
+    DirectLight   = 1, // Lo: direct sun + tile lights, pre-shadow-mix
+    IblDiffuse    = 2,
+    IblSpecular   = 3,
+    DdgiIndirect  = 4, // gi_indirect sample, pre-intensity-multiply
+    SsGiIndirect  = 5, // ss_gi_indirect sample, pre-intensity-multiply
+    Emissive      = 6,
 };
 
 struct DirectionalLight {

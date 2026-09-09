@@ -901,6 +901,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     } else {
         ubo.ss_gi_intensity = 0.0f;
     }
+    ubo.debug_light_channel = debug_light_channel_;
 
     // Forward+ tile info
     uint32_t tiles_x = (extent.width + LIGHT_TILE_SIZE - 1) / LIGHT_TILE_SIZE;

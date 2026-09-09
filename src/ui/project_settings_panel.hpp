@@ -25,6 +25,7 @@ public:
 
 private:
     void draw_render_section();
+    void draw_debug_section();
 
     VulkanContext* vk_{nullptr};
     ProjectManager* projects_{nullptr};

@@ -145,6 +145,12 @@ public:
   // swapchain/offscreen recreation) and stays as whatever the engine
   // initialized with.
   void set_render_settings(const struct RenderSettings& s);
+
+  /// Debug: isolate one lighting term as the final pixel color instead of
+  /// the full composite (see DebugLightChannel in uniform_types.hpp).
+  /// Runtime-only diagnostic — not part of RenderSettings, not persisted.
+  void set_debug_light_channel(int channel) { debug_light_channel_ = channel; }
+  [[nodiscard]] int debug_light_channel() const { return debug_light_channel_; }
   [[nodiscard]] MegaBuffer *mega_buffer() { return gpu_.mega_buffer(); }
   [[nodiscard]] MeshletBuffer *meshlet_buffer() { return gpu_.meshlet_buffer(); }
   [[nodiscard]] PipelineCache *pipeline_cache() { return gpu_.pipeline_cache(); }
@@ -400,6 +406,7 @@ private:
   const Project* project_{nullptr};
   float ibl_intensity_{1.0f};
   float elapsed_time_{0.0f};
+  int debug_light_channel_{0}; // see DebugLightChannel in uniform_types.hpp
 
   // ── TAA jitter state ─────────────────────────────────────────────────
   uint32_t taa_frame_count_{0};
