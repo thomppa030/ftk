@@ -4,11 +4,23 @@
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
-#include "include/particle_common.glsl"
+// Compacted per-instance data, built by particle_mesh_instance.comp: model
+// matrix, color, and texture index baked once per alive particle instead
+// of recomputed per vertex. gl_InstanceIndex indexes this buffer directly
+// (firstInstance = base_offset in the indirect draw command), not the raw
+// particle SSBO — dead particles were never written here, so there's no
+// per-vertex liveness check left to do.
+struct GpuMeshInstance {
+    mat4 model;
+    vec4 color;
+    uint texture_index;
+    uint pad0;
+    uint pad1;
+    uint pad2;
+};
 
-// Particle SSBO (same as billboard shader)
-layout(std430, set = 1, binding = 0) readonly buffer ParticleBuffer {
-    Particle particles[];
+layout(std430, set = 1, binding = 4) readonly buffer InstanceBuffer {
+    GpuMeshInstance instances[];
 };
 
 // Standard MegaBuffer vertex attributes
@@ -26,39 +38,14 @@ layout(location = 4) out vec3 frag_world_normal;
 layout(location = 5) out flat uint frag_is_mesh;
 
 void main() {
-    // gl_InstanceIndex = base_offset + particle_local_index
-    // (set via firstInstance in VkDrawIndexedIndirectCommand)
-    Particle p = particles[gl_InstanceIndex];
+    GpuMeshInstance inst = instances[gl_InstanceIndex];
 
-    // Dead particle — move off-screen (behind far plane)
-    if (p.lifetime <= 0.0) {
-        gl_Position = vec4(0.0, 0.0, -2.0, 1.0); // behind clip volume
-        frag_color = vec4(0.0);
-        frag_uv = vec2(0.0);
-        frag_texture_index = 0u;
-        frag_world_pos = vec3(0.0);
-        frag_world_normal = vec3(0.0, 1.0, 0.0);
-        return;
-    }
-
-    // Build model matrix: position + Y-axis rotation + uniform scale
-    float c = cos(p.rotation);
-    float s = sin(p.rotation);
-    float sz = p.size;
-
-    mat4 model = mat4(
-        vec4(c * sz, 0, s * sz, 0),
-        vec4(0, sz, 0, 0),
-        vec4(-s * sz, 0, c * sz, 0),
-        vec4(p.position, 1.0)
-    );
-
-    vec4 world_pos = model * vec4(in_position, 1.0);
+    vec4 world_pos = inst.model * vec4(in_position, 1.0);
     frag_world_pos = world_pos.xyz;
-    frag_world_normal = normalize(mat3(model) * in_normal);
+    frag_world_normal = normalize(mat3(inst.model) * in_normal);
     frag_uv = in_tex_coord;
-    frag_color = p.color;
-    frag_texture_index = p.texture_index;
+    frag_color = inst.color;
+    frag_texture_index = inst.texture_index;
     frag_is_mesh = 1u;
 
     gl_Position = ubo.projection * ubo.view * world_pos;

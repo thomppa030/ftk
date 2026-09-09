@@ -2378,13 +2378,16 @@ void ParticleSystem::record_render(const FrameContext& ctx) {
                                    0, sizeof(push), &push);
             }
 
-            const auto& entry = emitters_[idx].mesh_entry;
-            // Instanced indexed draw: each instance = one particle
-            // gl_InstanceIndex = firstInstance + instance_local
-            // firstInstance = base_offset so vertex shader reads particles[gl_InstanceIndex]
-            vkCmdDrawIndexed(ctx.cmd, entry.index_count, emitters_[idx].max_particles,
-                             entry.first_index, static_cast<int32_t>(entry.vertex_offset),
-                             emitters_[idx].base_offset);
+            // Indirect indexed draw: particle_mesh_instance.comp compacted
+            // this emitter's alive particles into a dense GpuMeshInstance
+            // range and wrote indexCount/instanceCount/firstIndex/
+            // vertexOffset/firstInstance into mesh_indirect_buffer_ — the
+            // vertex shader reads gl_InstanceIndex straight out of that
+            // compacted buffer, so instanceCount reflects live particles
+            // only instead of the emitter's full max_particles budget.
+            vkCmdDrawIndexedIndirect(ctx.cmd, mesh_indirect_buffer_->handle(),
+                                     idx * sizeof(VkDrawIndexedIndirectCommand), 1,
+                                     sizeof(VkDrawIndexedIndirectCommand));
         }
     }
 }
@@ -2463,10 +2466,11 @@ void ParticleSystem::record_render_opaque(const FrameContext& ctx) {
 
         if (mesh && ctx.mega_buffer) {
             ctx.mega_buffer->bind(ctx.cmd);
-            const auto& entry = emitters_[i].mesh_entry;
-            vkCmdDrawIndexed(ctx.cmd, entry.index_count, emitters_[i].max_particles,
-                             entry.first_index, static_cast<int32_t>(entry.vertex_offset),
-                             emitters_[i].base_offset);
+            // See record_render's mesh loop — same compacted-instance
+            // indirect draw, just in the opaque pass.
+            vkCmdDrawIndexedIndirect(ctx.cmd, mesh_indirect_buffer_->handle(),
+                                     i * sizeof(VkDrawIndexedIndirectCommand), 1,
+                                     sizeof(VkDrawIndexedIndirectCommand));
         } else {
             // Billboard opaque — use indirect command
             vkCmdDrawIndirect(ctx.cmd, mega_indirect_buffer_->handle(),
