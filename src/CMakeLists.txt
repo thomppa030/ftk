@@ -263,6 +263,7 @@ add_executable(fjell
     ui/viewport_manager.cpp
     ui/game_ui/fjui_parser.cpp
     ui/game_ui/fjss_parser.cpp
+    ui/game_ui/fjui_serializer.cpp
     ui/game_ui/style_resolver.cpp
     ui/game_ui/ui_layout.cpp
     ui/game_ui/ui_renderer.cpp

@@ -51,6 +51,11 @@ struct UiNode {
 
     // Widget composition
     bool is_widget{false};
+    // True for a child spliced into a <slot/> by WidgetResolver — this
+    // is the caller's own authored content, not the widget's internal
+    // markup, which matters for telling the two apart on write-back
+    // (see FjuiSerializer).
+    bool is_slot_projected{false};
     bool has_controller{false}; // true when a UiComponent controller manages this widget
     std::string widget_tag;   // original tag name before resolution (e.g., "health-bar")
     std::string widget_class; // C++ controller class name from .fjwidget (e.g., "health_bar_controller")

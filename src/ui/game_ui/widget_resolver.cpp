@@ -22,6 +22,7 @@ static bool replace_slots(UiNode& node,
             node.children.erase(node.children.begin() + static_cast<ptrdiff_t>(i));
             for (size_t j = 0; j < projected.size(); ++j) {
                 projected[j]->parent = &node;
+                projected[j]->is_slot_projected = true;
                 node.children.insert(
                     node.children.begin() + static_cast<ptrdiff_t>(i + j),
                     std::move(projected[j]));
