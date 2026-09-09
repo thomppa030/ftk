@@ -115,6 +115,15 @@ public:
     [[nodiscard]] bool ray_tracing_supported() const { return ray_tracing_supported_; }
     [[nodiscard]] PFN_vkCreateRayTracingPipelinesKHR create_rt_pipelines_fn() const { return pfn_create_rt_pipelines_; }
     [[nodiscard]] PFN_vkCmdTraceRaysKHR cmd_trace_rays_fn() const { return pfn_cmd_trace_rays_; }
+    /// Null unless trace_rays_indirect_supported().
+    [[nodiscard]] PFN_vkCmdTraceRaysIndirectKHR cmd_trace_rays_indirect_fn() const {
+        return pfn_cmd_trace_rays_indirect_;
+    }
+    /// True when a trace can be sized from a GPU-written count instead of
+    /// a CPU-side upper bound.
+    [[nodiscard]] bool trace_rays_indirect_supported() const {
+        return trace_rays_indirect_supported_;
+    }
     [[nodiscard]] PFN_vkGetRayTracingShaderGroupHandlesKHR get_rt_shader_group_handles_fn() const { return pfn_get_rt_shader_group_handles_; }
     [[nodiscard]] PFN_vkCreateAccelerationStructureKHR create_accel_struct_fn() const { return pfn_create_accel_struct_; }
     [[nodiscard]] PFN_vkDestroyAccelerationStructureKHR destroy_accel_struct_fn() const { return pfn_destroy_accel_struct_; }
@@ -179,6 +188,8 @@ private:
     bool ray_tracing_supported_{false};
     PFN_vkCreateRayTracingPipelinesKHR pfn_create_rt_pipelines_{nullptr};
     PFN_vkCmdTraceRaysKHR pfn_cmd_trace_rays_{nullptr};
+    PFN_vkCmdTraceRaysIndirectKHR pfn_cmd_trace_rays_indirect_{nullptr};
+    bool trace_rays_indirect_supported_{false};
     PFN_vkGetRayTracingShaderGroupHandlesKHR pfn_get_rt_shader_group_handles_{nullptr};
     PFN_vkCreateAccelerationStructureKHR pfn_create_accel_struct_{nullptr};
     PFN_vkDestroyAccelerationStructureKHR pfn_destroy_accel_struct_{nullptr};
