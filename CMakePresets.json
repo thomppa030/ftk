@@ -1,0 +1,63 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "release",
+            "displayName": "Release",
+            "binaryDir": "${sourceDir}/build-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "asan",
+            "displayName": "Debug + ASan/UBSan",
+            "description": "Debug build with AddressSanitizer + UndefinedBehaviorSanitizer for chasing memory corruption and lifetime bugs.",
+            "binaryDir": "${sourceDir}/build-asan",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -g",
+                "CMAKE_C_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -g",
+                "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined",
+                "FETCHCONTENT_SOURCE_DIR_IMGUI": "${sourceDir}/build/_deps/imgui-src"
+            }
+        },
+        {
+            "name": "tracy",
+            "displayName": "Release + Tracy",
+            "description": "RelWithDebInfo build with the Tracy profiler client enabled, for capturing real-timing frame traces (plain Debug is too slow to profile meaningfully).",
+            "binaryDir": "${sourceDir}/build-tracy",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+                "FJELL_ENABLE_TRACY": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release"
+        },
+        {
+            "name": "asan",
+            "configurePreset": "asan"
+        },
+        {
+            "name": "tracy",
+            "configurePreset": "tracy"
+        }
+    ]
+}

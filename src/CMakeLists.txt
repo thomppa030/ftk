@@ -59,6 +59,7 @@ add_executable(fjell
     renderer/gpu/device.cpp
     renderer/gpu/gpu_core.cpp
     renderer/gpu/upload_context.cpp
+    renderer/gpu/growable_buffer.cpp
     renderer/gpu/image.cpp
     renderer/indirect_batch.cpp
     renderer/instance_provider.cpp
@@ -367,6 +368,9 @@ if(MSVC)
 else()
     target_compile_options(fjell PRIVATE -Wall -Wextra -Wpedantic -Werror)
     set_source_files_properties(${imguizmo_SOURCE_DIR}/src/ImGuizmo.cpp PROPERTIES COMPILE_FLAGS "-w")
+    # stb_image_resize2.h (vendored, included from our .cpp wrapper) trips
+    # -Wunused-but-set-variable under some compiler/flag combinations.
+    set_source_files_properties(renderer/resources/stb_image_resize.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=unused-but-set-variable")
 endif()
 
 # Treat VMA headers as system headers to suppress warnings from them
