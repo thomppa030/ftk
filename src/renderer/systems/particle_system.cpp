@@ -1776,6 +1776,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         if (ec->fire) {
             sub.burst_fired = false;
             sub.burst_elapsed = 0.0f;
+            sub.local_elapsed = 0.0f;
         }
 
         // CPU-side emission accumulation (per sub-emitter)
@@ -1785,6 +1786,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         // Advance emitter elapsed time
         if (!sub.paused && !sub.finished) {
             sub.emitter_elapsed += dt;
+            sub.local_elapsed += dt;
         }
 
         // Timing gate: delay and duration
@@ -1803,6 +1805,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
                 sub.emitter_elapsed = sub.start_delay;
                 sub.burst_fired = false;
                 sub.burst_elapsed = 0.0f;
+                sub.local_elapsed = 0.0f;
                 sub.emit_accumulator = 0.0f;
                 emitting = true;
             } else {
@@ -2018,8 +2021,13 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
             data.emit_count = 0;
         }
 
-        // Evaluate expression graph (writes computed values to module members)
-        evaluate_expression_graph(sub, accumulated_time_, dt);
+        // Evaluate expression graph (writes computed values to module members).
+        // Local time restarts at 0 on every burst fire / loop restart, so a
+        // graph built on sin(time)/cos(time) etc. replays identically each
+        // time instead of sampling whatever phase the engine's shared clock
+        // happens to be at.
+        float expr_time = sub.instanced_time ? sub.local_elapsed : accumulated_time_;
+        evaluate_expression_graph(sub, expr_time, dt);
 
         // Write module data. Each emitter gets a fixed MODULE_BUDGET_BYTES
         // window; write_gpu_modules() itself enforces that budget (dropping

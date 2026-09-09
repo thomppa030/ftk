@@ -25,6 +25,7 @@ static VfxEmitter load_emitter_v2(const nlohmann::json& je) {
     emitter.start_delay = je.value("start_delay", 0.0f);
     emitter.duration = je.value("duration", 0.0f);
     emitter.loop_count = je.value("loop_count", 0u);
+    emitter.instanced_time = je.value("instanced_time", false);
 
     auto load_modules = [](const nlohmann::json& arr, std::vector<std::unique_ptr<VfxModule>>& out) {
         for (const auto& jm : arr) {
@@ -141,6 +142,7 @@ static nlohmann::json save_emitter_v2(const VfxEmitter& emitter) {
     if (emitter.start_delay > 0.0f) je["start_delay"] = emitter.start_delay;
     if (emitter.duration > 0.0f) je["duration"] = emitter.duration;
     if (emitter.loop_count > 0) je["loop_count"] = emitter.loop_count;
+    if (emitter.instanced_time) je["instanced_time"] = true;
 
     auto save_modules = [](const std::vector<std::unique_ptr<VfxModule>>& mods) {
         nlohmann::json arr = nlohmann::json::array();

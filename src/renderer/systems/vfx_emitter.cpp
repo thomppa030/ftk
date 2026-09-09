@@ -141,6 +141,7 @@ void VfxEffect::reset_playback() {
         e.distance_accumulator = 0.0f;
         e.burst_elapsed = 0.0f;
         e.emitter_elapsed = 0.0f;
+        e.local_elapsed = 0.0f;
         e.loops_completed = 0;
         e.burst_fired = false;
         e.paused = false;

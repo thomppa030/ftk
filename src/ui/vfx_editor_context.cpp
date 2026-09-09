@@ -185,6 +185,7 @@ void VfxEditorContext::init() {
                 if (time >= em.start_delay) {
                     em.burst_fired = false;
                     em.burst_elapsed = 0.0f;
+                    em.local_elapsed = 0.0f;
                 }
                 em.emit_accumulator = 0.0f;
             }
@@ -286,6 +287,7 @@ void VfxEditorContext::draw(float dt) {
                 em.loops_completed = 0;
                 em.burst_fired = false;
                 em.burst_elapsed = 0.0f;
+                em.local_elapsed = 0.0f;
                 em.emit_accumulator = 0.0f;
                 em.finished = false;
             }
@@ -1090,6 +1092,17 @@ void VfxEditorContext::draw_module_stack() {
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("0 = infinite looping");
+        }
+
+        ImGui::Checkbox("Instanced Time", &emitter.instanced_time);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Off: the expression graph's Time node reads the engine's shared\n"
+                "clock, so sin/cos-driven parameters land on a different phase\n"
+                "every time this emitter fires.\n"
+                "On: each firing gets its own instance of Time, starting at 0 on\n"
+                "every burst fire and loop restart, so the graph replays\n"
+                "identically each time.");
         }
 
         // Status readout
