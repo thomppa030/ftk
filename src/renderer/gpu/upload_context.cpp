@@ -174,7 +174,12 @@ StagingSlice UploadContext::acquire_staging(LaneIndex lane, VkDeviceSize size) {
             }
             if (tail_ > aligned) {
                 // Wrap: hand the dead tail-end region to the open batch so
-                // the reclaim cursor walks past it in order.
+                // the reclaim cursor walks past it in order. flush() above
+                // may have retired and reset this lane's batch since we
+                // last opened it, so re-open before reading its value —
+                // otherwise this pushes a sentinel with a null batch_value
+                // that reclaim_completed can never resolve.
+                (void)lane_cb(lane);
                 ring_allocs_.push_back({ring_capacity_, lane, lanes_[lane].open.value});
                 head_ = 0;
                 break;
@@ -203,6 +208,9 @@ StagingSlice UploadContext::acquire_staging(LaneIndex lane, VkDeviceSize size) {
     StagingSlice slice{ring_->handle(), head_,
                        static_cast<uint8_t*>(ring_->mapped()) + head_};
     head_ += aligned;
+    // flush() inside the loop above may have retired and reset this lane's
+    // batch since we last opened it — re-open before reading its value.
+    (void)lane_cb(lane);
     ring_allocs_.push_back({head_, lane, lanes_[lane].open.value});
     return slice;
 }
