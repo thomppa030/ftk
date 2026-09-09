@@ -65,6 +65,16 @@ public:
         return transfer_queue_ != VK_NULL_HANDLE;
     }
 
+    /// Sparse binding lets a buffer reserve a large virtual range and bind
+    /// memory pages on demand — it can grow in place without ever changing
+    /// its handle or device address. sparse_bind_queue() is the queue to
+    /// submit vkQueueBindSparse on (the dedicated transfer queue when its
+    /// family supports sparse ops, so binds never touch the graphics queue).
+    [[nodiscard]] bool sparse_binding_supported() const {
+        return sparse_bind_queue_ != VK_NULL_HANDLE;
+    }
+    [[nodiscard]] VkQueue sparse_bind_queue() const { return sparse_bind_queue_; }
+
     /// Queue families that may access upload-destination buffers: graphics,
     /// plus the dedicated transfer and async compute families when they
     /// exist. With two or more entries, buffers written by the upload path
@@ -147,6 +157,7 @@ private:
     VkQueue present_queue_{VK_NULL_HANDLE};
     VkQueue async_compute_queue_{VK_NULL_HANDLE};
     VkQueue transfer_queue_{VK_NULL_HANDLE};
+    VkQueue sparse_bind_queue_{VK_NULL_HANDLE};
     // Families for upload-destination buffer sharing — see
     // upload_sharing_families().
     std::array<uint32_t, 3> upload_families_{};

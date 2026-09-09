@@ -294,7 +294,11 @@ void Device::create_logical_device() {
         queue_create_infos.push_back(queue_info);
     }
 
+    VkPhysicalDeviceFeatures supported{};
+    vkGetPhysicalDeviceFeatures(physical_device_, &supported);
+
     VkPhysicalDeviceFeatures features{};
+    features.sparseBinding = supported.sparseBinding;
     features.samplerAnisotropy = VK_TRUE;
     features.depthClamp = VK_TRUE;
     features.fillModeNonSolid = VK_TRUE;
@@ -423,6 +427,31 @@ void Device::create_logical_device() {
     }
     if (indices.async_compute.has_value()) {
         upload_families_[upload_family_count_++] = indices.async_compute.value();
+    }
+
+    // Sparse bind queue: prefer the dedicated transfer queue so binds never
+    // share a queue with rendering; fall back to graphics. Sparse bind
+    // operations only order against semaphores (not command buffers), so
+    // either way a bind completes in microseconds.
+    if (supported.sparseBinding == VK_TRUE) {
+        uint32_t family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &family_count, nullptr);
+        std::vector<VkQueueFamilyProperties> families(family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &family_count, families.data());
+        auto family_has_sparse = [&](uint32_t family) {
+            return (families[family].queueFlags & VK_QUEUE_SPARSE_BINDING_BIT) != 0;
+        };
+        if (indices.transfer.has_value() && family_has_sparse(indices.transfer.value())) {
+            sparse_bind_queue_ = transfer_queue_;
+        } else if (family_has_sparse(indices.graphics.value())) {
+            sparse_bind_queue_ = graphics_queue_;
+        }
+    }
+    if (sparse_bind_queue_ != VK_NULL_HANDLE) {
+        FJELL_GFX_INFO("Sparse binding supported (binds on {} queue)",
+                       sparse_bind_queue_ == transfer_queue_ ? "transfer" : "graphics");
+    } else {
+        FJELL_GFX_INFO("Sparse binding not supported — growable buffers fall back to copy-grow");
     }
 
     // Load mesh shader extension function pointers
