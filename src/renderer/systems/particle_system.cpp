@@ -26,6 +26,13 @@ namespace fjell {
 // Must match the GPU Particle struct in particle_common.glsl
 constexpr VkDeviceSize PARTICLE_STRIDE = 80;
 
+// Hard per-emitter cap on module_buffer_ usage. Curve modules run up to
+// 528 bytes each; a handful of those plus the usual spawn/update stack can
+// exceed a smaller budget, so this needs real headroom, not just the
+// common case. write_gpu_modules() enforces this exactly — see its
+// definition for why the enforcement has to live there.
+constexpr uint32_t MODULE_BUDGET_BYTES = 2048;
+
 void ParticleSystem::create(Device& device, const PassResources& resources) {
     device_ = device.handle();
     vk_pipeline_cache_ = resources.pipeline_cache;
@@ -1149,8 +1156,8 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
         VMA_MEMORY_USAGE_AUTO, VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
     emitter_data_buffer_->map();
 
-    // Module buffer: 2048 bytes per emitter (curve modules use up to 528 bytes each)
-    VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * 2048;
+    // Module buffer: MODULE_BUDGET_BYTES per emitter.
+    VkDeviceSize module_size = static_cast<VkDeviceSize>(emitter_count) * MODULE_BUDGET_BYTES;
     module_buffer_ = std::make_unique<Buffer>(
         allocator_, module_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
@@ -2014,13 +2021,21 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         // Evaluate expression graph (writes computed values to module members)
         evaluate_expression_graph(sub, accumulated_time_, dt);
 
-        // Write module data
+        // Write module data. Each emitter gets a fixed MODULE_BUDGET_BYTES
+        // window; write_gpu_modules() itself enforces that budget (dropping
+        // any module that would overflow it) so a heavy module stack can
+        // never bleed into the next emitter's window — see its definition
+        // for why that check has to live there rather than out here.
         data.module_offset = module_word_offset;
         uint32_t module_buf_capacity = static_cast<uint32_t>(module_buffer_->size());
         uint32_t byte_offset = module_word_offset * 4;
-        if (byte_offset + 2048 > module_buf_capacity) {
-            FJELL_GFX_ERROR("Module buffer overflow: offset {} + 2048 > capacity {}",
-                            byte_offset, module_buf_capacity);
+        if (byte_offset + MODULE_BUDGET_BYTES > module_buf_capacity) {
+            FJELL_GFX_ERROR("Module buffer overflow: offset {} + {} > capacity {}",
+                            byte_offset, MODULE_BUDGET_BYTES, module_buf_capacity);
+            // Still advance past this emitter's full window so the next
+            // emitter doesn't alias it — only the module *contents* are
+            // skipped, not its slot in the buffer's layout.
+            module_word_offset += MODULE_BUDGET_BYTES / 4;
             continue;
         }
         // Inject current SDF volume bounds into collision modules
@@ -2032,7 +2047,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
             }
         }
 
-        uint32_t bytes = sub.write_gpu_modules(module_ptr + byte_offset);
+        uint32_t bytes = sub.write_gpu_modules(module_ptr + byte_offset, MODULE_BUDGET_BYTES);
         module_word_offset += bytes / 4;
     }
 

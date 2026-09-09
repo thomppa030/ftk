@@ -1,4 +1,8 @@
 #include "renderer/systems/vfx_emitter.hpp"
+#include "core/log.hpp"
+
+#include <array>
+#include <cstring>
 
 namespace fjell {
 
@@ -57,36 +61,51 @@ float VfxEmitter::lifetime_max() const {
     return 3.0f;
 }
 
-uint32_t VfxEmitter::gpu_data_size() const {
-    // Upper bound: largest module is InitialVelocity at 72 bytes.
-    // Use 80 bytes per module for safe alignment headroom.
-    uint32_t count = static_cast<uint32_t>(spawn_modules.size() + update_modules.size());
-    return count * 80 + 8; // +8 for terminator
-}
-
-uint32_t VfxEmitter::write_gpu_modules(uint8_t* buffer) const {
+uint32_t VfxEmitter::write_gpu_modules(uint8_t* buffer, uint32_t max_bytes) const {
+    // Modules don't expose their write size ahead of writing (write_gpu_data
+    // just writes and returns the count), and sizes vary a lot — curve
+    // modules run 528 bytes against ~80 for a typical module — so there's
+    // no cheap way to pre-check "will this fit" before calling it. Instead,
+    // write into a worst-case-sized scratch buffer, then copy only what
+    // actually fits into the caller's window. A module that would overflow
+    // is dropped entirely (never partially written — a half-written module
+    // header would desync the GPU-side reader's walk) and every remaining
+    // module after it is dropped too, since offsets would no longer be
+    // contiguous with what got written.
+    constexpr uint32_t SCRATCH_SIZE = 8192; // generous upper bound; see MAX_MODULE_BYTES below
+    static_assert(SCRATCH_SIZE >= 2048, "scratch must cover the largest real per-emitter budget");
+    std::array<uint8_t, SCRATCH_SIZE> scratch{};
     uint32_t offset = 0;
+    bool dropped_any = false;
 
-    // Write spawn modules
-    for (const auto& m : spawn_modules) {
-        if (!m->enabled) continue;
-        uint32_t written = m->write_gpu_data(buffer + offset);
+    auto try_write = [&](const std::unique_ptr<VfxModule>& m) {
+        if (!m->enabled) return;
+        // Terminator (8 bytes) must still fit after this module.
+        if (offset + 8 > max_bytes) { dropped_any = true; return; }
+        uint32_t written = m->write_gpu_data(scratch.data() + offset);
+        if (offset + written + 8 > max_bytes) {
+            dropped_any = true;
+            return; // leave `offset` unadvanced — this module's bytes are discarded
+        }
         offset += written;
+    };
+
+    for (const auto& m : spawn_modules) try_write(m);
+    for (const auto& m : update_modules) try_write(m);
+
+    if (dropped_any) {
+        FJELL_CORE_ERROR("VfxEmitter '{}': module data exceeds its {}-byte budget, "
+                         "one or more modules were dropped this frame", name, max_bytes);
     }
 
-    // Write update modules
-    for (const auto& m : update_modules) {
-        if (!m->enabled) continue;
-        uint32_t written = m->write_gpu_data(buffer + offset);
-        offset += written;
-    }
-
-    // Terminator (type = 0xFFFFFFFF, size = 0) — always written
-    auto* term = reinterpret_cast<GpuModuleHeader*>(buffer + offset);
+    // Terminator (type = 0xFFFFFFFF, size = 0) — always written, always fits
+    // (guaranteed room by the +8 check above).
+    auto* term = reinterpret_cast<GpuModuleHeader*>(scratch.data() + offset);
     term->type = 0xFFFFFFFF;
     term->size = 0;
     offset += 8;
 
+    std::memcpy(buffer, scratch.data(), offset);
     return offset;
 }
 

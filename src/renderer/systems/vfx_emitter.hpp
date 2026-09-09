@@ -39,11 +39,12 @@ struct VfxEmitter {
     [[nodiscard]] float lifetime_min() const;
     [[nodiscard]] float lifetime_max() const;
 
-    /// Serialize all spawn + update modules to a flat GPU buffer.
-    uint32_t write_gpu_modules(uint8_t* buffer) const;
-
-    /// Compute required buffer size for all modules
-    [[nodiscard]] uint32_t gpu_data_size() const;
+    /// Serialize all spawn + update modules to a flat GPU buffer, capped at
+    /// max_bytes. If the modules don't fit, later modules are dropped (with
+    /// a terminator still written within budget) rather than overrunning
+    /// into whatever follows in the caller's buffer — see the .cpp for why
+    /// this can't just be a size check ahead of time.
+    uint32_t write_gpu_modules(uint8_t* buffer, uint32_t max_bytes) const;
 
     // ── Runtime (not serialized, managed by ParticleSystem) ──────────
     float emit_accumulator{0.0f};
