@@ -32,7 +32,22 @@ struct DdgiConfig {
     glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // auto-fitted on first frame
     float hysteresis{0.95f};
     int probe_rays{128};
-    int irradiance_side_length{6};
+    // Octahedral texel resolution of one probe's own irradiance map — the
+    // full sphere of incoming directions at that probe is represented by
+    // this many texels per side. Cross-probe blending (the 8-probe
+    // trilinear cage in ddgi_sample_irradiance.comp) is already smooth;
+    // this resolution is what determines how much real angular detail
+    // exists WITHIN one probe before that blend runs. At 6 it's visible as
+    // a faint grid pattern on large, flat, textureless, brightly-lit
+    // surfaces (nothing else masks the under-sampling) — see
+    // Plans/gi-shadow-artifact-investigation.md. 8 is a moderate first
+    // step: ~78% more per-probe irradiance-update compute
+    // (proportional to side²), a few hundred KB more atlas VRAM across
+    // 2048 probes — cheap on both fronts, revisit higher if still visible.
+    int irradiance_side_length{8};
+    // Visibility (mean depth + variance for Chebyshev occlusion testing)
+    // is lower-frequency than full directional irradiance color, so it
+    // doesn't need to track the same resolution bump — left at 6.
     int visibility_side_length{6};
     float self_shadow_bias{0.3f};
     // Sample-position bias as a fraction of probe spacing. Normal-leaning so
