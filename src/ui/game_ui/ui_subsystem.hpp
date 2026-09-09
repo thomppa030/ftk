@@ -50,6 +50,7 @@ public:
         std::unique_ptr<GameUi> game_ui;
         std::vector<WidgetInstance> widgets;
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};
+        uint64_t tick_counter{0};
     };
     [[nodiscard]] std::vector<UiInstance>& instances() { return instances_; }
     [[nodiscard]] const std::vector<UiInstance>& instances() const { return instances_; }

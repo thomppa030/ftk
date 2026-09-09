@@ -278,9 +278,13 @@ void UiSubsystem::tick(const TickContext& ctx) {
             sync_bind_fields(wi);
         }
         // Bump root context generation so data_bind doesn't short-circuit
-        // when widget scoped contexts have been updated by sync_bind_fields
+        // when widget scoped contexts have been updated by sync_bind_fields.
+        // Must be a value that actually changes each call — set() no-ops
+        // when the new value matches the old, so a constant here would only
+        // bump the generation once and then silently stop propagating any
+        // bound-field updates from frame 2 onward.
         if (inst.game_ui && !inst.widgets.empty()) {
-            inst.game_ui->context().set("__tick", "1");
+            inst.game_ui->context().set("__tick", std::to_string(++inst.tick_counter));
         }
     }
 
