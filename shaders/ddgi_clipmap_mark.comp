@@ -1,0 +1,100 @@
+#version 460
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+#define FJELL_DDGI_INDIRECTION_BINDING 2
+#define FJELL_DDGI_INDIRECTION_WRITABLE
+#include "fjell_ddgi.glsl"
+
+// Marks the probes the frame is actually going to interpolate from.
+//
+// Ported from Lumen's mark pass (LumenRadianceCacheMarkCommon.ush,
+// MarkPositionUsedInIndirectionTexture). Without it every cell of every
+// clipmap level gets a probe whether or not anything reads it, so probe
+// cost scales with the covered volume; with it, cost scales with what is
+// on screen. That difference is why Lumen can afford a 48^3 grid per
+// level where an eagerly-allocated one runs out of budget much sooner.
+//
+// Runs after CLEAR and before REUSE/ALLOC: CLEAR wipes the mapping to
+// INVALID, this stamps USED onto the cells that matter, and the later
+// phases hand slots to those cells only.
+
+layout(set = 0, binding = 1) uniform sampler2D depth_tex;
+
+layout(push_constant) uniform PushConstants {
+    uint output_resolution_half;
+};
+
+#define INVALID_PROBE_INDEX 0xFFFFFFFFu
+#define USED_PROBE_INDEX    0xFFFFFFFEu
+
+vec3 world_position_from_depth(vec2 uv, float depth) {
+    vec4 ndc = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 world = ddgi.inv_view_proj * ndc;
+    return world.xyz / world.w;
+}
+
+bool covers(ivec3 cell) {
+    return all(greaterThanEqual(cell, ivec3(0)))
+        && all(lessThan(cell, ddgi.probe_counts));
+}
+
+// Claim a cell for this frame. Only ever turns INVALID into USED — a cell
+// that already holds a real slot keeps it, which is what lets REUSE carry
+// a converged probe across the frame instead of reallocating it.
+void mark_cell(ivec3 cell, int level) {
+    if (!covers(cell)) return;
+    ivec3 texel = ddgi_indirection_coord(cell, level);
+    if (imageLoad(ddgi_indirection, texel).r == INVALID_PROBE_INDEX) {
+        imageStore(ddgi_indirection, texel, uvec4(USED_PROBE_INDEX, 0, 0, 0));
+    }
+}
+
+void main() {
+    ivec2 coords = ivec2(gl_GlobalInvocationID.xy);
+
+    int res_div = (output_resolution_half == 1) ? 2 : 1;
+    vec2 out_res = ddgi.resolution / float(res_div);
+    if (coords.x >= int(out_res.x) || coords.y >= int(out_res.y)) return;
+
+    // Depth is read at the same resolution the sample pass will use, so
+    // the world positions the two derive agree. Taking the nearest of the
+    // 2x2 block rather than a median is fine here: marking a few extra
+    // cells costs a probe, missing one costs a hole in the lighting.
+    float raw_depth = 1.0;
+    if (output_resolution_half == 1) {
+        for (int j = 0; j < 4; ++j) {
+            ivec2 o = ivec2(j & 1, j >> 1);
+            raw_depth = min(raw_depth, texelFetch(depth_tex, coords * 2 + o, 0).r);
+        }
+    } else {
+        raw_depth = texelFetch(depth_tex, coords, 0).r;
+    }
+
+    // Background — nothing here samples the cache.
+    if (raw_depth >= 1.0) return;
+
+    vec2 screen_uv = (vec2(coords) + 0.5) / out_res;
+    vec3 world_pos = world_position_from_depth(screen_uv, raw_depth);
+
+    // Mark for every level, not just the selected one. The sample pass
+    // picks its level with a per-pixel dither that varies frame to frame,
+    // so a pixel sitting in a fade band can land on either side; marking
+    // only this frame's choice would leave the other side unallocated and
+    // the transition would flicker between lit and unlit.
+    for (int level = 0; level < ddgi.clipmap_level_count; ++level) {
+        if (ddgi_level_edge_fade(world_pos, level) <= 0.0) continue;
+
+        // Exactly the cage ddgi_sample_irradiance.comp will read: floor of
+        // the coordinate, plus the unit cube. Lumen marks
+        // floor(coord - 0.5)..+1 because its cage is centred differently —
+        // what matters is that mark and sample agree, not that they match
+        // Lumen. If one convention changes, the other has to change with
+        // it, or the sample reads probes nothing allocated.
+        ivec3 base = ddgi_world_to_grid(world_pos, level);
+        for (int i = 0; i < 8; ++i) {
+            ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
+            mark_cell(base + offset, level);
+        }
+    }
+}

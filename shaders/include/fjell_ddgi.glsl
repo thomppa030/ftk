@@ -14,6 +14,10 @@
 // is part of the shared layout, not just a loop bound.
 #define DDGI_MAX_CLIPMAP_LEVELS 4
 
+// Sentinel in a slot's level field: no cell points at this slot, so it
+// backs nothing and can be skipped entirely.
+#define DDGI_SLOT_UNALLOCATED 0xFFFFFFFFu
+
 #ifndef FJELL_DDGI_UBO_SET
 #define FJELL_DDGI_UBO_SET 0
 #endif
@@ -197,10 +201,19 @@ ivec3 ddgi_slot_to_grid(int probe_index) {
     return ivec3(ddgi_slot_grid[probe_index].xyz);
 }
 
-/// Which clipmap level a slot currently belongs to. Stored alongside the
-/// grid coordinate, since a slot's level is as dynamic as its position.
+/// Which clipmap level a slot currently belongs to, or
+/// DDGI_SLOT_UNALLOCATED if no cell points at it right now. Stored
+/// alongside the grid coordinate, since a slot's level is as dynamic as
+/// its position.
 int ddgi_slot_to_level(int probe_index) {
     return int(ddgi_slot_grid[probe_index].w);
+}
+
+/// True if this slot currently backs a cell some consumer marked. With
+/// demand-driven allocation most of the pool is idle, so the trace and
+/// update passes check this before spending rays on a slot.
+bool ddgi_slot_allocated(int probe_index) {
+    return ddgi_slot_grid[probe_index].w != DDGI_SLOT_UNALLOCATED;
 }
 #endif
 
@@ -243,9 +256,17 @@ bool ddgi_grid_covered(ivec3 grid_coord) {
 // unassigned rather than holding a stale slot from an earlier mapping.
 #define DDGI_INVALID_PROBE 0xFFFFFFFFu
 
+// Consumers bind this readonly; the mark pass defines
+// FJELL_DDGI_INDIRECTION_WRITABLE to stamp USED into it.
+#ifdef FJELL_DDGI_INDIRECTION_WRITABLE
+#define FJELL_DDGI_INDIRECTION_QUALIFIER
+#else
+#define FJELL_DDGI_INDIRECTION_QUALIFIER readonly
+#endif
+
 #ifdef FJELL_DDGI_INDIRECTION_BINDING
 layout(r32ui, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_INDIRECTION_BINDING)
-    uniform readonly uimage3D ddgi_indirection;
+    uniform FJELL_DDGI_INDIRECTION_QUALIFIER uimage3D ddgi_indirection;
 
 /// Indirection texel for a level-relative coordinate. Levels are packed
 /// side by side along X, matching Lumen's

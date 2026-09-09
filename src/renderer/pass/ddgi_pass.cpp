@@ -167,9 +167,18 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
     // Free list for the reallocation pass: a leading counter followed by
     // one slot per probe. Worst case (a shift clearing the whole volume)
     // every slot is freed at once, so it never needs to hold more.
-    VkDeviceSize free_list_size = sizeof(uint32_t) * (1 + static_cast<VkDeviceSize>(total_probes));
+    // Two leading counters (free_count, high_water) then one slot per probe.
+    VkDeviceSize free_list_size = sizeof(uint32_t) * (2 + static_cast<VkDeviceSize>(total_probes));
     free_list_buffer = std::make_unique<Buffer>(
         allocator, free_list_size,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_AUTO);
+
+    // Frame each slot was last asked for, so a probe that leaves view
+    // briefly is kept rather than freed and retraced when it returns.
+    VkDeviceSize last_used_size = static_cast<VkDeviceSize>(total_probes) * sizeof(uint32_t);
+    probe_last_used_buffer = std::make_unique<Buffer>(
+        allocator, last_used_size,
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_AUTO);
 
@@ -226,6 +235,7 @@ void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
 
     slot_grid_buffer.reset();
     free_list_buffer.reset();
+    probe_last_used_buffer.reset();
     probe_status_buffer.reset();
     constants_ubo.reset();
 }
@@ -496,19 +506,21 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
     // binding 3: slot -> grid coord SSBO (rw)
     // binding 4: probe status SSBO (rw)
     // binding 5: free list SSBO (rw)
-    std::array<VkDescriptorSetLayoutBinding, 6> alloc_bindings{};
+    // binding 6: probe last-used-frame SSBO (rw)
+    std::array<VkDescriptorSetLayoutBinding, 7> alloc_bindings{};
     alloc_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     alloc_bindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     alloc_bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     alloc_bindings[3] = {3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     alloc_bindings[4] = {4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
     alloc_bindings[5] = {5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    alloc_bindings[6] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
     // Every binding here is rewritten on each shift — the two indirection
     // images swap roles, and the rest are re-pointed alongside them. A shift
     // is driven by camera movement, so it lands mid-flight whenever an
     // earlier frame's command buffer still references this set.
-    std::array<VkDescriptorBindingFlags, 6> alloc_binding_flags{};
+    std::array<VkDescriptorBindingFlags, 7> alloc_binding_flags{};
     for (auto& f : alloc_binding_flags) {
         f = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
     }
@@ -561,6 +573,73 @@ Result<> DdgiPass::create(Device& device, const PassResources& resources) {
         vkDestroyShaderModule(vk_device_, mod, nullptr);
         if (r != VK_SUCCESS) {
             return make_error("Failed to create DDGI clipmap alloc pipeline");
+        }
+    }
+
+    // ── Clipmap mark descriptor set layout ──
+    // binding 0: DDGIConstants UBO
+    // binding 1: depth texture (sampler2D)
+    // binding 2: indirection image (storage 3D, read+write)
+    std::array<VkDescriptorSetLayoutBinding, 3> mark_bindings{};
+    mark_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    mark_bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+    mark_bindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+
+    // Depth changes with the viewport and the indirection image alternates
+    // between the ping-pong halves, so both are rewritten while earlier
+    // frames may still reference this set.
+    std::array<VkDescriptorBindingFlags, 3> mark_binding_flags{};
+    mark_binding_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+    mark_binding_flags[2] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+
+    VkDescriptorSetLayoutBindingFlagsCreateInfo mark_flags_ci{};
+    mark_flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+    mark_flags_ci.bindingCount = static_cast<uint32_t>(mark_binding_flags.size());
+    mark_flags_ci.pBindingFlags = mark_binding_flags.data();
+
+    VkDescriptorSetLayoutCreateInfo mark_layout_ci{};
+    mark_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    mark_layout_ci.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+    mark_layout_ci.pNext = &mark_flags_ci;
+    mark_layout_ci.bindingCount = static_cast<uint32_t>(mark_bindings.size());
+    mark_layout_ci.pBindings = mark_bindings.data();
+
+    if (vkCreateDescriptorSetLayout(vk_device_, &mark_layout_ci, nullptr, &mark_set_layout_) != VK_SUCCESS) {
+        return make_error("Failed to create DDGI clipmap mark set layout");
+    }
+
+    VkPushConstantRange mark_push{};
+    mark_push.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    mark_push.offset = 0;
+    mark_push.size = sizeof(ClipmapMarkPushConstants);
+
+    VkPipelineLayoutCreateInfo mark_pipe_layout_ci{};
+    mark_pipe_layout_ci.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    mark_pipe_layout_ci.setLayoutCount = 1;
+    mark_pipe_layout_ci.pSetLayouts = &mark_set_layout_;
+    mark_pipe_layout_ci.pushConstantRangeCount = 1;
+    mark_pipe_layout_ci.pPushConstantRanges = &mark_push;
+
+    if (vkCreatePipelineLayout(vk_device_, &mark_pipe_layout_ci, nullptr, &mark_pipeline_layout_) != VK_SUCCESS) {
+        return make_error("Failed to create DDGI clipmap mark pipeline layout");
+    }
+
+    {
+        auto code = read_spirv(base_path::resolve("shaders/ddgi_clipmap_mark.comp.spv"));
+        VkShaderModule mod = create_shader_module(vk_device_, code);
+        VkPipelineShaderStageCreateInfo s{};
+        s.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        s.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+        s.module = mod;
+        s.pName = "main";
+        VkComputePipelineCreateInfo ci{};
+        ci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        ci.stage = s;
+        ci.layout = mark_pipeline_layout_;
+        VkResult r = vkCreateComputePipelines(vk_device_, resources.pipeline_cache, 1, &ci, nullptr, &clipmap_mark_pipeline_);
+        vkDestroyShaderModule(vk_device_, mod, nullptr);
+        if (r != VK_SUCCESS) {
+            return make_error("Failed to create DDGI clipmap mark pipeline");
         }
     }
 
@@ -896,15 +975,18 @@ void DdgiPass::destroy() {
     safe_destroy(vkDestroyPipeline, sample_pipeline_);
     safe_destroy(vkDestroyPipeline, rt_pipeline_);
     safe_destroy(vkDestroyPipeline, clipmap_alloc_pipeline_);
+    safe_destroy(vkDestroyPipeline, clipmap_mark_pipeline_);
     safe_destroy(vkDestroyPipelineLayout, trace_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, update_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, sample_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, rt_trace_pipeline_layout_);
     safe_destroy(vkDestroyPipelineLayout, alloc_pipeline_layout_);
+    safe_destroy(vkDestroyPipelineLayout, mark_pipeline_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, trace_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, update_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, sample_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, alloc_set_layout_);
+    safe_destroy(vkDestroyDescriptorSetLayout, mark_set_layout_);
     safe_destroy(vkDestroyDescriptorSetLayout, rt_trace_set_layout_);
     safe_destroy(vkDestroySampler, linear_sampler_);
     sbt_buffer_.reset();
@@ -947,12 +1029,18 @@ static void write_alloc_static_descriptors(VkDevice device, VkDescriptorSet set,
     free_list_info.offset = 0;
     free_list_info.range = VK_WHOLE_SIZE;
 
-    std::array<VkWriteDescriptorSet, 4> w{};
+    VkDescriptorBufferInfo last_used_info{};
+    last_used_info.buffer = imgs.probe_last_used_buffer->handle();
+    last_used_info.offset = 0;
+    last_used_info.range = VK_WHOLE_SIZE;
+
+    std::array<VkWriteDescriptorSet, 5> w{};
     for (auto& x : w) { x.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; x.dstSet = set; x.descriptorCount = 1; }
     w[0].dstBinding = 0; w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; w[0].pBufferInfo = &ubo_info;
     w[1].dstBinding = 3; w[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[1].pBufferInfo = &slot_grid_info;
     w[2].dstBinding = 4; w[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[2].pBufferInfo = &status_info;
     w[3].dstBinding = 5; w[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[3].pBufferInfo = &free_list_info;
+    w[4].dstBinding = 6; w[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; w[4].pBufferInfo = &last_used_info;
 
     vkUpdateDescriptorSets(device, static_cast<uint32_t>(w.size()), w.data(), 0, nullptr);
 }
@@ -981,6 +1069,45 @@ static void write_alloc_indirection(VkDevice device, VkDescriptorSet set,
 /// Rebind the indirection image on every set that reads it. Called after
 /// each shift, since the reallocation pass ping-pongs between two images and
 /// the one holding the current mapping alternates.
+/// The mark set's UBO. Written once at init — the buffer handle is fixed
+/// for the life of an Images, so rewriting it per frame would only be a
+/// way to touch a set that in-flight command buffers still reference.
+static void write_mark_static_descriptors(VkDevice device, DdgiPass::Images& imgs) {
+    VkDescriptorBufferInfo ubo_info{};
+    ubo_info.buffer = imgs.constants_ubo->handle();
+    ubo_info.offset = 0;
+    ubo_info.range = sizeof(GpuDdgiConstants);
+
+    VkWriteDescriptorSet w{};
+    w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w.dstSet = imgs.mark_set;
+    w.dstBinding = 0;
+    w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    w.pBufferInfo = &ubo_info;
+
+    vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
+}
+
+/// Point the mark pass at the ping-pong half it should stamp this frame.
+/// Unlike the UBO this genuinely alternates, so binding 2 carries
+/// UPDATE_AFTER_BIND.
+static void write_mark_target(VkDevice device, DdgiPass::Images& imgs, int write_index) {
+    VkDescriptorImageInfo target{};
+    target.imageView = imgs.indirection_view[write_index];
+    target.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+
+    VkWriteDescriptorSet w{};
+    w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    w.dstSet = imgs.mark_set;
+    w.dstBinding = 2;
+    w.descriptorCount = 1;
+    w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    w.pImageInfo = &target;
+
+    vkUpdateDescriptorSets(device, 1, &w, 0, nullptr);
+}
+
 static void write_indirection_consumers(VkDevice device, DdgiPass::Images& imgs) {
     VkDescriptorImageInfo current{};
     current.imageView = imgs.indirection_view[imgs.indirection_current];
@@ -1313,15 +1440,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // Allocate descriptor pool + sets for this Images instance if needed
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         bool has_rt = rt_trace_set_layout_ != VK_NULL_HANDLE;
-        // +1 set for the clipmap reallocation pass, which contributes
-        // 1 UBO, 2 storage images and 3 storage buffers of its own.
-        uint32_t max_sets = has_rt ? 5u : 4u;
+        // +2 sets beyond the original three: the clipmap reallocation pass
+        // (1 UBO, 2 storage images, 4 storage buffers) and the mark pass
+        // (1 UBO, 1 sampler, 1 storage image).
+        uint32_t max_sets = has_rt ? 6u : 5u;
 
         std::array<VkDescriptorPoolSize, 5> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 5u : 4u};
-        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 14u : 9u};
-        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 10u : 8u};
-        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 12u : 7u};
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, has_rt ? 6u : 5u};
+        pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, has_rt ? 15u : 10u};
+        pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, has_rt ? 11u : 9u};
+        pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, has_rt ? 13u : 8u};
         pool_sizes[4] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, has_rt ? 1u : 0u};
         uint32_t pool_size_count = has_rt ? 5u : 4u;
 
@@ -1336,7 +1464,25 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
         if (has_rt) {
             std::array layouts = {trace_set_layout_, rt_trace_set_layout_, update_set_layout_,
-                                  sample_set_layout_, alloc_set_layout_};
+                                  sample_set_layout_, alloc_set_layout_, mark_set_layout_};
+            std::array<VkDescriptorSet, 6> sets{};
+
+            VkDescriptorSetAllocateInfo alloc_info{};
+            alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            alloc_info.descriptorPool = imgs.desc_pool;
+            alloc_info.descriptorSetCount = 6;
+            alloc_info.pSetLayouts = layouts.data();
+
+            vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
+            imgs.trace_set = sets[0];
+            imgs.rt_trace_set = sets[1];
+            imgs.update_set = sets[2];
+            imgs.sample_set = sets[3];
+            imgs.alloc_set = sets[4];
+            imgs.mark_set = sets[5];
+        } else {
+            std::array layouts = {trace_set_layout_, update_set_layout_, sample_set_layout_,
+                                  alloc_set_layout_, mark_set_layout_};
             std::array<VkDescriptorSet, 5> sets{};
 
             VkDescriptorSetAllocateInfo alloc_info{};
@@ -1347,26 +1493,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
             vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
             imgs.trace_set = sets[0];
-            imgs.rt_trace_set = sets[1];
-            imgs.update_set = sets[2];
-            imgs.sample_set = sets[3];
-            imgs.alloc_set = sets[4];
-        } else {
-            std::array layouts = {trace_set_layout_, update_set_layout_, sample_set_layout_,
-                                  alloc_set_layout_};
-            std::array<VkDescriptorSet, 4> sets{};
-
-            VkDescriptorSetAllocateInfo alloc_info{};
-            alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            alloc_info.descriptorPool = imgs.desc_pool;
-            alloc_info.descriptorSetCount = 4;
-            alloc_info.pSetLayouts = layouts.data();
-
-            vkAllocateDescriptorSets(vk_device_, &alloc_info, sets.data());
-            imgs.trace_set = sets[0];
             imgs.update_set = sets[1];
             imgs.sample_set = sets[2];
             imgs.alloc_set = sets[3];
+            imgs.mark_set = sets[4];
         }
         imgs.images_need_init = true;
     }
@@ -1557,6 +1687,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         }
 
         write_alloc_static_descriptors(vk_device_, imgs.alloc_set, imgs);
+        write_mark_static_descriptors(vk_device_, imgs);
 
         is_first_frame_ = true;
         imgs.images_need_init = false;
@@ -1611,6 +1742,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         constexpr uint32_t PROBE_STATUS_ACTIVE = 4;
         VkDeviceSize status_size = static_cast<VkDeviceSize>(imgs.total_probes) * sizeof(uint32_t);
         vkCmdFillBuffer(ctx.cmd, imgs.probe_status_buffer->handle(), 0, status_size, PROBE_STATUS_ACTIVE);
+        // Zero rather than the current frame number, so nothing is treated
+        // as recently-used before anything has actually marked it.
+        vkCmdFillBuffer(ctx.cmd, imgs.probe_last_used_buffer->handle(), 0, status_size, 0);
+        // free_count and high_water both start empty: no slot has been
+        // freed and none has been handed out.
+        vkCmdFillBuffer(ctx.cmd, imgs.free_list_buffer->handle(), 0, 2 * sizeof(uint32_t), 0);
 
         VkMemoryBarrier2 fill_barrier{};
         fill_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -1625,16 +1762,14 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         vkCmdPipelineBarrier2(ctx.cmd, &fill_dep);
     }
 
-    // ── 0.5 Clipmap reallocation ──
-    // Only runs on frames where the level actually crossed a cell boundary,
-    // which is the point of snapping the origin to the cell grid: the camera
-    // moves continuously, the level moves in whole-cell steps and most frames
-    // it does not move at all.
-    // Each viewport owns its own indirection texture, so each decides for
-    // itself whether it has caught up with the level. A single pass-level
-    // "shift pending" flag would be consumed by whichever viewport recorded
-    // first, leaving every other viewport's indirection texture stale.
-    if (imgs.reallocated_this_frame) {
+    // ── 0.5 Clipmap mark + reallocation ──
+    // Runs every frame, not only when a level crosses a cell boundary. With
+    // demand-driven allocation the set of wanted probes changes whenever the
+    // view changes — turning on the spot reveals cells nothing had marked —
+    // so the mapping has to be rebuilt continuously. What makes that cheap
+    // is that REUSE carries converged probes straight across: a frame where
+    // nothing moved re-derives the same mapping and retraces nothing.
+    {
         FJELL_PROFILE_SCOPE_N("ddgi_clipmap_alloc");
 
         // Nothing to carry over the first time this viewport builds its
@@ -1674,37 +1809,82 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         uint32_t gy = static_cast<uint32_t>((counts.y + 3) / 4);
         uint32_t gz = static_cast<uint32_t>((counts.z + 3) / 4);
 
-        // Every level is rebuilt whenever any of them is. A level that did
-        // not move still has to be re-emitted, because CLEAR wipes the whole
-        // destination image and the level's slice would otherwise be left
-        // INVALID — its own REUSE pass finds every probe still covered and
-        // carries the slots straight over, so it costs a dispatch but no
-        // retracing.
-        for (int level = 0; level < imgs.clipmap.level_count; ++level) {
-            // The free list is per level: a level must only reclaim slots it
-            // freed itself, or one level would hand out another's slots and
-            // the two pools would interleave.
-            vkCmdFillBuffer(ctx.cmd, imgs.free_list_buffer->handle(), 0, sizeof(uint32_t), 0);
-            barrier_memory();
-
+        auto dispatch_phase = [&](int level, uint32_t phase) {
             ClipmapAllocPushConstants pc{};
             pc.prev_origin = imgs.indirection_origin[level];
             pc.level = level;
+            pc.phase = phase;
             // Only the very first build has no previous mapping to read.
             // After that every level always has one, whether or not it moved.
             pc.full_reset = full_reset ? 1u : 0u;
+            pc.frame_number = frame_counter_;
+            pc.frames_to_keep =
+                static_cast<uint32_t>(std::max(0, config_.frames_to_keep_unused_probes));
+            vkCmdPushConstants(ctx.cmd, alloc_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                               0, sizeof(pc), &pc);
+            vkCmdDispatch(ctx.cmd, gx, gy, gz);
+            barrier_memory();
+        };
 
-            // Three dispatches, each needing every cell of the previous one
-            // finished before it starts: CLEAR marks the new mapping empty,
-            // REUSE carries over probes still covered (freeing the rest), and
-            // ALLOC fills whatever is still empty from the free list.
-            for (uint32_t phase : {ALLOC_PHASE_CLEAR, ALLOC_PHASE_REUSE, ALLOC_PHASE_ALLOC}) {
-                pc.phase = phase;
-                vkCmdPushConstants(ctx.cmd, alloc_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                                   0, sizeof(pc), &pc);
-                vkCmdDispatch(ctx.cmd, gx, gy, gz);
+        // CLEAR every level first. The mark pass that follows stamps cells
+        // across all levels in one go, so it cannot run until the whole
+        // destination image is INVALID — clearing a level afterwards would
+        // wipe marks already placed in it.
+        for (int level = 0; level < imgs.clipmap.level_count; ++level) {
+            dispatch_phase(level, ALLOC_PHASE_CLEAR);
+        }
+
+        // MARK: stamp USED onto the cells this frame will actually read.
+        {
+            FJELL_PROFILE_SCOPE_N("ddgi_clipmap_mark");
+            write_mark_target(vk_device_, imgs, 1 - prev_index);
+
+            VkImageView depth_view = ctx.target ? ctx.target->depth_view() : VK_NULL_HANDLE;
+            if (depth_view != VK_NULL_HANDLE) {
+                VkDescriptorImageInfo d{};
+                d.sampler = linear_sampler_;
+                d.imageView = depth_view;
+                d.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+                VkWriteDescriptorSet w{};
+                w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                w.dstSet = imgs.mark_set;
+                w.dstBinding = 1;
+                w.descriptorCount = 1;
+                w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                w.pImageInfo = &d;
+                vkUpdateDescriptorSets(vk_device_, 1, &w, 0, nullptr);
+
+                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, clipmap_mark_pipeline_);
+                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                        mark_pipeline_layout_, 0, 1, &imgs.mark_set, 0, nullptr);
+
+                ClipmapMarkPushConstants mpc{};
+                mpc.output_resolution_half = config_.half_res_output ? 1u : 0u;
+                vkCmdPushConstants(ctx.cmd, mark_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                   0, sizeof(mpc), &mpc);
+                vkCmdDispatch(ctx.cmd,
+                              (imgs.indirect_extent.width + 7) / 8,
+                              (imgs.indirect_extent.height + 7) / 8, 1);
                 barrier_memory();
+
+                vkCmdBindPipeline(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, clipmap_alloc_pipeline_);
+                vkCmdBindDescriptorSets(ctx.cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+                                        alloc_pipeline_layout_, 0, 1, &imgs.alloc_set, 0, nullptr);
             }
+        }
+
+        // REUSE then ALLOC, per level. The free list is per level: a level
+        // must only reclaim slots it freed itself, or one level would hand
+        // out another's slots and the two pools would interleave.
+        for (int level = 0; level < imgs.clipmap.level_count; ++level) {
+            // Only free_count (offset 0). high_water sits at offset 4 and
+            // must survive: it records how much of the pool has ever been
+            // handed out, so zeroing it would re-issue slots already in use.
+            vkCmdFillBuffer(ctx.cmd, imgs.free_list_buffer->handle(), 0, sizeof(uint32_t), 0);
+            barrier_memory();
+
+            dispatch_phase(level, ALLOC_PHASE_REUSE);
+            dispatch_phase(level, ALLOC_PHASE_ALLOC);
 
             imgs.indirection_origin[level] = imgs.clipmap.levels[level].snapped_origin;
         }

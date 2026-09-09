@@ -65,6 +65,9 @@ void main() {
     if (probe_index >= total_probes) return;
 
     // Skip inactive probes
+    // Nothing marked this slot's cell, so no consumer will read it.
+    if (!ddgi_slot_allocated(probe_index)) return;
+
     uint status = probe_status[probe_index];
     if (status == PROBE_STATUS_OFF) return;
 

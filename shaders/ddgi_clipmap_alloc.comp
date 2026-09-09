@@ -43,8 +43,15 @@ layout(std430, set = 0, binding = 4) buffer ProbeStatus {
 };
 
 layout(std430, set = 0, binding = 5) buffer FreeList {
-    uint free_count;
+    uint free_count;      // slots returned by REUSE this frame
+    uint high_water;      // slots handed out from the untouched pool
     uint free_slots[];
+};
+
+// Frame each slot was last asked for, so a probe briefly out of view is
+// kept rather than retraced when it comes back.
+layout(std430, set = 0, binding = 6) buffer ProbeLastUsed {
+    uint probe_last_used[];
 };
 
 #define ALLOC_PHASE_CLEAR 0u
@@ -52,12 +59,18 @@ layout(std430, set = 0, binding = 5) buffer FreeList {
 #define ALLOC_PHASE_ALLOC 2u
 
 #define INVALID_PROBE_INDEX 0xFFFFFFFFu
+// Stamped by ddgi_clipmap_mark.comp onto cells this frame will actually
+// interpolate from. A cell left INVALID after the mark pass is one nothing
+// asked for, and gets no probe.
+#define USED_PROBE_INDEX    0xFFFFFFFEu
 
 layout(push_constant) uniform PushConstants {
     vec3 prev_origin;    // this level's origin the old mapping was built for
     uint phase;
     uint full_reset;     // 1 = discard the old mapping entirely
     int level;           // which clipmap level this dispatch rebuilds
+    uint frame_number;
+    uint frames_to_keep; // how long an unmarked probe survives
 };
 
 // Levels are packed side by side along X in the indirection texture,
@@ -91,16 +104,12 @@ void main() {
     }
 
     if (phase == ALLOC_PHASE_REUSE) {
-        // Nothing to carry over on a full reset — the free list is seeded
-        // with every slot rather than being fed from the old mapping. Push
-        // through the same atomic the non-reset path uses, so the slot a
-        // cell contributes and the position it lands in stay consistent
-        // however the invocations are ordered.
-        if (full_reset != 0) {
-            uint at = atomicAdd(free_count, 1u);
-            free_slots[at] = uint(level_slot_base() + cell_to_linear(cell));
-            return;
-        }
+        // Nothing to carry over on a full reset: there is no previous
+        // mapping to read. The free list stays empty and ALLOC bump-
+        // allocates whatever the mark pass asked for. Seeding the list with
+        // every slot here would double-issue them, since high_water hands
+        // out the same range.
+        if (full_reset != 0) return;
 
         // `cell` is read against the PREVIOUS origin here.
         uint slot = imageLoad(indirection_prev, indirection_texel(cell)).r;
@@ -114,35 +123,75 @@ void main() {
                                      + vec3(0.5)));
 
         if (covers(new_cell)) {
-            // Still covered: keep the slot and everything accumulated in it.
-            imageStore(indirection_next, indirection_texel(new_cell), uvec4(slot, 0, 0, 0));
-            slot_grid[slot] = uvec4(uvec3(new_cell), uint(level));
-        } else {
-            // Fell off the edge — the slot is up for grabs.
-            uint at = atomicAdd(free_count, 1u);
-            free_slots[at] = slot;
+            // Keep the probe if this frame asked for its cell, or if it was
+            // asked for recently enough — a camera turning back and forth
+            // otherwise retraces the same probes it just discarded. Lumen
+            // keeps unused probes for 8 frames for the same reason.
+            uint marker = imageLoad(indirection_next, indirection_texel(new_cell)).r;
+            bool wanted_now = (marker == USED_PROBE_INDEX);
+            bool wanted_recently = (frame_number - probe_last_used[slot]) < frames_to_keep;
+
+            if (wanted_now || wanted_recently) {
+                if (wanted_now) probe_last_used[slot] = frame_number;
+                imageStore(indirection_next, indirection_texel(new_cell), uvec4(slot, 0, 0, 0));
+                slot_grid[slot] = uvec4(uvec3(new_cell), uint(level));
+                return;
+            }
         }
+
+        // Fell off the edge, or nothing has wanted it for a while. Flag the
+        // slot unallocated so the trace and update passes skip it — with
+        // demand-driven allocation most of the pool is idle at any moment,
+        // and tracing rays for probes nothing reads is the exact cost this
+        // whole mechanism exists to avoid.
+        uint at = atomicAdd(free_count, 1u);
+        free_slots[at] = slot;
+        slot_grid[slot].w = DDGI_SLOT_UNALLOCATED;
         return;
     }
 
-    // ALLOC: anything still INVALID is a newly covered cell.
-    if (imageLoad(indirection_next, indirection_texel(cell)).r != INVALID_PROBE_INDEX) return;
+    // ALLOC: a cell still holding the USED marker is one this frame asked
+    // for that REUSE could not satisfy — it needs a fresh probe. Cells left
+    // INVALID were never marked, so nothing reads them and they stay empty;
+    // that is what keeps probe count tied to what is on screen rather than
+    // to the volume covered.
+    if (imageLoad(indirection_next, indirection_texel(cell)).r != USED_PROBE_INDEX) return;
+
+    // Two sources, in Lumen's order (AllocateProbeIndex in
+    // LumenRadianceCacheUpdate.usf): pop a slot this frame's REUSE returned,
+    // and when that list is dry, bump-allocate from the part of the pool
+    // nothing has claimed yet.
+    //
+    // The second source is not optional. With demand-driven allocation the
+    // number of cells wanting a probe has nothing to do with how many were
+    // freed this frame — a camera moving into unseen geometry wants far
+    // more than it gave back. Popping only from the free list leaves those
+    // cells INVALID, and because nothing ever refills the list from the
+    // untouched pool they stay that way: an area that goes unlit never
+    // comes back.
+    uint total = uint(ddgi_total_probes());
+    uint slot;
 
     uint remaining = atomicAdd(free_count, -1u);
-    uint total = uint(ddgi_total_probes());
+    bool from_free_list = (remaining > 0u && remaining <= total);
 
-    // Empty list, or the counter wrapped past zero. Should not happen while
-    // the freed and newly-covered sets match in size, but a cell with no
-    // slot must stay INVALID rather than claim one out of range — the
-    // sample side skips INVALID cells, so this degrades to "no indirect
-    // here" instead of reading another probe's lighting.
-    if (remaining == 0u || remaining > total) return;
+    if (from_free_list) {
+        slot = free_slots[remaining - 1u];
+    } else {
+        // Undo the speculative decrement so the counter does not run away
+        // below zero across the many invocations that find it empty.
+        atomicAdd(free_count, 1u);
+        slot = atomicAdd(high_water, 1u);
+    }
 
-    uint slot = free_slots[remaining - 1u];
+    // Genuinely out of probes: every slot in the pool is spoken for. The
+    // cell stays INVALID and the sample side skips it, which reads as no
+    // indirect here rather than as another cell's lighting.
     if (slot >= total) return;
 
     imageStore(indirection_next, indirection_texel(cell), uvec4(slot, 0, 0, 0));
     slot_grid[slot] = uvec4(uvec3(cell), uint(level));
+    probe_last_used[slot] = frame_number;
 
     // Its contents belong to a different world position, so the irradiance
     // update must overwrite rather than blend into it.

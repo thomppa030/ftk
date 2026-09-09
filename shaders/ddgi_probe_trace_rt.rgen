@@ -60,6 +60,9 @@ void main() {
     int total_probes = ddgi_total_probes();
     if (probe_index >= total_probes) return;
 
+    // Nothing marked this slot's cell, so no consumer will read it.
+    if (!ddgi_slot_allocated(probe_index)) return;
+
     // Probe world position
     ivec3 grid_indices = ddgi_slot_to_grid(probe_index);
     int probe_level = ddgi_slot_to_level(probe_index);

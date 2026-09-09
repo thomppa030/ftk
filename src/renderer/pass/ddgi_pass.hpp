@@ -109,6 +109,10 @@ struct DdgiConfig {
     // 2048-probe update over several frames cuts the per-frame ray cost;
     // hysteresis hides the staggering.
     int probes_per_frame_batch{1024};
+    // How many frames a probe survives after nothing marks it. Non-zero so
+    // a camera panning back and forth reuses probes instead of retracing
+    // what it just discarded; Lumen defaults to 8 for the same reason.
+    int frames_to_keep_unused_probes{8};
     bool half_res_output{true};
     bool enabled{true};
     // Diagnostic view replacing the indirect output. Runtime only — never
@@ -211,6 +215,9 @@ public:
         // then one slot index per probe.
         std::unique_ptr<Buffer> free_list_buffer;
 
+        // Frame each slot was last marked as wanted, one uint per probe.
+        std::unique_ptr<Buffer> probe_last_used_buffer;
+
         // Probe status SSBO (uint per probe)
         std::unique_ptr<Buffer> probe_status_buffer;
 
@@ -261,6 +268,7 @@ public:
         VkDescriptorSet update_set{VK_NULL_HANDLE};
         VkDescriptorSet sample_set{VK_NULL_HANDLE};
         VkDescriptorSet alloc_set{VK_NULL_HANDLE};  // clipmap reallocation
+        VkDescriptorSet mark_set{VK_NULL_HANDLE};   // clipmap mark
 
         // False until the reallocation pass has written both indirection
         // images at least once; before that their contents are undefined
@@ -373,6 +381,15 @@ public:
         uint32_t phase;
         uint32_t full_reset;
         int32_t level;
+        uint32_t frame_number;
+        uint32_t frames_to_keep;
+    };
+
+    /// Push constants for the mark pass — matches the sample pass's, since
+    /// it reconstructs world position from the same depth buffer at the
+    /// same resolution.
+    struct ClipmapMarkPushConstants {
+        uint32_t output_resolution_half;
     };
 
     static constexpr uint32_t ALLOC_PHASE_CLEAR = 0;
@@ -418,6 +435,10 @@ private:
     VkDescriptorSetLayout alloc_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout alloc_pipeline_layout_{VK_NULL_HANDLE};
     VkPipeline clipmap_alloc_pipeline_{VK_NULL_HANDLE};
+
+    VkDescriptorSetLayout mark_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout mark_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline clipmap_mark_pipeline_{VK_NULL_HANDLE};
 
     // The clipmap level this pass traces. Pass-level rather than
     // per-viewport: every viewport samples the same world probes, so the
