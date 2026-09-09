@@ -43,6 +43,7 @@ add_executable(fjell-tests
     test_ui_animation.cpp
     test_spline.cpp
     test_frame_descriptor_cache.cpp
+    test_ddgi_clipmap.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE
