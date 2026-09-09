@@ -137,6 +137,22 @@ struct DdgiClipmapLevel {
     /// being equal so it can pair them off directly instead of running
     /// an atomic free-list. Computed in closed form rather than by
     /// iterating, so it stays cheap enough to call per shift on the CPU.
+    /// Normalized distance from the nearest face of this level, in cells,
+    /// clamped to [0,1]. 0 exactly at the boundary, rising to 1 one cell
+    /// inside it. Ported from Lumen's EdgeFade
+    /// (LumenRadianceCacheInterpolation.ush, GetRadianceProbeClipmap): a
+    /// level is accepted only where this exceeds a per-pixel dither value,
+    /// so positions near a level's edge stochastically fall through to the
+    /// next coarser level instead of hard-cutting at it.
+    [[nodiscard]] float edge_fade(const glm::vec3& world_pos, float inv_fade_cells = 1.0f) const {
+        glm::vec3 coord = (world_pos - snapped_origin) / cell_size;
+        glm::vec3 low = glm::clamp((coord - 0.5f) * inv_fade_cells, 0.0f, 1.0f);
+        glm::vec3 high = glm::clamp(
+            (glm::vec3(probe_counts) - 0.5f - coord) * inv_fade_cells, 0.0f, 1.0f);
+        return glm::min(glm::min(low.x, glm::min(low.y, low.z)),
+                        glm::min(high.x, glm::min(high.y, high.z)));
+    }
+
     [[nodiscard]] int newly_covered_cell_count(const glm::vec3& previous_origin) const {
         glm::ivec3 shift = glm::abs(shift_in_cells(previous_origin));
         // Overlap along each axis is the extent minus the shift,
@@ -148,6 +164,72 @@ struct DdgiClipmapLevel {
         int retained = overlap.x * overlap.y * overlap.z;
         return total - retained;
     }
+};
+
+/// Largest number of clipmap levels the GPU side is sized for. The
+/// indirection texture packs levels side by side along X, and each level
+/// costs a full probe atlas slice, so this bounds both.
+inline constexpr int DDGI_MAX_CLIPMAP_LEVELS = 4;
+
+/// A stack of nested clipmap levels, each covering twice the world extent
+/// of the one below it at half the probe density — the same arrangement as
+/// Lumen's radiance cache clipmaps (LumenRadianceCache.cpp,
+/// FClipmapGeometry::GetCellSize: Level0CellSize * 2^Level).
+///
+/// Every level holds the same probe_counts and recenters on the same
+/// camera; only cell_size differs. So level 0 is dense and close, and each
+/// level out doubles reach for the same probe budget. A position is served
+/// by the finest level that comfortably contains it (see select_level).
+struct DdgiClipmap {
+    DdgiClipmapLevel levels[DDGI_MAX_CLIPMAP_LEVELS];
+    int level_count{1};
+
+    /// Configure the stack: every level gets the same resolution, and cell
+    /// sizes double outward from base_cell_size. Marks all levels for a
+    /// full reset, since changing either parameter moves every probe.
+    void configure(int count, const glm::ivec3& probe_counts, const glm::vec3& base_cell_size) {
+        level_count = glm::clamp(count, 1, DDGI_MAX_CLIPMAP_LEVELS);
+        for (int i = 0; i < level_count; ++i) {
+            glm::vec3 cell = base_cell_size * static_cast<float>(1 << i);
+            if (levels[i].probe_counts != probe_counts || levels[i].cell_size != cell) {
+                levels[i].probe_counts = probe_counts;
+                levels[i].cell_size = cell;
+                levels[i].full_reset = true;
+            }
+        }
+    }
+
+    /// Recenter every level on the camera. Returns true if any level moved
+    /// — coarse levels move rarely, since their cells are larger and the
+    /// camera has to cross a full one before the snapped origin changes.
+    bool recenter(const glm::vec3& camera_position) {
+        bool any_moved = false;
+        for (int i = 0; i < level_count; ++i) {
+            any_moved |= levels[i].recenter(camera_position);
+        }
+        return any_moved;
+    }
+
+    /// Finest level whose edge_fade at this position exceeds `dither`, or
+    /// -1 if no level covers it. Matches Lumen's GetRadianceProbeClipmap:
+    /// levels are tried finest-first and a level near its own boundary is
+    /// stochastically rejected in favour of the next coarser one, so the
+    /// transition dissolves per-pixel instead of appearing as a seam.
+    /// Lumen never blends two levels' irradiance together.
+    [[nodiscard]] int select_level(const glm::vec3& world_pos, float dither,
+                                    float inv_fade_cells = 1.0f) const {
+        for (int i = 0; i < level_count; ++i) {
+            if (levels[i].edge_fade(world_pos, inv_fade_cells) > dither) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /// World extent covered by the coarsest level — the outer limit of any
+    /// GI at all.
+    [[nodiscard]] glm::vec3 outer_min() const { return levels[level_count - 1].world_min(); }
+    [[nodiscard]] glm::vec3 outer_max() const { return levels[level_count - 1].world_max(); }
 };
 
 } // namespace fjell

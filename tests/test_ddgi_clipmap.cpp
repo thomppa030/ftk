@@ -264,6 +264,117 @@ TEST_CASE("Closed-form reallocation count matches brute force across many shifts
     }
 }
 
+// ── Multi-level stack ───────────────────────────────────────────────────
+
+TEST_CASE("Clipmap levels double in cell size and coverage", "[ddgi_clipmap]") {
+    DdgiClipmap clipmap;
+    clipmap.configure(3, glm::ivec3(16), glm::vec3(1.0f));
+    clipmap.recenter(glm::vec3(0.0f));
+
+    REQUIRE(clipmap.level_count == 3);
+    REQUIRE(clipmap.levels[0].cell_size.x == Approx(1.0f));
+    REQUIRE(clipmap.levels[1].cell_size.x == Approx(2.0f));
+    REQUIRE(clipmap.levels[2].cell_size.x == Approx(4.0f));
+
+    // Each level covers twice the world extent of the one below for the
+    // same probe count — the whole point of a clipmap.
+    for (int i = 1; i < clipmap.level_count; ++i) {
+        float inner = clipmap.levels[i - 1].world_max().x - clipmap.levels[i - 1].world_min().x;
+        float outer = clipmap.levels[i].world_max().x - clipmap.levels[i].world_min().x;
+        REQUIRE(outer == Approx(inner * 2.0f).epsilon(0.05));
+    }
+}
+
+TEST_CASE("edge_fade is zero at a level boundary and one well inside", "[ddgi_clipmap]") {
+    DdgiClipmapLevel level;
+    level.cell_size = glm::vec3(2.0f);
+    level.probe_counts = glm::ivec3(16);
+    level.recenter(glm::vec3(0.0f));
+
+    // Dead centre is deep inside, so fully faded in.
+    glm::vec3 center = (level.world_min() + level.world_max()) * 0.5f;
+    REQUIRE(level.edge_fade(center) == Approx(1.0f));
+
+    // Outside the level entirely — no fade, so no level selection can
+    // accept it however low the dither value is.
+    REQUIRE(level.edge_fade(level.world_min() - glm::vec3(10.0f)) == Approx(0.0f));
+
+    // Just inside the low corner is within the one-cell fade band, so
+    // partially faded rather than fully accepted.
+    float near_corner = level.edge_fade(level.world_min() + level.cell_size * 0.25f);
+    REQUIRE(near_corner >= 0.0f);
+    REQUIRE(near_corner < 1.0f);
+}
+
+TEST_CASE("select_level picks the finest level that comfortably covers a position", "[ddgi_clipmap]") {
+    DdgiClipmap clipmap;
+    clipmap.configure(3, glm::ivec3(16), glm::vec3(1.0f));
+    clipmap.recenter(glm::vec3(0.0f));
+
+    // At the camera, the finest level applies — this is what keeps the
+    // densest probes where detail matters most.
+    REQUIRE(clipmap.select_level(glm::vec3(0.0f), 0.5f) == 0);
+
+    // Beyond level 0's reach (16 cells x 1m, so ~±8m) but inside level 1's
+    // (~±16m), selection must fall through to the coarser level rather
+    // than reporting no coverage.
+    int mid = clipmap.select_level(glm::vec3(12.0f, 0.0f, 0.0f), 0.5f);
+    REQUIRE(mid >= 1);
+    REQUIRE(mid < clipmap.level_count);
+
+    // Past every level: no coverage at all.
+    REQUIRE(clipmap.select_level(glm::vec3(1000.0f), 0.5f) == -1);
+}
+
+TEST_CASE("A higher dither threshold pushes boundary positions to coarser levels", "[ddgi_clipmap]") {
+    // This is the mechanism that dissolves the level transition: at a
+    // given position near level 0's edge, some pixels (low dither) take
+    // the fine level and others (high dither) fall through to the coarse
+    // one. Temporal accumulation averages that into a soft blend without
+    // ever mixing two levels' irradiance in a single sample.
+    DdgiClipmap clipmap;
+    clipmap.configure(3, glm::ivec3(16), glm::vec3(1.0f));
+    clipmap.recenter(glm::vec3(0.0f));
+
+    // A position inside level 0 but close enough to its edge to sit in the
+    // fade band.
+    glm::vec3 near_edge = glm::vec3(clipmap.levels[0].world_max().x - 0.25f, 0.0f, 0.0f);
+
+    int with_low_dither = clipmap.select_level(near_edge, 0.0f);
+    int with_high_dither = clipmap.select_level(near_edge, 0.99f);
+
+    // Raising the threshold can only ever push selection outward, never
+    // pull it inward.
+    REQUIRE(with_high_dither >= with_low_dither);
+}
+
+TEST_CASE("Coarse levels recenter less often than fine ones", "[ddgi_clipmap]") {
+    // The reason a clipmap is affordable: a coarse level's cells are large,
+    // so the camera has to travel much further before its snapped origin
+    // moves at all and its probes have to be reallocated.
+    DdgiClipmap clipmap;
+    clipmap.configure(3, glm::ivec3(16), glm::vec3(1.0f));
+    clipmap.recenter(glm::vec3(0.0f));
+
+    int moves[3] = {0, 0, 0};
+    glm::vec3 previous[3];
+    for (int i = 0; i < 3; ++i) previous[i] = clipmap.levels[i].snapped_origin;
+
+    // Walk 40m in 0.25m steps.
+    for (int step = 1; step <= 160; ++step) {
+        clipmap.recenter(glm::vec3(static_cast<float>(step) * 0.25f, 0.0f, 0.0f));
+        for (int i = 0; i < 3; ++i) {
+            if (clipmap.levels[i].snapped_origin != previous[i]) {
+                ++moves[i];
+                previous[i] = clipmap.levels[i].snapped_origin;
+            }
+        }
+    }
+
+    REQUIRE(moves[0] > moves[1]);
+    REQUIRE(moves[1] > moves[2]);
+}
+
 TEST_CASE("snap_to_grid handles negative coordinates via floor, not truncation", "[ddgi_clipmap]") {
     // Lumen's SnapToGrid explicitly uses floor() "to round negative
     // numbers down" rather than toward zero — verify Fjell's port keeps
