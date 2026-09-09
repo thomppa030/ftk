@@ -29,14 +29,74 @@ vec3 world_position_from_depth(vec2 uv, float depth) {
 
 // ── 8-probe trilinear cage sampling ─────────────────────────────────────
 
-vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
+// Diagnostic views (mirror fjell::DdgiDebugMode).
+#define DDGI_DEBUG_OFF            0u
+#define DDGI_DEBUG_CLIPMAP_LEVEL  1u
+#define DDGI_DEBUG_PROBE_VALIDITY 2u
+#define DDGI_DEBUG_GRID_CELL      3u
+
+const vec3 DDGI_LEVEL_COLORS[4] = vec3[](
+    vec3(1.0, 0.2, 0.2),   // level 0 — finest
+    vec3(0.2, 1.0, 0.2),
+    vec3(0.2, 0.4, 1.0),
+    vec3(1.0, 1.0, 0.2)    // level 3 — coarsest
+);
+
+/// Replaces the indirect output with a view of what the clipmap actually
+/// resolved for this pixel, so level selection and probe assignment can be
+/// inspected directly instead of inferred from how the lighting looks.
+vec3 debug_clipmap(vec3 world_pos, float dither) {
+    int level = ddgi_select_level(world_pos, dither);
+
+    if (ddgi.debug_options == DDGI_DEBUG_CLIPMAP_LEVEL) {
+        if (level < 0) return vec3(0.0);
+        return DDGI_LEVEL_COLORS[clamp(level, 0, 3)];
+    }
+
+    // No level covers this position — the outer boundary of any GI.
+    if (level < 0) return vec3(0.0);
+
+    ivec3 base_grid = ddgi_world_to_grid(world_pos, level);
+
+    if (ddgi.debug_options == DDGI_DEBUG_GRID_CELL) {
+        // Hash the cell so neighbours differ sharply: blotches that align
+        // with these cells come from the cage, ones that don't do not.
+        vec3 h = fract(sin(vec3(dot(vec3(base_grid), vec3(12.9898, 78.233, 37.719)),
+                                dot(vec3(base_grid), vec3(93.9898, 67.345, 21.123)),
+                                dot(vec3(base_grid), vec3(43.3321, 12.987, 91.451))))
+                       * 43758.5453);
+        return h;
+    }
+
+    // PROBE_VALIDITY: how many of the 8 cage probes resolved to a slot.
+    int valid = 0;
+    for (int i = 0; i < 8; ++i) {
+        ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
+        ivec3 probe_grid = base_grid + offset;
+        if (!ddgi_grid_covered(probe_grid)) continue;
+        if (ddgi_grid_to_slot(probe_grid, level) >= 0) ++valid;
+    }
+    float frac = float(valid) / 8.0;
+    return mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), frac);
+}
+
+vec3 sample_irradiance(vec3 world_pos, vec3 normal, float dither) {
+    // Pick the finest clipmap level that comfortably covers this position.
+    // Near a level's boundary the choice becomes stochastic (see
+    // ddgi_select_level), so neighbouring pixels straddle the transition
+    // and temporal accumulation resolves it into a soft gradient.
+    int level = ddgi_select_level(world_pos, dither);
+    if (level < 0) return vec3(0.0);  // beyond the coarsest level
+
+    float cell = ddgi_level_cell_size(level);
+
     vec3 Wo = normalize(ddgi.camera_position - world_pos);
     // Bias the sample off the surface before the cage lookup. Lean on the
     // normal so the offset lifts away from the surface; keep the view term
     // small. A view-dominant bias goes tangential at grazing angles and
     // skates the sample across probe cells, which reads as blocky shimmer.
-    // Scale by spacing so the bias stays a fixed fraction of a cell.
-    float cell = min(ddgi.probe_spacing.x, min(ddgi.probe_spacing.y, ddgi.probe_spacing.z));
+    // Scale by the selected level's cell size so the bias stays a fixed
+    // fraction of a cell however coarse that level is.
     vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
     vec3 biased_pos = world_pos + bias_vector;
 
@@ -46,10 +106,10 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
     // flip between adjacent pixels, swapping which 8 probes are sampled —
     // that is the grazing-angle shimmer. The biased position is used only for
     // the visibility distance below.
-    ivec3 base_grid = ddgi_world_to_grid(world_pos);
-    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
+    ivec3 base_grid = ddgi_world_to_grid(world_pos, level);
+    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid, level);
 
-    vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
+    vec3 alpha = clamp((world_pos - base_world) / cell, vec3(0.0), vec3(1.0));
 
     vec3 sum_irradiance = vec3(0.0);
     float sum_weight = 0.0;
@@ -67,7 +127,7 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
         // No probe assigned to this cell yet (newly covered and not filled,
         // or the free list ran dry). Let the other cage probes carry the
         // interpolation rather than reading some unrelated probe's data.
-        int probe_idx = ddgi_grid_to_slot(probe_grid);
+        int probe_idx = ddgi_grid_to_slot(probe_grid, level);
         if (probe_idx < 0) continue;
 
         // Skip probes the status pass disabled (buried in / behind geometry).
@@ -75,7 +135,7 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
         // probes carry the interpolation instead of leaking it in.
         if (probe_status[probe_idx] == PROBE_STATUS_OFF) continue;
 
-        vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx, probe_offset_tex, true);
+        vec3 probe_pos = ddgi_grid_to_world(probe_grid, level, probe_idx, probe_offset_tex, true);
 
         vec3 trilinear = mix(1.0 - alpha, alpha, offset);
         float weight = 1.0;
@@ -206,7 +266,17 @@ void main() {
     vec2 screen_uv = (vec2(coords) + 0.5) / out_res;
     vec3 world_pos = world_position_from_depth(screen_uv, raw_depth);
 
-    vec3 irradiance = sample_irradiance(world_pos, normal);
+    // Per-pixel, per-frame dither for clipmap level selection. Interleaved
+    // gradient noise gives a well-distributed spatial pattern; the frame's
+    // random_rotation supplies temporal variation, so the level boundary
+    // dissolves over time instead of freezing into a static dither texture.
+    float temporal = fract(ddgi.random_rotation[0][0] * 91.7 + ddgi.random_rotation[1][2] * 47.3);
+    vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+    float dither = fract(magic.z * fract(dot(vec2(coords) + temporal * 64.0, magic.xy)));
+
+    vec3 irradiance = (ddgi.debug_options != DDGI_DEBUG_OFF)
+        ? debug_clipmap(world_pos, dither)
+        : sample_irradiance(world_pos, normal, dither);
 
     imageStore(indirect_out, coords, vec4(irradiance, 1.0));
 }
