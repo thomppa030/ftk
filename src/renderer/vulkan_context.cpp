@@ -1546,16 +1546,13 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                 particle_system_->set_sdf_bounds(padded_min, padded_max);
             }
 
-            // Fit DDGI probe grid once on first valid bounds, then leave it
-            // stable. Moving objects must not shift the grid — that would
-            // invalidate all accumulated probe irradiance.
-            auto& ddgi_cfg = ddgi_pass().config();
-            if (!ddgi_grid_initialized_) {
-                glm::vec3 spacing = extent / glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1));
-                ddgi_cfg.grid_position = padded_min;
-                ddgi_cfg.probe_spacing = spacing;
-                ddgi_grid_initialized_ = true;
-            }
+            // The DDGI probe grid is a camera-centered clipmap and positions
+            // itself in DdgiPass::recenter_clipmap() — scene bounds no
+            // longer place it. Probe spacing stays a fixed world-space size
+            // rather than being derived from scene extent: a clipmap covers
+            // a constant volume around the camera, so stretching cells to
+            // span the scene would make coverage depend on how far away the
+            // furthest object happens to be.
         }
 
         if (scene_sdf_pass().dirty() && !sdf_instances.empty()) {

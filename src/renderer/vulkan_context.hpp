@@ -398,7 +398,6 @@ private:
   bool playing_{false};
   bool has_pending_ddgi_toggle_{false};
   bool pending_ddgi_toggle_{false};
-  bool ddgi_grid_initialized_{false};
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
   ResourceManager* resource_manager_{nullptr};

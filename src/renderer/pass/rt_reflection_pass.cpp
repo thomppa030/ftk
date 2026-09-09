@@ -102,7 +102,7 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
     }
 
     // ── Trace descriptor set layout (15 bindings) ──
-    constexpr uint32_t BINDING_COUNT = 15;
+    constexpr uint32_t BINDING_COUNT = 16;
     constexpr VkShaderStageFlags ALL_RT =
         VK_SHADER_STAGE_RAYGEN_BIT_KHR
         | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR
@@ -124,6 +124,7 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
     bindings[12] = {12, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
     bindings[13] = {13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
     bindings[14] = {14, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
+    bindings[15] = {15, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,             1, VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
 
     // UPDATE_AFTER_BIND on every binding rewritten per-frame. Bindings
     // 7, 8, 14 (mega vertex/index, reflection UBO) are written once at
@@ -141,6 +142,7 @@ Result<> RtReflectionPass::create(Device& device, const PassResources& resources
     flags[11] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // visibility
     flags[12] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // probe offset
     flags[13] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // probe status
+    flags[15] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // ddgi indirection
 
     VkDescriptorSetLayoutBindingFlagsCreateInfo flags_ci{};
     flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
@@ -327,7 +329,7 @@ void RtReflectionPass::Images::create(VkDevice device, VmaAllocator allocator,
     pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,             2}; // DDGI UBO + reflection UBO
     pool_sizes[1] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1};
     pool_sizes[2] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,     7}; // depth, normal, mr, sky, irr, vis, probe_off
-    pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,              1}; // reflection_out
+    pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,              2}; // reflection_out, ddgi indirection
     pool_sizes[4] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,             4}; // vertex, index, instance, probe_status
 
     VkDescriptorPoolCreateInfo pool_ci{};
@@ -612,7 +614,15 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         tlas_as.accelerationStructureCount = 1;
         tlas_as.pAccelerationStructures = &tlas;
 
-        std::array<VkWriteDescriptorSet, 12> w{};
+        // DDGI clipmap indirection — grid coord -> probe slot for the hit
+        // shader's cage lookup. Rewritten every frame along with the other
+        // DDGI bindings, so it picks up the ping-pong flip for free.
+        VkDescriptorImageInfo indirection_info{
+            VK_NULL_HANDLE,
+            ddgi_imgs->indirection_view[ddgi_imgs->indirection_current],
+            VK_IMAGE_LAYOUT_GENERAL};
+
+        std::array<VkWriteDescriptorSet, 13> w{};
         for (auto& wi : w) {
             wi.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             wi.dstSet = imgs->trace_set;
@@ -630,6 +640,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         w[9].dstBinding = 11; w[9].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;     w[9].pImageInfo = &vis_info;
         w[10].dstBinding = 12; w[10].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;   w[10].pImageInfo = &offset_info;
         w[11].dstBinding = 13; w[11].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;           w[11].pBufferInfo = &probe_status_info;
+        w[12].dstBinding = 15; w[12].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;            w[12].pImageInfo = &indirection_info;
 
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(w.size()), w.data(), 0, nullptr);
     }

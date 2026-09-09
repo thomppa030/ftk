@@ -3,6 +3,7 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
+#include "core/math/ddgi_clipmap.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -21,15 +22,22 @@ enum class DdgiBackend : uint8_t {
 };
 
 /// DDGI probe grid configuration.
-/// The grid is auto-fitted to the scene SDF bounds once on first frame, then
-/// frozen. Changing grid_position or probe_spacing at runtime invalidates all
-/// accumulated irradiance (probes shift to new world positions). For streaming
-/// or procedural worlds, set bounds before the first frame or use a scrolling
-/// grid (not yet implemented).
+/// The grid is a camera-centered clipmap: it covers a fixed volume around the
+/// camera and follows it, snapping to its own cell grid so it shifts in whole
+/// cells and only when the camera crosses a cell boundary. Probes that still
+/// cover the same world cell after a shift keep their accumulated irradiance;
+/// only the newly-uncovered ones retrace. Changing probe_counts or
+/// probe_spacing resizes the level and discards everything, since both change
+/// which world position each probe stands for.
 struct DdgiConfig {
-    glm::ivec3 probe_counts{16, 8, 16};
+    // Cube-shaped, matching Lumen's clipmap levels (one ClipmapResolution
+    // for all three axes). The old 16x8x16 came from fitting the grid to
+    // scene bounds, where a squat box suited a floor-based scene; a
+    // camera-centered level has to reach as far above and below the camera
+    // as it does sideways, or tall geometry falls out of coverage.
+    glm::ivec3 probe_counts{16, 16, 16};
     glm::vec3 probe_spacing{2.0f};
-    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // auto-fitted on first frame
+    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // driven by the clipmap
     float hysteresis{0.95f};
     int probe_rays{128};
     // Octahedral texel resolution of one probe's own irradiance map — the
@@ -210,6 +218,31 @@ public:
         VkDescriptorSet rt_trace_set{VK_NULL_HANDLE};  // RT trace
         VkDescriptorSet update_set{VK_NULL_HANDLE};
         VkDescriptorSet sample_set{VK_NULL_HANDLE};
+        VkDescriptorSet alloc_set{VK_NULL_HANDLE};  // clipmap reallocation
+
+        // False until the reallocation pass has written both indirection
+        // images at least once; before that their contents are undefined
+        // and they have never been transitioned out of UNDEFINED.
+        bool indirection_initialized{false};
+
+        // This viewport's clipmap level. Per-viewport, not per-pass: each
+        // viewport renders from its own camera and owns its own indirection
+        // texture and probe atlases, so it has to recenter on its own camera
+        // — a shared level would place probes around one camera while
+        // another viewport sampled them. Matches Lumen, which stores the
+        // whole FRadianceCacheState (clipmap origins and the probe
+        // indirection texture together) in per-view state.
+        DdgiClipmapLevel level;
+
+        // The level origin this viewport's indirection texture was last
+        // built for. Differs from level.snapped_origin exactly when the
+        // texture still has to catch up.
+        glm::vec3 indirection_origin{0.0f};
+
+        // Set during recentering when this viewport's indirection texture is
+        // out of date, so both the constants (which must widen the update to
+        // every probe) and the dispatch agree on it within one frame.
+        bool reallocated_this_frame{false};
 
         void create(VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,
@@ -286,6 +319,21 @@ public:
         float pad4;
     };
 
+    /// Push constants for the clipmap reallocation shader. `phase` selects
+    /// which of the three dispatches this is; all run over the same cell
+    /// grid. `prev_origin` is the level origin the old mapping was built
+    /// for — the shader converts old cells to world positions with it, so
+    /// no cell-space delta has to be trusted across the boundary.
+    struct ClipmapAllocPushConstants {
+        glm::vec3 prev_origin;
+        uint32_t phase;
+        uint32_t full_reset;
+    };
+
+    static constexpr uint32_t ALLOC_PHASE_CLEAR = 0;
+    static constexpr uint32_t ALLOC_PHASE_REUSE = 1;
+    static constexpr uint32_t ALLOC_PHASE_ALLOC = 2;
+
     /// Max ray distance used in RT trace push constants.
     static constexpr float MAX_TRACE_DIST = 40.0f;
 
@@ -321,6 +369,19 @@ private:
     VkPipeline visibility_update_pipeline_{VK_NULL_HANDLE};
     VkPipeline probe_offset_pipeline_{VK_NULL_HANDLE};
     VkPipeline probe_status_pipeline_{VK_NULL_HANDLE};
+
+    VkDescriptorSetLayout alloc_set_layout_{VK_NULL_HANDLE};
+    VkPipelineLayout alloc_pipeline_layout_{VK_NULL_HANDLE};
+    VkPipeline clipmap_alloc_pipeline_{VK_NULL_HANDLE};
+
+    // The clipmap level this pass traces. Pass-level rather than
+    // per-viewport: every viewport samples the same world probes, so the
+    // level follows the main camera and each viewport's atlases hold the
+    // accumulated irradiance for those same cells.
+    /// Move this viewport's level to follow its camera, and republish the
+    /// resulting origin into the config the UBO is built from. Returns true
+    /// if the level moved.
+    bool recenter_clipmap(Images& imgs, const glm::vec3& camera_position);
 
     VkDescriptorSetLayout sample_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout sample_pipeline_layout_{VK_NULL_HANDLE};

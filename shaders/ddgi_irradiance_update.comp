@@ -7,6 +7,10 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 1) uniform sampler2D radiance_tex;
 layout(rgba16f, set = 0, binding = 2) uniform image2D irradiance_image;
 
+layout(std430, set = 0, binding = 5) readonly buffer ProbeStatusSSBO {
+    uint probe_status[];
+};
+
 layout(push_constant) uniform PushConstants {
     uint first_frame;
     float max_trace_dist;
@@ -94,7 +98,15 @@ void main() {
 
         vec4 previous_value = imageLoad(irradiance_image, coords);
 
-        if (first_frame == 0) {
+        // A probe the clipmap just reallocated holds the irradiance of the
+        // world cell its slot used to serve, which says nothing about the
+        // cell it serves now — blending against it would drag a stale
+        // position's lighting into the new one for as long as hysteresis
+        // takes to wash out. Overwrite outright instead, same as the very
+        // first frame.
+        bool uninitialized = probe_status[probe_index] == PROBE_STATUS_UNINITIALIZED;
+
+        if (first_frame == 0 && !uninitialized) {
             // Low-confidence cells blend toward a higher hysteresis (keep more
             // history) so weak-signal shadow cells stop shimmering, while
             // confident cells stay responsive at the configured value.

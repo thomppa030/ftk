@@ -125,18 +125,20 @@ int get_probe_index_from_pixels(ivec2 pixels, int probe_with_border_side, int fu
 // ── Probe grid coordinate system ────────────────────────────────────────
 // Uses the DDGIConstants UBO declared above.
 
-ivec3 ddgi_probe_index_to_grid(int probe_index) {
-    int px = probe_index % ddgi.probe_counts.x;
-    int pxy = ddgi.probe_counts.x * ddgi.probe_counts.y;
-    int py = (probe_index % pxy) / ddgi.probe_counts.x;
-    int pz = probe_index / pxy;
-    return ivec3(px, py, pz);
-}
+// Slot -> grid coordinate. With a clipmap, a probe slot is a pool entry
+// whose world cell changes as the level shifts, so the mapping is stored
+// rather than derived from the slot index. Shaders that need it declare
+// FJELL_DDGI_SLOT_GRID_BINDING before including this header; those that
+// only address atlases by slot don't need the buffer at all.
+#ifdef FJELL_DDGI_SLOT_GRID_BINDING
+layout(std430, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_SLOT_GRID_BINDING) readonly buffer DdgiSlotGrid {
+    uvec4 ddgi_slot_grid[];
+};
 
-int ddgi_grid_to_probe_index(ivec3 coords) {
-    return coords.x + coords.y * ddgi.probe_counts.x
-         + coords.z * ddgi.probe_counts.x * ddgi.probe_counts.y;
+ivec3 ddgi_slot_to_grid(int probe_index) {
+    return ivec3(ddgi_slot_grid[probe_index].xyz);
 }
+#endif
 
 vec3 ddgi_grid_to_world_no_offsets(ivec3 grid_indices) {
     return vec3(grid_indices) * ddgi.probe_spacing + ddgi.probe_grid_position;
@@ -153,10 +155,45 @@ vec3 ddgi_grid_to_world(ivec3 grid_indices, int probe_index,
     return ddgi_grid_to_world_no_offsets(grid_indices) + offset;
 }
 
+// Level-relative grid coordinate for a world position. Uses floor rather
+// than truncation so cells below the origin land in the cell below, not
+// the same one as their positive mirror. NOT clamped: a position outside
+// the level has no probe, and clamping it to an edge probe is what made
+// out-of-bounds content pick up a fixed, wrong probe's lighting. Callers
+// check ddgi_grid_covered() and fall back instead.
 ivec3 ddgi_world_to_grid(vec3 world_pos) {
-    return clamp(ivec3((world_pos - ddgi.probe_grid_position) * ddgi.reciprocal_spacing),
-                 ivec3(0), ddgi.probe_counts - ivec3(1));
+    return ivec3(floor((world_pos - ddgi.probe_grid_position) * ddgi.reciprocal_spacing));
 }
+
+bool ddgi_grid_covered(ivec3 grid_coord) {
+    return all(greaterThanEqual(grid_coord, ivec3(0)))
+        && all(lessThan(grid_coord, ddgi.probe_counts));
+}
+
+// Grid coordinate -> probe slot, via the indirection texture the clipmap
+// reallocation pass maintains. Shaders declare
+// FJELL_DDGI_INDIRECTION_BINDING before including this header.
+// No probe is assigned to this cell. Matches Lumen's INVALID_PROBE_INDEX
+// (LumenRadianceCacheMarkCommon.ush) — the indirection texture is cleared
+// to this every time it is rebuilt, so a cell nothing claims reads as
+// unassigned rather than holding a stale slot from an earlier mapping.
+#define DDGI_INVALID_PROBE 0xFFFFFFFFu
+
+#ifdef FJELL_DDGI_INDIRECTION_BINDING
+layout(r32ui, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_INDIRECTION_BINDING)
+    uniform readonly uimage3D ddgi_indirection;
+
+/// Probe slot for a grid coordinate, or -1 if no probe is assigned.
+int ddgi_grid_to_slot(ivec3 grid_coord) {
+    uint slot = imageLoad(ddgi_indirection, grid_coord).r;
+    if (slot == DDGI_INVALID_PROBE) return -1;
+
+    uint total = uint(ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z);
+    if (slot >= total) return -1;
+
+    return int(slot);
+}
+#endif
 
 // ── Probe status constants ──────────────────────────────────────────────
 

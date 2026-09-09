@@ -2,6 +2,7 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
+#define FJELL_DDGI_SLOT_GRID_BINDING 6
 #include "fjell_ddgi.glsl"
 
 // ── Bindings ────────────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ void main() {
     if (status == PROBE_STATUS_OFF) return;
 
     // Probe world position
-    ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
+    ivec3 grid_indices = ddgi_slot_to_grid(probe_index);
     vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
 
     // Ray direction: jittered spherical Fibonacci

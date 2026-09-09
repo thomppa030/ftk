@@ -1,6 +1,7 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 
+#define FJELL_DDGI_SLOT_GRID_BINDING 12
 #include "fjell_ddgi.glsl"
 
 // ── Bindings ────────────────────────────────────────────────────────────
@@ -60,7 +61,7 @@ void main() {
     if (probe_index >= total_probes) return;
 
     // Probe world position
-    ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
+    ivec3 grid_indices = ddgi_slot_to_grid(probe_index);
     vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
 
     // Burial test from the SDF, re-evaluated EVERY frame so a probe revives the

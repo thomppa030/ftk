@@ -4,35 +4,35 @@ layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
 
 #include "fjell_ddgi.glsl"
 
-// Reallocates probe slots after the clipmap level shifts.
+// Reassigns probe slots after the clipmap level moves.
 //
-// One invocation per cell of the newly-positioned level. A cell whose
-// world position was already covered before the shift keeps the slot it
-// had, so its accumulated irradiance survives — that is the common case,
-// and the reason the level snaps to its own cell grid instead of
-// following the camera continuously. Only cells along the leading edge
-// are newly covered; they take over slots left behind by cells that fell
-// off the trailing edge, and start from scratch.
+// Structured after Lumen's radiance cache update (LumenRadianceCache.usf
+// ClearProbeIndirectionCS, LumenRadianceCacheUpdate.usf UpdateCacheStateCS
+// / AllocateUsedProbesCS), which solves the same problem: keep a probe's
+// accumulated lighting when its world cell is still covered after the
+// level moves, and only trace genuinely new cells.
 //
-// Runs as two dispatches over the same cell grid, selected by the `phase`
-// push constant. Both need to have seen every cell before any slot is
-// handed out, so they cannot be merged into one:
+// Runs as three dispatches over the cell grid, selected by `phase`:
 //
-//   FREE  — cells that dropped off the trailing edge push their slot
-//           onto a free list.
-//   ALLOC — cells still covered keep their slot; newly-covered cells pop
-//           one off the free list.
+//   CLEAR — every cell of the new mapping starts INVALID. A cell nothing
+//           claims stays INVALID rather than holding a stale slot.
+//   REUSE — each cell of the OLD mapping converts its coordinate to a
+//           world position, converts that back to a coordinate under the
+//           NEW origin, and if it still lands inside the level, carries
+//           its slot over. Otherwise the slot goes on the free list.
+//   ALLOC — cells still INVALID after REUSE are genuinely new; each takes
+//           a slot off the free list and starts from scratch.
 //
-// The free list is a plain stack with an atomic counter, so which cell
-// gets which slot depends on invocation order. That is fine: a freed slot
-// carries no information worth preserving (its contents belong to a world
-// position no longer covered), so any 1:1 assignment is equivalent. The
-// two sets are the same size by construction — they are the symmetric
-// difference of two boxes of equal extent — so the list neither runs dry
-// nor ends the pass with slots left on it.
+// The world position is what ties the two mappings together, rather than
+// a cell delta computed on the CPU. That is deliberate: a delta has to be
+// exactly right or every cell maps to the wrong slot at once, and it
+// silently encodes an assumption (that both origins sit a whole number of
+// cells apart) that nothing in the shader can check. Round-tripping
+// through world space re-derives the answer from the geometry both sides
+// already agree on.
 
 layout(r32ui, set = 0, binding = 1) uniform readonly uimage3D indirection_prev;
-layout(r32ui, set = 0, binding = 2) uniform writeonly uimage3D indirection_next;
+layout(r32ui, set = 0, binding = 2) uniform uimage3D indirection_next;
 
 layout(std430, set = 0, binding = 3) buffer SlotGrid {
     uvec4 slot_grid[];  // xyz = grid coord this slot holds, w = flags
@@ -47,14 +47,16 @@ layout(std430, set = 0, binding = 5) buffer FreeList {
     uint free_slots[];
 };
 
-#define ALLOC_PHASE_FREE  0u
-#define ALLOC_PHASE_ALLOC 1u
+#define ALLOC_PHASE_CLEAR 0u
+#define ALLOC_PHASE_REUSE 1u
+#define ALLOC_PHASE_ALLOC 2u
+
+#define INVALID_PROBE_INDEX 0xFFFFFFFFu
 
 layout(push_constant) uniform PushConstants {
-    ivec3 shift_cells;   // whole cells the origin moved, current - previous
+    vec3 prev_origin;    // level origin the old mapping was built for
     uint phase;
-    uint full_reset;     // 1 = discard everything (first frame, or a jump
-                         //     past the level extent)
+    uint full_reset;     // 1 = discard the old mapping entirely
 };
 
 bool covers(ivec3 cell) {
@@ -62,78 +64,74 @@ bool covers(ivec3 cell) {
         && all(lessThan(cell, ddgi.probe_counts));
 }
 
-// Was this cell (expressed against the CURRENT origin) already covered
-// before the shift? Its coordinate against the previous origin is the
-// cell plus the shift.
-bool was_covered_before(ivec3 cell) {
-    return covers(cell + shift_cells);
-}
-
-// Does this cell (expressed against the PREVIOUS origin) still fall
-// inside the level after the shift? False means it dropped off the
-// trailing edge and its slot is free.
-bool still_covered_after(ivec3 prev_cell) {
-    return covers(prev_cell - shift_cells);
+int cell_to_linear(ivec3 cell) {
+    return cell.x + cell.y * ddgi.probe_counts.x
+         + cell.z * ddgi.probe_counts.x * ddgi.probe_counts.y;
 }
 
 void main() {
     ivec3 cell = ivec3(gl_GlobalInvocationID);
     if (!covers(cell)) return;
 
-    int linear = cell.x + cell.y * ddgi.probe_counts.x
-               + cell.z * ddgi.probe_counts.x * ddgi.probe_counts.y;
-
-    if (full_reset != 0) {
-        // No previous mapping worth keeping — hand out slots in cell
-        // order and retrace the whole volume. Only the ALLOC phase does
-        // anything; there is nothing to free.
-        if (phase == ALLOC_PHASE_ALLOC) {
-            uint slot = uint(linear);
-            imageStore(indirection_next, cell, uvec4(slot, 0, 0, 0));
-            slot_grid[slot] = uvec4(uvec3(cell), 0);
-            probe_status[slot] = PROBE_STATUS_UNINITIALIZED;
-        }
+    if (phase == ALLOC_PHASE_CLEAR) {
+        imageStore(indirection_next, cell, uvec4(INVALID_PROBE_INDEX, 0, 0, 0));
         return;
     }
 
-    if (phase == ALLOC_PHASE_FREE) {
-        // This invocation's cell is read as a coordinate against the
-        // PREVIOUS origin here — the question is whether the probe that
-        // used to live at this cell is still needed anywhere.
-        if (!still_covered_after(cell)) {
-            uint slot = imageLoad(indirection_prev, cell).r;
+    if (phase == ALLOC_PHASE_REUSE) {
+        // Nothing to carry over on a full reset — the free list is seeded
+        // with every slot rather than being fed from the old mapping. Push
+        // through the same atomic the non-reset path uses, so the slot a
+        // cell contributes and the position it lands in stay consistent
+        // however the invocations are ordered.
+        if (full_reset != 0) {
+            uint at = atomicAdd(free_count, 1u);
+            free_slots[at] = uint(cell_to_linear(cell));
+            return;
+        }
+
+        // `cell` is read against the PREVIOUS origin here.
+        uint slot = imageLoad(indirection_prev, cell).r;
+        if (slot == INVALID_PROBE_INDEX) return;
+
+        // Where this probe actually sits in the world, then where that
+        // falls in the new mapping.
+        vec3 world_pos = prev_origin + vec3(cell) * ddgi.probe_spacing;
+        ivec3 new_cell = ivec3(floor((world_pos - ddgi.probe_grid_position)
+                                     * ddgi.reciprocal_spacing + vec3(0.5)));
+
+        if (covers(new_cell)) {
+            // Still covered: keep the slot and everything accumulated in it.
+            imageStore(indirection_next, new_cell, uvec4(slot, 0, 0, 0));
+            slot_grid[slot] = uvec4(uvec3(new_cell), 0);
+        } else {
+            // Fell off the edge — the slot is up for grabs.
             uint at = atomicAdd(free_count, 1u);
             free_slots[at] = slot;
         }
         return;
     }
 
-    if (was_covered_before(cell)) {
-        // Same world cell as before the shift: keep the slot, and with it
-        // the irradiance that has accumulated in it.
-        uint slot = imageLoad(indirection_prev, cell + shift_cells).r;
-        imageStore(indirection_next, cell, uvec4(slot, 0, 0, 0));
-        slot_grid[slot] = uvec4(uvec3(cell), 0);
-        return;
-    }
+    // ALLOC: anything still INVALID is a newly covered cell.
+    if (imageLoad(indirection_next, cell).r != INVALID_PROBE_INDEX) return;
 
-    // Newly covered: take a slot off the free list. Its contents belong
-    // to a different world position, so mark it UNINITIALIZED — the
-    // update pass then overwrites it outright instead of blending new
-    // radiance into the previous occupant's.
     uint remaining = atomicAdd(free_count, -1u);
-    uint slot;
-    if (remaining == 0u || remaining > uint(ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z)) {
-        // Empty list (or the counter wrapped past zero). Unreachable
-        // while the freed and newly-covered sets match in size; fall back
-        // to this cell's own linear index rather than reading past the
-        // end of the list.
-        slot = uint(linear);
-    } else {
-        slot = free_slots[remaining - 1u];
-    }
+    uint total = uint(ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z);
+
+    // Empty list, or the counter wrapped past zero. Should not happen while
+    // the freed and newly-covered sets match in size, but a cell with no
+    // slot must stay INVALID rather than claim one out of range — the
+    // sample side skips INVALID cells, so this degrades to "no indirect
+    // here" instead of reading another probe's lighting.
+    if (remaining == 0u || remaining > total) return;
+
+    uint slot = free_slots[remaining - 1u];
+    if (slot >= total) return;
 
     imageStore(indirection_next, cell, uvec4(slot, 0, 0, 0));
     slot_grid[slot] = uvec4(uvec3(cell), 0);
+
+    // Its contents belong to a different world position, so the irradiance
+    // update must overwrite rather than blend into it.
     probe_status[slot] = PROBE_STATUS_UNINITIALIZED;
 }

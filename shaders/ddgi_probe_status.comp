@@ -30,6 +30,16 @@ void main() {
 
     uint flag = probe_status[probe_index];
 
+    // A probe reallocated by the clipmap comes in UNINITIALIZED so the
+    // irradiance update overwrites rather than blends. By the time this
+    // pass runs it has been traced, so the mark has done its job — drop it
+    // back to ACTIVE and let the tests below classify it normally. Leaving
+    // it set would keep the probe permanently unblended, and it would
+    // never converge.
+    if (flag == PROBE_STATUS_UNINITIALIZED) {
+        flag = PROBE_STATUS_ACTIVE;
+    }
+
     vec3 outer_bounds = normalize(ddgi.probe_spacing) * (length(ddgi.probe_spacing) + 2.0 * ddgi.self_shadow_bias);
 
     for (int ray_index = 0; ray_index < ddgi.probe_rays; ++ray_index) {

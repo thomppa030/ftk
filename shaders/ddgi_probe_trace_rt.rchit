@@ -18,6 +18,7 @@ layout(push_constant) uniform PushConstants {
 // the DDGI trace set's layout (see DdgiPass), distinct from the reflection
 // set even though both sample the same atlases.
 
+#define FJELL_DDGI_INDIRECTION_BINDING 13
 #include "fjell_ddgi.glsl"
 
 layout(set = 0, binding = 5) uniform sampler2D probe_offset_tex;
@@ -98,8 +99,11 @@ vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
 
     for (int i = 0; i < 8; ++i) {
         ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
-        ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
-        int probe_idx = ddgi_grid_to_probe_index(probe_grid);
+        ivec3 probe_grid = base_grid + offset;
+        if (!ddgi_grid_covered(probe_grid)) continue;
+
+        int probe_idx = ddgi_grid_to_slot(probe_grid);
+        if (probe_idx < 0) continue;
 
         vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx, probe_offset_tex, true);
         vec3 trilinear = mix(1.0 - alpha, alpha, offset);
