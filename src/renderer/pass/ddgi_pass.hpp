@@ -144,6 +144,23 @@ public:
         VmaAllocation probe_offset_memory{VK_NULL_HANDLE};
         VkImageView probe_offset_view{VK_NULL_HANDLE};
 
+        // Indirection: grid coord -> probe slot, R32_UINT 3D, probe_counts
+        // texels. Double-buffered — the reallocation pass reads [1 - current]
+        // (the mapping from before this shift) and writes [current].
+        VkImage indirection_image[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
+        VmaAllocation indirection_memory[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
+        VkImageView indirection_view[2]{VK_NULL_HANDLE, VK_NULL_HANDLE};
+        int indirection_current{0};
+
+        // Slot -> grid coord (xyz) + flags (w), one uvec4 per probe slot.
+        // The inverse of the indirection texture, for dispatches that run
+        // per-slot and need to know which cell the slot currently holds.
+        std::unique_ptr<Buffer> slot_grid_buffer;
+
+        // Free list consumed by the reallocation pass: leading counter,
+        // then one slot index per probe.
+        std::unique_ptr<Buffer> free_list_buffer;
+
         // Probe status SSBO (uint per probe)
         std::unique_ptr<Buffer> probe_status_buffer;
 
