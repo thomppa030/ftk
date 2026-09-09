@@ -57,12 +57,13 @@ void main() {
     if (ray_index >= ddgi.probe_rays) return;
 
     int probe_index = int(gl_LaunchIDEXT.y) + ddgi.probe_update_offset;
-    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+    int total_probes = ddgi_total_probes();
     if (probe_index >= total_probes) return;
 
     // Probe world position
     ivec3 grid_indices = ddgi_slot_to_grid(probe_index);
-    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
+    int probe_level = ddgi_slot_to_level(probe_index);
+    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_level, probe_index, probe_offset_tex, true);
 
     // Burial test from the SDF, re-evaluated EVERY frame so a probe revives the
     // moment it is no longer inside geometry. This is the burial authority — we

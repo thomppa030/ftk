@@ -17,7 +17,7 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
     int probe_index = int(gl_GlobalInvocationID.x);
-    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+    int total_probes = ddgi_total_probes();
     if (probe_index >= total_probes) return;
 
     int backfaces_count = 0;
@@ -40,7 +40,12 @@ void main() {
         flag = PROBE_STATUS_ACTIVE;
     }
 
-    vec3 outer_bounds = normalize(ddgi.probe_spacing) * (length(ddgi.probe_spacing) + 2.0 * ddgi.self_shadow_bias);
+    // Sized from this probe's own cell — a coarse-level probe legitimately
+    // sees geometry much further away before it counts as enclosed.
+    int probe_level = clamp(probe_index / ddgi_probes_per_level(),
+                            0, ddgi.clipmap_level_count - 1);
+    vec3 level_spacing = vec3(ddgi_level_cell_size(probe_level));
+    vec3 outer_bounds = normalize(level_spacing) * (length(level_spacing) + 2.0 * ddgi.self_shadow_bias);
 
     for (int ray_index = 0; ray_index < ddgi.probe_rays; ++ray_index) {
         ivec2 ray_coord = ivec2(ray_index, probe_index - ddgi.probe_update_offset);

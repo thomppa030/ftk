@@ -14,7 +14,7 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
     int probe_index = int(gl_GlobalInvocationID.x);
-    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+    int total_probes = ddgi_total_probes();
     if (probe_index >= total_probes) return;
 
     // Only update offsets for probes in the current batch
@@ -54,7 +54,13 @@ void main() {
         }
     }
 
-    vec3 cell_offset_limit = ddgi.max_probe_offset * ddgi.probe_spacing;
+    // Offsets are a fraction of the probe's OWN cell, not level 0's. Slots
+    // are allocated in per-level blocks, so the level follows from the slot
+    // index; scaling every probe by the fine level's spacing would barely
+    // move a coarse probe relative to its cell (and vice versa).
+    int probe_level = clamp(probe_index / ddgi_probes_per_level(),
+                            0, ddgi.clipmap_level_count - 1);
+    vec3 cell_offset_limit = vec3(ddgi.max_probe_offset * ddgi_level_cell_size(probe_level));
 
     vec4 current_offset = vec4(0.0);
     if (first_frame == 0) {

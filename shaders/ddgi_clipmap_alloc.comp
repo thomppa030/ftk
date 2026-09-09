@@ -54,10 +54,22 @@ layout(std430, set = 0, binding = 5) buffer FreeList {
 #define INVALID_PROBE_INDEX 0xFFFFFFFFu
 
 layout(push_constant) uniform PushConstants {
-    vec3 prev_origin;    // level origin the old mapping was built for
+    vec3 prev_origin;    // this level's origin the old mapping was built for
     uint phase;
     uint full_reset;     // 1 = discard the old mapping entirely
+    int level;           // which clipmap level this dispatch rebuilds
 };
+
+// Levels are packed side by side along X in the indirection texture,
+// matching Lumen (ProbeCoord.x + ClipmapIndex * Resolution).
+ivec3 indirection_texel(ivec3 cell) {
+    return ivec3(cell.x + level * ddgi.probe_counts.x, cell.y, cell.z);
+}
+
+// Slots are a single global pool; a level's slice of it starts here.
+int level_slot_base() {
+    return level * ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+}
 
 bool covers(ivec3 cell) {
     return all(greaterThanEqual(cell, ivec3(0)))
@@ -74,7 +86,7 @@ void main() {
     if (!covers(cell)) return;
 
     if (phase == ALLOC_PHASE_CLEAR) {
-        imageStore(indirection_next, cell, uvec4(INVALID_PROBE_INDEX, 0, 0, 0));
+        imageStore(indirection_next, indirection_texel(cell), uvec4(INVALID_PROBE_INDEX, 0, 0, 0));
         return;
     }
 
@@ -86,24 +98,25 @@ void main() {
         // however the invocations are ordered.
         if (full_reset != 0) {
             uint at = atomicAdd(free_count, 1u);
-            free_slots[at] = uint(cell_to_linear(cell));
+            free_slots[at] = uint(level_slot_base() + cell_to_linear(cell));
             return;
         }
 
         // `cell` is read against the PREVIOUS origin here.
-        uint slot = imageLoad(indirection_prev, cell).r;
+        uint slot = imageLoad(indirection_prev, indirection_texel(cell)).r;
         if (slot == INVALID_PROBE_INDEX) return;
 
         // Where this probe actually sits in the world, then where that
         // falls in the new mapping.
-        vec3 world_pos = prev_origin + vec3(cell) * ddgi.probe_spacing;
-        ivec3 new_cell = ivec3(floor((world_pos - ddgi.probe_grid_position)
-                                     * ddgi.reciprocal_spacing + vec3(0.5)));
+        float cell_size = ddgi_level_cell_size(level);
+        vec3 world_pos = prev_origin + vec3(cell) * cell_size;
+        ivec3 new_cell = ivec3(floor((world_pos - ddgi_level_origin(level)) / cell_size
+                                     + vec3(0.5)));
 
         if (covers(new_cell)) {
             // Still covered: keep the slot and everything accumulated in it.
-            imageStore(indirection_next, new_cell, uvec4(slot, 0, 0, 0));
-            slot_grid[slot] = uvec4(uvec3(new_cell), 0);
+            imageStore(indirection_next, indirection_texel(new_cell), uvec4(slot, 0, 0, 0));
+            slot_grid[slot] = uvec4(uvec3(new_cell), uint(level));
         } else {
             // Fell off the edge — the slot is up for grabs.
             uint at = atomicAdd(free_count, 1u);
@@ -113,10 +126,10 @@ void main() {
     }
 
     // ALLOC: anything still INVALID is a newly covered cell.
-    if (imageLoad(indirection_next, cell).r != INVALID_PROBE_INDEX) return;
+    if (imageLoad(indirection_next, indirection_texel(cell)).r != INVALID_PROBE_INDEX) return;
 
     uint remaining = atomicAdd(free_count, -1u);
-    uint total = uint(ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z);
+    uint total = uint(ddgi_total_probes());
 
     // Empty list, or the counter wrapped past zero. Should not happen while
     // the freed and newly-covered sets match in size, but a cell with no
@@ -128,8 +141,8 @@ void main() {
     uint slot = free_slots[remaining - 1u];
     if (slot >= total) return;
 
-    imageStore(indirection_next, cell, uvec4(slot, 0, 0, 0));
-    slot_grid[slot] = uvec4(uvec3(cell), 0);
+    imageStore(indirection_next, indirection_texel(cell), uvec4(slot, 0, 0, 0));
+    slot_grid[slot] = uvec4(uvec3(cell), uint(level));
 
     // Its contents belong to a different world position, so the irradiance
     // update must overwrite rather than blend into it.

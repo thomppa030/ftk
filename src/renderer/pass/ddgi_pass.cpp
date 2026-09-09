@@ -34,7 +34,10 @@ static void compute_atlas_dims(const DdgiConfig& config,
                                 int32_t& irr_w, int32_t& irr_h,
                                 int32_t& vis_w, int32_t& vis_h,
                                 int32_t& total) {
-    total = config.probe_counts.x * config.probe_counts.y * config.probe_counts.z;
+    // Every clipmap level draws from one shared probe pool, so the atlases
+    // are sized for all levels at once.
+    int levels = glm::clamp(config.clipmap_levels, 1, DDGI_MAX_CLIPMAP_LEVELS);
+    total = config.probe_counts.x * config.probe_counts.y * config.probe_counts.z * levels;
     int probes_per_row = static_cast<int>(std::ceil(std::sqrt(static_cast<double>(total))));
 
     int irr_side_with_border = config.irradiance_side_length + 2;
@@ -98,11 +101,15 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
                  static_cast<uint32_t>(vis_height),
                  VK_FORMAT_R16G16_SFLOAT, storage_sampled);
 
-    // Probe offsets: total_probes stored as 2D (probes_xy x probes_z)
+    // Probe offsets: one texel per probe, addressed as
+    // (index % probes_xy, index / probes_xy) — so the row count has to
+    // cover the whole pool across every clipmap level, not one level's
+    // probe_counts.z.
     int probes_xy = config.probe_counts.x * config.probe_counts.y;
+    int offset_rows = (total_probes + probes_xy - 1) / probes_xy;
     create_image(probe_offset_image, probe_offset_memory, probe_offset_view,
                  static_cast<uint32_t>(probes_xy),
-                 static_cast<uint32_t>(config.probe_counts.z),
+                 static_cast<uint32_t>(offset_rows),
                  VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
 
     // Indirection: grid coordinate -> probe slot, one texel per cell of the
@@ -116,7 +123,10 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
         info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         info.imageType = VK_IMAGE_TYPE_3D;
         info.format = VK_FORMAT_R32_UINT;
-        info.extent = {static_cast<uint32_t>(config.probe_counts.x),
+        // Levels are packed side by side along X, matching Lumen's
+        // `ProbeCoord.x + ClipmapIndex * Resolution`.
+        int level_count = glm::clamp(config.clipmap_levels, 1, DDGI_MAX_CLIPMAP_LEVELS);
+        info.extent = {static_cast<uint32_t>(config.probe_counts.x * level_count),
                        static_cast<uint32_t>(config.probe_counts.y),
                        static_cast<uint32_t>(config.probe_counts.z)};
         info.mipLevels = 1;
@@ -1090,30 +1100,39 @@ static void write_trace_descriptors(VkDevice device, VkDescriptorSet set,
 }
 
 bool DdgiPass::recenter_clipmap(Images& imgs, const glm::vec3& camera_position) {
-    // Keep the level's geometry in step with config — probe_spacing and
-    // probe_counts are still editable in the settings panel, and changing
-    // either invalidates every probe's world position.
-    if (imgs.level.cell_size != config_.probe_spacing ||
-        imgs.level.probe_counts != config_.probe_counts) {
-        imgs.level.cell_size = config_.probe_spacing;
-        imgs.level.probe_counts = config_.probe_counts;
-        imgs.level.full_reset = true;
+    // Keep the stack's geometry in step with config — level count, spacing
+    // and probe counts are all editable in the settings panel, and changing
+    // any of them moves every probe.
+    imgs.clipmap.configure(config_.clipmap_levels, config_.probe_counts, config_.probe_spacing);
+    imgs.clipmap.recenter(camera_position);
+
+    // Which levels have fallen behind their slice of the indirection
+    // texture. Levels move independently — a coarse level's cells are large
+    // enough that it usually stays put on a frame where level 0 shifts — so
+    // this is decided per level rather than for the stack as a whole.
+    //
+    // Decided here rather than at the dispatch because update_constants()
+    // runs first and needs to know: a frame that reallocates anything has to
+    // update every probe, not just the round-robin slice.
+    imgs.reallocated_this_frame = false;
+    for (int i = 0; i < imgs.clipmap.level_count; ++i) {
+        bool behind = !imgs.indirection_initialized
+                   || imgs.indirection_origin[i] != imgs.clipmap.levels[i].snapped_origin;
+        imgs.level_needs_realloc[i] = behind;
+        imgs.reallocated_this_frame |= behind;
     }
 
-    imgs.level.recenter(camera_position);
+    // The UBO is rebuilt per viewport right after this, so pushing geometry
+    // through config_ is safe even though config_ is shared: each viewport
+    // overwrites it with its own clipmap's before update_constants() reads
+    // it. grid_position tracks level 0 for the code paths that still want a
+    // single representative grid (SDF bounds, debug draw).
+    config_.grid_position = imgs.clipmap.levels[0].snapped_origin;
 
-    // Whether this viewport's indirection texture still matches where the
-    // level now is. Decided here rather than at the dispatch because
-    // update_constants() runs first and needs to know: a reallocating frame
-    // has to update every probe, not just the round-robin slice.
-    imgs.reallocated_this_frame = !imgs.indirection_initialized
-                               || imgs.indirection_origin != imgs.level.snapped_origin;
-
-    // The UBO is rebuilt per viewport right after this, so pushing the
-    // origin through config_ is safe even though config_ is shared: each
-    // viewport overwrites it with its own level's origin immediately
-    // before update_constants() reads it.
-    config_.grid_position = imgs.level.snapped_origin;
+    // Cache the full stack's reach for prepare_accel_structures(), which
+    // runs outside command recording and cannot see Images.
+    clipmap_bounds_min_ = imgs.clipmap.outer_min();
+    clipmap_bounds_max_ = imgs.clipmap.outer_max();
 
     return imgs.reallocated_this_frame;
 }
@@ -1127,7 +1146,15 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.reciprocal_spacing = 1.0f / config_.probe_spacing;
     constants.self_shadow_bias = config_.self_shadow_bias;
     constants.probe_counts = config_.probe_counts;
-    constants.debug_options = 0;
+    constants.debug_options = static_cast<uint32_t>(config_.debug_mode);
+
+    constants.clipmap_level_count = imgs.clipmap.level_count;
+    constants.inv_clipmap_fade_cells = 1.0f;  // one cell of fade, as Lumen uses
+    for (int i = 0; i < DDGI_MAX_CLIPMAP_LEVELS; ++i) {
+        const auto& lvl = imgs.clipmap.levels[i];
+        constants.clipmap_origin_cell_size[i] =
+            glm::vec4(lvl.snapped_origin, lvl.cell_size.x);
+    }
     constants.irr_tex_w = imgs.irr_width;
     constants.irr_tex_h = imgs.irr_height;
     constants.irr_side = config_.irradiance_side_length;
@@ -1139,19 +1166,40 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     // Round-robin a slice of probes each frame to cut per-frame ray cost.
     // The first frame must seed every probe, and batch == 0 means "all".
     //
-    // A frame that reallocates also has to cover every probe. The batch
-    // window is a range of SLOT indices, but the clipmap hands slots out
-    // from a free list, so a slot index says nothing about where its probe
-    // sits — the newly-covered probes are scattered across the whole range.
-    // Leaving them to the round-robin means waiting up to total/batch frames
-    // (4 here) for a slot to come round, and a camera that keeps moving
-    // re-marks new probes faster than that, so freshly-covered regions never
-    // get traced at all and stay black.
+    // A frame that reallocates has to cover the probes it reallocated. The
+    // batch window is a range of SLOT indices, and the clipmap hands slots
+    // out from a free list, so a slot index says nothing about where its
+    // probe sits — newly covered probes are scattered across the level's
+    // whole block. Leaving them to the round-robin means waiting many
+    // frames for the cursor to reach them, and a camera that keeps moving
+    // re-marks them faster than that, so freshly covered regions would
+    // never get traced and would stay black.
+    //
+    // Slots are blocked per level, so only the levels that actually moved
+    // need widening — which is what makes a stack affordable. Level 0
+    // shifts often but is one block; the coarse levels are far larger in
+    // world terms and shift rarely.
     int total = imgs.total_probes;
+    int per_level = total / std::max(1, imgs.clipmap.level_count);
     int batch = config_.probes_per_frame_batch;
-    if (is_first_frame_ || imgs.reallocated_this_frame || batch <= 0 || batch >= total) {
+
+    int realloc_lo = total;
+    int realloc_hi = 0;
+    if (imgs.reallocated_this_frame) {
+        for (int i = 0; i < imgs.clipmap.level_count; ++i) {
+            if (!imgs.level_needs_realloc[i]) continue;
+            realloc_lo = std::min(realloc_lo, i * per_level);
+            realloc_hi = std::max(realloc_hi, (i + 1) * per_level);
+        }
+    }
+    bool has_realloc = realloc_hi > realloc_lo;
+
+    if (is_first_frame_ || batch <= 0 || batch >= total) {
         constants.probe_update_offset = 0;
         constants.probe_update_count = total;
+    } else if (has_realloc) {
+        constants.probe_update_offset = realloc_lo;
+        constants.probe_update_count = realloc_hi - realloc_lo;
     } else {
         if (imgs.probe_update_offset >= total) imgs.probe_update_offset = 0;
         constants.probe_update_offset = imgs.probe_update_offset;
@@ -1202,8 +1250,13 @@ void DdgiPass::pre_record(const FrameContext& ctx, GpuContext& /*gpu*/) {
 }
 
 AABB DdgiPass::trace_reach_bounds() const {
-    glm::vec3 grid_min = config_.grid_position;
-    glm::vec3 grid_max = config_.grid_position + glm::vec3(config_.probe_counts - glm::ivec3(1)) * config_.probe_spacing;
+    // Must span the COARSEST clipmap level, not level 0. This AABB decides
+    // which geometry enters the acceleration structure DDGI rays trace
+    // against, so sizing it to the fine level leaves the outer levels'
+    // probes with nothing to hit — they trace into an empty world and stay
+    // dark, which reads as "only the box around the camera is lit".
+    glm::vec3 grid_min = clipmap_bounds_min_;
+    glm::vec3 grid_max = clipmap_bounds_max_;
     return {grid_min - glm::vec3(MAX_TRACE_DIST), grid_max + glm::vec3(MAX_TRACE_DIST)};
 }
 
@@ -1604,14 +1657,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         }
         imgs.indirection_initialized = true;
 
-        // Free list starts empty every shift; the FREE phase fills it.
-        vkCmdFillBuffer(ctx.cmd, imgs.free_list_buffer->handle(), 0, sizeof(uint32_t), 0);
-        barrier_memory();
-
         // The image currently bound for sampling holds the mapping this
-        // shift starts from, so it is what the pass reads; the new mapping
+        // rebuild starts from, so it is what the pass reads; the new mapping
         // goes into the other one, which then becomes current. Reading from
-        // `1 - current` instead would pull the mapping from two shifts ago
+        // `1 - current` instead would pull the mapping from two rebuilds ago
         // and write over the one still in use.
         int prev_index = imgs.indirection_current;
         write_alloc_indirection(vk_device_, imgs.alloc_set, imgs, prev_index);
@@ -1625,24 +1674,42 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         uint32_t gy = static_cast<uint32_t>((counts.y + 3) / 4);
         uint32_t gz = static_cast<uint32_t>((counts.z + 3) / 4);
 
-        ClipmapAllocPushConstants pc{};
-        pc.prev_origin = imgs.indirection_origin;
-        pc.full_reset = full_reset ? 1u : 0u;
-
-        // Three dispatches, each needing every cell of the previous one
-        // finished before it starts: CLEAR marks the new mapping empty,
-        // REUSE carries over probes still covered (freeing the rest), and
-        // ALLOC fills whatever is still empty from the free list.
-        for (uint32_t phase : {ALLOC_PHASE_CLEAR, ALLOC_PHASE_REUSE, ALLOC_PHASE_ALLOC}) {
-            pc.phase = phase;
-            vkCmdPushConstants(ctx.cmd, alloc_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
-                               0, sizeof(pc), &pc);
-            vkCmdDispatch(ctx.cmd, gx, gy, gz);
+        // Every level is rebuilt whenever any of them is. A level that did
+        // not move still has to be re-emitted, because CLEAR wipes the whole
+        // destination image and the level's slice would otherwise be left
+        // INVALID — its own REUSE pass finds every probe still covered and
+        // carries the slots straight over, so it costs a dispatch but no
+        // retracing.
+        for (int level = 0; level < imgs.clipmap.level_count; ++level) {
+            // The free list is per level: a level must only reclaim slots it
+            // freed itself, or one level would hand out another's slots and
+            // the two pools would interleave.
+            vkCmdFillBuffer(ctx.cmd, imgs.free_list_buffer->handle(), 0, sizeof(uint32_t), 0);
             barrier_memory();
+
+            ClipmapAllocPushConstants pc{};
+            pc.prev_origin = imgs.indirection_origin[level];
+            pc.level = level;
+            // Only the very first build has no previous mapping to read.
+            // After that every level always has one, whether or not it moved.
+            pc.full_reset = full_reset ? 1u : 0u;
+
+            // Three dispatches, each needing every cell of the previous one
+            // finished before it starts: CLEAR marks the new mapping empty,
+            // REUSE carries over probes still covered (freeing the rest), and
+            // ALLOC fills whatever is still empty from the free list.
+            for (uint32_t phase : {ALLOC_PHASE_CLEAR, ALLOC_PHASE_REUSE, ALLOC_PHASE_ALLOC}) {
+                pc.phase = phase;
+                vkCmdPushConstants(ctx.cmd, alloc_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                                   0, sizeof(pc), &pc);
+                vkCmdDispatch(ctx.cmd, gx, gy, gz);
+                barrier_memory();
+            }
+
+            imgs.indirection_origin[level] = imgs.clipmap.levels[level].snapped_origin;
         }
 
         imgs.indirection_current = 1 - prev_index;
-        imgs.indirection_origin = imgs.level.snapped_origin;
 
         // Point every consumer of the indirection texture at the half that
         // was just written. These sets are otherwise only written at init,
@@ -1824,8 +1891,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         push.light_intensity = light_intensity_;
         push.light_color = light_color_;
         push.sdf_resolution = static_cast<float>(SceneSdfPass::DEFAULT_RESOLUTION);
-        push.sdf_volume_min = config_.grid_position;
-        push.sdf_volume_max = config_.grid_position + glm::vec3(config_.probe_counts - glm::ivec3(1)) * config_.probe_spacing;
+        // Whole stack, not level 0 — probes on the coarse levels sit well
+        // outside the fine level's box and need the same volume.
+        push.sdf_volume_min = imgs.clipmap.outer_min();
+        push.sdf_volume_max = imgs.clipmap.outer_max();
 
         vkCmdPushConstants(ctx.cmd, trace_pipeline_layout_,
                            VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);

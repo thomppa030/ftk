@@ -21,6 +21,24 @@ enum class DdgiBackend : uint8_t {
     ray_traced,
 };
 
+/// Diagnostic views that replace the DDGI pass's indirect output. Values
+/// mirror the DDGI_DEBUG_* constants in ddgi_sample_irradiance.comp.
+enum class DdgiDebugMode : uint32_t {
+    Off = 0,
+    /// Which clipmap level each pixel selected: red / green / blue /
+    /// yellow for levels 0-3, black where no level covers the position.
+    ClipmapLevel = 1,
+    /// Whether the cage found usable probes: green where every cage probe
+    /// resolved to a slot, red where none did, and shades between. Black
+    /// means no level covered the pixel at all. Separates "outside the
+    /// clipmap" from "inside it but the indirection is empty or wrong".
+    ProbeValidity = 2,
+    /// The selected level's grid cell, hashed to a color — makes the cage
+    /// cell each pixel lands in directly visible, so blotches that follow
+    /// cell boundaries can be told apart from ones that don't.
+    GridCell = 3,
+};
+
 /// DDGI probe grid configuration.
 /// The grid is a camera-centered clipmap: it covers a fixed volume around the
 /// camera and follows it, snapping to its own cell grid so it shifts in whole
@@ -36,7 +54,16 @@ struct DdgiConfig {
     // camera-centered level has to reach as far above and below the camera
     // as it does sideways, or tall geometry falls out of coverage.
     glm::ivec3 probe_counts{16, 16, 16};
+    // Cell size of the finest level. Each level out doubles it, so with 4
+    // levels this reaches 32m / 64m / 128m / 256m across for 4x the probes
+    // of a single level — rather than the 512x a single level would need to
+    // cover the same volume at this density.
     glm::vec3 probe_spacing{2.0f};
+    // Nested levels, coarser and larger further from the camera. 1 is a
+    // plain single grid. The outermost level is the hard limit of any GI:
+    // past it the cage has no probes and returns nothing, so this wants to
+    // be large enough to contain whatever the camera can normally see.
+    int clipmap_levels{4};
     glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // driven by the clipmap
     float hysteresis{0.95f};
     int probe_rays{128};
@@ -81,9 +108,12 @@ struct DdgiConfig {
     // Probes traced+updated per frame, round-robin (0 = all). Spreading the
     // 2048-probe update over several frames cuts the per-frame ray cost;
     // hysteresis hides the staggering.
-    int probes_per_frame_batch{512};
+    int probes_per_frame_batch{1024};
     bool half_res_output{true};
     bool enabled{true};
+    // Diagnostic view replacing the indirect output. Runtime only — never
+    // saved with the project.
+    DdgiDebugMode debug_mode{DdgiDebugMode::Off};
 };
 
 /// GPU-side constants UBO (std140 layout).
@@ -98,6 +128,8 @@ struct GpuDdgiConstants {
     float self_shadow_bias;
 
     glm::ivec3 probe_counts;
+    // See DdgiDebugMode. 0 = off; nonzero replaces the pass's indirect
+    // output with a diagnostic image.
     uint32_t debug_options{0};
 
     int32_t irr_tex_w{0};
@@ -126,6 +158,16 @@ struct GpuDdgiConstants {
     glm::vec2 resolution;
     float view_bias{0.0f};     // sample bias toward the camera (× spacing)
     float pad3{0.0f};
+
+    // Per-level clipmap geometry. xyz = that level's snapped origin,
+    // w = its uniform cell size. Levels beyond level_count are unused but
+    // still occupy their slot so the std140 layout stays fixed.
+    glm::vec4 clipmap_origin_cell_size[DDGI_MAX_CLIPMAP_LEVELS];
+
+    int32_t clipmap_level_count{1};
+    float inv_clipmap_fade_cells{1.0f};
+    float pad4{0.0f};
+    float pad5{0.0f};
 };
 
 class DdgiPass : public RenderPass {
@@ -225,23 +267,25 @@ public:
         // and they have never been transitioned out of UNDEFINED.
         bool indirection_initialized{false};
 
-        // This viewport's clipmap level. Per-viewport, not per-pass: each
-        // viewport renders from its own camera and owns its own indirection
-        // texture and probe atlases, so it has to recenter on its own camera
-        // — a shared level would place probes around one camera while
-        // another viewport sampled them. Matches Lumen, which stores the
-        // whole FRadianceCacheState (clipmap origins and the probe
-        // indirection texture together) in per-view state.
-        DdgiClipmapLevel level;
+        // This viewport's clipmap. Per-viewport, not per-pass: each viewport
+        // renders from its own camera and owns its own indirection texture
+        // and probe atlases, so it has to recenter on its own camera — a
+        // shared clipmap would place probes around one camera while another
+        // viewport sampled them. Matches Lumen, which stores the whole
+        // FRadianceCacheState (clipmap origins and the probe indirection
+        // texture together) in per-view state.
+        DdgiClipmap clipmap;
 
-        // The level origin this viewport's indirection texture was last
-        // built for. Differs from level.snapped_origin exactly when the
-        // texture still has to catch up.
-        glm::vec3 indirection_origin{0.0f};
+        // Per level, the origin its indirection slice was last built for.
+        // Differs from that level's snapped_origin exactly when the slice
+        // still has to catch up — levels move independently, so a coarse
+        // level often needs no work on a frame where level 0 does.
+        glm::vec3 indirection_origin[DDGI_MAX_CLIPMAP_LEVELS]{};
+        bool level_needs_realloc[DDGI_MAX_CLIPMAP_LEVELS]{};
 
-        // Set during recentering when this viewport's indirection texture is
-        // out of date, so both the constants (which must widen the update to
-        // every probe) and the dispatch agree on it within one frame.
+        // True when any level needs rebuilding this frame, so the constants
+        // (which must widen the probe update to the whole pool) and the
+        // dispatch agree within one frame.
         bool reallocated_this_frame{false};
 
         void create(VkDevice device, VmaAllocator allocator,
@@ -328,6 +372,7 @@ public:
         glm::vec3 prev_origin;
         uint32_t phase;
         uint32_t full_reset;
+        int32_t level;
     };
 
     static constexpr uint32_t ALLOC_PHASE_CLEAR = 0;
@@ -378,10 +423,17 @@ private:
     // per-viewport: every viewport samples the same world probes, so the
     // level follows the main camera and each viewport's atlases hold the
     // accumulated irradiance for those same cells.
-    /// Move this viewport's level to follow its camera, and republish the
-    /// resulting origin into the config the UBO is built from. Returns true
-    /// if the level moved.
+    /// Move this viewport's clipmap to follow its camera, and republish the
+    /// resulting geometry into the config the UBO is built from. Returns
+    /// true if any level moved.
     bool recenter_clipmap(Images& imgs, const glm::vec3& camera_position);
+
+    // World bounds of the coarsest clipmap level, cached from the last
+    // recenter. prepare_accel_structures() runs outside command recording
+    // and has no Images to hand, but needs the full stack's reach to decide
+    // which geometry DDGI rays can hit.
+    glm::vec3 clipmap_bounds_min_{-16.0f};
+    glm::vec3 clipmap_bounds_max_{16.0f};
 
     VkDescriptorSetLayout sample_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout sample_pipeline_layout_{VK_NULL_HANDLE};
