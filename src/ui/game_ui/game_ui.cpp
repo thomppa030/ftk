@@ -320,7 +320,14 @@ void GameUi::resolve_textures(UiNode& node) {
             auto* mat = resource_manager_->get(mat_handle);
             if (mat) {
                 node.resolved_material_id = mat->material_id();
+                FJELL_CORE_INFO("GameUi: <{}> material '{}' -> material_id={} pipeline_id={} "
+                                "param_offset={} param_count={}",
+                                node.tag, mat_name, mat->material_id(), mat->pipeline_id(),
+                                mat->custom_param_offset(), mat->custom_param_count());
             }
+        } else {
+            FJELL_CORE_WARN("GameUi: <{}> material='{}' did not resolve to a valid handle",
+                            node.tag, mat_name);
         }
     }
 

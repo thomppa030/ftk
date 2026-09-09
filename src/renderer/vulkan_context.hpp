@@ -149,6 +149,15 @@ public:
   [[nodiscard]] MeshletBuffer *meshlet_buffer() { return gpu_.meshlet_buffer(); }
   [[nodiscard]] PipelineCache *pipeline_cache() { return gpu_.pipeline_cache(); }
 
+  /// The frame-in-flight index the next record_frame()/offscreen-preview
+  /// callback will use. Callers that build per-frame data outside the
+  /// main record_frame() path (e.g. UiEditorContext's preview, which
+  /// calls GameUi::update() during ImGui drawing rather than from the
+  /// ui_preview_callback_) must pass this instead of a fixed index, or
+  /// their per-frame-in-flight buffers desync from what actually gets
+  /// rendered.
+  [[nodiscard]] uint32_t current_frame_index() const { return current_frame_; }
+
   // ── Pass accessors (passes owned by PassRegistry) ──────────────────
   [[nodiscard]] DepthPrePass &depth_prepass() { return passes_.get<DepthPrePass>("depth_prepass"); }
   [[nodiscard]] ShadowPass &shadow_pass() { return passes_.get<ShadowPass>("shadow"); }

@@ -17,15 +17,19 @@ public:
     /// Store the active stylesheet for targeted re-resolves.
     void set_stylesheet(const Stylesheet& sheet) { active_sheet_ = &sheet; }
 
+    /// Parse a single CSS-style value in isolation — exposed as a
+    /// reusable pure function for callers outside the cascade (e.g. the
+    /// UI editor's style inspector reading/writing individual property
+    /// values without running a full resolve).
+    static UiColor parse_color(const std::string& value);
+    static float parse_px(const std::string& value);
+
 private:
     void resolve_node(UiNode& node, const Stylesheet& sheet,
                       const UiComputedStyle* parent_style);
     void inherit_properties(UiComputedStyle& style, const UiComputedStyle& parent);
     [[nodiscard]] bool selector_matches(const UiNode& node, const StyleSelector& sel) const;
     void apply_property(UiComputedStyle& style, const std::string& name, const std::string& value);
-
-    static UiColor parse_color(const std::string& value);
-    static float parse_px(const std::string& value);
     static UiEdges parse_edges(const std::string& value);
     static UiCorners parse_corners(const std::string& value);
 

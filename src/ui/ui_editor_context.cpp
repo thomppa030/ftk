@@ -2,10 +2,15 @@
 #include "ui/dockspace_layout.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
+#include "ui/game_ui/ui_style_commands.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/ui_context.hpp"
+#include "ui/material_params_widget.hpp"
 #include "scripting/script_manager.hpp"
+#include "renderer/bindless.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pipeline_cache.hpp"
+#include "renderer/resources/material.hpp"
 #include "renderer/resources/texture.hpp"
 #include "core/base_path.hpp"
 #include "core/clock.hpp"
@@ -156,6 +161,14 @@ void UiEditorContext::open_ui(const std::string& path) {
                 OffscreenPass::COLOR_FORMAT);
         }
         preview_ui_->set_resource_manager(deps_.resource_manager);
+        // Without this, resolve_textures()'s .fjmat fallback path resolves
+        // relative to the engine's own build/ directory instead of the
+        // active project — any material referenced by a project-relative
+        // path (not a name-registered material like "default") silently
+        // fails to resolve in the editor preview.
+        if (deps_.project_mgr) {
+            preview_ui_->set_project(deps_.project_mgr->active());
+        }
 
         // Create offscreen passes for pixel-perfect preview (one per frame in flight)
         offscreen_width_ = 800;
@@ -170,10 +183,12 @@ void UiEditorContext::open_ui(const std::string& path) {
         deps_.vulkan_context->set_ui_preview_callback(
             [this](uint32_t frame_index) {
                 if (!preview_ui_ || !preview_ui_->loaded()) return;
-                auto& target = offscreen_[frame_index % PREVIEW_FRAMES];
+                uint32_t slot = frame_index % PREVIEW_FRAMES;
+                auto& target = offscreen_[slot];
                 if (!target) return;
                 deps_.vulkan_context->record_game_ui_offscreen(
                     *preview_ui_, *target, frame_index);
+                latest_rendered_offscreen_.store(slot, std::memory_order_release);
             });
     }
 
@@ -407,7 +422,14 @@ void UiEditorContext::draw_preview(float dt) {
 
         // Update the preview UI (layout, data bind, input in play mode)
         const Input* input_ptr = play_mode_ ? deps_.input : nullptr;
-        preview_ui_->update(preview_width_, preview_height_, 0, dt, input_ptr);
+        // Must match the frame_index record_game_ui_offscreen() will use
+        // for this same GameUi later this frame (via ui_preview_callback_)
+        // — a fixed index here would only ever flatten fresh quad data
+        // into one of the PREVIEW_FRAMES SSBO slots, leaving the other
+        // slots (and the offscreen images tied to them) permanently
+        // stale, which reads as "edits don't show up in the preview."
+        preview_ui_->update(preview_width_, preview_height_,
+                            deps_.vulkan_context->current_frame_index(), dt, input_ptr);
 
         // Scale to fit available area
         float scale_x = avail.x / preview_width_;
@@ -423,17 +445,31 @@ void UiEditorContext::draw_preview(float dt) {
         float offset_y = (avail.y - scaled_h) * 0.5f;
         ImVec2 origin = {cursor.x + offset_x, cursor.y + offset_y};
 
-        // Display offscreen render as ImGui image
-        // Show the most recently completed frame's pass
+        // Display offscreen render as ImGui image — the slot the
+        // ui_preview_callback_ most recently finished rendering into
+        // (latest_rendered_offscreen_), not a fixed index. Each slot's
+        // pixels only update once every PREVIEW_FRAMES real frames (on
+        // the frame its own index comes up in current_frame_'s cycle),
+        // so always displaying slot 0 meant up to 2 of every 3 renders
+        // — including every render triggered by a live material-param
+        // edit that happened to land while slot 0 wasn't due — were
+        // silently discarded in favor of stale content from 1-2 frames
+        // earlier, with no guarantee that stale content ever became
+        // current again while continuously re-editing.
         {
-            // Use frame_index 0 as a simple read target — the callback writes
-            // to frame_index % PREVIEW_FRAMES, and we read whichever has a valid texture.
-            // With 3 frames in flight, at least one is always fully rendered.
             VkDescriptorSet tex = VK_NULL_HANDLE;
-            for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
-                if (offscreen_[i]) {
-                    tex = offscreen_[i]->imgui_texture();
-                    if (tex) break;
+            uint32_t latest = latest_rendered_offscreen_.load(std::memory_order_acquire);
+            if (latest < PREVIEW_FRAMES && offscreen_[latest]) {
+                tex = offscreen_[latest]->imgui_texture();
+            }
+            if (!tex) {
+                // Fall back to any valid texture before the first real
+                // render has completed (e.g. the very first frame).
+                for (uint32_t i = 0; i < PREVIEW_FRAMES; ++i) {
+                    if (offscreen_[i]) {
+                        tex = offscreen_[i]->imgui_texture();
+                        if (tex) break;
+                    }
                 }
             }
             if (tex) {
@@ -807,73 +843,261 @@ void UiEditorContext::draw_inspector() {
             ImGui::Text("Padding: %.0f %.0f %.0f %.0f", p.top, p.right, p.bottom, p.left);
         }
 
-        // Computed style
-        {
-            ImGui::SeparatorText("Computed Style");
-            auto& s = node->style;
+        // Style — editable. Edits write to the node's #id-selector rule
+        // in the stylesheet (see SetStylePropertyCommand); values shown
+        // are the resolved cascade output until something is explicitly
+        // set here, at which point the explicit value takes over.
+        ImGui::SeparatorText("Style");
+        if (node->type != UiNodeType::text) {
+            draw_style_editor(*node);
+        } else {
+            ImGui::TextDisabled("(text nodes inherit style from their parent)");
+        }
 
-            // Display & layout
-            const char* display_str = s.display == UiDisplay::flex ? "flex" : "none";
-            ImGui::Text("display: %s", display_str);
-
-            const char* dir_strs[] = {"row", "column", "row-reverse", "column-reverse"};
-            ImGui::Text("flex-direction: %s", dir_strs[static_cast<int>(s.flex_direction)]);
-
-            const char* justify_strs[] = {"flex-start", "flex-end", "center",
-                                          "space-between", "space-around", "space-evenly"};
-            ImGui::Text("justify-content: %s", justify_strs[static_cast<int>(s.justify_content)]);
-
-            const char* align_strs[] = {"auto", "flex-start", "flex-end",
-                                        "center", "stretch", "baseline"};
-            ImGui::Text("align-items: %s", align_strs[static_cast<int>(s.align_items)]);
-
-            if (s.flex_grow > 0.0f) ImGui::Text("flex-grow: %.1f", s.flex_grow);
-            if (s.flex_shrink != 1.0f) ImGui::Text("flex-shrink: %.1f", s.flex_shrink);
-
-            // Dimensions
-            if (s.width >= 0.0f) ImGui::Text("width: %.0f", s.width);
-            if (s.height >= 0.0f) ImGui::Text("height: %.0f", s.height);
-
-            // Visual
-            ImGui::Text("background: rgba(%.0f, %.0f, %.0f, %.2f)",
-                        s.background_color.r * 255, s.background_color.g * 255,
-                        s.background_color.b * 255, s.background_color.a);
-            ImGui::Text("color: rgba(%.0f, %.0f, %.0f, %.2f)",
-                        s.color.r * 255, s.color.g * 255,
-                        s.color.b * 255, s.color.a);
-            ImGui::Text("font-size: %.0f", s.font_size);
-
-            if (s.border_width > 0.0f) {
-                ImGui::Text("border: %.0f solid rgba(%.0f,%.0f,%.0f,%.2f)",
-                            s.border_width,
-                            s.border_color.r * 255, s.border_color.g * 255,
-                            s.border_color.b * 255, s.border_color.a);
-            }
-            if (s.border_radius.top_left > 0.0f || s.border_radius.top_right > 0.0f) {
-                ImGui::Text("border-radius: %.0f %.0f %.0f %.0f",
-                            s.border_radius.top_left, s.border_radius.top_right,
-                            s.border_radius.bottom_right, s.border_radius.bottom_left);
-            }
-            if (s.opacity < 1.0f) ImGui::Text("opacity: %.2f", s.opacity);
-            if (s.box_shadow.active()) {
-                ImGui::Text("box-shadow: %.0f %.0f %.0f %.0f",
-                            s.box_shadow.offset_x, s.box_shadow.offset_y,
-                            s.box_shadow.blur, s.box_shadow.spread);
-            }
-            if (s.gradient.active()) {
-                ImGui::Text("gradient: %.0f deg", s.gradient.angle);
-            }
-            if (!s.transition.empty()) {
-                ImGui::Text("transition: %s", s.transition.c_str());
-            }
-
-            const char* overflow_strs[] = {"visible", "hidden", "scroll"};
-            if (s.overflow != UiOverflow::visible) {
-                ImGui::Text("overflow: %s", overflow_strs[static_cast<int>(s.overflow)]);
-            }
+        // Material — only nodes with a material="..." attribute have
+        // one (img/div slots typically). Same param widget the 3D scene
+        // properties panel uses for mesh materials.
+        if (node->attributes.contains("material")) {
+            draw_node_material_editor(*node);
         }
     }
     ImGui::End();
+}
+
+void UiEditorContext::draw_node_material_editor(UiNode& node) {
+    if (!deps_.resource_manager || !deps_.vulkan_context) return;
+
+    auto mat_it = node.attributes.find("material");
+    if (mat_it == node.attributes.end() || mat_it->second.empty()) return;
+
+    // Resolve {key} templates the same way GameUi::resolve_textures does:
+    // walk up to the nearest scoped context, since a material name on a
+    // widget instance is commonly a prop reference rather than a literal.
+    std::string mat_name = mat_it->second;
+    if (mat_name.find('{') != std::string::npos) {
+        UiContext* ctx = nullptr;
+        for (auto* n = &node; n; n = n->parent) {
+            if (n->scoped_context) { ctx = n->scoped_context.get(); break; }
+        }
+        if (ctx) mat_name = UiDataBind::resolve_template(mat_name, *ctx);
+    }
+    if (mat_name.empty()) return;
+
+    auto mat_handle = deps_.resource_manager->find_material(mat_name);
+    if (!mat_handle.valid()) {
+        std::string mat_path = mat_name;
+        if (!mat_path.ends_with(".fjmat")) {
+            mat_path = "assets/materials/" + mat_path + ".fjmat";
+        }
+        mat_path = deps_.project_mgr && deps_.project_mgr->active()
+            ? deps_.project_mgr->active()->resolve(mat_path)
+            : base_path::resolve(mat_path);
+        if (fs::exists(mat_path)) {
+            auto result = deps_.resource_manager->load_material_asset(
+                mat_path, deps_.project_mgr ? deps_.project_mgr->active() : nullptr);
+            if (result) mat_handle = *result;
+        }
+    }
+    if (!mat_handle.valid()) return;
+
+    auto* mat = deps_.resource_manager->get(mat_handle);
+    if (!mat) return;
+
+    ImGui::SeparatorText("Material");
+
+    auto* pipeline_cache = deps_.vulkan_context->pipeline_cache();
+    if (!pipeline_cache) return;
+    uint32_t pid = mat->pipeline_id();
+    if (pid >= pipeline_cache->shader_count()) return;
+
+    const auto& meta = pipeline_cache->metadata(pid);
+    ImGui::TextDisabled("Shader: %s", mat->shader_path().c_str());
+
+    // Param values live in the bindless SSBO and the fragment shader
+    // samples them fresh every draw — but GameUi::update() stops issuing
+    // new draw commands after a few idle frames (MAX_FRAMES_IN_FLIGHT
+    // redraw countdown, see game_ui.cpp) once nothing marks the UI
+    // dirty. A param edit doesn't touch the .fjui/.fjss tree so nothing
+    // else would ever trip that flag — without mark_dirty() here, the
+    // change lands in the SSBO but the preview simply stops re-drawing
+    // before it ever samples it.
+    if (draw_material_params(meta, deps_.vulkan_context->bindless_textures(), *mat)) {
+        preview_ui_->mark_dirty();
+    }
+}
+
+std::string UiEditorContext::style_prop_string(const UiNode& node, const char* property,
+                                                const std::string& fallback) const {
+    if (!preview_ui_) return fallback;
+    for (const auto& rule : preview_ui_->stylesheet().rules) {
+        if (rule.selector.id != node.id || !rule.selector.tag.empty() ||
+            !rule.selector.class_.empty() || !rule.selector.pseudo.empty() ||
+            !rule.selector.parent.empty()) {
+            continue;
+        }
+        auto it = rule.properties.find(property);
+        if (it != rule.properties.end()) return it->second;
+    }
+    return fallback;
+}
+
+void UiEditorContext::style_edit_float(UiNode& node, const char* property, const char* label,
+                                       float resolved_value, float speed, float min, float max) {
+    // Empty explicit_str means "no rule sets this yet" — kept empty (not
+    // defaulted to the resolved value's string form) so an undo restores
+    // that exact unset state via SetStylePropertyCommand's empty-value
+    // erase, rather than pinning the resolved value as a new explicit rule.
+    auto explicit_str = style_prop_string(node, property, {});
+    float source_value = resolved_value;
+    if (!explicit_str.empty()) {
+        try { source_value = std::stof(explicit_str); } catch (...) {}
+    }
+
+    // While a drag gesture is active, the widget must keep showing (and
+    // ImGui must keep accumulating into) the buffered in-progress value
+    // — not source_value, which only reflects the last *committed* edit
+    // and would otherwise reset the field back to its starting point on
+    // literally the next frame of the same drag (mark_dirty()/resolve()
+    // don't run until the gesture ends, so source_value never moves
+    // mid-drag).
+    ImGuiID id = ImGui::GetID(label);
+    auto it = active_float_edits_.find(id);
+    bool dragging = it != active_float_edits_.end();
+    float edited = dragging ? it->second : source_value;
+
+    ImGui::DragFloat(label, &edited, speed, min, max, "%.1f");
+
+    if (ImGui::IsItemActive()) {
+        active_float_edits_[id] = edited;
+    } else if (dragging) {
+        active_float_edits_.erase(it);
+    }
+
+    if (ImGui::IsItemDeactivatedAfterEdit() && edited != source_value) {
+        command_history().execute(std::make_unique<SetStylePropertyCommand>(
+            *preview_ui_, node, property, explicit_str, std::to_string(edited),
+            std::string("Set ") + property));
+    }
+}
+
+void UiEditorContext::style_edit_color(UiNode& node, const char* property, const char* label,
+                                       const UiColor& resolved_value) {
+    auto explicit_str = style_prop_string(node, property, {});
+    UiColor source = explicit_str.empty() ? resolved_value : StyleResolver::parse_color(explicit_str);
+
+    // Same buffered-while-active pattern as style_edit_float — see there.
+    ImGuiID id = ImGui::GetID(label);
+    auto it = active_color_edits_.find(id);
+    bool dragging = it != active_color_edits_.end();
+    std::array<float, 4> rgba = dragging
+        ? it->second : std::array{source.r, source.g, source.b, source.a};
+
+    ImGui::ColorEdit4(label, rgba.data(), ImGuiColorEditFlags_AlphaBar);
+
+    if (ImGui::IsItemActive()) {
+        active_color_edits_[id] = rgba;
+    } else if (dragging) {
+        active_color_edits_.erase(it);
+    }
+
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "#%02x%02x%02x%02x",
+                      static_cast<int>(rgba[0] * 255), static_cast<int>(rgba[1] * 255),
+                      static_cast<int>(rgba[2] * 255), static_cast<int>(rgba[3] * 255));
+        std::string new_str = buf;
+        if (new_str != explicit_str) {
+            command_history().execute(std::make_unique<SetStylePropertyCommand>(
+                *preview_ui_, node, property, explicit_str, new_str,
+                std::string("Set ") + property));
+        }
+    }
+}
+
+void UiEditorContext::style_edit_enum(UiNode& node, const char* property, const char* label,
+                                      int resolved_index, std::initializer_list<const char*> names) {
+    std::vector<const char*> items(names);
+    int index = resolved_index;
+    auto explicit_str = style_prop_string(node, property, {});
+    if (!explicit_str.empty()) {
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (explicit_str == items[i]) { index = static_cast<int>(i); break; }
+        }
+    }
+
+    int edited = index;
+    ImGui::Combo(label, &edited, items.data(), static_cast<int>(items.size()));
+
+    if (edited != index) {
+        // Same empty-means-unset convention as style_edit_float/color:
+        // explicit_str (not a stringified resolved fallback) is what
+        // undo restores to.
+        command_history().execute(std::make_unique<SetStylePropertyCommand>(
+            *preview_ui_, node, property, explicit_str, items[edited],
+            std::string("Set ") + property));
+    }
+}
+
+void UiEditorContext::draw_style_editor(UiNode& node) {
+    auto& s = node.style;
+
+    if (ImGui::TreeNodeEx("Layout", ImGuiTreeNodeFlags_DefaultOpen)) {
+        style_edit_enum(node, "display", "display",
+                        static_cast<int>(s.display), {"flex", "none"});
+        style_edit_enum(node, "flex-direction", "flex-direction",
+                        static_cast<int>(s.flex_direction),
+                        {"row", "column", "row-reverse", "column-reverse"});
+        style_edit_enum(node, "justify-content", "justify-content",
+                        static_cast<int>(s.justify_content),
+                        {"flex-start", "flex-end", "center",
+                         "space-between", "space-around", "space-evenly"});
+        style_edit_enum(node, "align-items", "align-items",
+                        static_cast<int>(s.align_items),
+                        {"auto", "flex-start", "flex-end", "center", "stretch", "baseline"});
+        style_edit_enum(node, "position", "position",
+                        static_cast<int>(s.position), {"relative", "absolute"});
+        style_edit_enum(node, "overflow", "overflow",
+                        static_cast<int>(s.overflow), {"visible", "hidden", "scroll"});
+        style_edit_float(node, "flex-grow", "flex-grow", s.flex_grow, 0.1f, 0.0f, 100.0f);
+        style_edit_float(node, "flex-shrink", "flex-shrink", s.flex_shrink, 0.1f, 0.0f, 100.0f);
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("Dimensions", ImGuiTreeNodeFlags_DefaultOpen)) {
+        style_edit_float(node, "width", "width", s.width, 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "height", "height", s.height, 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "min-width", "min-width", s.min_width, 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "min-height", "min-height", s.min_height, 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "max-width", "max-width", s.max_width, 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "max-height", "max-height", s.max_height, 1.0f, -1.0f, 4096.0f);
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("Spacing", ImGuiTreeNodeFlags_DefaultOpen)) {
+        style_edit_float(node, "margin-top", "margin-top", s.margin.top, 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "margin-right", "margin-right", s.margin.right, 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "margin-bottom", "margin-bottom", s.margin.bottom, 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "margin-left", "margin-left", s.margin.left, 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "padding-top", "padding-top", s.padding.top, 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "padding-right", "padding-right", s.padding.right, 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "padding-bottom", "padding-bottom", s.padding.bottom, 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "padding-left", "padding-left", s.padding.left, 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "row-gap", "row-gap", s.row_gap, 1.0f, 0.0f, 256.0f);
+        style_edit_float(node, "column-gap", "column-gap", s.column_gap, 1.0f, 0.0f, 256.0f);
+        ImGui::TreePop();
+    }
+
+    if (ImGui::TreeNodeEx("Visual", ImGuiTreeNodeFlags_DefaultOpen)) {
+        style_edit_color(node, "background-color", "background-color", s.background_color);
+        style_edit_color(node, "color", "color", s.color);
+        style_edit_float(node, "font-size", "font-size", s.font_size, 0.5f, 1.0f, 256.0f);
+        style_edit_color(node, "border-color", "border-color", s.border_color);
+        style_edit_float(node, "border-width", "border-width", s.border_width, 0.5f, 0.0f, 64.0f);
+        style_edit_float(node, "border-radius", "border-radius",
+                         s.border_radius.top_left, 0.5f, 0.0f, 256.0f);
+        style_edit_float(node, "opacity", "opacity", s.opacity, 0.01f, 0.0f, 1.0f);
+        ImGui::TreePop();
+    }
 }
 
 // ── Mock Data Panel ──────────────────────────────────────────────────────
@@ -1227,10 +1451,19 @@ void UiEditorContext::process_play_input(UiNode* root, ImVec2 origin, float scal
     };
     clear_hover(root);
 
-    // Set hover on hit node AND all ancestors (CSS hover bubbles up)
+    // Set hover on hit node AND all ancestors (CSS hover bubbles up).
+    // Only mark dirty on an actual state change — this runs every frame
+    // the mouse sits over any element, and calling mark_dirty()
+    // unconditionally here pins the UI permanently "dirty," forcing a
+    // full style resolve every frame and starving out any signal from
+    // real edits happening elsewhere (they're indistinguishable from
+    // this constant background noise).
     for (UiNode* n = hit; n != nullptr; n = n->parent) {
+        bool was = n->is_hovered();
         n->interaction_state |= 1; // hovered
-        preview_ui_->mark_dirty();
+        if (!was) {
+            preview_ui_->mark_dirty();
+        }
     }
 
     // Active state (mouse down)
@@ -1250,11 +1483,15 @@ void UiEditorContext::process_play_input(UiNode* root, ImVec2 origin, float scal
         };
         clear_active(root);
     } else if (hit) {
-        // Set active on hit + ancestors
+        // Set active on hit + ancestors — only mark dirty on nodes that
+        // weren't already active, same reasoning as the hover loop above.
         for (UiNode* n = hit; n != nullptr; n = n->parent) {
+            bool was = n->is_active();
             n->interaction_state |= 2; // active
+            if (!was) {
+                preview_ui_->mark_dirty();
+            }
         }
-        preview_ui_->mark_dirty();
     }
 
     // Dispatch on:click — walk up from hit to find nearest handler

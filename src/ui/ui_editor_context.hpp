@@ -1,12 +1,18 @@
 #pragma once
 
 #include "ui/editor_context.hpp"
+#include "ui/game_ui/ui_types.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "core/delegate.hpp"
 
+#include <imgui.h>
+
+#include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -62,8 +68,37 @@ private:
     void draw_preview(float dt);
     void draw_element_tree();
     void draw_inspector();
+    void draw_style_editor(UiNode& node);
+    void draw_node_material_editor(UiNode& node);
     void draw_mock_data();
     void draw_action_log();
+
+    // Style editor helpers: read the explicit value for `property` from
+    // the node's #id-selector rule (if one exists and sets it), or fall
+    // back to formatting the resolved UiComputedStyle value for display
+    // when nothing has been explicitly authored yet.
+    [[nodiscard]] std::string style_prop_string(const UiNode& node, const char* property,
+                                                const std::string& fallback) const;
+    void style_edit_float(UiNode& node, const char* property, const char* label,
+                          float resolved_value, float speed = 1.0f, float min = 0.0f,
+                          float max = 0.0f);
+    void style_edit_color(UiNode& node, const char* property, const char* label,
+                          const UiColor& resolved_value);
+    // `resolved_index` is the current enum value already cast to int by
+    // the caller; `names[resolved_index]` must be the CSS value FjssParser
+    // expects to read back (see StyleResolver::apply_property).
+    void style_edit_enum(UiNode& node, const char* property, const char* label,
+                         int resolved_index, std::initializer_list<const char*> names);
+
+    // Live value for a drag/color gesture in progress, keyed by ImGui ID.
+    // A DragFloat/ColorEdit's displayed value must come from this buffer
+    // (not be re-derived from the resolved style) for every frame the
+    // gesture is active — the resolved style only updates once the edit
+    // commits (mark_dirty() → next resolve), so re-deriving it mid-drag
+    // would feed ImGui a stale base every frame and the gesture could
+    // never move the value, which reads as an instant snap-back.
+    std::unordered_map<ImGuiID, float> active_float_edits_;
+    std::unordered_map<ImGuiID, std::array<float, 4>> active_color_edits_;
 
     // Element tree helpers
     void draw_node_tree(UiNode* node);
@@ -89,6 +124,13 @@ private:
     // Offscreen render targets for pixel-perfect preview (one per frame in flight)
     static constexpr uint32_t PREVIEW_FRAMES = 3;
     std::unique_ptr<class OffscreenPass> offscreen_[PREVIEW_FRAMES];
+    // Slot record_game_ui_offscreen() most recently finished rendering
+    // into, updated from the ui_preview_callback_ below. draw_preview()
+    // must display this slot, not a fixed one — each slot's image only
+    // gets fresh pixels on the frame its own index comes up in the
+    // current_frame_ cycle, so a fixed slot shows content that's up to
+    // PREVIEW_FRAMES-1 frames stale at all times.
+    std::atomic<uint32_t> latest_rendered_offscreen_{UINT32_MAX};
     uint32_t offscreen_width_{0};
     uint32_t offscreen_height_{0};
 

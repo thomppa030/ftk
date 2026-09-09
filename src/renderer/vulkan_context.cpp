@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -1112,6 +1113,20 @@ void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
     ri.pColorAttachments = &color_att;
 
     vkCmdBeginRendering(cmd, &ri);
+
+    // .fjsl materials sample TIME from the global UBO, but that UBO is
+    // only otherwise refreshed by a scene viewport's render request
+    // (update_uniform_buffer()) — when this offscreen preview is the
+    // only thing rendering this frame (e.g. the UI editor tab open with
+    // no 3D viewport active), TIME would sit frozen at whatever a scene
+    // viewport last wrote, so animated UI materials appear static in
+    // the preview. Patch just the time field in place — cheap, and
+    // harmless even when a scene request did already refresh the full
+    // UBO this frame (same value either way).
+    float live_time = elapsed_time_;
+    std::memcpy(static_cast<uint8_t*>(gpu_.uniform_buffer(frame_index).mapped()) +
+                    offsetof(GlobalUbo, time),
+                &live_time, sizeof(live_time));
 
     ui.record(cmd, gpu_.global_descriptor_set(frame_index),
               gpu_.bindless_textures().descriptor_set(),

@@ -100,6 +100,8 @@ public:
     [[nodiscard]] const FontAtlas& font() const { return shared_font_atlas_ ? *shared_font_atlas_ : font_atlas_; }
     [[nodiscard]] UiNode* root() { return root_.get(); }
     [[nodiscard]] const UiNode* root() const { return root_.get(); }
+    [[nodiscard]] Stylesheet& stylesheet() { return stylesheet_; }
+    [[nodiscard]] const Stylesheet& stylesheet() const { return stylesheet_; }
     [[nodiscard]] bool loaded() const { return root_ != nullptr; }
     [[nodiscard]] bool needs_redraw() const;
     void mark_dirty();
