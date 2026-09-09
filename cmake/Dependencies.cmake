@@ -82,6 +82,10 @@ FetchContent_Declare(
 
 set(INTERPROCEDURAL_OPTIMIZATION OFF CACHE BOOL "" FORCE)
 set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
+# Jolt defaults to RTTI off; the engine builds with RTTI on and needs JPH
+# types' typeinfo (implicitly required by polymorphic destruction through
+# base pointers, e.g. std::unique_ptr<JPH::Shape>) to link against.
+set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
 FetchContent_Declare(
     JoltPhysics
     GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
