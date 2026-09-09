@@ -12,11 +12,46 @@ namespace fjell {
 bool draw_material_params(const ShaderMetadata& meta,
                            BindlessTextures& bindless,
                            Material& material) {
+    bool changed = false;
+
+    // Base PBR params (base_params[4]/[5] — see GpuMaterial in bindless.hpp).
+    // These exist on every material regardless of shader — including custom
+    // FJSL shaders like solid_lit.fjsl that only ever declare their own
+    // uniforms (tint, etc.) and never reference ROUGHNESS/METALLIC in
+    // fragment(), where they still fall through to these factors. Shown
+    // above the custom-uniform loop below so a shader with zero custom
+    // uniforms still gets an editable material.
+    {
+        GpuMaterial base = bindless.material_at(material.material_id());
+        float metallic = base.base_params[4];
+        float roughness = base.base_params[5];
+        bool base_changed = false;
+
+        ImGui::TextDisabled("Base PBR");
+        ImGui::PushID("__metallic_factor");
+        ImGui::Text("Metallic");
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderFloat("##val", &metallic, 0.0f, 1.0f)) base_changed = true;
+        ImGui::PopID();
+        ImGui::PushID("__roughness_factor");
+        ImGui::Text("Roughness");
+        ImGui::SetNextItemWidth(-1);
+        if (ImGui::SliderFloat("##val", &roughness, 0.0f, 1.0f)) base_changed = true;
+        ImGui::PopID();
+        ImGui::Separator();
+
+        if (base_changed) {
+            base.base_params[4] = metallic;
+            base.base_params[5] = roughness;
+            bindless.update_material(material.material_id(), base);
+            changed = true;
+        }
+    }
+
     uint32_t param_count = material.custom_param_count();
-    if (param_count == 0) return false;
+    if (param_count == 0) return changed;
 
     const auto& gpu = bindless.material_at(material.material_id());
-    bool changed = false;
 
     for (const auto& u : meta.uniforms) {
         if (u.type == UniformType::Sampler2D) continue;
