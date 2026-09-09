@@ -1,0 +1,127 @@
+#version 460
+
+#include "include/particle_common.glsl"
+
+layout(local_size_x = 256) in;
+
+// binding 0=particles, 1=indirect draws, 3=emitter_data, 6=instances, 7=instance_counts
+// (see mesh_compute_set_ layout in particle_system.cpp — 8 generic storage
+// bindings shared with the rest of the compute descriptor conventions)
+layout(std430, set = 0, binding = 0) readonly buffer ParticleBuffer {
+    Particle particles[];
+};
+
+layout(std430, set = 0, binding = 1) buffer IndirectDraw {
+    // VkDrawIndexedIndirectCommand, 5 uints per emitter: indexCount,
+    // instanceCount, firstIndex, vertexOffset, firstInstance.
+    uint indirect_cmds[];
+};
+
+layout(std430, set = 0, binding = 3) readonly buffer EmitterBuffer {
+    EmitterData emitters[];
+};
+
+layout(std430, set = 0, binding = 6) writeonly buffer InstanceBuffer {
+    // GpuMeshInstance, 24 uints (96 bytes) per entry: mat4 model (16),
+    // vec4 color (4), uint texture_index (1), uint pad[3] (3).
+    uint instance_data[];
+};
+
+layout(std430, set = 0, binding = 7) buffer InstanceCounts {
+    uint instance_counts[]; // one atomic live-count per mesh emitter
+};
+
+// Three passes share this shader, distinguished by sub_emit_pass (repurposed
+// as a pass selector here — see dispatch_compute Phase 5a/5b/5c):
+//   0 = reset:   one invocation/emitter, zero the counter + seed static
+//                indirect-command fields.
+//   1 = compact: one invocation/particle-slot, scan alive particles and
+//                atomically append each to a dense instance range.
+//   2 = finalize: one invocation/emitter, copy the final live count into
+//                the indirect command's instanceCount field.
+// Split this way — instead of one dispatch with an internal barrier() —
+// because barrier() only orders invocations within a single workgroup, and
+// max_particles can span multiple workgroups (local_size_x = 256).
+layout(push_constant) uniform PushConstants {
+    float dt;
+    uint  random_seed;
+    uint  emitter_count;
+    uint  total_max_particles;
+    uint  sub_emit_pass;
+};
+
+void main() {
+    uint eidx = gl_GlobalInvocationID.y;
+    if (eidx >= emitter_count) return;
+
+    EmitterData em = emitters[eidx];
+
+    // Non-mesh emitters don't use this path — their indirect command is
+    // built by particle_indirect.comp instead.
+    if ((em.flags & 4u) == 0u) return;
+
+    if (sub_emit_pass == 0u) {
+        // Reset pass.
+        if (gl_GlobalInvocationID.x != 0u) return;
+        instance_counts[eidx] = 0u;
+        uint cmd_base = eidx * 5u;
+        indirect_cmds[cmd_base + 0] = em.mesh_index_count;
+        indirect_cmds[cmd_base + 1] = 0u; // instanceCount, filled in by the finalize pass
+        indirect_cmds[cmd_base + 2] = em.mesh_first_index;
+        indirect_cmds[cmd_base + 3] = em.mesh_vertex_offset;
+        indirect_cmds[cmd_base + 4] = em.base_offset;
+        return;
+    }
+
+    if (sub_emit_pass == 2u) {
+        // Finalize pass.
+        if (gl_GlobalInvocationID.x != 0u) return;
+        indirect_cmds[eidx * 5u + 1] = instance_counts[eidx];
+        return;
+    }
+
+    // Compact pass: scan this emitter's particle slots, append each alive
+    // one to a tight instance range starting at base_offset (mirrors the
+    // billboard particles' own slot convention, so both draw paths share
+    // gl_InstanceIndex = firstInstance + local_index semantics).
+    uint local_pi = gl_GlobalInvocationID.x;
+    if (local_pi >= em.max_particles) return;
+
+    uint global_pi = em.base_offset + local_pi;
+    Particle p = particles[global_pi];
+    if (p.lifetime <= 0.0) return;
+
+    uint slot = atomicAdd(instance_counts[eidx], 1u);
+
+    // Bake the same model matrix particle_mesh.vert used to build
+    // per-vertex: position + Y-axis rotation + uniform scale.
+    float c = cos(p.rotation);
+    float s = sin(p.rotation);
+    float sz = p.size;
+
+    uint out_base = (em.base_offset + slot) * 24u;
+    instance_data[out_base + 0]  = floatBitsToUint(c * sz);
+    instance_data[out_base + 1]  = floatBitsToUint(0.0);
+    instance_data[out_base + 2]  = floatBitsToUint(s * sz);
+    instance_data[out_base + 3]  = floatBitsToUint(0.0);
+    instance_data[out_base + 4]  = floatBitsToUint(0.0);
+    instance_data[out_base + 5]  = floatBitsToUint(sz);
+    instance_data[out_base + 6]  = floatBitsToUint(0.0);
+    instance_data[out_base + 7]  = floatBitsToUint(0.0);
+    instance_data[out_base + 8]  = floatBitsToUint(-s * sz);
+    instance_data[out_base + 9]  = floatBitsToUint(0.0);
+    instance_data[out_base + 10] = floatBitsToUint(c * sz);
+    instance_data[out_base + 11] = floatBitsToUint(0.0);
+    instance_data[out_base + 12] = floatBitsToUint(p.position.x);
+    instance_data[out_base + 13] = floatBitsToUint(p.position.y);
+    instance_data[out_base + 14] = floatBitsToUint(p.position.z);
+    instance_data[out_base + 15] = floatBitsToUint(1.0);
+    instance_data[out_base + 16] = floatBitsToUint(p.color.r);
+    instance_data[out_base + 17] = floatBitsToUint(p.color.g);
+    instance_data[out_base + 18] = floatBitsToUint(p.color.b);
+    instance_data[out_base + 19] = floatBitsToUint(p.color.a);
+    instance_data[out_base + 20] = p.texture_index;
+    instance_data[out_base + 21] = 0u;
+    instance_data[out_base + 22] = 0u;
+    instance_data[out_base + 23] = 0u;
+}

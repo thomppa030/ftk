@@ -1302,10 +1302,11 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
             FJELL_GFX_ERROR("Failed to allocate mesh compute descriptor set");
         } else {
             // Write mesh compute descriptors
-            // binding 0=particles, 3=emitter_data, 6=instances, 7=instance_counts
+            // binding 0=particles, 1=indirect draws, 3=emitter_data, 6=instances, 7=instance_counts
             VkDescriptorBufferInfo inst_info{mesh_instance_buffer_->handle(), 0, mesh_instance_buffer_->size()};
             VkDescriptorBufferInfo inst_count_info{mesh_instance_count_buffer_->handle(), 0, mesh_instance_count_buffer_->size()};
-            VkWriteDescriptorSet mc_writes[4]{};
+            VkDescriptorBufferInfo mesh_indirect_info{mesh_indirect_buffer_->handle(), 0, mesh_indirect_buffer_->size()};
+            VkWriteDescriptorSet mc_writes[5]{};
             for (auto& w : mc_writes) w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
             mc_writes[0].dstSet = mesh_compute_set_; mc_writes[0].dstBinding = 0;
             mc_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1319,7 +1320,10 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
             mc_writes[3].dstSet = mesh_compute_set_; mc_writes[3].dstBinding = 7;
             mc_writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
             mc_writes[3].descriptorCount = 1; mc_writes[3].pBufferInfo = &inst_count_info;
-            vkUpdateDescriptorSets(device_, 4, mc_writes, 0, nullptr);
+            mc_writes[4].dstSet = mesh_compute_set_; mc_writes[4].dstBinding = 1;
+            mc_writes[4].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            mc_writes[4].descriptorCount = 1; mc_writes[4].pBufferInfo = &mesh_indirect_info;
+            vkUpdateDescriptorSets(device_, 5, mc_writes, 0, nullptr);
         }
 
         // Write instance buffer to render sets (binding 4)
@@ -2112,7 +2116,7 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
         compute_barrier();
     }
 
-    // ── Phase 4: Indirect prep ──
+    // ── Phase 4: Indirect prep (billboard/trail emitters) ──
     push.sub_emit_pass = 0;
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, indirect_pipeline_);
     bind_compute_sets();
@@ -2120,9 +2124,65 @@ void ParticleSystem::dispatch_compute(VkCommandBuffer cmd, float dt, Scene& scen
                        0, sizeof(push), &push);
     vkCmdDispatch(cmd, (emitter_count + 255) / 256, 1, 1);
 
-    // Mesh particles use the same particle SSBO and instanced indexed draws.
-    // No extra compute pass needed — the mesh vertex shader reads particles directly.
-    // Mesh indirect commands are written CPU-side in record_render.
+    // ── Phase 5: Mesh instance compaction (mesh emitters) ──
+    // Compacts alive particles into a dense GpuMeshInstance range per
+    // emitter and builds the matching VkDrawIndexedIndirectCommand, so
+    // record_render's mesh draw only costs vertex-shader work for
+    // particles that are actually alive instead of the full max_particles
+    // budget every frame. Three sub-passes (reset/compact/finalize) because
+    // GLSL's barrier() only orders invocations within one workgroup, and
+    // max_particles routinely spans several (local_size_x = 256) — see
+    // particle_mesh_instance.comp's header comment.
+    if (mesh_instance_pipeline_ != VK_NULL_HANDLE) {
+        auto bind_mesh_compute_set = [&]() {
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mesh_compute_layout_,
+                                    0, 1, &mesh_compute_set_, 0, nullptr);
+        };
+        uint32_t max_slots = 0;
+        for (const auto& em : emitters_) {
+            if (em.is_mesh && em.max_particles > max_slots) max_slots = em.max_particles;
+        }
+        if (max_slots > 0) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, mesh_instance_pipeline_);
+            bind_mesh_compute_set();
+
+            push.sub_emit_pass = 0; // reset
+            vkCmdPushConstants(cmd, mesh_compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                               0, sizeof(push), &push);
+            vkCmdDispatch(cmd, 1, emitter_count, 1);
+            compute_barrier();
+
+            push.sub_emit_pass = 1; // compact
+            vkCmdPushConstants(cmd, mesh_compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                               0, sizeof(push), &push);
+            vkCmdDispatch(cmd, (max_slots + 255) / 256, emitter_count, 1);
+            compute_barrier();
+
+            push.sub_emit_pass = 2; // finalize
+            vkCmdPushConstants(cmd, mesh_compute_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                               0, sizeof(push), &push);
+            vkCmdDispatch(cmd, 1, emitter_count, 1);
+
+            // record_render's later vkCmdDrawIndexedIndirect needs to see
+            // both the finalized indirect command and the compacted
+            // instance buffer — compute_barrier() only covers compute-to-
+            // compute, so add the indirect-read + vertex-shader-read edge
+            // explicitly.
+            VkMemoryBarrier2 indirect_barrier{};
+            indirect_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+            indirect_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+            indirect_barrier.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+            indirect_barrier.dstStageMask = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT |
+                                             VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+            indirect_barrier.dstAccessMask = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT |
+                                              VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+            VkDependencyInfo indirect_dep{};
+            indirect_dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            indirect_dep.memoryBarrierCount = 1;
+            indirect_dep.pMemoryBarriers = &indirect_barrier;
+            vkCmdPipelineBarrier2(cmd, &indirect_dep);
+        }
+    }
 }
 
 void ParticleSystem::insert_barriers(VkCommandBuffer cmd) {
