@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/gpu/buffer.hpp"
+#include "renderer/gpu/growable_buffer.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/systems/render_subsystem.hpp"
@@ -189,11 +190,18 @@ private:
     VkDescriptorSet compute_set_{VK_NULL_HANDLE};
     std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> render_sets_{};
 
-    // Mega buffers
-    std::unique_ptr<Buffer> mega_particle_buffer_;
-    std::unique_ptr<Buffer> mega_counter_buffer_;
-    std::unique_ptr<Buffer> mega_dead_list_buffer_;
-    std::unique_ptr<Buffer> mega_indirect_buffer_;
+    // Mega buffers. The four GPU-only ones grow via sparse binding (see
+    // renderer/gpu/growable_buffer.hpp) — their handle and device address
+    // never move once committed, so growth never stalls the device and
+    // their descriptor bindings never need rewriting. emitter_data_/
+    // module_buffer_ are HOST_VISIBLE and CPU-written every frame, which
+    // GrowableBuffer can't back on this hardware (sparse buffers reject
+    // host-visible memory outright — verified, not a missing feature to
+    // add later) — they keep the older allocate/copy/retire growth path.
+    std::unique_ptr<GrowableBuffer> mega_particle_buffer_;
+    std::unique_ptr<GrowableBuffer> mega_counter_buffer_;
+    std::unique_ptr<GrowableBuffer> mega_dead_list_buffer_;
+    std::unique_ptr<GrowableBuffer> mega_indirect_buffer_;
     std::unique_ptr<Buffer> emitter_data_buffer_;  // HOST_VISIBLE, mapped
     std::unique_ptr<Buffer> module_buffer_;         // HOST_VISIBLE, per-emitter module data
     std::unique_ptr<Buffer> sub_event_buffer_;      // GPU-only, sub-emitter events (64 bytes each)

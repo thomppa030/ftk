@@ -54,6 +54,21 @@ GrowableBuffer::GrowableBuffer(Device& device, VmaAllocator allocator,
     // a block boundary (except at the buffer's tail).
     vkGetBufferMemoryRequirements(device_, sparse_buffer_, &memory_requirements_);
 
+    // bind_pages() always rounds its target up to a multiple of alignment,
+    // then clamps to virtual_capacity_ — if virtual_capacity_ itself isn't
+    // a multiple of alignment, that clamp can land on an unaligned value,
+    // producing an invalid vkQueueBindSparse call. Catch that here, at
+    // construction, instead of downstream as a validation error on the
+    // first bind — a caller sizing a small buffer (e.g. a handful of
+    // uints per emitter) can easily end up under one sparse block (64KB
+    // is typical) without realizing sparse mode has a practical minimum.
+    if (virtual_capacity_ % memory_requirements_.alignment != 0) {
+        throw std::runtime_error("GrowableBuffer '" + name_ +
+                                 "': virtual_capacity (" + std::to_string(virtual_capacity_) +
+                                 ") must be a multiple of the sparse block alignment (" +
+                                 std::to_string(memory_requirements_.alignment) + ")");
+    }
+
     VkFenceCreateInfo fence_ci{};
     fence_ci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     vk_check(vkCreateFence(device_, &fence_ci, nullptr, &bind_fence_),

@@ -373,6 +373,15 @@ PassResources GpuContext::pass_resources() const {
     res.pipeline_cache = vk_pipeline_cache_;
     res.command_pool = core_.command_pool();
     res.graphics_queue = core_.graphics_queue();
+    // Handing out mutable access to objects core_ owns, not mutating
+    // core_ itself — same "logically const" shape as every other pointer/
+    // handle field above, just needing a cast since these two accessors
+    // aren't const-qualified on GpuCore (they hand out mutable state on
+    // purpose; upload_context()/deferred_deleter() callers need to call
+    // non-const methods on them).
+    auto& mutable_core = const_cast<GpuCore&>(core_);
+    res.upload_context = &mutable_core.upload_context();
+    res.deferred_deleter = &mutable_core.deferred_deleter();
     return res;
 }
 

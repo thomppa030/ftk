@@ -53,6 +53,54 @@ void ParticleSystem::create(Device& device, const PassResources& resources) {
     }
     queue_ = device.graphics_queue();
 
+    // ── GPU-only mega buffers (sparse-growing, see growable_buffer.hpp) ──
+    // Small initial commit — sparse growth is cheap (no device stall), so
+    // there's no reason to over-commit up front like MegaBuffer does for
+    // its much larger, load-time-known mesh data. Virtual capacity caps
+    // how far ensure_capacity() can ever grow: 65536 particles is comfortably
+    // above any single scene observed so far (stress_test.fjell peaked at
+    // 2900 across 4 emitters), with headroom for many concurrent effects.
+    //
+    // The counter/indirect buffers are naturally tiny (a handful of uints
+    // per emitter) — their virtual capacity must still be at least one
+    // sparse block (64KB on this hardware; queried at runtime, not assumed)
+    // or the bind rounds to something misaligned. GrowableBuffer doesn't
+    // guard against this itself — a virtual_capacity smaller than the
+    // device's sparse block alignment produces an invalid bind, caught
+    // live via validation, not by inspection. Floor both at 1MB, which is
+    // already far more headroom than any realistic emitter count needs.
+    constexpr VkDeviceSize INITIAL_PARTICLES = 512;
+    constexpr VkDeviceSize MAX_PARTICLES = 65536;
+    constexpr VkDeviceSize INITIAL_EMITTERS = 8;
+    constexpr VkDeviceSize MAX_EMITTERS = 512;
+    constexpr VkDeviceSize MIN_VIRTUAL_CAPACITY = 1024ULL * 1024;
+
+    auto& upload = *resources.upload_context;
+    auto& deleter = *resources.deferred_deleter;
+
+    mega_particle_buffer_ = std::make_unique<GrowableBuffer>(
+        device, allocator_, upload, deleter,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        INITIAL_PARTICLES * PARTICLE_STRIDE, MAX_PARTICLES * PARTICLE_STRIDE, "particle_mega");
+
+    mega_counter_buffer_ = std::make_unique<GrowableBuffer>(
+        device, allocator_, upload, deleter,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        INITIAL_EMITTERS * 3 * sizeof(uint32_t),
+        std::max(MAX_EMITTERS * 3 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_counters");
+
+    mega_dead_list_buffer_ = std::make_unique<GrowableBuffer>(
+        device, allocator_, upload, deleter,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        INITIAL_PARTICLES * sizeof(uint32_t), MAX_PARTICLES * sizeof(uint32_t), "particle_dead_list");
+
+    mega_indirect_buffer_ = std::make_unique<GrowableBuffer>(
+        device, allocator_, upload, deleter,
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT |
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        INITIAL_EMITTERS * 4 * sizeof(uint32_t),
+        std::max(MAX_EMITTERS * 4 * sizeof(uint32_t), MIN_VIRTUAL_CAPACITY), "particle_indirect");
+
     // ── Compute descriptor set layout (8 bindings) ──
     // 0=particles, 1=counters, 2=dead_list, 3=emitter_data, 4=indirect, 5=modules
     // 6=sub_emitter_events, 7=sub_emitter_event_counters
@@ -1051,13 +1099,17 @@ void ParticleSystem::destroy() {
 }
 
 void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emitter_count) {
-    // Save old buffers for data copy
-    auto old_particle = std::move(mega_particle_buffer_);
-    auto old_counter = std::move(mega_counter_buffer_);
-    auto old_dead_list = std::move(mega_dead_list_buffer_);
-    auto old_indirect = std::move(mega_indirect_buffer_);
-    uint32_t old_particle_cap = total_particle_capacity_;
-    uint32_t old_emitter_cap = emitter_capacity_;
+    // The four GPU-only buffers grow in place via sparse binding — their
+    // handle never changes, so this is just "make sure there's room," not
+    // a recreation. ensure_capacity() is a no-op if the buffer is already
+    // big enough. Deliberately done before the descriptor sets are torn
+    // down below: nothing here needs that, and it keeps the sparse-growth
+    // path visually distinct from the emitter_data_/module_buffer_ path
+    // that still does.
+    mega_particle_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * PARTICLE_STRIDE);
+    mega_counter_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 3 * sizeof(uint32_t));
+    mega_dead_list_buffer_->ensure_capacity(static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t));
+    mega_indirect_buffer_->ensure_capacity(static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t));
 
     // Free old descriptor sets if they exist
     if (compute_set_ != VK_NULL_HANDLE) {
@@ -1078,77 +1130,7 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
     total_particle_capacity_ = total_particles;
     emitter_capacity_ = emitter_count;
 
-    constexpr auto STORAGE_SRC_DST = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-                                     VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-    VkDeviceSize particle_size = static_cast<VkDeviceSize>(total_particles) * PARTICLE_STRIDE;
-    // 3 uints per emitter: alive_count, dead_count, trail_head
-    VkDeviceSize counter_size = static_cast<VkDeviceSize>(emitter_count) * 3 * sizeof(uint32_t);
-    VkDeviceSize dead_list_size = static_cast<VkDeviceSize>(total_particles) * sizeof(uint32_t);
-    VkDeviceSize indirect_size = static_cast<VkDeviceSize>(emitter_count) * 4 * sizeof(uint32_t);
     VkDeviceSize emitter_data_size = static_cast<VkDeviceSize>(emitter_count) * sizeof(GpuEmitterData);
-
-    mega_particle_buffer_ = std::make_unique<Buffer>(
-        allocator_, particle_size,
-        STORAGE_SRC_DST, VMA_MEMORY_USAGE_AUTO);
-
-    mega_counter_buffer_ = std::make_unique<Buffer>(
-        allocator_, counter_size,
-        STORAGE_SRC_DST, VMA_MEMORY_USAGE_AUTO);
-
-    mega_dead_list_buffer_ = std::make_unique<Buffer>(
-        allocator_, dead_list_size,
-        STORAGE_SRC_DST, VMA_MEMORY_USAGE_AUTO);
-
-    mega_indirect_buffer_ = std::make_unique<Buffer>(
-        allocator_, indirect_size,
-        STORAGE_SRC_DST | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    // Copy old data to new buffers if we had previous data
-    if (old_particle && old_particle_cap > 0) {
-        VkCommandBufferAllocateInfo alloc_info{};
-        alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        alloc_info.commandPool = command_pool_;
-        alloc_info.commandBufferCount = 1;
-
-        VkCommandBuffer cmd;
-        vk_check(vkAllocateCommandBuffers(device_, &alloc_info, &cmd), "alloc copy cmd");
-
-        VkCommandBufferBeginInfo begin{};
-        begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vk_check(vkBeginCommandBuffer(cmd, &begin), "begin copy cmd");
-
-        VkDeviceSize old_particle_bytes = static_cast<VkDeviceSize>(old_particle_cap) * PARTICLE_STRIDE;
-        VkBufferCopy region{0, 0, old_particle_bytes};
-        vkCmdCopyBuffer(cmd, old_particle->handle(), mega_particle_buffer_->handle(), 1, &region);
-
-        VkDeviceSize old_counter_bytes = static_cast<VkDeviceSize>(old_emitter_cap) * 2 * sizeof(uint32_t);
-        region = {0, 0, old_counter_bytes};
-        vkCmdCopyBuffer(cmd, old_counter->handle(), mega_counter_buffer_->handle(), 1, &region);
-
-        VkDeviceSize old_dead_bytes = static_cast<VkDeviceSize>(old_particle_cap) * sizeof(uint32_t);
-        region = {0, 0, old_dead_bytes};
-        vkCmdCopyBuffer(cmd, old_dead_list->handle(), mega_dead_list_buffer_->handle(), 1, &region);
-
-        VkDeviceSize old_indirect_bytes = static_cast<VkDeviceSize>(old_emitter_cap) * 4 * sizeof(uint32_t);
-        region = {0, 0, old_indirect_bytes};
-        vkCmdCopyBuffer(cmd, old_indirect->handle(), mega_indirect_buffer_->handle(), 1, &region);
-
-        vk_check(vkEndCommandBuffer(cmd), "end copy cmd");
-
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &cmd;
-        vk_check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE), "submit copy cmd");
-        vkQueueWaitIdle(queue_);
-
-        vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
-    }
 
     emitter_data_buffer_ = std::make_unique<Buffer>(
         allocator_, emitter_data_size,
@@ -1207,11 +1189,16 @@ void ParticleSystem::rebuild_mega_buffers(uint32_t total_particles, uint32_t emi
 
     // ── Write descriptors ──
 
-    VkDescriptorBufferInfo particle_info{mega_particle_buffer_->handle(), 0, mega_particle_buffer_->size()};
-    VkDescriptorBufferInfo counter_info{mega_counter_buffer_->handle(), 0, mega_counter_buffer_->size()};
-    VkDescriptorBufferInfo dead_list_info{mega_dead_list_buffer_->handle(), 0, mega_dead_list_buffer_->size()};
+    // VK_WHOLE_SIZE rather than capacity(): these are sparse buffers whose
+    // handle is permanent but whose committed capacity grows over time —
+    // pinning the range to today's capacity would need rewriting the
+    // descriptor on every growth, exactly what sparse binding exists to
+    // avoid. VK_WHOLE_SIZE tracks the buffer's own size automatically.
+    VkDescriptorBufferInfo particle_info{mega_particle_buffer_->handle(), 0, VK_WHOLE_SIZE};
+    VkDescriptorBufferInfo counter_info{mega_counter_buffer_->handle(), 0, VK_WHOLE_SIZE};
+    VkDescriptorBufferInfo dead_list_info{mega_dead_list_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo emitter_info{emitter_data_buffer_->handle(), 0, emitter_data_buffer_->size()};
-    VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, mega_indirect_buffer_->size()};
+    VkDescriptorBufferInfo indirect_info{mega_indirect_buffer_->handle(), 0, VK_WHOLE_SIZE};
     VkDescriptorBufferInfo module_info{module_buffer_->handle(), 0, module_buffer_->size()};
     VkDescriptorBufferInfo sub_event_info{sub_event_buffer_->handle(), 0, sub_event_buffer_->size()};
     VkDescriptorBufferInfo sub_counter_info{sub_event_counter_buffer_->handle(), 0, sub_event_counter_buffer_->size()};
