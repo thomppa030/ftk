@@ -199,6 +199,12 @@ public:
   /// Rebuild the DDGI atlases for a changed probe count. Shares the
   /// toggle's post-fence call site, since both destroy live images.
   void apply_pending_ddgi_probe_count();
+  /// Fire the armed settle rebuild once the grid has stopped refitting.
+  void apply_ddgi_settle_rebuild();
+  /// Destroy and recreate the default viewport's DDGI images and force a
+  /// grid re-fit. Assumes the caller is at a point where waiting the
+  /// device idle is acceptable.
+  void rebuild_ddgi_resources();
   [[nodiscard]] TonemapPass &tonemap_pass() { return passes_.get<TonemapPass>("tonemap"); }
   [[nodiscard]] LightVizPass &light_heatmap_pass() { return passes_.get<LightVizPass>("light_heatmap"); }
   [[nodiscard]] LightVizPass &light_grid_pass() { return passes_.get<LightVizPass>("light_grid"); }
@@ -408,6 +414,22 @@ private:
   /// Deferred for the same reason as the enable toggle: the images are in
   /// use by frames still in flight when the setting changes.
   bool has_pending_ddgi_probe_count_{false};
+  /// One-time DDGI rebuild after the scene has settled. The pass's images
+  /// are created during renderer construction, before the project opens
+  /// and its content streams in, and a grid built against that early
+  /// state has been observed to misrender until rebuilt by hand once the
+  /// scene is resident — the root cause is not yet isolated. Armed when
+  /// the project's settings are first applied; fired once the probe grid
+  /// has stopped refitting, since refits track content arriving and their
+  /// silence is the renderer-local signal that bounds have settled.
+  bool ddgi_settle_rebuild_armed_{false};
+  /// Frames of refit silence still required before the settle rebuild
+  /// fires. Reset by every grid refit.
+  int ddgi_settle_countdown_{0};
+  /// Whether a project's render settings have been applied yet — the
+  /// settle rebuild arms only on the first application, not on later
+  /// panel edits.
+  bool ddgi_settings_seen_{false};
   bool ddgi_grid_initialized_{false};
   /// The DDGI backend the project asked for, before any downgrade for a
   /// device that cannot ray trace. Saving the downgraded value instead

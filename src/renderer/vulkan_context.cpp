@@ -198,6 +198,11 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
         // resize or GI toggle happened to run.
         has_pending_ddgi_probe_count_ = true;
     }
+    if (!ddgi_settings_seen_) {
+        ddgi_settings_seen_ = true;
+        ddgi_settle_rebuild_armed_ = true;
+        ddgi_settle_countdown_ = 30;
+    }
 
     ss_gi_pass().config().enabled        = s.ss_gi.enabled;
     ss_gi_pass().config().intensity      = s.ss_gi.intensity;
@@ -1410,6 +1415,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
     // GPU is now done with this frame slot — safe to destroy/resize resources.
     apply_pending_ddgi_toggle();
     apply_pending_ddgi_probe_count();
+    apply_ddgi_settle_rebuild();
 
     // Destroy resources retired the last time this slot recorded, and point
     // new retirements at this slot.
@@ -1593,6 +1599,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
             if (!ddgi_grid_initialized_) {
                 ddgi_pass().refit_grid(padded_min, spacing);
+                ddgi_settle_countdown_ = 30;
                 ddgi_grid_initialized_ = true;
                 ddgi_grid_min_ = padded_min;
                 ddgi_grid_max_ = padded_min + glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1)) * spacing;
@@ -1607,6 +1614,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                             || glm::any(glm::greaterThan(padded_max, ddgi_grid_max_ + margin));
                 if (escaped) {
                     ddgi_pass().refit_grid(padded_min, spacing);
+                    ddgi_settle_countdown_ = 30;
                     ddgi_grid_min_ = padded_min;
                     ddgi_grid_max_ = padded_min
                         + glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1)) * spacing;
@@ -1784,6 +1792,30 @@ void VulkanContext::apply_pending_ddgi_toggle() {
     default_pp_->resize(w, h);
 }
 
+void VulkanContext::rebuild_ddgi_resources() {
+    submit_and_present();
+    vkDeviceWaitIdle(gpu_.device());
+
+    // Destroy first: resize() early-outs when neither the probe count nor
+    // the screen size changed, and this rebuild must happen even then.
+    if (auto* imgs = default_pp_->ddgi()) {
+        imgs->invalidate_imgui_texture();
+        imgs->destroy(gpu_.device(), gpu_.allocator());
+    }
+
+    uint32_t w = 256, h = 256;
+    auto* tm = default_pp_->tonemap();
+    if (tm && tm->extent.width > 0) {
+        w = tm->extent.width;
+        h = tm->extent.height;
+    }
+    default_pp_->resize(w, h);
+
+    // The fresh atlases carry no lighting, so re-fit and re-seed the grid
+    // against the current scene rather than resuming the old fit.
+    ddgi_grid_initialized_ = false;
+}
+
 void VulkanContext::apply_pending_ddgi_probe_count() {
     if (!has_pending_ddgi_probe_count_) return;
     has_pending_ddgi_probe_count_ = false;
@@ -1794,16 +1826,32 @@ void VulkanContext::apply_pending_ddgi_probe_count() {
     if (default_pp_ == nullptr) return;
     if (!default_pp_->config().ddgi) return;
 
-    submit_and_present();
-    vkDeviceWaitIdle(gpu_.device());
+    rebuild_ddgi_resources();
+}
 
-    uint32_t w = 256, h = 256;
-    auto* tm = default_pp_->tonemap();
-    if (tm && tm->extent.width > 0) {
-        w = tm->extent.width;
-        h = tm->extent.height;
+void VulkanContext::apply_ddgi_settle_rebuild() {
+    if (!ddgi_settle_rebuild_armed_) return;
+    if (default_pp_ == nullptr) return;
+
+    // DDGI off: disarm instead of waiting. Enabling it later goes through
+    // the toggle path, which creates the images fresh against the loaded
+    // scene — the same effect this rebuild exists to produce.
+    if (!default_pp_->config().ddgi || !ddgi_pass().config().enabled) {
+        ddgi_settle_rebuild_armed_ = false;
+        return;
     }
-    default_pp_->resize(w, h);
+
+    // Wait until the grid has held still: every refit pushes the countdown
+    // back up, so reaching zero means content has stopped arriving and the
+    // scene is in the state a rebuild is known to fix.
+    if (ddgi_settle_countdown_ > 0) {
+        --ddgi_settle_countdown_;
+        return;
+    }
+
+    ddgi_settle_rebuild_armed_ = false;
+    FJELL_GFX_DEBUG("DDGI: post-load rebuild (grid quiet, scene settled)");
+    rebuild_ddgi_resources();
 }
 
 void VulkanContext::reload_pipeline() {
