@@ -145,6 +145,9 @@ public:
   // swapchain/offscreen recreation) and stays as whatever the engine
   // initialized with.
   void set_render_settings(const struct RenderSettings& s);
+  [[nodiscard]] DdgiBackend ddgi_requested_backend() const {
+      return ddgi_requested_backend_;
+  }
 
   /// Debug: isolate one lighting term as the final pixel color instead of
   /// the full composite (see DebugLightChannel in uniform_types.hpp).
@@ -399,6 +402,11 @@ private:
   bool has_pending_ddgi_toggle_{false};
   bool pending_ddgi_toggle_{false};
   bool ddgi_grid_initialized_{false};
+  /// The DDGI backend the project asked for, before any downgrade for a
+  /// device that cannot ray trace. Saving the downgraded value instead
+  /// would discard the user's choice the moment the project is opened on
+  /// such a device.
+  DdgiBackend ddgi_requested_backend_{DdgiBackend::ray_traced};
   // World bounds the DDGI grid currently covers. Compared against scene
   // bounds each frame to decide whether content has escaped it.
   glm::vec3 ddgi_grid_min_{0.0f};

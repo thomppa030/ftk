@@ -176,6 +176,9 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
                 && gpu_.ray_tracing_supported();
     ddgi_pass().set_backend(want_rt ? DdgiBackend::ray_traced
                                     : DdgiBackend::sdf_fallback);
+    ddgi_requested_backend_ = s.ddgi.backend == RenderSettings::Ddgi::Backend::RayTraced
+                                ? DdgiBackend::ray_traced
+                                : DdgiBackend::sdf_fallback;
 
     ss_gi_pass().config().enabled        = s.ss_gi.enabled;
     ss_gi_pass().config().intensity      = s.ss_gi.intensity;

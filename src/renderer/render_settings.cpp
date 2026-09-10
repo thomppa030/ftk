@@ -43,6 +43,7 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
             {"infinite_bounces_mult",  s.ddgi.infinite_bounces_mult},
             {"normal_bias",            s.ddgi.normal_bias},
             {"view_bias",              s.ddgi.view_bias},
+            {"backend",                static_cast<uint32_t>(s.ddgi.backend)},
         }},
         {"ss_gi", {
             {"enabled",         s.ss_gi.enabled},
@@ -83,6 +84,12 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
         s.ddgi.infinite_bounces_mult = d.value("infinite_bounces_mult", s.ddgi.infinite_bounces_mult);
         s.ddgi.normal_bias           = d.value("normal_bias",           s.ddgi.normal_bias);
         s.ddgi.view_bias             = d.value("view_bias",             s.ddgi.view_bias);
+        if (d.contains("backend")) {
+            uint32_t b = d.value("backend", static_cast<uint32_t>(s.ddgi.backend));
+            if (b <= static_cast<uint32_t>(RenderSettings::Ddgi::Backend::RayTraced)) {
+                s.ddgi.backend = static_cast<RenderSettings::Ddgi::Backend>(b);
+            }
+        }
     }
     if (j.contains("ss_gi")) {
         const auto& g = j["ss_gi"];
@@ -142,6 +149,14 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     out.ddgi.gi_intensity          = ddgi.gi_intensity;
     out.ddgi.emissive_gi_boost     = ddgi.emissive_gi_boost;
     out.ddgi.infinite_bounces_mult = ddgi.infinite_bounces_mult;
+    out.ddgi.normal_bias           = ddgi.normal_bias;
+    out.ddgi.view_bias             = ddgi.view_bias;
+    // Read back what was requested, not the live backend: an unsupported
+    // request degrades to SDF at runtime, and saving that would silently
+    // discard the setting on a device that can do it.
+    out.ddgi.backend = ctx.ddgi_requested_backend() == DdgiBackend::ray_traced
+                           ? RenderSettings::Ddgi::Backend::RayTraced
+                           : RenderSettings::Ddgi::Backend::SdfFallback;
 
     const auto& ssgi = ctx.ss_gi_pass().config();
     out.ss_gi.enabled        = ssgi.enabled;
