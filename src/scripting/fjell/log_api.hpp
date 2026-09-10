@@ -3,6 +3,7 @@
 
 #include "fjell/api.h"
 
+#include <cstdarg>
 #include <cstdio>
 
 extern "C" {
@@ -18,24 +19,38 @@ struct Log {
     static void warn(const char* msg) { fjell_log_warn(msg); }
     static void error(const char* msg) { fjell_log_error(msg); }
 
-    template <typename... Args>
-    static void info_f(const char* fmt, Args&&... args) {
-        char buf[256];
-        std::snprintf(buf, sizeof(buf), fmt, args...);
+    // One formatted line. Truncates rather than overflowing, and nothing
+    // allocates. Formatting happens here, on the caller's side, so only a
+    // finished string crosses the engine boundary.
+    static constexpr int kTextCapacity = 256;
+
+    FJELL_PRINTF_FMT(1, 2)
+    static void info_f(const char* fmt, ...) {
+        char buf[kTextCapacity];
+        va_list ap;
+        va_start(ap, fmt);
+        std::vsnprintf(buf, sizeof(buf), fmt, ap);
+        va_end(ap);
         fjell_log_info(buf);
     }
 
-    template <typename... Args>
-    static void warn_f(const char* fmt, Args&&... args) {
-        char buf[256];
-        std::snprintf(buf, sizeof(buf), fmt, args...);
+    FJELL_PRINTF_FMT(1, 2)
+    static void warn_f(const char* fmt, ...) {
+        char buf[kTextCapacity];
+        va_list ap;
+        va_start(ap, fmt);
+        std::vsnprintf(buf, sizeof(buf), fmt, ap);
+        va_end(ap);
         fjell_log_warn(buf);
     }
 
-    template <typename... Args>
-    static void error_f(const char* fmt, Args&&... args) {
-        char buf[256];
-        std::snprintf(buf, sizeof(buf), fmt, args...);
+    FJELL_PRINTF_FMT(1, 2)
+    static void error_f(const char* fmt, ...) {
+        char buf[kTextCapacity];
+        va_list ap;
+        va_start(ap, fmt);
+        std::vsnprintf(buf, sizeof(buf), fmt, ap);
+        va_end(ap);
         fjell_log_error(buf);
     }
 };
