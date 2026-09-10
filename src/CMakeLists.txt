@@ -31,6 +31,7 @@ add_executable(fjell
     renderer/gpu/vma_impl.cpp
     core/asset_id.cpp
     core/asset_database.cpp
+    core/asset_type_registry.cpp
     core/base_path.cpp
     core/clock.cpp
     core/game_builder.cpp
@@ -206,7 +207,6 @@ add_executable(fjell
     core/input_component_meta.cpp
     scripting/script_manager.cpp
     scripting/script_globals.cpp
-    scripting/asset_type_registry.cpp
     scripting/asset_type_registrations.cpp
     scripting/log_api.cpp
     scripting/material_api.cpp

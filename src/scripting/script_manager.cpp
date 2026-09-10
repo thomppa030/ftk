@@ -1,6 +1,6 @@
 #include "scripting/script_manager.hpp"
 #include "scripting/script_globals.hpp"
-#include "scripting/asset_type_registry.hpp"
+#include "core/asset_type_registry.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "scripting/fjell/component.hpp"
 #include "fjell/api.h"

@@ -2,7 +2,7 @@
 #include "core/log.hpp"
 #include "renderer/bindless.hpp"
 #include "scene/preset_asset.hpp"
-#include "scripting/asset_type_registry.hpp"
+#include "core/asset_type_registry.hpp"
 
 #include <nlohmann/json.hpp>
 

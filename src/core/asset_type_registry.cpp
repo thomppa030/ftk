@@ -1,4 +1,4 @@
-#include "scripting/asset_type_registry.hpp"
+#include "core/asset_type_registry.hpp"
 
 namespace fjell {
 

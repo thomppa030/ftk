@@ -1,4 +1,4 @@
-#include "scripting/asset_type_registry.hpp"
+#include "core/asset_type_registry.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "scene/preset_asset.hpp"
 #include "core/base_path.hpp"

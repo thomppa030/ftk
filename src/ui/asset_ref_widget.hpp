@@ -1,7 +1,7 @@
 #pragma once
 
 #include "scene/component_meta.hpp"
-#include "scripting/asset_type_registry.hpp"
+#include "core/asset_type_registry.hpp"
 
 #include <span>
 #include <string>

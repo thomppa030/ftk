@@ -12,7 +12,7 @@
 #include "core/project_manager.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/material.hpp"
-#include "scripting/asset_type_registry.hpp"
+#include "core/asset_type_registry.hpp"
 
 #include <glm/gtc/quaternion.hpp>
 #include <imgui.h>
