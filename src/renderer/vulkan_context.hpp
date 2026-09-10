@@ -231,7 +231,23 @@ public:
   void set_show_sdf_debug(bool show) { show_sdf_debug_ = show; }
   [[nodiscard]] bool show_sdf_debug() const { return show_sdf_debug_; }
   void draw_sdf_debug_window();
-  void set_playing(bool playing) { playing_ = playing; }
+  void set_playing(bool playing) {
+      // Entering or leaving play replaces the scene (snapshot restore,
+      // script re-instantiation), which rebuilds the SDF and acceleration
+      // structures the probes trace against — the same transition that
+      // breaks DDGI at startup until the atlases are rebuilt against the
+      // settled scene. Same cure at every occurrence.
+      if (playing_ != playing) request_ddgi_settle_rebuild();
+      playing_ = playing;
+  }
+
+  /// Arm the one-shot DDGI rebuild that fires once the probe grid has
+  /// stopped refitting. Call after anything that replaces scene content
+  /// wholesale (project open, scene load, play transitions).
+  void request_ddgi_settle_rebuild() {
+      ddgi_settle_rebuild_armed_ = true;
+      ddgi_settle_countdown_ = 30;
+  }
   [[nodiscard]] bool is_playing() const { return playing_; }
 
   /// Initialize a GameUi instance using renderer resources.

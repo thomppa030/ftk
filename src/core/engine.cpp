@@ -1112,6 +1112,9 @@ void Engine::load_scene(const std::string& path) {
     scene_context_->set_selected_id(0);
     scene_context_->command_history().clear();
     vulkan_context_->sync_custom_depth_pipelines();
+    // The scene was replaced wholesale, so the DDGI atlases need the same
+    // rebuild-once-settled treatment as a project open or play transition.
+    vulkan_context_->request_ddgi_settle_rebuild();
     load_input_actions();
 }
 

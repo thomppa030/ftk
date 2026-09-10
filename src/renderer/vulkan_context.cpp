@@ -200,8 +200,7 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     }
     if (!ddgi_settings_seen_) {
         ddgi_settings_seen_ = true;
-        ddgi_settle_rebuild_armed_ = true;
-        ddgi_settle_countdown_ = 30;
+        request_ddgi_settle_rebuild();
     }
 
     ss_gi_pass().config().enabled        = s.ss_gi.enabled;
