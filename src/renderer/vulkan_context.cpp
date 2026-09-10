@@ -1580,10 +1580,19 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             viewports[0].target->screen_color_view(), tonemap_pass().output_sampler(),
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
-        // GI indirect: DDGI handles sun bounce indirect
+        // GI indirect: DDGI handles sun bounce indirect.
+        //
+        // The enabled check matters as much as the null check. A disabled
+        // pass stops writing but its image keeps whatever it last produced,
+        // and binding that composites a frozen frame of indirect light over
+        // everything — a ghost that follows the camera because it is screen
+        // space. Falling back to the black fallback image is what actually
+        // turns the contribution off.
         VkImageView gi_view = gpu_.gi_fallback_view();
         auto* ddgi_imgs = default_pp_->ddgi();
-        if (ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE && !ddgi_imgs->images_need_init) {
+        if (ddgi_pass().config().enabled
+            && ddgi_imgs && ddgi_imgs->indirect_view != VK_NULL_HANDLE
+            && !ddgi_imgs->images_need_init) {
             gi_view = ddgi_imgs->indirect_view;
         }
         gb.write_image(current_frame_, "gi_indirect",
@@ -1593,7 +1602,10 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
         // SS-GI emissive: screen-space emissive color bleeding (supplements DDGI)
         VkImageView ss_gi_view = gpu_.gi_fallback_view();
         auto* ss_gi_imgs = default_pp_->ss_gi();
-        if (ss_gi_imgs && ss_gi_imgs->indirect_view != VK_NULL_HANDLE && !ss_gi_imgs->first_frame) {
+        // Same ghost as DDGI above: a disabled pass keeps its last output.
+        if (ss_gi_pass().config().enabled
+            && ss_gi_imgs && ss_gi_imgs->indirect_view != VK_NULL_HANDLE
+            && !ss_gi_imgs->first_frame) {
             ss_gi_view = ss_gi_imgs->indirect_view;
         }
         gb.write_image(current_frame_, "ss_gi_emissive",
