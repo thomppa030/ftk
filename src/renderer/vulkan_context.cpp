@@ -1,4 +1,5 @@
 #include "renderer/vulkan_context.hpp"
+
 #include "renderer/fjgraph_parser.hpp"
 #include "renderer/pass_setup.hpp"
 #include "renderer/render_settings.hpp"
@@ -33,6 +34,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
@@ -724,6 +726,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         for (const auto& obj : scene->objects()) {
             if (const auto* env = dynamic_cast<const WorldEnvironmentNode*>(obj.get())) {
                 ibl_intensity_ = env->ibl_intensity;
+                sky_wants_hdri_ = !env->hdri_path.empty();
                 break;
             }
         }
@@ -1832,6 +1835,7 @@ void VulkanContext::apply_ddgi_settle_rebuild() {
     if (!ddgi_settle_rebuild_armed_) return;
     if (default_pp_ == nullptr) return;
 
+
     // DDGI off: disarm instead of waiting. Enabling it later goes through
     // the toggle path, which creates the images fresh against the loaded
     // scene — the same effect this rebuild exists to produce.
@@ -1840,16 +1844,43 @@ void VulkanContext::apply_ddgi_settle_rebuild() {
         return;
     }
 
+    // The gates below describe a scene settling, but each can stall on a
+    // scene it does not model. Past the deadline, rebuild regardless: a late
+    // rebuild costs one device wait, while never rebuilding leaves the
+    // misrender this mechanism exists to clear.
+    if (ddgi_settle_deadline_ == std::chrono::steady_clock::time_point{}) {
+        ddgi_settle_deadline_ = std::chrono::steady_clock::now()
+                              + std::chrono::milliseconds(DDGI_SETTLE_DEADLINE_MS);
+    }
+    const bool past_deadline = std::chrono::steady_clock::now() >= ddgi_settle_deadline_;
+
     // Wait until the grid has held still: every refit pushes the countdown
     // back up, so reaching zero means content has stopped arriving and the
     // scene is in the state a rebuild is known to fix.
-    if (ddgi_settle_countdown_ > 0) {
+    if (!past_deadline && ddgi_settle_countdown_ > 0) {
         --ddgi_settle_countdown_;
         return;
     }
 
+    // Refit silence is necessary but not sufficient: it only says the grid
+    // stopped moving. Probes trace the scene SDF and integrate the sky, and
+    // both are built after the first frames — rebuilding before they exist
+    // seeds every probe from a placeholder and reproduces the misrender this
+    // rebuild is here to clear. Gate on those two inputs directly.
+    if (!past_deadline && scene_sdf_pass().view() == VK_NULL_HANDLE) {
+        return;
+    }
+
+    // cubemap_view() falls back to the procedural sky, so a non-null view is
+    // not proof the final sky is resident. Only wait when the scene actually
+    // asks for an HDRI — otherwise the procedural sky IS the final one.
+    if (!past_deadline && sky_wants_hdri_ && !sky_cubemap_pass().has_hdri()) {
+        return;
+    }
+
     ddgi_settle_rebuild_armed_ = false;
-    FJELL_GFX_DEBUG("DDGI: post-load rebuild (grid quiet, scene settled)");
+    FJELL_GFX_DEBUG("DDGI: post-load rebuild ({})",
+                    past_deadline ? "deadline reached" : "SDF + sky ready");
     rebuild_ddgi_resources();
 }
 

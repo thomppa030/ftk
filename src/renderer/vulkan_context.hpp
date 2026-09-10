@@ -55,6 +55,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -247,6 +248,11 @@ public:
   void request_ddgi_settle_rebuild() {
       ddgi_settle_rebuild_armed_ = true;
       ddgi_settle_countdown_ = 30;
+      // Deadline is set on the first frame after arming, not here: arming
+      // happens during project/scene load, which is synchronous and can run
+      // for seconds before a frame is ever recorded. Started here, the
+      // deadline would already be past by the time the gates first run.
+      ddgi_settle_deadline_ = {};
   }
   [[nodiscard]] bool is_playing() const { return playing_; }
 
@@ -442,6 +448,18 @@ private:
   /// Frames of refit silence still required before the settle rebuild
   /// fires. Reset by every grid refit.
   int ddgi_settle_countdown_{0};
+  /// Whether the scene's WorldEnvironment asks for an HDRI. A scene without
+  /// one is served by the procedural sky, which is ready immediately — so
+  /// the settle rebuild must not wait for a cubemap that will never arrive.
+  bool sky_wants_hdri_{false};
+  /// Upper bound on how long the settle rebuild may wait for its gates.
+  /// The gates describe the scene reaching a steady state, but each can
+  /// stall indefinitely on a scene they do not model (bounds that never
+  /// hold still, or never become valid at all), and a rebuild that never
+  /// runs is the failure this whole mechanism exists to prevent. Firing
+  /// late costs one rebuild; not firing costs a misrendered scene.
+  static constexpr int DDGI_SETTLE_DEADLINE_MS = 1000;
+  std::chrono::steady_clock::time_point ddgi_settle_deadline_{};
   /// Whether a project's render settings have been applied yet — the
   /// settle rebuild arms only on the first application, not on later
   /// panel edits.
