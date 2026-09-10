@@ -192,6 +192,28 @@ bool rewrite_authored_data(const std::string& path, const MeshAuthoredData& auth
     return true;
 }
 
+std::string find_import_source(const std::string& fjmesh_path) {
+    namespace fs = std::filesystem;
+
+    auto authored = read_authored_data(fjmesh_path);
+    if (authored.source_file.empty()) return {};
+
+    fs::path dir = fs::path(fjmesh_path).parent_path();
+    std::error_code ec;
+
+    // The recorded path is relative to the .fjmesh, so this resolves it
+    // exactly wherever the pair has been moved to together.
+    auto candidate = fs::weakly_canonical(dir / authored.source_file, ec);
+    if (!ec && fs::exists(candidate, ec)) return candidate.string();
+
+    // A mesh imported from an unrelated tree stores only a filename; a source
+    // sitting beside it is then the best that can be inferred.
+    auto beside = dir / fs::path(authored.source_file).filename();
+    if (fs::exists(beside, ec)) return beside.string();
+
+    return {};
+}
+
 void merge_authored_data(MeshAuthoredData& fresh, const MeshAuthoredData& previous) {
     if (previous.empty()) {
         return;

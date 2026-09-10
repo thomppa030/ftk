@@ -1428,11 +1428,24 @@ static void export_materials(const aiScene* scene,
 // reimport can match assignments even if the exporter reorders slots.
 static fjell::MeshAuthoredData build_authored_data(
         const aiScene* scene, const std::string& input_path,
+        const std::string& output_path,
         const std::unordered_map<unsigned int, std::string>& slot_assets) {
     namespace fs = std::filesystem;
     fjell::MeshAuthoredData authored;
 
-    authored.source_file = fs::path(input_path).filename().generic_string();
+    // Store the path relative to the .fjmesh so a reimport finds the source
+    // wherever the pair is moved to together. A source on an unrelated tree
+    // produces a long climb out of the project, which would break as soon as
+    // either side moved — record just the filename in that case and let the
+    // lookup fall back to a search beside the mesh.
+    std::error_code rel_ec;
+    auto rel = fs::relative(fs::absolute(input_path),
+                            fs::absolute(fs::path(output_path).parent_path()), rel_ec);
+    bool escapes_tree = rel.empty() ||
+        rel.generic_string().starts_with("../../..");
+    authored.source_file = (!rel_ec && !escapes_tree)
+        ? rel.generic_string()
+        : fs::path(input_path).filename().generic_string();
 
     // file_time_type's epoch is unspecified, so convert to the system clock
     // before recording seconds — the value is compared against source files
@@ -1660,7 +1673,7 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        auto authored = build_authored_data(scene, input_path, slot_assets);
+        auto authored = build_authored_data(scene, input_path, output_path, slot_assets);
         merge_authored_data(authored, fjell::read_authored_data(output_path));
         build_collision_geometry(result, authored, progress);
 

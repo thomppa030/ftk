@@ -6,6 +6,7 @@
 #include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,10 @@ struct MeshEditorDeps {
     Clock* clock;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
+
+    /// Opens the import dialog for a source file. Lets the editor offer a
+    /// reimport without owning the dialog.
+    std::function<void(const std::string& source_path)> import_model;
 };
 
 class MeshEditorContext final : public EditorContext {

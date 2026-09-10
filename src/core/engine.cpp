@@ -549,7 +549,10 @@ void Engine::init_editor() {
                 .input = &input_,
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
-                .icon_cache = icon_cache_.get()
+                .icon_cache = icon_cache_.get(),
+                .import_model = [this](const std::string& source) {
+                    content_browser_.on_import_model.broadcast(source);
+                }
             };
             auto ctx = std::make_unique<MeshEditorContext>(deps);
             ctx->init();

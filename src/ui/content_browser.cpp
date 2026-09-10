@@ -1,4 +1,5 @@
 #include "ui/content_browser.hpp"
+#include "renderer/resources/fjmesh_writer.hpp"
 #include "ui/asset_templates.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/icons_lc.hpp"
@@ -690,11 +691,27 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::model:
-                    if (entry.path.extension() == ".fjmesh" &&
-                        ImGui::MenuItem("Open in Mesh Editor")) {
-                        auto rel = std::filesystem::relative(entry.path, root_);
-                        on_open_asset.broadcast(rel.string(), "mesh");
-                        ImGui::CloseCurrentPopup();
+                    if (entry.path.extension() == ".fjmesh") {
+                        if (ImGui::MenuItem("Open in Mesh Editor")) {
+                            auto rel = std::filesystem::relative(entry.path, root_);
+                            on_open_asset.broadcast(rel.string(), "mesh");
+                            ImGui::CloseCurrentPopup();
+                        }
+                        // Only meshes that recorded where they came from can be
+                        // rebuilt from their source.
+                        auto source = find_import_source(entry.path.string());
+                        if (ImGui::MenuItem("Reimport", nullptr, false, !source.empty())) {
+                            on_import_model.broadcast(source);
+                            ImGui::CloseCurrentPopup();
+                        }
+                        // A disabled MenuItem isn't "hovered" unless asked for
+                        // explicitly, and the disabled case is the one that
+                        // needs explaining.
+                        if (source.empty() &&
+                            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                            ImGui::SetTooltip("No source file recorded — import it again "
+                                              "from the original to enable this");
+                        }
                     }
                     if (ImGui::MenuItem("Add to Scene")) {
                         auto rel = std::filesystem::relative(entry.path, root_);

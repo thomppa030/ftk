@@ -370,6 +370,24 @@ void MeshEditorContext::draw_info_panel() {
         }
 
         ImGui::TextDisabled("%s", fjmesh_path_.c_str());
+
+        if (!authored_.source_file.empty()) {
+            ImGui::TextDisabled("Imported from %s", authored_.source_file.c_str());
+
+            auto source = find_import_source(fjmesh_abs_path_);
+            ImGui::BeginDisabled(source.empty() || !deps_.import_model);
+            if (ImGui::Button("Reimport")) {
+                deps_.import_model(source);
+            }
+            ImGui::EndDisabled();
+            // The button is disabled in exactly this case, and a disabled
+            // widget needs the flag to report hover at all.
+            if (source.empty() &&
+                ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Source file not found next to the mesh");
+            }
+        }
+
         ImGui::Separator();
 
         // Geometry counts. total_indices() covers every LOD, so triangles are

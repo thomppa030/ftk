@@ -43,6 +43,12 @@ void write_authored_sections(std::FILE* f, const FjMeshHeader& header,
 [[nodiscard]] bool rewrite_authored_data(const std::string& path,
                                          const MeshAuthoredData& authored);
 
+// Locates the source file a .fjmesh was imported from, using the provenance
+// recorded at import time. The path is stored relative to the mesh, so moving
+// the two together keeps it resolvable. Returns an empty path when the mesh
+// has no provenance (any file older than v5) or the source is gone.
+[[nodiscard]] std::string find_import_source(const std::string& fjmesh_path);
+
 // Carries authored settings from a previous import onto a fresh one.
 // Material slots are matched by source material name rather than index, so
 // assignments survive a DCC reordering or inserting materials. `fresh` supplies
