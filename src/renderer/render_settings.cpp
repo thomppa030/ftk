@@ -44,6 +44,7 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
             {"normal_bias",            s.ddgi.normal_bias},
             {"view_bias",              s.ddgi.view_bias},
             {"backend",                static_cast<uint32_t>(s.ddgi.backend)},
+            {"probe_count",            s.ddgi.probe_count},
         }},
         {"ss_gi", {
             {"enabled",         s.ss_gi.enabled},
@@ -84,6 +85,7 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
         s.ddgi.infinite_bounces_mult = d.value("infinite_bounces_mult", s.ddgi.infinite_bounces_mult);
         s.ddgi.normal_bias           = d.value("normal_bias",           s.ddgi.normal_bias);
         s.ddgi.view_bias             = d.value("view_bias",             s.ddgi.view_bias);
+        s.ddgi.probe_count           = d.value("probe_count",           s.ddgi.probe_count);
         if (d.contains("backend")) {
             uint32_t b = d.value("backend", static_cast<uint32_t>(s.ddgi.backend));
             if (b <= static_cast<uint32_t>(RenderSettings::Ddgi::Backend::RayTraced)) {
@@ -151,6 +153,8 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     out.ddgi.infinite_bounces_mult = ddgi.infinite_bounces_mult;
     out.ddgi.normal_bias           = ddgi.normal_bias;
     out.ddgi.view_bias             = ddgi.view_bias;
+    // The pass stores a cubic grid, so any axis carries the count.
+    out.ddgi.probe_count           = ddgi.probe_counts.x;
     // Read back what was requested, not the live backend: an unsupported
     // request degrades to SDF at runtime, and saving that would silently
     // discard the setting on a device that can do it.

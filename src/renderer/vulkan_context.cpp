@@ -179,6 +179,25 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     ddgi_requested_backend_ = s.ddgi.backend == RenderSettings::Ddgi::Backend::RayTraced
                                 ? DdgiBackend::ray_traced
                                 : DdgiBackend::sdf_fallback;
+    // Changing this resizes every probe atlas, which Images::resize()
+    // detects and rebuilds. Clamped because the cost is cubic and the
+    // atlases have to stay within the device's 2D image limits.
+    int pc = std::clamp(s.ddgi.probe_count, 4, 48);
+    // Compared as a whole vector, not per axis: the grid is cubic by
+    // definition here, so a config whose axes disagree with each other is
+    // just as stale as one with the wrong count.
+    glm::ivec3 wanted_counts(pc);
+    if (ddgi_pass().config().probe_counts != wanted_counts) {
+        ddgi_pass().config().probe_counts = wanted_counts;
+        // The grid is re-divided, so the current fit no longer describes
+        // it. Force the next bounds check to re-fit and discard.
+        ddgi_grid_initialized_ = false;
+        // Writing the config does not touch the atlases — only a resize
+        // rebuilds them, and nothing calls one on a normal frame. Without
+        // this the new count would sit inert until an unrelated viewport
+        // resize or GI toggle happened to run.
+        has_pending_ddgi_probe_count_ = true;
+    }
 
     ss_gi_pass().config().enabled        = s.ss_gi.enabled;
     ss_gi_pass().config().intensity      = s.ss_gi.intensity;
@@ -1390,6 +1409,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
 
     // GPU is now done with this frame slot — safe to destroy/resize resources.
     apply_pending_ddgi_toggle();
+    apply_pending_ddgi_probe_count();
 
     // Destroy resources retired the last time this slot recorded, and point
     // new retirements at this slot.
@@ -1761,6 +1781,28 @@ void VulkanContext::apply_pending_ddgi_toggle() {
     }
 
     // Resize triggers create/destroy of DDGI images based on updated config
+    default_pp_->resize(w, h);
+}
+
+void VulkanContext::apply_pending_ddgi_probe_count() {
+    if (!has_pending_ddgi_probe_count_) return;
+    has_pending_ddgi_probe_count_ = false;
+
+    // Only the default viewport is rebuilt here. Offscreen viewports own
+    // their own PostProcessResources and pick the new count up through
+    // SceneViewport::resize().
+    if (default_pp_ == nullptr) return;
+    if (!default_pp_->config().ddgi) return;
+
+    submit_and_present();
+    vkDeviceWaitIdle(gpu_.device());
+
+    uint32_t w = 256, h = 256;
+    auto* tm = default_pp_->tonemap();
+    if (tm && tm->extent.width > 0) {
+        w = tm->extent.width;
+        h = tm->extent.height;
+    }
     default_pp_->resize(w, h);
 }
 

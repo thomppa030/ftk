@@ -196,6 +196,9 @@ public:
   [[nodiscard]] LocalShadowPass &local_shadow_pass() { return passes_.get<LocalShadowPass>("local_shadows"); }
   void set_ddgi_enabled(bool enabled) { pending_ddgi_toggle_ = enabled; has_pending_ddgi_toggle_ = true; }
   void apply_pending_ddgi_toggle();
+  /// Rebuild the DDGI atlases for a changed probe count. Shares the
+  /// toggle's post-fence call site, since both destroy live images.
+  void apply_pending_ddgi_probe_count();
   [[nodiscard]] TonemapPass &tonemap_pass() { return passes_.get<TonemapPass>("tonemap"); }
   [[nodiscard]] LightVizPass &light_heatmap_pass() { return passes_.get<LightVizPass>("light_heatmap"); }
   [[nodiscard]] LightVizPass &light_grid_pass() { return passes_.get<LightVizPass>("light_grid"); }
@@ -401,6 +404,10 @@ private:
   bool playing_{false};
   bool has_pending_ddgi_toggle_{false};
   bool pending_ddgi_toggle_{false};
+  /// A probe-count change waiting for a safe point to rebuild the atlases.
+  /// Deferred for the same reason as the enable toggle: the images are in
+  /// use by frames still in flight when the setting changes.
+  bool has_pending_ddgi_probe_count_{false};
   bool ddgi_grid_initialized_{false};
   /// The DDGI backend the project asked for, before any downgrade for a
   /// device that cannot ray trace. Saving the downgraded value instead

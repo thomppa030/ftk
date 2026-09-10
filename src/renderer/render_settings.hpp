@@ -34,6 +34,14 @@ struct RenderSettings {
         /// runtime when the device lacks it.
         enum class Backend : uint8_t { SdfFallback = 0, RayTraced = 1 };
         Backend backend{Backend::RayTraced};
+        /// Probes along each axis — the grid is a cube of this many.
+        ///
+        /// Cell size is not set directly: the grid fits itself to scene
+        /// bounds, so spacing is extent / (count - 1) per axis and raising
+        /// this is what makes cells smaller. Cost is the cube of it, and
+        /// every probe atlas is resized when it changes, discarding
+        /// accumulated irradiance.
+        int probe_count{16};
     } ddgi;
 
     struct SsGi {

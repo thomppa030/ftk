@@ -83,6 +83,20 @@ void ProjectSettingsPanel::draw_render_section() {
                     ImGui::SetTooltip("VK_KHR_ray_tracing_pipeline not supported on this GPU");
                 }
             }
+            if (ImGui::SliderInt("Probe Count##ddgi", &s.ddgi.probe_count, 4, 48)) { dirty = true; }
+            ImGui::SameLine(0, 10); ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Probes along each axis, cubed. The grid fits scene\n"
+                                  "bounds, so more probes means smaller cells. Cost is\n"
+                                  "cubic, and changing it rebuilds the probe atlases\n"
+                                  "and discards accumulated lighting.");
+            }
+            {
+                const auto& cfg = vk_->ddgi_pass().config();
+                ImGui::TextDisabled("  %d probes, cell %.2fm",
+                                    cfg.probe_counts.x * cfg.probe_counts.y * cfg.probe_counts.z,
+                                    cfg.probe_spacing.x);
+            }
             if (ImGui::SliderFloat("GI Intensity##ddgi", &s.ddgi.gi_intensity, 0.0f, 2.0f)) { dirty = true; }
             if (ImGui::SliderFloat("Emissive Boost##ddgi", &s.ddgi.emissive_gi_boost, 1.0f, 30.0f)) { dirty = true; }
             if (ImGui::SliderFloat("Infinite Bounces##ddgi", &s.ddgi.infinite_bounces_mult, 0.0f, 3.0f)) { dirty = true; }
