@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "physics/collision_shape.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -60,25 +61,27 @@ void MeshEditorContext::draw(float dt) {
     preview_scene_.compute_world_matrices(nullptr);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_slots_panel();
+    draw_collision_panel();
     draw_info_panel();
     draw_shared_panels(dt);
 }
 
 std::vector<std::string> MeshEditorContext::docked_window_names() const {
     return {ctx_title("Mesh Preview"), ctx_title("Material Slots"),
-            ctx_title("Mesh Info"), ctx_title("Stats"), ctx_title("Console")};
+            ctx_title("Collision"), ctx_title("Mesh Info"),
+            ctx_title("Stats"), ctx_title("Console")};
 }
 
 void MeshEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Preview, Slots, Info, Stats, Console };
+    enum class EPanel { Preview, Slots, Collision, Info, Stats, Console };
     using N = DockNode;
     static const auto layout = N::horizontal_split(0.72f,
         N::vertical_split(0.75f,
             N::leaf({EPanel::Preview}),
             N::leaf({EPanel::Stats, EPanel::Console})),
-        N::vertical_split(0.55f,
+        N::vertical_split(0.5f,
             N::leaf({EPanel::Slots}),
-            N::leaf({EPanel::Info})));
+            N::leaf({EPanel::Collision, EPanel::Info})));
     build_dockspace(main_area, layout, docked_window_names());
 }
 
@@ -256,6 +259,108 @@ bool MeshEditorContext::save() {
     return true;
 }
 
+void MeshEditorContext::draw_collision_panel() {
+    if (ImGui::Begin(ctx_title("Collision").c_str())) {
+        if (!model_) {
+            ImGui::TextDisabled("No mesh loaded");
+            ImGui::End();
+            return;
+        }
+
+        struct SourceOption {
+            FjMeshCollisionSource value;
+            const char* label;
+            const char* help;
+        };
+        static constexpr SourceOption OPTIONS[] = {
+            {FjMeshCollisionSource::render_mesh, "Render mesh",
+             "Collide against the visible geometry. Static bodies only."},
+            {FjMeshCollisionSource::convex_hull, "Convex hull",
+             "Hull of the visible geometry. The only source that works on a "
+             "moving body."},
+            {FjMeshCollisionSource::simplified, "Simplified mesh",
+             "Decimated triangle mesh. Static bodies only."},
+            {FjMeshCollisionSource::custom_mesh, "Custom mesh",
+             "Collide against a separate .fjmesh authored as a proxy."},
+        };
+
+        const char* current = "Render mesh";
+        for (const auto& opt : OPTIONS) {
+            if (opt.value == authored_.collision_source) current = opt.label;
+        }
+
+        if (ImGui::BeginCombo("Source", current)) {
+            for (const auto& opt : OPTIONS) {
+                bool selected = opt.value == authored_.collision_source;
+                if (ImGui::Selectable(opt.label, selected)) {
+                    authored_.collision_source = opt.value;
+                    dirty_ = true;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", opt.help);
+            }
+            ImGui::EndCombo();
+        }
+
+        for (const auto& opt : OPTIONS) {
+            if (opt.value == authored_.collision_source) {
+                ImGui::TextWrapped("%s", opt.help);
+            }
+        }
+
+        ImGui::Separator();
+
+        if (authored_.collision_source == FjMeshCollisionSource::simplified) {
+            if (ImGui::SliderFloat("Detail", &authored_.collision_simplify_ratio,
+                                   0.01F, 1.0F, "%.2f")) {
+                dirty_ = true;
+            }
+            ImGui::TextDisabled("Fraction of the original triangles to keep.");
+        }
+
+        if (authored_.collision_source == FjMeshCollisionSource::custom_mesh) {
+            ImGui::Text("Proxy: %s", authored_.collision_mesh.empty()
+                        ? "(none)" : authored_.collision_mesh.c_str());
+            ImGui::InvisibleButton("##proxy_drop", {-1.0F, ImGui::GetFrameHeight()});
+            if (ImGui::BeginDragDropTarget()) {
+                if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                    std::string dropped(static_cast<const char*>(payload->Data));
+                    if (std::filesystem::path(dropped).extension() == ".fjmesh") {
+                        authored_.collision_mesh = dropped;
+                        dirty_ = true;
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Drop a .fjmesh here to use as the collision proxy");
+            }
+            if (!authored_.collision_mesh.empty() && ImGui::SmallButton("Clear")) {
+                authored_.collision_mesh.clear();
+                dirty_ = true;
+            }
+        }
+
+        ImGui::SeparatorText("Current geometry");
+
+        // What is in the file right now, which only matches the source above
+        // after a reimport regenerates it.
+        auto collision = collision_mesh_of(*model_);
+        if (ImGui::BeginTable("collision", 2, ImGuiTableFlags_SizingStretchProp)) {
+            info_row("Vertices", group_digits(model_->collision_vertices().size()));
+            info_row("Triangles", group_digits(collision.triangle_count()));
+            info_row("Supports dynamic", collision.supports_dynamic() ? "yes" : "no");
+            ImGui::EndTable();
+        }
+
+        if (authored_.collision_source != model_->collision_source()) {
+            ImGui::TextWrapped(
+                "The geometry in the file was built for a different source. "
+                "Save, then reimport the mesh to regenerate it.");
+        }
+    }
+    ImGui::End();
+}
+
 void MeshEditorContext::draw_info_panel() {
     if (ImGui::Begin(ctx_title("Mesh Info").c_str())) {
         if (!model_) {
@@ -273,8 +378,6 @@ void MeshEditorContext::draw_info_panel() {
             info_row("Submeshes", group_digits(model_->mega_entry_count()));
             info_row("Meshlets", group_digits(model_->total_meshlet_count()));
             info_row("Indices", group_digits(model_->total_indices()));
-            info_row("Collision verts", group_digits(model_->collision_vertices().size()));
-            info_row("Collision tris", group_digits(model_->collision_indices().size() / 3));
             ImGui::EndTable();
         }
 

@@ -58,6 +58,7 @@ public:
 
 private:
     void draw_slots_panel();
+    void draw_collision_panel();
     void draw_info_panel();
     void setup_preview_scene();
     void frame_camera();
