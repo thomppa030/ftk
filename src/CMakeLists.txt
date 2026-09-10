@@ -195,6 +195,7 @@ add_executable(fjell
     physics/rigidbody_component_meta.cpp
     physics/collider_component_meta.cpp
     physics/character_component_meta.cpp
+    physics/collision_shape.cpp
     physics/physics_world.cpp
     scene/scene.cpp
     scene/node_serializer.cpp

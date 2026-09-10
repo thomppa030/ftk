@@ -83,11 +83,17 @@ public:
     }
     [[nodiscard]] uint32_t total_indices() const;
 
+    // Raw collision geometry as stored in the file. Prefer
+    // collision_mesh_of() in physics/collision_shape.hpp — it carries the
+    // source alongside the geometry, which is what callers actually need.
     [[nodiscard]] const std::vector<glm::vec3>& collision_vertices() const {
         return collision_vertices_;
     }
     [[nodiscard]] const std::vector<uint32_t>& collision_indices() const {
         return collision_indices_;
+    }
+    [[nodiscard]] FjMeshCollisionSource collision_source() const {
+        return authored_.collision_source;
     }
 
     [[nodiscard]] const AABB& local_aabb() const { return local_aabb_; }

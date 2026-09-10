@@ -1,4 +1,5 @@
 #include "physics/physics_world.hpp"
+#include "physics/collision_shape.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "renderer/components/mesh_component.hpp"
@@ -18,6 +19,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -401,8 +403,19 @@ void PhysicsWorld::create_bodies(Scene& scene) {
         // Create shape, scaling by object's scale
         JPH::ShapeRefC shape;
         glm::vec3 s = spatial->transform.scale;
+        bool mesh_supports_dynamic = false;
 
-        switch (col.shape) {
+        // Collision authored on the mesh wins over the component's own fields,
+        // so a placed object needs no per-instance setup.
+        auto effective_shape = col.shape;
+        if (col.inherit_from_mesh) {
+            auto* mesh = obj->components.get<MeshComponent>();
+            if (mesh && mesh->model && collision_mesh_of(*mesh->model).valid()) {
+                effective_shape = ColliderShape::Mesh;
+            }
+        }
+
+        switch (effective_shape) {
             case ColliderShape::Box: {
                 auto he = clamp_positive(col.half_extents * s);
                 shape = new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
@@ -420,20 +433,46 @@ void PhysicsWorld::create_bodies(Scene& scene) {
                 break;
             }
             case ColliderShape::Mesh: {
-                // Mesh colliders are static-only in Jolt
-                if (rb.body_type != BodyType::Static) {
-                    FJELL_CORE_WARN("Object '{}' has Mesh collider on non-static body — forcing static",
-                                    obj->name);
-                }
-                // Mesh colliders require CPU vertex data from the model
                 auto* mesh = obj->components.get<MeshComponent>();
-                if (!mesh || !mesh->model || mesh->model->collision_vertices().empty()) {
+                if (!mesh || !mesh->model) {
+                    FJELL_CORE_WARN("Object '{}' has Mesh collider but no mesh", obj->name);
+                    continue;
+                }
+                auto collision = collision_mesh_of(*mesh->model);
+                if (!collision.valid()) {
                     FJELL_CORE_WARN("Object '{}' has Mesh collider but no collision mesh data",
                                     obj->name);
                     continue;
                 }
-                const auto& verts = mesh->model->collision_vertices();
-                const auto& idxs = mesh->model->collision_indices();
+
+                const auto& verts = *collision.vertices;
+                const auto& idxs = *collision.indices;
+
+                mesh_supports_dynamic = collision.supports_dynamic();
+                if (mesh_supports_dynamic) {
+                    JPH::Array<JPH::Vec3> points;
+                    points.reserve(verts.size());
+                    for (const auto& v : verts) {
+                        auto p = v * s;
+                        points.push_back(JPH::Vec3(p.x, p.y, p.z));
+                    }
+
+                    auto hull_result = JPH::ConvexHullShapeSettings(points).Create();
+                    if (hull_result.HasError()) {
+                        FJELL_CORE_ERROR("Failed to create hull collider for '{}': {}",
+                                         obj->name, hull_result.GetError().c_str());
+                        continue;
+                    }
+                    shape = hull_result.Get();
+                    break;
+                }
+
+                // Triangle meshes can't back a moving body in Jolt.
+                if (rb.body_type != BodyType::Static) {
+                    FJELL_CORE_WARN("Object '{}' has a triangle-mesh collider on a non-static "
+                                    "body — forcing static. Use a convex hull to keep it moving.",
+                                    obj->name);
+                }
 
                 JPH::TriangleList triangles;
                 triangles.reserve(idxs.size() / 3);
@@ -466,9 +505,11 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             shape = new JPH::OffsetCenterOfMassShape(shape, to_jolt(col.offset));
         }
 
-        // Determine motion type (mesh colliders forced to static)
+        // Determine motion type. Only triangle-mesh colliders are static-only;
+        // a hull moves like any other convex shape.
         auto effective_type = rb.body_type;
-        if (col.shape == ColliderShape::Mesh && effective_type != BodyType::Static) {
+        if (effective_shape == ColliderShape::Mesh && effective_type != BodyType::Static &&
+            !mesh_supports_dynamic) {
             effective_type = BodyType::Static;
         }
 

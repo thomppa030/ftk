@@ -22,6 +22,11 @@ struct RigidbodyComponent : NodeComponent {
 };
 
 struct ColliderComponent : NodeComponent {
+    /// Use the collision setup authored on the node's mesh instead of the
+    /// fields below. Set collision up once on the asset rather than on every
+    /// object placed from it. Ignored when the node has no mesh.
+    bool inherit_from_mesh{false};
+
     ColliderShape shape{ColliderShape::Box};
     glm::vec3 half_extents{0.5f};
     float radius{0.5f};
