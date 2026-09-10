@@ -219,6 +219,7 @@ add_executable(fjell
     scripting/timer_api.cpp
     scripting/time_api.cpp
     scripting/debug_draw_queue.cpp
+    scripting/screen_debug_queue.cpp
     scripting/debug_api.cpp
     scripting/scene_api.cpp
     scripting/net_api.cpp

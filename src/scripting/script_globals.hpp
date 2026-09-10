@@ -14,6 +14,7 @@ class NetManager;
 class Project;
 class ResourceManager;
 class Scene;
+class ScreenDebugQueue;
 class ScriptManager;
 class TimerManager;
 class VfxSubsystem;
@@ -31,6 +32,7 @@ struct ScriptServices {
     TimerManager* timers{};
     Clock* clock{};
     DebugDrawQueue* debug_queue{};
+    ScreenDebugQueue* screen_debug_queue{};
     NetManager* net{};
 
     // Per-frame (set by ScriptManager::prepare/update)

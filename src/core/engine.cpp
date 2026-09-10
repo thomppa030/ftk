@@ -19,6 +19,7 @@ extern "C" void fjell_input_clear_connections();
 #include "scripting/script_globals.hpp"
 #include "scripting/script_subsystem.hpp"
 #include "scripting/debug_draw_queue.hpp"
+#include "scripting/screen_debug_queue.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
 #include "platform/platform.hpp"
 #include "platform/shared_library.hpp"
@@ -317,6 +318,8 @@ void Engine::init_resources() {
     debug_draw_queue_ = std::make_unique<DebugDrawQueue>();
     ss.debug_queue = debug_draw_queue_.get();
     vulkan_context_->set_debug_draw_queue(debug_draw_queue_.get());
+    screen_debug_queue_ = std::make_unique<ScreenDebugQueue>();
+    ss.screen_debug_queue = screen_debug_queue_.get();
 
     vulkan_context_->set_resource_manager(resource_manager_.get());
     vulkan_context_->set_project(project_mgr_.active());
@@ -498,6 +501,8 @@ void Engine::init_editor() {
             .content_browser = &content_browser_,
             .file_browser = &asset_file_browser_,
             .net_manager = net_manager_.get(),
+            .camera_subsystem = camera_subsystem_,
+            .screen_debug_queue = screen_debug_queue_.get(),
             .game_mode = game_mode_,
             .start_play = [this]() { start_play(); },
             .stop_play = [this]() { stop_play(); },
@@ -1782,6 +1787,12 @@ void Engine::run() {
         vulkan_context_->record_frame(requests, light_, render_scene, clock_.game_delta_time(),
                                        scene_context_->selected_id(), thread_pool_,
                                        active_context().is_playing());
+
+        // Age out screen debug text after the overlay has drawn it, so a
+        // single-frame entry survives exactly the frame it was submitted in.
+        // Unscaled dt: a paused or slowed clock shouldn't freeze a timed
+        // message on screen.
+        screen_debug_queue_->tick(clock_.delta_time());
     }
 
     // Submit the last recorded frame before shutting down

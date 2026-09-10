@@ -32,6 +32,8 @@ class ThreadPool;
 class ContentBrowser;
 class FileBrowser;
 class NetManager;
+class CameraSubsystem;
+class ScreenDebugQueue;
 class VulkanContext;
 class Window;
 struct DirectionalLight;
@@ -53,6 +55,8 @@ struct SceneEditorDeps {
     ContentBrowser* content_browser{nullptr};
     FileBrowser* file_browser{nullptr};
     NetManager* net_manager{nullptr};
+    CameraSubsystem* camera_subsystem{nullptr};
+    ScreenDebugQueue* screen_debug_queue{nullptr};
     bool game_mode;
 
     // Play lifecycle callbacks (Engine provides these)
@@ -122,6 +126,14 @@ private:
     void draw_gizmo(ViewportPanel& vp);
     void draw_play_toolbar();
     void draw_spline_visuals();
+
+    // Screen-space debug text submitted by scripts (fjell::Debug::screen /
+    // print / watch / text_3d). Drawn into the rect the scene image occupies,
+    // so the same code serves the fullscreen play view and the editor panel.
+    // The caller supplies the draw list of the window it is drawing inside,
+    // so the text clips to that window like every other viewport overlay.
+    void draw_screen_debug(ImDrawList* dl, const glm::vec2& origin,
+                           const glm::vec2& size);
 
     // Gizmo drag state
     bool gizmo_dragging_{false};

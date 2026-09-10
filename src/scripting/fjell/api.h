@@ -23,6 +23,18 @@
     #define FJELL_GAME_EXPORT
 #endif
 
+// FJELL_PRINTF_FMT marks a printf-style function so the compiler type-checks
+// the format string against its arguments at the call site. fmt_idx and
+// va_idx are 1-based argument positions; for a static member function the
+// implicit `this` is absent, so they count from the first declared parameter.
+// MSVC has no equivalent attribute — it expands to nothing there.
+#if defined(__GNUC__) || defined(__clang__)
+    #define FJELL_PRINTF_FMT(fmt_idx, va_idx) \
+        __attribute__((format(printf, fmt_idx, va_idx)))
+#else
+    #define FJELL_PRINTF_FMT(fmt_idx, va_idx)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif

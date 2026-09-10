@@ -1,7 +1,8 @@
-// debug_api.cpp — C ABI bridge from game .so to DebugDrawQueue
+// debug_api.cpp — C ABI bridge from game .so to the debug draw + screen text queues
 #include "fjell/api.h"
 #include "scripting/script_globals.hpp"
 #include "scripting/debug_draw_queue.hpp"
+#include "scripting/screen_debug_queue.hpp"
 
 extern "C" FJELL_SDK_EXPORT void fjell_debug_line(float x0, float y0, float z0,
                                                   float x1, float y1, float z1,
@@ -32,4 +33,25 @@ extern "C" FJELL_SDK_EXPORT void fjell_debug_point(float x, float y, float z,
                                                    float ttl) {
     auto* q = fjell::script_services().debug_queue;
     if (q) q->point({x, y, z}, {r, g, b, a}, ttl);
+}
+
+extern "C" FJELL_SDK_EXPORT void fjell_debug_screen(int key, const char* text,
+                                                    float r, float g, float b, float a,
+                                                    float ttl) {
+    auto* q = fjell::script_services().screen_debug_queue;
+    if (q && text) q->message(key, text, {r, g, b, a}, ttl);
+}
+
+extern "C" FJELL_SDK_EXPORT void fjell_debug_watch(const char* name, const char* value,
+                                                   float r, float g, float b, float a) {
+    auto* q = fjell::script_services().screen_debug_queue;
+    if (q && name && value) q->watch(name, value, {r, g, b, a});
+}
+
+extern "C" FJELL_SDK_EXPORT void fjell_debug_text_3d(float x, float y, float z,
+                                                     const char* text,
+                                                     float r, float g, float b, float a,
+                                                     float ttl) {
+    auto* q = fjell::script_services().screen_debug_queue;
+    if (q && text) q->world_text({x, y, z}, text, {r, g, b, a}, ttl);
 }

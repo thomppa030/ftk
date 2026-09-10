@@ -22,11 +22,13 @@
 #include "renderer/components/sprite_desc.hpp"
 #include "scene/spline_editable.hpp"
 #include "scripting/debug_draw_queue.hpp"
+#include "scripting/screen_debug_queue.hpp"
 #include "renderer/resources/texture.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/post_process_resources.hpp"
 #include "scene/camera_node.hpp"
+#include "scene/camera_subsystem.hpp"
 #include "scene/preset.hpp"
 #include "scene/light_node.hpp"
 #include "scripting/script_subsystem.hpp"
@@ -180,6 +182,16 @@ void SceneEditorContext::draw(float dt) {
 
     // Spline viewport overlays (polyline + control points for the selected node)
     draw_spline_visuals();
+
+    // Script-submitted debug text, anchored to the active viewport image so
+    // watches stay readable while scripts tick in the editor. Drawn inside the
+    // viewport window so it clips there instead of over the editor panels.
+    if (vp && vp->img_size.x > 0.0f && vp->img_size.y > 0.0f) {
+        if (ImGui::Begin(vp->title.c_str())) {
+            draw_screen_debug(ImGui::GetWindowDrawList(), vp->img_pos, vp->img_size);
+        }
+        ImGui::End();
+    }
 
     // Play toolbar (centered in viewport toolbar area)
     draw_play_toolbar();
@@ -812,6 +824,12 @@ void SceneEditorContext::draw_play_overlay() {
         ImGui::End();
     }
 
+    // Script-submitted debug text, over the whole play view. Still inside
+    // ##PlayView's Begin/End, so this uses that window's draw list.
+    draw_screen_debug(ImGui::GetWindowDrawList(),
+                      {viewport->WorkPos.x, viewport->WorkPos.y},
+                      {viewport->WorkSize.x, viewport->WorkSize.y});
+
     ImGui::End(); // ##PlayView
 
     // The network panel is a debug/testing tool whose whole point is to be used
@@ -821,6 +839,109 @@ void SceneEditorContext::draw_play_overlay() {
     // single-player playtests.
     if (deps_.net_manager && deps_.net_manager->is_connected()) {
         net_panel_.draw(ImGui::GetIO().DeltaTime, ctx_title("Network").c_str());
+    }
+}
+
+void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& origin,
+                                           const glm::vec2& size) {
+    if (!dl) return;
+    auto* queue = deps_.screen_debug_queue;
+    if (!queue || queue->entries().empty()) return;
+    if (size.x <= 0.0f || size.y <= 0.0f) return;
+
+    // Sort into the three blocks. Entries are pointers into the queue — it
+    // isn't mutated until tick(), which runs after this.
+    std::vector<const ScreenDebugEntry*> messages;
+    std::vector<const ScreenDebugEntry*> watches;
+    std::vector<const ScreenDebugEntry*> world;
+    for (const auto& e : queue->entries()) {
+        switch (e.kind) {
+            case ScreenDebugEntry::Kind::Message: messages.push_back(&e); break;
+            case ScreenDebugEntry::Kind::Watch:   watches.push_back(&e);  break;
+            case ScreenDebugEntry::Kind::World:   world.push_back(&e);    break;
+        }
+    }
+
+    // Messages keep submission order; watches sort by name so a row holds the
+    // same spot every frame instead of moving as scripts submit in a new order.
+    std::sort(messages.begin(), messages.end(),
+              [](const ScreenDebugEntry* a, const ScreenDebugEntry* b) {
+                  return a->seq < b->seq;
+              });
+    std::sort(watches.begin(), watches.end(),
+              [](const ScreenDebugEntry* a, const ScreenDebugEntry* b) {
+                  return a->name < b->name;
+              });
+
+    // A dark outline behind each glyph keeps text readable over a bright or
+    // busy scene without needing a filled panel behind the whole block.
+    auto draw_text_outlined = [&](const ImVec2& pos, const glm::vec4& color,
+                                  const char* text) {
+        ImU32 shadow = IM_COL32(0, 0, 0, static_cast<int>(color.a * 200.0f));
+        dl->AddText({pos.x + 1.0f, pos.y + 1.0f}, shadow, text);
+        dl->AddText(pos, ImGui::ColorConvertFloat4ToU32({color.r, color.g, color.b, color.a}), text);
+    };
+
+    const float line_h = ImGui::GetTextLineHeightWithSpacing();
+    const float pad = 8.0f;
+
+    // Watches: top-left, "name: value".
+    float y = origin.y + pad;
+    for (const auto* e : watches) {
+        std::string line = e->name + ": " + e->text;
+        draw_text_outlined({origin.x + pad, y}, e->color, line.c_str());
+        y += line_h;
+    }
+
+    // Messages: below the watch block, same column.
+    if (!watches.empty() && !messages.empty()) y += line_h * 0.5f;
+    for (const auto* e : messages) {
+        draw_text_outlined({origin.x + pad, y}, e->color, e->text.c_str());
+        y += line_h;
+    }
+
+    // World-anchored text: project through the camera that actually rendered
+    // this view — the scene CameraNode while playing (Engine overrides the
+    // request with it), the editor fly-camera otherwise.
+    if (world.empty()) return;
+
+    glm::mat4 view{1.0f};
+    glm::mat4 proj{1.0f};
+    const float aspect = size.x / size.y;
+    bool have_camera = false;
+
+    if (is_playing() && deps_.scene && deps_.camera_subsystem) {
+        if (auto* cam = deps_.camera_subsystem->active_camera(*deps_.scene)) {
+            view = cam->view_matrix();
+            proj = cam->projection_matrix(aspect);
+            have_camera = true;
+        }
+    }
+    if (!have_camera) {
+        if (auto* cam = viewport_manager_.active_camera()) {
+            view = cam->view_matrix();
+            proj = cam->projection_matrix(aspect);
+            have_camera = true;
+        }
+    }
+    if (!have_camera) return;
+
+    const glm::mat4 view_proj = proj * view;
+    for (const auto* e : world) {
+        glm::vec4 clip = view_proj * glm::vec4(e->world_pos, 1.0f);
+        if (clip.w <= 0.0f) continue;  // behind the camera
+
+        glm::vec3 ndc = glm::vec3(clip) / clip.w;
+        if (ndc.x < -1.0f || ndc.x > 1.0f || ndc.y < -1.0f || ndc.y > 1.0f) continue;
+
+        // Projection already carries the Vulkan Y-flip, so NDC y maps straight
+        // down the screen the same way x maps across it.
+        ImVec2 pos{origin.x + (ndc.x * 0.5f + 0.5f) * size.x,
+                   origin.y + (ndc.y * 0.5f + 0.5f) * size.y};
+
+        ImVec2 text_size = ImGui::CalcTextSize(e->text.c_str());
+        pos.x -= text_size.x * 0.5f;  // centre on the anchor point
+        draw_text_outlined(pos, e->color, e->text.c_str());
     }
 }
 

@@ -797,6 +797,7 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         out << "#define FJELL_SDK_EXPORT\n";
         out << "#define FJELL_GAME_EXPORT\n";
         out << "#define FJELL_API_VERSION 0\n";
+        out << "#define FJELL_PRINTF_FMT(fmt_idx, va_idx)\n";
         out << "#include <cstdint>\n";
         out << "#include <cstddef>\n";
         out << "enum FjellFieldType { FJELL_FIELD_FLOAT=0, FJELL_FIELD_INT, FJELL_FIELD_BOOL,\n"

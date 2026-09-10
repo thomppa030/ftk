@@ -45,6 +45,7 @@ class AnimationSubsystem;
 class AssetLoader;
 class AudioSubsystem;
 class DebugDrawQueue;
+class ScreenDebugQueue;
 class EditorContext;
 class NetManager;
 class NetReceiveSubsystem;
@@ -153,6 +154,7 @@ private:
     NetSendSubsystem*    net_send_subsystem_{};
     std::unique_ptr<NetManager> net_manager_;
     std::unique_ptr<DebugDrawQueue> debug_draw_queue_;
+    std::unique_ptr<ScreenDebugQueue> screen_debug_queue_;
 
     // Phase groups (non-owning, built once in constructor)
     std::vector<Subsystem*> play_phase_0_;   // scripts
