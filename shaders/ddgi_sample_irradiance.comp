@@ -28,15 +28,72 @@ vec3 world_position_from_depth(vec2 uv, float depth) {
 
 // ── 8-probe trilinear cage sampling ─────────────────────────────────────
 
-vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
+// ── Diagnostic views ────────────────────────────────────────────────────
+// Mirror fjell::DdgiDebugMode. These replace the pass's indirect output,
+// so they are only meaningful with the lighting channel set to raw DDGI —
+// the surface composite multiplies this by albedo and kD, which turns any
+// diagnostic color into a shade of the surface underneath it.
+#define DDGI_DEBUG_OFF            0u
+#define DDGI_DEBUG_GRID_CELL      1u
+#define DDGI_DEBUG_PROBE_STATUS   2u
+#define DDGI_DEBUG_CAGE_WEIGHT    3u
+#define DDGI_DEBUG_NO_VISIBILITY  4u
+#define DDGI_DEBUG_PROBE_DISTANCE 5u
+// Where each cage probe's rays could actually hit something. Probes whose
+// trace reach extends past the acceleration structure's bounds see empty
+// space in that direction, so they record sky where geometry exists.
+#define DDGI_DEBUG_TRACE_REACH    6u
+// Nearest probe's irradiance with no cage, no weights, no interpolation.
+// If a pattern survives here it is in the probes' stored data; if it only
+// appears once the cage runs, the cage is producing it.
+#define DDGI_DEBUG_RAW_PROBE      7u
+// How many of the 8 cage probes had their Chebyshev weight floored to the
+// 0.05 minimum. Black = none rejected, white = all eight. Isolates the one
+// non-uniform weight term that can darken a cell interior.
+#define DDGI_DEBUG_CHEB_REJECT    8u
+
+/// The cage cell each pixel lands in, hashed to a color. Artifacts that
+/// align with these cells come from the cage or the probes; ones that do
+/// not come from somewhere else entirely.
+vec3 debug_grid_cell(ivec3 base_grid) {
+    return fract(sin(vec3(dot(vec3(base_grid), vec3(12.9898, 78.233, 37.719)),
+                          dot(vec3(base_grid), vec3(93.9898, 67.345, 21.123)),
+                          dot(vec3(base_grid), vec3(43.3321, 12.987, 91.451))))
+                 * 43758.5453);
+}
+
+vec3 sample_irradiance(vec3 world_pos, vec3 normal, out float out_cage_weight) {
     vec3 Wo = normalize(ddgi.camera_position - world_pos);
     // Bias the sample off the surface before the cage lookup. Lean on the
     // normal so the offset lifts away from the surface; keep the view term
     // small. A view-dominant bias goes tangential at grazing angles and
     // skates the sample across probe cells, which reads as blocky shimmer.
-    // Scale by spacing so the bias stays a fixed fraction of a cell.
-    float cell = min(ddgi.probe_spacing.x, min(ddgi.probe_spacing.y, ddgi.probe_spacing.z));
-    vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
+    // Scale by spacing PER AXIS. The grid is fitted to scene bounds, so
+    // spacing is not uniform — a wide flat scene gives a Y spacing far
+    // smaller than X and Z. Scaling the whole bias by the minimum axis
+    // (which is what this did) makes the horizontal bias a small fraction
+    // of the horizontal probe distance, so the sample never moves far
+    // enough sideways to matter, while alpha and the cage geometry use the
+    // real per-axis spacing. Bias and cage have to agree on what a cell is.
+    vec3 cell = ddgi.probe_spacing;
+    float cell_min = min(cell.x, min(cell.y, cell.z));
+
+    // The view term fades out as the camera closes to within one cell.
+    // Lumen does this (LumenIrradianceFieldInterpolation.ush: "Reduce the
+    // view dependent bias as the camera gets closer than the distance
+    // between probes") because up close the bias would push the sample
+    // past the surface it is shading.
+    float camera_distance = length(ddgi.camera_position - world_pos);
+    float view_scale = clamp(camera_distance / cell_min, 0.0, 1.0);
+
+    // A flat surface gives a probe above it a perfectly consistent depth,
+    // so the Chebyshev variance is ~0 and any sample even slightly beyond
+    // mean_dist collapses to the 0.05 weight floor. That is a 24x drop
+    // right where the trilinear weight peaks — a dark spot at every probe.
+    // The view term is what avoids it: it moves the sample off the surface
+    // so the comparison is not made at exactly the recorded depth.
+    vec3 bias_vector = (normal * ddgi.normal_bias
+                      + Wo * ddgi.view_bias * view_scale) * cell;
     vec3 biased_pos = world_pos + bias_vector;
 
     // Select the cage cell and trilinear weights from the UNBIASED position.
@@ -52,6 +109,65 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
 
     vec3 sum_irradiance = vec3(0.0);
     float sum_weight = 0.0;
+    out_cage_weight = 0.0;
+    float cheb_tested = 0.0;
+    float cheb_floored = 0.0;
+
+    if (ddgi.debug_options == DDGI_DEBUG_GRID_CELL) {
+        return debug_grid_cell(base_grid);
+    }
+
+    if (ddgi.debug_options == DDGI_DEBUG_PROBE_DISTANCE) {
+        // Euclidean distance to the nearest cage corner, so probes read as
+        // dots rather than as the planes through them. Taking the min per
+        // axis independently instead would light up every cell boundary —
+        // correct, but it draws a grid of lines and is hard to compare
+        // against a blob-shaped artifact.
+        vec3 d = min(alpha, 1.0 - alpha);
+        float dist = length(d);
+        // Normalized so a probe is white and the cell centre (the furthest
+        // point, at length(0.5,0.5,0.5)) is black.
+        return vec3(1.0 - clamp(dist / 0.866, 0.0, 1.0));
+    }
+
+    if (ddgi.debug_options == DDGI_DEBUG_TRACE_REACH) {
+        // Distance from this position to the nearest face of the probe
+        // grid box, normalized against one cell. Red at and outside the
+        // boundary, green well inside it. A feature that lines up with the
+        // red band comes from the grid's edge — either the acceleration
+        // structure not covering it, or probes there having nothing to
+        // trace against.
+        vec3 grid_lo = ddgi.probe_grid_position;
+        vec3 grid_hi = grid_lo + vec3(ddgi.probe_counts - ivec3(1)) * ddgi.probe_spacing;
+        vec3 to_lo = world_pos - grid_lo;
+        vec3 to_hi = grid_hi - world_pos;
+        vec3 d = min(to_lo, to_hi) / ddgi.probe_spacing;
+        float edge = min(d.x, min(d.y, d.z));
+        if (edge < 0.0) return vec3(1.0, 0.0, 1.0);   // outside the grid
+        return mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0),
+                   clamp(edge / 2.0, 0.0, 1.0));
+    }
+
+    if (ddgi.debug_options == DDGI_DEBUG_RAW_PROBE) {
+        // Snap to the nearest probe and read it directly. Every pixel in a
+        // cell shows the same value, so the result is flat-shaded per cell:
+        // any variation is between probes, not within the interpolation.
+        ivec3 nearest = base_grid + ivec3(greaterThan(alpha, vec3(0.5)));
+        nearest = clamp(nearest, ivec3(0), ddgi.probe_counts - ivec3(1));
+        int idx = ddgi_grid_to_probe_index(nearest);
+        vec2 uv = get_probe_uv(normal, idx, ddgi.irr_tex_w, ddgi.irr_tex_h, ddgi.irr_side);
+        return ddgi_decode_irradiance(textureLod(irradiance_tex, uv, 0).rgb);
+    }
+
+    // Probe status: green active, red off (buried), blue asleep.
+    if (ddgi.debug_options == DDGI_DEBUG_PROBE_STATUS) {
+        ivec3 nearest = base_grid + ivec3(greaterThan(alpha, vec3(0.5)));
+        nearest = clamp(nearest, ivec3(0), ddgi.probe_counts - ivec3(1));
+        uint st = probe_status[ddgi_grid_to_probe_index(nearest)];
+        if (st == PROBE_STATUS_OFF) return vec3(1.0, 0.0, 0.0);
+        if (st == PROBE_STATUS_SLEEP) return vec3(0.0, 0.0, 1.0);
+        return vec3(0.0, 1.0, 0.0);
+    }
 
     for (int i = 0; i < 8; ++i) {
         ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
@@ -82,11 +198,23 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
         vec2 visibility = textureLod(visibility_tex, vis_uv, 0).rg;
         float mean_dist = visibility.x;
 
-        if (dist_to_biased > mean_dist) {
-            float variance = abs(mean_dist * mean_dist - visibility.y);
+        if (dist_to_biased > mean_dist && ddgi.debug_options != DDGI_DEBUG_NO_VISIBILITY) {
+            cheb_tested += 1.0;
+            // Floor the variance. A flat surface gives a probe an almost
+            // perfectly consistent depth, so the measured variance is
+            // ~0 and the Chebyshev ratio collapses for a sample only
+            // centimetres past mean_dist — a 125x weight drop from what
+            // is really depth-map precision, not occlusion. The floor is
+            // a fraction of a cell, small enough that a genuine occluder
+            // (which sits a large fraction of a cell closer) still
+            // rejects to zero.
+            float min_variance = 0.05 * cell_min;
+            float variance = max(abs(mean_dist * mean_dist - visibility.y),
+                                 min_variance * min_variance);
             float diff = dist_to_biased - mean_dist;
             float cheb = variance / (variance + diff * diff);
             cheb = max(cheb * cheb, 0.0);
+            if (cheb < 0.05) cheb_floored += 1.0;
             weight *= max(0.05, cheb);
         }
 
@@ -100,6 +228,17 @@ vec3 sample_irradiance(vec3 world_pos, vec3 normal) {
         sum_irradiance += weight * probe_irradiance;
         sum_weight += weight;
     }
+
+    if (ddgi.debug_options == DDGI_DEBUG_CHEB_REJECT) {
+        // Red channel: fraction of cage probes whose Chebyshev weight hit
+        // the floor. Green: fraction that were tested at all (i.e. sat
+        // beyond mean_dist). A dark-dot pattern showing up in red is the
+        // occlusion test rejecting probes; one showing only in green means
+        // the test ran but did not reject.
+        return vec3(cheb_floored / 8.0, cheb_tested / 8.0, 0.0);
+    }
+
+    out_cage_weight = sum_weight;
 
     // All cage probes disabled (e.g. deep inside geometry) — no indirect.
     if (sum_weight < 1e-6) return vec3(0.0);
@@ -191,7 +330,16 @@ void main() {
     vec2 screen_uv = (vec2(coords) + 0.5) / out_res;
     vec3 world_pos = world_position_from_depth(screen_uv, raw_depth);
 
-    vec3 irradiance = sample_irradiance(world_pos, normal);
+    float cage_weight = 0.0;
+    vec3 irradiance = sample_irradiance(world_pos, normal, cage_weight);
+
+    if (ddgi.debug_options == DDGI_DEBUG_CAGE_WEIGHT) {
+        // The cage divides by this, so darkening caused by the weights
+        // collapsing shows here while darkening from the probes' own
+        // irradiance does not. Log-scaled: weights are products of
+        // trilinear, backface and visibility terms and span a wide range.
+        irradiance = vec3(clamp(log2(1.0 + cage_weight * 8.0) / 4.0, 0.0, 1.0));
+    }
 
     imageStore(indirect_out, coords, vec4(irradiance, 1.0));
 }

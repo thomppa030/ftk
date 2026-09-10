@@ -66,7 +66,13 @@ void ProjectSettingsPanel::draw_render_section() {
             if (ImGui::SliderFloat("Emissive Boost##ddgi", &s.ddgi.emissive_gi_boost, 1.0f, 30.0f)) { dirty = true; }
             if (ImGui::SliderFloat("Infinite Bounces##ddgi", &s.ddgi.infinite_bounces_mult, 0.0f, 3.0f)) { dirty = true; }
             if (ImGui::SliderFloat("Normal Bias##ddgi", &s.ddgi.normal_bias, 0.0f, 1.0f)) { dirty = true; }
-            if (ImGui::SliderFloat("View Bias##ddgi", &s.ddgi.view_bias, 0.0f, 0.5f)) { dirty = true; }
+            ImGui::SameLine(0, 10); ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Lifts the sample toward the probe. Too low and a flat\n"
+                                  "surface hits the degenerate Chebyshev case (zero\n"
+                                  "variance) and darkens at every probe.");
+            }
+            if (ImGui::SliderFloat("View Bias##ddgi", &s.ddgi.view_bias, 0.0f, 1.0f)) { dirty = true; }
             ImGui::Unindent();
         }
 
@@ -201,6 +207,39 @@ void ProjectSettingsPanel::draw_debug_section() {
     if (ImGui::Combo("Channel", &channel, kChannelNames,
                      static_cast<int>(std::size(kChannelNames)))) {
         vk_->set_debug_light_channel(channel);
+    }
+
+    ImGui::Separator();
+    ImGui::TextWrapped("DDGI: replaces the indirect output with what the "
+                       "probe cage resolved for each pixel.");
+
+    static const char* kDdgiDebugNames[] = {
+        "Off",
+        "Grid cell (hashed per cage cell)",
+        "Probe status (green active, red buried, blue asleep)",
+        "Cage weight (dark = weights collapsed)",
+        "No visibility test (dark = probe data, not occlusion)",
+        "Probe lattice (bright at probe positions)",
+        "Trace reach (magenta outside grid, red at edge)",
+        "Raw probe irradiance (no interpolation)",
+        "Chebyshev reject (red = floored, green = tested)",
+    };
+    auto& ddgi_cfg = vk_->ddgi_pass().config();
+    int ddgi_mode = static_cast<int>(ddgi_cfg.debug_mode);
+    if (ImGui::Combo("DDGI view", &ddgi_mode, kDdgiDebugNames,
+                     static_cast<int>(std::size(kDdgiDebugNames)))) {
+        ddgi_cfg.debug_mode = static_cast<DdgiDebugMode>(ddgi_mode);
+        // These colors mean nothing once the surface composite multiplies
+        // them by albedo and kD — a dark surface reads as "no data" when
+        // the lookup actually succeeded. Switching the channel with the
+        // view keeps the two in step instead of leaving it to be
+        // remembered.
+        if (ddgi_cfg.debug_mode != DdgiDebugMode::Off) {
+            vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::DdgiIndirect));
+        } else if (vk_->debug_light_channel()
+                   == static_cast<int>(DebugLightChannel::DdgiIndirect)) {
+            vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::Off));
+        }
     }
 }
 

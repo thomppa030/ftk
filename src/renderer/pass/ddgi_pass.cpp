@@ -899,7 +899,7 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.reciprocal_spacing = 1.0f / config_.probe_spacing;
     constants.self_shadow_bias = config_.self_shadow_bias;
     constants.probe_counts = config_.probe_counts;
-    constants.debug_options = 0;
+    constants.debug_options = static_cast<uint32_t>(config_.debug_mode);
     constants.irr_tex_w = imgs.irr_width;
     constants.irr_tex_h = imgs.irr_height;
     constants.irr_side = config_.irradiance_side_length;

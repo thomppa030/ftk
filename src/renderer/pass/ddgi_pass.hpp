@@ -20,6 +20,48 @@ enum class DdgiBackend : uint8_t {
     ray_traced,
 };
 
+/// Diagnostic views that replace the DDGI pass's indirect output. Values
+/// mirror the DDGI_DEBUG_* constants in ddgi_sample_irradiance.comp.
+///
+/// These are only readable with the lighting channel set to raw DDGI: the
+/// surface composite multiplies the pass output by albedo and kD, so a
+/// diagnostic color otherwise arrives tinted by whatever it lands on, and
+/// a dark surface makes any of them look like "no data". The settings
+/// panel switches the channel automatically when one of these is picked.
+enum class DdgiDebugMode : uint32_t {
+    Off = 0,
+    /// The cage cell each pixel lands in, hashed to a color. Artifacts
+    /// that align with these cells come from the cage or its probes.
+    GridCell = 1,
+    /// Nearest probe's status: green active, red off (buried in
+    /// geometry), blue asleep.
+    ProbeStatus = 2,
+    /// Total cage weight before normalization, log-scaled. The cage
+    /// divides by this, so darkening caused by weights collapsing shows
+    /// here while darkening from probe irradiance does not.
+    CageWeight = 3,
+    /// Normal output with the Chebyshev visibility term forced to 1. If
+    /// an artifact disappears, the visibility test is rejecting probes.
+    NoVisibility = 4,
+    /// Distance to the nearest cage corner — draws the probe lattice
+    /// itself, so a suspected pattern can be checked against where the
+    /// probes actually sit.
+    ProbeDistance = 5,
+    /// Distance to the probe grid's boundary: magenta outside it, red at
+    /// the edge, green well inside. Tells you whether an artifact lines up
+    /// with where the grid stops — and so with where the acceleration
+    /// structure stops covering what probes trace against.
+    TraceReach = 6,
+    /// Nearest probe's irradiance, read directly with no cage and no
+    /// weights. Flat-shaded per cell, so a pattern that survives here is
+    /// in the stored probe data rather than in the interpolation.
+    RawProbe = 7,
+    /// Red: fraction of cage probes whose Chebyshev weight hit the 0.05
+    /// floor. Green: fraction that were tested at all. Isolates the only
+    /// weight term that varies within a cell.
+    ChebReject = 8,
+};
+
 /// DDGI probe grid configuration.
 /// The grid is auto-fitted to the scene SDF bounds once on first frame, then
 /// frozen. Changing grid_position or probe_spacing at runtime invalidates all
@@ -53,8 +95,25 @@ struct DdgiConfig {
     // Sample-position bias as a fraction of probe spacing. Normal-leaning so
     // the sample lifts off the surface rather than sliding along it at grazing
     // angles (which would skate across probe cells). view_bias is small.
-    float normal_bias{0.25f};
-    float view_bias{0.08f};
+    // Lifts the sample toward the probe so dist_to_biased lands inside
+    // mean_dist and the Chebyshev branch is skipped. This is what escapes
+    // the degenerate case on a flat surface (probe sees a perfectly
+    // consistent depth, variance ~0, weight floors at 0.05 exactly where
+    // the trilinear weight peaks — a dark spot per probe).
+    //
+    // It has to be the NORMAL term that does this, not the view term: the
+    // view direction tilts toward horizontal as a surface recedes, so its
+    // vertical component falls off with distance. That produced dots which
+    // were faint near the camera and dark far away.
+    float normal_bias{0.4f};
+    // Scaled by distance to the camera, fading out within one cell. This
+    // is what keeps the Chebyshev test off the degenerate case where a
+    // probe over a flat surface records a perfectly consistent depth, the
+    // variance is zero, and the weight floors at 0.05 exactly where the
+    // trilinear weight peaks — a dark spot at every probe. Lumen uses an
+    // equivalent 0.6 (0.8 * 0.75) against 0.15 (0.2 * 0.75) for normal;
+    // the view term is deliberately the larger of the two.
+    float view_bias{0.6f};
     float max_probe_offset{0.5f};
     float gi_intensity{1.0f};
     float emissive_gi_boost{4.0f};
@@ -76,6 +135,9 @@ struct DdgiConfig {
     int probes_per_frame_batch{512};
     bool half_res_output{true};
     bool enabled{true};
+    /// Diagnostic view replacing the indirect output. Runtime only, never
+    /// saved with the project.
+    DdgiDebugMode debug_mode{DdgiDebugMode::Off};
 };
 
 /// GPU-side constants UBO (std140 layout).

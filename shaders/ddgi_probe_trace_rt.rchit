@@ -118,7 +118,17 @@ vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
         float mean_dist = visibility.x;
 
         if (dist_to_biased > mean_dist) {
-            float variance = abs(mean_dist * mean_dist - visibility.y);
+            // Floor the variance. A flat surface gives a probe an almost
+            // perfectly consistent depth, so the measured variance is
+            // ~0 and the Chebyshev ratio collapses for a sample only
+            // centimetres past mean_dist — a 125x weight drop from what
+            // is really depth-map precision, not occlusion. The floor is
+            // a fraction of a cell, small enough that a genuine occluder
+            // (which sits a large fraction of a cell closer) still
+            // rejects to zero.
+            float min_variance = 0.05 * cell;
+            float variance = max(abs(mean_dist * mean_dist - visibility.y),
+                                 min_variance * min_variance);
             float diff = dist_to_biased - mean_dist;
             float cheb = variance / (variance + diff * diff);
             cheb = max(cheb * cheb, 0.0);
