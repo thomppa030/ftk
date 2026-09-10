@@ -43,6 +43,8 @@ void ImportDialog::open(const fs::path& source_path, const fs::path& default_out
 
     if (is_open()) {
         // Already open — update the source file
+        settings_.project_root = project_root_;
+        settings_.texture_dir = project_texture_dir_;
         settings_.source_path = source_path;
         settings_.output_dir = default_output_dir;
         source_filename_ = source_path.filename().string();
@@ -52,11 +54,15 @@ void ImportDialog::open(const fs::path& source_path, const fs::path& default_out
     }
 
     settings_ = MeshImportSettings{};
+    settings_.project_root = project_root_;
+    settings_.texture_dir = project_texture_dir_;
     settings_.source_path = source_path;
     settings_.output_dir = default_output_dir;
     source_filename_ = source_path.filename().string();
     std::snprintf(output_dir_buf_, sizeof(output_dir_buf_), "%s",
                   default_output_dir.string().c_str());
+    std::snprintf(texture_dir_buf_, sizeof(texture_dir_buf_), "%s",
+                  settings_.texture_dir.c_str());
 
     // Create GLFW window (no Vulkan hint — we share the editor's instance)
     std::string title = "Import: " + source_filename_;
@@ -276,6 +282,8 @@ bool ImportDialog::draw_ui(float window_w, float window_h) {
         draw_sdf_settings();
         ImGui::Spacing();
         draw_animation_settings();
+        ImGui::Spacing();
+        draw_texture_settings();
     }
 
     ImGui::Separator();
@@ -362,6 +370,23 @@ void ImportDialog::draw_animation_settings() {
     ImGui::TextColored({0.831f, 0.627f, 0.329f, 1.0f}, "Animation");
     ImGui::Spacing();
     ImGui::Checkbox("Import Animations", &settings_.import_animations);
+}
+
+void ImportDialog::draw_texture_settings() {
+    ImGui::TextColored({0.831f, 0.627f, 0.329f, 1.0f}, "Textures");
+    ImGui::Spacing();
+
+    ImGui::Checkbox("Import Textures", &settings_.import_textures);
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Extract textures the source file references and write\n"
+                          "a .fjmat per material next to the .fjmesh.");
+    }
+
+    if (settings_.import_textures) {
+        if (ImGui::InputText("Texture Folder", texture_dir_buf_, sizeof(texture_dir_buf_))) {
+            settings_.texture_dir = texture_dir_buf_;
+        }
+    }
 }
 
 void ImportDialog::draw_action_buttons() {

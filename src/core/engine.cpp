@@ -439,6 +439,11 @@ void Engine::init_content_browser() {
             auto output_dir = project_mgr_.active()
                 ? project_mgr_.active()->root() / "models"
                 : std::filesystem::path{};
+            if (auto* proj = project_mgr_.active()) {
+                import_dialog_.set_project(proj->root(), proj->config().texture_import_dir);
+            } else {
+                import_dialog_.set_project({}, "assets/textures");
+            }
             import_dialog_.open(abs, output_dir);
         }));
 
@@ -1223,6 +1228,11 @@ void Engine::bind_menu_bar() {
             auto output_dir = project_mgr_.active()
                 ? project_mgr_.active()->root() / "models"
                 : std::filesystem::path{};
+            if (auto* proj = project_mgr_.active()) {
+                import_dialog_.set_project(proj->root(), proj->config().texture_import_dir);
+            } else {
+                import_dialog_.set_project({}, "assets/textures");
+            }
             import_dialog_.open(path, output_dir);
         }));
 

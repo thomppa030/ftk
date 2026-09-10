@@ -37,6 +37,9 @@ std::filesystem::path ImportJob::write_settings_file(const MeshImportSettings& s
     j["generate_sdf"] = settings.generate_sdf;
     j["sdf_resolution"] = settings.sdf_resolution;
     j["import_animations"] = settings.import_animations;
+    j["import_textures"] = settings.import_textures;
+    j["texture_dir"] = settings.texture_dir;
+    j["project_root"] = settings.project_root.string();
 
     nlohmann::json thresholds = nlohmann::json::array();
     nlohmann::json ratios = nlohmann::json::array();

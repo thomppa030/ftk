@@ -36,6 +36,14 @@ public:
     /// Set the GpuCore to share. Must be called before open().
     void set_gpu(GpuCore* gpu) { gpu_ = gpu; }
 
+    /// Project root and the project's texture import directory. Texture paths
+    /// in generated .fjmat files are written relative to the root. Set before
+    /// open().
+    void set_project(std::filesystem::path root, std::string texture_dir) {
+        project_root_ = std::move(root);
+        project_texture_dir_ = std::move(texture_dir);
+    }
+
     /// Open the dialog for a source file. Creates the window if not already open.
     void open(const std::filesystem::path& source_path,
               const std::filesystem::path& default_output_dir);
@@ -60,6 +68,7 @@ private:
     void draw_lod_settings();
     void draw_sdf_settings();
     void draw_animation_settings();
+    void draw_texture_settings();
     void draw_action_buttons();
     void draw_progress();
 
@@ -67,6 +76,8 @@ private:
 
     // Shared from the editor (not owned)
     GpuCore* gpu_{nullptr};
+    std::filesystem::path project_root_;
+    std::string project_texture_dir_{"assets/textures"};
 
     // Owned per-dialog: window + surface + swapchain + command pool + sync
     std::unique_ptr<Window> window_;
@@ -91,6 +102,7 @@ private:
 
     // Output dir as editable char buffer
     char output_dir_buf_[512]{};
+    char texture_dir_buf_[128]{};
 };
 
 } // namespace fjell

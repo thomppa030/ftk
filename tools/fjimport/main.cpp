@@ -1,4 +1,5 @@
 #include "renderer/resources/fjmesh.hpp"
+#include "renderer/resources/material_asset.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/meshlet.hpp"
 #include "renderer/resources/sdf_generator.hpp"
@@ -49,6 +50,9 @@ struct ImportSettings {
     bool generate_sdf{true};
     uint32_t sdf_resolution{32};
     bool import_animations{true};
+    bool import_textures{true};
+    std::string texture_dir{"assets/textures"};
+    std::string project_root;
 };
 
 // Progress callback: (phase, percent 0-100, message)
@@ -75,6 +79,9 @@ static ImportSettings load_settings(const std::string& path) {
     if (j.contains("generate_sdf")) s.generate_sdf = j["generate_sdf"].get<bool>();
     if (j.contains("sdf_resolution")) s.sdf_resolution = j["sdf_resolution"].get<uint32_t>();
     if (j.contains("import_animations")) s.import_animations = j["import_animations"].get<bool>();
+    if (j.contains("import_textures")) s.import_textures = j["import_textures"].get<bool>();
+    if (j.contains("texture_dir")) s.texture_dir = j["texture_dir"].get<std::string>();
+    if (j.contains("project_root")) s.project_root = j["project_root"].get<std::string>();
     return s;
 }
 
@@ -1124,6 +1131,212 @@ static bool export_animation(const std::string& output_path,
 
 // ════════════════════════════════════════════════════════════════════════
 
+// ── Material + texture export ───────────────────────────────────────────
+//
+// Assimp reports textures either embedded (path "*N", indexing
+// scene->mTextures) or external (a path relative to the source file). Both
+// are written into <output_dir>/<texture_subdir>/ so the resulting .fjmat
+// references files that live alongside the .fjmesh.
+
+namespace {
+
+struct TextureSlot {
+    aiTextureType type;
+    const char* fjmat_name; // slot name the standard PBR shader resolves
+};
+
+// Slot names must match the ones ResourceManager resolves for .fjmat files.
+constexpr TextureSlot TEXTURE_SLOTS[] = {
+    {aiTextureType_BASE_COLOR, "base_color"},
+    {aiTextureType_DIFFUSE, "base_color"},
+    {aiTextureType_NORMALS, "normal_map"},
+    {aiTextureType_DIFFUSE_ROUGHNESS, "metallic_roughness"},
+    {aiTextureType_METALNESS, "metallic_roughness"},
+    {aiTextureType_EMISSIVE, "emissive"},
+};
+
+std::string sanitize_filename(std::string name) {
+    for (char& c : name) {
+        if (c == '/' || c == '\\' || c == ':' || c == ' ' || c == '*' || c == '?') c = '_';
+    }
+    return name;
+}
+
+// Extension for an embedded texture, from Assimp's format hint ("jpg", "png").
+std::string embedded_extension(const aiTexture* tex) {
+    std::string hint = tex->achFormatHint;
+    if (hint.empty()) return ".bin";
+    if (hint == "jpeg") hint = "jpg";
+    return "." + hint;
+}
+
+/// Write one texture to disk, returning the path to record in the .fjmat.
+/// Returns empty on failure. Results are memoized by source reference so a
+/// texture reused across slots or materials is written once.
+std::string export_texture(const aiScene* scene,
+                           const std::string& ref,
+                           const std::string& slot_name,
+                           const std::filesystem::path& source_dir,
+                           const std::filesystem::path& tex_dir,
+                           const std::string& tex_ref_prefix,
+                           std::unordered_map<std::string, std::string>& cache) {
+    namespace fs = std::filesystem;
+
+    auto cached = cache.find(ref);
+    if (cached != cache.end()) return cached->second;
+
+    std::string relative;
+
+    if (!ref.empty() && ref[0] == '*') {
+        // Embedded: "*N" indexes scene->mTextures.
+        int index = std::atoi(ref.c_str() + 1);
+        if (index < 0 || static_cast<unsigned>(index) >= scene->mNumTextures) {
+            std::fprintf(stderr, "warning: embedded texture index %d out of range\n", index);
+            cache[ref] = {};
+            return {};
+        }
+        const aiTexture* tex = scene->mTextures[index];
+
+        // mHeight == 0 means the payload is a compressed file image of
+        // mWidth bytes. Raw (uncompressed) embedded textures would need an
+        // encoder, so they are skipped rather than written as unreadable data.
+        if (tex->mHeight != 0) {
+            std::fprintf(stderr, "warning: skipping raw embedded texture %d (no encoder)\n", index);
+            cache[ref] = {};
+            return {};
+        }
+
+        fs::path out_name = sanitize_filename(slot_name) + embedded_extension(tex);
+
+        fs::create_directories(tex_dir);
+        fs::path out_path = tex_dir / out_name;
+        std::ofstream f(out_path, std::ios::binary);
+        if (!f.is_open()) {
+            std::fprintf(stderr, "warning: could not write texture '%s'\n", out_path.string().c_str());
+            cache[ref] = {};
+            return {};
+        }
+        f.write(reinterpret_cast<const char*>(tex->pcData), tex->mWidth);
+        relative = tex_ref_prefix + out_name.string();
+    } else {
+        // External: resolve against the source file's directory.
+        fs::path src = fs::path(ref);
+        if (src.is_relative()) src = source_dir / src;
+
+        std::error_code ec;
+        if (!fs::exists(src, ec)) {
+            std::fprintf(stderr, "warning: texture not found: %s\n", src.string().c_str());
+            cache[ref] = {};
+            return {};
+        }
+
+        fs::create_directories(tex_dir);
+        fs::path out_name = sanitize_filename(slot_name) + src.extension().string();
+        fs::path out_path = tex_dir / out_name;
+        fs::copy_file(src, out_path, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            std::fprintf(stderr, "warning: could not copy texture '%s': %s\n",
+                         src.string().c_str(), ec.message().c_str());
+            cache[ref] = {};
+            return {};
+        }
+        relative = tex_ref_prefix + out_name.string();
+    }
+
+    cache[ref] = relative;
+    return relative;
+}
+
+} // namespace
+
+/// Export textures and a .fjmat per referenced material slot. Appends every
+/// file written to output_files.
+static void export_materials(const aiScene* scene,
+                             const std::string& input_path,
+                             const std::string& output_path,
+                             const ImportSettings& settings,
+                             std::vector<std::string>& output_files) {
+    namespace fs = std::filesystem;
+
+    // Only materials some mesh actually uses — importers synthesize an unused
+    // default slot that would otherwise produce a junk .fjmat.
+    std::vector<bool> referenced(scene->mNumMaterials, false);
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+        unsigned int slot = scene->mMeshes[m]->mMaterialIndex;
+        if (slot < referenced.size()) referenced[slot] = true;
+    }
+
+    fs::path out_dir = fs::path(output_path).parent_path();
+    std::string stem = fs::path(output_path).stem().string();
+    fs::path source_dir = fs::path(input_path).parent_path();
+
+    // The runtime resolves .fjmat texture paths against the project root, so
+    // textures go in a project-relative directory and are referenced that way.
+    // Without a known root, fall back to a folder beside the mesh.
+    bool have_root = !settings.project_root.empty();
+    fs::path tex_dir;
+    std::string tex_ref_prefix;
+    if (have_root) {
+        fs::path relative_dir = fs::path(settings.texture_dir) / stem;
+        tex_dir = fs::path(settings.project_root) / relative_dir;
+        tex_ref_prefix = relative_dir.generic_string() + "/";
+    } else {
+        tex_dir = out_dir / "textures";
+        tex_ref_prefix = "textures/";
+    }
+
+    std::unordered_map<std::string, std::string> texture_cache;
+    uint32_t material_count = 0;
+
+    for (unsigned int m = 0; m < scene->mNumMaterials; ++m) {
+        if (!referenced[m]) continue;
+
+        const aiMaterial* mat = scene->mMaterials[m];
+        fjell::MaterialAsset asset;
+        asset.shader = "shaders/standard.fjsl";
+
+        for (const auto& slot : TEXTURE_SLOTS) {
+            if (asset.textures.contains(slot.fjmat_name)) continue; // first match wins
+            if (mat->GetTextureCount(slot.type) == 0) continue;
+
+            aiString tex_path;
+            if (mat->GetTexture(slot.type, 0, &tex_path) != AI_SUCCESS) continue;
+
+            std::string reference = export_texture(scene, tex_path.C_Str(), slot.fjmat_name,
+                                                   source_dir, tex_dir, tex_ref_prefix,
+                                                   texture_cache);
+            if (reference.empty()) continue;
+
+            asset.textures[slot.fjmat_name] = reference;
+
+            std::string written = have_root
+                ? (fs::path(settings.project_root) / reference).string()
+                : (out_dir / reference).string();
+            if (std::find(output_files.begin(), output_files.end(), written) == output_files.end()) {
+                output_files.push_back(written);
+            }
+        }
+
+        if (asset.textures.empty()) continue; // nothing worth writing
+
+        // Name after the mesh so assets stay greppable — source material names
+        // are often generator UUIDs. Suffix only when there is more than one.
+        std::string name = stem;
+        if (material_count > 0) name += "_" + std::to_string(material_count);
+        ++material_count;
+
+        fs::path mat_path = out_dir / (name + ".fjmat");
+        try {
+            fjell::save_material_asset(mat_path.string(), asset);
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "warning: could not write %s: %s\n",
+                         mat_path.string().c_str(), e.what());
+            continue;
+        }
+        output_files.push_back(mat_path.string());
+    }
+}
+
 static void print_usage(const char* prog) {
     std::fprintf(stderr,
         "usage: %s <input.glb|gltf|fbx> [-o output.fjmesh] [--settings path.json] [--json-progress]\n",
@@ -1302,6 +1515,11 @@ int main(int argc, char* argv[]) {
             return 1;
         }
         output_files.push_back(output_path);
+    }
+
+    if (settings.import_textures && scene->mNumMaterials > 0) {
+        progress("textures", 95, "Exporting textures and materials...");
+        export_materials(scene, input_path, output_path, settings, output_files);
     }
 
     if (use_json_progress) {
