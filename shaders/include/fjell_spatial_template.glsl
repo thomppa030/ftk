@@ -324,6 +324,25 @@ void main() {
             case DEBUG_LIGHT_CHANNEL_DDGI:         color = gi_sample; break;
             case DEBUG_LIGHT_CHANNEL_SSGI:         color = ss_gi_sample; break;
             case DEBUG_LIGHT_CHANNEL_EMISSIVE:     color = EMISSION; break;
+            // screen_ao, not final_ao: this isolates the GTAO output without
+            // the material's own AO term folded in.
+            case DEBUG_LIGHT_CHANNEL_AO_RAW:       color = vec3(screen_ao); break;
+            case DEBUG_LIGHT_CHANNEL_AO_UV:        color = vec3(fract(ao_uv), 0.0); break;
+            case DEBUG_LIGHT_CHANNEL_AO_TEXELS: {
+                vec2 ao_size = vec2(textureSize(ao_texture, 0));
+                vec2 texel = floor(ao_uv * ao_size);
+                float v = texelFetch(ao_texture, ivec2(clamp(texel, vec2(0.0), ao_size - 1.0)), 0).r;
+                float parity = mod(texel.x + texel.y, 2.0);
+                color = vec3(v) * mix(0.65, 1.0, parity);
+                break;
+            }
+            case DEBUG_LIGHT_CHANNEL_DEPTH_RECON: {
+                float lz = length(ubo.camera_position.xyz - frag_world_pos);
+                color = vec3(fract(lz * 0.1), fract(lz * 0.01), fract(lz * 0.001));
+                break;
+            }
+            case DEBUG_LIGHT_CHANNEL_NORMAL_RECON: color = N * 0.5 + 0.5; break;
+            case DEBUG_LIGHT_CHANNEL_AO_APPLIED:   color = ambient; break;
         }
     }
 

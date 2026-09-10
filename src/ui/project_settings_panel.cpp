@@ -240,7 +240,8 @@ void ProjectSettingsPanel::draw_render_section() {
 // isolated lighting term so each additive contribution (direct light, IBL
 // diffuse/specular, DDGI, SS-GI, emissive) can be inspected on its own.
 void ProjectSettingsPanel::draw_debug_section() {
-    if (!ImGui::CollapsingHeader("Debug: Lighting Channels")) {
+    if (!ImGui::CollapsingHeader("Debug: Lighting Channels",
+                                 ImGuiTreeNodeFlags_DefaultOpen)) {
         return;
     }
     ImGui::TextWrapped("Replaces the final pixel color with one isolated "
@@ -254,11 +255,24 @@ void ProjectSettingsPanel::draw_debug_section() {
         "DDGI indirect",
         "SS-GI indirect",
         "Emissive",
+        "AO: raw (screen-space AO)",
+        "AO: lookup UV (red/green ramp)",
+        "AO: texel grid (checker per AO texel)",
+        "AO: depth input (banded)",
+        "AO: surface normal",
+        "AO: applied to ambient",
     };
     int channel = vk_->debug_light_channel();
     if (ImGui::Combo("Channel", &channel, kChannelNames,
                      static_cast<int>(std::size(kChannelNames)))) {
         vk_->set_debug_light_channel(channel);
+    }
+
+    if (channel >= static_cast<int>(DebugLightChannel::AoRaw)) {
+        ImGui::TextWrapped("AO chain, in pipeline order. Step through these to "
+                           "find the first stage where an artifact appears: "
+                           "depth input -> surface normal -> raw AO -> lookup "
+                           "UV / texel grid -> applied to ambient.");
     }
 
     ImGui::Separator();

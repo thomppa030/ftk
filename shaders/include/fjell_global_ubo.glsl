@@ -36,5 +36,13 @@ layout(set = SET, binding = BIND) uniform GlobalUbo {                          \
 #define DEBUG_LIGHT_CHANNEL_DDGI           4
 #define DEBUG_LIGHT_CHANNEL_SSGI           5
 #define DEBUG_LIGHT_CHANNEL_EMISSIVE       6
+/* AO chain, in pipeline order — each isolates one link so an artifact can be
+   traced to the stage that introduces it. */
+#define DEBUG_LIGHT_CHANNEL_AO_RAW         7  /* ao_texture as sampled, greyscale */
+#define DEBUG_LIGHT_CHANNEL_AO_UV          8  /* ao_uv as red/green, checks the lookup mapping */
+#define DEBUG_LIGHT_CHANNEL_AO_TEXELS      9  /* ao_texture magnified per-texel, exposes half-res grid */
+#define DEBUG_LIGHT_CHANNEL_DEPTH_RECON   10 /* linear depth GTAO reconstructs from */
+#define DEBUG_LIGHT_CHANNEL_NORMAL_RECON  11 /* geometric normal from the G-buffer */
+#define DEBUG_LIGHT_CHANNEL_AO_APPLIED    12 /* ambient after AO, the composited result */
 
 #endif // FJELL_GLOBAL_UBO_GLSL

@@ -200,6 +200,31 @@ void main() {
             case DEBUG_LIGHT_CHANNEL_DDGI:         color = gi_sample; break;
             case DEBUG_LIGHT_CHANNEL_SSGI:         color = ss_gi_sample; break;
             case DEBUG_LIGHT_CHANNEL_EMISSIVE:     color = emissive; break;
+            case DEBUG_LIGHT_CHANNEL_AO_RAW:       color = vec3(ao); break;
+            case DEBUG_LIGHT_CHANNEL_AO_UV:        color = vec3(fract(ao_uv), 0.0); break;
+            case DEBUG_LIGHT_CHANNEL_AO_TEXELS: {
+                // Nearest-tap the AO texture on its own texel grid, then tint
+                // by texel parity. A clean checker means the lookup lands on
+                // the grid; smeared or drifting cells mean the UV mapping is
+                // off, independent of what the AO values themselves are.
+                vec2 ao_size = vec2(textureSize(ao_texture, 0));
+                vec2 texel = floor(ao_uv * ao_size);
+                float v = texelFetch(ao_texture, ivec2(clamp(texel, vec2(0.0), ao_size - 1.0)), 0).r;
+                float parity = mod(texel.x + texel.y, 2.0);
+                color = vec3(v) * mix(0.65, 1.0, parity);
+                break;
+            }
+            case DEBUG_LIGHT_CHANNEL_DEPTH_RECON: {
+                // View-space depth of this fragment, banded at three scales so
+                // both fine and coarse depth structure stay visible. GTAO
+                // derives its view positions from the same quantity, so
+                // banding that appears here is already in the depth input.
+                float lz = length(ubo.camera_position.xyz - frag_world_pos);
+                color = vec3(fract(lz * 0.1), fract(lz * 0.01), fract(lz * 0.001));
+                break;
+            }
+            case DEBUG_LIGHT_CHANNEL_NORMAL_RECON: color = N * 0.5 + 0.5; break;
+            case DEBUG_LIGHT_CHANNEL_AO_APPLIED:   color = ambient; break;
         }
     }
 

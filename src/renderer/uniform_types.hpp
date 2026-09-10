@@ -45,6 +45,14 @@ enum class DebugLightChannel : int {
     DdgiIndirect  = 4, // gi_indirect sample, pre-intensity-multiply
     SsGiIndirect  = 5, // ss_gi_indirect sample, pre-intensity-multiply
     Emissive      = 6,
+    // AO chain, in pipeline order — each isolates one link so an artifact can
+    // be traced to the stage that introduces it.
+    AoRaw         = 7,  // ao_texture as sampled, greyscale
+    AoUv          = 8,  // ao_uv as red/green, checks the lookup mapping
+    AoTexels      = 9,  // ao_texture magnified per-texel, exposes half-res grid
+    DepthRecon    = 10, // linear depth GTAO reconstructs from
+    NormalRecon   = 11, // geometric normal from the G-buffer
+    AoApplied     = 12, // ambient after AO, the composited result
 };
 
 struct DirectionalLight {
