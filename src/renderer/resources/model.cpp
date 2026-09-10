@@ -388,7 +388,8 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     // Read v4+ SDF fields if present
     if (header.version >= 4) {
         constexpr size_t V4_START = offsetof(FjMeshHeader, sdf_resolution);
-        size_t v4_size = sizeof(FjMeshHeader) - V4_START;
+        constexpr size_t V4_END = offsetof(FjMeshHeader, material_slot_count);
+        size_t v4_size = V4_END - V4_START;
         auto* v4_ptr = reinterpret_cast<char*>(&header) + V4_START;
         if (std::fread(v4_ptr, v4_size, 1, f) != 1) {
             std::fclose(f);
