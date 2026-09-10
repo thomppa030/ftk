@@ -2,8 +2,6 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
-#define FJELL_DDGI_SLOT_GRID_BINDING 6
-#define FJELL_DDGI_TRACE_LIST_BINDING 7
 #include "fjell_ddgi.glsl"
 
 // ── Bindings ────────────────────────────────────────────────────────────
@@ -61,23 +59,17 @@ void main() {
     int ray_index = int(gl_GlobalInvocationID.x);
     if (ray_index >= ddgi.probe_rays) return;
 
-    // The dispatch row indexes this frame's compacted list of live probes,
-    // not the slot pool: with demand-driven allocation most slots are empty,
-    // so a slot-indexed dispatch launches mostly-idle invocations.
-    int trace_index = int(gl_GlobalInvocationID.y) + ddgi.probe_update_offset;
-    if (trace_index >= int(ddgi_trace_count)) return;
-
-    int probe_index = int(ddgi_trace_slots[trace_index]);
-    if (probe_index >= ddgi_total_probes()) return;
+    int probe_index = int(gl_GlobalInvocationID.y) + ddgi.probe_update_offset;
+    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+    if (probe_index >= total_probes) return;
 
     // Skip inactive probes
     uint status = probe_status[probe_index];
     if (status == PROBE_STATUS_OFF) return;
 
     // Probe world position
-    ivec3 grid_indices = ddgi_slot_to_grid(probe_index);
-    int probe_level = ddgi_slot_to_level(probe_index);
-    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_level, probe_index, probe_offset_tex, true);
+    ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
+    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
 
     // Ray direction: jittered spherical Fibonacci
     vec3 direction = normalize(mat3(ddgi.random_rotation) * spherical_fibonacci(float(ray_index), float(ddgi.probe_rays)));
@@ -86,7 +78,7 @@ void main() {
     float origin_sdf = sample_scene_sdf(ray_origin);
     if (origin_sdf < -MIN_DIST) {
         // Inside geometry — record negative distance for backface detection
-        imageStore(radiance_out, ivec2(ray_index, trace_index - ddgi.probe_update_offset),
+        imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset),
                    vec4(0.0, 0.0, 0.0, origin_sdf));
         return;
     }
@@ -129,6 +121,6 @@ void main() {
         distance = MAX_TRACE_DIST;
     }
 
-    imageStore(radiance_out, ivec2(ray_index, trace_index - ddgi.probe_update_offset),
+    imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset),
                vec4(radiance, distance));
 }

@@ -27,7 +27,6 @@ layout(std140, set = 0, binding = 14) uniform ReflectionConstants {
 
 // ── DDGI atlases for hit-point indirect ────────────────────────────────
 
-#define FJELL_DDGI_INDIRECTION_BINDING 15
 #include "fjell_ddgi.glsl"
 
 #include "fjell_common.glsl"
@@ -86,36 +85,27 @@ vec2 get_vertex_texcoord(uint vertex_index) {
 // ── DDGI 8-probe trilinear sampling (mirrors ddgi_sample_irradiance.comp) ──
 
 vec3 sample_ddgi_irradiance(vec3 world_pos, vec3 normal) {
-    // Secondary-bounce lookup, so a fixed mid-range dither is enough: this
-    // result is averaged over many rays before it reaches a pixel, which
-    // smooths the level transition without needing per-pixel noise.
-    int level = ddgi_select_level(world_pos, 0.5);
-    if (level < 0) return vec3(0.0);
-
     vec3 Wo = normalize(ddgi.camera_position - world_pos);
-    // Normal-leaning, cell-scaled bias (see ddgi_sample_irradiance.comp).
-    float cell = ddgi_level_cell_size(level);
+    // Normal-leaning, spacing-scaled bias (see ddgi_sample_irradiance.comp).
+    float cell = min(ddgi.probe_spacing.x, min(ddgi.probe_spacing.y, ddgi.probe_spacing.z));
     vec3 bias_vector = (normal * ddgi.normal_bias + Wo * ddgi.view_bias) * cell;
     vec3 biased_pos = world_pos + bias_vector;
 
     // Cage cell + trilinear from the UNBIASED position; bias only feeds the
     // visibility distance (see ddgi_sample_irradiance.comp).
-    ivec3 base_grid = ddgi_world_to_grid(world_pos, level);
-    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid, level);
-    vec3 alpha = clamp((world_pos - base_world) / cell, vec3(0.0), vec3(1.0));
+    ivec3 base_grid = ddgi_world_to_grid(world_pos);
+    vec3 base_world = ddgi_grid_to_world_no_offsets(base_grid);
+    vec3 alpha = clamp((world_pos - base_world) * ddgi.reciprocal_spacing, vec3(0.0), vec3(1.0));
 
     vec3 sum_irradiance = vec3(0.0);
     float sum_weight = 0.0;
 
     for (int i = 0; i < 8; ++i) {
         ivec3 offset = ivec3(i, i >> 1, i >> 2) & ivec3(1);
-        ivec3 probe_grid = base_grid + offset;
-        if (!ddgi_grid_covered(probe_grid)) continue;
+        ivec3 probe_grid = clamp(base_grid + offset, ivec3(0), ddgi.probe_counts - ivec3(1));
+        int probe_idx = ddgi_grid_to_probe_index(probe_grid);
 
-        int probe_idx = ddgi_grid_to_slot(probe_grid, level);
-        if (probe_idx < 0) continue;
-
-        vec3 probe_pos = ddgi_grid_to_world(probe_grid, level, probe_idx, probe_offset_tex, true);
+        vec3 probe_pos = ddgi_grid_to_world(probe_grid, probe_idx, probe_offset_tex, true);
         vec3 trilinear = mix(1.0 - alpha, alpha, offset);
         float weight = 1.0;
 

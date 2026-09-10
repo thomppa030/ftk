@@ -1,8 +1,6 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 
-#define FJELL_DDGI_SLOT_GRID_BINDING 12
-#define FJELL_DDGI_TRACE_LIST_BINDING 14
 #include "fjell_ddgi.glsl"
 
 // ── Bindings ────────────────────────────────────────────────────────────
@@ -57,19 +55,13 @@ void main() {
     int ray_index = int(gl_LaunchIDEXT.x);
     if (ray_index >= ddgi.probe_rays) return;
 
-    // The dispatch row indexes this frame's compacted list of live probes,
-    // not the slot pool: with demand-driven allocation most slots are empty,
-    // so a slot-indexed dispatch launches mostly-idle rays.
-    int trace_index = int(gl_LaunchIDEXT.y) + ddgi.probe_update_offset;
-    if (trace_index >= int(ddgi_trace_count)) return;
-
-    int probe_index = int(ddgi_trace_slots[trace_index]);
-    if (probe_index >= ddgi_total_probes()) return;
+    int probe_index = int(gl_LaunchIDEXT.y) + ddgi.probe_update_offset;
+    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
+    if (probe_index >= total_probes) return;
 
     // Probe world position
-    ivec3 grid_indices = ddgi_slot_to_grid(probe_index);
-    int probe_level = ddgi_slot_to_level(probe_index);
-    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_level, probe_index, probe_offset_tex, true);
+    ivec3 grid_indices = ddgi_probe_index_to_grid(probe_index);
+    vec3 ray_origin = ddgi_grid_to_world(grid_indices, probe_index, probe_offset_tex, true);
 
     // Burial test from the SDF, re-evaluated EVERY frame so a probe revives the
     // moment it is no longer inside geometry. This is the burial authority — we
@@ -81,7 +73,7 @@ void main() {
     // A buried probe records a negative distance (no radiance) on every ray so
     // the offset/status passes relocate it out, matching the SDF trace backend.
     if (sample_scene_sdf(ray_origin) < -SDF_BURIAL_MARGIN) {
-        imageStore(radiance_out, ivec2(ray_index, trace_index - ddgi.probe_update_offset),
+        imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset),
                    vec4(0.0, 0.0, 0.0, -1.0));
         return;
     }
@@ -109,6 +101,6 @@ void main() {
         0            // payload location
     );
 
-    imageStore(radiance_out, ivec2(ray_index, trace_index - ddgi.probe_update_offset),
+    imageStore(radiance_out, ivec2(ray_index, probe_index - ddgi.probe_update_offset),
                payload);
 }

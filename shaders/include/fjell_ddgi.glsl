@@ -9,19 +9,6 @@
 // Mirrors fjell::DdgiConstants on the C++ side. Every DDGI / RT shader binds
 // it at the same slot (set 0, binding 0 by default).
 
-// Must match fjell::DDGI_MAX_CLIPMAP_LEVELS (core/math/ddgi_clipmap.hpp) —
-// the UBO reserves a slot per level whether or not it is in use, so this
-// is part of the shared layout, not just a loop bound.
-#define DDGI_MAX_CLIPMAP_LEVELS 4
-
-// Sentinel in a slot's level field: no cell points at this slot, so it
-// backs nothing and can be skipped entirely.
-#define DDGI_SLOT_UNALLOCATED 0xFFFFFFFFu
-
-// A slot with no row in this frame's trace list: it was not traced, so
-// there is no radiance for the update passes to read.
-#define DDGI_NO_TRACE_ROW 0xFFFFFFFFu
-
 #ifndef FJELL_DDGI_UBO_SET
 #define FJELL_DDGI_UBO_SET 0
 #endif
@@ -42,60 +29,7 @@ layout(std140, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_UBO_BINDING) unifo
     vec3 camera_position;      float pad1;
     mat4 inv_view_proj;
     vec2 resolution;           float view_bias; float pad3;
-    // xyz = level's snapped origin, w = its cell size (uniform per level).
-    vec4 clipmap_origin_cell_size[DDGI_MAX_CLIPMAP_LEVELS];
-    int clipmap_level_count;   float inv_clipmap_fade_cells;
-    float pad4; float pad5;
 } ddgi;
-
-/// Probes on a single level.
-int ddgi_probes_per_level() {
-    return ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
-}
-
-/// Total probe slots across every active level. The atlas is one pool that
-/// all levels draw from, so this — not the per-level count — is what bounds
-/// a slot index and sizes the round-robin update.
-int ddgi_total_probes() {
-    return ddgi_probes_per_level() * ddgi.clipmap_level_count;
-}
-
-vec3 ddgi_level_origin(int level) {
-    return ddgi.clipmap_origin_cell_size[level].xyz;
-}
-
-float ddgi_level_cell_size(int level) {
-    return ddgi.clipmap_origin_cell_size[level].w;
-}
-
-/// Level-relative grid coordinate as a float, before flooring. Lumen's
-/// GetRadianceProbeCoordFloat.
-vec3 ddgi_world_to_grid_float(vec3 world_pos, int level) {
-    return (world_pos - ddgi_level_origin(level)) / ddgi_level_cell_size(level);
-}
-
-/// Normalized distance from this level's nearest face, in cells, clamped
-/// to [0,1]. Lumen's EdgeFade in GetRadianceProbeClipmap.
-float ddgi_level_edge_fade(vec3 world_pos, int level) {
-    vec3 coord = ddgi_world_to_grid_float(world_pos, level);
-    vec3 low = clamp((coord - 0.5) * ddgi.inv_clipmap_fade_cells, 0.0, 1.0);
-    vec3 high = clamp((vec3(ddgi.probe_counts) - 0.5 - coord)
-                      * ddgi.inv_clipmap_fade_cells, 0.0, 1.0);
-    return min(min(low.x, min(low.y, low.z)), min(high.x, min(high.y, high.z)));
-}
-
-/// Finest level covering this position, or -1 if none does. `dither`
-/// should vary per pixel and per frame: near a level's boundary the
-/// choice between it and the next coarser level becomes stochastic, and
-/// temporal accumulation resolves that into a soft transition. Lumen
-/// deliberately does NOT blend two levels' irradiance together — see
-/// GetRadianceProbeClipmap.
-int ddgi_select_level(vec3 world_pos, float dither) {
-    for (int i = 0; i < ddgi.clipmap_level_count; ++i) {
-        if (ddgi_level_edge_fade(world_pos, i) > dither) return i;
-    }
-    return -1;
-}
 
 // ── Perceptual irradiance encoding ──────────────────────────────────────
 // Probe irradiance is stored gamma-compressed so the temporal hysteresis
@@ -191,68 +125,24 @@ int get_probe_index_from_pixels(ivec2 pixels, int probe_with_border_side, int fu
 // ── Probe grid coordinate system ────────────────────────────────────────
 // Uses the DDGIConstants UBO declared above.
 
-// Slot -> grid coordinate. With a clipmap, a probe slot is a pool entry
-// whose world cell changes as the level shifts, so the mapping is stored
-// rather than derived from the slot index. Shaders that need it declare
-// FJELL_DDGI_SLOT_GRID_BINDING before including this header; those that
-// only address atlases by slot don't need the buffer at all.
-#ifdef FJELL_DDGI_SLOT_GRID_BINDING
-layout(std430, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_SLOT_GRID_BINDING) readonly buffer DdgiSlotGrid {
-    uvec4 ddgi_slot_grid[];
-};
-
-ivec3 ddgi_slot_to_grid(int probe_index) {
-    return ivec3(ddgi_slot_grid[probe_index].xyz);
+ivec3 ddgi_probe_index_to_grid(int probe_index) {
+    int px = probe_index % ddgi.probe_counts.x;
+    int pxy = ddgi.probe_counts.x * ddgi.probe_counts.y;
+    int py = (probe_index % pxy) / ddgi.probe_counts.x;
+    int pz = probe_index / pxy;
+    return ivec3(px, py, pz);
 }
 
-/// Which clipmap level a slot currently belongs to, or
-/// DDGI_SLOT_UNALLOCATED if no cell points at it right now. Stored
-/// alongside the grid coordinate, since a slot's level is as dynamic as
-/// its position.
-int ddgi_slot_to_level(int probe_index) {
-    return int(ddgi_slot_grid[probe_index].w);
+int ddgi_grid_to_probe_index(ivec3 coords) {
+    return coords.x + coords.y * ddgi.probe_counts.x
+         + coords.z * ddgi.probe_counts.x * ddgi.probe_counts.y;
 }
 
-/// True if this slot currently backs a cell some consumer marked. With
-/// demand-driven allocation most of the pool is idle, so the trace and
-/// update passes check this before spending rays on a slot.
-bool ddgi_slot_allocated(int probe_index) {
-    return ddgi_slot_grid[probe_index].w != DDGI_SLOT_UNALLOCATED;
-}
-#endif
-
-// Compacted list of the slots holding a probe this frame. The trace
-// dispatches over this rather than over a range of slot indices: with
-// demand-driven allocation most of the pool is empty at any moment, so a
-// slot-indexed window launches mostly-idle invocations. Mirrors Lumen's
-// ProbeTraceData, built by ddgi_clipmap_alloc.comp.
-#ifdef FJELL_DDGI_TRACE_LIST_BINDING
-layout(std430, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_TRACE_LIST_BINDING) readonly buffer DdgiTraceList {
-    uint ddgi_trace_count;
-    uint ddgi_trace_slots[];
-};
-#endif
-
-// slot -> its row in the trace list. The update passes walk the atlas, so
-// they start from a slot and need the row, the opposite direction from the
-// trace itself.
-#ifdef FJELL_DDGI_SLOT_ROW_BINDING
-layout(std430, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_SLOT_ROW_BINDING) readonly buffer DdgiSlotTraceRow {
-    uint ddgi_slot_trace_row[];
-};
-
-/// Row holding this slot's radiance this frame, or -1 if it was not traced.
-int ddgi_slot_row(int probe_index) {
-    uint row = ddgi_slot_trace_row[probe_index];
-    return (row == DDGI_NO_TRACE_ROW) ? -1 : int(row);
-}
-#endif
-
-vec3 ddgi_grid_to_world_no_offsets(ivec3 grid_indices, int level) {
-    return vec3(grid_indices) * ddgi_level_cell_size(level) + ddgi_level_origin(level);
+vec3 ddgi_grid_to_world_no_offsets(ivec3 grid_indices) {
+    return vec3(grid_indices) * ddgi.probe_spacing + ddgi.probe_grid_position;
 }
 
-vec3 ddgi_grid_to_world(ivec3 grid_indices, int level, int probe_index,
+vec3 ddgi_grid_to_world(ivec3 grid_indices, int probe_index,
                         sampler2D probe_offset_tex, bool use_offsets) {
     vec3 offset = vec3(0.0);
     if (use_offsets) {
@@ -260,68 +150,13 @@ vec3 ddgi_grid_to_world(ivec3 grid_indices, int level, int probe_index,
         ivec2 offset_coord = ivec2(probe_index % pxy, probe_index / pxy);
         offset = texelFetch(probe_offset_tex, offset_coord, 0).rgb;
     }
-    return ddgi_grid_to_world_no_offsets(grid_indices, level) + offset;
+    return ddgi_grid_to_world_no_offsets(grid_indices) + offset;
 }
 
-// Level-relative grid coordinate for a world position. Uses floor rather
-// than truncation so cells below the origin land in the cell below, not
-// the same one as their positive mirror. NOT clamped: a position outside
-// the level has no probe, and clamping it to an edge probe is what made
-// out-of-bounds content pick up a fixed, wrong probe's lighting. Callers
-// check ddgi_grid_covered() and fall back instead.
-ivec3 ddgi_world_to_grid(vec3 world_pos, int level) {
-    return ivec3(floor(ddgi_world_to_grid_float(world_pos, level)));
+ivec3 ddgi_world_to_grid(vec3 world_pos) {
+    return clamp(ivec3((world_pos - ddgi.probe_grid_position) * ddgi.reciprocal_spacing),
+                 ivec3(0), ddgi.probe_counts - ivec3(1));
 }
-
-bool ddgi_grid_covered(ivec3 grid_coord) {
-    return all(greaterThanEqual(grid_coord, ivec3(0)))
-        && all(lessThan(grid_coord, ddgi.probe_counts));
-}
-
-// Grid coordinate -> probe slot, via the indirection texture the clipmap
-// reallocation pass maintains. Shaders declare
-// FJELL_DDGI_INDIRECTION_BINDING before including this header.
-// No probe is assigned to this cell. Matches Lumen's INVALID_PROBE_INDEX
-// (LumenRadianceCacheMarkCommon.ush) — the indirection texture is cleared
-// to this every time it is rebuilt, so a cell nothing claims reads as
-// unassigned rather than holding a stale slot from an earlier mapping.
-#define DDGI_INVALID_PROBE 0xFFFFFFFFu
-
-// Consumers bind this readonly; the mark pass defines
-// FJELL_DDGI_INDIRECTION_WRITABLE to stamp USED into it.
-#ifdef FJELL_DDGI_INDIRECTION_WRITABLE
-#define FJELL_DDGI_INDIRECTION_QUALIFIER
-#else
-#define FJELL_DDGI_INDIRECTION_QUALIFIER readonly
-#endif
-
-#ifdef FJELL_DDGI_INDIRECTION_BINDING
-layout(r32ui, set = FJELL_DDGI_UBO_SET, binding = FJELL_DDGI_INDIRECTION_BINDING)
-    uniform FJELL_DDGI_INDIRECTION_QUALIFIER uimage3D ddgi_indirection;
-
-/// Indirection texel for a level-relative coordinate. Levels are packed
-/// side by side along X, matching Lumen's
-/// `ProbeCoord.x + ClipmapIndex * Resolution`
-/// (LumenRadianceCacheInterpolation.ush).
-ivec3 ddgi_indirection_coord(ivec3 grid_coord, int level) {
-    return ivec3(grid_coord.x + level * ddgi.probe_counts.x, grid_coord.y, grid_coord.z);
-}
-
-/// Probe slot for a grid coordinate on a level, or -1 if none is assigned.
-int ddgi_grid_to_slot(ivec3 grid_coord, int level) {
-    uint slot = imageLoad(ddgi_indirection, ddgi_indirection_coord(grid_coord, level)).r;
-    if (slot == DDGI_INVALID_PROBE) return -1;
-
-    // Slots are global across levels: the atlas is one pool that every
-    // level draws from, so the bound is the whole pool, not one level's
-    // share of it.
-    uint total = uint(ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z
-                      * ddgi.clipmap_level_count);
-    if (slot >= total) return -1;
-
-    return int(slot);
-}
-#endif
 
 // ── Probe status constants ──────────────────────────────────────────────
 

@@ -3,7 +3,6 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
-#include "core/math/ddgi_clipmap.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -21,50 +20,16 @@ enum class DdgiBackend : uint8_t {
     ray_traced,
 };
 
-/// Diagnostic views that replace the DDGI pass's indirect output. Values
-/// mirror the DDGI_DEBUG_* constants in ddgi_sample_irradiance.comp.
-enum class DdgiDebugMode : uint32_t {
-    Off = 0,
-    /// Which clipmap level each pixel selected: red / green / blue /
-    /// yellow for levels 0-3, black where no level covers the position.
-    ClipmapLevel = 1,
-    /// Whether the cage found usable probes: green where every cage probe
-    /// resolved to a slot, red where none did, and shades between. Black
-    /// means no level covered the pixel at all. Separates "outside the
-    /// clipmap" from "inside it but the indirection is empty or wrong".
-    ProbeValidity = 2,
-    /// The selected level's grid cell, hashed to a color — makes the cage
-    /// cell each pixel lands in directly visible, so blotches that follow
-    /// cell boundaries can be told apart from ones that don't.
-    GridCell = 3,
-};
-
 /// DDGI probe grid configuration.
-/// The grid is a camera-centered clipmap: it covers a fixed volume around the
-/// camera and follows it, snapping to its own cell grid so it shifts in whole
-/// cells and only when the camera crosses a cell boundary. Probes that still
-/// cover the same world cell after a shift keep their accumulated irradiance;
-/// only the newly-uncovered ones retrace. Changing probe_counts or
-/// probe_spacing resizes the level and discards everything, since both change
-/// which world position each probe stands for.
+/// The grid is auto-fitted to the scene SDF bounds once on first frame, then
+/// frozen. Changing grid_position or probe_spacing at runtime invalidates all
+/// accumulated irradiance (probes shift to new world positions). For streaming
+/// or procedural worlds, set bounds before the first frame or use a scrolling
+/// grid (not yet implemented).
 struct DdgiConfig {
-    // Cube-shaped, matching Lumen's clipmap levels (one ClipmapResolution
-    // for all three axes). The old 16x8x16 came from fitting the grid to
-    // scene bounds, where a squat box suited a floor-based scene; a
-    // camera-centered level has to reach as far above and below the camera
-    // as it does sideways, or tall geometry falls out of coverage.
-    glm::ivec3 probe_counts{16, 16, 16};
-    // Cell size of the finest level. Each level out doubles it, so with 4
-    // levels this reaches 32m / 64m / 128m / 256m across for 4x the probes
-    // of a single level — rather than the 512x a single level would need to
-    // cover the same volume at this density.
+    glm::ivec3 probe_counts{16, 8, 16};
     glm::vec3 probe_spacing{2.0f};
-    // Nested levels, coarser and larger further from the camera. 1 is a
-    // plain single grid. The outermost level is the hard limit of any GI:
-    // past it the cage has no probes and returns nothing, so this wants to
-    // be large enough to contain whatever the camera can normally see.
-    int clipmap_levels{4};
-    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // driven by the clipmap
+    glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // auto-fitted on first frame
     float hysteresis{0.95f};
     int probe_rays{128};
     // Octahedral texel resolution of one probe's own irradiance map — the
@@ -108,16 +73,9 @@ struct DdgiConfig {
     // Probes traced+updated per frame, round-robin (0 = all). Spreading the
     // 2048-probe update over several frames cuts the per-frame ray cost;
     // hysteresis hides the staggering.
-    int probes_per_frame_batch{1024};
-    // How many frames a probe survives after nothing marks it. Non-zero so
-    // a camera panning back and forth reuses probes instead of retracing
-    // what it just discarded; Lumen defaults to 8 for the same reason.
-    int frames_to_keep_unused_probes{8};
+    int probes_per_frame_batch{512};
     bool half_res_output{true};
     bool enabled{true};
-    // Diagnostic view replacing the indirect output. Runtime only — never
-    // saved with the project.
-    DdgiDebugMode debug_mode{DdgiDebugMode::Off};
 };
 
 /// GPU-side constants UBO (std140 layout).
@@ -132,8 +90,6 @@ struct GpuDdgiConstants {
     float self_shadow_bias;
 
     glm::ivec3 probe_counts;
-    // See DdgiDebugMode. 0 = off; nonzero replaces the pass's indirect
-    // output with a diagnostic image.
     uint32_t debug_options{0};
 
     int32_t irr_tex_w{0};
@@ -162,16 +118,6 @@ struct GpuDdgiConstants {
     glm::vec2 resolution;
     float view_bias{0.0f};     // sample bias toward the camera (× spacing)
     float pad3{0.0f};
-
-    // Per-level clipmap geometry. xyz = that level's snapped origin,
-    // w = its uniform cell size. Levels beyond level_count are unused but
-    // still occupy their slot so the std140 layout stays fixed.
-    glm::vec4 clipmap_origin_cell_size[DDGI_MAX_CLIPMAP_LEVELS];
-
-    int32_t clipmap_level_count{1};
-    float inv_clipmap_fade_cells{1.0f};
-    float pad4{0.0f};
-    float pad5{0.0f};
 };
 
 class DdgiPass : public RenderPass {
@@ -214,21 +160,6 @@ public:
         // Free list consumed by the reallocation pass: leading counter,
         // then one slot index per probe.
         std::unique_ptr<Buffer> free_list_buffer;
-
-        // Frame each slot was last marked as wanted, one uint per probe.
-        std::unique_ptr<Buffer> probe_last_used_buffer;
-
-        // This frame's live probes: leading count, then slot indices. The
-        // trace dispatches over the count rather than over the pool.
-        std::unique_ptr<Buffer> trace_list_buffer;
-
-        // slot -> row in trace_list_buffer, for the atlas-keyed passes.
-        std::unique_ptr<Buffer> slot_trace_row_buffer;
-
-        // Trace dispatch dimensions, written on the GPU from the live count.
-        std::unique_ptr<Buffer> trace_args_buffer;
-
-        VkDescriptorSet trace_args_set{VK_NULL_HANDLE};
 
         // Probe status SSBO (uint per probe)
         std::unique_ptr<Buffer> probe_status_buffer;
@@ -279,34 +210,6 @@ public:
         VkDescriptorSet rt_trace_set{VK_NULL_HANDLE};  // RT trace
         VkDescriptorSet update_set{VK_NULL_HANDLE};
         VkDescriptorSet sample_set{VK_NULL_HANDLE};
-        VkDescriptorSet alloc_set{VK_NULL_HANDLE};  // clipmap reallocation
-        VkDescriptorSet mark_set{VK_NULL_HANDLE};   // clipmap mark
-
-        // False until the reallocation pass has written both indirection
-        // images at least once; before that their contents are undefined
-        // and they have never been transitioned out of UNDEFINED.
-        bool indirection_initialized{false};
-
-        // This viewport's clipmap. Per-viewport, not per-pass: each viewport
-        // renders from its own camera and owns its own indirection texture
-        // and probe atlases, so it has to recenter on its own camera — a
-        // shared clipmap would place probes around one camera while another
-        // viewport sampled them. Matches Lumen, which stores the whole
-        // FRadianceCacheState (clipmap origins and the probe indirection
-        // texture together) in per-view state.
-        DdgiClipmap clipmap;
-
-        // Per level, the origin its indirection slice was last built for.
-        // Differs from that level's snapped_origin exactly when the slice
-        // still has to catch up — levels move independently, so a coarse
-        // level often needs no work on a frame where level 0 does.
-        glm::vec3 indirection_origin[DDGI_MAX_CLIPMAP_LEVELS]{};
-        bool level_needs_realloc[DDGI_MAX_CLIPMAP_LEVELS]{};
-
-        // True when any level needs rebuilding this frame, so the constants
-        // (which must widen the probe update to the whole pool) and the
-        // dispatch agree within one frame.
-        bool reallocated_this_frame{false};
 
         void create(VkDevice device, VmaAllocator allocator,
                      const DdgiConfig& config,
@@ -383,37 +286,6 @@ public:
         float pad4;
     };
 
-    /// Push constants for the clipmap reallocation shader. `phase` selects
-    /// which of the three dispatches this is; all run over the same cell
-    /// grid. `prev_origin` is the level origin the old mapping was built
-    /// for — the shader converts old cells to world positions with it, so
-    /// no cell-space delta has to be trusted across the boundary.
-    struct ClipmapAllocPushConstants {
-        glm::vec3 prev_origin;
-        uint32_t phase;
-        uint32_t full_reset;
-        int32_t level;
-        uint32_t frame_number;
-        uint32_t frames_to_keep;
-    };
-
-    /// Push constants for the mark pass — matches the sample pass's, since
-    /// it reconstructs world position from the same depth buffer at the
-    /// same resolution.
-    struct ClipmapMarkPushConstants {
-        uint32_t output_resolution_half;
-    };
-
-    /// Round-robin window the trace-args pass clamps the live count to.
-    struct TraceArgsPushConstants {
-        uint32_t update_offset;
-        uint32_t update_count;
-    };
-
-    static constexpr uint32_t ALLOC_PHASE_CLEAR = 0;
-    static constexpr uint32_t ALLOC_PHASE_REUSE = 1;
-    static constexpr uint32_t ALLOC_PHASE_ALLOC = 2;
-
     /// Max ray distance used in RT trace push constants.
     static constexpr float MAX_TRACE_DIST = 40.0f;
 
@@ -449,34 +321,6 @@ private:
     VkPipeline visibility_update_pipeline_{VK_NULL_HANDLE};
     VkPipeline probe_offset_pipeline_{VK_NULL_HANDLE};
     VkPipeline probe_status_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout alloc_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout alloc_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline clipmap_alloc_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout mark_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout mark_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline clipmap_mark_pipeline_{VK_NULL_HANDLE};
-
-    VkDescriptorSetLayout trace_args_set_layout_{VK_NULL_HANDLE};
-    VkPipelineLayout trace_args_pipeline_layout_{VK_NULL_HANDLE};
-    VkPipeline trace_args_pipeline_{VK_NULL_HANDLE};
-
-    // The clipmap level this pass traces. Pass-level rather than
-    // per-viewport: every viewport samples the same world probes, so the
-    // level follows the main camera and each viewport's atlases hold the
-    // accumulated irradiance for those same cells.
-    /// Move this viewport's clipmap to follow its camera, and republish the
-    /// resulting geometry into the config the UBO is built from. Returns
-    /// true if any level moved.
-    bool recenter_clipmap(Images& imgs, const glm::vec3& camera_position);
-
-    // World bounds of the coarsest clipmap level, cached from the last
-    // recenter. prepare_accel_structures() runs outside command recording
-    // and has no Images to hand, but needs the full stack's reach to decide
-    // which geometry DDGI rays can hit.
-    glm::vec3 clipmap_bounds_min_{-16.0f};
-    glm::vec3 clipmap_bounds_max_{16.0f};
 
     VkDescriptorSetLayout sample_set_layout_{VK_NULL_HANDLE};
     VkPipelineLayout sample_pipeline_layout_{VK_NULL_HANDLE};

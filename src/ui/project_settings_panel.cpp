@@ -202,34 +202,6 @@ void ProjectSettingsPanel::draw_debug_section() {
                      static_cast<int>(std::size(kChannelNames)))) {
         vk_->set_debug_light_channel(channel);
     }
-
-    ImGui::Separator();
-    ImGui::TextWrapped("DDGI clipmap: replaces the indirect output with what "
-                       "the clipmap resolved per pixel.");
-
-    static const char* kDdgiDebugNames[] = {
-        "Off",
-        "Clipmap level (R/G/B/Y = 0..3, black = uncovered)",
-        "Probe validity (green = cage found probes, red = none)",
-        "Grid cell (hashed per cage cell)",
-    };
-    auto& ddgi_cfg = vk_->ddgi_pass().config();
-    int ddgi_mode = static_cast<int>(ddgi_cfg.debug_mode);
-    if (ImGui::Combo("DDGI view", &ddgi_mode, kDdgiDebugNames,
-                     static_cast<int>(std::size(kDdgiDebugNames)))) {
-        ddgi_cfg.debug_mode = static_cast<DdgiDebugMode>(ddgi_mode);
-        // These colors mean nothing once they are multiplied by albedo and
-        // kD in the surface composite — a dark surface reads as "no data"
-        // when the lookup actually succeeded. Switching the channel with
-        // the view keeps the two in step instead of relying on the reader
-        // to remember the pairing.
-        if (ddgi_cfg.debug_mode != DdgiDebugMode::Off) {
-            vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::DdgiIndirect));
-        } else if (vk_->debug_light_channel()
-                   == static_cast<int>(DebugLightChannel::DdgiIndirect)) {
-            vk_->set_debug_light_channel(static_cast<int>(DebugLightChannel::Off));
-        }
-    }
 }
 
 } // namespace fjell

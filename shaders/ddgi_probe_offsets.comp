@@ -2,7 +2,6 @@
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 
-#define FJELL_DDGI_SLOT_ROW_BINDING 6
 #include "fjell_ddgi.glsl"
 
 layout(set = 0, binding = 1) uniform sampler2D radiance_tex;
@@ -15,14 +14,12 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
     int probe_index = int(gl_GlobalInvocationID.x);
-    int total_probes = ddgi_total_probes();
+    int total_probes = ddgi.probe_counts.x * ddgi.probe_counts.y * ddgi.probe_counts.z;
     if (probe_index >= total_probes) return;
 
     // Only update offsets for probes in the current batch
-    int trace_row = ddgi_slot_row(probe_index);
-    if (trace_row < 0
-        || trace_row < ddgi.probe_update_offset
-        || trace_row >= ddgi.probe_update_offset + ddgi.probe_update_count) return;
+    if (probe_index < ddgi.probe_update_offset ||
+        probe_index >= ddgi.probe_update_offset + ddgi.probe_update_count) return;
 
     int closest_backface_index = -1;
     float closest_backface_distance = 1e8;
@@ -36,7 +33,7 @@ void main() {
     int backfaces_count = 0;
 
     for (int ray_index = 0; ray_index < ddgi.probe_rays; ++ray_index) {
-        ivec2 ray_coord = ivec2(ray_index, trace_row - ddgi.probe_update_offset);
+        ivec2 ray_coord = ivec2(ray_index, probe_index - ddgi.probe_update_offset);
 
         float ray_distance = texelFetch(radiance_tex, ray_coord, 0).w;
 
@@ -57,13 +54,7 @@ void main() {
         }
     }
 
-    // Offsets are a fraction of the probe's OWN cell, not level 0's. Slots
-    // are allocated in per-level blocks, so the level follows from the slot
-    // index; scaling every probe by the fine level's spacing would barely
-    // move a coarse probe relative to its cell (and vice versa).
-    int probe_level = clamp(probe_index / ddgi_probes_per_level(),
-                            0, ddgi.clipmap_level_count - 1);
-    vec3 cell_offset_limit = vec3(ddgi.max_probe_offset * ddgi_level_cell_size(probe_level));
+    vec3 cell_offset_limit = ddgi.max_probe_offset * ddgi.probe_spacing;
 
     vec4 current_offset = vec4(0.0);
     if (first_frame == 0) {
