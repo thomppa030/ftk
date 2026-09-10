@@ -54,6 +54,35 @@ vec3 reconstruct_view_pos(ivec2 coord, float depth) {
     return vpos.xyz / vpos.w;
 }
 
+// The bound depth sampler is VK_FILTER_NEAREST, so filter manually rather
+// than relying on the sampler. Interpolating depth across a silhouette is
+// wrong, but the horizon march only needs a monotone estimate here and the
+// thickness test rejects samples that straddle a large discontinuity.
+float sample_depth_bilinear(vec2 full_coord) {
+    vec2 f = fract(full_coord);
+    ivec2 b = ivec2(floor(full_coord));
+    ivec2 hi = ivec2(full_viewport_size) - 1;
+    ivec2 c00 = clamp(b,               ivec2(0), hi);
+    ivec2 c10 = clamp(b + ivec2(1, 0), ivec2(0), hi);
+    ivec2 c01 = clamp(b + ivec2(0, 1), ivec2(0), hi);
+    ivec2 c11 = clamp(b + ivec2(1, 1), ivec2(0), hi);
+    float d00 = texelFetch(depth_texture, c00, 0).r;
+    float d10 = texelFetch(depth_texture, c10, 0).r;
+    float d01 = texelFetch(depth_texture, c01, 0).r;
+    float d11 = texelFetch(depth_texture, c11, 0).r;
+    return mix(mix(d00, d10, f.x), mix(d01, d11, f.x), f.y);
+}
+
+// Continuous-coordinate variant. full_coord is a full-res pixel coordinate
+// that need not land on a texel centre — the horizon march steps by fractional
+// pixel distances, and snapping those to texels quantises the sampled set into
+// visible depth-banded stripes.
+vec3 reconstruct_view_pos_f(vec2 full_coord, float depth) {
+    vec2 ndc = (full_coord + 0.5) / vec2(full_viewport_size) * 2.0 - 1.0;
+    vec4 vpos = ubo.inv_projection * vec4(ndc, depth, 1.0);
+    return vpos.xyz / vpos.w;
+}
+
 vec3 reconstruct_normal(vec3 vpos, ivec2 full_coord) {
     ivec2 cR = min(full_coord + ivec2(2, 0), ivec2(full_viewport_size) - 1);
     ivec2 cL = max(full_coord - ivec2(2, 0), ivec2(0));
@@ -100,9 +129,14 @@ void main() {
 
     vec3 viewPos = reconstruct_view_pos(full_coord, depth);
     vec3 viewNormal = reconstruct_normal(viewPos, full_coord);
+    // Horizons are searched against the view vector; the surface normal is
+    // applied afterwards when integrating the arc. Searching against the
+    // normal and then clamping to it again double-counts the normal.
+    vec3 viewDir = normalize(-viewPos);
 
     // Project world-space radius to screen pixels (half-res pixel space)
-    float screenRadius = (radius * 0.5 * float(viewport_size.y)) / abs(viewPos.z);
+    float pixelsPerWorldUnit = (0.5 * float(viewport_size.y)) / abs(viewPos.z);
+    float screenRadius = radius * pixelsPerWorldUnit;
     screenRadius = min(screenRadius, max_pixel_radius);
 
     float ao_strength = smoothstep(0.5, 1.5, screenRadius);
@@ -111,6 +145,10 @@ void main() {
         return;
     }
     screenRadius = max(screenRadius, 1.0);
+
+    // Screen-space clamps above can cap the march short of `radius`; measure
+    // rejection and falloff against the distance actually covered.
+    float worldRadius = screenRadius / max(pixelsPerWorldUnit, 1e-6);
 
     float noise = ign(vec2(coord));
     float stepSize = screenRadius / float(NUM_STEPS);
@@ -129,20 +167,26 @@ void main() {
 
         // March positive direction
         for (int step = 1; step <= NUM_STEPS; ++step) {
-            vec2 offset = direction * ((float(step) - 1.0 + stepJitter) * stepSize);
-            ivec2 halfCoord = ivec2(vec2(coord) + 0.5 + offset);
-            halfCoord = clamp(halfCoord, ivec2(0), ivec2(viewport_size) - 1);
+            // Enforce a minimum per-step separation (Unreal's
+            // max(SearchRadius * (fi + Offset), fi + 1)). Without it, a small
+            // stepSize puts every step on the same texel, the horizon search
+            // degenerates to one repeated sample, and AO goes flat — the
+            // plateaus that read as stripes across a receding surface.
+            float stepDist = max((float(step) - 1.0 + stepJitter) * stepSize,
+                                 float(step));
+            vec2 offset = direction * stepDist;
+            // Step in full-res pixels and sample without snapping to a texel.
+            vec2 fullCoord = vec2(to_full_res(coord)) + offset * 2.0;
+            fullCoord = clamp(fullCoord, vec2(0.0), vec2(full_viewport_size) - 1.0);
 
-            // Sample depth at full resolution
-            ivec2 sampleCoord = to_full_res(halfCoord);
-            float sampleDepth = texelFetch(depth_texture, sampleCoord, 0).r;
+            float sampleDepth = sample_depth_bilinear(fullCoord);
             if (sampleDepth >= 1.0) continue;
 
-            vec3 samplePos = reconstruct_view_pos(sampleCoord, sampleDepth);
+            vec3 samplePos = reconstruct_view_pos_f(fullCoord, sampleDepth);
             vec3 horizonVec = samplePos - viewPos;
             float horizonDist = length(horizonVec);
 
-            if (horizonDist < 1e-4 || horizonDist > radius) continue;
+            if (horizonDist < 1e-4 || horizonDist > worldRadius) continue;
 
             // Thickness rejection: ignore samples much further away than
             // the AO radius — they're behind the surface, not occluders.
@@ -152,10 +196,10 @@ void main() {
             float depthDiff = samplePos.z - viewPos.z;
             if (depthDiff < -thickness) continue;
 
-            float horizonCos = dot(horizonVec / horizonDist, viewNormal);
+            float horizonCos = dot(horizonVec / horizonDist, viewDir);
 
             // Distance falloff — attenuate samples near the radius edge
-            float falloff = clamp(1.0 - horizonDist / radius, 0.0, 1.0);
+            float falloff = clamp(1.0 - horizonDist / worldRadius, 0.0, 1.0);
 
             horizonCos = mix(-1.0, horizonCos, falloff);
             horizonCosPos = max(horizonCosPos, horizonCos);
@@ -163,20 +207,21 @@ void main() {
 
         // March negative direction
         for (int step = 1; step <= NUM_STEPS; ++step) {
-            vec2 offset = -direction * ((float(step) - 1.0 + stepJitter) * stepSize);
-            ivec2 halfCoord = ivec2(vec2(coord) + 0.5 + offset);
-            halfCoord = clamp(halfCoord, ivec2(0), ivec2(viewport_size) - 1);
+            float stepDist = max((float(step) - 1.0 + stepJitter) * stepSize,
+                                 float(step));
+            vec2 offset = -direction * stepDist;
+            // Step in full-res pixels and sample without snapping to a texel.
+            vec2 fullCoord = vec2(to_full_res(coord)) + offset * 2.0;
+            fullCoord = clamp(fullCoord, vec2(0.0), vec2(full_viewport_size) - 1.0);
 
-            // Sample depth at full resolution
-            ivec2 sampleCoord = to_full_res(halfCoord);
-            float sampleDepth = texelFetch(depth_texture, sampleCoord, 0).r;
+            float sampleDepth = sample_depth_bilinear(fullCoord);
             if (sampleDepth >= 1.0) continue;
 
-            vec3 samplePos = reconstruct_view_pos(sampleCoord, sampleDepth);
+            vec3 samplePos = reconstruct_view_pos_f(fullCoord, sampleDepth);
             vec3 horizonVec = samplePos - viewPos;
             float horizonDist = length(horizonVec);
 
-            if (horizonDist < 1e-4 || horizonDist > radius) continue;
+            if (horizonDist < 1e-4 || horizonDist > worldRadius) continue;
 
             // Thickness rejection: ignore samples much further from camera
             // than the current pixel (they're behind the surface).
@@ -184,9 +229,9 @@ void main() {
             float depthDiff = samplePos.z - viewPos.z;
             if (depthDiff < -thickness) continue;
 
-            float horizonCos = dot(horizonVec / horizonDist, viewNormal);
+            float horizonCos = dot(horizonVec / horizonDist, viewDir);
 
-            float falloff = clamp(1.0 - horizonDist / radius, 0.0, 1.0);
+            float falloff = clamp(1.0 - horizonDist / worldRadius, 0.0, 1.0);
 
             horizonCos = mix(-1.0, horizonCos, falloff);
             horizonCosNeg = max(horizonCosNeg, horizonCos);
@@ -196,16 +241,20 @@ void main() {
         float h1 = -fast_acos(horizonCosPos);
         float h2 =  fast_acos(horizonCosNeg);
 
-        // Project normal onto the slice plane to get the normal angle
+        // Project the normal onto the slice plane spanned by the search
+        // direction and the view vector, then measure its angle from the
+        // in-plane perpendicular (Unreal's Gamma in ComputeInnerIntegral).
         vec3 sliceDir = vec3(direction, 0.0);
-        vec3 projNormal = viewNormal - sliceDir * dot(viewNormal, sliceDir);
+        vec3 planeNormal = normalize(cross(sliceDir, viewDir));
+        vec3 perp = cross(viewDir, planeNormal);
+        vec3 projNormal = viewNormal - planeNormal * dot(viewNormal, planeNormal);
         float projLen = length(projNormal);
 
         float n_angle = 0.0;
         if (projLen > 1e-4) {
             projNormal /= projLen;
-            float cosNAngle = clamp(dot(projNormal, vec3(0.0, 0.0, -1.0)), -1.0, 1.0);
-            n_angle = -fast_acos(cosNAngle) + PI * 0.5;
+            float cosNAngle = clamp(dot(projNormal, perp), -1.0, 1.0);
+            n_angle = fast_acos(cosNAngle) - PI * 0.5;
         }
 
         // Clamp horizon angles to hemisphere around projected normal
