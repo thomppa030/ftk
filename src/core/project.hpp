@@ -24,6 +24,10 @@ struct ProjectConfig {
     std::string default_scene{"scenes/main.fjell"};
     std::string layout;
 
+    /// Where the importer writes textures it extracts from source models,
+    /// relative to the project root. Each model gets a subfolder.
+    std::string texture_import_dir{"assets/textures"};
+
     RenderSettings render;
 
     struct NetworkConfig {

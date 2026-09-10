@@ -55,6 +55,7 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
         config.name = j.value("name", "Untitled");
         config.default_scene = j.value("default_scene", "scenes/main.fjell");
         config.layout = j.value("layout", "");
+        config.texture_import_dir = j.value("texture_import_dir", "assets/textures");
         if (j.contains("render")) {
             from_json(j["render"], config.render);
         }
@@ -101,6 +102,7 @@ void Project::save() const {
     nlohmann::json j;
     j["name"] = config_.name;
     j["default_scene"] = config_.default_scene;
+    j["texture_import_dir"] = config_.texture_import_dir;
     if (!config_.layout.empty()) {
         j["layout"] = config_.layout;
     }
