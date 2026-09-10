@@ -227,7 +227,12 @@ void PropertiesPanel::draw() {
                         });
                     }
                     prop_row("Near", [&] {
-                        if (ImGui::DragFloat("##CamNear", &cam->near_plane, 0.01f, 0.001f, 100.0f)) {
+                        // Lower bound is a depth-precision floor, not a taste
+                        // call: D32_SFLOAT spends its mantissa on the integer
+                        // part as near shrinks, and below ~0.01 the quantum at
+                        // distance grows past a typical AO/SSR sampling radius,
+                        // banding every depth-derived effect.
+                        if (ImGui::DragFloat("##CamNear", &cam->near_plane, 0.01f, 0.01f, 100.0f)) {
                             scene_->mark_dirty();
                         }
                     });
