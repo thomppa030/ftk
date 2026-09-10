@@ -690,6 +690,12 @@ void ContentBrowser::draw_context_menu() {
                     break;
 
                 case FileType::model:
+                    if (entry.path.extension() == ".fjmesh" &&
+                        ImGui::MenuItem("Open in Mesh Editor")) {
+                        auto rel = std::filesystem::relative(entry.path, root_);
+                        on_open_asset.broadcast(rel.string(), "mesh");
+                        ImGui::CloseCurrentPopup();
+                    }
                     if (ImGui::MenuItem("Add to Scene")) {
                         auto rel = std::filesystem::relative(entry.path, root_);
                         on_add_model.broadcast(rel.string());
@@ -941,6 +947,8 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
             auto ext = entry.path.extension().string();
             if (ext == ".fjskel") {
                 on_open_asset.broadcast(rel.string(), "skeleton");
+            } else if (ext == ".fjmesh") {
+                on_open_asset.broadcast(rel.string(), "mesh");
             } else {
                 on_add_model.broadcast(rel.string());
             }

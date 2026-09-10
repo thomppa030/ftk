@@ -31,6 +31,7 @@ extern "C" void fjell_input_clear_connections();
 #include "ui/blend_space_1d_editor_context.hpp"
 #include "ui/blend_space_2d_editor_context.hpp"
 #include "ui/material_editor_context.hpp"
+#include "ui/mesh_editor_context.hpp"
 #include "ui/ui_editor_context.hpp"
 #include "ui/input_mapping_editor_context.hpp"
 #include "ui/vfx_editor_context.hpp"
@@ -532,6 +533,27 @@ void Engine::init_editor() {
             auto ctx = std::make_unique<MaterialEditorContext>(deps);
             ctx->init();
             ctx->open_material(path);
+            return ctx;
+        },
+        .open = [](EditorContext&, const std::string&) {},
+        .matches = [](const EditorContext& ctx, const std::string& path) {
+            return ctx.asset_path() == path;
+        }
+    });
+
+    context_registry_.register_type("mesh", {
+        .create = [this](const std::string& path) -> std::unique_ptr<EditorContext> {
+            MeshEditorDeps deps{
+                .vulkan_context = vulkan_context_.get(),
+                .resource_manager = resource_manager_.get(),
+                .input = &input_,
+                .clock = &clock_,
+                .project_mgr = &project_mgr_,
+                .icon_cache = icon_cache_.get()
+            };
+            auto ctx = std::make_unique<MeshEditorContext>(deps);
+            ctx->init();
+            ctx->open_mesh(path);
             return ctx;
         },
         .open = [](EditorContext&, const std::string&) {},
