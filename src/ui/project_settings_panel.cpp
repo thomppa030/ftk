@@ -73,6 +73,23 @@ void ProjectSettingsPanel::draw_render_section() {
                                   "variance) and darkens at every probe.");
             }
             if (ImGui::SliderFloat("View Bias##ddgi", &s.ddgi.view_bias, 0.0f, 1.0f)) { dirty = true; }
+            {
+                // Not part of RenderSettings yet — drive the pass directly
+                // so this can be A/B'd without a project-format change.
+                auto& dcfg = vk_->ddgi_pass().config();
+                if (ImGui::Checkbox("Spatial Filter##ddgi", &dcfg.spatial_filter)) {}
+                ImGui::SameLine(0, 10); ImGui::TextDisabled("(?)");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Blends each probe with its neighbours before\n"
+                                      "sampling. Without it the interpolation cage\n"
+                                      "shows every probe-to-probe difference as a\n"
+                                      "visible lattice.");
+                }
+                if (dcfg.spatial_filter) {
+                    ImGui::SliderFloat("Filter Angle##ddgi", &dcfg.filter_max_hit_angle,
+                                       0.0f, 1.0f, "%.2f rad");
+                }
+            }
             ImGui::Unindent();
         }
 
