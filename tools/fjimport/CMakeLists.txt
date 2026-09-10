@@ -6,6 +6,7 @@ add_executable(fjimport
     log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/meshlet.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/sdf_generator.cpp
+    ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjmesh_writer.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
 )
 

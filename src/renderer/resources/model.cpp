@@ -395,6 +395,16 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
             throw std::runtime_error("Failed to read .fjmesh v4 header fields: " + path);
         }
     }
+    // Read v5+ authored fields if present
+    if (header.version >= 5) {
+        constexpr size_t V5_START = offsetof(FjMeshHeader, material_slot_count);
+        size_t v5_size = sizeof(FjMeshHeader) - V5_START;
+        auto* v5_ptr = reinterpret_cast<char*>(&header) + V5_START;
+        if (std::fread(v5_ptr, v5_size, 1, f) != 1) {
+            std::fclose(f);
+            throw std::runtime_error("Failed to read .fjmesh v5 header fields: " + path);
+        }
+    }
     if (header.flags & FJMESH_FLAG_SKINNED) {
         std::fclose(f);
         FJELL_GFX_WARN("Skipping skinned .fjmesh (use SkeletalModel): {}", path);
@@ -453,6 +463,35 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
         read_section(data.sdf_data, header.sdf_data_offset, voxel_count);
     }
 
+    // Authored settings (v5+)
+    if (header.version >= 5) {
+        auto& authored = data.authored;
+        authored.collision_source =
+            static_cast<FjMeshCollisionSource>(header.collision_source);
+        authored.collision_simplify_ratio = header.collision_simplify_ratio;
+        authored.source_modified_time = header.source_modified_time;
+
+        std::vector<char> name_table;
+        if (header.name_table_size > 0) {
+            read_section(name_table, header.name_table_offset,
+                         static_cast<uint32_t>(header.name_table_size));
+        }
+
+        authored.source_file = read_name(name_table, header.source_name_offset,
+                                         header.source_name_length);
+        authored.collision_mesh = read_name(name_table, header.collision_mesh_offset,
+                                            header.collision_mesh_length);
+
+        std::vector<FjMeshMaterialSlot> slots;
+        read_section(slots, header.material_slots_offset, header.material_slot_count);
+        authored.material_slots.reserve(slots.size());
+        for (const auto& slot : slots) {
+            authored.material_slots.push_back({
+                read_name(name_table, slot.name_offset, slot.name_length),
+                read_name(name_table, slot.path_offset, slot.path_length)});
+        }
+    }
+
     std::fclose(f);
 
     FJELL_GFX_DEBUG("Loaded .fjmesh: {} ({} verts, {} indices, {} submeshes, {} meshlets, {} LODs)",
@@ -467,6 +506,7 @@ Model::Model(VmaAllocator allocator, UploadContext& upload,
              MeshletBuffer* meshlet_buf) {
     collision_vertices_ = std::move(data.collision_vertices);
     collision_indices_ = std::move(data.collision_indices);
+    authored_ = std::move(data.authored);
     local_aabb_ = data.aabb;
     sdf_data_ = std::move(data.sdf_data);
     sdf_resolution_ = data.sdf_resolution;

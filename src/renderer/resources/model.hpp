@@ -39,6 +39,9 @@ struct FjMeshData {
     uint32_t sdf_resolution{0};
     glm::vec3 sdf_min{0.0f};
     glm::vec3 sdf_max{0.0f};
+
+    // Authored settings (v5+)
+    MeshAuthoredData authored;
 };
 
 // Runtime LOD level: maps to a range of MegaMeshEntries
@@ -116,6 +119,9 @@ public:
     // Bounding sphere radius (computed from AABB)
     [[nodiscard]] float bounding_radius() const { return bounding_radius_; }
 
+    // Authored settings loaded from the .fjmesh (v5+). Empty for older files.
+    [[nodiscard]] const MeshAuthoredData& authored() const { return authored_; }
+
     // SDF access
     [[nodiscard]] bool has_sdf() const { return sdf_resolution_ > 0; }
     [[nodiscard]] uint32_t sdf_grid_resolution() const { return sdf_resolution_; }
@@ -133,6 +139,8 @@ private:
     std::vector<MeshletBuildResult> meshlet_results_;
     std::vector<LodLevel> lod_levels_;
     float bounding_radius_{0.0f};
+
+    MeshAuthoredData authored_;
 
     // SDF
     std::vector<int16_t> sdf_data_;

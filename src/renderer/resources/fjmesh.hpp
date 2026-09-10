@@ -2,16 +2,20 @@
 
 // .fjmesh binary format — Fjell engine internal mesh format.
 // Shared between the engine runtime and the fjimport tool.
-// No engine dependencies beyond <cstdint> and <glm/glm.hpp>.
+// No engine dependencies — standard library and <glm/glm.hpp> only.
 
 #include <glm/glm.hpp>
 
 #include <cstdint>
+#include <map>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace fjell {
 
 static constexpr uint32_t FJMESH_MAGIC   = 0x484D4A46; // "FJMH" little-endian
-static constexpr uint32_t FJMESH_VERSION = 4;
+static constexpr uint32_t FJMESH_VERSION = 5;
 
 static constexpr uint32_t FJMESH_FLAG_SKINNED = 1; // vertices are SkinnedVertex (92 bytes)
 
@@ -33,6 +37,26 @@ struct FjMeshLodLevel {
     uint32_t submesh_count;    // number of submeshes at this LOD
     float max_screen_size;     // normalized screen-space threshold (0..1); 1.0 for LOD 0
     uint32_t pad;              // alignment padding
+};
+
+// Where a mesh's collision geometry comes from. The collision section holds
+// the resulting geometry; this records which kind it is so the runtime can
+// pick the matching Jolt shape and the importer can regenerate it.
+enum class FjMeshCollisionSource : uint32_t {
+    render_mesh = 0,   // verbatim copy of the render geometry (triangle mesh, static only)
+    convex_hull = 1,   // hull of the render geometry — works on dynamic bodies
+    simplified = 2,    // decimated triangle mesh, static only
+    custom_mesh = 3,   // a separate .fjmesh, referenced by name-table path
+};
+
+// A material slot on the mesh. `name` is the material name from the source
+// file and is the key used to carry assignments across a reimport; `path` is
+// the assigned .fjmat, relative to the project root. Both index the name table.
+struct FjMeshMaterialSlot {
+    uint32_t name_offset;
+    uint32_t name_length;
+    uint32_t path_offset;
+    uint32_t path_length;
 };
 
 struct FjMeshHeader {
@@ -86,6 +110,20 @@ struct FjMeshHeader {
     glm::vec3 sdf_max;
     float sdf_pad3;
     uint64_t sdf_data_offset;  // int16_t[res*res*res] SDF voxel data
+
+    // v5+ fields — authored data, preserved across reimport
+    uint32_t material_slot_count;
+    uint32_t collision_source;          // FjMeshCollisionSource
+    float    collision_simplify_ratio;  // target ratio for `simplified`
+    uint32_t source_name_offset;        // source file this was imported from
+    uint32_t source_name_length;
+    uint32_t collision_mesh_offset;     // .fjmesh path for `custom_mesh`
+    uint32_t collision_mesh_length;
+    uint32_t pad_v5;
+    uint64_t source_modified_time;      // source mtime at import, seconds since epoch
+    uint64_t material_slots_offset;     // FjMeshMaterialSlot[material_slot_count]
+    uint64_t name_table_offset;         // packed strings, no null terminators
+    uint64_t name_table_size;
 };
 
 // ── .fjskel format ──────────────────────────────────────────────────────
@@ -133,8 +171,66 @@ struct FjSkelHeader {
     uint64_t name_table_size;           // total bytes in name table
 };
 
+// ── Authored mesh settings (v5) ─────────────────────────────────────────
+// The subset of a .fjmesh that a user edits rather than the importer
+// generating. Kept separate from the geometry so a reimport can carry it
+// across: read it from the old file, hand it to the writer for the new one.
+
+struct MeshMaterialSlot {
+    std::string name;   // material name from the source file — the reimport key
+    std::string path;   // assigned .fjmat, relative to the project root
+};
+
+struct MeshAuthoredData {
+    std::vector<MeshMaterialSlot> material_slots;
+    FjMeshCollisionSource collision_source{FjMeshCollisionSource::render_mesh};
+    float collision_simplify_ratio{0.1F};
+    std::string collision_mesh;      // .fjmesh proxy, for custom_mesh
+    std::string source_file;         // what this mesh was imported from
+    uint64_t source_modified_time{0};
+
+    [[nodiscard]] bool empty() const {
+        return material_slots.empty() && collision_mesh.empty() && source_file.empty() &&
+               collision_source == FjMeshCollisionSource::render_mesh;
+    }
+};
+
+// Packs strings into a name table, returning (offset, length) pairs. Repeated
+// strings share one entry — material paths in particular tend to repeat.
+class NameTableBuilder {
+public:
+    std::pair<uint32_t, uint32_t> add(const std::string& s) {
+        if (s.empty()) return {0, 0};
+        auto it = interned_.find(s);
+        if (it != interned_.end()) return it->second;
+
+        std::pair<uint32_t, uint32_t> entry{static_cast<uint32_t>(data_.size()),
+                                            static_cast<uint32_t>(s.size())};
+        data_.insert(data_.end(), s.begin(), s.end());
+        interned_.emplace(s, entry);
+        return entry;
+    }
+
+    [[nodiscard]] const std::vector<char>& data() const { return data_; }
+    [[nodiscard]] size_t size() const { return data_.size(); }
+
+private:
+    std::vector<char> data_;
+    std::map<std::string, std::pair<uint32_t, uint32_t>> interned_;
+};
+
+// Reads one string out of a loaded name table. Out-of-range offsets yield an
+// empty string rather than throwing — a truncated table shouldn't take down
+// the whole mesh load.
+[[nodiscard]] inline std::string read_name(const std::vector<char>& table,
+                                           uint32_t offset, uint32_t length) {
+    if (length == 0 || offset + static_cast<uint64_t>(length) > table.size()) return {};
+    return std::string(table.data() + offset, length);
+}
+
 // Layout validation — if any of these fire, the binary format is incompatible
 static_assert(sizeof(FjMeshSubmesh) == 24, "FjMeshSubmesh layout changed");
 static_assert(sizeof(FjMeshLodLevel) == 16, "FjMeshLodLevel layout changed");
+static_assert(sizeof(FjMeshMaterialSlot) == 16, "FjMeshMaterialSlot layout changed");
 
 } // namespace fjell

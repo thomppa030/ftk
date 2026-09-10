@@ -65,6 +65,7 @@ add_executable(fjell
     renderer/instance_provider.cpp
     renderer/resources/fjsl_parser.cpp
     renderer/resources/material.cpp
+    renderer/resources/fjmesh_writer.cpp
     renderer/resources/material_asset.cpp
     renderer/resources/material_instance.cpp
     renderer/components/mesh_component.cpp

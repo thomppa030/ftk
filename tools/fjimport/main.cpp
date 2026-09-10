@@ -1,4 +1,7 @@
+#include <chrono>
+
 #include "renderer/resources/fjmesh.hpp"
+#include "renderer/resources/fjmesh_writer.hpp"
 #include "renderer/resources/material_asset.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/meshlet.hpp"
@@ -375,7 +378,8 @@ static bool import_mesh(const std::string& input_path, ImportResult& result,
     return true;
 }
 
-static bool write_fjmesh(const std::string& output_path, const ImportResult& result) {
+static bool write_fjmesh(const std::string& output_path, const ImportResult& result,
+                         const fjell::MeshAuthoredData& authored) {
     FILE* f = std::fopen(output_path.c_str(), "wb");
     if (!f) {
         std::fprintf(stderr, "error: cannot open '%s' for writing\n", output_path.c_str());
@@ -450,6 +454,10 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
         header.sdf_data_offset = 0;
     }
 
+    // Authored settings (v5)
+    fjell::AuthoredLayout authored_layout;
+    offset = fjell::layout_authored_sections(header, offset, authored, authored_layout);
+
     uint64_t file_size = offset;
 
     // Write header
@@ -502,6 +510,9 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
         pad_to(header.sdf_data_offset);
         std::fwrite(result.sdf_data.data(), sizeof(int16_t), result.sdf_data.size(), f);
     }
+
+    // Authored settings (v5)
+    fjell::write_authored_sections(f, header, authored_layout);
 
     std::fclose(f);
 
@@ -1255,7 +1266,8 @@ static void export_materials(const aiScene* scene,
                              const std::string& input_path,
                              const std::string& output_path,
                              const ImportSettings& settings,
-                             std::vector<std::string>& output_files) {
+                             std::vector<std::string>& output_files,
+                             std::unordered_map<unsigned int, std::string>& slot_assets) {
     namespace fs = std::filesystem;
 
     // Only materials some mesh actually uses — importers synthesize an unused
@@ -1334,7 +1346,69 @@ static void export_materials(const aiScene* scene,
             continue;
         }
         output_files.push_back(mat_path.string());
+
+        // The mesh records this against the source material name, so the
+        // assignment is what the runtime binds and what a reimport preserves.
+        slot_assets[m] = have_root
+            ? fs::relative(mat_path, fs::path(settings.project_root)).generic_string()
+            : mat_path.filename().generic_string();
     }
+}
+
+// Builds the authored block for a freshly imported mesh: one entry per
+// referenced material slot, keyed by the source material name so a later
+// reimport can match assignments even if the exporter reorders slots.
+static fjell::MeshAuthoredData build_authored_data(
+        const aiScene* scene, const std::string& input_path,
+        const std::unordered_map<unsigned int, std::string>& slot_assets) {
+    namespace fs = std::filesystem;
+    fjell::MeshAuthoredData authored;
+
+    authored.source_file = fs::path(input_path).filename().generic_string();
+
+    // file_time_type's epoch is unspecified, so convert to the system clock
+    // before recording seconds — the value is compared against source files
+    // by a later reimport and needs a stable meaning.
+    std::error_code ec;
+    auto write_time = fs::last_write_time(input_path, ec);
+    if (!ec) {
+        auto sys_time = std::chrono::clock_cast<std::chrono::system_clock>(write_time);
+        auto seconds = std::chrono::duration_cast<std::chrono::seconds>(
+            sys_time.time_since_epoch()).count();
+        if (seconds > 0) {
+            authored.source_modified_time = static_cast<uint64_t>(seconds);
+        }
+    }
+
+    std::vector<bool> referenced(scene->mNumMaterials, false);
+    for (unsigned int m = 0; m < scene->mNumMeshes; ++m) {
+        unsigned int slot = scene->mMeshes[m]->mMaterialIndex;
+        if (slot < referenced.size()) referenced[slot] = true;
+    }
+
+    // Slot index is the position in this array, matching FjMeshSubmesh's
+    // material_slot, so unreferenced slots still occupy their index.
+    for (unsigned int m = 0; m < scene->mNumMaterials; ++m) {
+        fjell::MeshMaterialSlot slot;
+        aiString name;
+        if (scene->mMaterials[m]->Get(AI_MATKEY_NAME, name) == AI_SUCCESS) {
+            slot.name = name.C_Str();
+        }
+        if (slot.name.empty()) slot.name = "material_" + std::to_string(m);
+
+        if (auto it = slot_assets.find(m); it != slot_assets.end()) {
+            slot.path = it->second;
+        }
+        authored.material_slots.push_back(std::move(slot));
+    }
+
+    // Trim trailing slots nothing references — importers synthesize a default.
+    while (!authored.material_slots.empty() &&
+           !referenced[authored.material_slots.size() - 1]) {
+        authored.material_slots.pop_back();
+    }
+
+    return authored;
 }
 
 static void print_usage(const char* prog) {
@@ -1427,6 +1501,15 @@ int main(int argc, char* argv[]) {
     // Track output files for JSON progress
     std::vector<std::string> output_files;
 
+    // Materials are exported before either mesh path writes, so the static
+    // path can record the resulting .fjmat paths against its material slots.
+    std::unordered_map<unsigned int, std::string> slot_assets;
+    if (settings.import_textures && scene->mNumMaterials > 0) {
+        progress("textures", 85, "Exporting textures and materials...");
+        export_materials(scene, input_path, output_path, settings,
+                         output_files, slot_assets);
+    }
+
     if (has_skin) {
         // ── Skinned mesh path ──
         progress("mesh", 10, "Extracting skinned mesh data...");
@@ -1509,17 +1592,15 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        auto authored = build_authored_data(scene, input_path, slot_assets);
+        merge_authored_data(authored, fjell::read_authored_data(output_path));
+
         progress("write", 90, "Writing .fjmesh...");
-        if (!write_fjmesh(output_path, result)) {
+        if (!write_fjmesh(output_path, result, authored)) {
             if (use_json_progress) json_error("Failed to write .fjmesh");
             return 1;
         }
         output_files.push_back(output_path);
-    }
-
-    if (settings.import_textures && scene->mNumMaterials > 0) {
-        progress("textures", 95, "Exporting textures and materials...");
-        export_materials(scene, input_path, output_path, settings, output_files);
     }
 
     if (use_json_progress) {
