@@ -29,6 +29,11 @@ struct RenderSettings {
         float infinite_bounces_mult{0.5f};
         float normal_bias{0.25f};
         float view_bias{0.08f};
+        /// How probes gather light. Ray-traced needs
+        /// VK_KHR_ray_tracing_pipeline and falls back to the SDF trace at
+        /// runtime when the device lacks it.
+        enum class Backend : uint8_t { SdfFallback = 0, RayTraced = 1 };
+        Backend backend{Backend::RayTraced};
     } ddgi;
 
     struct SsGi {

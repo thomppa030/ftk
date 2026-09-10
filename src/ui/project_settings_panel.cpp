@@ -62,6 +62,27 @@ void ProjectSettingsPanel::draw_render_section() {
         if (ImGui::Checkbox("DDGI", &s.ddgi.enabled)) { dirty = true; }
         if (s.ddgi.enabled) {
             ImGui::Indent();
+            {
+                using Backend = RenderSettings::Ddgi::Backend;
+                ImGui::TextUnformatted("Backend");
+                ImGui::SameLine();
+                int backend = static_cast<int>(s.ddgi.backend);
+                if (ImGui::RadioButton("SDF##ddgibackend", &backend,
+                                       static_cast<int>(Backend::SdfFallback))) {
+                    s.ddgi.backend = Backend::SdfFallback; dirty = true;
+                }
+                ImGui::SameLine();
+                bool rt_ok = vk_->ray_tracing_supported();
+                ImGui::BeginDisabled(!rt_ok);
+                if (ImGui::RadioButton("Ray-Traced##ddgibackend", &backend,
+                                       static_cast<int>(Backend::RayTraced))) {
+                    s.ddgi.backend = Backend::RayTraced; dirty = true;
+                }
+                ImGui::EndDisabled();
+                if (!rt_ok && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("VK_KHR_ray_tracing_pipeline not supported on this GPU");
+                }
+            }
             if (ImGui::SliderFloat("GI Intensity##ddgi", &s.ddgi.gi_intensity, 0.0f, 2.0f)) { dirty = true; }
             if (ImGui::SliderFloat("Emissive Boost##ddgi", &s.ddgi.emissive_gi_boost, 1.0f, 30.0f)) { dirty = true; }
             if (ImGui::SliderFloat("Infinite Bounces##ddgi", &s.ddgi.infinite_bounces_mult, 0.0f, 3.0f)) { dirty = true; }
