@@ -576,6 +576,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         mc.material_handle = mat_handle;
         mc.material = resources.get(mat_handle);
         mc.material_name = mat_name;
+        mc.slot_materials = resources.load_slot_materials(model_handle, project);
 
         load_components(*node, j, resources, project);
         if (!preset_src.empty()) node->preset_source = preset_src;

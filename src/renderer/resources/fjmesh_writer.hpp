@@ -37,6 +37,12 @@ void write_authored_sections(std::FILE* f, const FjMeshHeader& header,
 // predates v5 — all of which mean "nothing authored to carry over".
 [[nodiscard]] MeshAuthoredData read_authored_data(const std::string& path);
 
+// Rewrites only the authored block of an existing .fjmesh, leaving every
+// geometry section byte-identical. Used when the editor saves slot
+// assignments — the mesh itself hasn't changed, so it isn't rebuilt.
+[[nodiscard]] bool rewrite_authored_data(const std::string& path,
+                                         const MeshAuthoredData& authored);
+
 // Carries authored settings from a previous import onto a fresh one.
 // Material slots are matched by source material name rather than index, so
 // assignments survive a DCC reordering or inserting materials. `fresh` supplies

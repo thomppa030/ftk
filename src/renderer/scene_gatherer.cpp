@@ -16,6 +16,8 @@
 #include "core/thread_pool.hpp"
 #include "scene/scene.hpp"
 
+#include <algorithm>
+
 namespace fjell {
 
 void SceneGatherer::init(GpuContext& gpu) {
@@ -59,6 +61,7 @@ void SceneGatherer::gather(const GatherInput& input) {
         uint32_t num_chunks = input.pool->thread_count() + 1;
         local_commands_.resize(num_chunks);
         local_shadow_commands_.resize(num_chunks);
+        local_slot_scratch_.resize(num_chunks);
         local_total_.assign(num_chunks, 0);
         local_culled_.assign(num_chunks, 0);
         for (uint32_t ch = 0; ch < num_chunks; ++ch) {
@@ -200,6 +203,36 @@ void SceneGatherer::gather(const GatherInput& input) {
                     if (dc.transparent) {
                         glm::vec3 diff = camera_position_ - glm::vec3(dc.world_matrix[3]);
                         dc.camera_distance = glm::dot(diff, diff);
+                    }
+
+                    // A mesh whose submeshes use different materials emits one
+                    // command per distinct slot, since pipeline and material id
+                    // are per-command. Shadow cascades keep the single command
+                    // above — the depth pass doesn't read materials.
+                    const auto& entry_slots = mesh->model->entry_material_slots();
+                    if (!mesh->slot_materials.empty() && !entry_slots.empty()) {
+                        // Slot indices are few, so a linear scan over a
+                        // scratch vector de-duplicates cheaper than a set.
+                        auto& seen = local_slot_scratch_[chunk_id];
+                        seen.clear();
+                        for (uint32_t slot : entry_slots) {
+                            if (std::find(seen.begin(), seen.end(), slot) != seen.end()) continue;
+                            seen.push_back(slot);
+
+                            auto* slot_mat = mesh->material_for_slot(slot);
+                            if (!slot_mat) continue;
+
+                            DrawCommand sub = dc;
+                            sub.material_slot = slot;
+                            sub.push.material_id = mesh->resolved_material_id(slot);
+                            sub.pipeline_id = slot_mat->pipeline_id();
+                            sub.transparent = slot_mat->force_transparent()
+                                            || (slot_mat->params().base_color_factor.w < 1.0f);
+                            sub.sort_key = RenderQueue::make_sort_key(
+                                sub.pipeline_id, sub.push.material_id, obj->id);
+                            commands.push_back(sub);
+                        }
+                        continue;
                     }
 
                     commands.push_back(dc);

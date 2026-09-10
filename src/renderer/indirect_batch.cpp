@@ -228,6 +228,14 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     // Helper: compute LOD index for a given world-space position + matrix scale.
     // Mirrors the original per-draw LOD path below but takes an explicit world
     // matrix so it works for per-instance LOD selection too.
+    // Multi-material meshes emit one draw command per slot; each command draws
+    // only the entries whose submesh uses that slot.
+    auto entry_matches_slot = [](const DrawCommand& dc, uint32_t entry) -> bool {
+        if (dc.material_slot == UINT32_MAX) return true;
+        const auto& slots = dc.model->entry_material_slots();
+        return entry < slots.size() && slots[entry] == dc.material_slot;
+    };
+
     auto select_lod = [&](const Model& model, const glm::mat4& world) -> uint32_t {
         if (!do_lod || model.lod_count() <= 1) return 0;
         glm::vec3 diff = camera_pos - glm::vec3(world[3]);
@@ -286,6 +294,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
             uint32_t entry_end   = entry_begin + lod_level.mega_entry_count;
 
             for (uint32_t e = entry_begin; e < entry_end; ++e) {
+                if (!entry_matches_slot(dc, e)) continue;
                 const auto& entry = entries[e];
                 VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
                 cmd.indexCount    = entry.index_count;
@@ -347,6 +356,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
 
                 for (uint32_t e = entry_begin; e < entry_end; ++e) {
+                    if (!entry_matches_slot(dc, e)) continue;
                     const auto& entry = entries[e];
                     VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
                     cmd.indexCount = entry.index_count;
@@ -427,6 +437,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
                 uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
 
                 for (uint32_t e = entry_begin; e < entry_end; ++e) {
+                    if (!entry_matches_slot(dc, e)) continue;
                     const auto& entry = entries[e];
                     VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
                     cmd.indexCount = entry.index_count;
@@ -488,6 +499,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
         uint32_t entry_end = entry_begin + lod_level.mega_entry_count;
 
         for (uint32_t e = entry_begin; e < entry_end; ++e) {
+            if (!entry_matches_slot(dc, e)) continue;
             const auto& entry = entries[e];
             VkDrawIndexedIndirectCommand& cmd = indirect[draw_index];
             cmd.indexCount = entry.index_count;

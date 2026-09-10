@@ -515,7 +515,12 @@ Model::Model(VmaAllocator allocator, UploadContext& upload,
     sdf_max_ = data.sdf_max;
     bounding_radius_ = glm::length(local_aabb_.max - local_aabb_.min) * 0.5f;
 
+    entry_material_slots_.reserve(data.submeshes.size());
+
     for (const auto& submesh : data.submeshes) {
+        // Indexed by submesh, which is also how LodLevel indexes mega entries.
+        entry_material_slots_.push_back(submesh.material_slot);
+
         // Build per-submesh vertex and index arrays (rebased to local indices)
         uint32_t vertex_count = 0;
         if (submesh.index_count > 0) {

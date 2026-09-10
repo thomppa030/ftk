@@ -90,6 +90,8 @@ private:
     std::vector<std::vector<DrawCommand>> local_commands_;
     // Per-chunk, per-cascade shadow command scratch
     std::vector<std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES>> local_shadow_commands_;
+    // Per-chunk scratch for de-duplicating a mesh's material slots
+    std::vector<std::vector<uint32_t>> local_slot_scratch_;
     std::vector<uint32_t> local_total_;
     std::vector<uint32_t> local_culled_;
     std::vector<DrawCommand> empty_transparent_;

@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/resources/fjmesh_writer.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -58,23 +59,26 @@ void MeshEditorContext::draw(float dt) {
     }
     preview_scene_.compute_world_matrices(nullptr);
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
+    draw_slots_panel();
     draw_info_panel();
     draw_shared_panels(dt);
 }
 
 std::vector<std::string> MeshEditorContext::docked_window_names() const {
-    return {ctx_title("Mesh Preview"), ctx_title("Mesh Info"),
-            ctx_title("Stats"), ctx_title("Console")};
+    return {ctx_title("Mesh Preview"), ctx_title("Material Slots"),
+            ctx_title("Mesh Info"), ctx_title("Stats"), ctx_title("Console")};
 }
 
 void MeshEditorContext::setup_dockspace(ImGuiID main_area) {
-    enum class EPanel { Preview, Info, Stats, Console };
+    enum class EPanel { Preview, Slots, Info, Stats, Console };
     using N = DockNode;
     static const auto layout = N::horizontal_split(0.72f,
         N::vertical_split(0.75f,
             N::leaf({EPanel::Preview}),
             N::leaf({EPanel::Stats, EPanel::Console})),
-        N::leaf({EPanel::Info}));
+        N::vertical_split(0.55f,
+            N::leaf({EPanel::Slots}),
+            N::leaf({EPanel::Info})));
     build_dockspace(main_area, layout, docked_window_names());
 }
 
@@ -109,6 +113,9 @@ void MeshEditorContext::open_mesh(const std::string& fjmesh_path) {
     model_ = deps_.resource_manager->get(model_handle_);
     if (!model_) return;
 
+    fjmesh_abs_path_ = abs_path;
+    authored_ = model_->authored();
+    dirty_ = false;
     name_ = std::filesystem::path(fjmesh_path).stem().string();
 
     setup_preview_scene();
@@ -123,8 +130,7 @@ void MeshEditorContext::setup_preview_scene() {
     preview_scene_.clear();
     if (!model_handle_.valid()) return;
 
-    // Phase 1 is read-only: the mesh renders under the default material until
-    // per-slot assignment exists.
+    // Slots that aren't assigned fall back to this, same as in a real scene.
     auto tex = deps_.resource_manager->load_texture(
         base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
     auto material = deps_.resource_manager->create_material("default", tex);
@@ -133,7 +139,30 @@ void MeshEditorContext::setup_preview_scene() {
         model_handle_, material, *deps_.resource_manager,
         {}, name_, fjmesh_path_, "default");
 
+    apply_slot_materials();
     preview_scene_.compute_world_matrices(nullptr);
+}
+
+void MeshEditorContext::apply_slot_materials() {
+    auto* node = preview_scene_.find(preview_node_id_);
+    if (!node) return;
+    auto* mc = node->components.get<MeshComponent>();
+    if (!mc) return;
+
+    // Resolve from the in-editor assignments rather than the model's, so an
+    // edit shows up before it has been saved.
+    const auto* project = deps_.project_mgr->active();
+    mc->slot_materials.assign(authored_.material_slots.size(), nullptr);
+    for (size_t i = 0; i < authored_.material_slots.size(); ++i) {
+        const auto& path = authored_.material_slots[i].path;
+        if (path.empty()) continue;
+
+        auto result = deps_.resource_manager->load_material_asset(
+            base_path::resolve_asset(path, project), project);
+        if (result) {
+            mc->slot_materials[i] = deps_.resource_manager->get(*result);
+        }
+    }
 }
 
 void MeshEditorContext::frame_camera() {
@@ -147,6 +176,85 @@ void MeshEditorContext::frame_camera() {
 }
 
 // ── Panels ───────────────────────────────────────────────────────────────
+
+void MeshEditorContext::draw_slots_panel() {
+    if (ImGui::Begin(ctx_title("Material Slots").c_str())) {
+        if (!model_) {
+            ImGui::TextDisabled("No mesh loaded");
+            ImGui::End();
+            return;
+        }
+
+        if (authored_.material_slots.empty()) {
+            ImGui::TextWrapped(
+                "This mesh has no material slots. Reimport it to record the "
+                "materials its submeshes were authored with.");
+            ImGui::End();
+            return;
+        }
+
+        ImGui::BeginDisabled(!dirty_);
+        if (ImGui::Button("Save")) {
+            (void)save();
+        }
+        ImGui::EndDisabled();
+        if (dirty_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("unsaved changes");
+        }
+        ImGui::Separator();
+
+        for (size_t i = 0; i < authored_.material_slots.size(); ++i) {
+            auto& slot = authored_.material_slots[i];
+            ImGui::PushID(static_cast<int>(i));
+
+            ImGui::Text("%zu  %s", i, slot.name.c_str());
+            ImGui::TextDisabled("%s", slot.path.empty() ? "(none)" : slot.path.c_str());
+
+            // Drop a .fjmat from the content browser onto the row to assign it.
+            ImGui::InvisibleButton("##drop", {-1.0F, ImGui::GetFrameHeight()});
+            if (ImGui::BeginDragDropTarget()) {
+                if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
+                    std::string dropped(static_cast<const char*>(payload->Data));
+                    if (std::filesystem::path(dropped).extension() == ".fjmat") {
+                        slot.path = dropped;
+                        dirty_ = true;
+                        apply_slot_materials();
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Drop a .fjmat here to assign it to this slot");
+            }
+
+            if (!slot.path.empty()) {
+                if (ImGui::SmallButton("Clear")) {
+                    slot.path.clear();
+                    dirty_ = true;
+                    apply_slot_materials();
+                }
+            }
+
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+    }
+    ImGui::End();
+}
+
+bool MeshEditorContext::save() {
+    if (fjmesh_abs_path_.empty()) return false;
+
+    if (!rewrite_authored_data(fjmesh_abs_path_, authored_)) {
+        FJELL_CORE_ERROR("Failed to save mesh settings: {}", fjmesh_path_);
+        return false;
+    }
+
+    dirty_ = false;
+    FJELL_CORE_INFO("Mesh settings saved: {}", fjmesh_path_);
+    return true;
+}
 
 void MeshEditorContext::draw_info_panel() {
     if (ImGui::Begin(ctx_title("Mesh Info").c_str())) {

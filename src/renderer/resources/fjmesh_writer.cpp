@@ -1,6 +1,7 @@
 #include "renderer/resources/fjmesh_writer.hpp"
 
 #include <cstddef>
+#include <filesystem>
 #include <unordered_map>
 #include <vector>
 
@@ -122,6 +123,73 @@ MeshAuthoredData read_authored_data(const std::string& path) {
 
     std::fclose(f);
     return authored;
+}
+
+bool rewrite_authored_data(const std::string& path, const MeshAuthoredData& authored) {
+    std::FILE* in = std::fopen(path.c_str(), "rb");
+    if (in == nullptr) {
+        return false;
+    }
+
+    FjMeshHeader header{};
+    if (std::fread(&header, sizeof(header), 1, in) != 1 ||
+        header.magic != FJMESH_MAGIC) {
+        std::fclose(in);
+        return false;
+    }
+
+    // Everything up to the authored sections is geometry and is copied
+    // verbatim; the authored block is always last, so it can simply be
+    // replaced. Older files have no authored block and end at the last
+    // geometry section, which the same bound covers.
+    uint64_t geometry_end = header.version >= 5 && header.material_slots_offset > 0
+        ? header.material_slots_offset
+        : 0;
+    if (geometry_end == 0) {
+        std::fseek(in, 0, SEEK_END);
+        long size = std::ftell(in);
+        if (size < 0) {
+            std::fclose(in);
+            return false;
+        }
+        geometry_end = static_cast<uint64_t>(size);
+    }
+
+    std::vector<char> body(geometry_end);
+    std::fseek(in, 0, SEEK_SET);
+    if (std::fread(body.data(), 1, body.size(), in) != body.size()) {
+        std::fclose(in);
+        return false;
+    }
+    std::fclose(in);
+
+    // A pre-v5 file gains the new header fields, which shifts every section.
+    // Rewriting those offsets means re-laying out the whole file, so leave it
+    // to a reimport instead.
+    if (header.version < FJMESH_VERSION) {
+        return false;
+    }
+
+    auto* out_header = reinterpret_cast<FjMeshHeader*>(body.data());
+    AuthoredLayout layout;
+    layout_authored_sections(*out_header, geometry_end, authored, layout);
+
+    std::string tmp = path + ".tmp";
+    std::FILE* out = std::fopen(tmp.c_str(), "wb");
+    if (out == nullptr) {
+        return false;
+    }
+    std::fwrite(body.data(), 1, body.size(), out);
+    write_authored_sections(out, *out_header, layout);
+    std::fclose(out);
+
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) {
+        std::filesystem::remove(tmp, ec);
+        return false;
+    }
+    return true;
 }
 
 void merge_authored_data(MeshAuthoredData& fresh, const MeshAuthoredData& previous) {

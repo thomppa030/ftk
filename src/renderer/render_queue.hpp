@@ -29,6 +29,11 @@ struct DrawCommand {
     bool transparent{false};
     bool skinned{false};
 
+    // Multi-material meshes emit one command per distinct pipeline, each
+    // drawing only the submeshes whose material slot uses it. UINT32_MAX
+    // draws every submesh with `push.material_id` — the single-material case.
+    uint32_t material_slot{UINT32_MAX};
+
     // Instanced draws: local-space transforms in owning node's space.
     // nullptr = single-instance draw (normal path).
     const std::vector<glm::mat4>* instance_transforms{nullptr};

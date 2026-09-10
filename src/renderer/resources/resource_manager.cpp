@@ -284,6 +284,33 @@ MaterialHandle ResourceManager::create_material_from_texture(const std::string& 
     return materials_.insert(name, std::move(material));
 }
 
+std::vector<Material*> ResourceManager::load_slot_materials(ModelHandle model_handle,
+                                                            const Project* project) {
+    std::vector<Material*> slots;
+
+    auto* model = get(model_handle);
+    if (!model) return slots;
+
+    const auto& authored = model->authored().material_slots;
+    if (authored.empty()) return slots;
+
+    slots.resize(authored.size(), nullptr);
+    for (size_t i = 0; i < authored.size(); ++i) {
+        if (authored[i].path.empty()) continue;
+
+        auto resolved = base_path::resolve_asset(authored[i].path, project);
+        auto result = load_material_asset(resolved, project);
+        if (!result) {
+            FJELL_GFX_WARN("Mesh material slot '{}' -> '{}': {}",
+                           authored[i].name, authored[i].path, result.error());
+            continue;
+        }
+        slots[i] = get(*result);
+    }
+
+    return slots;
+}
+
 Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& path,
                                                              const Project* project) {
     auto it = materials_.name_to_handle.find(path);

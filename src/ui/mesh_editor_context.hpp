@@ -2,6 +2,7 @@
 
 #include "ui/editor_context.hpp"
 #include "ui/viewport_manager.hpp"
+#include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
 
@@ -35,6 +36,7 @@ public:
     [[nodiscard]] const char* context_type() const override { return "mesh"; }
     [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return fjmesh_path_; }
+    bool save() override;
 
     void init() override;
     void shutdown() override;
@@ -55,17 +57,24 @@ public:
     [[nodiscard]] const std::string& mesh_path() const { return fjmesh_path_; }
 
 private:
+    void draw_slots_panel();
     void draw_info_panel();
     void setup_preview_scene();
     void frame_camera();
+    void apply_slot_materials();
 
     MeshEditorDeps deps_;
     std::string name_{"Mesh"};
 
     // Asset being inspected
     std::string fjmesh_path_;
+    std::string fjmesh_abs_path_;
     ModelHandle model_handle_;
     Model* model_{nullptr};
+
+    // Slot assignments being edited, seeded from the mesh's authored data.
+    MeshAuthoredData authored_;
+    bool dirty_{false};
 
     // Preview scene
     Scene preview_scene_;

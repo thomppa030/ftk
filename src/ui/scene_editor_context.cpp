@@ -1066,6 +1066,16 @@ void SceneEditorContext::add_model(const std::string& path) {
     auto filename = std::filesystem::path(path).stem().string();
     selected_id_ = deps_.scene->add(model_handle, mat_handle, *deps_.resource_manager,
                                      {}, filename, path, mat_name);
+
+    // Materials the mesh assigns to its own slots take precedence over the
+    // fallback picked above.
+    if (auto* node = deps_.scene->find(selected_id_)) {
+        if (auto* mc = node->components.get<MeshComponent>()) {
+            mc->slot_materials = deps_.resource_manager->load_slot_materials(
+                model_handle, deps_.project_mgr->active());
+        }
+    }
+
     FJELL_CORE_INFO("Added model to scene: {}", path);
 }
 

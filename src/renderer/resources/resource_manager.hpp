@@ -79,6 +79,12 @@ public:
 
     // Load a .fjmat material asset, resolving shader + textures + params.
     // If project is provided, asset paths inside .fjmat are resolved relative to it.
+    /// Resolves a model's authored material slots to loaded materials.
+    /// Slots with no assignment, or whose .fjmat fails to load, come back
+    /// null so the caller can fall back to the object's own material.
+    [[nodiscard]] std::vector<Material*> load_slot_materials(ModelHandle model,
+                                                            const Project* project);
+
     Result<MaterialHandle> load_material_asset(const std::string& path,
                                                const Project* project = nullptr);
 

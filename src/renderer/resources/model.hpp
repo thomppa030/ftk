@@ -122,6 +122,16 @@ public:
     // Authored settings loaded from the .fjmesh (v5+). Empty for older files.
     [[nodiscard]] const MeshAuthoredData& authored() const { return authored_; }
 
+    // Material slot per submesh, indexed the same way LodLevel indexes mega
+    // entries. Empty for meshes built without submesh data (glTF, primitives),
+    // in which case every entry uses the object's single material.
+    [[nodiscard]] const std::vector<uint32_t>& entry_material_slots() const {
+        return entry_material_slots_;
+    }
+    [[nodiscard]] uint32_t material_slot_count() const {
+        return static_cast<uint32_t>(authored_.material_slots.size());
+    }
+
     // SDF access
     [[nodiscard]] bool has_sdf() const { return sdf_resolution_ > 0; }
     [[nodiscard]] uint32_t sdf_grid_resolution() const { return sdf_resolution_; }
@@ -141,6 +151,7 @@ private:
     float bounding_radius_{0.0f};
 
     MeshAuthoredData authored_;
+    std::vector<uint32_t> entry_material_slots_;
 
     // SDF
     std::vector<int16_t> sdf_data_;
