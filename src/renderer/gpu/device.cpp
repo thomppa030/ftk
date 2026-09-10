@@ -257,13 +257,10 @@ void Device::pick_physical_device() {
 
         if (rt_features.rayTracingPipeline && as_features.accelerationStructure) {
             ray_tracing_supported_ = true;
-            // Optional: lets a trace be sized from a GPU-written count
-            // rather than a CPU-side upper bound.
-            trace_rays_indirect_supported_ =
-                rt_features.rayTracingPipelineTraceRaysIndirect == VK_TRUE;
             device_extensions_.push_back(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
             device_extensions_.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
             device_extensions_.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+            FJELL_GFX_INFO("Ray tracing supported");
         }
     }
 
@@ -370,9 +367,6 @@ void Device::create_logical_device() {
 
         rt_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR;
         rt_features.rayTracingPipeline = VK_TRUE;
-        if (trace_rays_indirect_supported_) {
-            rt_features.rayTracingPipelineTraceRaysIndirect = VK_TRUE;
-        }
         rt_features.pNext = chain_tail;
         chain_tail = &rt_features;
 
@@ -476,13 +470,6 @@ void Device::create_logical_device() {
             vkGetDeviceProcAddr(device_, "vkCreateRayTracingPipelinesKHR"));
         pfn_cmd_trace_rays_ = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(
             vkGetDeviceProcAddr(device_, "vkCmdTraceRaysKHR"));
-        if (trace_rays_indirect_supported_) {
-            pfn_cmd_trace_rays_indirect_ = reinterpret_cast<PFN_vkCmdTraceRaysIndirectKHR>(
-                vkGetDeviceProcAddr(device_, "vkCmdTraceRaysIndirectKHR"));
-            trace_rays_indirect_supported_ = pfn_cmd_trace_rays_indirect_ != nullptr;
-        }
-        FJELL_GFX_INFO("Ray tracing supported{}",
-                       trace_rays_indirect_supported_ ? " (indirect trace)" : "");
         pfn_get_rt_shader_group_handles_ = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(
             vkGetDeviceProcAddr(device_, "vkGetRayTracingShaderGroupHandlesKHR"));
         pfn_create_accel_struct_ = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(
