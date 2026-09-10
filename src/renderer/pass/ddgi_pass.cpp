@@ -80,10 +80,18 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
 
     VkImageUsageFlags storage_sampled = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-    // Radiance: probe_rays x total_probes
+    // Radiance: one row per probe traced THIS FRAME, not per probe in the
+    // pool. The trace writes to `probe_index - probe_update_offset`, so
+    // only the round-robin batch is ever addressed. Sizing this by the
+    // pool wasted most of the image and put a hard ceiling on probe count:
+    // at 32^3 the height would be 32768, twice the 16384 a device is
+    // guaranteed to allow, and image creation would simply fail.
+    radiance_rows = (config.probes_per_frame_batch > 0)
+        ? std::min(config.probes_per_frame_batch, total_probes)
+        : total_probes;
     create_image(radiance_image, radiance_memory, radiance_view,
                  static_cast<uint32_t>(config.probe_rays),
-                 static_cast<uint32_t>(total_probes),
+                 static_cast<uint32_t>(radiance_rows),
                  VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
 
     // Irradiance atlas
@@ -240,12 +248,27 @@ void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
         return;
     }
 
+    // Probe count drives the size of every probe atlas, so a change to it
+    // means rebuilding all of them. Everything accumulated is discarded —
+    // a probe's irradiance belongs to a grid position that no longer
+    // exists once the grid is re-divided.
+    int wanted_probes = config.probe_counts.x * config.probe_counts.y * config.probe_counts.z;
+    if (wanted_probes != total_probes) {
+        // Unlike a swapchain resize, this is driven by a settings change, so
+        // frames referencing these images may still be in flight.
+        vkDeviceWaitIdle(device);
+        destroy(device, allocator);
+        create(device, allocator, config, screen_w, screen_h);
+        return;
+    }
+
     // Subsequent calls: only recreate indirect_image if screen size changed
     uint32_t new_w = config.half_res_output ? std::max(1u, screen_w / 2) : screen_w;
     uint32_t new_h = config.half_res_output ? std::max(1u, screen_h / 2) : screen_h;
     if (indirect_extent.width == new_w && indirect_extent.height == new_h) return;
 
     // Only destroy/recreate the indirect output image, not the probe images
+    vkDeviceWaitIdle(device);
     if (indirect_view != VK_NULL_HANDLE) vkDestroyImageView(device, indirect_view, nullptr);
     destroy_vma_image(allocator, indirect_image, indirect_memory);
     indirect_view = VK_NULL_HANDLE;
@@ -984,13 +1007,29 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.vis_side = config_.visibility_side_length;
 
     // Round-robin a slice of probes each frame to cut per-frame ray cost.
-    // The first frame must seed every probe, and batch == 0 means "all".
+    //
+    // The count can never exceed the radiance image's height: the trace
+    // writes one row per probe at `probe_index - probe_update_offset`, so a
+    // wider window writes past the end of the image and the device is lost.
+    // That is a real hazard now the image is sized to the batch rather than
+    // to the whole pool, and it is not only a first-frame concern — a grid
+    // re-fit takes the same path.
     int total = imgs.total_probes;
-    int batch = config_.probes_per_frame_batch;
-    bool resetting = is_first_frame_ || imgs.reset_generation_ != grid_generation_;
-    if (resetting || batch <= 0 || batch >= total) {
+    int max_rows = (imgs.radiance_rows > 0) ? imgs.radiance_rows : total;
+    int batch = std::min(config_.probes_per_frame_batch, max_rows);
+    bool resetting = imgs.first_frame_ || imgs.reset_generation_ != grid_generation_;
+    if (batch <= 0 || batch >= total) {
         constants.probe_update_offset = 0;
-        constants.probe_update_count = total;
+        constants.probe_update_count = std::min(total, max_rows);
+    } else if (resetting) {
+        // A reset cannot refresh the whole pool in one frame any more, so
+        // it restarts the sweep instead and lets the round-robin catch up.
+        // Every probe is UNINITIALIZED, so each is overwritten rather than
+        // blended as the cursor reaches it.
+        imgs.probe_update_offset = 0;
+        constants.probe_update_offset = 0;
+        constants.probe_update_count = batch;
+        imgs.probe_update_offset = batch;
     } else {
         if (imgs.probe_update_offset >= total) imgs.probe_update_offset = 0;
         constants.probe_update_offset = imgs.probe_update_offset;
@@ -1360,7 +1399,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(fw.size()), fw.data(), 0, nullptr);
         }
 
-        is_first_frame_ = true;
+        imgs.first_frame_ = true;
         imgs.images_need_init = false;
     }
 
@@ -1406,11 +1445,17 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     GpuDdgiConstants* constants = static_cast<GpuDdgiConstants*>(imgs.constants_ubo->mapped());
 
     // ── 0. Initialize probe status buffer on first use ──
-    bool resetting_atlases = is_first_frame_ || imgs.reset_generation_ != grid_generation_;
+    bool resetting_atlases = imgs.first_frame_ || imgs.reset_generation_ != grid_generation_;
     if (resetting_atlases) {
-        constexpr uint32_t PROBE_STATUS_ACTIVE = 4;
+        // Every probe starts without history: the irradiance atlas still
+        // holds whatever the previous grid left there, which belongs to
+        // different world positions. The update pass overwrites rather than
+        // blends while this flag is set, and clears it per probe as the
+        // round-robin sweep reaches each one.
+        constexpr uint32_t PROBE_STATUS_UNINITIALIZED = 6;
         VkDeviceSize status_size = static_cast<VkDeviceSize>(imgs.total_probes) * sizeof(uint32_t);
-        vkCmdFillBuffer(ctx.cmd, imgs.probe_status_buffer->handle(), 0, status_size, PROBE_STATUS_ACTIVE);
+        vkCmdFillBuffer(ctx.cmd, imgs.probe_status_buffer->handle(), 0, status_size,
+                        PROBE_STATUS_UNINITIALIZED);
 
         VkMemoryBarrier2 fill_barrier{};
         fill_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
@@ -1429,12 +1474,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     barrier_image(imgs.radiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
     barrier_image(imgs.probe_offset_image,
-                  is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
     // Irradiance + visibility must be in GENERAL before the trace reads them (multi-bounce)
-    if (is_first_frame_) {
+    if (imgs.first_frame_) {
         barrier_image(imgs.irradiance_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
                       0, VK_ACCESS_2_SHADER_READ_BIT);
         barrier_image(imgs.visibility_image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL,
@@ -1646,11 +1691,11 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 4. Transition irradiance/visibility to GENERAL for update ──
     barrier_image(imgs.irradiance_image,
-                  is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                   VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
     barrier_image(imgs.visibility_image,
-                  is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
+                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                   VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
 
@@ -1794,12 +1839,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 10. Transition indirect image to GENERAL for sample output ──
     barrier_image(imgs.indirect_image,
-                  is_first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
 
     // ── 11. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
-    if (!is_first_frame_) {
+    if (!imgs.first_frame_) {
         FJELL_PROFILE_SCOPE_N("ddgi_sample");
         FJELL_GPU_ZONE(ctx, "DDGI Sample");
         // Rewrite the depth/normal sample descriptors only when the views
@@ -1844,12 +1889,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     barrier_image(imgs.indirect_image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
 
-    if (is_first_frame_) {
+    if (imgs.first_frame_) {
         FJELL_GFX_DEBUG("DDGI: First frame dispatched ({} probes, {} rays, indirect {}x{})",
                         imgs.total_probes, config_.probe_rays,
                         imgs.indirect_extent.width, imgs.indirect_extent.height);
     }
-    is_first_frame_ = false;
+    imgs.first_frame_ = false;
     imgs.reset_generation_ = grid_generation_;
     frame_counter_++;
 }

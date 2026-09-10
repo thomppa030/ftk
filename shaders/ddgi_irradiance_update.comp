@@ -7,6 +7,10 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 1) uniform sampler2D radiance_tex;
 layout(rgba16f, set = 0, binding = 2) uniform image2D irradiance_image;
 
+layout(std430, set = 0, binding = 5) buffer ProbeStatusSSBO {
+    uint probe_status[];
+};
+
 layout(push_constant) uniform PushConstants {
     uint first_frame;
     float max_trace_dist;
@@ -94,7 +98,19 @@ void main() {
 
         vec4 previous_value = imageLoad(irradiance_image, coords);
 
-        if (first_frame == 0) {
+        // A probe with no history must take this frame's estimate outright.
+        // Blending against whatever the image happens to hold would drag in
+        // irradiance belonging to a grid position that no longer exists —
+        // visible as lighting from the old grid smeared across the new one.
+        //
+        // This is per-probe rather than per-frame because a reset does not
+        // refresh the whole pool at once: the trace only covers one batch of
+        // probes per frame, so probes go on carrying no history for as many
+        // frames as the sweep needs to reach them.
+        bool has_history = (first_frame == 0)
+                        && (probe_status[probe_index] != PROBE_STATUS_UNINITIALIZED);
+
+        if (has_history) {
             // Low-confidence cells blend toward a higher hysteresis (keep more
             // history) so weak-signal shadow cells stop shimmering, while
             // confident cells stay responsive at the configured value.
@@ -137,4 +153,15 @@ void main() {
     }
 
     imageStore(irradiance_image, coords, imageLoad(irradiance_image, source));
+
+    // The probe now holds real irradiance, so it has history from here on.
+    // Cleared once per tile (by its top-left invocation) and only for probes
+    // this dispatch actually wrote, so probes still waiting for the sweep to
+    // reach them keep the mark.
+    if (probe_pixel_x == 0 && probe_pixel_y == 0
+        && probe_index >= ddgi.probe_update_offset
+        && probe_index < ddgi.probe_update_offset + ddgi.probe_update_count
+        && probe_status[probe_index] == PROBE_STATUS_UNINITIALIZED) {
+        probe_status[probe_index] = PROBE_STATUS_ACTIVE;
+    }
 }

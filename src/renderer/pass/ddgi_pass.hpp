@@ -69,7 +69,10 @@ enum class DdgiDebugMode : uint32_t {
 /// or procedural worlds, set bounds before the first frame or use a scrolling
 /// grid (not yet implemented).
 struct DdgiConfig {
-    glm::ivec3 probe_counts{16, 8, 16};
+    /// Cubic: the grid is fitted to scene bounds, so a shorter Y axis does
+    /// not mean finer vertical detail — it means the same scene height is
+    /// covered by fewer probes, and vertical spacing grows to match.
+    glm::ivec3 probe_counts{16, 16, 16};
     glm::vec3 probe_spacing{2.0f};
     glm::vec3 grid_position{-7.0f, -1.0f, -7.0f};  // auto-fitted on first frame
     float hysteresis{0.95f};
@@ -84,8 +87,8 @@ struct DdgiConfig {
     // surfaces (nothing else masks the under-sampling) — see
     // Plans/gi-shadow-artifact-investigation.md. 8 is a moderate first
     // step: ~78% more per-probe irradiance-update compute
-    // (proportional to side²), a few hundred KB more atlas VRAM across
-    // 2048 probes — cheap on both fronts, revisit higher if still visible.
+    // (proportional to side²), and atlas VRAM that scales with the probe
+    // count — cheap on both fronts, revisit higher if still visible.
     int irradiance_side_length{8};
     // Visibility (mean depth + variance for Chebyshev occlusion testing)
     // is lower-frequency than full directional irradiance color, so it
@@ -130,8 +133,9 @@ struct DdgiConfig {
     // bright content.
     float infinite_bounces_mult{0.5f};
     // Probes traced+updated per frame, round-robin (0 = all). Spreading the
-    // 2048-probe update over several frames cuts the per-frame ray cost;
-    // hysteresis hides the staggering.
+    // update over several frames cuts the per-frame ray cost; hysteresis
+    // hides the staggering. Also caps the radiance image's height, since
+    // the trace writes one row per probe in the current batch.
     int probes_per_frame_batch{512};
     /// Blend each probe's irradiance with its face-adjacent neighbours
     /// before sampling. Without it the trilinear cage exposes every
@@ -221,6 +225,13 @@ public:
         /// Grid generation this viewport last discarded its atlases at.
         uint32_t reset_generation_{0};
 
+        /// Whether this viewport has recorded a frame yet. Per-viewport for
+        /// the same reason as reset_generation_: record_into() runs once per
+        /// viewport, so a pass-level flag is consumed by whichever records
+        /// first, and the rest transition their images from GENERAL when
+        /// those images have never been transitioned out of UNDEFINED.
+        bool first_frame_{true};
+
         // Visibility atlas: R16G16_SFLOAT
         VkImage visibility_image{VK_NULL_HANDLE};
         VmaAllocation visibility_memory{VK_NULL_HANDLE};
@@ -266,6 +277,9 @@ public:
         int32_t vis_width{0};
         int32_t vis_height{0};
         int32_t total_probes{0};
+        /// Rows in the radiance image — the cap on probes traceable in one
+        /// frame, since the trace writes one row per probe.
+        int32_t radiance_rows{0};
 
         // Round-robin batch cursor — per-viewport, since each viewport owns its
         // own radiance image and atlases (a shared cursor would desync them).
@@ -436,7 +450,6 @@ private:
     VkPipeline sample_pipeline_{VK_NULL_HANDLE};
 
     VkSampler linear_sampler_{VK_NULL_HANDLE};
-    bool is_first_frame_{true};
     /// Bumped by refit_grid(). Each viewport compares this against the
     /// generation it last reset at, so every viewport discards its own
     /// atlases exactly once per refit — record_into() runs per viewport,
