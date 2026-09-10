@@ -286,6 +286,15 @@ public:
         int32_t probe_update_offset{0};
 
         bool images_need_init{true};
+        /// The indirect image was just (re)created and is still in UNDEFINED
+        /// layout. Tracked apart from first_frame_ because a screen resize
+        /// recreates only this image: the probe atlases keep their contents
+        /// and their GENERAL layout, and transitioning them from UNDEFINED
+        /// would discard converged irradiance on every window resize.
+        bool indirect_needs_init{true};
+        /// The pending descriptor rewrite came from a screen resize, which
+        /// leaves probe data valid. Distinguishes it from a fresh create().
+        bool resized_only_{false};
 
         // Cached sky cubemap identity — if the registry entry swaps
         // (e.g. HDRI loaded/cleared), bump images_need_init to rewrite
@@ -349,6 +358,12 @@ public:
         config_.probe_spacing = probe_spacing;
         ++grid_generation_;
     }
+
+    /// Discard accumulated probe irradiance without touching the grid fit.
+    /// Probe atlases integrate the sky, so a sky that changes identity (an
+    /// HDRI finishing its async load, or being cleared) leaves every probe
+    /// holding radiance gathered from the previous one.
+    void invalidate_probe_lighting() { ++grid_generation_; }
 
     void set_config(const DdgiConfig& config) { config_ = config; }
     [[nodiscard]] DdgiConfig& config() { return config_; }

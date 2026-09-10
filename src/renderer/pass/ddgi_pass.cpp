@@ -206,6 +206,7 @@ void DdgiPass::Images::create(VkDevice device, VmaAllocator allocator,
                  VK_FORMAT_R16G16B16A16_SFLOAT, storage_sampled);
 
     images_need_init = true;
+    indirect_needs_init = true;
 }
 
 void DdgiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
@@ -300,8 +301,12 @@ void DdgiPass::Images::resize(VkDevice device, VmaAllocator allocator,
 
     vkCreateImageView(device, &view_info, nullptr, &indirect_view);
 
-    // Mark descriptors as needing rewrite (sample set references indirect_view)
+    // Descriptors reference indirect_view, so they need rewriting. The probe
+    // atlases were not touched: only this image is back in UNDEFINED, and
+    // only its barrier may treat it that way.
     images_need_init = true;
+    indirect_needs_init = true;
+    resized_only_ = true;
 }
 
 void DdgiPass::Images::invalidate_imgui_texture() {
@@ -1131,6 +1136,12 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (sky_cubemap_view != imgs.last_sky_view ||
         sky_cubemap_sampler != imgs.last_sky_sampler) {
         imgs.images_need_init = true;
+        // Rewriting the descriptor only points the trace at the new sky; the
+        // atlases still hold irradiance integrated from the old one. An HDRI
+        // finishing its async load a few frames into a scene would otherwise
+        // leave every probe lit by the placeholder sky until something else
+        // invalidated the grid.
+        if (imgs.last_sky_view != VK_NULL_HANDLE) invalidate_probe_lighting();
         imgs.last_sky_view = sky_cubemap_view;
         imgs.last_sky_sampler = sky_cubemap_sampler;
     }
@@ -1399,7 +1410,10 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(fw.size()), fw.data(), 0, nullptr);
         }
 
-        imgs.first_frame_ = true;
+        // A rewrite triggered by a screen resize leaves the atlases intact —
+        // only a fresh create() has no probe data to preserve.
+        if (!imgs.resized_only_) imgs.first_frame_ = true;
+        imgs.resized_only_ = false;
         imgs.images_need_init = false;
     }
 
@@ -1839,9 +1853,11 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── 10. Transition indirect image to GENERAL for sample output ──
     barrier_image(imgs.indirect_image,
-                  imgs.first_frame_ ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  imgs.indirect_needs_init ? VK_IMAGE_LAYOUT_UNDEFINED
+                                           : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_IMAGE_LAYOUT_GENERAL,
                   VK_ACCESS_2_SHADER_READ_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+    imgs.indirect_needs_init = false;
 
     // ── 11. Dispatch fullscreen sampling (skip first frame — depth buffer not yet rendered) ──
     if (!imgs.first_frame_) {
