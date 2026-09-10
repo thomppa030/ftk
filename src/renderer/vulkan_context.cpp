@@ -169,6 +169,13 @@ void VulkanContext::set_render_settings(const RenderSettings& s) {
     ddgi_pass().config().infinite_bounces_mult = s.ddgi.infinite_bounces_mult;
     ddgi_pass().config().normal_bias           = s.ddgi.normal_bias;
     ddgi_pass().config().view_bias             = s.ddgi.view_bias;
+    // Ray tracing falls back to the SDF trace when the device cannot do it,
+    // so an unsupported project setting degrades rather than rendering
+    // nothing.
+    bool want_rt = s.ddgi.backend == RenderSettings::Ddgi::Backend::RayTraced
+                && gpu_.ray_tracing_supported();
+    ddgi_pass().set_backend(want_rt ? DdgiBackend::ray_traced
+                                    : DdgiBackend::sdf_fallback);
 
     ss_gi_pass().config().enabled        = s.ss_gi.enabled;
     ss_gi_pass().config().intensity      = s.ss_gi.intensity;
@@ -1546,15 +1553,44 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                 particle_system_->set_sdf_bounds(padded_min, padded_max);
             }
 
-            // Fit DDGI probe grid once on first valid bounds, then leave it
-            // stable. Moving objects must not shift the grid — that would
-            // invalidate all accumulated probe irradiance.
+            // Fit the DDGI probe grid to scene bounds, and re-fit when the
+            // scene grows out of it.
+            //
+            // A probe's irradiance is only meaningful for the world position
+            // it was traced at, so moving the grid discards the whole atlas.
+            // That is why this cannot simply track the bounds every frame:
+            // an object drifting a metre would re-fit continuously and the
+            // probes would never converge. It only re-fits when content has
+            // actually escaped what the grid covers, which is the case the
+            // frozen grid got wrong — anything outside clamps to an edge
+            // probe and picks up lighting locked to a world position rather
+            // than to the geometry.
             auto& ddgi_cfg = ddgi_pass().config();
+            glm::vec3 spacing = extent / glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1));
+
             if (!ddgi_grid_initialized_) {
-                glm::vec3 spacing = extent / glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1));
-                ddgi_cfg.grid_position = padded_min;
-                ddgi_cfg.probe_spacing = spacing;
+                ddgi_pass().refit_grid(padded_min, spacing);
                 ddgi_grid_initialized_ = true;
+                ddgi_grid_min_ = padded_min;
+                ddgi_grid_max_ = padded_min + glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1)) * spacing;
+            } else {
+                // Re-fit only once the scene reaches outside the grid. The
+                // margin is a fraction of a cell so a probe still brackets
+                // the content rather than sitting exactly on it, and it
+                // keeps a boundary-hugging object from toggling the refit
+                // on and off frame to frame.
+                glm::vec3 margin = ddgi_cfg.probe_spacing * 0.5f;
+                bool escaped = glm::any(glm::lessThan(padded_min, ddgi_grid_min_ - margin))
+                            || glm::any(glm::greaterThan(padded_max, ddgi_grid_max_ + margin));
+                if (escaped) {
+                    ddgi_pass().refit_grid(padded_min, spacing);
+                    ddgi_grid_min_ = padded_min;
+                    ddgi_grid_max_ = padded_min
+                        + glm::vec3(ddgi_cfg.probe_counts - glm::ivec3(1)) * spacing;
+                    FJELL_GFX_DEBUG("DDGI grid re-fitted to ({:.1f},{:.1f},{:.1f})..({:.1f},{:.1f},{:.1f})",
+                                    padded_min.x, padded_min.y, padded_min.z,
+                                    ddgi_grid_max_.x, ddgi_grid_max_.y, ddgi_grid_max_.z);
+                }
             }
         }
 

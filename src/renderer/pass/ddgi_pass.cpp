@@ -987,7 +987,8 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     // The first frame must seed every probe, and batch == 0 means "all".
     int total = imgs.total_probes;
     int batch = config_.probes_per_frame_batch;
-    if (is_first_frame_ || batch <= 0 || batch >= total) {
+    bool resetting = is_first_frame_ || imgs.reset_generation_ != grid_generation_;
+    if (resetting || batch <= 0 || batch >= total) {
         constants.probe_update_offset = 0;
         constants.probe_update_count = total;
     } else {
@@ -1405,7 +1406,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     GpuDdgiConstants* constants = static_cast<GpuDdgiConstants*>(imgs.constants_ubo->mapped());
 
     // ── 0. Initialize probe status buffer on first use ──
-    if (is_first_frame_) {
+    bool resetting_atlases = is_first_frame_ || imgs.reset_generation_ != grid_generation_;
+    if (resetting_atlases) {
         constexpr uint32_t PROBE_STATUS_ACTIVE = 4;
         VkDeviceSize status_size = static_cast<VkDeviceSize>(imgs.total_probes) * sizeof(uint32_t);
         vkCmdFillBuffer(ctx.cmd, imgs.probe_status_buffer->handle(), 0, status_size, PROBE_STATUS_ACTIVE);
@@ -1655,7 +1657,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
     struct UpdatePush {
         uint32_t first_frame;
         float max_trace_dist;
-    } update_push{is_first_frame_ ? 1U : 0U, MAX_TRACE_DIST};
+    } update_push{resetting_atlases ? 1U : 0U, MAX_TRACE_DIST};
 
     // ── 5. Dispatch irradiance update ──
     {
@@ -1848,6 +1850,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                         imgs.indirect_extent.width, imgs.indirect_extent.height);
     }
     is_first_frame_ = false;
+    imgs.reset_generation_ = grid_generation_;
     frame_counter_++;
 }
 

@@ -399,6 +399,10 @@ private:
   bool has_pending_ddgi_toggle_{false};
   bool pending_ddgi_toggle_{false};
   bool ddgi_grid_initialized_{false};
+  // World bounds the DDGI grid currently covers. Compared against scene
+  // bounds each frame to decide whether content has escaped it.
+  glm::vec3 ddgi_grid_min_{0.0f};
+  glm::vec3 ddgi_grid_max_{0.0f};
   uint32_t active_sources_{~0u}; // all enabled by default
   AnimationSystem* animation_system_{nullptr};
   ResourceManager* resource_manager_{nullptr};

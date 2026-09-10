@@ -218,6 +218,9 @@ public:
         /// rewrite that one binding or the change never reaches the GPU.
         bool bound_to_filtered{false};
 
+        /// Grid generation this viewport last discarded its atlases at.
+        uint32_t reset_generation_{0};
+
         // Visibility atlas: R16G16_SFLOAT
         VkImage visibility_image{VK_NULL_HANDLE};
         VmaAllocation visibility_memory{VK_NULL_HANDLE};
@@ -321,6 +324,18 @@ public:
     /// Must be called outside of command buffer recording (uses synchronous GPU submits).
     void prepare_accel_structures(const FrameContext& ctx);
 
+    /// Move the probe grid and discard everything accumulated in it.
+    ///
+    /// A probe's irradiance only means anything for the world position it
+    /// was traced at, so any change to grid_position or probe_spacing
+    /// invalidates the whole atlas. Callers use this rather than writing
+    /// config() directly, so the discard cannot be forgotten.
+    void refit_grid(const glm::vec3& grid_position, const glm::vec3& probe_spacing) {
+        config_.grid_position = grid_position;
+        config_.probe_spacing = probe_spacing;
+        ++grid_generation_;
+    }
+
     void set_config(const DdgiConfig& config) { config_ = config; }
     [[nodiscard]] DdgiConfig& config() { return config_; }
     [[nodiscard]] const DdgiConfig& config() const { return config_; }
@@ -422,6 +437,12 @@ private:
 
     VkSampler linear_sampler_{VK_NULL_HANDLE};
     bool is_first_frame_{true};
+    /// Bumped by refit_grid(). Each viewport compares this against the
+    /// generation it last reset at, so every viewport discards its own
+    /// atlases exactly once per refit — record_into() runs per viewport,
+    /// so a single shared flag would be consumed by whichever recorded
+    /// first and leave the rest holding stale irradiance.
+    uint32_t grid_generation_{0};
 
     // RT backend
     DdgiBackend backend_{DdgiBackend::sdf_fallback};
