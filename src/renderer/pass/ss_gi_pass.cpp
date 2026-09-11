@@ -345,12 +345,15 @@ Result<> SsGiPass::create(Device& device, const PassResources& resources) {
 
     // ── Resolve compute pipeline ──
     {
-        std::array<VkDescriptorSetLayoutBinding, 6> bindings{};
+        std::array<VkDescriptorSetLayoutBinding, 7> bindings{};
         for (uint32_t i = 0; i < 5; ++i)
             bindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
         bindings[5] = {5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+        // Reprojection matrices come from the same constants UBO the trace
+        // uses rather than push constants, which cannot hold three mat4s.
+        bindings[6] = {6, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
-        std::array<VkDescriptorBindingFlags, 6> resolve_flags{};
+        std::array<VkDescriptorBindingFlags, 7> resolve_flags{};
         resolve_flags[2] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // depth
         resolve_flags[3] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // normal
         resolve_flags[4] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // prev_depth
@@ -483,7 +486,8 @@ void SsGiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     // the FrameContext wasn't fully populated.
     constants.inv_view_proj = ctx.inv_view_proj;
 
-    constants.prev_view_proj = prev_view_proj_;
+    constants.prev_view_proj = imgs.prev_view_proj;
+    constants.prev_inv_view_proj = imgs.prev_inv_view_proj;
     constants.camera_position = ctx.camera_position;
     constants.max_trace_dist = config_.max_trace_dist;
     // Resolution must match what the SS-GI images were created with (viewport size),
@@ -500,6 +504,10 @@ void SsGiPass::update_constants(Images& imgs, const FrameContext& ctx) {
     constants.sun_color = glm::vec4(sun_color_, 0.0f);
 
     std::memcpy(imgs.constants_ubo->mapped(), &constants, sizeof(constants));
+
+    // The resolve reprojects through these, so it needs this frame's inverse
+    // view-projection alongside the previous frame's forward matrix.
+    imgs.inv_view_proj = ctx.inv_view_proj;
 
     // Store current frame's VP for next frame's prev_view_proj.
     // ctx.inv_view_proj is the correct jittered matrix from the GlobalUBO;
@@ -596,7 +604,8 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
     // ── Allocate descriptor sets on first use ──
     if (imgs.desc_pool == VK_NULL_HANDLE) {
         std::array<VkDescriptorPoolSize, 4> pool_sizes{};
-        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1};
+        // Two sets bind the constants UBO: the trace and the resolve.
+        pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2};
         pool_sizes[1] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 14};
         pool_sizes[2] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3};
         pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3};
@@ -662,11 +671,12 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         resolve_out_info.imageView = imgs.resolved_view;
         resolve_out_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
-        std::array<VkWriteDescriptorSet, 3> rsw{};
+        std::array<VkWriteDescriptorSet, 4> rsw{};
         for (auto& w : rsw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.resolve_set; w.descriptorCount = 1; }
         rsw[0].dstBinding = 0; rsw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rsw[0].pImageInfo = &raw_info;
         rsw[1].dstBinding = 1; rsw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; rsw[1].pImageInfo = &hist_info;
         rsw[2].dstBinding = 5; rsw[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE; rsw[2].pImageInfo = &resolve_out_info;
+        rsw[3].dstBinding = 6; rsw[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; rsw[3].pBufferInfo = &ubo_info;
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(rsw.size()), rsw.data(), 0, nullptr);
 
         // Upsample set: static bindings (resolved probes, indirect output)
@@ -857,7 +867,7 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         push.resolution = glm::vec2(imgs.indirect_extent.width * 2,
                                     imgs.indirect_extent.height * 2);
         push.probe_spacing = config_.probe_spacing;
-        push.hysteresis = config_.hysteresis;
+        push.hysteresis = imgs.history_valid ? config_.hysteresis : 0.0f;
         vkCmdPushConstants(cmd, resolve_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                            0, sizeof(push), &push);
 
@@ -921,6 +931,12 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
                   VK_IMAGE_ASPECT_DEPTH_BIT);
     imgs.prev_depth_valid = true;
+
+    // The resolve has consumed prev_view_proj; the history it just wrote
+    // belongs to this frame's camera, so that becomes next frame's reference.
+    imgs.prev_view_proj = glm::inverse(imgs.inv_view_proj);
+    imgs.prev_inv_view_proj = imgs.inv_view_proj;
+    imgs.history_valid = true;
 
     // ── 7. Barriers for upsample ──
     barrier_image(imgs.resolved_image,

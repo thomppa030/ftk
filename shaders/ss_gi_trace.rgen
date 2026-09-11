@@ -12,6 +12,7 @@ layout(std140, set = 0, binding = 0) uniform SsGiConstants {
     mat4 projection;
     mat4 inv_view_proj;
     mat4 prev_view_proj;
+    mat4 prev_inv_view_proj;
     vec3 camera_position;
     float max_trace_dist;
     vec2 resolution;

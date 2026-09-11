@@ -29,6 +29,7 @@ struct GpuSsGiConstants {
     glm::mat4 projection{1.0f};
     glm::mat4 inv_view_proj{1.0f};
     glm::mat4 prev_view_proj{1.0f};
+    glm::mat4 prev_inv_view_proj{1.0f};
     glm::vec3 camera_position;
     float max_trace_dist{20.0f};
     glm::vec2 resolution;
@@ -89,6 +90,14 @@ public:
         VkDescriptorSet upsample_set{VK_NULL_HANDLE};
 
         bool first_frame{true};
+
+        // Reprojection matrices for the temporal resolve: this frame's
+        // inverse view-projection and the previous frame's view-projection.
+        // Per-viewport, since each viewport has its own camera history.
+        glm::mat4 inv_view_proj{1.0f};
+        glm::mat4 prev_view_proj{1.0f};
+        glm::mat4 prev_inv_view_proj{1.0f};
+        bool history_valid{false};
 
         void create(VkDevice device, VmaAllocator allocator,
                      const SsGiConfig& config,
