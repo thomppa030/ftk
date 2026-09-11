@@ -13,6 +13,7 @@
         { "class": "DepthResolvePass", "name": "depth_resolve" },
         { "class": "HizPass",          "name": "hiz" },
         { "class": "InstanceCullPass", "name": "instance_cull" },
+        { "class": "TerrainPass",      "name": "terrain" },
 
         // ── Mesh shader passes (created lazily when use_mesh_shaders) ──
         // These are still instantiated by C++ in vulkan_context.cpp::create_meshlet_passes

@@ -15,6 +15,7 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/pass/sky_pass.hpp"
+#include "renderer/pass/terrain_pass.hpp"
 #include "renderer/pass/grid_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "scene/scene.hpp"
@@ -259,6 +260,9 @@ void OpaquePass::record(const FrameContext& ctx) {
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
         ctx.subsystems[i]->record_opaque(ctx);
     }
+
+    // Before sky and grid: terrain is opaque geometry and writes depth.
+    ctx.passes->get<TerrainPass>("terrain").record(ctx);
 
     ctx.passes->get<SkyPass>("sky").record(ctx);
     ctx.passes->get<GridPass>("grid").record(ctx);

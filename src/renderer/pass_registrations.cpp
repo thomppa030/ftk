@@ -30,6 +30,7 @@
 #include "renderer/pass/light_cull_pass.hpp"
 #include "renderer/pass/light_viz_pass.hpp"
 #include "renderer/pass/local_shadow_pass.hpp"
+#include "renderer/pass/terrain_pass.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
 #include "renderer/pass/meshlet_cull_pass2.hpp"
 #include "renderer/pass/meshlet_instance_pass.hpp"
@@ -81,6 +82,7 @@ FJELL_REGISTER_PASS(HizPass)
 FJELL_REGISTER_PASS(InstanceCullPass)
 FJELL_REGISTER_PASS(LightCullPass)
 FJELL_REGISTER_PASS(LocalShadowPass)
+FJELL_REGISTER_PASS(TerrainPass)
 FJELL_REGISTER_PASS(MeshShaderDepthPass)
 FJELL_REGISTER_PASS(MeshletCullPass2)
 FJELL_REGISTER_PASS(MeshletInstancePass)

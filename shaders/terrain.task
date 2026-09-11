@@ -1,0 +1,31 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+// One task invocation per terrain patch. Phase 1 emits every patch; frustum
+// and Hi-Z culling belong here and land with the LOD work.
+
+layout(local_size_x = 1) in;
+
+layout(push_constant) uniform PushConstants {
+    vec2  world_origin;      // terrain min corner, world XZ
+    float world_size;        // terrain extent in metres (square)
+    float height_scale;      // world height of a normalized 1.0 sample
+    float height_offset;     // world height of a normalized 0.0 sample
+    uint  patches_per_side;
+    uint  patch_quads;
+    uint  _pad;
+} push;
+
+struct TaskPayload {
+    uint patch_x;
+    uint patch_z;
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+void main() {
+    uint patch_index = gl_WorkGroupID.x;
+    payload.patch_x = patch_index % push.patches_per_side;
+    payload.patch_z = patch_index / push.patches_per_side;
+    EmitMeshTasksEXT(1, 1, 1);
+}

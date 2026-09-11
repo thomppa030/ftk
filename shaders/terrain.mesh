@@ -1,0 +1,109 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+#include "fjell_global_ubo.glsl"
+
+// One workgroup emits one terrain patch. PATCH_QUADS quads per side gives
+// (PATCH_QUADS+1)^2 vertices and PATCH_QUADS^2*2 triangles, and both must fit
+// the device's mesh shader output limits. Primitives bind first — 2N^2 outgrows
+// (N+1)^2 — so 11 quads (144 verts, 242 prims) is the largest square patch that
+// fits the 256/256 floor.
+#define PATCH_QUADS 11
+#define PATCH_VERTS (PATCH_QUADS + 1)
+#define MAX_VERTS   (PATCH_VERTS * PATCH_VERTS)
+#define MAX_TRIS    (PATCH_QUADS * PATCH_QUADS * 2)
+
+layout(local_size_x = 64) in;
+layout(triangles, max_vertices = MAX_VERTS, max_primitives = MAX_TRIS) out;
+
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+
+layout(set = 1, binding = 0) uniform sampler2D height_tex;
+
+layout(push_constant) uniform PushConstants {
+    vec2  world_origin;
+    float world_size;
+    float height_scale;
+    float height_offset;
+    uint  patches_per_side;
+    uint  patch_quads;
+    uint  _pad;
+} push;
+
+struct TaskPayload {
+    uint patch_x;
+    uint patch_z;
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+// Matches mesh.vert's interface so terrain can share the scene's fragment
+// shading conventions.
+layout(location = 0) out vec3 frag_color[];
+layout(location = 1) out vec2 frag_tex_coord[];
+layout(location = 2) out vec3 frag_world_pos[];
+layout(location = 3) out vec3 frag_world_normal[];
+layout(location = 4) out vec4 frag_clip_pos[];
+layout(location = 5) out vec4 frag_prev_clip_pos[];
+
+float sample_height(vec2 uv) {
+    return push.height_offset + texture(height_tex, uv).r * push.height_scale;
+}
+
+// Normals come from height differences rather than stored data, so they follow
+// edits to the height texture with no extra work.
+vec3 compute_normal(vec2 uv, vec2 texel, float metres_per_uv) {
+    float hl = sample_height(uv - vec2(texel.x, 0.0));
+    float hr = sample_height(uv + vec2(texel.x, 0.0));
+    float hd = sample_height(uv - vec2(0.0, texel.y));
+    float hu = sample_height(uv + vec2(0.0, texel.y));
+    float dx = 2.0 * texel.x * metres_per_uv;
+    float dz = 2.0 * texel.y * metres_per_uv;
+    return normalize(vec3(-(hr - hl) / dx, 1.0, -(hu - hd) / dz));
+}
+
+void main() {
+    SetMeshOutputsEXT(MAX_VERTS, MAX_TRIS);
+
+    vec2 texel = 1.0 / vec2(textureSize(height_tex, 0));
+    vec2 patch_uv_size = vec2(1.0 / float(push.patches_per_side));
+    vec2 patch_uv_min = vec2(float(payload.patch_x), float(payload.patch_z)) * patch_uv_size;
+
+    // Vertices: position comes from the invocation index, not a vertex buffer.
+    // The loop strides by workgroup size because MAX_VERTS exceeds it.
+    for (uint i = gl_LocalInvocationIndex; i < MAX_VERTS; i += 64) {
+        uint ix = i % PATCH_VERTS;
+        uint iz = i / PATCH_VERTS;
+        vec2 local = vec2(float(ix), float(iz)) / float(PATCH_QUADS);
+        vec2 uv = patch_uv_min + local * patch_uv_size;
+
+        vec3 world_pos = vec3(push.world_origin.x + uv.x * push.world_size,
+                              sample_height(uv),
+                              push.world_origin.y + uv.y * push.world_size);
+
+        vec4 clip = ubo.projection * ubo.view * vec4(world_pos, 1.0);
+        gl_MeshVerticesEXT[i].gl_Position = clip;
+
+        frag_color[i] = vec3(1.0);
+        frag_tex_coord[i] = uv;
+        frag_world_pos[i] = world_pos;
+        frag_world_normal[i] = compute_normal(uv, texel, push.world_size);
+        frag_clip_pos[i] = ubo.unjittered_vp * vec4(world_pos, 1.0);
+        // Terrain is static, so the previous frame's position is this one's;
+        // velocity resolves to the camera's motion alone.
+        frag_prev_clip_pos[i] = ubo.prev_unjittered_vp * vec4(world_pos, 1.0);
+    }
+
+    // Triangles: fixed grid topology, pure index arithmetic, no index buffer.
+    for (uint t = gl_LocalInvocationIndex; t < MAX_TRIS; t += 64) {
+        uint quad = t >> 1;
+        uint qx = quad % PATCH_QUADS;
+        uint qz = quad / PATCH_QUADS;
+        uint v0 = qz * PATCH_VERTS + qx;
+        uint v1 = v0 + 1;
+        uint v2 = v0 + PATCH_VERTS;
+        uint v3 = v2 + 1;
+        gl_PrimitiveTriangleIndicesEXT[t] =
+            ((t & 1u) == 0u) ? uvec3(v0, v2, v1) : uvec3(v1, v2, v3);
+    }
+}

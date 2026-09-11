@@ -6,6 +6,8 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/uniform_types.hpp"
 #include "audio/audio_asset.hpp"
+// Complete type required: Pool<TerrainAsset> destroys unique_ptrs inline.
+#include "renderer/resources/terrain_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
 #include "scene/preset_asset.hpp"
 
@@ -32,6 +34,7 @@ class UploadContext;
 class Project;
 class Texture;
 class Material;
+class TerrainAsset;
 struct MaterialAsset;
 
 class ResourceManager {
@@ -91,6 +94,9 @@ public:
     // VFX assets (.fjvfx)
     Result<VfxAssetHandle> load_vfx_asset(const std::string& path);
 
+    // Terrain assets (.fjterrain)
+    Result<TerrainAssetHandle> load_terrain_asset(const std::string& path);
+
     // Audio assets (.fjaudio)
     Result<AudioAssetHandle> load_audio_asset(const std::string& path);
 
@@ -119,6 +125,7 @@ public:
     [[nodiscard]] Texture* get(TextureHandle handle) const;
     [[nodiscard]] Material* get(MaterialHandle handle) const;
     [[nodiscard]] VfxEffect* get(VfxAssetHandle handle) const;
+    [[nodiscard]] TerrainAsset* get(TerrainAssetHandle handle) const;
     [[nodiscard]] AudioAsset* get(AudioAssetHandle handle) const;
     [[nodiscard]] InputActionDef* get(InputActionHandle handle) const;
     [[nodiscard]] struct PresetAsset* get(PresetAssetHandle handle) const;
@@ -194,6 +201,7 @@ private:
     Pool<Texture, TextureHandle> textures_;
     Pool<Material, MaterialHandle> materials_;
     Pool<VfxEffect, VfxAssetHandle> vfx_assets_;
+    Pool<TerrainAsset, TerrainAssetHandle> terrain_assets_;
     Pool<AudioAsset, AudioAssetHandle> audio_assets_;
     Pool<InputActionDef, InputActionHandle> input_actions_;
     Pool<PresetAsset, PresetAssetHandle> preset_assets_;

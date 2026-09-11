@@ -1,4 +1,7 @@
+#include "core/base_path.hpp"
+#include "core/log.hpp"
 #include "renderer/components/terrain_component.hpp"
+#include "renderer/resources/resource_manager.hpp"
 #include "scene/component_registry.hpp"
 #include "scene/node.hpp"
 
@@ -43,10 +46,20 @@ static const bool registered = [] {
             out["terrain_path"] = terrain->terrain_path;
         },
 
-        .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/,
-                          const Project* /*proj*/) {
+        .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& res,
+                          const Project* proj) {
             auto& terrain = node.components.add<TerrainComponent>();
             terrain.terrain_path = j.value("terrain_path", std::string{});
+            if (terrain.terrain_path.empty()) return;
+
+            auto handle = res.load_terrain_asset(
+                base_path::resolve_asset(terrain.terrain_path, proj));
+            if (!handle) {
+                FJELL_CORE_ERROR("terrain: {}", handle.error());
+                return;
+            }
+            terrain.terrain_handle = *handle;
+            terrain.terrain = res.get(*handle);
         },
 
         .script_type_name = "TerrainComponent",

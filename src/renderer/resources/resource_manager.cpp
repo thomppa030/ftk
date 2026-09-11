@@ -14,6 +14,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/primitives.hpp"
 #include "renderer/resources/texture.hpp"
+#include "renderer/resources/terrain_asset.hpp"
 #include "audio/audio_asset.hpp"
 #include "renderer/systems/vfx_asset.hpp"
 #include "core/base_path.hpp"
@@ -684,6 +685,25 @@ Result<VfxAssetHandle> ResourceManager::load_vfx_asset(const std::string& path) 
 
 VfxEffect* ResourceManager::get(VfxAssetHandle handle) const {
     return vfx_assets_.get(handle);
+}
+
+// ── Terrain assets ───────────────────────────────────────────────────────
+
+Result<TerrainAssetHandle> ResourceManager::load_terrain_asset(const std::string& path) {
+    auto it = terrain_assets_.name_to_handle.find(path);
+    if (it != terrain_assets_.name_to_handle.end()) {
+        return it->second;
+    }
+
+    auto terrain = TerrainAsset::load(path, device_, allocator_, physical_device_, upload_);
+    if (!terrain) {
+        return make_error(terrain.error());
+    }
+    return terrain_assets_.insert(path, std::move(*terrain));
+}
+
+TerrainAsset* ResourceManager::get(TerrainAssetHandle handle) const {
+    return terrain_assets_.get(handle);
 }
 
 // ── Audio assets ─────────────────────────────────────────────────────────

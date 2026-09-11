@@ -1,0 +1,73 @@
+#version 460
+#extension GL_EXT_mesh_shader : require
+
+#include "fjell_global_ubo.glsl"
+
+// Depth-only twin of terrain.mesh. Same grid arithmetic and the same push
+// constants, emitting position alone — the depth prepass needs no attributes,
+// and matching terrain.mesh's vertex placement exactly is what lets the color
+// pass run with LOAD_OP_LOAD and COMPARE_OP_LESS.
+#define PATCH_QUADS 11
+#define PATCH_VERTS (PATCH_QUADS + 1)
+#define MAX_VERTS   (PATCH_VERTS * PATCH_VERTS)
+#define MAX_TRIS    (PATCH_QUADS * PATCH_QUADS * 2)
+
+layout(local_size_x = 64) in;
+layout(triangles, max_vertices = MAX_VERTS, max_primitives = MAX_TRIS) out;
+
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+
+layout(set = 1, binding = 0) uniform sampler2D height_tex;
+
+layout(push_constant) uniform PushConstants {
+    vec2  world_origin;
+    float world_size;
+    float height_scale;
+    float height_offset;
+    uint  patches_per_side;
+    uint  patch_quads;
+    uint  _pad;
+} push;
+
+struct TaskPayload {
+    uint patch_x;
+    uint patch_z;
+};
+
+taskPayloadSharedEXT TaskPayload payload;
+
+float sample_height(vec2 uv) {
+    return push.height_offset + texture(height_tex, uv).r * push.height_scale;
+}
+
+void main() {
+    SetMeshOutputsEXT(MAX_VERTS, MAX_TRIS);
+
+    vec2 patch_uv_size = vec2(1.0 / float(push.patches_per_side));
+    vec2 patch_uv_min = vec2(float(payload.patch_x), float(payload.patch_z)) * patch_uv_size;
+
+    for (uint i = gl_LocalInvocationIndex; i < MAX_VERTS; i += 64) {
+        uint ix = i % PATCH_VERTS;
+        uint iz = i / PATCH_VERTS;
+        vec2 local = vec2(float(ix), float(iz)) / float(PATCH_QUADS);
+        vec2 uv = patch_uv_min + local * patch_uv_size;
+
+        vec3 world_pos = vec3(push.world_origin.x + uv.x * push.world_size,
+                              sample_height(uv),
+                              push.world_origin.y + uv.y * push.world_size);
+
+        gl_MeshVerticesEXT[i].gl_Position = ubo.projection * ubo.view * vec4(world_pos, 1.0);
+    }
+
+    for (uint t = gl_LocalInvocationIndex; t < MAX_TRIS; t += 64) {
+        uint quad = t >> 1;
+        uint qx = quad % PATCH_QUADS;
+        uint qz = quad / PATCH_QUADS;
+        uint v0 = qz * PATCH_VERTS + qx;
+        uint v1 = v0 + 1;
+        uint v2 = v0 + PATCH_VERTS;
+        uint v3 = v2 + 1;
+        gl_PrimitiveTriangleIndicesEXT[t] =
+            ((t & 1u) == 0u) ? uvec3(v0, v2, v1) : uvec3(v1, v2, v3);
+    }
+}

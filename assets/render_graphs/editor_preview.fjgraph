@@ -12,6 +12,7 @@
         { "class": "DepthPrePass",     "name": "depth_prepass" },
         { "class": "DepthResolvePass", "name": "depth_resolve" },
         { "class": "InstanceCullPass", "name": "instance_cull" },
+        { "class": "TerrainPass",      "name": "terrain" },
 
         // Shadows — keeps lighting recognizable. SkyCubemapPass also writes
         // the env cubemap that opaque samples for IBL.
