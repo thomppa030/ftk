@@ -148,7 +148,12 @@ void main() {
     // Screen-space contact shadows: multiplies sub-cascade occlusion from
     // small geometry the cascade shadow map can't resolve (character feet,
     // small props on a surface, etc.).
-    float contact = texelFetch(contact_shadow_tex, ivec2(gl_FragCoord.xy), 0).r;
+    // Clamp to the image: it is shared across viewports and sized to the
+    // largest, so a fragment can sit outside it. An out-of-range texelFetch
+    // reads zero, which would read as fully occluded.
+    ivec2 cs_size = textureSize(contact_shadow_tex, 0);
+    ivec2 cs_texel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), cs_size - 1);
+    float contact = texelFetch(contact_shadow_tex, cs_texel, 0).r;
     shadow *= contact;
 
     // Direct lighting (directional)

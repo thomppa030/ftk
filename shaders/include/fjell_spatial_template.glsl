@@ -214,7 +214,11 @@ void main() {
                     N, V, ALBEDO, METALLIC, ROUGHNESS, F0, d, s);
 
         float shadow = shadow_factor(WORLD_POS, N, NdotL);
-        float contact = texelFetch(contact_shadow_tex, ivec2(gl_FragCoord.xy), 0).r;
+        // See mesh.frag: the shared image may be smaller than this viewport,
+        // and an out-of-range fetch reads zero, i.e. fully occluded.
+        ivec2 cs_size = textureSize(contact_shadow_tex, 0);
+        ivec2 cs_texel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), cs_size - 1);
+        float contact = texelFetch(contact_shadow_tex, cs_texel, 0).r;
         shadow *= contact;
 
         vec3 radiance = LIGHT_COLOR * LIGHT_INTENSITY;

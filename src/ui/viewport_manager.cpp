@@ -136,6 +136,10 @@ void ViewportManager::apply_resize(VulkanContext& ctx) {
             // Post-process images — resize via PostProcessResources
             ctx.default_pp().resize(vp_w, vp_h);
 
+            // Contact shadows share one screen-space image across viewports,
+            // so it has to cover the largest of them.
+            ctx.contact_shadow_pass().ensure_size(vp_w, vp_h);
+
             // Viz passes — only resize when active
             uint32_t mask = ctx.active_sources();
             auto active = [mask](ViewportSource src) {

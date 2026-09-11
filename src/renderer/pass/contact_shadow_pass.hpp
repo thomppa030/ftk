@@ -35,6 +35,12 @@ public:
     [[nodiscard]] VkImageView shadow_view() const { return shadow_view_; }
     [[nodiscard]] VkSampler shadow_sampler() const { return sampler_; }
 
+    /// Grow the shadow image so it covers a viewport of this size. The image
+    /// is shared by every viewport and is only ever enlarged, so the largest
+    /// viewport seen so far decides its size. Call outside of recording —
+    /// this reallocates and rewrites descriptors.
+    void ensure_size(uint32_t w, uint32_t h);
+
 private:
     void create_image(uint32_t w, uint32_t h);
     void destroy_image();

@@ -159,12 +159,15 @@ Result<> ContactShadowPass::create(Device& device, const PassResources& resource
     alloc.pSetLayouts = &set_layout_;
     vkAllocateDescriptorSets(device_, &alloc, &output_set_);
 
-    // Allocate a fixed 4K image once. Contact shadows never resize — the
-    // compute shader uses viewport_size in push constants to write only the
-    // active region, and shading reads with texelFetch(gl_FragCoord) which
-    // bounds itself to that same region. Avoids the mid-frame
-    // descriptor-invalidation storm that killed resize-on-record.
-    create_image(3840, 2160);
+    // Start at a common desktop size and grow from ensure_size() as viewports
+    // demand it. The compute shader writes only the region named by
+    // viewport_size in its push constants, so an image larger than the
+    // viewport is fine; one smaller is not, because the stores outside it are
+    // discarded and shading then reads texels that were never written.
+    // Growing happens between frames, never during record(), which is what
+    // made the earlier resize-on-record approach a descriptor-invalidation
+    // storm.
+    create_image(1920, 1080);
 
     FJELL_GFX_DEBUG("Contact shadow pass created");
     return {};
@@ -302,6 +305,13 @@ void ContactShadowPass::update_descriptor() {
     write.descriptorCount = 1;
     write.pImageInfo = &info;
     vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
+}
+
+void ContactShadowPass::ensure_size(uint32_t w, uint32_t h) {
+    if (w <= extent_.width && h <= extent_.height) return;
+    // One image serves every viewport, so grow to cover the largest rather
+    // than thrashing between sizes as different panels ask for different ones.
+    resize(std::max(w, extent_.width), std::max(h, extent_.height));
 }
 
 void ContactShadowPass::resize(uint32_t w, uint32_t h) {
