@@ -157,6 +157,8 @@ add_executable(fjell
     renderer/components/sprite_component_meta.cpp
     renderer/components/sprite_anim_component_meta.cpp
     renderer/components/tilemap_component_meta.cpp
+    renderer/components/terrain_component_meta.cpp
+    renderer/resources/fjterrain_io.cpp
     renderer/render_queue.cpp
     renderer/resources/asset_loader.cpp
     renderer/resources/resource_manager.cpp
