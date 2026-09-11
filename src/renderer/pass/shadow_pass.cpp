@@ -474,7 +474,12 @@ void ShadowPass::destroy() {
 // ── Recording ───────────────────────────────────────────────────────────
 
 void ShadowPass::record(const FrameContext& ctx) {
-    if (!ctx.queue || ctx.queue->empty()) return;
+    // No early-out on an empty queue: consumers sample the atlas whether or not
+    // anything cast into it, and returning here would leave the cascades in
+    // DEPTH_ATTACHMENT_OPTIMAL. The per-cascade path below already clears and
+    // transitions a cascade that has no geometry, so an empty queue is just the
+    // case where every cascade takes that branch.
+    if (ctx.queue == nullptr) return;
 
     FJELL_PROFILE_SCOPE_N("record_shadow");
     FJELL_GPU_ZONE(ctx, "Cascade Shadows");
