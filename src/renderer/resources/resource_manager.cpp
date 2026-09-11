@@ -299,6 +299,15 @@ std::vector<Material*> ResourceManager::load_slot_materials(ModelHandle model_ha
         if (authored[i].path.empty()) continue;
 
         auto resolved = base_path::resolve_asset(authored[i].path, project);
+        if (resolved.empty()) {
+            FJELL_GFX_WARN("Mesh material slot '{}' -> '{}': does not resolve",
+                           authored[i].name, authored[i].path);
+            continue;
+        }
+
+        // A slot can outlive the material it names — renamed, moved or deleted
+        // since the mesh was authored. That leaves the slot unassigned and the
+        // object falling back to its own material.
         auto result = load_material_asset(resolved, project);
         if (!result) {
             FJELL_GFX_WARN("Mesh material slot '{}' -> '{}': {}",
@@ -318,7 +327,15 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
         return it->second;
     }
 
-    auto asset = fjell::load_material_asset(path);
+    // The parser throws on a missing or malformed file. Callers get a Result,
+    // so the failure belongs in it rather than escaping into whoever happens to
+    // be loading a scene.
+    MaterialAsset asset;
+    try {
+        asset = fjell::load_material_asset(path);
+    } catch (const std::exception& e) {
+        return make_error("Failed to load material '" + path + "': " + e.what());
+    }
 
     // Register shader in pipeline cache
     uint32_t pipeline_id = 0;

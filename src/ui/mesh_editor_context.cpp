@@ -211,8 +211,19 @@ void MeshEditorContext::draw_slots_panel() {
             auto& slot = authored_.material_slots[i];
             ImGui::PushID(static_cast<int>(i));
 
+            // Slots hold ids; show the path they point at.
+            std::string shown = "(none)";
+            if (!slot.path.empty()) {
+                shown = slot.path;
+                if (base_path::is_asset_id(slot.path)) {
+                    const auto* proj = deps_.project_mgr->active();
+                    auto rel = proj ? proj->path_of(AssetId::from_string(slot.path))
+                                    : std::string{};
+                    shown = rel.empty() ? slot.path + "  (missing)" : rel;
+                }
+            }
             ImGui::Text("%zu  %s", i, slot.name.c_str());
-            ImGui::TextDisabled("%s", slot.path.empty() ? "(none)" : slot.path.c_str());
+            ImGui::TextDisabled("%s", shown.c_str());
 
             // Drop a .fjmat from the content browser onto the row to assign it.
             ImGui::InvisibleButton("##drop", {-1.0F, ImGui::GetFrameHeight()});
@@ -220,7 +231,10 @@ void MeshEditorContext::draw_slots_panel() {
                 if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
                     std::string dropped(static_cast<const char*>(payload->Data));
                     if (std::filesystem::path(dropped).extension() == ".fjmat") {
-                        slot.path = dropped;
+                        // Stored as an id so renaming or moving the material
+                        // doesn't orphan the slot.
+                        slot.path = base_path::asset_reference(
+                            dropped, deps_.project_mgr->active());
                         dirty_ = true;
                         apply_slot_materials();
                     }
@@ -248,6 +262,13 @@ void MeshEditorContext::draw_slots_panel() {
 
 bool MeshEditorContext::save() {
     if (fjmesh_abs_path_.empty()) return false;
+
+    // Slots written by the importer hold a path, since nothing has an id at
+    // import time. Upgrade them here so they survive the material moving.
+    const auto* project = deps_.project_mgr->active();
+    for (auto& slot : authored_.material_slots) {
+        slot.path = base_path::asset_reference(slot.path, project);
+    }
 
     if (!rewrite_authored_data(fjmesh_abs_path_, authored_)) {
         FJELL_CORE_ERROR("Failed to save mesh settings: {}", fjmesh_path_);
