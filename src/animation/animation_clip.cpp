@@ -1,4 +1,5 @@
 #include "animation/animation_clip.hpp"
+#include "core/asset_identity.hpp"
 #include "animation/anim_notify_registry.hpp"
 #include "scripting/field_serialization.hpp"
 #include "core/log.hpp"
@@ -169,7 +170,8 @@ Result<AnimationClip> AnimationClip::load(const std::string& path) {
     // Warn on unknown top-level fields
     for (auto it = j.begin(); it != j.end(); ++it) {
         if (it.key() != "name" && it.key() != "tracks" &&
-            it.key() != "notifies" && it.key() != "events") {
+            it.key() != "notifies" && it.key() != "events" &&
+            it.key() != asset_identity::UUID_KEY) {
             FJELL_CORE_WARN("Animation {}: unknown field '{}'", path, it.key());
         }
     }

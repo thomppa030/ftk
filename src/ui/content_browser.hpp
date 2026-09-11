@@ -129,6 +129,10 @@ public:
     Delegate<void(uint32_t, const std::string&)> on_create_preset;
     // Import model via in-engine importer
     Delegate<void(const std::string&)> on_import_model;
+
+    /// Fired after a file is renamed or moved, with the old and new paths
+    /// relative to the project root, so the asset database can follow it.
+    Delegate<void(const std::string& from, const std::string& to)> on_asset_moved;
 };
 
 } // namespace fjell

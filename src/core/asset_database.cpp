@@ -1,4 +1,5 @@
 #include "core/asset_database.hpp"
+#include "core/asset_identity.hpp"
 #include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
@@ -106,6 +107,10 @@ void AssetDatabase::rebuild() {
     // Track which paths we see on disk
     std::unordered_set<std::string> seen_paths;
 
+    // Assets not yet carrying their id. Written after the walk so the
+    // directory iterator doesn't see files created underneath it.
+    std::vector<std::pair<fs::path, AssetId>> needs_write;
+
     std::error_code ec;
     for (const auto& entry : fs::recursive_directory_iterator(project_root_, ec)) {
         if (!entry.is_regular_file()) continue;
@@ -119,31 +124,69 @@ void AssetDatabase::rebuild() {
             continue;
         }
 
+        // Sidecars carry other files' identities; they are not assets.
+        if (asset_identity::is_sidecar(entry.path())) continue;
+
         auto ext = entry.path().extension().string();
         if (!is_trackable(ext)) continue;
 
         seen_paths.insert(rel);
 
-        // Already tracked?
-        if (by_path_.contains(rel)) continue;
+        // The id the asset carries is authoritative — it is what survives the
+        // file being moved or renamed outside the editor, which is exactly the
+        // case where the path map is already wrong.
+        AssetId carried = asset_identity::read(entry.path());
 
-        // Try to recover UUID from embedded __uuid in Fjell JSON formats
-        AssetId id;
-        if (is_fjell_json(ext)) {
-            id = read_inline_uuid(entry.path());
+        if (auto it = by_path_.find(rel); it != by_path_.end()) {
+            if (carried.valid() && carried != it->second) {
+                // The file was replaced by one with its own identity (a copy,
+                // a restore, a checkout). Its id wins over the stale mapping.
+                remove_locked(it->second);
+            } else {
+                if (!carried.valid()) {
+                    // Tracked but carrying nothing yet — give it the id it
+                    // already has so the next move preserves it.
+                    needs_write.emplace_back(entry.path(), it->second);
+                }
+                continue;
+            }
         }
 
-        // If no embedded UUID (or not a JSON format), generate a new one
-        if (!id.valid()) {
-            id = AssetId::generate();
-        }
+        AssetId id = carried;
 
-        // Check for UUID collision (astronomically unlikely, but be safe)
-        while (by_id_.contains(id)) {
+        if (id.valid()) {
+            if (auto it = by_id_.find(id); it != by_id_.end()) {
+                bool original_gone = !fs::exists(project_root_ / it->second.relative_path, ec);
+                if (original_gone) {
+                    // The file this id belongs to is no longer where it was:
+                    // it moved, and this is it. Repoint rather than treating
+                    // its own id as a clash.
+                    by_path_.erase(it->second.relative_path);
+                    it->second.relative_path = rel;
+                    by_path_[rel] = id;
+                    dirty_ = true;
+                    continue;
+                }
+                // The original is still there, so this is a copy carrying a
+                // duplicated id. Copies are new assets and need their own.
+                id = AssetId::generate();
+                while (by_id_.contains(id)) {
+                    id = AssetId::generate();
+                }
+            }
+        } else {
             id = AssetId::generate();
+            // Two files can only collide here if one was copied without its
+            // id, so a fresh one is the right answer.
+            while (by_id_.contains(id)) {
+                id = AssetId::generate();
+            }
         }
 
         insert_locked(id, rel);
+        if (id != carried) {
+            needs_write.emplace_back(entry.path(), id);
+        }
         dirty_ = true;
     }
 
@@ -161,6 +204,18 @@ void AssetDatabase::rebuild() {
 
     if (!stale.empty()) {
         FJELL_CORE_INFO("Asset database: removed {} stale entries", stale.size());
+    }
+
+    // Store ids into the assets themselves. A failure here leaves the entry in
+    // the database, so the asset still loads — it just won't survive a move.
+    uint32_t written = 0;
+    for (const auto& [path, id] : needs_write) {
+        if (asset_identity::write(path, id)) {
+            ++written;
+        }
+    }
+    if (written > 0) {
+        FJELL_CORE_INFO("Asset database: stored ids in {} assets", written);
     }
 }
 

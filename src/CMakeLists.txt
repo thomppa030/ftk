@@ -31,6 +31,7 @@ add_executable(fjell
     renderer/gpu/vma_impl.cpp
     core/asset_id.cpp
     core/asset_database.cpp
+    core/asset_identity.cpp
     core/asset_type_registry.cpp
     core/base_path.cpp
     core/clock.cpp

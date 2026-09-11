@@ -434,6 +434,16 @@ void Engine::init_content_browser() {
             }
         }));
     // Import model from content browser right-click
+    connections_.push_back(content_browser_.on_asset_moved.bind(
+        [this](const std::string& from, const std::string& to) {
+            auto* proj = project_mgr_.active();
+            if (!proj || !proj->asset_db()) return;
+            auto* db = proj->asset_db();
+            if (const auto* entry = db->find_by_path(from)) {
+                db->notify_move(entry->id, to);
+                (void)db->save();
+            }
+        }));
     connections_.push_back(content_browser_.on_import_model.bind(
         [this](const std::string& path) {
             auto abs = base_path::resolve_asset(path, project_mgr_.active());

@@ -1,4 +1,5 @@
 #include "ui/content_browser.hpp"
+#include "core/asset_identity.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "ui/asset_templates.hpp"
 #include "ui/icon_cache.hpp"
@@ -59,6 +60,8 @@ void ContentBrowser::refresh_current_dir() {
         if (e.name.starts_with(".")) continue;
         // Skip build directories
         if (e.is_directory && e.name == "build") continue;
+        // Identity sidecars are bookkeeping for the file they sit beside
+        if (!e.is_directory && asset_identity::is_sidecar(e.path)) continue;
 
         e.type = e.is_directory ? FileType::folder : classify(entry.path());
 
@@ -493,6 +496,18 @@ void ContentBrowser::draw_file_grid() {
                 std::error_code ec;
                 std::filesystem::rename(entry.path, new_path, ec);
                 if (!ec) {
+                    // A sidecar holds the file's identity, so it has to follow.
+                    std::error_code sc;
+                    auto from_side = asset_identity::sidecar_path(entry.path);
+                    if (std::filesystem::exists(from_side, sc)) {
+                        std::filesystem::rename(
+                            from_side, asset_identity::sidecar_path(new_path), sc);
+                    }
+
+                    auto old_rel = std::filesystem::relative(entry.path, root_);
+                    auto new_rel = std::filesystem::relative(new_path, root_);
+                    on_asset_moved.broadcast(old_rel.string(), new_rel.string());
+
                     FJELL_CORE_INFO("Renamed: {} -> {}", entry.name, rename_buf_);
                     refresh_current_dir();
                 } else {

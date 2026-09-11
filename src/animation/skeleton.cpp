@@ -1,4 +1,5 @@
 #include "animation/skeleton.hpp"
+#include "core/asset_identity.hpp"
 #include "core/log.hpp"
 
 #include <ozz/animation/offline/raw_skeleton.h>
@@ -168,7 +169,8 @@ Result<Skeleton> Skeleton::load(const std::string& path) {
 
     // Warn on unknown top-level fields
     for (auto it = j.begin(); it != j.end(); ++it) {
-        if (it.key() != "joints" && it.key() != "slots") {
+        if (it.key() != "joints" && it.key() != "slots" &&
+            it.key() != asset_identity::UUID_KEY) {
             FJELL_CORE_WARN("Skeleton {}: unknown field '{}'", path, it.key());
         }
     }
