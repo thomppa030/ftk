@@ -117,9 +117,14 @@ void main() {
     // Extended hemisphere around the surface normal. Z_MIN = -0.3 lets
     // rays reach ~17° below the horizon, catching emissive objects at
     // the same height as the probe without tracing deep into the surface.
+    // ray_offset advances the sequence every frame, so successive frames
+    // sample different directions and the temporal blend converges instead
+    // of averaging one fixed pattern. Without it a small bright emitter is
+    // either hit by a fixed ray or missed entirely, and the probe flips
+    // between the two as the camera shifts it by a pixel.
     uint probe_id = probe_x + probe_y * probe_count.x;
     uint hashed = hash_probe(probe_id);
-    uint seq_index = (hashed + ray_index) & 0xFFFFu;
+    uint seq_index = (hashed + ray_offset + ray_index) & 0xFFFFu;
     vec2 xi = vec2(halton(seq_index + 1u, 2u), halton(seq_index + 1u, 3u));
     vec3 local_dir = extended_hemisphere(xi);
     vec3 ray_dir = normalize(tbn * local_dir);
