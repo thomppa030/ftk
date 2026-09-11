@@ -1,4 +1,6 @@
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
+#include "renderer/pass_registry.hpp"
+#include "renderer/pass/terrain_pass.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
@@ -355,7 +357,13 @@ void MeshShaderDepthPass::destroy() {
 }
 
 void MeshShaderDepthPass::record(const FrameContext& ctx) {
-    if (!ctx.target || !ctx.queue || ctx.queue->empty()) return;
+    if (ctx.target == nullptr || ctx.queue == nullptr) return;
+    // An empty queue does not mean an empty frame: terrain generates its
+    // geometry in a mesh shader and never enters the queue. Skipping the pass
+    // would leave depth at whatever the last camera position wrote, and the
+    // color pass — which tests against this depth without writing it — would
+    // then smear stale terrain across the view.
+    if (ctx.queue->empty() && !TerrainPass::scene_has_terrain(ctx)) return;
 
     FJELL_PROFILE_SCOPE_N("record_mesh_depth");
     FJELL_GPU_ZONE(ctx, "Mesh Depth");
@@ -486,6 +494,14 @@ void MeshShaderDepthPass::record(const FrameContext& ctx) {
                                  1, 0, 0, skinned_indices[idx]);
                 idx++;
             }
+        }
+    }
+
+    // Terrain generates its geometry in a mesh shader from a height texture, so
+    // it has no draw in the indirect batch and has to record itself.
+    if (ctx.passes != nullptr) {
+        if (auto* terrain = ctx.passes->try_get<TerrainPass>("terrain")) {
+            terrain->record_depth(ctx);
         }
     }
 

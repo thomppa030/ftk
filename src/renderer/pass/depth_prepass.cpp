@@ -1,6 +1,7 @@
 #include "renderer/pass/depth_prepass.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/mesh_shader_depth_pass.hpp"
+#include "renderer/pass/terrain_pass.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/pass_builder.hpp"
@@ -216,7 +217,10 @@ void DepthPrePass::record(const FrameContext& ctx) {
         }
     }
 
-    if (!ctx.target || !ctx.queue || ctx.queue->empty()) return;
+    if (ctx.target == nullptr || ctx.queue == nullptr) return;
+    // Terrain is mesh-shader generated and never enters the render queue, so
+    // an empty queue can still have depth to write. See the mesh-shader path.
+    if (ctx.queue->empty() && !TerrainPass::scene_has_terrain(ctx)) return;
 
     auto extent = ctx.target->extent();
 
@@ -297,6 +301,14 @@ void DepthPrePass::record(const FrameContext& ctx) {
     // depth attachment we just bound.
     for (uint32_t i = 0; i < ctx.subsystem_count; ++i) {
         ctx.subsystems[i]->record_depth(ctx);
+    }
+
+    // Terrain generates its geometry in a mesh shader from a height texture, so
+    // it has no draw in the render queue and has to record itself.
+    if (ctx.passes != nullptr) {
+        if (auto* terrain = ctx.passes->try_get<TerrainPass>("terrain")) {
+            terrain->record_depth(ctx);
+        }
     }
 
     vkCmdEndRendering(ctx.cmd);
