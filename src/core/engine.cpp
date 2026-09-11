@@ -803,7 +803,7 @@ void Engine::save_material_assets() {
     for (auto& obj : scene_.objects()) {
         auto* mesh = obj->components.get<MeshComponent>();
         if (!mesh || !mesh->material) continue;
-        if (!mesh->material_name.ends_with(".fjmat")) continue;
+        if (!base_path::references_asset(mesh->material_name, ".fjmat")) continue;
 
         uint32_t pid = mesh->material->pipeline_id();
         if (pid >= cache->shader_count()) continue;

@@ -28,6 +28,13 @@ namespace base_path {
 /// True if a reference is an asset id rather than a path.
 [[nodiscard]] bool is_asset_id(const std::string& reference);
 
+/// True if a reference points at an asset of the given extension — either a
+/// path ending in it, or an id (which carries no extension of its own).
+/// Prefer this over checking the extension directly: a bare `ends_with` test
+/// silently drops id references.
+[[nodiscard]] bool references_asset(const std::string& reference,
+                                    const std::string& extension);
+
 /// The reference to serialize for an asset. Returns the asset's id when the
 /// project tracks it, so the reference survives the asset being moved; falls
 /// back to the path it was given for anything untracked (engine assets, files

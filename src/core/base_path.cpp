@@ -45,6 +45,12 @@ bool is_asset_id(const std::string& reference) {
     return true;
 }
 
+bool references_asset(const std::string& reference, const std::string& extension) {
+    if (reference.empty()) return false;
+    if (is_asset_id(reference)) return true;
+    return reference.ends_with(extension);
+}
+
 std::string asset_reference(const std::string& path_or_id, const Project* project) {
     if (path_or_id.empty() || is_asset_id(path_or_id)) return path_or_id;
     if (!project) return path_or_id;

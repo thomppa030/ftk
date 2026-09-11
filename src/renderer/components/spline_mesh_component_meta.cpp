@@ -323,7 +323,8 @@ static const bool registered = [] {
                 }
             }
 
-            if (sm->material_name != "default" && sm->material_name.ends_with(".fjmat")) {
+            if (sm->material_name != "default" &&
+                base_path::references_asset(sm->material_name, ".fjmat")) {
                 auto resolved = base_path::resolve_asset(sm->material_name, proj);
                 auto result = res.load_material_asset(resolved, proj);
                 if (result) {

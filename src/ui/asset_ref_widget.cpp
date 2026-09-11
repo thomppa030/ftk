@@ -3,6 +3,8 @@
 #include "ui/file_browser.hpp"
 #include "ui/icon_cache.hpp"
 #include "ui/icons_lc.hpp"
+#include "core/base_path.hpp"
+#include "core/project.hpp"
 #include "core/project_manager.hpp"
 
 #include <imgui.h>
@@ -50,6 +52,22 @@ static bool matches_extension(const std::string& path,
 bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     bool changed = false;
 
+    const Project* project = config.ctx && config.ctx->project_mgr
+        ? config.ctx->project_mgr->active() : nullptr;
+
+    // References are stored as ids so they survive the asset being moved, but
+    // everything the user sees — the field, the tooltip, the preview — wants
+    // the path the id points at.
+    auto to_reference = [&](const std::string& picked) {
+        return base_path::asset_reference(picked, project);
+    };
+    auto display_path = [&](const std::string& reference) -> std::string {
+        if (!base_path::is_asset_id(reference)) return reference;
+        if (!project) return reference;
+        auto rel = project->path_of(AssetId::from_string(reference));
+        return rel.empty() ? reference : rel;
+    };
+
     ImGui::PushID(config.id);
 
     // Label (skipped when empty — caller wants single-line layout, e.g. list items)
@@ -58,10 +76,12 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
         ImGui::TextUnformatted(config.label);
     }
 
+    auto shown_path = display_path(path);
+
     // Display field — filename only, full path on hover
-    auto display = path.empty()
+    auto display = shown_path.empty()
         ? std::string("(none)")
-        : std::filesystem::path(path).filename().string();
+        : std::filesystem::path(shown_path).filename().string();
 
     float button_width = ImGui::GetFrameHeight();
     int num_buttons = 0;
@@ -75,8 +95,8 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
                      ImGuiInputTextFlags_ReadOnly);
 
     // Tooltip: full path
-    if (ImGui::IsItemHovered() && !path.empty()) {
-        ImGui::SetTooltip("%s", path.c_str());
+    if (ImGui::IsItemHovered() && !shown_path.empty()) {
+        ImGui::SetTooltip("%s", shown_path.c_str());
     }
 
     // Drag-and-drop target
@@ -84,7 +104,7 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
         if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
             std::string dropped(static_cast<const char*>(payload->Data));
             if (matches_extension(dropped, config.extensions)) {
-                path = dropped;
+                path = to_reference(dropped);
                 changed = true;
             }
         }
@@ -94,7 +114,7 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
     // Check for pending browse result
     if (s_browse_result_ready && s_browse_pending_id == config.id) {
         if (matches_extension(s_browse_result, config.extensions)) {
-            path = s_browse_result;
+            path = to_reference(s_browse_result);
             changed = true;
         }
         s_browse_pending_id.clear();
@@ -111,7 +131,7 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
         if (ImGui::Button(ICON_LC_PIN "##pick", {button_width, button_width})) {
             auto selected = config.ctx->content_browser->selected_asset_path();
             if (!selected.empty() && matches_extension(selected, config.extensions)) {
-                path = selected;
+                path = to_reference(selected);
                 changed = true;
             }
         }
@@ -150,13 +170,11 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
 
     ImGui::PopStyleVar();
 
-    // Per-type preview
+    // Per-type preview — takes a path, so hand it the resolved one.
     if (config.asset_type && config.asset_type->draw_preview &&
-        !path.empty() && config.ctx && config.ctx->resource_manager) {
-        const Project* project = config.ctx->project_mgr
-            ? config.ctx->project_mgr->active() : nullptr;
+        !shown_path.empty() && config.ctx && config.ctx->resource_manager) {
         config.asset_type->draw_preview(
-            path, *config.ctx->resource_manager,
+            shown_path, *config.ctx->resource_manager,
             config.ctx->icons, project,
             ImGui::GetContentRegionAvail().x);
     }

@@ -103,6 +103,12 @@ std::string Project::resolve(const AssetId& id) const {
     return entry ? (root_ / entry->relative_path).string() : std::string{};
 }
 
+std::string Project::path_of(const AssetId& id) const {
+    if (!asset_db_ || !id.valid()) return {};
+    const auto* entry = asset_db_->find(id);
+    return entry ? entry->relative_path : std::string{};
+}
+
 AssetId Project::id_of(const std::string& relative_path) const {
     if (!asset_db_) return {};
     const auto* entry = asset_db_->find_by_path(relative_path);

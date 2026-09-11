@@ -443,7 +443,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
 
         // Material
         auto mat_n = smc.material_name;
-        if (mat_n.ends_with(".fjmat")) {
+        if (base_path::references_asset(mat_n, ".fjmat")) {
             auto mat_result = resources.load_material_asset(
                 base_path::resolve_asset(mat_n, project), project);
             if (mat_result) {

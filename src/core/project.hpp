@@ -59,6 +59,10 @@ public:
     /// Id of the asset at this project-relative path, invalid if untracked.
     [[nodiscard]] AssetId id_of(const std::string& relative_path) const;
 
+    /// Project-relative path of the asset with this id, empty if unknown.
+    /// For display — resolve() gives the absolute path for loading.
+    [[nodiscard]] std::string path_of(const AssetId& id) const;
+
     void save() const;
 
     // Re-copy engine scripting headers into the project's include/ dir
