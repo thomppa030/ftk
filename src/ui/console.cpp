@@ -139,8 +139,10 @@ void ConsoleSink::draw(const char* title) {
             ImGui::PopStyleColor();
         }
 
-        // Ctrl+C: copy selected entries to clipboard
+        // Ctrl+C: copy selected entries to clipboard. While the search field is
+        // active it owns the keyboard and copies its own text selection instead.
         if (ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows) &&
+            !ImGui::IsAnyItemActive() &&
             ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C) &&
             !selected_.empty()) {
             // Collect in order
