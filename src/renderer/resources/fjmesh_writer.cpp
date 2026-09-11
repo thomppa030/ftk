@@ -230,6 +230,27 @@ bool rewrite_collision_data(const std::string& path,
         return false;
     }
 
+    // The geometry every rebuild derives from. It is never regenerated here —
+    // only carried across — so changing the source stays reversible.
+    std::vector<glm::vec3> full_vertices(header.collision_full_vertex_count);
+    if (!full_vertices.empty()) {
+        std::fseek(in, static_cast<long>(header.collision_full_vertices_offset), SEEK_SET);
+        if (std::fread(full_vertices.data(), sizeof(glm::vec3), full_vertices.size(), in) !=
+            full_vertices.size()) {
+            std::fclose(in);
+            return false;
+        }
+    }
+    std::vector<uint32_t> full_indices(header.collision_full_index_count);
+    if (!full_indices.empty()) {
+        std::fseek(in, static_cast<long>(header.collision_full_indices_offset), SEEK_SET);
+        if (std::fread(full_indices.data(), sizeof(uint32_t), full_indices.size(), in) !=
+            full_indices.size()) {
+            std::fclose(in);
+            return false;
+        }
+    }
+
     // The LOD table and SDF volume follow collision and are unchanged in
     // content, but their offsets move with it.
     std::vector<char> lod_levels(header.lod_count * sizeof(FjMeshLodLevel));
@@ -257,6 +278,8 @@ bool rewrite_collision_data(const std::string& path,
     auto* out_header = reinterpret_cast<FjMeshHeader*>(prefix.data());
     out_header->collision_vertex_count = static_cast<uint32_t>(collision.vertices.size());
     out_header->collision_index_count = static_cast<uint32_t>(collision.indices.size());
+    // The full-detail counts carry over from the header already in `prefix`:
+    // that geometry is preserved verbatim, only its offsets move.
 
     // Re-lay out everything from collision onward, matching the alignment the
     // importer uses so a rewritten file is laid out like a freshly built one.
@@ -268,6 +291,23 @@ bool rewrite_collision_data(const std::string& path,
     out_header->collision_indices_offset = align_to(offset, 4);
     offset = out_header->collision_indices_offset +
              (collision.indices.size() * sizeof(uint32_t));
+
+    // When the new geometry is the full-detail geometry, both sections name the
+    // same bytes, exactly as a fresh import writes it.
+    const bool derived_is_full = collision.vertices == full_vertices &&
+                                 collision.indices == full_indices;
+    if (derived_is_full) {
+        out_header->collision_full_vertices_offset = out_header->collision_vertices_offset;
+        out_header->collision_full_indices_offset = out_header->collision_indices_offset;
+    } else {
+        out_header->collision_full_vertices_offset = align_to(offset, 4);
+        offset = out_header->collision_full_vertices_offset +
+                 (full_vertices.size() * sizeof(glm::vec3));
+
+        out_header->collision_full_indices_offset = align_to(offset, 4);
+        offset = out_header->collision_full_indices_offset +
+                 (full_indices.size() * sizeof(uint32_t));
+    }
 
     out_header->lod_levels_offset = align_to(offset, 4);
     offset = out_header->lod_levels_offset + lod_levels.size();
@@ -295,6 +335,14 @@ bool rewrite_collision_data(const std::string& path,
 
     pad_to_offset(out, out_header->collision_indices_offset);
     std::fwrite(collision.indices.data(), sizeof(uint32_t), collision.indices.size(), out);
+
+    if (!derived_is_full) {
+        pad_to_offset(out, out_header->collision_full_vertices_offset);
+        std::fwrite(full_vertices.data(), sizeof(glm::vec3), full_vertices.size(), out);
+
+        pad_to_offset(out, out_header->collision_full_indices_offset);
+        std::fwrite(full_indices.data(), sizeof(uint32_t), full_indices.size(), out);
+    }
 
     pad_to_offset(out, out_header->lod_levels_offset);
     std::fwrite(lod_levels.data(), 1, lod_levels.size(), out);

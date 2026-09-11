@@ -31,6 +31,13 @@ struct FjMeshData {
     std::vector<uint8_t> meshlet_triangles;
     std::vector<glm::vec3> collision_vertices;
     std::vector<uint32_t> collision_indices;
+
+    // Collision geometry as captured from the source mesh, before the
+    // collision source was applied. Empty for files written before v7, which
+    // kept only the derived result.
+    std::vector<glm::vec3> collision_full_vertices;
+    std::vector<uint32_t> collision_full_indices;
+
     std::vector<FjMeshLodLevel> lod_levels;
     AABB aabb;
 
@@ -96,6 +103,20 @@ public:
         return authored_.collision_source;
     }
 
+    // The geometry the collision above was derived from, kept so the source
+    // can be changed without reimporting. Empty for meshes written before v7:
+    // those hold only the derived result, and deriving again from it would
+    // compound the loss.
+    [[nodiscard]] const std::vector<glm::vec3>& collision_full_vertices() const {
+        return collision_full_vertices_;
+    }
+    [[nodiscard]] const std::vector<uint32_t>& collision_full_indices() const {
+        return collision_full_indices_;
+    }
+    [[nodiscard]] bool has_full_collision() const {
+        return !collision_full_vertices_.empty();
+    }
+
     [[nodiscard]] const AABB& local_aabb() const { return local_aabb_; }
 
     [[nodiscard]] const std::vector<MegaMeshEntry>& mega_entries() const { return mega_entries_; }
@@ -150,6 +171,8 @@ private:
     std::vector<std::unique_ptr<Texture>> textures_;
     std::vector<glm::vec3> collision_vertices_;
     std::vector<uint32_t> collision_indices_;
+    std::vector<glm::vec3> collision_full_vertices_;
+    std::vector<uint32_t> collision_full_indices_;
     AABB local_aabb_;
     std::vector<MegaMeshEntry> mega_entries_;
     std::vector<MeshletBuildResult> meshlet_results_;

@@ -407,14 +407,28 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
             throw std::runtime_error("Failed to read .fjmesh v5 header fields: " + path);
         }
     }
-    // Read v6+ identity fields if present
+    // Read v6+ identity fields if present. Each version block is sized by where
+    // the next one begins, never by sizeof(FjMeshHeader) — a v6 file holds
+    // exactly these bytes, so sizing against the grown struct would read past
+    // its header and into the geometry behind it.
     if (header.version >= 6) {
         constexpr size_t V6_START = offsetof(FjMeshHeader, asset_uuid_offset);
-        size_t v6_size = sizeof(FjMeshHeader) - V6_START;
+        constexpr size_t V6_END = offsetof(FjMeshHeader, collision_full_vertex_count);
+        size_t v6_size = V6_END - V6_START;
         auto* v6_ptr = reinterpret_cast<char*>(&header) + V6_START;
         if (std::fread(v6_ptr, v6_size, 1, f) != 1) {
             std::fclose(f);
             throw std::runtime_error("Failed to read .fjmesh v6 header fields: " + path);
+        }
+    }
+    // Read v7+ full-detail collision fields if present
+    if (header.version >= 7) {
+        constexpr size_t V7_START = offsetof(FjMeshHeader, collision_full_vertex_count);
+        size_t v7_size = sizeof(FjMeshHeader) - V7_START;
+        auto* v7_ptr = reinterpret_cast<char*>(&header) + V7_START;
+        if (std::fread(v7_ptr, v7_size, 1, f) != 1) {
+            std::fclose(f);
+            throw std::runtime_error("Failed to read .fjmesh v7 header fields: " + path);
         }
     }
     if (header.flags & FJMESH_FLAG_SKINNED) {
@@ -452,6 +466,15 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     read_section(data.meshlet_triangles, header.meshlet_triangles_offset, header.meshlet_triangle_byte_count);
     read_section(data.collision_vertices, header.collision_vertices_offset, header.collision_vertex_count);
     read_section(data.collision_indices, header.collision_indices_offset, header.collision_index_count);
+
+    // Full-detail collision (v7+). A render_mesh source points both sections at
+    // the same bytes, so this re-reads them rather than storing a second copy.
+    if (header.version >= 7) {
+        read_section(data.collision_full_vertices, header.collision_full_vertices_offset,
+                     header.collision_full_vertex_count);
+        read_section(data.collision_full_indices, header.collision_full_indices_offset,
+                     header.collision_full_index_count);
+    }
 
     // LOD levels: v2 stores them in the file, v1 gets a synthesized single LOD
     if (header.version >= 2 && header.lod_count > 0) {
@@ -522,6 +545,8 @@ Model::Model(VmaAllocator allocator, UploadContext& upload,
              MeshletBuffer* meshlet_buf) {
     collision_vertices_ = std::move(data.collision_vertices);
     collision_indices_ = std::move(data.collision_indices);
+    collision_full_vertices_ = std::move(data.collision_full_vertices);
+    collision_full_indices_ = std::move(data.collision_full_indices);
     authored_ = std::move(data.authored);
     local_aabb_ = data.aabb;
     sdf_data_ = std::move(data.sdf_data);

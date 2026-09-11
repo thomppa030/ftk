@@ -15,7 +15,7 @@
 namespace fjell {
 
 static constexpr uint32_t FJMESH_MAGIC   = 0x484D4A46; // "FJMH" little-endian
-static constexpr uint32_t FJMESH_VERSION = 6;
+static constexpr uint32_t FJMESH_VERSION = 7;
 
 static constexpr uint32_t FJMESH_FLAG_SKINNED = 1; // vertices are SkinnedVertex (92 bytes)
 
@@ -128,6 +128,17 @@ struct FjMeshHeader {
     // v6+ fields — asset identity, so a move doesn't orphan the mesh
     uint32_t asset_uuid_offset;         // 32 hex chars, into the name table
     uint32_t asset_uuid_length;
+
+    // v7+ fields — the collision geometry as captured from the source mesh,
+    // before collision_source was applied to it. The derived geometry above is
+    // what the runtime collides against; this is what it was derived from, so
+    // the source can be changed without reimporting. When the source is
+    // render_mesh the two are identical and these offsets point at the same
+    // bytes rather than storing a second copy.
+    uint32_t collision_full_vertex_count;
+    uint32_t collision_full_index_count;
+    uint64_t collision_full_vertices_offset;
+    uint64_t collision_full_indices_offset;
 };
 
 // ── .fjskel format ──────────────────────────────────────────────────────

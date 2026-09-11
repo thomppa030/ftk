@@ -144,6 +144,13 @@ struct ImportResult {
     std::vector<uint8_t> meshlet_triangles;
     std::vector<glm::vec3> collision_vertices;
     std::vector<uint32_t> collision_indices;
+
+    // Collision geometry as captured from the source mesh. build_collision_geometry
+    // derives the arrays above from these, and both are written to the file so a
+    // later source change has the original to work from.
+    std::vector<glm::vec3> collision_full_vertices;
+    std::vector<uint32_t> collision_full_indices;
+
     std::vector<fjell::FjMeshLodLevel> lod_levels;
     fjell::AABB aabb;
 
@@ -401,6 +408,11 @@ static void build_collision_geometry(ImportResult& result,
             break;
     }
 
+    // Keep what was captured before deriving from it: changing the source later
+    // needs the original geometry, and the derived form cannot be inverted.
+    result.collision_full_vertices = result.collision_vertices;
+    result.collision_full_indices = result.collision_indices;
+
     fjell::CollisionBuildInput input{&result.collision_vertices, &result.collision_indices};
     auto built = fjell::build_collision(input, authored.collision_source,
                                         authored.collision_simplify_ratio);
@@ -465,11 +477,34 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
     header.meshlet_triangles_offset = align_to(offset, 4);
     offset = header.meshlet_triangles_offset + header.meshlet_triangle_byte_count;
 
+    // Deriving is a no-op for these sources, so the two collision sections hold
+    // the same bytes and the file stores them once.
+    const bool collision_is_full_detail =
+        authored.collision_source == fjell::FjMeshCollisionSource::render_mesh ||
+        authored.collision_source == fjell::FjMeshCollisionSource::custom_mesh;
+
     header.collision_vertices_offset = align_to(offset, 4);
     offset = header.collision_vertices_offset + header.collision_vertex_count * sizeof(glm::vec3);
 
     header.collision_indices_offset = align_to(offset, 4);
     offset = header.collision_indices_offset + header.collision_index_count * sizeof(uint32_t);
+
+    // Full-detail collision (v7). A render_mesh source leaves the derived
+    // geometry identical to what it came from, so both point at one copy.
+    header.collision_full_vertex_count = static_cast<uint32_t>(result.collision_full_vertices.size());
+    header.collision_full_index_count = static_cast<uint32_t>(result.collision_full_indices.size());
+    if (collision_is_full_detail) {
+        header.collision_full_vertices_offset = header.collision_vertices_offset;
+        header.collision_full_indices_offset = header.collision_indices_offset;
+    } else {
+        header.collision_full_vertices_offset = align_to(offset, 4);
+        offset = header.collision_full_vertices_offset +
+                 header.collision_full_vertex_count * sizeof(glm::vec3);
+
+        header.collision_full_indices_offset = align_to(offset, 4);
+        offset = header.collision_full_indices_offset +
+                 header.collision_full_index_count * sizeof(uint32_t);
+    }
 
     header.lod_levels_offset = align_to(offset, 4);
     offset = header.lod_levels_offset + header.lod_count * sizeof(fjell::FjMeshLodLevel);
@@ -532,6 +567,16 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
 
     pad_to(header.collision_indices_offset);
     std::fwrite(result.collision_indices.data(), sizeof(uint32_t), result.collision_indices.size(), f);
+
+    if (!collision_is_full_detail) {
+        pad_to(header.collision_full_vertices_offset);
+        std::fwrite(result.collision_full_vertices.data(), sizeof(glm::vec3),
+                    result.collision_full_vertices.size(), f);
+
+        pad_to(header.collision_full_indices_offset);
+        std::fwrite(result.collision_full_indices.data(), sizeof(uint32_t),
+                    result.collision_full_indices.size(), f);
+    }
 
     pad_to(header.lod_levels_offset);
     std::fwrite(result.lod_levels.data(), sizeof(fjell::FjMeshLodLevel), result.lod_levels.size(), f);
@@ -892,6 +937,13 @@ static bool import_skinned_mesh(const aiScene* scene, SkinnedImportResult& resul
 
     header.collision_indices_offset = align_to(offset, 4);
     offset = header.collision_indices_offset + header.collision_index_count * sizeof(uint32_t);
+
+    // Skinned meshes always collide against their captured geometry, so the
+    // full-detail section is that same geometry rather than a second copy.
+    header.collision_full_vertex_count = header.collision_vertex_count;
+    header.collision_full_index_count = header.collision_index_count;
+    header.collision_full_vertices_offset = header.collision_vertices_offset;
+    header.collision_full_indices_offset = header.collision_indices_offset;
 
     uint64_t file_size = offset;
 
