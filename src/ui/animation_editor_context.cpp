@@ -201,7 +201,7 @@ void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
 }
 
 bool AnimationEditorContext::handle_shortcuts() {
-    if (ImGui::GetIO().WantTextInput) return false;
+    if (ImGui::IsAnyItemActive()) return false;
 
     // Space: toggle play
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {

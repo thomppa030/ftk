@@ -290,9 +290,9 @@ void BlendSpace1DEditorContext::draw_parameter_slider() {
         reload_clips();
     }
 
-    // Delete key
+    // Delete key — not while a name field below has the keyboard
     if (selected_point_ >= 0 && selected_point_ < static_cast<int>(blend_space_.size()) &&
-        ImGui::IsKeyPressed(ImGuiKey_Delete)) {
+        !ImGui::IsAnyItemActive() && ImGui::IsKeyPressed(ImGuiKey_Delete)) {
         auto points = blend_space_.points();
         points.erase(points.begin() + selected_point_);
         blend_space_.clear();

@@ -319,7 +319,7 @@ void VfxEditorContext::setup_dockspace(ImGuiID main_area) {
 }
 
 bool VfxEditorContext::handle_shortcuts() {
-    if (ImGui::GetIO().WantTextInput) return false;
+    if (ImGui::IsAnyItemActive()) return false;
 
     if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
         bool now_playing = !timeline_.playing();

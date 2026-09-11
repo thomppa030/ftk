@@ -658,8 +658,9 @@ void ContentBrowser::draw_file_grid() {
         }
     }
 
-    // Keyboard shortcuts
-    if (ImGui::IsWindowFocused()) {
+    // The rename box owns the keyboard while it is open, so F2/Delete/Backspace
+    // must not double as navigation shortcuts there.
+    if (ImGui::IsWindowFocused() && !renaming_) {
         if (ImGui::IsKeyPressed(ImGuiKey_F2) && selected_index_ >= 0 &&
             selected_index_ < static_cast<int>(entries_.size())) {
             renaming_ = true;

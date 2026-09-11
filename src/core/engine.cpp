@@ -1449,17 +1449,17 @@ void Engine::draw_ui() {
     if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space)) {
         content_browser_.toggle_visibility();
     }
-    if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
+    if (!ImGui::IsAnyItemActive() && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
         if (ImGui::GetIO().KeyShift) {
             active_context().command_history().redo();
         } else {
             active_context().command_history().undo();
         }
     }
-    if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) {
+    if (!ImGui::IsAnyItemActive() && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) {
         active_context().command_history().redo();
     }
-    if (!ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F9)) {
+    if (!ImGui::IsAnyItemActive() && ImGui::IsKeyPressed(ImGuiKey_F9)) {
         capture_popup_.open();
     }
 

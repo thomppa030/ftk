@@ -96,7 +96,7 @@ void UiEditorContext::setup_dockspace(ImGuiID main_area) {
 }
 
 bool UiEditorContext::handle_shortcuts() {
-    if (ImGui::GetIO().WantTextInput) return false;
+    if (ImGui::IsAnyItemActive()) return false;
 
     // Escape: deselect
     if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
