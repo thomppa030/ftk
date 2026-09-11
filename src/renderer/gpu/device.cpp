@@ -211,8 +211,12 @@ void Device::pick_physical_device() {
     vkGetPhysicalDeviceProperties2(physical_device_, &props2);
 
     mesh_shader_max_workgroup_size_ = mesh_props.maxMeshWorkGroupSize[0];
-    FJELL_GFX_INFO("Mesh shaders enabled (max workgroup: {})",
-                   mesh_shader_max_workgroup_size_);
+    mesh_shader_max_output_vertices_ = mesh_props.maxMeshOutputVertices;
+    mesh_shader_max_output_primitives_ = mesh_props.maxMeshOutputPrimitives;
+    FJELL_GFX_INFO("Mesh shaders enabled (max workgroup: {}, max output: {} verts / {} prims)",
+                   mesh_shader_max_workgroup_size_,
+                   mesh_shader_max_output_vertices_,
+                   mesh_shader_max_output_primitives_);
 
     // VK_EXT_device_fault: on VK_ERROR_DEVICE_LOST, lets us query the faulting
     // address/vendor info to pin which GPU op lost the device. Optional.
