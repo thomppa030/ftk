@@ -534,11 +534,25 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         auto default_tex = resources.load_texture(
             base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
 
+        // A material reference is either a path or an asset id; both resolve
+        // through resolve_asset, and neither is the "default" sentinel.
+        bool has_material_ref = mat_name.ends_with(".fjmat") ||
+                                base_path::is_asset_id(mat_name);
+
         MaterialHandle mat_handle;
-        if (mat_name.ends_with(".fjmat")) {
+        if (has_material_ref) {
             std::string mat_path = base_path::resolve_asset(mat_name, project);
-            auto result = resources.load_material_asset(mat_path, project);
-            if (result) mat_handle = *result;
+            if (mat_path.empty()) {
+                FJELL_CORE_WARN("Object '{}': material reference '{}' does not resolve",
+                                name, mat_name);
+            } else {
+                auto result = resources.load_material_asset(mat_path, project);
+                if (result) {
+                    mat_handle = *result;
+                } else {
+                    FJELL_CORE_WARN("Object '{}': {}", name, result.error());
+                }
+            }
         } else if (!color_json.is_null()) {
             auto& c = color_json;
             PbrParams params{};
@@ -556,7 +570,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
         }
 
         auto* model = resources.get(model_handle);
-        if (!mat_name.ends_with(".fjmat") &&
+        if (!has_material_ref &&
             !source.starts_with("primitive:") && model && !model->textures().empty()) {
             mat_handle = resources.create_material_from_texture(
                 source + "_mat",

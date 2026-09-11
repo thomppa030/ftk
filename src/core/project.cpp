@@ -97,6 +97,18 @@ std::string Project::resolve(const std::string& relative) const {
     return (root_ / relative).string();
 }
 
+std::string Project::resolve(const AssetId& id) const {
+    if (!asset_db_ || !id.valid()) return {};
+    const auto* entry = asset_db_->find(id);
+    return entry ? (root_ / entry->relative_path).string() : std::string{};
+}
+
+AssetId Project::id_of(const std::string& relative_path) const {
+    if (!asset_db_) return {};
+    const auto* entry = asset_db_->find_by_path(relative_path);
+    return entry ? entry->id : AssetId{};
+}
+
 void Project::save() const {
     auto path = root_ / MANIFEST_NAME;
     nlohmann::json j;

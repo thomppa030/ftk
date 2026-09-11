@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/asset_id.hpp"
+
 #include "core/asset_database.hpp"
 #include "renderer/render_settings.hpp"
 
@@ -49,6 +51,13 @@ public:
     [[nodiscard]] ProjectConfig& config() { return config_; }
     [[nodiscard]] AssetDatabase* asset_db() { return asset_db_.get(); }
     [[nodiscard]] const AssetDatabase* asset_db() const { return asset_db_.get(); }
+
+    /// Absolute path of the asset with this id. Empty when the id is unknown,
+    /// which is a dangling reference rather than something to paper over.
+    [[nodiscard]] std::string resolve(const AssetId& id) const;
+
+    /// Id of the asset at this project-relative path, invalid if untracked.
+    [[nodiscard]] AssetId id_of(const std::string& relative_path) const;
 
     void save() const;
 
