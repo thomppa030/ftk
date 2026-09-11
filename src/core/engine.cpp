@@ -215,6 +215,7 @@ void Engine::init_project(const std::filesystem::path& project_path) {
     }
 
     window_.set_input(&input_);
+    Input::load_gamepad_mappings();
     input_.attach(window_.handle());
 }
 

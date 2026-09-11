@@ -1,0 +1,10 @@
+# Gamepad mappings not present in the upstream SDL database.
+#
+# Format is SDL's, same as gamecontrollerdb.txt. Entries here are applied
+# after it, so a GUID listed in both resolves to the mapping below.
+#
+# Most unlisted pads do not need an entry: a joystick reporting the XInput
+# layout gets a generic mapping synthesized for it at startup. Add a line
+# here only for a controller of some other shape, which the log names along
+# with its GUID. Button and axis numbering comes from the kernel's evdev
+# layout, which `evtest` prints.

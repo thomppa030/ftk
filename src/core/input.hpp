@@ -31,6 +31,11 @@ public:
     void set_cursor_captured(GLFWwindow* window, bool captured);
     [[nodiscard]] bool is_cursor_captured() const { return cursor_captured_; }
 
+    /// Load SDL gamepad mappings so controllers GLFW does not know are
+    /// still usable. Call once before the first update(). Without a mapping
+    /// glfwGetGamepadState fails outright and the pad reads as absent.
+    static void load_gamepad_mappings();
+
     // Gamepad
     [[nodiscard]] bool pad_connected() const { return pad_connected_; }
     [[nodiscard]] bool pad_button_held(int button) const;
