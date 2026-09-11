@@ -41,7 +41,7 @@ struct FjMeshLodLevel {
 
 // Where a mesh's collision geometry comes from. The collision section holds
 // the resulting geometry; this records which kind it is so the runtime can
-// pick the matching Jolt shape and the importer can regenerate it.
+// pick the matching collision shape and the geometry can be regenerated.
 enum class FjMeshCollisionSource : uint32_t {
     render_mesh = 0,   // verbatim copy of the render geometry (triangle mesh, static only)
     convex_hull = 1,   // hull of the render geometry — works on dynamic bodies

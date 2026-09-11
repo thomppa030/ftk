@@ -7,15 +7,6 @@
 #include <utility>
 #include <vector>
 
-// Forward-declare Jolt types to avoid leaking headers
-namespace JPH {
-class PhysicsSystem;
-class TempAllocatorImpl;
-class JobSystemThreadPool;
-class BodyInterface;
-struct BodyID;
-} // namespace JPH
-
 namespace fjell {
 
 class Scene;
