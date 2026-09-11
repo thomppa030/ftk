@@ -525,11 +525,27 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
             auto result = resources.create_primitive(type);
             if (result) model_handle = *result;
         } else if (!source.empty()) {
-            auto result = resources.load_model(base_path::resolve_asset(source, project));
-            if (result) model_handle = *result;
+            auto resolved = base_path::resolve_asset(source, project);
+            if (resolved.empty()) {
+                FJELL_CORE_WARN("Object '{}': model reference '{}' does not resolve",
+                                name, source);
+            } else {
+                auto result = resources.load_model(resolved);
+                if (result) {
+                    model_handle = *result;
+                } else {
+                    FJELL_CORE_WARN("Object '{}': {}", name, result.error());
+                }
+            }
         }
 
-        if (!model_handle.valid()) return nullptr;
+        // Keep the object even with no model. Dropping it loses the transform,
+        // the hierarchy under it and every other component, and saving the
+        // scene afterwards makes that permanent — for what is usually a
+        // renamed or temporarily missing asset.
+        if (!model_handle.valid()) {
+            FJELL_CORE_WARN("Object '{}' has no usable model; keeping it without one", name);
+        }
 
         auto default_tex = resources.load_texture(
             base_path::resolve("engine_assets/textures/test.png")).value_or(TextureHandle{});
