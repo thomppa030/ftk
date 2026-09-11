@@ -27,7 +27,6 @@ layout(std140, set = 0, binding = 0) uniform SsGiConstants {
 layout(set = 0, binding = 1) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 2) uniform sampler2D depth_tex;
 layout(set = 0, binding = 3) uniform sampler2D normal_tex;
-layout(set = 0, binding = 4) uniform sampler2D prev_frame_color;
 layout(rgba16f, set = 0, binding = 5) uniform writeonly image2D radiance_out;
 
 layout(push_constant) uniform PushConstants {

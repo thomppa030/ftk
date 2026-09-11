@@ -186,9 +186,11 @@ Result<> SsGiPass::create(Device& device, const PassResources& resources) {
     // ── RT trace pipeline ──
     if (device.ray_tracing_supported()) {
         // Descriptor set layout for trace:
-        // 0: UBO, 1: TLAS, 2: depth, 3: normal, 4: prev_frame_color, 5: radiance_out
+        // 0: UBO, 1: TLAS, 2: depth, 3: normal, 5: radiance_out
         // 6: vertex SSBO, 7: index SSBO, 8: instance data SSBO
-        std::array<VkDescriptorSetLayoutBinding, 9> trace_bindings{};
+        // Binding 4 is unused: it held a previous-frame color image the trace
+        // never sampled. The remaining binding numbers match the shader.
+        std::array<VkDescriptorSetLayoutBinding, 8> trace_bindings{};
         VkShaderStageFlags all_rt = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
         trace_bindings[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, all_rt, nullptr};
         trace_bindings[1] = {1, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1,
@@ -197,23 +199,20 @@ Result<> SsGiPass::create(Device& device, const PassResources& resources) {
                              VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
         trace_bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                              VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-        trace_bindings[4] = {4, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+        trace_bindings[4] = {5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                              VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-        trace_bindings[5] = {5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
-                             VK_SHADER_STAGE_RAYGEN_BIT_KHR, nullptr};
-        trace_bindings[6] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        trace_bindings[5] = {6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                              VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-        trace_bindings[7] = {7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        trace_bindings[6] = {7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                              VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
-        trace_bindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        trace_bindings[7] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                              VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, nullptr};
 
-        std::array<VkDescriptorBindingFlags, 9> trace_flags{};
+        std::array<VkDescriptorBindingFlags, 8> trace_flags{};
         trace_flags[1] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // TLAS
         trace_flags[2] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // depth (per-frame)
         trace_flags[3] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // normal (per-frame)
-        trace_flags[4] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // prev_frame_color (per-frame)
-        trace_flags[8] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // instance data
+        trace_flags[7] = VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT; // instance data
 
         VkDescriptorSetLayoutBindingFlagsCreateInfo flags_ci{};
         flags_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
@@ -541,18 +540,12 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
     if (trace_pipeline_ == VK_NULL_HANDLE) return;
     if (imgs.raw_radiance_image == VK_NULL_HANDLE) return;
     if (!accel_manager_ || !accel_manager_->tlas_valid(ctx.frame_index)) return;
-    if (ctx.registry == nullptr) return;
     if (!ctx.target) return;
 
     // All required views must be valid before we can dispatch
     auto depth_view = ctx.target->depth_view();
     auto normal_view = ctx.target->normal_view();
     if (depth_view == VK_NULL_HANDLE || normal_view == VK_NULL_HANDLE) return;
-
-    // Fetch previous frame color from SSR pass
-    const auto* prev_color_res = ctx.registry->find_image("prev_frame_color");
-    VkImageView prev_color_view = prev_color_res ? prev_color_res->view : VK_NULL_HANDLE;
-    if (prev_color_view == VK_NULL_HANDLE) return; // need at least one frame of history
 
     auto cmd = ctx.cmd;
 
@@ -693,16 +686,14 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
 
     // ── Update per-frame descriptors (depth, normal, prev_color change each frame) ──
     {
-        // Trace set: depth, normal, prev_frame_color
+        // Trace set: depth, normal
         VkDescriptorImageInfo di{nearest_sampler_, depth_view, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL};
         VkDescriptorImageInfo ni{nearest_sampler_, normal_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-        VkDescriptorImageInfo pi{linear_sampler_, prev_color_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
 
-        std::array<VkWriteDescriptorSet, 3> tw{};
+        std::array<VkWriteDescriptorSet, 2> tw{};
         for (auto& w : tw) { w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = imgs.trace_set; w.descriptorCount = 1; }
         tw[0].dstBinding = 2; tw[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; tw[0].pImageInfo = &di;
         tw[1].dstBinding = 3; tw[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; tw[1].pImageInfo = &ni;
-        tw[2].dstBinding = 4; tw[2].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; tw[2].pImageInfo = &pi;
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(tw.size()), tw.data(), 0, nullptr);
 
         // Resolve set: depth, normal, prev_depth (previous frame's depth copy)
