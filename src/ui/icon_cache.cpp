@@ -2,6 +2,7 @@
 #include "core/log.hpp"
 #include "core/thread_pool.hpp"
 #include "renderer/gpu/vk_check.hpp"
+#include "ui/imgui_layer.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_vulkan.h>
@@ -12,6 +13,7 @@
 
 #include <cstring>
 #include <filesystem>
+#include <iterator>
 
 namespace fjell {
 
@@ -40,6 +42,9 @@ IconCache::IconCache(VkDevice device, VkPhysicalDevice physical_device,
     , command_pool_{command_pool}
     , queue_{queue}
 {
+    context_destroyed_conn_ = ImGuiLayer::on_context_destroyed.bind(
+        [this](void* ctx) { forget_context(ctx); });
+
     namespace fs = std::filesystem;
     if (!fs::is_directory(icons_dir)) {
         FJELL_CORE_WARN("Icons directory not found: {}", icons_dir);
@@ -73,6 +78,11 @@ IconCache::~IconCache() {
     vkDeviceWaitIdle(device_);
     for (auto& [name, e] : icons_) destroy_entry(device_, e);
     for (auto& [path, e] : thumbnails_) destroy_entry(device_, e);
+    // These alias the icon images, so only the descriptor set is owned here.
+    for (auto& [key, desc] : context_descriptors_) {
+        ImGui_ImplVulkan_RemoveTexture(desc);
+    }
+    context_descriptors_.clear();
 }
 
 VkDescriptorSet IconCache::icon(const std::string& name) const {
@@ -98,6 +108,13 @@ ImTextureID IconCache::icon_for_current_context(const std::string& name) {
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     context_descriptors_[key] = desc;
     return reinterpret_cast<ImTextureID>(desc);
+}
+
+void IconCache::forget_context(void* context) {
+    for (auto it = context_descriptors_.begin(); it != context_descriptors_.end();) {
+        it = (it->first.context == context) ? context_descriptors_.erase(it)
+                                            : std::next(it);
+    }
 }
 
 // ── Shared upload ───────────────────────────────────────────────────────
