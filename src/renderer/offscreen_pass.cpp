@@ -219,7 +219,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
     depth_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     depth_info.usage = msaa
         ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-        : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        : VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+              | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     // Async-eligible passes (GTAO, Hi-Z, depth viz) sample depth on the
     // compute queue while the graphics queue may still own its last
@@ -259,7 +260,8 @@ void OffscreenPass::create(uint32_t width, uint32_t height) {
         resolve_depth_info.arrayLayers = 1;
         resolve_depth_info.samples = VK_SAMPLE_COUNT_1_BIT;
         resolve_depth_info.tiling = VK_IMAGE_TILING_OPTIMAL;
-        resolve_depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        resolve_depth_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                                 | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         resolve_depth_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         // Same rationale as the MSAA depth above: GTAO + Hi-Z sample
         // the resolve target on the compute queue.

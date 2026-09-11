@@ -578,7 +578,10 @@ void SsGiPass::record_into(const FrameContext& ctx, Images& imgs) {
         ci.arrayLayers = 1;
         ci.samples = VK_SAMPLE_COUNT_1_BIT;
         ci.tiling = VK_IMAGE_TILING_OPTIMAL;
-        ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        // DEPTH_STENCIL_ATTACHMENT is required for the DEPTH_STENCIL_READ_ONLY
+        // layout this is sampled in, even though it is never rendered to.
+        ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+                 | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         ci.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         create_vma_image(allocator_, &ci, &imgs.prev_depth_image, &imgs.prev_depth_memory);
 
