@@ -1859,6 +1859,10 @@ void Engine::switch_context(int index) {
 }
 
 void Engine::draw_context_tabs() {
+    // Apply a close requested during the previous frame, before anything can
+    // reference the closing context's textures again.
+    apply_pending_context_close();
+
     ImGuiViewport* viewport = ImGui::GetMainViewport();
 
     // Tab sizing — push FramePadding early so bar_height accounts for it
@@ -1930,44 +1934,10 @@ void Engine::draw_context_tabs() {
         }
         ImGui::EndTabBar();
 
-        // Defer close until after the tab bar is fully drawn
+        // Record the close; applied at the start of the next frame so no draw
+        // command still references the closing context's viewport textures.
         if (close_idx >= 0) {
-            vulkan_context_->wait_idle();
-
-            // If closing the active tab, switch away first
-            if (close_idx == active_context_idx_) {
-                int new_idx = close_idx > 0 ? close_idx - 1 : 0;
-                contexts_[close_idx]->on_exit();
-                active_context_idx_ = new_idx;
-                contexts_[active_context_idx_]->on_enter();
-            }
-
-            // Update layout template: if this context was the template for its
-            // type, pick another context of the same type (or leave stale).
-            const char* closing_type = contexts_[close_idx]->context_type();
-            ImGuiID closing_dock = contexts_[close_idx]->dockspace_id();
-            auto tmpl_it = context_layout_templates_.find(closing_type);
-            if (tmpl_it != context_layout_templates_.end() && tmpl_it->second == closing_dock) {
-                ImGuiID replacement = 0;
-                for (int j = 0; j < static_cast<int>(contexts_.size()); ++j) {
-                    if (j == close_idx) continue;
-                    if (std::strcmp(contexts_[j]->context_type(), closing_type) == 0) {
-                        replacement = contexts_[j]->dockspace_id();
-                        break;
-                    }
-                }
-                if (replacement != 0) {
-                    tmpl_it->second = replacement;
-                }
-            }
-
-            contexts_[close_idx]->shutdown();
-            contexts_.erase(contexts_.begin() + close_idx);
-
-            // Adjust active index if a tab before it was removed
-            if (close_idx < active_context_idx_) {
-                active_context_idx_--;
-            }
+            pending_context_close_ = close_idx;
         }
     }
 
@@ -1976,6 +1946,50 @@ void Engine::draw_context_tabs() {
     ImGui::PopStyleVar();    // FramePadding
 
     ImGui::End();
+}
+
+void Engine::apply_pending_context_close() {
+    int close_idx = pending_context_close_;
+    if (close_idx < 0) return;
+    pending_context_close_ = -1;
+    if (close_idx >= static_cast<int>(contexts_.size())) return;
+
+    vulkan_context_->wait_idle();
+
+    // If closing the active tab, switch away first
+    if (close_idx == active_context_idx_) {
+        int new_idx = close_idx > 0 ? close_idx - 1 : 0;
+        contexts_[close_idx]->on_exit();
+        active_context_idx_ = new_idx;
+        contexts_[active_context_idx_]->on_enter();
+    }
+
+    // Update layout template: if this context was the template for its
+    // type, pick another context of the same type (or leave stale).
+    const char* closing_type = contexts_[close_idx]->context_type();
+    ImGuiID closing_dock = contexts_[close_idx]->dockspace_id();
+    auto tmpl_it = context_layout_templates_.find(closing_type);
+    if (tmpl_it != context_layout_templates_.end() && tmpl_it->second == closing_dock) {
+        ImGuiID replacement = 0;
+        for (int j = 0; j < static_cast<int>(contexts_.size()); ++j) {
+            if (j == close_idx) continue;
+            if (std::strcmp(contexts_[j]->context_type(), closing_type) == 0) {
+                replacement = contexts_[j]->dockspace_id();
+                break;
+            }
+        }
+        if (replacement != 0) {
+            tmpl_it->second = replacement;
+        }
+    }
+
+    contexts_[close_idx]->shutdown();
+    contexts_.erase(contexts_.begin() + close_idx);
+
+    // Adjust active index if a tab before it was removed
+    if (close_idx < active_context_idx_) {
+        active_context_idx_--;
+    }
 }
 
 void Engine::draw_status_bar() {

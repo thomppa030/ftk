@@ -92,6 +92,7 @@ private:
     void setup_dockspace();
     void draw_console();
     void draw_context_tabs();
+    void apply_pending_context_close();
     void draw_status_bar();
     void bind_menu_bar();
 
@@ -206,6 +207,9 @@ private:
     std::vector<std::unique_ptr<EditorContext>> contexts_;
     int active_context_idx_{0};
     int pending_context_switch_{-1}; // requested switch, applied by tab bar next frame
+    // Closing a context frees its viewport descriptor sets, which this frame's
+    // draw list still references — so the close is applied on the next frame.
+    int pending_context_close_{-1};
     SceneEditorContext* scene_context_{nullptr}; // non-owning, into contexts_[0]
 
     // Per-type dockspace layout templates (context_type -> dockspace ID of last instance)
