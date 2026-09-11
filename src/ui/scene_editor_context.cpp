@@ -682,7 +682,7 @@ void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
 }
 
 bool SceneEditorContext::handle_shortcuts() {
-    if (ImGui::GetIO().WantTextInput) return false;
+    if (ImGui::IsAnyItemActive()) return false;
 
     bool navigating = deps_.input->is_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
     if (navigating) return false;
@@ -705,6 +705,22 @@ bool SceneEditorContext::handle_shortcuts() {
     // Delete selection
     if (ImGui::IsKeyPressed(ImGuiKey_Delete)) {
         delete_selection();
+        return true;
+    }
+
+    // Drop the selection onto whatever is below it.
+    //
+    // ImGui's keyboard nav treats End as "focus the last item in the window",
+    // which in the viewport overlay is the net mode selector. That runs inside
+    // NewFrame(), before any of this, so claiming the key only on the press
+    // would always be a frame too late. Taking ownership every frame means the
+    // claim is already in place when nav polls End (it requires an unowned key),
+    // and ownership has to be renewed because it is dropped again on any frame
+    // where the key is not held.
+    ImGui::SetKeyOwner(ImGuiKey_End, ImGui::GetID("##snap_to_floor"));
+
+    if (ImGui::IsKeyPressed(ImGuiKey_End)) {
+        snap_selection_to_floor();
         return true;
     }
 
@@ -1257,6 +1273,127 @@ void SceneEditorContext::duplicate_selection() {
     for (uint32_t id : dup_cmd->created_ids()) {
         hierarchy_panel_.add_to_selection(id);
     }
+}
+
+namespace {
+
+// Smallest positive distance along -Y from `from_y` to the triangle, if the
+// downward ray through (x, z) crosses it. Mirrors the ray/triangle test used
+// for picking, specialised to a fixed direction.
+bool ray_down_hits_triangle(const glm::vec3& origin,
+                            const glm::vec3& a, const glm::vec3& b,
+                            const glm::vec3& c, float& out_t) {
+    constexpr glm::vec3 DIR{0.0f, -1.0f, 0.0f};
+    constexpr float EPS = 1e-7f;
+
+    const glm::vec3 e1 = b - a;
+    const glm::vec3 e2 = c - a;
+    const glm::vec3 pv = glm::cross(DIR, e2);
+    const float det = glm::dot(e1, pv);
+    if (std::abs(det) < EPS) return false; // ray parallel to the triangle
+
+    const float inv_det = 1.0f / det;
+    const glm::vec3 tv = origin - a;
+    const float u = glm::dot(tv, pv) * inv_det;
+    if (u < 0.0f || u > 1.0f) return false;
+
+    const glm::vec3 qv = glm::cross(tv, e1);
+    const float v = glm::dot(DIR, qv) * inv_det;
+    if (v < 0.0f || u + v > 1.0f) return false;
+
+    const float t = glm::dot(e2, qv) * inv_det;
+    if (t < 0.0f) return false; // behind the start point
+    out_t = t;
+    return true;
+}
+
+// Downward distance from `origin` to a world AABB's top face, for models that
+// carry no collision geometry.
+bool ray_down_hits_aabb(const glm::vec3& origin, const AABB& box, float& out_t) {
+    if (origin.x < box.min.x || origin.x > box.max.x) return false;
+    if (origin.z < box.min.z || origin.z > box.max.z) return false;
+    if (box.max.y > origin.y) return false; // not below the start point
+    out_t = origin.y - box.max.y;
+    return true;
+}
+
+} // namespace
+
+void SceneEditorContext::snap_selection_to_floor() {
+    auto* obj = deps_.scene->find_spatial(selected_id_);
+    if (!obj) return;
+
+    auto* mesh = obj->components.get<MeshComponent>();
+    if (!mesh || !mesh->model || !mesh->model->local_aabb().valid()) return;
+
+    const AABB self_box = mesh->model->local_aabb().transform(obj->world_matrix_);
+
+    // Cast from the centre of the object's footprint, starting at its underside.
+    const glm::vec3 origin{(self_box.min.x + self_box.max.x) * 0.5f,
+                           self_box.min.y,
+                           (self_box.min.z + self_box.max.z) * 0.5f};
+
+    // Everything parented under the selection moves with it, so it can't be floor.
+    auto is_selected_or_descendant = [&](const Node& n) {
+        uint32_t walk = n.id;
+        while (walk != 0) {
+            if (walk == selected_id_) return true;
+            const auto* node = deps_.scene->find(walk);
+            if (!node || node->parent_id < 0) break;
+            walk = static_cast<uint32_t>(node->parent_id);
+        }
+        return false;
+    };
+
+    float best_t = std::numeric_limits<float>::max();
+
+    for (const auto& other : deps_.scene->objects()) {
+        if (is_selected_or_descendant(*other)) continue;
+
+        auto* other_mesh = other->components.get<MeshComponent>();
+        if (!other_mesh || !other_mesh->model) continue;
+        if (!other_mesh->model->local_aabb().valid()) continue;
+
+        const auto* other_spatial = other->as_spatial();
+        if (!other_spatial) continue;
+
+        const glm::mat4& world = other_spatial->world_matrix_;
+        const AABB other_box = other_mesh->model->local_aabb().transform(world);
+
+        // Reject anything the downward ray cannot reach before touching triangles.
+        float box_t = 0.0f;
+        if (!ray_down_hits_aabb(origin, other_box, box_t)) continue;
+        if (box_t >= best_t) continue;
+
+        const auto& verts = other_mesh->model->collision_vertices();
+        const auto& indices = other_mesh->model->collision_indices();
+
+        if (verts.empty() || indices.size() < 3) {
+            best_t = box_t; // no triangles to refine against — rest on the bounds
+            continue;
+        }
+
+        for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+            const glm::vec3 a{world * glm::vec4(verts[indices[i + 0]], 1.0f)};
+            const glm::vec3 b{world * glm::vec4(verts[indices[i + 1]], 1.0f)};
+            const glm::vec3 c{world * glm::vec4(verts[indices[i + 2]], 1.0f)};
+
+            float t = 0.0f;
+            if (ray_down_hits_triangle(origin, a, b, c, t) && t < best_t) {
+                best_t = t;
+            }
+        }
+    }
+
+    if (best_t == std::numeric_limits<float>::max()) return; // nothing underneath
+
+    const Transform before = obj->transform;
+    Transform after = before;
+    after.position.y -= best_t;
+    if (after.position == before.position) return;
+
+    command_history().execute(std::make_unique<TransformCommand>(
+        *deps_.scene, obj->id, before, after, obj->name));
 }
 
 void SceneEditorContext::delete_selection() {

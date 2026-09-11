@@ -122,6 +122,7 @@ public:
 private:
     void duplicate_selection();
     void delete_selection();
+    void snap_selection_to_floor();
     void draw_picking(ViewportPanel& vp);
     void draw_gizmo(ViewportPanel& vp);
     void draw_play_toolbar();
