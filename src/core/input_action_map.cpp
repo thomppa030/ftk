@@ -101,7 +101,17 @@ float InputActionMap::read_source_value(InputSource source, const Input& raw) co
     }
     if (is_pad_axis_source(source)) {
         int axis = static_cast<int>(source) - static_cast<int>(InputSource::pad_lstick_x);
-        return raw.pad_axis(axis);
+        float value = raw.pad_axis(axis);
+        // Sticks report -1 when pushed up, following SDL. The composite
+        // binding defines up as +1 (see evaluate_binding), so flip stick Y
+        // here to keep one action from meaning opposite things on keyboard
+        // and pad. Done before modifiers so deadzone maths is unaffected,
+        // and triggers are left alone — they are unipolar.
+        if (source == InputSource::pad_lstick_y
+            || source == InputSource::pad_rstick_y) {
+            value = -value;
+        }
+        return value;
     }
     return 0.0f;
 }
