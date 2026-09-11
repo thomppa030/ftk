@@ -174,39 +174,14 @@ Result<> ContactShadowPass::create(Device& device, const PassResources& resource
 }
 
 void ContactShadowPass::post_create(GpuContext& gpu, PassRegistry& /*passes*/) {
-    // Transition the fixed-size image to SHADER_READ_ONLY_OPTIMAL and seed
-    // all frames' global binding with its view so the descriptor is valid
-    // from the very first draw.
-    VkCommandBufferAllocateInfo alloc{};
-    alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc.commandPool = gpu.core().command_pool();
-    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc.commandBufferCount = 1;
-    VkCommandBuffer cmd{};
-    vkAllocateCommandBuffers(device_, &alloc, &cmd);
+    // Remember these so a later regrow can seed its image the same way.
+    graphics_queue_ = gpu.core().graphics_queue();
+    command_pool_ = gpu.core().command_pool();
 
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cmd, &begin);
-
-    auto barrier = make_barrier(shadow_image_,
-        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    batch_barriers(cmd, &barrier, 1);
-
-    vkEndCommandBuffer(cmd);
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    vkQueueSubmit(gpu.core().graphics_queue(), 1, &submit, VK_NULL_HANDLE);
-    vkQueueWaitIdle(gpu.core().graphics_queue());
-    vkFreeCommandBuffers(device_, gpu.core().command_pool(), 1, &cmd);
-
-    first_record_ = false;  // the placeholder is now SHADER_READ_ONLY
+    // Transition the image to SHADER_READ_ONLY_OPTIMAL and seed all frames'
+    // global binding with its view so the descriptor is valid from the very
+    // first draw.
+    seed_layout();
 
     auto& gb = gpu.global_bindings();
     for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -307,6 +282,41 @@ void ContactShadowPass::update_descriptor() {
     vkUpdateDescriptorSets(device_, 1, &write, 0, nullptr);
 }
 
+void ContactShadowPass::seed_layout() {
+    if (graphics_queue_ == VK_NULL_HANDLE || shadow_image_ == VK_NULL_HANDLE) return;
+
+    VkCommandBufferAllocateInfo alloc{};
+    alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    alloc.commandPool = command_pool_;
+    alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    alloc.commandBufferCount = 1;
+    VkCommandBuffer cmd{};
+    vkAllocateCommandBuffers(device_, &alloc, &cmd);
+
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(cmd, &begin);
+
+    auto barrier = make_barrier(shadow_image_,
+        VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, 0,
+        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+        VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    batch_barriers(cmd, &barrier, 1);
+
+    vkEndCommandBuffer(cmd);
+
+    VkSubmitInfo submit{};
+    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit.commandBufferCount = 1;
+    submit.pCommandBuffers = &cmd;
+    vkQueueSubmit(graphics_queue_, 1, &submit, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphics_queue_);
+    vkFreeCommandBuffers(device_, command_pool_, 1, &cmd);
+
+    first_record_ = false;  // the image is now SHADER_READ_ONLY
+}
+
 void ContactShadowPass::ensure_size(uint32_t w, uint32_t h) {
     if (w <= extent_.width && h <= extent_.height) return;
     // One image serves every viewport, so grow to cover the largest rather
@@ -319,10 +329,11 @@ void ContactShadowPass::resize(uint32_t w, uint32_t h) {
     vkDeviceWaitIdle(device_);
     destroy_image();
     create_image(w, h);
-    // The fresh image starts as UNDEFINED — let record() transition it on
-    // first use. The initial one-shot transition in post_create only applied
-    // to the 1x1 placeholder.
-    first_record_ = true;
+    // Seed the replacement immediately rather than waiting for this pass to
+    // record. The global descriptor already points at the new view, and the
+    // draws that sample it live in a command buffer this pass does not
+    // record into, so they can reach it first and read an UNDEFINED image.
+    seed_layout();
 }
 
 void ContactShadowPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {

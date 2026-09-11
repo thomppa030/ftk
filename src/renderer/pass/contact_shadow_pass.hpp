@@ -46,6 +46,11 @@ private:
     void destroy_image();
     void resize(uint32_t w, uint32_t h);
     void update_descriptor();
+    /// Put a freshly created image into SHADER_READ_ONLY_OPTIMAL on the spot.
+    /// Consumers sample it through the global descriptor from command buffers
+    /// this pass does not record into, so it has to be readable before the
+    /// next draw rather than from this pass's own first record().
+    void seed_layout();
 
     bool enabled_{true};
     float max_distance_{0.3f};
@@ -70,6 +75,10 @@ private:
     VkDescriptorPool pool_{VK_NULL_HANDLE};
     VkDescriptorSet output_set_{VK_NULL_HANDLE};
     uint32_t frame_counter_{0};
+
+    // Kept from post_create so a regrown image can be seeded outside a frame.
+    VkQueue graphics_queue_{VK_NULL_HANDLE};
+    VkCommandPool command_pool_{VK_NULL_HANDLE};
 };
 
 } // namespace fjell
