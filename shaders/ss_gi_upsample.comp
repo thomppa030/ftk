@@ -79,10 +79,15 @@ void main() {
             float depth_threshold = max(0.01, center_depth * 0.05);
             float depth_w = exp(-depth_diff * depth_diff / (depth_threshold * depth_threshold));
 
-            // Normal similarity
+            // Normal similarity. A raw clamped dot product falls to exactly
+            // zero past 90 degrees, so near a silhouette or a wall/floor
+            // junction every tap in the kernel can vanish at once. Raising a
+            // biased dot to a power keeps the edge-stopping behaviour but
+            // leaves a small non-zero tail, so the weights degrade smoothly.
             vec2 pn_enc = textureLod(normal_tex, probe_uv, 0).rg;
             vec3 pn = oct_decode(pn_enc);
-            float normal_w = max(0.0, dot(center_normal, pn));
+            float ndot = max(0.0, dot(center_normal, pn));
+            float normal_w = pow(ndot, 8.0) + 1e-3;
 
             float w = g * depth_w * normal_w;
 
@@ -91,7 +96,18 @@ void main() {
         }
     }
 
-    vec3 gi = (total_weight > 1e-5) ? sum / total_weight : vec3(0.0);
+    // Falling back to black would punch a hard-edged hole into the bleed
+    // wherever the bilateral weights collapse, since a neighbouring pixel
+    // whose kernel survived keeps its full value. Use the probe covering
+    // this pixel unfiltered instead: less smooth, but continuous.
+    vec3 gi;
+    if (total_weight > 1e-5) {
+        gi = sum / total_weight;
+    } else {
+        ivec2 nearest = clamp(ivec2(round(probe_coord)), ivec2(0),
+                              ivec2(probe_count) - 1);
+        gi = texelFetch(resolved_probes, nearest, 0).rgb;
+    }
 
     imageStore(indirect_out, pixel, vec4(gi, 1.0));
 }
