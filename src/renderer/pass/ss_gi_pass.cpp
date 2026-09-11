@@ -95,6 +95,36 @@ void SsGiPass::Images::create(VkDevice device, VmaAllocator allocator,
     first_frame = true;
 }
 
+void SsGiPass::Images::resize(VkDevice device, VmaAllocator allocator,
+                               const SsGiConfig& config,
+                               uint32_t screen_w, uint32_t screen_h) {
+    if (indirect_image == VK_NULL_HANDLE) {
+        create(device, allocator, config, screen_w, screen_h);
+        return;
+    }
+
+    // Probe count drives the size of every probe image, and the probe grid is
+    // what maps screen pixels to probes — keeping a stale grid stretches it
+    // across the new viewport and quantises the result into probe-sized blocks.
+    glm::uvec2 wanted{
+        (screen_w + config.probe_spacing - 1) / config.probe_spacing,
+        (screen_h + config.probe_spacing - 1) / config.probe_spacing
+    };
+    uint32_t wanted_half_w = std::max(1u, screen_w / 2);
+    uint32_t wanted_half_h = std::max(1u, screen_h / 2);
+    if (wanted == probe_count
+        && wanted_half_w == indirect_extent.width
+        && wanted_half_h == indirect_extent.height) {
+        return;
+    }
+
+    // Descriptor sets reference the old views, so they have to be rebuilt too;
+    // destroy() drops the pool and first_frame re-writes them.
+    vkDeviceWaitIdle(device);
+    destroy(device, allocator);
+    create(device, allocator, config, screen_w, screen_h);
+}
+
 void SsGiPass::Images::destroy(VkDevice device, VmaAllocator allocator) {
     auto safe_view = [&](VkImageView& v) { if (v) { vkDestroyImageView(device, v, nullptr); v = VK_NULL_HANDLE; } };
     auto safe_img = [&](VkImage& i, VmaAllocation& a) { destroy_vma_image(allocator, i, a); i = VK_NULL_HANDLE; a = VK_NULL_HANDLE; };

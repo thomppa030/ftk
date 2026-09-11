@@ -93,6 +93,9 @@ public:
         void create(VkDevice device, VmaAllocator allocator,
                      const SsGiConfig& config,
                      uint32_t screen_w, uint32_t screen_h);
+        void resize(VkDevice device, VmaAllocator allocator,
+                     const SsGiConfig& config,
+                     uint32_t screen_w, uint32_t screen_h);
         void destroy(VkDevice device, VmaAllocator allocator);
 
         // ImGui debug textures
