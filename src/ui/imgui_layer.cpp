@@ -76,11 +76,15 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   }
 }
 
+Delegate<void(void*)> ImGuiLayer::on_context_destroyed;
+
 ImGuiLayer::~ImGuiLayer() {
   auto* prev = ImGui::GetCurrentContext();
   if (prev == context_) prev = nullptr; // don't restore ourselves
 
   ImGui::SetCurrentContext(context_);
+  // Announce while the context is still current, so listeners can inspect it.
+  on_context_destroyed.broadcast(static_cast<void*>(context_));
   ImGui_ImplVulkan_Shutdown();
   ImGui_ImplGlfw_Shutdown();
   ImGui::DestroyContext(context_);

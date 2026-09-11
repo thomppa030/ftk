@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/delegate.hpp"
+
 #include <imgui.h>
 #include <vulkan/vulkan.h>
 
@@ -39,6 +41,13 @@ public:
     /// *current* ImGui context. Use this from secondary windows (file browser,
     /// import dialog) that have their own ImGui context.
     [[nodiscard]] ImTextureID icon_for_current_context(const std::string& name);
+
+    /// Forget the descriptor sets registered for an ImGui context that is being
+    /// destroyed. The sets are not freed individually — they belong to that
+    /// context's descriptor pool, which goes away with its backend. Call this
+    /// before tearing the context down, or a later context reusing the same
+    /// address would be handed sets from the destroyed pool.
+    void forget_context(void* context);
 
     /// Draw a small icon inline (for panel headers). Call right after ImGui::Begin().
     inline void draw_panel_icon(const char* icon_name) const {
@@ -106,6 +115,7 @@ private:
         }
     };
     std::unordered_map<ContextKey, VkDescriptorSet, ContextKeyHash> context_descriptors_;
+    Connection context_destroyed_conn_;
 
     // Async thumbnail pipeline: background threads decode pixels, main thread uploads
     struct PendingThumbnail {
