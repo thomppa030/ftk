@@ -1,6 +1,7 @@
 #include <cfloat>
 #include <chrono>
 
+#include "physics/collision_build.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "renderer/resources/material_asset.hpp"
@@ -390,60 +391,22 @@ static void build_collision_geometry(ImportResult& result,
     if (result.collision_vertices.empty() || result.collision_indices.empty()) return;
 
     switch (authored.collision_source) {
-        case FjMeshCollisionSource::render_mesh:
-        case FjMeshCollisionSource::custom_mesh:
-            // custom_mesh resolves to a separate .fjmesh at load time, so the
-            // section keeps the render geometry as a fallback.
-            return;
-
-        case FjMeshCollisionSource::convex_hull: {
+        case FjMeshCollisionSource::convex_hull:
             progress("collision", 88, "Building convex hull...");
-            // meshoptimizer has no hull builder, and Jolt builds the hull from
-            // a point cloud anyway — so the section stores the points and the
-            // backend hulls them. Deduplicating keeps that cheap.
-            auto verts = result.collision_vertices;
-            std::sort(verts.begin(), verts.end(), [](const glm::vec3& a, const glm::vec3& b) {
-                if (a.x != b.x) return a.x < b.x;
-                if (a.y != b.y) return a.y < b.y;
-                return a.z < b.z;
-            });
-            verts.erase(std::unique(verts.begin(), verts.end()), verts.end());
-
-            result.collision_vertices = std::move(verts);
-            result.collision_indices.clear();
-            // A point cloud has no triangles; index count stays zero and the
-            // consumer reads the source to know that is expected.
-            return;
-        }
-
-        case FjMeshCollisionSource::simplified: {
+            break;
+        case FjMeshCollisionSource::simplified:
             progress("collision", 88, "Simplifying collision mesh...");
-            float ratio = authored.collision_simplify_ratio > 0.0F
-                ? authored.collision_simplify_ratio : 0.1F;
-            auto target = static_cast<size_t>(
-                static_cast<float>(result.collision_indices.size()) * ratio);
-            target -= target % 3;
-            if (target < 3) target = 3;
-
-            std::vector<uint32_t> simplified(result.collision_indices.size());
-            float error = 0.0F;
-            size_t count = meshopt_simplifySloppy(
-                simplified.data(),
-                result.collision_indices.data(), result.collision_indices.size(),
-                &result.collision_vertices[0].x,
-                result.collision_vertices.size(), sizeof(glm::vec3),
-                target, FLT_MAX, &error);
-            simplified.resize(count);
-
-            if (count >= 3) {
-                result.collision_indices = std::move(simplified);
-            } else {
-                std::fprintf(stderr, "warning: collision simplification produced no "
-                                     "triangles, keeping full geometry\n");
-            }
-            return;
-        }
+            break;
+        default:
+            break;
     }
+
+    fjell::CollisionBuildInput input{&result.collision_vertices, &result.collision_indices};
+    auto built = fjell::build_collision(input, authored.collision_source,
+                                        authored.collision_simplify_ratio);
+
+    result.collision_vertices = std::move(built.vertices);
+    result.collision_indices = std::move(built.indices);
 }
 
 static bool write_fjmesh(const std::string& output_path, const ImportResult& result,
