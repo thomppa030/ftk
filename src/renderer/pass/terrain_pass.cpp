@@ -66,13 +66,16 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
     auto mesh_code = read_spirv(base_path::resolve("shaders/terrain.mesh.spv"));
     auto frag_code = read_spirv(base_path::resolve("shaders/terrain.frag.spv"));
     auto depth_mesh_code = read_spirv(base_path::resolve("shaders/terrain_depth.mesh.spv"));
+    auto wire_frag_code = read_spirv(base_path::resolve("shaders/terrain_wire.frag.spv"));
 
     VkShaderModule task_module = create_shader_module(device_, task_code);
     VkShaderModule mesh_module = create_shader_module(device_, mesh_code);
     VkShaderModule frag_module = create_shader_module(device_, frag_code);
     VkShaderModule depth_mesh_module = create_shader_module(device_, depth_mesh_code);
+    VkShaderModule wire_frag_module = create_shader_module(device_, wire_frag_code);
 
     auto cleanup_modules = [&] {
+        vkDestroyShaderModule(device_, wire_frag_module, nullptr);
         vkDestroyShaderModule(device_, depth_mesh_module, nullptr);
         vkDestroyShaderModule(device_, frag_module, nullptr);
         vkDestroyShaderModule(device_, mesh_module, nullptr);
@@ -225,8 +228,42 @@ Result<> TerrainPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create terrain depth pipeline");
     }
 
+    // Patch grid overlay: same task/mesh shaders, a flat-colour fragment shader
+    // so the lines read against the surface instead of vanishing into its own
+    // shading. No culling, so both sides of a ridge show.
+    VkPipelineRasterizationStateCreateInfo wire_raster = rasterizer;
+    wire_raster.polygonMode = VK_POLYGON_MODE_LINE;
+    wire_raster.cullMode = VK_CULL_MODE_NONE;
+    wire_raster.lineWidth = 1.0F;
+
+    std::array<VkPipelineShaderStageCreateInfo, 3> wire_stages = stages;
+    wire_stages[2].module = wire_frag_module;
+
+    // Colour only. GTAO, SSR and TAA read the other targets, and an editor
+    // overlay must not disturb what the fill pass wrote into them.
+    VkPipelineColorBlendAttachmentState wire_color = opaque_blend;
+    VkPipelineColorBlendAttachmentState wire_masked{};
+    wire_masked.blendEnable = VK_FALSE;
+    wire_masked.colorWriteMask = 0;
+
+    std::array wire_blend_attachments = {wire_color, wire_masked, wire_masked, wire_masked};
+    VkPipelineColorBlendStateCreateInfo wire_blending = color_blending;
+    wire_blending.attachmentCount = static_cast<uint32_t>(wire_blend_attachments.size());
+    wire_blending.pAttachments = wire_blend_attachments.data();
+
+    VkGraphicsPipelineCreateInfo wire_info = pipeline_info;
+    wire_info.pRasterizationState = &wire_raster;
+    wire_info.pStages = wire_stages.data();
+    wire_info.pColorBlendState = &wire_blending;
+
+    if (vkCreateGraphicsPipelines(device_, resources.pipeline_cache, 1, &wire_info,
+                                  nullptr, &wireframe_pipeline_) != VK_SUCCESS) {
+        cleanup_modules();
+        return make_error("Failed to create terrain wireframe pipeline");
+    }
+
     cleanup_modules();
-    FJELL_GFX_DEBUG("Terrain pass pipelines created (color + depth)");
+    FJELL_GFX_DEBUG("Terrain pass pipelines created (color + depth + wireframe)");
     return {};
 }
 
@@ -238,6 +275,10 @@ void TerrainPass::destroy() {
     if (depth_pipeline_ != VK_NULL_HANDLE) {
         vkDestroyPipeline(device_, depth_pipeline_, nullptr);
         depth_pipeline_ = VK_NULL_HANDLE;
+    }
+    if (wireframe_pipeline_ != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device_, wireframe_pipeline_, nullptr);
+        wireframe_pipeline_ = VK_NULL_HANDLE;
     }
     if (layout_ != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(device_, layout_, nullptr);
@@ -289,7 +330,8 @@ bool TerrainPass::scene_has_terrain(const FrameContext& ctx) {
 }
 
 void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, VkPipeline pipeline,
-                                     VkPipelineLayout layout, bool count_draws) {
+                                     VkPipelineLayout layout, bool count_draws,
+                                     WireframeFilter filter) {
     auto extent = ctx.target->extent();
     VkViewport vp{};
     vp.width = static_cast<float>(extent.width);
@@ -303,6 +345,9 @@ void TerrainPass::draw_terrain_nodes(const FrameContext& ctx, VkPipeline pipelin
     for (const auto& node : ctx.scene->objects()) {
         const auto* terrain_comp = node->components.get<TerrainComponent>();
         if (terrain_comp == nullptr || terrain_comp->terrain == nullptr) {
+            continue;
+        }
+        if (filter == WireframeFilter::only_wireframe && !terrain_comp->show_wireframe) {
             continue;
         }
 
@@ -360,6 +405,14 @@ void TerrainPass::record(const FrameContext& ctx) {
     FJELL_GPU_ZONE(ctx, "Terrain");
 
     draw_terrain_nodes(ctx, pipeline_, layout_, true);
+
+    // Patch grid overlay, drawn per node that asks for it. A second pass rather
+    // than a branch inside the first: the lines sit on top of the shaded
+    // surface, so they are a separate draw regardless.
+    if (wireframe_pipeline_ != VK_NULL_HANDLE) {
+        draw_terrain_nodes(ctx, wireframe_pipeline_, layout_, false,
+                           TerrainPass::WireframeFilter::only_wireframe);
+    }
 }
 
 void TerrainPass::record_depth(const FrameContext& ctx) {

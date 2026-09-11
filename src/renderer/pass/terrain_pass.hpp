@@ -44,6 +44,12 @@ public:
     [[nodiscard]] static bool scene_has_terrain(const FrameContext& ctx);
 
 private:
+    /// Which terrain nodes a draw pass covers.
+    enum class WireframeFilter : uint8_t {
+        all,              ///< every terrain node
+        only_wireframe,   ///< only nodes with show_wireframe set
+    };
+
     /// Point the descriptor at a terrain's height texture. Cheap to call every
     /// frame: it early-outs unless the asset changed.
     void bind_height_texture(const TerrainAsset& terrain);
@@ -52,12 +58,14 @@ private:
     /// height texture, pushes constants, and dispatches one task workgroup per
     /// patch through `pipeline` / `layout`.
     void draw_terrain_nodes(const FrameContext& ctx, VkPipeline pipeline,
-                            VkPipelineLayout layout, bool count_draws);
+                            VkPipelineLayout layout, bool count_draws,
+                            WireframeFilter filter = WireframeFilter::all);
 
     VkDevice device_{VK_NULL_HANDLE};
     VkPipelineLayout layout_{VK_NULL_HANDLE};
     VkPipeline pipeline_{VK_NULL_HANDLE};
     VkPipeline depth_pipeline_{VK_NULL_HANDLE};
+    VkPipeline wireframe_pipeline_{VK_NULL_HANDLE};
     VkDescriptorSetLayout height_set_layout_{VK_NULL_HANDLE};
     VkDescriptorPool descriptor_pool_{VK_NULL_HANDLE};
     VkDescriptorSet height_set_{VK_NULL_HANDLE};
