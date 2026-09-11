@@ -55,6 +55,7 @@ private:
     };
 
     void navigate_to(const std::filesystem::path& dir);
+    void apply_pending_navigation();
     void draw_directory_tree();
     void draw_directory_tree_node(const std::filesystem::path& dir);
     void draw_file_grid();
@@ -109,6 +110,10 @@ private:
     VkSampler preview_sampler_{VK_NULL_HANDLE};
     int preview_width_{0};
     int preview_height_{0};
+    // Directory changes free every thumbnail descriptor, so they are applied
+    // between frames — never while draw commands still reference them.
+    std::filesystem::path pending_dir_;
+    bool has_pending_dir_{false};
     void load_preview_texture();
     void release_preview_texture();
 

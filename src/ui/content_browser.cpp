@@ -35,6 +35,8 @@ void ContentBrowser::init(IconCache* icons,
 
 void ContentBrowser::set_root(const std::filesystem::path& root) {
     root_ = root;
+    // Project open/close broadcasts from the menu bar, which draws earlier in the
+    // same frame, so this defers like any other directory switch.
     navigate_to(root);
 }
 
@@ -83,7 +85,18 @@ void ContentBrowser::refresh_current_dir() {
 }
 
 void ContentBrowser::navigate_to(const std::filesystem::path& dir) {
-    current_dir_ = dir;
+    // Called from inside the draw loop (breadcrumb, folder open, Backspace).
+    // Clearing thumbnails here would free descriptor sets that drawn-but-not-yet-
+    // submitted ImGui commands still reference, so the switch waits for frame end.
+    pending_dir_ = dir;
+    has_pending_dir_ = true;
+}
+
+void ContentBrowser::apply_pending_navigation() {
+    if (!has_pending_dir_) return;
+    has_pending_dir_ = false;
+
+    current_dir_ = pending_dir_;
     if (icons_) icons_->clear_thumbnails();
     refresh_current_dir();
 
@@ -147,6 +160,10 @@ const char* ContentBrowser::icon_name(FileType type) const {
 }
 
 void ContentBrowser::draw() {
+    // Apply a directory switch requested during the previous frame's draw, before
+    // any command referencing the old thumbnails can be recorded again.
+    apply_pending_navigation();
+
     // Process deferred texture preview release/load (must happen before ImGui draws referencing it)
     if (preview_pending_release_) {
         release_preview_texture();
