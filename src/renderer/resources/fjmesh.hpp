@@ -15,7 +15,7 @@
 namespace fjell {
 
 static constexpr uint32_t FJMESH_MAGIC   = 0x484D4A46; // "FJMH" little-endian
-static constexpr uint32_t FJMESH_VERSION = 5;
+static constexpr uint32_t FJMESH_VERSION = 6;
 
 static constexpr uint32_t FJMESH_FLAG_SKINNED = 1; // vertices are SkinnedVertex (92 bytes)
 
@@ -124,6 +124,10 @@ struct FjMeshHeader {
     uint64_t material_slots_offset;     // FjMeshMaterialSlot[material_slot_count]
     uint64_t name_table_offset;         // packed strings, no null terminators
     uint64_t name_table_size;
+
+    // v6+ fields — asset identity, so a move doesn't orphan the mesh
+    uint32_t asset_uuid_offset;         // 32 hex chars, into the name table
+    uint32_t asset_uuid_length;
 };
 
 // ── .fjskel format ──────────────────────────────────────────────────────
@@ -188,9 +192,11 @@ struct MeshAuthoredData {
     std::string collision_mesh;      // .fjmesh proxy, for custom_mesh
     std::string source_file;         // what this mesh was imported from
     uint64_t source_modified_time{0};
+    std::string asset_uuid;          // identity, so a move doesn't orphan it
 
     [[nodiscard]] bool empty() const {
         return material_slots.empty() && collision_mesh.empty() && source_file.empty() &&
+               asset_uuid.empty() &&
                collision_source == FjMeshCollisionSource::render_mesh;
     }
 };
@@ -224,7 +230,10 @@ private:
 // the whole mesh load.
 [[nodiscard]] inline std::string read_name(const std::vector<char>& table,
                                            uint32_t offset, uint32_t length) {
-    if (length == 0 || offset + static_cast<uint64_t>(length) > table.size()) return {};
+    // The bound is checked in 64-bit so a corrupt offset+length cannot wrap and
+    // pass — a garbage length must never turn into a multi-gigabyte allocation.
+    if (length == 0) return {};
+    if (static_cast<uint64_t>(offset) + length > table.size()) return {};
     return std::string(table.data() + offset, length);
 }
 

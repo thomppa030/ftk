@@ -399,11 +399,22 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     // Read v5+ authored fields if present
     if (header.version >= 5) {
         constexpr size_t V5_START = offsetof(FjMeshHeader, material_slot_count);
-        size_t v5_size = sizeof(FjMeshHeader) - V5_START;
+        constexpr size_t V5_END = offsetof(FjMeshHeader, asset_uuid_offset);
+        size_t v5_size = V5_END - V5_START;
         auto* v5_ptr = reinterpret_cast<char*>(&header) + V5_START;
         if (std::fread(v5_ptr, v5_size, 1, f) != 1) {
             std::fclose(f);
             throw std::runtime_error("Failed to read .fjmesh v5 header fields: " + path);
+        }
+    }
+    // Read v6+ identity fields if present
+    if (header.version >= 6) {
+        constexpr size_t V6_START = offsetof(FjMeshHeader, asset_uuid_offset);
+        size_t v6_size = sizeof(FjMeshHeader) - V6_START;
+        auto* v6_ptr = reinterpret_cast<char*>(&header) + V6_START;
+        if (std::fread(v6_ptr, v6_size, 1, f) != 1) {
+            std::fclose(f);
+            throw std::runtime_error("Failed to read .fjmesh v6 header fields: " + path);
         }
     }
     if (header.flags & FJMESH_FLAG_SKINNED) {
@@ -482,6 +493,10 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
                                          header.source_name_length);
         authored.collision_mesh = read_name(name_table, header.collision_mesh_offset,
                                             header.collision_mesh_length);
+        if (header.version >= 6) {
+            authored.asset_uuid = read_name(name_table, header.asset_uuid_offset,
+                                            header.asset_uuid_length);
+        }
 
         std::vector<FjMeshMaterialSlot> slots;
         read_section(slots, header.material_slots_offset, header.material_slot_count);

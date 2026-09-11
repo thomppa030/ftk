@@ -42,6 +42,10 @@ uint64_t layout_authored_sections(FjMeshHeader& header, uint64_t offset,
     header.collision_mesh_offset = collision_mesh.first;
     header.collision_mesh_length = collision_mesh.second;
 
+    auto uuid = layout.names.add(authored.asset_uuid);
+    header.asset_uuid_offset = uuid.first;
+    header.asset_uuid_length = uuid.second;
+
     layout.slots.reserve(authored.material_slots.size());
     for (const auto& slot : authored.material_slots) {
         auto name = layout.names.add(slot.name);
@@ -103,6 +107,10 @@ MeshAuthoredData read_authored_data(const std::string& path) {
                                      header.source_name_length);
     authored.collision_mesh = read_name(name_table, header.collision_mesh_offset,
                                         header.collision_mesh_length);
+    if (header.version >= 6) {
+        authored.asset_uuid = read_name(name_table, header.asset_uuid_offset,
+                                        header.asset_uuid_length);
+    }
 
     std::vector<FjMeshMaterialSlot> slots(header.material_slot_count);
     if (header.material_slot_count > 0) {
@@ -222,6 +230,8 @@ void merge_authored_data(MeshAuthoredData& fresh, const MeshAuthoredData& previo
     fresh.collision_source = previous.collision_source;
     fresh.collision_simplify_ratio = previous.collision_simplify_ratio;
     fresh.collision_mesh = previous.collision_mesh;
+    // A rebuilt mesh is the same asset, so it keeps the same identity.
+    if (!previous.asset_uuid.empty()) fresh.asset_uuid = previous.asset_uuid;
 
     std::unordered_map<std::string, std::string> assigned;
     for (const auto& slot : previous.material_slots) {
