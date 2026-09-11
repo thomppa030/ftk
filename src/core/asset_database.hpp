@@ -64,6 +64,13 @@ private:
 
     std::unordered_map<AssetId, AssetEntry> by_id_;
     std::unordered_map<std::string, AssetId> by_path_;
+
+    /// Size and mtime of each asset as of the last rebuild, so an unchanged
+    /// file can keep its id without being opened. Reading every asset to
+    /// confirm an id the database already has costs a full pass over the
+    /// project's bytes on every startup.
+    std::unordered_map<std::string, std::string> stamps_;
+
     bool dirty_{false};
 
     mutable std::shared_mutex mutex_;

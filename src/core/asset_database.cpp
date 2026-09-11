@@ -48,6 +48,9 @@ Result<> AssetDatabase::load() {
         auto id = AssetId::from_string(entry["uuid"].get<std::string>());
         auto path = entry["path"].get<std::string>();
         if (id.valid() && !path.empty()) {
+            if (entry.contains("stamp")) {
+                stamps_[path] = entry["stamp"].get<std::string>();
+            }
             insert_locked(id, std::move(path));
         }
     }
@@ -73,10 +76,15 @@ Result<> AssetDatabase::save() const {
     auto& assets = j["assets"];
     assets = nlohmann::json::array();
     for (const auto& [id, entry] : by_id_) {
-        assets.push_back({
+        nlohmann::json row{
             {"uuid", entry.id.to_string()},
             {"path", entry.relative_path},
-        });
+        };
+        // Lets the next rebuild skip re-reading an unchanged file.
+        if (auto it = stamps_.find(entry.relative_path); it != stamps_.end()) {
+            row["stamp"] = it->second;
+        }
+        assets.push_back(std::move(row));
     }
 
     // Atomic write: write to .tmp, then rename
@@ -100,6 +108,21 @@ Result<> AssetDatabase::save() const {
 }
 
 // ── Rebuild ─────────────────────────────────────────────────────────────
+
+namespace {
+
+/// Size and mtime, enough to tell "same file as last time" from "changed".
+std::string file_stamp(const fs::directory_entry& entry) {
+    std::error_code ec;
+    auto size = entry.file_size(ec);
+    if (ec) return {};
+    auto time = entry.last_write_time(ec);
+    if (ec) return {};
+    return std::to_string(size) + ":" +
+           std::to_string(time.time_since_epoch().count());
+}
+
+} // namespace
 
 void AssetDatabase::rebuild() {
     std::unique_lock lock(mutex_);
@@ -132,15 +155,22 @@ void AssetDatabase::rebuild() {
 
         seen_paths.insert(rel);
 
-        // The id the asset carries is authoritative — it is what survives the
-        // file being moved or renamed outside the editor, which is exactly the
-        // case where the path map is already wrong.
-        AssetId carried = asset_identity::read(entry.path());
-
+        // An asset still sitting where the database last saw it keeps its id,
+        // and reading the file to confirm would mean opening every asset in
+        // the project on every startup. Only a path the database does not
+        // recognise is worth inspecting.
         if (auto it = by_path_.find(rel); it != by_path_.end()) {
+            auto stamp = file_stamp(entry);
+            auto known = stamps_.find(rel);
+            if (known != stamps_.end() && known->second == stamp) {
+                continue;
+            }
+
+            // Changed since last seen: it may have been overwritten by a
+            // different asset (a restore, a checkout, a copy over the top),
+            // so the id it carries decides.
+            AssetId carried = asset_identity::read(entry.path());
             if (carried.valid() && carried != it->second) {
-                // The file was replaced by one with its own identity (a copy,
-                // a restore, a checkout). Its id wins over the stale mapping.
                 remove_locked(it->second);
             } else {
                 if (!carried.valid()) {
@@ -148,9 +178,17 @@ void AssetDatabase::rebuild() {
                     // already has so the next move preserves it.
                     needs_write.emplace_back(entry.path(), it->second);
                 }
+                // Worth persisting: it is what lets the next rebuild skip
+                // opening this file at all.
+                stamps_[rel] = stamp;
+                dirty_ = true;
                 continue;
             }
         }
+
+        // The id a file carries is what survives it being moved or renamed
+        // outside the editor, which is exactly when the path map is wrong.
+        AssetId carried = asset_identity::read(entry.path());
 
         AssetId id = carried;
 
@@ -161,9 +199,11 @@ void AssetDatabase::rebuild() {
                     // The file this id belongs to is no longer where it was:
                     // it moved, and this is it. Repoint rather than treating
                     // its own id as a clash.
+                    stamps_.erase(it->second.relative_path);
                     by_path_.erase(it->second.relative_path);
                     it->second.relative_path = rel;
                     by_path_[rel] = id;
+                    stamps_[rel] = file_stamp(entry);
                     dirty_ = true;
                     continue;
                 }
@@ -184,6 +224,7 @@ void AssetDatabase::rebuild() {
         }
 
         insert_locked(id, rel);
+        stamps_[rel] = file_stamp(entry);
         if (id != carried) {
             needs_write.emplace_back(entry.path(), id);
         }
@@ -261,9 +302,15 @@ void AssetDatabase::notify_move(const AssetId& id, const std::string& new_relati
     // Remove old path mapping
     by_path_.erase(it->second.relative_path);
 
+    // The stamp describes the same file, so it follows the path it is keyed by.
+    auto stamp = stamps_.extract(it->second.relative_path);
+
     // Update
     it->second.relative_path = new_relative_path;
     by_path_[new_relative_path] = id;
+    if (!stamp.empty()) {
+        stamps_[new_relative_path] = std::move(stamp.mapped());
+    }
     dirty_ = true;
 }
 
@@ -338,6 +385,7 @@ void AssetDatabase::insert_locked(AssetId id, std::string relative_path) {
 void AssetDatabase::remove_locked(const AssetId& id) {
     auto it = by_id_.find(id);
     if (it == by_id_.end()) return;
+    stamps_.erase(it->second.relative_path);
     by_path_.erase(it->second.relative_path);
     by_id_.erase(it);
 }
