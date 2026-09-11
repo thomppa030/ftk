@@ -43,6 +43,24 @@ void write_authored_sections(std::FILE* f, const FjMeshHeader& header,
 [[nodiscard]] bool rewrite_authored_data(const std::string& path,
                                          const MeshAuthoredData& authored);
 
+// Collision geometry to write in place of what a .fjmesh currently holds.
+// `indices` is empty for a convex hull, which is stored as a point cloud.
+struct CollisionSectionData {
+    std::vector<glm::vec3> vertices;
+    std::vector<uint32_t> indices;
+};
+
+// Rewrites a .fjmesh's collision geometry along with its authored block.
+//
+// Unlike rewrite_authored_data, this cannot patch the file in place: the
+// collision sections sit between the meshlet data and the LOD table, so
+// resizing them moves every section after them. Render geometry is copied
+// verbatim and the trailing sections are relocated, which is what lets the
+// editor regenerate collision without reimporting the mesh.
+[[nodiscard]] bool rewrite_collision_data(const std::string& path,
+                                          const CollisionSectionData& collision,
+                                          const MeshAuthoredData& authored);
+
 // Locates the source file a .fjmesh was imported from, using the provenance
 // recorded at import time. The path is stored relative to the mesh, so moving
 // the two together keeps it resolvable. Returns an empty path when the mesh

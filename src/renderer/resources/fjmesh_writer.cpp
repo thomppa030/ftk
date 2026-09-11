@@ -200,6 +200,127 @@ bool rewrite_authored_data(const std::string& path, const MeshAuthoredData& auth
     return true;
 }
 
+bool rewrite_collision_data(const std::string& path,
+                            const CollisionSectionData& collision,
+                            const MeshAuthoredData& authored) {
+    std::FILE* in = std::fopen(path.c_str(), "rb");
+    if (in == nullptr) {
+        return false;
+    }
+
+    FjMeshHeader header{};
+    if (std::fread(&header, sizeof(header), 1, in) != 1 ||
+        header.magic != FJMESH_MAGIC || header.version != FJMESH_VERSION) {
+        std::fclose(in);
+        return false;
+    }
+
+    // Sections before collision keep their offsets, so they are copied as one
+    // opaque block rather than being understood.
+    uint64_t prefix_end = header.collision_vertices_offset;
+    if (prefix_end <= sizeof(FjMeshHeader)) {
+        std::fclose(in);
+        return false;
+    }
+
+    std::vector<char> prefix(prefix_end);
+    std::fseek(in, 0, SEEK_SET);
+    if (std::fread(prefix.data(), 1, prefix.size(), in) != prefix.size()) {
+        std::fclose(in);
+        return false;
+    }
+
+    // The LOD table and SDF volume follow collision and are unchanged in
+    // content, but their offsets move with it.
+    std::vector<char> lod_levels(header.lod_count * sizeof(FjMeshLodLevel));
+    if (!lod_levels.empty()) {
+        std::fseek(in, static_cast<long>(header.lod_levels_offset), SEEK_SET);
+        if (std::fread(lod_levels.data(), 1, lod_levels.size(), in) != lod_levels.size()) {
+            std::fclose(in);
+            return false;
+        }
+    }
+
+    std::vector<char> sdf_data;
+    if (header.sdf_resolution > 0 && header.sdf_data_offset > 0) {
+        auto voxels = static_cast<uint64_t>(header.sdf_resolution) *
+                      header.sdf_resolution * header.sdf_resolution;
+        sdf_data.resize(voxels * sizeof(int16_t));
+        std::fseek(in, static_cast<long>(header.sdf_data_offset), SEEK_SET);
+        if (std::fread(sdf_data.data(), 1, sdf_data.size(), in) != sdf_data.size()) {
+            std::fclose(in);
+            return false;
+        }
+    }
+    std::fclose(in);
+
+    auto* out_header = reinterpret_cast<FjMeshHeader*>(prefix.data());
+    out_header->collision_vertex_count = static_cast<uint32_t>(collision.vertices.size());
+    out_header->collision_index_count = static_cast<uint32_t>(collision.indices.size());
+
+    // Re-lay out everything from collision onward, matching the alignment the
+    // importer uses so a rewritten file is laid out like a freshly built one.
+    uint64_t offset = prefix_end;
+    out_header->collision_vertices_offset = align_to(offset, 4);
+    offset = out_header->collision_vertices_offset +
+             (collision.vertices.size() * sizeof(glm::vec3));
+
+    out_header->collision_indices_offset = align_to(offset, 4);
+    offset = out_header->collision_indices_offset +
+             (collision.indices.size() * sizeof(uint32_t));
+
+    out_header->lod_levels_offset = align_to(offset, 4);
+    offset = out_header->lod_levels_offset + lod_levels.size();
+
+    if (!sdf_data.empty()) {
+        out_header->sdf_data_offset = align_to(offset, 4);
+        offset = out_header->sdf_data_offset + sdf_data.size();
+    } else {
+        out_header->sdf_data_offset = 0;
+    }
+
+    AuthoredLayout layout;
+    layout_authored_sections(*out_header, offset, authored, layout);
+
+    std::string tmp = path + ".tmp";
+    std::FILE* out = std::fopen(tmp.c_str(), "wb");
+    if (out == nullptr) {
+        return false;
+    }
+
+    std::fwrite(prefix.data(), 1, prefix.size(), out);
+
+    pad_to_offset(out, out_header->collision_vertices_offset);
+    std::fwrite(collision.vertices.data(), sizeof(glm::vec3), collision.vertices.size(), out);
+
+    pad_to_offset(out, out_header->collision_indices_offset);
+    std::fwrite(collision.indices.data(), sizeof(uint32_t), collision.indices.size(), out);
+
+    pad_to_offset(out, out_header->lod_levels_offset);
+    std::fwrite(lod_levels.data(), 1, lod_levels.size(), out);
+
+    if (!sdf_data.empty()) {
+        pad_to_offset(out, out_header->sdf_data_offset);
+        std::fwrite(sdf_data.data(), 1, sdf_data.size(), out);
+    }
+
+    write_authored_sections(out, *out_header, layout);
+
+    // The header was only finalized during layout, so the copy written at the
+    // top of the file is stale until it is put back.
+    std::fseek(out, 0, SEEK_SET);
+    std::fwrite(out_header, sizeof(FjMeshHeader), 1, out);
+    std::fclose(out);
+
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) {
+        std::filesystem::remove(tmp, ec);
+        return false;
+    }
+    return true;
+}
+
 std::string find_import_source(const std::string& fjmesh_path) {
     namespace fs = std::filesystem;
 
