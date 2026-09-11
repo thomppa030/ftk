@@ -12,6 +12,8 @@
 
 #include <cmath>
 #include <numbers>
+#include <unordered_set>
+#include <utility>
 
 namespace fjell {
 
@@ -143,11 +145,67 @@ void DebugDraw::generate_frustum(const CameraNode& cam, float aspect) {
 
 // ── Update ──────────────────────────────────────────────────────────────
 
+void DebugDraw::submit_authored_collision(const std::vector<glm::vec3>& vertices,
+                                          const std::vector<uint32_t>& indices) {
+    // Build into the member buffer by swapping it in as the scratch target,
+    // so the line generation below can stay shared with the scene path.
+    authored_collision_lines_.clear();
+    std::swap(vertices_, authored_collision_lines_);
+    generate_collision_wireframe(vertices, indices);
+    std::swap(vertices_, authored_collision_lines_);
+}
+
+void DebugDraw::generate_collision_wireframe(const std::vector<glm::vec3>& vertices,
+                                             const std::vector<uint32_t>& indices) {
+    // A hull stores points and no triangles. Drawing each as a small cross is
+    // enough to read its extent, and there are no edges to derive.
+    if (indices.empty()) {
+        constexpr float TICK = 0.01f;
+        for (const auto& p : vertices) {
+            add_line(p - glm::vec3{TICK, 0.0f, 0.0f}, p + glm::vec3{TICK, 0.0f, 0.0f});
+            add_line(p - glm::vec3{0.0f, TICK, 0.0f}, p + glm::vec3{0.0f, TICK, 0.0f});
+            add_line(p - glm::vec3{0.0f, 0.0f, TICK}, p + glm::vec3{0.0f, 0.0f, TICK});
+        }
+        return;
+    }
+
+    // Interior edges are shared by two triangles, so emitting per-triangle
+    // would draw most of the mesh twice.
+    std::unordered_set<uint64_t> seen;
+    seen.reserve(indices.size());
+    auto edge = [&](uint32_t a, uint32_t b) {
+        if (a > b) std::swap(a, b);
+        uint64_t key = (static_cast<uint64_t>(a) << 32) | b;
+        if (!seen.insert(key).second) return;
+        if (a >= vertices.size() || b >= vertices.size()) return;
+        add_line(vertices[a], vertices[b]);
+    };
+
+    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+        edge(indices[i], indices[i + 1]);
+        edge(indices[i + 1], indices[i + 2]);
+        edge(indices[i + 2], indices[i]);
+    }
+}
+
 void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t selected_id,
                        bool show_colliders, DebugDrawQueue* script_queue) {
     FJELL_PROFILE_SCOPE_N("debug_draw_update");
     vertices_.clear();
     draw_commands_.clear();
+
+    // Authored collision sits at the mesh's own origin, so it needs no node
+    // transform — the preview places the mesh at identity. Consumed here, so
+    // an editor that stops submitting stops being drawn.
+    if (!authored_collision_lines_.empty()) {
+        uint32_t first = static_cast<uint32_t>(vertices_.size());
+        vertices_.insert(vertices_.end(), authored_collision_lines_.begin(),
+                         authored_collision_lines_.end());
+        auto count = static_cast<uint32_t>(authored_collision_lines_.size());
+        draw_commands_.push_back({glm::mat4(1.0f), first, count,
+                                  {0.25f, 0.85f, 0.4f, 1.0f}});
+        authored_collision_lines_.clear();
+    }
 
     if (show_colliders) {
     for (const auto& obj : scene.objects()) {

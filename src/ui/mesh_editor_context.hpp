@@ -6,6 +6,9 @@
 #include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
 
+#include <glm/glm.hpp>
+
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <vector>
@@ -81,6 +84,17 @@ private:
     // Slot assignments being edited, seeded from the mesh's authored data.
     MeshAuthoredData authored_;
     bool dirty_{false};
+
+    // Collision being edited. Always rebuilt from the mesh's full-detail
+    // geometry rather than from the previous result: simplification is not
+    // reversible, so deriving from its own output compounds the loss and a
+    // hull leaves no triangles to derive from at all.
+    std::vector<glm::vec3> collision_vertices_;
+    std::vector<uint32_t> collision_indices_;
+    bool collision_dirty_{false};
+    bool show_collision_{true};
+
+    void rebuild_collision();
 
     // Preview scene
     Scene preview_scene_;

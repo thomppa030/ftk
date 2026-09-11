@@ -28,6 +28,30 @@ public:
     void update(const Scene& scene, uint32_t frame_index, uint32_t selected_id = 0,
                 bool show_colliders = true, DebugDrawQueue* script_queue = nullptr);
 
+    /// Collision geometry to overlay on the next `update()`, in the mesh's
+    /// local space. Submitted by the mesh editor while collision is being
+    /// authored: the geometry belongs to the asset rather than to any node, so
+    /// it has no component for the scene walk to find.
+    ///
+    /// A triangle mesh is drawn as wireframe edges, a point cloud (a convex
+    /// hull, which stores no indices) as its points. Both are far denser than
+    /// a primitive collider, so this is deliberately opt-in rather than part
+    /// of `show_colliders` — one mesh under inspection can afford what a whole
+    /// scene of them cannot.
+    ///
+    /// The lines are generated here and the caller's vectors are not retained,
+    /// so submitting each frame costs one build and an editor that stops
+    /// submitting simply stops being drawn.
+    void submit_authored_collision(const std::vector<glm::vec3>& vertices,
+                                   const std::vector<uint32_t>& indices);
+
+    /// Whether geometry has been submitted but not yet consumed by `update()`.
+    /// The frame loop skips the update entirely when nothing needs drawing,
+    /// and an editor's submission is not visible in the scene it checks.
+    [[nodiscard]] bool has_pending_authored_collision() const {
+        return !authored_collision_lines_.empty();
+    }
+
     /// Draw with the buffer populated by the matching `update()` call.
     void draw(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frame_index) const;
 
@@ -50,8 +74,16 @@ private:
     void add_circle(const glm::vec3& center, const glm::vec3& axis_a,
                     const glm::vec3& axis_b, float radius, uint32_t segments);
 
+    void generate_collision_wireframe(const std::vector<glm::vec3>& vertices,
+                                      const std::vector<uint32_t>& indices);
+
     VkDevice device_;
     VmaAllocator allocator_;
+
+    // Line vertices built from the last submit_authored_collision() call,
+    // prepended to each frame's buffer and cleared by update(). Owning them
+    // means no editor's geometry can outlive the editor.
+    std::vector<glm::vec3> authored_collision_lines_;
 
     std::vector<glm::vec3> vertices_;
     std::vector<DrawCommand> draw_commands_;

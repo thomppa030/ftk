@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "core/project_manager.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "physics/collision_build.hpp"
 #include "physics/collision_shape.hpp"
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "renderer/resources/model.hpp"
@@ -59,6 +60,15 @@ void MeshEditorContext::draw(float dt) {
         if (vp->title != t) vp->title = std::move(t);
     }
     preview_scene_.compute_world_matrices(nullptr);
+
+    // Submitted every frame while this context is the one drawing. DebugDraw
+    // keeps the generated lines rather than these vectors, so switching away
+    // from the mesh editor simply stops the overlay.
+    if (show_collision_ && !collision_vertices_.empty()) {
+        deps_.vulkan_context->debug_draw().submit_authored_collision(
+            collision_vertices_, collision_indices_);
+    }
+
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
     draw_slots_panel();
     draw_collision_panel();
@@ -120,6 +130,10 @@ void MeshEditorContext::open_mesh(const std::string& fjmesh_path) {
     authored_ = model_->authored();
     dirty_ = false;
     name_ = std::filesystem::path(fjmesh_path).stem().string();
+
+    collision_vertices_ = model_->collision_vertices();
+    collision_indices_ = model_->collision_indices();
+    collision_dirty_ = false;
 
     setup_preview_scene();
     frame_camera();
@@ -270,14 +284,36 @@ bool MeshEditorContext::save() {
         slot.path = base_path::asset_reference(slot.path, project);
     }
 
-    if (!rewrite_authored_data(fjmesh_abs_path_, authored_)) {
+    // Rewriting collision resizes a section in the middle of the file, so it
+    // takes the relocating path; the authored-only path patches in place and
+    // stays the cheaper option when nothing but slots changed.
+    bool written = collision_dirty_
+        ? rewrite_collision_data(fjmesh_abs_path_,
+                                 {collision_vertices_, collision_indices_}, authored_)
+        : rewrite_authored_data(fjmesh_abs_path_, authored_);
+    if (!written) {
         FJELL_CORE_ERROR("Failed to save mesh settings: {}", fjmesh_path_);
         return false;
     }
 
+    collision_dirty_ = false;
     dirty_ = false;
     FJELL_CORE_INFO("Mesh settings saved: {}", fjmesh_path_);
     return true;
+}
+
+void MeshEditorContext::rebuild_collision() {
+    if (!model_ || !model_->has_full_collision()) return;
+
+    CollisionBuildInput input{&model_->collision_full_vertices(),
+                              &model_->collision_full_indices()};
+    auto built = build_collision(input, authored_.collision_source,
+                                 authored_.collision_simplify_ratio);
+
+    collision_vertices_ = std::move(built.vertices);
+    collision_indices_ = std::move(built.indices);
+    collision_dirty_ = true;
+    dirty_ = true;
 }
 
 void MeshEditorContext::draw_collision_panel() {
@@ -310,17 +346,24 @@ void MeshEditorContext::draw_collision_panel() {
             if (opt.value == authored_.collision_source) current = opt.label;
         }
 
+        // A mesh imported before the format kept full-detail collision has
+        // nothing to rebuild from, and deriving from the stored result would
+        // compound the loss it already carries.
+        const bool can_rebuild = model_->has_full_collision();
+        ImGui::BeginDisabled(!can_rebuild);
+
         if (ImGui::BeginCombo("Source", current)) {
             for (const auto& opt : OPTIONS) {
                 bool selected = opt.value == authored_.collision_source;
-                if (ImGui::Selectable(opt.label, selected)) {
+                if (ImGui::Selectable(opt.label, selected) && !selected) {
                     authored_.collision_source = opt.value;
-                    dirty_ = true;
+                    rebuild_collision();
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", opt.help);
             }
             ImGui::EndCombo();
         }
+        ImGui::EndDisabled();
 
         for (const auto& opt : OPTIONS) {
             if (opt.value == authored_.collision_source) {
@@ -331,10 +374,13 @@ void MeshEditorContext::draw_collision_panel() {
         ImGui::Separator();
 
         if (authored_.collision_source == FjMeshCollisionSource::simplified) {
-            if (ImGui::SliderFloat("Detail", &authored_.collision_simplify_ratio,
-                                   0.01F, 1.0F, "%.2f")) {
-                dirty_ = true;
-            }
+            ImGui::BeginDisabled(!can_rebuild);
+            // Rebuild on release rather than per-frame: simplifying the helmet
+            // costs about a millisecond, which is enough to make a drag stutter.
+            ImGui::SliderFloat("Detail", &authored_.collision_simplify_ratio,
+                               0.01F, 1.0F, "%.2f");
+            if (ImGui::IsItemDeactivatedAfterEdit()) rebuild_collision();
+            ImGui::EndDisabled();
             ImGui::TextDisabled("Fraction of the original triangles to keep.");
         }
 
@@ -363,20 +409,23 @@ void MeshEditorContext::draw_collision_panel() {
 
         ImGui::SeparatorText("Current geometry");
 
-        // What is in the file right now, which only matches the source above
-        // after a reimport regenerates it.
-        auto collision = collision_mesh_of(*model_);
+        if (ImGui::Checkbox("Show in viewport", &show_collision_)) {
+            deps_.vulkan_context->set_show_colliders(show_collision_);
+        }
+
+        // A hull is a point cloud, so it reports no triangles by design.
+        bool is_hull = authored_.collision_source == FjMeshCollisionSource::convex_hull;
         if (ImGui::BeginTable("collision", 2, ImGuiTableFlags_SizingStretchProp)) {
-            info_row("Vertices", group_digits(model_->collision_vertices().size()));
-            info_row("Triangles", group_digits(collision.triangle_count()));
-            info_row("Supports dynamic", collision.supports_dynamic() ? "yes" : "no");
+            info_row("Vertices", group_digits(collision_vertices_.size()));
+            info_row("Triangles", group_digits(collision_indices_.size() / 3));
+            info_row("Supports dynamic", is_hull ? "yes" : "no");
             ImGui::EndTable();
         }
 
-        if (authored_.collision_source != model_->collision_source()) {
+        if (!can_rebuild) {
             ImGui::TextWrapped(
-                "The geometry in the file was built for a different source. "
-                "Save, then reimport the mesh to regenerate it.");
+                "This mesh predates the format that keeps the geometry collision "
+                "is built from. Reimport it to change the source.");
         }
     }
     ImGui::End();
