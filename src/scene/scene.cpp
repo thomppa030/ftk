@@ -7,6 +7,7 @@
 #include "physics/physics_types.hpp"
 #include "renderer/components/arrow_component.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/components/terrain_component.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/systems/vfx_asset.hpp"
 #include "renderer/systems/vfx_emitter.hpp"
@@ -100,6 +101,15 @@ void Node::clone_base_into(Node& target) const {
         copy.sort_layer = tm->sort_layer;
         copy.pixel_art = tm->pixel_art;
         copy.tiles = tm->tiles;
+    }
+    if (const auto* terrain = components.get<TerrainComponent>()) {
+        auto& copy = target.components.add<TerrainComponent>();
+        copy.terrain_path = terrain->terrain_path;
+        copy.terrain_handle = terrain->terrain_handle;
+        // The asset is owned by ResourceManager and outlives the clone, so the
+        // resolved pointer carries over rather than being re-loaded.
+        copy.terrain = terrain->terrain;
+        copy.show_wireframe = terrain->show_wireframe;
     }
     if (const auto* arr = components.get<ArrowComponent>()) {
         target.components.add<ArrowComponent>(*arr);
