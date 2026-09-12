@@ -25,6 +25,7 @@
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
@@ -351,6 +352,125 @@ static glm::vec3 clamp_positive(const glm::vec3& v) {
     return {std::max(v.x, MIN_DIMENSION), std::max(v.y, MIN_DIMENSION), std::max(v.z, MIN_DIMENSION)};
 }
 
+// ── Collision primitives ────────────────────────────────────────────────
+
+// Builds one authored collision shape. Geometry kinds read the ranges the
+// primitive names out of the mesh's collision arrays; primitive kinds need no
+// geometry at all. `scale` is baked in, since a shape cannot be rescaled after
+// creation.
+static JPH::ShapeRefC build_primitive_shape(const CollisionPrimitive& prim,
+                                            const CollisionMesh& geometry,
+                                            const glm::vec3& scale,
+                                            const std::string& owner) {
+    switch (prim.kind) {
+        case CollisionPrimitiveKind::box: {
+            auto he = clamp_positive(prim.extents * scale);
+            return new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
+        }
+        case CollisionPrimitiveKind::sphere: {
+            float r = clamp_positive(prim.extents.x * std::max({scale.x, scale.y, scale.z}));
+            return new JPH::SphereShape(r);
+        }
+        case CollisionPrimitiveKind::capsule: {
+            float r = clamp_positive(prim.extents.x * std::max(scale.x, scale.z));
+            float half_h = clamp_positive(prim.extents.y * 0.5f * scale.y);
+            return new JPH::CapsuleShape(half_h, r);
+        }
+        case CollisionPrimitiveKind::convex_hull: {
+            if (geometry.vertices == nullptr) return {};
+            const auto& verts = *geometry.vertices;
+            JPH::Array<JPH::Vec3> points;
+            points.reserve(prim.vertex_count);
+            for (uint32_t i = 0; i < prim.vertex_count; ++i) {
+                uint32_t idx = prim.first_vertex + i;
+                if (idx >= verts.size()) break;
+                auto p = verts[idx] * scale;
+                points.push_back(JPH::Vec3(p.x, p.y, p.z));
+            }
+            auto result = JPH::ConvexHullShapeSettings(points).Create();
+            if (result.HasError()) {
+                FJELL_CORE_ERROR("Failed to create hull collider for '{}': {}",
+                                 owner, result.GetError().c_str());
+                return {};
+            }
+            return result.Get();
+        }
+        case CollisionPrimitiveKind::triangle_mesh: {
+            if (geometry.vertices == nullptr || geometry.indices == nullptr) return {};
+            const auto& verts = *geometry.vertices;
+            const auto& idxs = *geometry.indices;
+            JPH::TriangleList triangles;
+            triangles.reserve(prim.index_count / 3);
+            for (uint32_t i = 0; i + 2 < prim.index_count; i += 3) {
+                uint32_t base = prim.first_index + i;
+                if (base + 2 >= idxs.size()) break;
+                auto v0 = verts[idxs[base]] * scale;
+                auto v1 = verts[idxs[base + 1]] * scale;
+                auto v2 = verts[idxs[base + 2]] * scale;
+                triangles.push_back(JPH::Triangle(
+                    JPH::Float3(v0.x, v0.y, v0.z),
+                    JPH::Float3(v1.x, v1.y, v1.z),
+                    JPH::Float3(v2.x, v2.y, v2.z)));
+            }
+            auto result = JPH::MeshShapeSettings(triangles).Create();
+            if (result.HasError()) {
+                FJELL_CORE_ERROR("Failed to create mesh collider for '{}': {}",
+                                 owner, result.GetError().c_str());
+                return {};
+            }
+            return result.Get();
+        }
+    }
+    return {};
+}
+
+// Builds the shape a mesh's authored collision list describes. A single
+// primitive at the origin becomes that shape directly; anything else becomes a
+// compound, which is what lets several hulls approximate a concave object.
+static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>& primitives,
+                                           const CollisionMesh& geometry,
+                                           const glm::vec3& scale,
+                                           const std::string& owner,
+                                           bool& out_supports_dynamic) {
+    out_supports_dynamic = true;
+    for (const auto& prim : primitives) {
+        if (!prim.is_convex()) out_supports_dynamic = false;
+    }
+
+    if (primitives.size() == 1) {
+        const auto& prim = primitives.front();
+        auto shape = build_primitive_shape(prim, geometry, scale, owner);
+        if (!shape) return {};
+        // A placed shape needs the transform wrapper; an unplaced one does not.
+        if (glm::length(prim.position) < 1e-5f &&
+            std::abs(prim.rotation.w - 1.0f) < 1e-5f) {
+            return shape;
+        }
+        JPH::StaticCompoundShapeSettings settings;
+        settings.AddShape(to_jolt(prim.position * scale), to_jolt_quat(prim.rotation), shape);
+        auto result = settings.Create();
+        return result.HasError() ? JPH::ShapeRefC{} : result.Get();
+    }
+
+    JPH::StaticCompoundShapeSettings settings;
+    uint32_t added = 0;
+    for (const auto& prim : primitives) {
+        auto shape = build_primitive_shape(prim, geometry, scale, owner);
+        if (!shape) continue;
+        settings.AddShape(to_jolt(prim.position * scale), to_jolt_quat(prim.rotation), shape);
+        ++added;
+    }
+    if (added == 0) return {};
+
+    auto result = settings.Create();
+    if (result.HasError()) {
+        FJELL_CORE_ERROR("Failed to create compound collider for '{}': {}",
+                         owner, result.GetError().c_str());
+        return {};
+    }
+    return result.Get();
+}
+
 // ── Terrain ─────────────────────────────────────────────────────────────
 
 // Builds the static body for a terrain node. Heights are stored normalized, so
@@ -503,61 +623,23 @@ void PhysicsWorld::create_bodies(Scene& scene) {
                     continue;
                 }
                 auto collision = collision_mesh_of(*mesh->model);
-                if (!collision.valid()) {
+                const auto& primitives = mesh->model->collision_primitives();
+                if (primitives.empty() || !collision.valid()) {
                     FJELL_CORE_WARN("Object '{}' has Mesh collider but no collision mesh data",
                                     obj->name);
                     continue;
                 }
 
-                const auto& verts = *collision.vertices;
-                const auto& idxs = *collision.indices;
-
-                mesh_supports_dynamic = collision.supports_dynamic();
-                if (mesh_supports_dynamic) {
-                    JPH::Array<JPH::Vec3> points;
-                    points.reserve(verts.size());
-                    for (const auto& v : verts) {
-                        auto p = v * s;
-                        points.push_back(JPH::Vec3(p.x, p.y, p.z));
-                    }
-
-                    auto hull_result = JPH::ConvexHullShapeSettings(points).Create();
-                    if (hull_result.HasError()) {
-                        FJELL_CORE_ERROR("Failed to create hull collider for '{}': {}",
-                                         obj->name, hull_result.GetError().c_str());
-                        continue;
-                    }
-                    shape = hull_result.Get();
-                    break;
-                }
+                shape = build_authored_shape(primitives, collision, s, obj->name,
+                                             mesh_supports_dynamic);
+                if (!shape) continue;
 
                 // Triangle meshes can't back a moving body in Jolt.
-                if (rb.body_type != BodyType::Static) {
+                if (!mesh_supports_dynamic && rb.body_type != BodyType::Static) {
                     FJELL_CORE_WARN("Object '{}' has a triangle-mesh collider on a non-static "
                                     "body — forcing static. Use a convex hull to keep it moving.",
                                     obj->name);
                 }
-
-                JPH::TriangleList triangles;
-                triangles.reserve(idxs.size() / 3);
-                for (size_t i = 0; i + 2 < idxs.size(); i += 3) {
-                    auto v0 = verts[idxs[i]] * s;
-                    auto v1 = verts[idxs[i + 1]] * s;
-                    auto v2 = verts[idxs[i + 2]] * s;
-                    triangles.push_back(JPH::Triangle(
-                        JPH::Float3(v0.x, v0.y, v0.z),
-                        JPH::Float3(v1.x, v1.y, v1.z),
-                        JPH::Float3(v2.x, v2.y, v2.z)));
-                }
-
-                auto mesh_settings = JPH::MeshShapeSettings(triangles);
-                auto mesh_result = mesh_settings.Create();
-                if (mesh_result.HasError()) {
-                    FJELL_CORE_ERROR("Failed to create mesh collider for '{}': {}",
-                                     obj->name, mesh_result.GetError().c_str());
-                    continue;
-                }
-                shape = mesh_result.Get();
                 break;
             }
         }

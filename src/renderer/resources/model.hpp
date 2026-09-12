@@ -1,5 +1,6 @@
 #pragma once
 
+#include "physics/collision_shape.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/resources/mega_buffer.hpp"
@@ -37,6 +38,10 @@ struct FjMeshData {
     // kept only the derived result.
     std::vector<glm::vec3> collision_full_vertices;
     std::vector<uint32_t> collision_full_indices;
+
+    // The shapes this mesh collides as. Empty for files older than v8, which
+    // the loader fills with one triangle-mesh primitive covering everything.
+    std::vector<CollisionPrimitive> collision_primitives;
 
     std::vector<FjMeshLodLevel> lod_levels;
     AABB aabb;
@@ -117,6 +122,13 @@ public:
         return !collision_full_vertices_.empty();
     }
 
+    // The shapes this mesh collides as, in its local space. Never empty for a
+    // mesh with collision geometry: a file that authored no shapes collides as
+    // one triangle mesh covering all of it.
+    [[nodiscard]] const std::vector<CollisionPrimitive>& collision_primitives() const {
+        return collision_primitives_;
+    }
+
     [[nodiscard]] const AABB& local_aabb() const { return local_aabb_; }
 
     [[nodiscard]] const std::vector<MegaMeshEntry>& mega_entries() const { return mega_entries_; }
@@ -173,6 +185,7 @@ private:
     std::vector<uint32_t> collision_indices_;
     std::vector<glm::vec3> collision_full_vertices_;
     std::vector<uint32_t> collision_full_indices_;
+    std::vector<CollisionPrimitive> collision_primitives_;
     AABB local_aabb_;
     std::vector<MegaMeshEntry> mega_entries_;
     std::vector<MeshletBuildResult> meshlet_results_;

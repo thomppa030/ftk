@@ -506,6 +506,12 @@ static bool write_fjmesh(const std::string& output_path, const ImportResult& res
                  header.collision_full_index_count * sizeof(uint32_t);
     }
 
+    // Collision shape list (v8). The importer authors none — a freshly
+    // imported mesh collides as its geometry until someone says otherwise, and
+    // the loader synthesizes that single shape.
+    header.collision_primitive_count = 0;
+    header.collision_primitives_offset = align_to(offset, 4);
+
     header.lod_levels_offset = align_to(offset, 4);
     offset = header.lod_levels_offset + header.lod_count * sizeof(fjell::FjMeshLodLevel);
 

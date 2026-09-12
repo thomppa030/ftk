@@ -283,9 +283,18 @@ bool MeshEditorContext::save() {
     // Rewriting collision resizes a section in the middle of the file, so it
     // takes the relocating path; the authored-only path patches in place and
     // stays the cheaper option when nothing but slots changed.
+    CollisionSectionData section;
+    if (collision_dirty_) {
+        section.vertices = collision_vertices_;
+        section.indices = collision_indices_;
+        // Shapes index into the geometry that just changed, so they are written
+        // to match it. The editor authors no shape list yet, which the loader
+        // reads as "collide as the geometry" — the behaviour before v8.
+        section.primitives.clear();
+    }
+
     bool written = collision_dirty_
-        ? rewrite_collision_data(fjmesh_abs_path_,
-                                 {collision_vertices_, collision_indices_}, authored_)
+        ? rewrite_collision_data(fjmesh_abs_path_, section, authored_)
         : rewrite_authored_data(fjmesh_abs_path_, authored_);
     if (!written) {
         FJELL_CORE_ERROR("Failed to save mesh settings: {}", fjmesh_path_);

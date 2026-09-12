@@ -424,11 +424,22 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     // Read v7+ full-detail collision fields if present
     if (header.version >= 7) {
         constexpr size_t V7_START = offsetof(FjMeshHeader, collision_full_vertex_count);
-        size_t v7_size = sizeof(FjMeshHeader) - V7_START;
+        constexpr size_t V7_END = offsetof(FjMeshHeader, collision_primitive_count);
+        size_t v7_size = V7_END - V7_START;
         auto* v7_ptr = reinterpret_cast<char*>(&header) + V7_START;
         if (std::fread(v7_ptr, v7_size, 1, f) != 1) {
             std::fclose(f);
             throw std::runtime_error("Failed to read .fjmesh v7 header fields: " + path);
+        }
+    }
+    // Read v8+ collision primitive fields if present
+    if (header.version >= 8) {
+        constexpr size_t V8_START = offsetof(FjMeshHeader, collision_primitive_count);
+        size_t v8_size = sizeof(FjMeshHeader) - V8_START;
+        auto* v8_ptr = reinterpret_cast<char*>(&header) + V8_START;
+        if (std::fread(v8_ptr, v8_size, 1, f) != 1) {
+            std::fclose(f);
+            throw std::runtime_error("Failed to read .fjmesh v8 header fields: " + path);
         }
     }
     if (header.flags & FJMESH_FLAG_SKINNED) {
@@ -474,6 +485,39 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
                      header.collision_full_vertex_count);
         read_section(data.collision_full_indices, header.collision_full_indices_offset,
                      header.collision_full_index_count);
+    }
+
+    // Collision shape list (v8+).
+    if (header.version >= 8 && header.collision_primitive_count > 0) {
+        std::vector<FjMeshCollisionPrimitive> stored;
+        read_section(stored, header.collision_primitives_offset,
+                     header.collision_primitive_count);
+        data.collision_primitives.reserve(stored.size());
+        for (const auto& p : stored) {
+            CollisionPrimitive prim;
+            prim.kind = static_cast<CollisionPrimitiveKind>(p.kind);
+            prim.position = {p.position[0], p.position[1], p.position[2]};
+            prim.rotation = {p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2]};
+            prim.extents = {p.extents[0], p.extents[1], p.extents[2]};
+            prim.first_vertex = p.first_vertex;
+            prim.vertex_count = p.vertex_count;
+            prim.first_index = p.first_index;
+            prim.index_count = p.index_count;
+            data.collision_primitives.push_back(prim);
+        }
+    }
+
+    // A file that authored no shapes collides as one shape covering all of its
+    // collision geometry, which is what every pre-v8 mesh means. Synthesizing
+    // it here means no consumer has to know the difference.
+    if (data.collision_primitives.empty() && !data.collision_vertices.empty()) {
+        CollisionPrimitive prim;
+        prim.kind = data.authored.collision_source == FjMeshCollisionSource::convex_hull
+            ? CollisionPrimitiveKind::convex_hull
+            : CollisionPrimitiveKind::triangle_mesh;
+        prim.vertex_count = static_cast<uint32_t>(data.collision_vertices.size());
+        prim.index_count = static_cast<uint32_t>(data.collision_indices.size());
+        data.collision_primitives.push_back(prim);
     }
 
     // LOD levels: v2 stores them in the file, v1 gets a synthesized single LOD
@@ -547,6 +591,7 @@ Model::Model(VmaAllocator allocator, UploadContext& upload,
     collision_indices_ = std::move(data.collision_indices);
     collision_full_vertices_ = std::move(data.collision_full_vertices);
     collision_full_indices_ = std::move(data.collision_full_indices);
+    collision_primitives_ = std::move(data.collision_primitives);
     authored_ = std::move(data.authored);
     local_aabb_ = data.aabb;
     sdf_data_ = std::move(data.sdf_data);

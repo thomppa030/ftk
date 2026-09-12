@@ -9,6 +9,7 @@
 #include "renderer/resources/fjmesh.hpp"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
 #include <vector>
@@ -16,6 +17,48 @@
 namespace fjell {
 
 class Model;
+
+// One shape in a mesh's collision list. Primitives are authored — a crate is a
+// box, a barrel a capsule — while the geometry kinds are derived from the mesh
+// and index into its collision arrays.
+//
+// A list of these replaces "the mesh has one collider shaped like its
+// geometry". That framing cannot express a crate as a box, and it cannot make
+// a concave object dynamic: no backend collides a moving body against a
+// triangle mesh, but several hulls approximate one and move freely.
+enum class CollisionPrimitiveKind : uint8_t {
+    box = 0,
+    sphere = 1,
+    capsule = 2,
+    convex_hull = 3,
+    triangle_mesh = 4,
+};
+
+struct CollisionPrimitive {
+    CollisionPrimitiveKind kind{CollisionPrimitiveKind::box};
+
+    // Placement within the mesh's local space.
+    glm::vec3 position{0.0F};
+    glm::quat rotation{1.0F, 0.0F, 0.0F, 0.0F};
+
+    // Box half-extents; x is also the radius for sphere and capsule, and y the
+    // capsule's full height. One vector rather than a union keeps the struct
+    // trivially serializable and the inspector uniform.
+    glm::vec3 extents{0.5F};
+
+    // Range into the mesh's collision arrays, for the geometry kinds. A hull
+    // reads vertices only; a triangle mesh reads both.
+    uint32_t first_vertex{0};
+    uint32_t vertex_count{0};
+    uint32_t first_index{0};
+    uint32_t index_count{0};
+
+    // Convex shapes can back a moving body; a triangle mesh cannot, in any
+    // backend the engine is likely to use.
+    [[nodiscard]] bool is_convex() const {
+        return kind != CollisionPrimitiveKind::triangle_mesh;
+    }
+};
 
 // Collision geometry in the mesh's local space. A convex hull is stored as a
 // bare point cloud — backends build the hull themselves — so `indices` is

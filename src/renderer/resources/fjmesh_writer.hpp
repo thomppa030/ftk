@@ -48,6 +48,10 @@ void write_authored_sections(std::FILE* f, const FjMeshHeader& header,
 struct CollisionSectionData {
     std::vector<glm::vec3> vertices;
     std::vector<uint32_t> indices;
+
+    // The shapes the mesh collides as. Empty means "collide as the geometry",
+    // which the loader turns into a single implicit shape.
+    std::vector<FjMeshCollisionPrimitive> primitives;
 };
 
 // Rewrites a .fjmesh's collision geometry along with its authored block.

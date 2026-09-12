@@ -15,7 +15,7 @@
 namespace fjell {
 
 static constexpr uint32_t FJMESH_MAGIC   = 0x484D4A46; // "FJMH" little-endian
-static constexpr uint32_t FJMESH_VERSION = 7;
+static constexpr uint32_t FJMESH_VERSION = 8;
 
 static constexpr uint32_t FJMESH_FLAG_SKINNED = 1; // vertices are SkinnedVertex (92 bytes)
 
@@ -139,6 +139,29 @@ struct FjMeshHeader {
     uint32_t collision_full_index_count;
     uint64_t collision_full_vertices_offset;
     uint64_t collision_full_indices_offset;
+
+    // v8+ fields — the collision shape list. A mesh collides as the shapes in
+    // this array rather than as one blob derived from its geometry, so a crate
+    // can be a box and a concave prop can be several hulls. Zero entries means
+    // the whole collision section is one implicit triangle mesh, which is what
+    // every file written before v8 holds.
+    uint32_t collision_primitive_count;
+    uint32_t pad_v8;
+    uint64_t collision_primitives_offset;
+};
+
+// On-disk form of CollisionPrimitive. Mirrors the engine struct field for
+// field; kept separate so the runtime type can gain helpers without changing
+// the format. The quaternion is stored x,y,z,w.
+struct FjMeshCollisionPrimitive {
+    uint32_t kind;
+    float position[3];
+    float rotation[4];
+    float extents[3];
+    uint32_t first_vertex;
+    uint32_t vertex_count;
+    uint32_t first_index;
+    uint32_t index_count;
 };
 
 // ── .fjskel format ──────────────────────────────────────────────────────

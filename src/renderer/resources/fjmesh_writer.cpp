@@ -309,6 +309,11 @@ bool rewrite_collision_data(const std::string& path,
                  (full_indices.size() * sizeof(uint32_t));
     }
 
+    out_header->collision_primitive_count = static_cast<uint32_t>(collision.primitives.size());
+    out_header->collision_primitives_offset = align_to(offset, 4);
+    offset = out_header->collision_primitives_offset +
+             (collision.primitives.size() * sizeof(FjMeshCollisionPrimitive));
+
     out_header->lod_levels_offset = align_to(offset, 4);
     offset = out_header->lod_levels_offset + lod_levels.size();
 
@@ -343,6 +348,10 @@ bool rewrite_collision_data(const std::string& path,
         pad_to_offset(out, out_header->collision_full_indices_offset);
         std::fwrite(full_indices.data(), sizeof(uint32_t), full_indices.size(), out);
     }
+
+    pad_to_offset(out, out_header->collision_primitives_offset);
+    std::fwrite(collision.primitives.data(), sizeof(FjMeshCollisionPrimitive),
+                collision.primitives.size(), out);
 
     pad_to_offset(out, out_header->lod_levels_offset);
     std::fwrite(lod_levels.data(), 1, lod_levels.size(), out);
