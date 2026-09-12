@@ -607,7 +607,9 @@ void Engine::init_editor() {
                 .input = &input_,
                 .clock = &clock_,
                 .project_mgr = &project_mgr_,
-                .icon_cache = icon_cache_.get()
+                .icon_cache = icon_cache_.get(),
+                .content_browser = &content_browser_,
+                .file_browser = &asset_file_browser_
             };
             auto ctx = std::make_unique<VfxEditorContext>(deps);
             ctx->init();

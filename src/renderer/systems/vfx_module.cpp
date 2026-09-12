@@ -831,16 +831,30 @@ uint32_t InitialTextureModule::write_gpu_data(uint8_t* buffer) const {
     return total;
 }
 
+// ─── Asset field extension sets ──────────────────────────────────────────
+
+std::span<const std::string> VfxModule::texture_extensions() {
+    static const std::string exts[] = {".png", ".jpg", ".jpeg", ".tga"};
+    return exts;
+}
+
+std::span<const std::string> VfxModule::material_extensions() {
+    static const std::string exts[] = {".fjmat"};
+    return exts;
+}
+
+std::span<const std::string> VfxModule::mesh_extensions() {
+    static const std::string exts[] = {".fjmesh"};
+    return exts;
+}
+
 bool InitialTextureModule::draw_inspector() {
-    // Texture assignment is handled by the editor context (drag-drop).
-    // This just shows the current state.
-    if (!texture_path.empty()) {
-        auto filename = std::filesystem::path(texture_path).filename().string();
-        ImGui::TextDisabled("%s", filename.c_str());
-    } else {
-        ImGui::TextDisabled("(none — drag texture here)");
-    }
+    // The texture itself is an asset field, drawn by the editor.
     return false;
+}
+
+std::vector<VfxModule::AssetField> InitialTextureModule::asset_fields() {
+    return {{"Texture", &texture_path, texture_extensions()}};
 }
 
 void InitialTextureModule::to_json(nlohmann::json& j) const {
@@ -1226,24 +1240,17 @@ bool MeshParticleModule::draw_inspector() {
         shape = static_cast<ParticleMeshShape>(s);
         changed = true;
     }
-    if (shape == ParticleMeshShape::custom) {
-        char buf[256]{};
-        std::strncpy(buf, model_path.c_str(), sizeof(buf) - 1);
-        if (ImGui::InputText("Model Path", buf, sizeof(buf))) {
-            model_path = buf;
-            changed = true;
-        }
-    }
-    {
-        char mat_buf[256]{};
-        std::strncpy(mat_buf, material_path.c_str(), sizeof(mat_buf) - 1);
-        if (ImGui::InputText("Material (.fjmat)", mat_buf, sizeof(mat_buf))) {
-            material_path = mat_buf;
-            resolved_material_id = 0; // force re-resolve
-            changed = true;
-        }
-    }
+    // Model and material are asset fields, drawn by the editor.
     return changed;
+}
+
+std::vector<VfxModule::AssetField> MeshParticleModule::asset_fields() {
+    std::vector<AssetField> fields;
+    if (shape == ParticleMeshShape::custom) {
+        fields.push_back({"Model", &model_path, mesh_extensions()});
+    }
+    fields.push_back({"Material", &material_path, material_extensions()});
+    return fields;
 }
 
 void MeshParticleModule::to_json(nlohmann::json& j) const {
@@ -1315,10 +1322,11 @@ uint32_t DistortionModule::write_gpu_data(uint8_t* buffer) const {
 }
 
 bool DistortionModule::draw_inspector() {
-    bool changed = false;
-    changed |= ImGui::DragFloat("Strength", &strength, 0.001f, 0.0f, 1.0f);
-    // TODO: normal map texture picker
-    return changed;
+    return ImGui::DragFloat("Strength", &strength, 0.001f, 0.0f, 1.0f);
+}
+
+std::vector<VfxModule::AssetField> DistortionModule::asset_fields() {
+    return {{"Normal Map", &normal_map_path, texture_extensions()}};
 }
 
 void DistortionModule::to_json(nlohmann::json& j) const {

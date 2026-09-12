@@ -22,6 +22,8 @@ class Clock;
 class IconCache;
 class Input;
 class ProjectManager;
+class ContentBrowser;
+class FileBrowser;
 class ResourceManager;
 class VulkanContext;
 struct PinDescriptor;
@@ -51,6 +53,10 @@ struct VfxEditorDeps {
     Clock* clock;
     ProjectManager* project_mgr;
     IconCache* icon_cache;
+
+    // For the asset reference widget: pick-from-browser and browse buttons.
+    ContentBrowser* content_browser{nullptr};
+    FileBrowser* file_browser{nullptr};
 };
 
 class VfxEditorContext final : public EditorContext {
@@ -84,6 +90,8 @@ public:
 
 private:
     void draw_node_editor();
+    /// Re-resolve a module's asset references to their runtime handles.
+    void resolve_module_assets(VfxModule& mod);
     void draw_module_stack();
     void draw_context_menu();
     void draw_expression_nodes();

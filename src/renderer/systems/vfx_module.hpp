@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -85,7 +86,26 @@ struct VfxModule {
     virtual uint32_t write_gpu_data(uint8_t* buffer) const = 0;
 
     /// Draw ImGui inspector. Returns true if any parameter changed.
+    /// Asset fields are not drawn here — declare them via asset_fields() so
+    /// the editor draws them with the same widget every other asset reference
+    /// in the engine uses, which is also what stores them as ids.
     virtual bool draw_inspector() = 0;
+
+    /// An asset reference a module holds, surfaced for the editor to draw.
+    /// Points at the module's own member, so the widget writes through it.
+    struct AssetField {
+        const char* label;
+        std::string* reference;
+        std::span<const std::string> extensions;
+    };
+
+    /// Asset references this module holds. Empty for modules with none.
+    [[nodiscard]] virtual std::vector<AssetField> asset_fields() { return {}; }
+
+    // Extension sets for asset_fields(), so the accepted types are stated once.
+    [[nodiscard]] static std::span<const std::string> texture_extensions();
+    [[nodiscard]] static std::span<const std::string> material_extensions();
+    [[nodiscard]] static std::span<const std::string> mesh_extensions();
 
     /// Describe parameters as typed pins for the node graph.
     [[nodiscard]] virtual std::vector<PinDescriptor> pin_descriptors() { return {}; }
@@ -407,6 +427,7 @@ struct InitialTextureModule final : VfxModule {
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
+    [[nodiscard]] std::vector<AssetField> asset_fields() override;
     void to_json(nlohmann::json& j) const override;
     void from_json(const nlohmann::json& j) override;
 };
@@ -529,6 +550,7 @@ struct MeshParticleModule final : VfxModule {
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
+    [[nodiscard]] std::vector<AssetField> asset_fields() override;
     void to_json(nlohmann::json& j) const override;
     void from_json(const nlohmann::json& j) override;
 };
@@ -556,6 +578,7 @@ struct DistortionModule final : VfxModule {
     [[nodiscard]] std::vector<PinDescriptor> pin_descriptors() override;
     uint32_t write_gpu_data(uint8_t* buffer) const override;
     bool draw_inspector() override;
+    [[nodiscard]] std::vector<AssetField> asset_fields() override;
     void to_json(nlohmann::json& j) const override;
     void from_json(const nlohmann::json& j) override;
 };

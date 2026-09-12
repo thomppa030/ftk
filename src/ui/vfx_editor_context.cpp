@@ -1,4 +1,6 @@
 #include "ui/vfx_editor_context.hpp"
+#include "scene/component_meta.hpp"
+#include "ui/asset_ref_widget.hpp"
 #include "ui/dockspace_layout.hpp"
 #include "renderer/components/particle_emitter.hpp"
 #include "renderer/resources/resource_handle.hpp"
@@ -989,51 +991,30 @@ void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
 
     if (open) {
         if (mod->enabled) {
-            mod->draw_inspector();
+            bool changed = mod->draw_inspector();
 
-            // Texture module: thumbnail + drag-drop
-            if (mod->type() == ModuleType::initial_texture) {
-                auto* tex_mod = static_cast<InitialTextureModule*>(mod);
+            // Asset references go through the same widget the rest of the
+            // engine uses, which is what stores them as ids.
+            InspectorContext ictx{};
+            ictx.resource_manager = deps_.resource_manager;
+            ictx.project_mgr = deps_.project_mgr;
+            ictx.content_browser = deps_.content_browser;
+            ictx.file_browser = deps_.file_browser;
+            ictx.icons = deps_.icon_cache;
 
-                float thumb_size = 48.0f;
-                if (!tex_mod->texture_path.empty() && deps_.icon_cache) {
-                    auto resolved = base_path::resolve_asset(
-                        tex_mod->texture_path, deps_.project_mgr->active());
-                    auto desc = deps_.icon_cache->thumbnail(resolved);
-                    if (desc) {
-                        ImGui::Image(desc, {thumb_size, thumb_size});
-                    } else {
-                        ImGui::Dummy({thumb_size, thumb_size});
-                    }
-                } else {
-                    ImGui::Dummy({thumb_size, thumb_size});
-                }
-
-                if (!tex_mod->texture_path.empty()) {
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Clear")) {
-                        tex_mod->texture_path.clear();
-                        tex_mod->bindless_index = 0;
-                    }
-                }
-
-                if (ImGui::BeginDragDropTarget()) {
-                    if (const auto* payload = ImGui::AcceptDragDropPayload("ASSET_PATH")) {
-                        std::string path(static_cast<const char*>(payload->Data));
-                        auto ext = std::filesystem::path(path).extension().string();
-                        if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga") {
-                            tex_mod->texture_path = path;
-                            auto abs_path = base_path::resolve_asset(
-                                path, deps_.project_mgr->active());
-                            auto result = deps_.resource_manager->load_texture(abs_path);
-                            if (result) {
-                                tex_mod->bindless_index = deps_.resource_manager->bindless_index(*result);
-                            }
-                        }
-                    }
-                    ImGui::EndDragDropTarget();
+            for (auto& field : mod->asset_fields()) {
+                char widget_id[64];
+                std::snprintf(widget_id, sizeof(widget_id), "##vfxasset%p", 
+                              static_cast<const void*>(field.reference));
+                if (asset_ref_field({.label = field.label, .id = widget_id,
+                                     .extensions = field.extensions, .ctx = &ictx},
+                                    *field.reference)) {
+                    changed = true;
+                    resolve_module_assets(*mod);
                 }
             }
+            (void)changed;
+
         } else {
             ImGui::TextDisabled("(disabled)");
         }
@@ -1042,6 +1023,27 @@ void VfxEditorContext::draw_module_entry(VfxModule* mod, int index,
 
     ImGui::PopID();
     ImGui::PopID();
+}
+
+void VfxEditorContext::resolve_module_assets(VfxModule& mod) {
+    const auto* project = deps_.project_mgr->active();
+
+    if (mod.type() == ModuleType::initial_texture) {
+        auto& tex = static_cast<InitialTextureModule&>(mod);
+        tex.bindless_index = 0;
+        if (tex.texture_path.empty()) return;
+        auto resolved = base_path::resolve_asset(tex.texture_path, project);
+        if (resolved.empty()) return;
+        if (auto result = deps_.resource_manager->load_texture(resolved)) {
+            tex.bindless_index = deps_.resource_manager->bindless_index(*result);
+        }
+        return;
+    }
+
+    if (mod.type() == ModuleType::mesh_particle) {
+        // Cleared so the particle system re-resolves it against the new path.
+        static_cast<MeshParticleModule&>(mod).resolved_material_id = 0;
+    }
 }
 
 void VfxEditorContext::draw_module_stack() {
