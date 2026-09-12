@@ -294,19 +294,29 @@ if(NOT imgui_POPULATED)
     # Apply stack layout extensions (BeginHorizontal/BeginVertical/Spring)
     # from imgui-node-editor: https://github.com/thedmd/imgui-node-editor
     # Original PR: https://github.com/ocornut/imgui/pull/846
+    #
+    # Applied with `git apply` rather than the patch(1) binary: git is already
+    # required to fetch every dependency, while patch(1) is absent on a stock
+    # Windows box. The editor UI calls BeginHorizontal/Spring, so a failure here
+    # has to stop the configure — left as a warning it resurfaces much later as
+    # unrelated-looking compile errors.
     set(_layout_patch "${CMAKE_CURRENT_SOURCE_DIR}/cmake/patches/imgui_layout.patch")
     set(_layout_marker "${imgui_SOURCE_DIR}/.layout_patched")
     if(EXISTS "${_layout_patch}" AND NOT EXISTS "${_layout_marker}")
+        find_package(Git QUIET REQUIRED)
         execute_process(
-            COMMAND patch -p1 -i "${_layout_patch}"
+            COMMAND "${GIT_EXECUTABLE}" apply -p1 --whitespace=nowarn "${_layout_patch}"
             WORKING_DIRECTORY "${imgui_SOURCE_DIR}"
             RESULT_VARIABLE _patch_result
+            ERROR_VARIABLE _patch_error
         )
         if(_patch_result EQUAL 0)
             file(WRITE "${_layout_marker}" "patched")
             message(STATUS "imgui: applied stack layout extensions patch")
         else()
-            message(WARNING "imgui: failed to apply layout patch (result: ${_patch_result})")
+            message(FATAL_ERROR
+                "imgui: failed to apply the stack layout patch (${_patch_result}): "
+                "${_patch_error}\nDelete ${imgui_SOURCE_DIR} and reconfigure to retry.")
         endif()
     endif()
 endif()
