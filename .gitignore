@@ -1,5 +1,6 @@
-build/
-build-release/
+# Covers every CMake preset's binary dir: build, build-release, build-asan,
+# build-tracy, and any generator output like build-vs.
+build*/
 assets/screenshots/
 out/
 .fjcache/
@@ -17,6 +18,7 @@ compile_commands.json
 *.dylib
 
 .cache/
+.claude/
 .vscode/
 .idea/
 *.swp
