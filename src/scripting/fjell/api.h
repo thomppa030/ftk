@@ -199,6 +199,10 @@ typedef struct FjellUiActionDesc {
 // ── C++ input trigger enum for [[fj::action(EInputTrigger::Pressed)]] ──
 namespace fjell {
 enum class EInputTrigger { Triggered, Pressed, Released, Completed };
+
+// Mirrors InputDevice in core/input.hpp. Keep the order in step: the value
+// crosses the SDK boundary as an int.
+enum class EInputDevice { KeyboardMouse, Gamepad };
 }
 
 #endif

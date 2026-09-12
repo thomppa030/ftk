@@ -17,6 +17,8 @@ FJELL_SDK_EXPORT void fjell_input_bind_vec2(uint32_t action_handle_id, int trigg
 FJELL_SDK_EXPORT void fjell_input_clear_connections();
 FJELL_SDK_EXPORT void fjell_input_push_context(const char* name);
 FJELL_SDK_EXPORT void fjell_input_pop_context(const char* name);
+FJELL_SDK_EXPORT int fjell_input_active_device();
+FJELL_SDK_EXPORT bool fjell_input_pad_connected();
 }
 
 namespace fjell {
@@ -57,6 +59,17 @@ struct InputAPI {
 
     static void push_context(const char* name) { fjell_input_push_context(name); }
     static void pop_context(const char* name) { fjell_input_pop_context(name); }
+
+    /// The device the player is currently using. Bindings for both keep
+    /// working regardless — this says which one to show prompts for, and
+    /// lets gameplay tune itself (sensitivity, aim assist, camera feel).
+    [[nodiscard]] static EInputDevice active_device() {
+        return static_cast<EInputDevice>(fjell_input_active_device());
+    }
+
+    /// Whether a gamepad is connected at all, regardless of which device the
+    /// player last used.
+    [[nodiscard]] static bool pad_connected() { return fjell_input_pad_connected(); }
 };
 
 } // namespace fjell

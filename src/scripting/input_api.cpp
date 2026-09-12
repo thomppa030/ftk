@@ -1,3 +1,4 @@
+#include "core/input.hpp"
 #include "core/input_action_map.hpp"
 #include "core/delegate.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -101,4 +102,25 @@ extern "C" FJELL_SDK_EXPORT void fjell_input_push_context(const char* name) {
 extern "C" FJELL_SDK_EXPORT void fjell_input_pop_context(const char* name) {
     auto* iam = get_iam();
     if (iam && name) iam->pop_context(name);
+}
+
+// EInputDevice is a hand-mirrored copy of InputDevice, and the value crosses
+// the boundary as a plain int. This is the only place that sees both, so it
+// is where the two can be held together.
+static_assert(static_cast<int>(fjell::EInputDevice::KeyboardMouse)
+                  == static_cast<int>(fjell::InputDevice::keyboard_mouse),
+              "EInputDevice must mirror InputDevice");
+static_assert(static_cast<int>(fjell::EInputDevice::Gamepad)
+                  == static_cast<int>(fjell::InputDevice::gamepad),
+              "EInputDevice must mirror InputDevice");
+
+extern "C" FJELL_SDK_EXPORT int fjell_input_active_device() {
+    auto* input = fjell::script_services().input;
+    if (!input) return static_cast<int>(fjell::InputDevice::keyboard_mouse);
+    return static_cast<int>(input->active_device());
+}
+
+extern "C" FJELL_SDK_EXPORT bool fjell_input_pad_connected() {
+    auto* input = fjell::script_services().input;
+    return input != nullptr && input->pad_connected();
 }
