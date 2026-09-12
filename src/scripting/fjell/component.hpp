@@ -17,38 +17,125 @@ class ScriptManager;
 // component TU.
 using PeerId = uint32_t;
 
+/// Base class for gameplay scripts. Derive from this, add `FJELL_COMPONENT(T)`
+/// inside the class, and the component becomes attachable to any node in the
+/// editor and spawnable from `Node3D::add_component<T>()`.
+///
+/// Fields marked `[[fj::property]]` show up in the inspector and are saved with
+/// the scene. Methods marked `[[fj::action]]` can be bound to input actions,
+/// and `[[fj::rpc(...)]]` methods are callable across the network.
+///
+/// @code
+/// #include "fjell/component.hpp"
+/// #include "fjell/registry.hpp"
+///
+/// class Spinner : public fjell::ScriptComponent {
+///     FJELL_COMPONENT(Spinner)
+/// public:
+///     [[fj::property]] [[fj::range(0, 720)]] float degrees_per_second = 90.0f;
+///
+///     void tick(float dt) override {
+///         float radians = glm::radians(degrees_per_second * dt);
+///         transform().rotation = glm::rotate(transform().rotation, radians,
+///                                            glm::vec3{0, 1, 0});
+///     }
+/// };
+/// @endcode
 class ScriptComponent {
 public:
     virtual ~ScriptComponent() = default;
 
+    /// Called once when play starts, or immediately on spawn if the game is
+    /// already running. All engine subsystems and sibling components exist by
+    /// now — this is the place to resolve nodes, bind input, and start timers.
+    /// Prefer it over the constructor, which runs before the component is
+    /// attached to a node (`transform()` and `self()` are not usable there).
     virtual void begin_play() {}
+
+    /// Called every frame while play is running.
+    /// @param dt Seconds since the previous frame, already scaled by
+    ///           `Time::set_scale()`. Zero while `Time::pause()` is active.
     virtual void tick(float dt) { (void)dt; }
+
+    /// Called when play stops, the node is destroyed, or scripts hot-reload.
+    /// Release anything that outlives the component here — cancel repeating
+    /// timers in particular, since they are not cancelled automatically.
     virtual void end_play() {}
 
+    /// Called when this node's collider begins touching a solid (non-trigger)
+    /// collider. Requires a ColliderComponent on both nodes.
+    /// @param other_id Node ID of the other collider — pass to `Node3D{other_id}`.
+    /// @param point    World-space contact position.
+    /// @param normal   World-space contact normal, pointing away from the other body.
     virtual void on_collision_enter(uint32_t other_id, const glm::vec3& point, const glm::vec3& normal) {
         (void)other_id; (void)point; (void)normal;
     }
+
+    /// Called when a solid contact ends, including when the other node is
+    /// destroyed — do not assume `other_id` still resolves to a live node.
+    /// @param other_id Node ID of the collider that was being touched.
     virtual void on_collision_exit(uint32_t other_id) { (void)other_id; }
+
+    /// Called when something enters a collider marked `is_trigger`. Triggers
+    /// report overlaps without generating a physical response.
+    /// @param other_id Node ID of the node that entered.
     virtual void on_trigger_enter(uint32_t other_id) { (void)other_id; }
+
+    /// Called when something leaves a trigger collider, including when the
+    /// other node is destroyed.
+    /// @param other_id Node ID of the node that left.
     virtual void on_trigger_exit(uint32_t other_id) { (void)other_id; }
 
-    // Networking: fire on the SERVER when a client connects/disconnects, so game
-    // code can spawn/own a player per peer. PeerId is the connecting peer.
+    /// Fires on the SERVER only, when a client finishes connecting. Spawn and
+    /// assign that peer's player here via `NetAPI::spawn(preset, pos, peer)`.
+    /// @param peer The connecting peer's ID — pass as the owner when spawning.
     virtual void on_player_connected(PeerId peer) { (void)peer; }
+
+    /// Fires on the SERVER only, when a client disconnects. Despawn anything
+    /// owned by that peer here.
+    /// @param peer The departing peer's ID.
     virtual void on_player_disconnected(PeerId peer) { (void)peer; }
 
+    /// Node ID of the node this component is attached to. Stable for the
+    /// node's lifetime; 0 is never a valid node.
     [[nodiscard]] uint32_t id() const { return id_; }
+
+    /// Name of the owning node, as shown in the editor hierarchy.
     [[nodiscard]] const char* name() const { return name_; }
+
+    /// This node's local position, rotation, and scale — relative to its
+    /// parent, not the world. Writes take effect the same frame; no
+    /// dirty-marking is needed.
     [[nodiscard]] Transform& transform() { return *transform_; }
     [[nodiscard]] const Transform& transform() const { return *transform_; }
+
+    /// Handle to the owning node, for component lookup, spawning, and destroy.
+    /// @code
+    /// if (auto* body = self().get_component<fjell::RigidbodyComponent>()) {
+    ///     body->mass = 5.0f;
+    /// }
+    /// @endcode
     inline Node3D self() const;  // defined in fjell/node.hpp
 
     // --- World state ---
 
+    /// Raw keyboard and mouse state for this frame. Good for prototyping;
+    /// prefer `[[fj::action]]` methods and `InputAPI` for shipping input, so
+    /// bindings stay remappable.
     [[nodiscard]] const Input& input() const { return world_->input(); }
+
+    /// Physics world, for raycasts and queries. Null if physics is disabled.
     [[nodiscard]] PhysicsWorld* physics() { return world_->physics(); }
+
+    /// Seconds since the previous frame — the same value passed to `tick()`.
+    /// Useful from handlers that don't receive it as an argument.
     [[nodiscard]] float delta_time() const { return world_->delta_time; }
+
+    /// Seconds since play started, scaled by `Time::set_scale()` and frozen
+    /// while paused.
     [[nodiscard]] float elapsed_time() const { return world_->elapsed_time; }
+
+    /// Shared per-frame runtime state (input, physics, timing).
     [[nodiscard]] World* world() { return world_; }
     [[nodiscard]] const World* world() const { return world_; }
 

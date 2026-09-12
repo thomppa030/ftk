@@ -139,6 +139,23 @@ namespace fjell {
 template <class T> struct FjellRpcAccess;
 } // namespace fjell
 
+/// Declares a class as a script component. Place it on the first line of the
+/// class body, with the class's own name as the argument.
+///
+/// It registers the type with the engine automatically at load time, so the
+/// component appears in the editor's Add Component list and can be spawned
+/// with `Node3D::add_component<T>()`. No central registration file to edit.
+///
+/// The macro leaves the class in a `public:` section.
+///
+/// @param T The class name, spelled exactly as declared.
+/// @code
+/// class Health : public fjell::ScriptComponent {
+///     FJELL_COMPONENT(Health)
+/// public:
+///     [[fj::property]] int max_hp = 100;
+/// };
+/// @endcode
 #define FJELL_COMPONENT(T) \
     public: static constexpr const char* type_name = #T; \
     template <class _FjAccessT> friend struct ::fjell::FjellRpcAccess; \
@@ -153,6 +170,19 @@ template <class T> struct FjellRpcAccess;
     static inline _FjellRegInit _fjell_reg_init_{}; \
     public:
 
+/// Declares a class as an animation notify. Place it on the first line of the
+/// class body of an `AnimNotify` or `AnimNotifyState` subclass.
+///
+/// Registers the type so it can be placed on animation timelines in the editor.
+/// The macro leaves the class in a `public:` section.
+///
+/// @param T The class name, spelled exactly as declared.
+/// @code
+/// struct FootstepNotify : fjell::AnimNotify {
+///     FJELL_NOTIFY(FootstepNotify)
+///     void notify(fjell::Node3D& owner) override { /* ... */ }
+/// };
+/// @endcode
 #define FJELL_NOTIFY(T) \
     public: static constexpr const char* type_name = #T; \
     [[nodiscard]] const char* notify_type_name() const override { return #T; } \
@@ -167,6 +197,22 @@ template <class T> struct FjellRpcAccess;
     static inline _FjellNotifyRegInit _fjell_notify_reg_init_{}; \
     public:
 
+/// Emits the game module's entry points. Put it exactly once per project, at
+/// file scope in any one `.cpp` — conventionally a small `register.cpp`.
+///
+/// It publishes the SDK version the module was built against and hands the
+/// engine every type declared with `FJELL_COMPONENT`, `FJELL_UI_WIDGET`, or
+/// `FJELL_NOTIFY`. Individual types do not need listing; the macros collect
+/// themselves.
+///
+/// Without it the module loads but registers nothing, and the editor shows no
+/// components. Used more than once, the build fails with duplicate symbols.
+///
+/// @code
+/// // register.cpp
+/// #include "fjell/registry.hpp"
+/// FJELL_REGISTER()
+/// @endcode
 #define FJELL_REGISTER() \
     extern "C" FJELL_GAME_EXPORT uint32_t fjell_api_version() { return FJELL_API_VERSION; } \
     extern "C" FJELL_GAME_EXPORT void fjell_register(FjellTypeRegistry* registry) { \

@@ -13,35 +13,92 @@ namespace fjell {
 
 // ── Physics ──────────────────────────────────────────────────────────────
 
-enum class BodyType : uint8_t { Static, Kinematic, Dynamic };
-enum class ColliderShape : uint8_t { Box, Sphere, Capsule, Mesh };
+/// How physics treats a body.
+enum class BodyType : uint8_t {
+    Static,     ///< Never moves. Cheapest; for level geometry.
+    Kinematic,  ///< Moved by script through its transform, not by forces.
+                ///< Pushes dynamic bodies but is not pushed back.
+    Dynamic,    ///< Fully simulated — gravity, collisions, forces.
+};
 
+/// Collision shape used to approximate a node for physics.
+enum class ColliderShape : uint8_t {
+    Box,      ///< Sized by `half_extents`.
+    Sphere,   ///< Sized by `radius`.
+    Capsule,  ///< Sized by `radius` and `height`; the usual character shape.
+    Mesh,     ///< Exact geometry. Expensive, and static bodies only.
+};
+
+/// Makes a node participate in physics simulation. Needs a ColliderComponent
+/// on the same node to have a shape to collide with.
+///
+/// @code
+/// if (auto* rb = self().get_component<fjell::RigidbodyComponent>()) {
+///     rb->gravity_enabled = false;
+/// }
+/// @endcode
 struct RigidbodyComponent {
     static constexpr const char* type_name = "RigidbodyComponent";
+
+    /// Static, kinematic, or fully simulated. See `BodyType`.
     BodyType body_type{BodyType::Dynamic};
+
+    /// Mass in kilograms. Ignored for static and kinematic bodies.
     float mass{1.0f};
+
+    /// Surface friction, 0 (frictionless) to 1 (grippy). Contacts combine
+    /// both bodies' values.
     float friction{0.5f};
+
+    /// Bounciness, 0 (no bounce) to 1 (no energy lost).
     float restitution{0.3f};
+
+    /// Drag on linear motion per second. Raise it to make a body settle sooner.
     float linear_damping{0.05f};
+
+    /// Drag on rotation per second.
     float angular_damping{0.05f};
+
+    /// Whether gravity applies. Clear it for floating or flying objects.
     bool gravity_enabled{true};
 };
 
+/// Category a collider belongs to, used to decide what it interacts with.
 enum class CollisionChannel : uint8_t {
-    world_static = 0,
-    world_dynamic = 1,
-    pawn = 2,
-    trigger = 3,
-    projectile = 4,
+    world_static = 0,   ///< Level geometry that never moves.
+    world_dynamic = 1,  ///< Movable props and debris.
+    pawn = 2,           ///< Players and characters.
+    trigger = 3,        ///< Volumes that detect without blocking.
+    projectile = 4,     ///< Bullets and thrown objects.
 };
 
-enum class CollisionResponse : uint8_t { ignore = 0, overlap = 1, block = 2 };
+/// What happens when two colliders meet.
+enum class CollisionResponse : uint8_t {
+    ignore = 0,   ///< Pass through; no callbacks at all.
+    overlap = 1,  ///< Pass through, but fire `on_trigger_enter`/`_exit`.
+    block = 2,    ///< Collide physically and fire `on_collision_enter`/`_exit`.
+};
 
+/// Which channels a collider blocks and which it merely overlaps. The masks
+/// are bitfields indexed by `CollisionChannel`, so set a bit with
+/// `1u << static_cast<uint32_t>(CollisionChannel::pawn)`.
+///
+/// `block_mask` wins where both bits are set.
 struct CollisionFilter {
+    /// The channel this collider belongs to — what other filters test against.
     CollisionChannel channel{CollisionChannel::world_static};
+
+    /// Channels this collider physically blocks. Defaults to everything.
     uint32_t block_mask{0xFFFFFFFF};
+
+    /// Channels this collider overlaps, reporting triggers without blocking.
+    /// Only consulted for channels not already in `block_mask`.
     uint32_t overlap_mask{0};
 
+    /// Resolve how this collider responds to a given channel.
+    /// @param other The other collider's `channel`.
+    /// @return `block` if the channel is in `block_mask`, else `overlap` if in
+    ///         `overlap_mask`, else `ignore`.
     [[nodiscard]] CollisionResponse response_to(CollisionChannel other) const {
         const uint32_t bit = 1U << static_cast<uint32_t>(other);
         if ((block_mask & bit) != 0) return CollisionResponse::block;
@@ -50,64 +107,173 @@ struct CollisionFilter {
     }
 };
 
+/// Gives a node a physical shape. Pair with a RigidbodyComponent for a body
+/// that moves, or use alone for static level collision.
 struct ColliderComponent {
     static constexpr const char* type_name = "ColliderComponent";
+
+    /// Take the shape from the node's imported mesh collision instead of the
+    /// fields below.
     bool inherit_from_mesh{false};
+
+    /// Which shape the size fields describe. See `ColliderShape`.
     ColliderShape shape{ColliderShape::Box};
+
+    /// Box half-size along each axis — so a 2x2x2 box has half_extents 1.
+    /// Box shape only.
     glm::vec3 half_extents{0.5f};
+
+    /// Radius for Sphere and Capsule shapes.
     float radius{0.5f};
+
+    /// Capsule height, measured between the cap centers rather than overall.
     float height{1.0f};
+
+    /// Shape offset from the node's origin, in local space. Use it to stand a
+    /// capsule on the node's feet rather than centering it.
     glm::vec3 offset{0.0f};
+
+    /// Detect overlaps without blocking. Drives `on_trigger_enter`/`_exit`
+    /// instead of the collision callbacks.
     bool is_trigger{false};
+
+    /// Channel membership and what this collider blocks or overlaps.
     CollisionFilter filter{};
 };
 
-enum class CharacterGroundState : uint8_t { OnGround, OnSteepGround, NotSupported, InAir };
+/// What a character is standing on.
+enum class CharacterGroundState : uint8_t {
+    OnGround,       ///< Supported by ground within `max_slope_angle`.
+    OnSteepGround,  ///< Touching ground too steep to stand on; slides.
+    NotSupported,   ///< Touching something that cannot provide support.
+    InAir,          ///< Not touching ground at all.
+};
 
+/// Character controller for players and NPCs — walks, climbs steps, and slides
+/// off slopes without the instability of pushing a dynamic rigidbody around.
+/// Use this instead of a RigidbodyComponent for anything that walks.
+///
+/// @code
+/// if (auto* c = self().get_component<fjell::CharacterComponent>()) {
+///     if (c->ground_state == fjell::CharacterGroundState::OnGround) {
+///         c->linear_velocity.y = jump_speed_;
+///     }
+/// }
+/// @endcode
 struct CharacterComponent {
     static constexpr const char* type_name = "CharacterComponent";
+
+    /// Radius of the character's capsule — roughly shoulder width.
     float capsule_radius{0.3f};
+
+    /// Capsule height between cap centers; total standing height is this plus
+    /// twice the radius.
     float capsule_height{1.4f};
+
+    /// Steepest slope in degrees the character can walk up. Steeper ground
+    /// reports `OnSteepGround` and slides.
     float max_slope_angle{50.0f};
+
+    /// Mass in kilograms, used when pushing dynamic bodies.
     float mass{80.0f};
 
+    /// Whether the character is grounded. Read-only output, refreshed each
+    /// frame — check it before allowing a jump.
     CharacterGroundState ground_state{CharacterGroundState::InAir};
+
+    /// Surface normal underfoot; `(0,1,0)` when airborne. Read-only output,
+    /// useful for aligning to slopes.
     glm::vec3 ground_normal{0.0f, 1.0f, 0.0f};
+
+    /// Velocity of the surface underfoot, for moving platforms. Read-only output.
     glm::vec3 ground_velocity{0.0f};
+
+    /// Current velocity in world units per second. Assign to move the
+    /// character — this is the movement input, not just a readout.
     glm::vec3 linear_velocity{0.0f};
 };
 
 // ── Rendering ────────────────────────────────────────────────────────────
 
+/// Makes a node render a 3D model. To change shader parameters at runtime,
+/// go through `MaterialAPI` rather than touching the fields here.
 struct MeshComponent {
     static constexpr const char* type_name = "MeshComponent";
+
+    /// Engine-owned model handle. Read for identity comparisons; assigning
+    /// does not load or swap the model.
     uint32_t model_handle_id{0};
+
+    /// Engine-owned material handle. Read-only, as above.
     uint32_t material_handle_id{0};
+
+    /// Engine-owned model pointer. Opaque to game code.
     void* model{nullptr};
+
+    /// Engine-owned material pointer. Opaque to game code.
     void* material{nullptr};
+
+    /// Path of the assigned `.fjmat`, as shown in the inspector.
     std::string material_name;
 };
 
 // ── Sprites ─────────────────────────────────────────────────────────────
 
+/// Makes a node render a 2D sprite. Sprites are lit and depth-sorted with 3D
+/// geometry, so they can sit inside a 3D scene.
 struct SpriteComponent {
     static constexpr const char* type_name = "SpriteComponent";
+
+    /// Path to the sprite's texture, relative to the project root.
     std::string texture_path;
+
+    /// RGBA multiplied into the texture. White leaves it unchanged; use it to
+    /// flash or team-color a sprite.
     glm::vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
+
+    /// Sub-rectangle of the texture to draw, as normalized `(u, v, width,
+    /// height)`. Defaults to the whole image; a SpriteAnimComponent drives
+    /// this for sheet animation.
     glm::vec4 uv_rect{0.0f, 0.0f, 1.0f, 1.0f};
+
+    /// Overall alpha, 0 transparent to 1 opaque. Multiplies with `tint.a`.
     float opacity{1.0f};
+
+    /// Draw only in the editor viewport, never in play. For gizmos and markers.
     bool editor_only{false};
+
+    /// Mirror horizontally — the usual way to face a character left or right.
     bool flip_h{false};
+
+    /// Lie flat on the XZ plane instead of standing upright facing the camera.
     bool flat{false};
+
+    /// Use nearest-neighbour filtering, keeping hard pixel edges instead of
+    /// blurring. Set this for pixel art.
     bool pixel_art{false};
+
+    /// Texture pixels per world unit, controlling on-screen size. 0 uses the
+    /// project default.
     float pixels_per_unit{0.0f};
+
+    /// Coarse draw order. Higher layers draw over lower ones regardless of
+    /// depth — background, characters, foreground.
     int32_t sort_layer{0};
+
+    /// Draw order within the same `sort_layer`; higher draws on top.
     int32_t sort_order{0};
 
-    // Runtime
+    /// Engine-owned bindless texture index, assigned once the texture loads.
     uint32_t texture_index{0};
+
+    /// Source texture width in pixels. Valid once `texture_loaded` is true.
     uint32_t tex_width{0};
+
+    /// Source texture height in pixels. Valid once `texture_loaded` is true.
     uint32_t tex_height{0};
+
+    /// Whether the texture has finished loading. The size fields are 0 until
+    /// it does.
     bool texture_loaded{false};
 };
 

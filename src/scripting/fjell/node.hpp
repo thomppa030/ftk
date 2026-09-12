@@ -20,37 +20,87 @@ FJELL_SDK_EXPORT void*    fjell_scene_add_component(uint32_t node_id, const char
 
 namespace fjell {
 
+/// Handle to a node in the scene. Copyable and cheap — it stores only an ID,
+/// so hold it by value rather than caching pointers into the scene.
+///
+/// A handle does not keep its node alive. After the node is destroyed the ID
+/// stops resolving: `get_component()` returns null and the transform accessors
+/// stop being safe to call. Re-check with `valid()` plus a component lookup if
+/// a handle is held across frames.
+///
+/// @code
+/// fjell::Node3D door{fjell::SceneAPI::find_node("Door")};
+/// if (door.valid()) {
+///     door.position().y += 2.0f;
+/// }
+/// @endcode
 struct Node3D {
     uint32_t node_id{0};
 
     Node3D() = default;
+
+    /// Wrap a raw node ID — typically from `SceneAPI::find_node()`,
+    /// `SceneAPI::spawn()`, or a collision callback's `other_id`.
     explicit Node3D(uint32_t id) : node_id{id} {}
 
+    /// The underlying node ID, for APIs that take one directly
+    /// (`Animator`, `MaterialAPI`, `CameraAPI`, ...).
     [[nodiscard]] uint32_t id() const { return node_id; }
+
+    /// Whether this handle holds a non-zero ID. This is a cheap null check,
+    /// NOT a liveness check — it stays true after the node is destroyed.
     [[nodiscard]] bool valid() const { return node_id != 0; }
 
+    /// Local position, relative to the parent. Returns a live reference into
+    /// the scene, so writes apply immediately and need no dirty-marking.
+    ///
+    /// @warning Only valid for a live spatial node. Calling this on a
+    ///          destroyed node, a zero handle, or a non-spatial node
+    ///          dereferences null. Guard with `valid()` when the node's
+    ///          lifetime is not obvious from context.
     [[nodiscard]] glm::vec3& position() const {
         return *reinterpret_cast<glm::vec3*>(fjell_scene_get_position(node_id));
     }
 
+    /// Local scale. Same liveness rules as `position()`.
     [[nodiscard]] glm::vec3& scale() const {
         return *reinterpret_cast<glm::vec3*>(fjell_scene_get_scale(node_id));
     }
 
+    /// Local rotation as a quaternion. Same liveness rules as `position()`.
+    /// For Euler input use `Transform::set_euler_degrees()`.
     [[nodiscard]] glm::quat& rotation() const {
         return *reinterpret_cast<glm::quat*>(fjell_scene_get_rotation(node_id));
     }
 
+    /// Look up a component on this node.
+    /// @tparam T An engine component (`RigidbodyComponent`, `MeshComponent`,
+    ///           ...) or any script component declared with `FJELL_COMPONENT`.
+    /// @return Pointer to the component, or null if the node has no such
+    ///         component or the ID no longer resolves. Always check.
+    /// @code
+    /// if (auto* rb = node.get_component<fjell::RigidbodyComponent>()) {
+    ///     rb->gravity_enabled = false;
+    /// }
+    /// @endcode
     template <typename T>
     [[nodiscard]] T* get_component() const {
         return static_cast<T*>(fjell_scene_get_component(node_id, T::type_name));
     }
 
+    /// Attach a new component to this node at runtime.
+    /// @return Pointer to the new component, or null if the node no longer
+    ///         resolves. A script component's `begin_play()` runs before this
+    ///         returns when the game is already playing.
     template <typename T>
     T* add_component() const {
         return static_cast<T*>(fjell_scene_add_component(node_id, T::type_name));
     }
 
+    /// Queue this node for destruction along with its children. The node is
+    /// removed at the end of the frame, not immediately — it keeps ticking
+    /// until then, and other handles to it stay `valid()` for the rest of the
+    /// current frame.
     void destroy() const { fjell_scene_destroy(node_id); }
 };
 

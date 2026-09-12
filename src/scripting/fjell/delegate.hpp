@@ -17,8 +17,12 @@ namespace fjell {
 template <typename Signature>
 class Delegate;
 
-// RAII connection handle. Destroying it auto-unsubscribes the listener.
-// Move-only — store it as a member variable or in a vector for lifetime management.
+/// Keeps a delegate subscription alive. Destroying it unsubscribes, so the
+/// listener can never outlive the object that registered it.
+///
+/// Move-only, and the return value must be stored — a discarded `Connection`
+/// is destroyed immediately and the subscription ends with it. Hold one as a
+/// member, or several in a `std::vector<Connection>`.
 class Connection {
 public:
     Connection() = default;
@@ -38,6 +42,8 @@ public:
         return *this;
     }
 
+    /// Unsubscribe now, before the `Connection` goes out of scope. Safe to
+    /// call more than once.
     void disconnect() {
         if (disconnect_fn_) {
             disconnect_fn_();
@@ -45,6 +51,7 @@ public:
         }
     }
 
+    /// Whether this handle still holds a live subscription.
     [[nodiscard]] bool connected() const { return disconnect_fn_ != nullptr; }
 
 private:
@@ -57,8 +64,22 @@ private:
     std::move_only_function<void()> disconnect_fn_;
 };
 
-// Multicast delegate. Multiple listeners can subscribe; all are called on broadcast().
-// Partial specialization for void(Args...) signatures.
+/// Multicast event: any number of listeners subscribe, and `broadcast()`
+/// calls them all. Use it to let other systems react to something without the
+/// sender knowing who is listening.
+///
+/// Safe to subscribe or unsubscribe from inside a handler — changes apply
+/// after the current broadcast finishes rather than invalidating it.
+///
+/// @code
+/// // Publisher
+/// fjell::Delegate<void(int)> on_damaged;
+/// on_damaged.broadcast(25);
+///
+/// // Subscriber — conn must be stored, or the subscription ends immediately
+/// fjell::Connection conn = health.on_damaged.bind(
+///     [this](int amount) { flash_red(amount); });
+/// @endcode
 template <typename... Args>
 class Delegate<void(Args...)> {
 public:
@@ -70,8 +91,10 @@ public:
     Delegate(Delegate&&) noexcept = default;
     Delegate& operator=(Delegate&&) noexcept = default;
 
-    // Subscribe a callable. The returned Connection must be kept alive —
-    // destroying it unsubscribes the listener.
+    /// Subscribe a callable — a lambda, a functor, or a bound member function.
+    /// @param callback Invoked with the broadcast arguments. Capturing `this`
+    ///                 is safe as long as the `Connection` does not outlive it.
+    /// @return Handle that must be stored; discarding it unsubscribes at once.
     template <typename F>
         requires std::invocable<F, Args...>
     [[nodiscard]] Connection bind(F&& callback) {
@@ -105,7 +128,9 @@ public:
         }};
     }
 
-    // Fire all listeners with the given arguments.
+    /// Call every subscribed listener, in subscription order.
+    /// @param args Forwarded to each listener. With no listeners this is a
+    ///             cheap no-op.
     void broadcast(Args... args) {
         auto s = state_; // local copy keeps state alive if Delegate is destroyed mid-broadcast
         s->broadcast_depth++;
@@ -125,7 +150,8 @@ public:
         }
     }
 
-    // Remove all listeners.
+    /// Unsubscribe every listener at once. Outstanding `Connection` objects
+    /// become disconnected and are safe to destroy afterwards.
     void clear() {
         if (state_->broadcast_depth > 0) {
             for (auto& l : state_->listeners) {
@@ -137,7 +163,10 @@ public:
         }
     }
 
+    /// Whether no listeners are subscribed.
     [[nodiscard]] bool empty() const { return state_->listeners.empty(); }
+
+    /// Number of subscribed listeners.
     [[nodiscard]] uint32_t size() const { return static_cast<uint32_t>(state_->listeners.size()); }
 
 private:

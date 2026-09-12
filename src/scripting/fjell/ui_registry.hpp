@@ -72,6 +72,20 @@ void register_ui_component(FjellTypeRegistry* reg) { register_ui_widget<T>(reg);
 
 // ── Macros ────────────────────────────────────────────────────────────────
 
+/// Declares a class as a UI widget. Place it on the first line of the class
+/// body of a `UiWidget` subclass, with the class's own name as the argument.
+///
+/// Registers the type so `.fjwidget` assets can reference it by name. The
+/// macro leaves the class in a `public:` section.
+///
+/// @param T The class name, spelled exactly as declared.
+/// @code
+/// class PauseMenu : public fjell::UiWidget {
+///     FJELL_UI_WIDGET(PauseMenu)
+/// public:
+///     [[fj::action]] void on_resume() { fjell::Time::resume(); }
+/// };
+/// @endcode
 #define FJELL_UI_WIDGET(T) \
     public: static constexpr const char* type_name = #T; \
     private: \
@@ -85,5 +99,6 @@ void register_ui_component(FjellTypeRegistry* reg) { register_ui_widget<T>(reg);
     static inline _FjellUiRegInit _fjell_ui_reg_init_{}; \
     public:
 
-// Backward compat — accepts and ignores the tag parameter
+/// @deprecated Use `FJELL_UI_WIDGET(T)`. Kept for older projects; the extra
+///             tag argument is accepted and ignored.
 #define FJELL_UI_COMPONENT(T, ...) FJELL_UI_WIDGET(T)

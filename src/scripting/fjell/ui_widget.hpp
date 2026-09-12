@@ -15,17 +15,34 @@ namespace fjell {
 class UiContext;
 class UiSubsystem;
 
-/// Bridge for UiWidget to access its UiContext without including the full header.
-/// The UiSubsystem sets this pointer after creating the widget.
+/// The widget's connection to its `.fjui` template — the data it displays and
+/// the actions its markup can invoke. Reached through `UiWidget::ui()`.
 class UiWidgetContext {
 public:
     UiWidgetContext() = default;
 
+    /// Publish a value for the template to display. A `{key}` placeholder in
+    /// the `.fjui` markup picks it up, and `if="key"` / `class:x="key==value"`
+    /// test against it. Setting an unchanged value is cheap — safe from `tick()`.
+    /// @param key   Matches the name used in the markup.
+    /// @param value Everything is stringly-typed here; format numbers yourself.
     void set(const std::string& key, const std::string& value);
+
+    /// Read back a value previously published with `set()`.
+    /// @return The value, or "" if the key was never set.
     [[nodiscard]] std::string get(const std::string& key) const;
 
+    /// Bind a callback to an `on:click="name"` in the markup.
+    /// @param name     Action name as spelled in the `.fjui` file.
+    /// @param callback Invoked on click. Capturing `this` is fine — the
+    ///                 binding is released with the widget.
     FJELL_SDK_EXPORT void bind_action(const std::string& name,
                      std::function<void()> callback);
+
+    /// Bind a callback that receives the arguments from the markup, for
+    /// parameterized actions like `on:click="select(3)"`.
+    /// @param name     Action name as spelled in the `.fjui` file.
+    /// @param callback Receives the arguments as strings, in written order.
     FJELL_SDK_EXPORT void bind_action(const std::string& name,
                      std::function<void(const std::vector<std::string>&)> callback);
 
@@ -36,25 +53,58 @@ private:
     std::vector<Connection>* connections_{nullptr};
 };
 
-/// Base class for UI widgets. A widget defines [[fj::bind]] fields and
-/// [[fj::action]] methods that drive a .fjui/.fjss visual template.
-/// Widgets are registered via FJELL_UI_WIDGET(Name) and referenced
-/// in .fjwidget asset files.
+/// Base class for game UI — HUDs, menus, inventories. A widget supplies the
+/// data and behavior; a `.fjui` template supplies the markup and a `.fjss`
+/// stylesheet the look.
+///
+/// Derive, add `FJELL_UI_WIDGET(T)`, and reference the type from a `.fjwidget`
+/// asset. `[[fj::bind]]` fields publish themselves to the template
+/// automatically; `[[fj::action]]` methods become callable from `on:click`.
+///
+/// This is the in-game UI system, separate from the ImGui editor chrome.
+///
+/// @code
+/// class HealthBar : public fjell::UiWidget {
+///     FJELL_UI_WIDGET(HealthBar)
+/// public:
+///     [[fj::bind]] int hp = 100;      // reachable as {hp} in the .fjui
+///
+///     [[fj::action]] void on_close() { visible_ = false; }
+/// };
+/// @endcode
 class UiWidget {
 public:
     virtual ~UiWidget() = default;
 
+    /// Called once when the widget is created and its template is loaded.
+    /// Bind actions and publish initial values here.
     virtual void begin_play() {}
+
+    /// Called every frame while the widget exists.
+    /// @param dt Seconds since the previous frame, scaled by `Time::set_scale()`.
+    ///           Unlike gameplay, UI keeps ticking while the game is paused.
     virtual void tick(float dt) { (void)dt; }
+
+    /// Called when the widget is torn down or scripts hot-reload.
     virtual void end_play() {}
 
+    /// Seconds since the previous frame — the same value passed to `tick()`.
     [[nodiscard]] float delta_time() const { return world_->delta_time; }
+
+    /// Seconds since play started.
     [[nodiscard]] float elapsed_time() const { return world_->elapsed_time; }
+
+    /// Raw keyboard and mouse state. Clicks on UI elements arrive through
+    /// `on:click` actions instead — use this only for shortcuts the markup
+    /// cannot express.
     [[nodiscard]] const Input& input() const { return world_->input(); }
+
+    /// Shared per-frame runtime state (input, physics, timing).
     [[nodiscard]] World* world() { return world_; }
     [[nodiscard]] const World* world() const { return world_; }
 
-    /// Access the UI context to set values, get values, and bind actions.
+    /// The template bridge — publish values with `ui().set()` and wire
+    /// markup actions with `ui().bind_action()`.
     [[nodiscard]] UiWidgetContext& ui() { return ui_context_; }
 
 private:
