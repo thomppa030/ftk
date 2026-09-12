@@ -79,6 +79,10 @@ public:
     static void write_scripts_cmake_to(const std::filesystem::path& cmake_path,
                                        const std::filesystem::path& sdk_include);
 
+    // Write the default .gitignore, unless the project already has one.
+    // Scaffolding, not generated config — a project's own additions survive.
+    static void write_gitignore(const std::filesystem::path& root);
+
     static constexpr const char* MANIFEST_NAME = "project.fjell";
 
 private:

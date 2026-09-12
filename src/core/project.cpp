@@ -28,6 +28,8 @@ Project Project::create(const std::filesystem::path& directory,
     project.asset_remap_ = std::make_unique<AssetRemap>(root);
     project.save();
 
+    write_gitignore(root);
+
     // Initialise scripting support for the new project
     Project proj(root, config);
     refresh_headers(proj);
@@ -69,6 +71,9 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
 
         FJELL_CORE_INFO("Project opened: {} ({})", config.name, root.string());
         auto project = Project(root, config);
+
+        // Projects created before the engine scaffolded one still need it.
+        write_gitignore(root);
 
         // Initialize asset database
         project.asset_db_ = std::make_unique<AssetDatabase>(root);
@@ -171,6 +176,38 @@ void Project::write_scripts_cmake(const Project& project) {
     auto cmake_path = project.root() / "scripts" / "CMakeLists.txt";
     auto sdk_include = base_path::dir() / ".." / "src" / "scripting";
     write_scripts_cmake_to(cmake_path, sdk_include);
+}
+
+void Project::write_gitignore(const std::filesystem::path& root) {
+    auto path = root / ".gitignore";
+    if (std::filesystem::exists(path)) return;
+
+    std::ofstream file(path);
+    if (!file.is_open()) {
+        FJELL_CORE_ERROR("Failed to write {}", path.string());
+        return;
+    }
+
+    // scripts/CMakeLists.txt and compile_commands.json are regenerated on every
+    // build with absolute paths from the machine that built them — tracking them
+    // means a permanently dirty tree.
+    file << "# Script build output\n"
+            "scripts/build/\n"
+            "scripts/generated/\n"
+            "scripts/register_all.cpp\n"
+            "scripts/CMakeLists.txt\n"
+            "scripts/compile_commands.json\n"
+            "game.so\n"
+            "game.dll\n"
+            "game.pdb\n"
+            "\n"
+            "# Packaged builds\n"
+            "build/\n"
+            "\n"
+            "# Editor state\n"
+            ".fjell/\n"
+            "imgui.ini\n"
+            "Screenshots/\n";
 }
 
 void Project::write_scripts_cmake_to(const std::filesystem::path& cmake_path,
