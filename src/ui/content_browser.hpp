@@ -97,6 +97,11 @@ private:
     bool show_delete_popup_{false};
     int delete_index_{-1};
 
+    // Files referencing the entry the delete prompt is about. Looked up once
+    // per entry rather than every frame the popup is open.
+    int delete_refs_index_{-1};
+    std::vector<std::string> delete_refs_;
+
 
     // Texture preview (full-size popup)
     bool show_texture_preview_{false};
@@ -143,6 +148,11 @@ public:
     /// Fired once per deleted file, with its project-relative path, so the
     /// asset database can drop the entry rather than wait for a rebuild.
     Delegate<void(const std::string& path)> on_asset_deleted;
+
+    /// Files referencing the asset at this project-relative path. Set by the
+    /// engine, which owns the asset database; the delete prompt uses it to
+    /// warn before removing something still in use.
+    std::function<std::vector<std::string>(const std::string& path)> find_references;
 };
 
 } // namespace fjell

@@ -367,6 +367,33 @@ void ContentBrowser::draw() {
         }
         auto& e = entries_[delete_index_];
         ImGui::Text("Delete \"%s\"?", e.name.c_str());
+
+        // Warn while there is still a choice, and offer to move the references
+        // somewhere rather than leaving them dangling.
+        if (delete_refs_index_ != delete_index_) {
+            delete_refs_index_ = delete_index_;
+            delete_refs_.clear();
+            if (find_references && !e.is_directory) {
+                std::error_code rec;
+                auto rel = std::filesystem::relative(e.path, root_, rec);
+                if (!rec) delete_refs_ = find_references(rel.string());
+            }
+        }
+
+        if (!delete_refs_.empty()) {
+            ImGui::Spacing();
+            ImGui::TextColored({0.95F, 0.75F, 0.3F, 1.0F},
+                               "Referenced by %zu file(s):", delete_refs_.size());
+            for (size_t i = 0; i < delete_refs_.size() && i < 8; ++i) {
+                ImGui::BulletText("%s", delete_refs_[i].c_str());
+            }
+            if (delete_refs_.size() > 8) {
+                ImGui::TextDisabled("  ... and %zu more", delete_refs_.size() - 8);
+            }
+
+            ImGui::TextDisabled("Deleting it leaves those references dangling.");
+        }
+
         ImGui::Spacing();
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.2f, 0.2f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.25f, 0.25f, 1.0f));

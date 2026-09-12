@@ -32,6 +32,7 @@ add_executable(fjell
     core/asset_id.cpp
     core/asset_database.cpp
     core/asset_identity.cpp
+    core/asset_references.cpp
     core/asset_type_registry.cpp
     core/base_path.cpp
     core/clock.cpp

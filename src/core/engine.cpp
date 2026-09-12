@@ -1,6 +1,7 @@
 extern "C" void fjell_input_clear_connections();
 
 #include "core/engine.hpp"
+#include "core/asset_references.hpp"
 #include "core/base_path.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "core/input_component.hpp"
@@ -445,6 +446,19 @@ void Engine::init_content_browser() {
                 (void)db->save();
             }
         }));
+    content_browser_.find_references = [this](const std::string& path) {
+        std::vector<std::string> out;
+        auto* proj = project_mgr_.active();
+        if (!proj || !proj->asset_db()) return out;
+        const auto* entry = proj->asset_db()->find_by_path(path);
+        if (!entry) return out;
+        for (const auto& ref : find_asset_references(proj->root(), *proj->asset_db(),
+                                                     entry->id)) {
+            out.push_back(ref.relative_path);
+        }
+        return out;
+    };
+
     connections_.push_back(content_browser_.on_asset_deleted.bind(
         [this](const std::string& path) {
             auto* proj = project_mgr_.active();
