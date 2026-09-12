@@ -187,8 +187,7 @@ void ContentBrowser::draw_collapsed_tab() {
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDocking |
-        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBringToFrontOnFocus |
-        ImGuiWindowFlags_NoFocusOnAppearing;
+        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoFocusOnAppearing;
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0f, 0.0f});
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
@@ -204,7 +203,10 @@ void ContentBrowser::draw_collapsed_tab() {
         const bool hovered = ImGui::IsItemHovered();
         if (clicked) toggle_visibility();
 
-        auto* dl = ImGui::GetWindowDrawList();
+        // The dockspace host covers this strip and its docked panels paint over
+        // any ordinary overlay window, so the tab is drawn into the foreground
+        // list to stay visible. The window above still handles the click.
+        auto* dl = ImGui::GetForegroundDrawList(vp);
         const float rounding = 6.0f;
 
         ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_TitleBg);
