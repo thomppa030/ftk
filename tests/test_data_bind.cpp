@@ -497,3 +497,492 @@ TEST_CASE("Template with literal braces around key", "[databind]") {
     // Just verify no crash — the exact output is implementation-defined for malformed templates.
     REQUIRE_FALSE(text->text_content.empty()); // at minimum the trailing }
 }
+
+// --- Result granularity: text vs layout ---
+
+TEST_CASE("Text change reports text_changed only", "[databind]") {
+    auto root = make_element("div");
+    add_child(*root, make_text("{val}"));
+
+    UiContext ctx;
+    ctx.set("val", "a");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    ctx.set("val", "b");
+    auto result = bind.resolve(*root, ctx);
+    REQUIRE(result.text_changed == true);
+    REQUIRE(result.layout_changed == false);
+}
+
+TEST_CASE("Visibility change reports layout_changed", "[databind]") {
+    auto root = make_element("div");
+    auto* child = add_child(*root, make_element("span"));
+    child->attributes["if"] = "flag";
+
+    UiContext ctx;
+    ctx.set("flag", "1");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    ctx.set("flag", "0");
+    auto result = bind.resolve(*root, ctx);
+    REQUIRE(result.layout_changed == true);
+}
+
+TEST_CASE("class: change reports layout_changed", "[databind]") {
+    auto root = make_element("div");
+    root->attributes["class:on"] = "flag";
+
+    UiContext ctx;
+    ctx.set("flag", "0");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    ctx.set("flag", "1");
+    auto result = bind.resolve(*root, ctx);
+    REQUIRE(result.layout_changed == true);
+    REQUIRE(root->has_class("on"));
+}
+
+TEST_CASE("No change reports neither flag", "[databind]") {
+    auto root = make_element("div");
+    add_child(*root, make_text("{val}"));
+
+    UiContext ctx;
+    ctx.set("val", "a");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    auto result = bind.resolve(*root, ctx);
+    REQUIRE(result.text_changed == false);
+    REQUIRE(result.layout_changed == false);
+    REQUIRE(result.any() == false);
+}
+
+// --- Generation gate ---
+
+TEST_CASE("First resolve runs against an untouched context", "[databind]") {
+    // A fresh UiContext sits at generation 0; the gate must not mistake that
+    // for "already resolved at generation 0" and skip the whole tree.
+    auto root = make_element("div");
+    auto* text = add_child(*root, make_text("[{missing}]"));
+
+    UiContext ctx;
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(text->text_content == "[]");
+}
+
+TEST_CASE("Resolve is skipped while generation is unchanged", "[databind]") {
+    auto root = make_element("div");
+    auto* text = add_child(*root, make_text("{val}"));
+
+    UiContext ctx;
+    ctx.set("val", "first");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(text->text_content == "first");
+
+    // Mutating the node behind the binder's back is not undone while the
+    // generation is static — proof the early-out is actually taken.
+    text->text_content = "stale";
+    bind.resolve(*root, ctx);
+    REQUIRE(text->text_content == "stale");
+
+    ctx.set("val", "second");
+    bind.resolve(*root, ctx);
+    REQUIRE(text->text_content == "second");
+}
+
+TEST_CASE("Setting a key to its current value does not bump generation", "[databind]") {
+    UiContext ctx;
+    ctx.set("val", "x");
+    auto gen = ctx.generation();
+    ctx.set("val", "x");
+    REQUIRE(ctx.generation() == gen);
+    ctx.set("val", "y");
+    REQUIRE(ctx.generation() > gen);
+}
+
+// --- Typed values ---
+
+TEST_CASE("Bar reads typed float value", "[databind]") {
+    auto root = make_element("bar");
+    root->attributes["value"] = "{hp}";
+    root->attributes["max"] = "{max_hp}";
+
+    UiContext ctx;
+    ctx.set_float("hp", 25.0f);
+    ctx.set_float("max_hp", 100.0f);
+    // Overwrite the stringified mirror so only the typed lookup gives 0.25 —
+    // a stof() of the string form would read 90.
+    ctx.set("hp", "90");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(ctx.get_float("hp") == Catch::Approx(25.0f));
+    REQUIRE(std::stof(root->attributes["_fill_pct"]) == Catch::Approx(0.25f));
+}
+
+TEST_CASE("Bar reads typed int value", "[databind]") {
+    auto root = make_element("bar");
+    root->attributes["value"] = "{hp}";
+    root->attributes["max"] = "{max_hp}";
+
+    UiContext ctx;
+    ctx.set_int("hp", 3);
+    ctx.set_int("max_hp", 4);
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(std::stof(root->attributes["_fill_pct"]) == Catch::Approx(0.75f));
+}
+
+TEST_CASE("set_bool writes a template-visible string", "[databind]") {
+    auto root = make_element("div");
+    auto* text = add_child(*root, make_text("{on}/{off}"));
+
+    UiContext ctx;
+    ctx.set_bool("on", true);
+    ctx.set_bool("off", false);
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(text->text_content == "1/0");
+    REQUIRE(ctx.get_bool("on") == true);
+    REQUIRE(ctx.get_bool("off") == false);
+}
+
+TEST_CASE("Typed setters retract the previously typed kind", "[databind]") {
+    UiContext ctx;
+    ctx.set_int("v", 7);
+    REQUIRE(ctx.get_int("v") == 7);
+    REQUIRE(ctx.get_float("v") == Catch::Approx(7.0f)); // int falls back to float
+
+    ctx.set_float("v", 1.5f);
+    REQUIRE(ctx.get_float("v") == Catch::Approx(1.5f));
+    REQUIRE_FALSE(ctx.get_int("v").has_value());
+}
+
+// --- Parent context chaining ---
+
+TEST_CASE("Child context falls back to parent for missing keys", "[databind]") {
+    UiContext parent;
+    parent.set("name", "root");
+    parent.set_float("hp", 10.0f);
+
+    UiContext child;
+    child.set_parent(&parent);
+
+    REQUIRE(child.get("name") == "root");
+    REQUIRE(child.get_float("hp") == Catch::Approx(10.0f));
+
+    child.set("name", "own");
+    REQUIRE(child.get("name") == "own");
+    REQUIRE(parent.get("name") == "root");
+}
+
+// --- Widget scoped contexts ---
+
+TEST_CASE("Widget props resolve against the outer context", "[databind]") {
+    auto root = make_element("div");
+    auto* widget = add_child(*root, make_element("health-bar"));
+    widget->is_widget = true;
+    widget->scoped_context = std::make_unique<UiContext>();
+    widget->prop_map["value"] = "{player.hp}";
+    auto* label = add_child(*widget, make_text("HP {value}"));
+
+    UiContext ctx;
+    ctx.set("player.hp", "42");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    // Prop was copied into the widget's own scope...
+    REQUIRE(widget->scoped_context->get("value") == "42");
+    // ...and children resolve against that scope, not the outer one.
+    REQUIRE(label->text_content == "HP 42");
+}
+
+TEST_CASE("Widget scope shadows the outer context", "[databind]") {
+    auto root = make_element("div");
+    auto* outer_text = add_child(*root, make_text("{label}"));
+    auto* widget = add_child(*root, make_element("card"));
+    widget->is_widget = true;
+    widget->scoped_context = std::make_unique<UiContext>();
+    widget->scoped_context->set("label", "inner");
+    auto* inner_text = add_child(*widget, make_text("{label}"));
+
+    UiContext ctx;
+    ctx.set("label", "outer");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(outer_text->text_content == "outer");
+    REQUIRE(inner_text->text_content == "inner");
+}
+
+TEST_CASE("Widget props track outer context changes", "[databind]") {
+    auto root = make_element("div");
+    auto* widget = add_child(*root, make_element("health-bar"));
+    widget->is_widget = true;
+    widget->scoped_context = std::make_unique<UiContext>();
+    widget->prop_map["value"] = "{player.hp}";
+    auto* label = add_child(*widget, make_text("{value}"));
+
+    UiContext ctx;
+    ctx.set("player.hp", "1");
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(label->text_content == "1");
+
+    ctx.set("player.hp", "2");
+    bind.resolve(*root, ctx);
+    REQUIRE(label->text_content == "2");
+}
+
+// --- clone_node ---
+
+TEST_CASE("clone_node copies structure and widget state", "[databind]") {
+    auto src = make_element("div", {"a", "b"});
+    src->id = "orig";
+    src->attributes["foreach"] = "items";
+    src->is_widget = true;
+    src->widget_tag = "health-bar";
+    src->widget_class = "health_bar_controller";
+    src->prop_map["value"] = "{hp}";
+    add_child(*src, make_text("{name}"));
+
+    auto clone = UiDataBind::clone_node(*src, nullptr);
+
+    REQUIRE(clone->tag == "div");
+    REQUIRE(clone->id == "orig");
+    REQUIRE(clone->classes == std::vector<std::string>{"a", "b"});
+    REQUIRE(clone->attributes.at("foreach") == "items");
+    REQUIRE(clone->is_widget == true);
+    REQUIRE(clone->widget_tag == "health-bar");
+    REQUIRE(clone->widget_class == "health_bar_controller");
+    REQUIRE(clone->prop_map.at("value") == "{hp}");
+    REQUIRE(clone->children.size() == 1);
+    REQUIRE(clone->children[0]->text_template == "{name}");
+    REQUIRE(clone->children[0]->parent == clone.get());
+    REQUIRE(clone->parent == nullptr);
+}
+
+TEST_CASE("clone_node does not copy runtime pointers", "[databind]") {
+    auto src = make_element("div");
+    src->scoped_context = std::make_unique<UiContext>();
+    UiContext item;
+    src->foreach_context = &item;
+
+    auto clone = UiDataBind::clone_node(*src, nullptr);
+
+    REQUIRE(clone->scoped_context == nullptr);
+    REQUIRE(clone->foreach_context == nullptr);
+    REQUIRE(clone->yg_node == nullptr);
+}
+
+TEST_CASE("clone_node is a deep copy", "[databind]") {
+    auto src = make_element("div");
+    auto* child = add_child(*src, make_element("span"));
+
+    auto clone = UiDataBind::clone_node(*src, nullptr);
+    child->tag = "mutated";
+
+    REQUIRE(clone->children[0]->tag == "span");
+}
+
+// --- foreach ---
+
+// set_list() does not bump the context generation, so a test that changes only
+// a list must nudge the generation the way UiSubsystem::tick does each frame.
+static void bump(UiContext& ctx) {
+    static int n = 0;
+    ctx.set("__tick", std::to_string(++n));
+}
+
+static std::vector<UiContext> make_items(const std::vector<std::string>& names) {
+    std::vector<UiContext> items;
+    items.reserve(names.size());
+    for (const auto& n : names) {
+        UiContext item;
+        item.set("name", n);
+        items.push_back(std::move(item));
+    }
+    return items;
+}
+
+TEST_CASE("foreach stamps one clone per list item", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+    add_child(*tmpl, make_text("{name}"));
+
+    UiContext ctx;
+    ctx.set_list("items", make_items({"one", "two", "three"}));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    // template + 3 clones
+    REQUIRE(root->children.size() == 4);
+    REQUIRE(root->children[0]->is_foreach_template == true);
+    REQUIRE(root->children[0]->hidden_by_if == true);
+
+    for (int i = 0; i < 3; ++i) {
+        auto& clone = *root->children[static_cast<size_t>(i) + 1];
+        REQUIRE(clone.foreach_item_index == i);
+        REQUIRE(clone.is_foreach_template == false);
+        REQUIRE(clone.hidden_by_if == false);
+        REQUIRE_FALSE(clone.attributes.contains("foreach"));
+    }
+
+    REQUIRE(root->children[1]->children[0]->text_content == "one");
+    REQUIRE(root->children[2]->children[0]->text_content == "two");
+    REQUIRE(root->children[3]->children[0]->text_content == "three");
+}
+
+TEST_CASE("foreach exposes __index on each item", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+    add_child(*tmpl, make_text("{__index}:{name}"));
+
+    UiContext ctx;
+    ctx.set_list("items", make_items({"a", "b"}));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(root->children[1]->children[0]->text_content == "0:a");
+    REQUIRE(root->children[2]->children[0]->text_content == "1:b");
+}
+
+TEST_CASE("foreach items fall back to the outer context", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+    add_child(*tmpl, make_text("{prefix}{name}"));
+
+    UiContext ctx;
+    ctx.set("prefix", ">");
+    ctx.set_list("items", make_items({"a"}));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(root->children[1]->children[0]->text_content == ">a");
+}
+
+TEST_CASE("foreach grows and shrinks with the list", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+    add_child(*tmpl, make_text("{name}"));
+
+    UiContext ctx;
+    ctx.set_list("items", make_items({"a", "b"}));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(root->children.size() == 3);
+
+    ctx.set_list("items", make_items({"a", "b", "c", "d"}));
+    bump(ctx);
+    auto grew = bind.resolve(*root, ctx);
+    REQUIRE(root->children.size() == 5);
+    REQUIRE(grew.layout_changed == true);
+    REQUIRE(root->children[4]->children[0]->text_content == "d");
+
+    ctx.set_list("items", make_items({"a"}));
+    bump(ctx);
+    auto shrank = bind.resolve(*root, ctx);
+    REQUIRE(root->children.size() == 2);
+    REQUIRE(shrank.layout_changed == true);
+    REQUIRE(root->children[1]->children[0]->text_content == "a");
+}
+
+TEST_CASE("foreach over an empty list leaves only the template", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+
+    UiContext ctx;
+    ctx.set_list("items", {});
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(root->children.size() == 1);
+    REQUIRE(root->children[0]->is_foreach_template == true);
+}
+
+TEST_CASE("foreach over a missing list produces no clones", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "nonexistent";
+
+    UiContext ctx;
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(root->children.size() == 1);
+    REQUIRE(root->children[0]->is_foreach_template == true);
+}
+
+TEST_CASE("foreach clone count is stable across repeated resolves", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+    add_child(*tmpl, make_text("{name}"));
+
+    UiContext ctx;
+    ctx.set_list("items", make_items({"a", "b"}));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(root->children.size() == 3);
+
+    for (int i = 0; i < 5; ++i) {
+        bump(ctx);
+        bind.resolve(*root, ctx);
+    }
+    REQUIRE(root->children.size() == 3);
+}
+
+TEST_CASE("foreach clones pick up item value changes", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+    add_child(*tmpl, make_text("{name}"));
+
+    UiContext ctx;
+    ctx.set_list("items", make_items({"before"}));
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+    REQUIRE(root->children[1]->children[0]->text_content == "before");
+
+    ctx.get_list("items")->at(0).set("name", "after");
+    bump(ctx);
+    bind.resolve(*root, ctx);
+    REQUIRE(root->children[1]->children[0]->text_content == "after");
+}
+
+TEST_CASE("foreach honours if directives inside the template", "[databind]") {
+    auto root = make_element("div");
+    auto* tmpl = add_child(*root, make_element("span"));
+    tmpl->attributes["foreach"] = "items";
+    auto* badge = add_child(*tmpl, make_element("i"));
+    badge->attributes["if"] = "starred";
+
+    UiContext ctx;
+    std::vector<UiContext> items;
+    UiContext a;
+    a.set("starred", "1");
+    items.push_back(std::move(a));
+    UiContext b;
+    b.set("starred", "0");
+    items.push_back(std::move(b));
+    ctx.set_list("items", std::move(items));
+
+    UiDataBind bind;
+    bind.resolve(*root, ctx);
+
+    REQUIRE(root->children[1]->children[0]->hidden_by_if == false);
+    REQUIRE(root->children[2]->children[0]->hidden_by_if == true);
+}
