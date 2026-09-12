@@ -410,7 +410,7 @@ void ProjectManager::setup_script_watcher() {
             // Ignore generated files
             auto filename = path.filename().string();
             if (filename == "register_all.cpp") return;
-            if (path.string().find("/generated/") != std::string::npos) return;
+            if (path.parent_path().filename() == "generated") return;
 
             source_changed_ = true;
             last_source_change_ = std::chrono::steady_clock::now();
