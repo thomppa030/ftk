@@ -25,6 +25,7 @@ Project Project::create(const std::filesystem::path& directory,
 
     Project project(root, config);
     project.asset_db_ = std::make_unique<AssetDatabase>(root);
+    project.asset_remap_ = std::make_unique<AssetRemap>(root);
     project.save();
 
     // Initialise scripting support for the new project
@@ -74,6 +75,11 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
         if (auto r = project.asset_db_->load(); !r) {
             FJELL_CORE_WARN("Asset database: {}", r.error());
         }
+        project.asset_remap_ = std::make_unique<AssetRemap>(root);
+        if (auto r = project.asset_remap_->load(); !r) {
+            FJELL_CORE_WARN("Asset remap: {}", r.error());
+        }
+
         project.asset_db_->rebuild();
         if (project.asset_db_->dirty()) {
             if (auto r = project.asset_db_->save(); !r) {
@@ -99,8 +105,22 @@ std::string Project::resolve(const std::string& relative) const {
 
 std::string Project::resolve(const AssetId& id) const {
     if (!asset_db_ || !id.valid()) return {};
-    const auto* entry = asset_db_->find(id);
-    return entry ? (root_ / entry->relative_path).string() : std::string{};
+    if (const auto* entry = asset_db_->find(id)) {
+        return (root_ / entry->relative_path).string();
+    }
+
+    // The asset this id named is gone. A remap says what replaced it, which
+    // catches references that were not rewritten when it went.
+    if (asset_remap_) {
+        if (auto to = asset_remap_->resolve(id); to.valid()) {
+            if (const auto* entry = asset_db_->find(to)) {
+                FJELL_CORE_DEBUG("Asset {} resolved through remap to {}",
+                                 id.to_string(), to.to_string());
+                return (root_ / entry->relative_path).string();
+            }
+        }
+    }
+    return {};
 }
 
 std::string Project::path_of(const AssetId& id) const {

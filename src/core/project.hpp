@@ -3,6 +3,7 @@
 #include "core/asset_id.hpp"
 
 #include "core/asset_database.hpp"
+#include "core/asset_remap.hpp"
 #include "renderer/render_settings.hpp"
 
 #include <cstdint>
@@ -52,6 +53,9 @@ public:
     [[nodiscard]] AssetDatabase* asset_db() { return asset_db_.get(); }
     [[nodiscard]] const AssetDatabase* asset_db() const { return asset_db_.get(); }
 
+    [[nodiscard]] AssetRemap* asset_remap() { return asset_remap_.get(); }
+    [[nodiscard]] const AssetRemap* asset_remap() const { return asset_remap_.get(); }
+
     /// Absolute path of the asset with this id. Empty when the id is unknown,
     /// which is a dangling reference rather than something to paper over.
     [[nodiscard]] std::string resolve(const AssetId& id) const;
@@ -83,6 +87,7 @@ private:
     std::filesystem::path root_;
     ProjectConfig config_;
     std::unique_ptr<AssetDatabase> asset_db_;
+    std::unique_ptr<AssetRemap> asset_remap_;
 };
 
 } // namespace fjell
