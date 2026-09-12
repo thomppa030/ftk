@@ -17,10 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build tools and X11 headers
+      # GLFW builds both X11 and Wayland backends on Linux by default, and the
+      # Wayland one generates protocol sources with wayland-scanner.
+      - name: Install build tools and windowing headers
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build xorg-dev
+          sudo apt-get install -y ninja-build xorg-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev extra-cmake-modules
 
       - name: Install the Vulkan SDK
         run: |
