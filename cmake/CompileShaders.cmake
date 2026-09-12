@@ -1,4 +1,19 @@
-find_program(GLSLC glslc REQUIRED)
+# Prefer the glslc that ships with the located Vulkan SDK. The Windows SDK
+# installer leaves %VULKAN_SDK%\Bin off PATH, so a bare PATH search fails there
+# even with the SDK correctly installed.
+if(Vulkan_GLSLC_EXECUTABLE)
+    set(GLSLC "${Vulkan_GLSLC_EXECUTABLE}" CACHE FILEPATH "glslc shader compiler")
+else()
+    find_program(GLSLC glslc
+        HINTS ENV VULKAN_SDK
+        PATH_SUFFIXES Bin bin)
+endif()
+
+if(NOT GLSLC)
+    message(FATAL_ERROR
+        "glslc not found. Install the Vulkan SDK (https://vulkan.lunarg.com/) and make "
+        "sure VULKAN_SDK is set, or point -DGLSLC=<path> at the compiler directly.")
+endif()
 
 function(compile_shaders TARGET SHADER_DIR OUTPUT_DIR)
     file(GLOB_RECURSE SHADERS
