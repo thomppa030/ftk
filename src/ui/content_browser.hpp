@@ -139,6 +139,10 @@ public:
     /// Fired after a file is renamed or moved, with the old and new paths
     /// relative to the project root, so the asset database can follow it.
     Delegate<void(const std::string& from, const std::string& to)> on_asset_moved;
+
+    /// Fired once per deleted file, with its project-relative path, so the
+    /// asset database can drop the entry rather than wait for a rebuild.
+    Delegate<void(const std::string& path)> on_asset_deleted;
 };
 
 } // namespace fjell

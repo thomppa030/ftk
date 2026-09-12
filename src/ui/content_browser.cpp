@@ -373,12 +373,31 @@ void ContentBrowser::draw() {
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.6f, 0.15f, 0.15f, 1.0f));
         if (ImGui::Button("Delete", {80, 0})) {
             std::error_code ec;
+            // Collect what is going away before deleting it, so the database
+            // can be told about paths that no longer exist.
+            std::vector<std::string> removed;
             if (e.is_directory) {
+                for (const auto& sub : std::filesystem::recursive_directory_iterator(e.path, ec)) {
+                    if (!sub.is_regular_file()) continue;
+                    auto rel = std::filesystem::relative(sub.path(), root_, ec);
+                    if (!ec) removed.push_back(rel.string());
+                }
+                ec.clear();
                 std::filesystem::remove_all(e.path, ec);
             } else {
+                auto rel = std::filesystem::relative(e.path, root_, ec);
+                if (!ec) removed.push_back(rel.string());
+                ec.clear();
                 std::filesystem::remove(e.path, ec);
+                // The sidecar holds this file's identity and has no meaning
+                // without it.
+                std::error_code side_ec;
+                std::filesystem::remove(asset_identity::sidecar_path(e.path), side_ec);
             }
             if (!ec) {
+                for (const auto& rel : removed) {
+                    on_asset_deleted.broadcast(rel);
+                }
                 FJELL_CORE_INFO("Deleted: {}", e.path.string());
                 refresh_current_dir();
             } else {
