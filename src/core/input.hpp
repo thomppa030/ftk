@@ -5,6 +5,7 @@
 #include <glm/glm.hpp>
 
 #include <array>
+#include <string>
 
 struct GLFWwindow;
 
@@ -41,6 +42,8 @@ public:
     [[nodiscard]] bool pad_button_held(int button) const;
     [[nodiscard]] bool pad_button_pressed(int button) const;
     [[nodiscard]] float pad_axis(int axis) const;
+    /// Name of the pad currently being read, empty when none is connected.
+    [[nodiscard]] const std::string& pad_name() const { return pad_name_; }
 
 private:
     static constexpr int MAX_KEYS = 512;
@@ -58,6 +61,21 @@ private:
     std::array<uint8_t, MAX_PAD_BUTTONS> pad_buttons_prev_{};
     std::array<float, MAX_PAD_AXES> pad_axes_{};
     bool pad_connected_{false};
+
+    /// Which joystick slot is being read, or -1 when none is. Resolved by
+    /// scanning rather than fixed to slot 0, so a pad on another port or one
+    /// plugged in after startup is still found.
+    int pad_jid_{-1};
+    std::string pad_name_;
+    /// Slots already tried and found unmappable, cleared when they empty, so
+    /// the per-frame scan reports each connection once instead of every frame.
+    /// Sized for GLFW's joystick slots, which are ids 0 through 15.
+    static constexpr int MAX_JOYSTICKS = 16;
+    std::array<bool, MAX_JOYSTICKS> reported_unmapped_{};
+
+    /// Pick a connected, mapped joystick to read. Keeps the current one while
+    /// it stays valid so a second pad cannot steal the slot mid-session.
+    void resolve_pad();
 
     glm::dvec2 mouse_pos_{0.0};
     glm::dvec2 mouse_last_{0.0};

@@ -91,6 +91,35 @@ std::string synthesize_xinput_mapping(int jid) {
     return mapping;
 }
 
+/// Give one joystick a mapping if it does not already have one, and report
+/// what happened. Returns true when it ends up usable as a gamepad.
+///
+/// Runs for pads present at startup and again for any that appear later, so
+/// a controller plugged in mid-session gets the same fallback treatment.
+bool ensure_joystick_mapped(int jid) {
+    if (glfwJoystickIsGamepad(jid) == GLFW_TRUE) return true;
+
+    const char* name = glfwGetJoystickName(jid);
+    const char* guid = glfwGetJoystickGUID(jid);
+
+    auto fallback = synthesize_xinput_mapping(jid);
+    if (!fallback.empty()
+        && glfwUpdateGamepadMappings(fallback.c_str()) == GLFW_TRUE
+        && glfwJoystickIsGamepad(jid) == GLFW_TRUE) {
+        FJELL_CORE_INFO("Joystick {} '{}' matched the XInput layout; using a "
+                        "generic mapping (GUID {})",
+                        jid, name != nullptr ? name : "?",
+                        guid != nullptr ? guid : "?");
+        return true;
+    }
+
+    FJELL_CORE_WARN("Joystick {} '{}' has no gamepad mapping (GUID {}) — add "
+                    "one to engine_assets/input/gamecontrollerdb_extra.txt",
+                    jid, name != nullptr ? name : "?",
+                    guid != nullptr ? guid : "?");
+    return false;
+}
+
 } // namespace
 
 void Input::load_gamepad_mappings() {
@@ -102,38 +131,12 @@ void Input::load_gamepad_mappings() {
     }
     load_mapping_file("engine_assets/input/gamecontrollerdb_extra.txt");
 
-    // Report what is attached, and fall back to the XInput layout for
-    // anything still unmapped. A joystick without a mapping is invisible to
-    // glfwGetGamepadState, which looks exactly like no controller at all, so
-    // whatever is left over gets logged with its GUID.
+    // Map whatever is already attached. Which one actually gets read is
+    // decided per frame by resolve_pad(), which reports it — no need to
+    // announce them twice here.
     for (int jid = GLFW_JOYSTICK_1; jid <= GLFW_JOYSTICK_LAST; ++jid) {
         if (glfwJoystickPresent(jid) == GLFW_FALSE) continue;
-
-        const char* name = glfwGetJoystickName(jid);
-        const char* guid = glfwGetJoystickGUID(jid);
-
-        if (glfwJoystickIsGamepad(jid) == GLFW_FALSE) {
-            auto fallback = synthesize_xinput_mapping(jid);
-            if (!fallback.empty()
-                && glfwUpdateGamepadMappings(fallback.c_str()) == GLFW_TRUE) {
-                FJELL_CORE_INFO("Joystick {} '{}' matched the XInput layout; "
-                                "using a generic mapping (GUID {})",
-                                jid, name != nullptr ? name : "?",
-                                guid != nullptr ? guid : "?");
-            }
-        }
-
-        if (glfwJoystickIsGamepad(jid) == GLFW_TRUE) {
-            const char* pad_name = glfwGetGamepadName(jid);
-            FJELL_CORE_INFO("Gamepad {}: {}", jid,
-                            pad_name != nullptr ? pad_name : "?");
-        } else {
-            FJELL_CORE_WARN("Joystick {} '{}' has no gamepad mapping (GUID {}) "
-                            "— add one to "
-                            "engine_assets/input/gamecontrollerdb_extra.txt",
-                            jid, name != nullptr ? name : "?",
-                            guid != nullptr ? guid : "?");
-        }
+        ensure_joystick_mapped(jid);
     }
 }
 
@@ -143,6 +146,46 @@ void Input::attach(GLFWwindow* window) {
     glfwSetCursorPosCallback(window, cursor_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetScrollCallback(window, scroll_callback);
+}
+
+void Input::resolve_pad() {
+    // Keep the pad already being read for as long as it stays usable, so a
+    // second controller connecting cannot take over mid-session.
+    if (pad_jid_ >= 0 && glfwJoystickIsGamepad(pad_jid_) == GLFW_TRUE) {
+        return;
+    }
+
+    if (pad_jid_ >= 0) {
+        FJELL_CORE_INFO("Gamepad disconnected: {}",
+                        pad_name_.empty() ? "?" : pad_name_);
+        pad_jid_ = -1;
+        pad_name_.clear();
+    }
+
+    // Scan every slot rather than assuming the first: a pad can be seated on
+    // another port, and one connected after startup lands wherever GLFW puts
+    // it.
+    for (int jid = GLFW_JOYSTICK_1; jid <= GLFW_JOYSTICK_LAST; ++jid) {
+        if (glfwJoystickPresent(jid) == GLFW_FALSE) {
+            reported_unmapped_[jid] = false;
+            continue;
+        }
+
+        if (glfwJoystickIsGamepad(jid) == GLFW_FALSE) {
+            // This runs every frame while no pad is usable, so only try to
+            // map a given slot once per connection — otherwise an unmappable
+            // joystick warns forever.
+            if (reported_unmapped_[jid]) continue;
+            reported_unmapped_[jid] = true;
+            if (!ensure_joystick_mapped(jid)) continue;
+        }
+
+        pad_jid_ = jid;
+        const char* name = glfwGetGamepadName(jid);
+        pad_name_ = name != nullptr ? name : "?";
+        FJELL_CORE_INFO("Gamepad connected: {} (slot {})", pad_name_, jid);
+        return;
+    }
 }
 
 void Input::update() {
@@ -166,8 +209,10 @@ void Input::update() {
 
     // Gamepad polling
     pad_buttons_prev_ = pad_buttons_;
+    resolve_pad();
+
     GLFWgamepadstate gamepad;
-    if (glfwGetGamepadState(GLFW_JOYSTICK_1, &gamepad)) {
+    if (pad_jid_ >= 0 && glfwGetGamepadState(pad_jid_, &gamepad) == GLFW_TRUE) {
         pad_connected_ = true;
         for (int i = 0; i < MAX_PAD_BUTTONS; ++i) {
             pad_buttons_[i] = gamepad.buttons[i];
@@ -178,7 +223,7 @@ void Input::update() {
     } else {
         pad_connected_ = false;
         pad_buttons_.fill(0);
-        pad_axes_.fill(0.0f);
+        pad_axes_.fill(0.0F);
     }
 }
 
