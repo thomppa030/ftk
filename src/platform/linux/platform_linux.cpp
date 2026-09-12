@@ -127,18 +127,19 @@ Result<SubprocessHandle> spawn_with_pipe(const std::vector<std::string>& args) {
     fcntl(pipefd[0], F_SETFL, fcntl(pipefd[0], F_GETFL) | O_NONBLOCK);
 
     SubprocessHandle handle;
-    handle.pid = pid;
-    handle.stdout_fd = pipefd[0];
+    handle.process = static_cast<std::uintptr_t>(pid);
+    handle.stdout_read = static_cast<std::uintptr_t>(pipefd[0]);
     return handle;
 }
 
 std::vector<std::string> read_lines(SubprocessHandle& handle, std::string& line_buffer) {
     std::vector<std::string> lines;
-    if (handle.stdout_fd < 0) return lines;
+    if (handle.stdout_read == SubprocessHandle::INVALID) return lines;
 
+    const int fd = static_cast<int>(handle.stdout_read);
     char buf[4096];
     for (;;) {
-        auto n = read(handle.stdout_fd, buf, sizeof(buf));
+        auto n = read(fd, buf, sizeof(buf));
         if (n <= 0) break;
         line_buffer.append(buf, static_cast<size_t>(n));
     }
@@ -159,11 +160,12 @@ std::vector<std::string> read_lines(SubprocessHandle& handle, std::string& line_
 }
 
 bool poll_exit(SubprocessHandle& handle) {
-    if (handle.finished || handle.pid <= 0) return handle.finished;
+    if (handle.finished || handle.process == SubprocessHandle::INVALID) return handle.finished;
 
+    const auto pid = static_cast<pid_t>(handle.process);
     int status = 0;
-    pid_t result = waitpid(handle.pid, &status, WNOHANG);
-    if (result == handle.pid) {
+    pid_t result = waitpid(pid, &status, WNOHANG);
+    if (result == pid) {
         handle.finished = true;
         handle.exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     }
@@ -171,17 +173,18 @@ bool poll_exit(SubprocessHandle& handle) {
 }
 
 void close_subprocess(SubprocessHandle& handle) {
-    if (handle.pid > 0 && !handle.finished) {
-        kill(handle.pid, SIGKILL);
-        waitpid(handle.pid, nullptr, 0);
+    if (handle.process != SubprocessHandle::INVALID && !handle.finished) {
+        const auto pid = static_cast<pid_t>(handle.process);
+        kill(pid, SIGKILL);
+        waitpid(pid, nullptr, 0);
         handle.finished = true;
         handle.exit_code = -1;
     }
-    if (handle.stdout_fd >= 0) {
-        close(handle.stdout_fd);
-        handle.stdout_fd = -1;
+    if (handle.stdout_read != SubprocessHandle::INVALID) {
+        close(static_cast<int>(handle.stdout_read));
+        handle.stdout_read = SubprocessHandle::INVALID;
     }
-    handle.pid = -1;
+    handle.process = SubprocessHandle::INVALID;
 }
 
 } // namespace fjell::platform

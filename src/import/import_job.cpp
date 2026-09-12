@@ -17,14 +17,19 @@ ImportJob::~ImportJob() {
 }
 
 std::filesystem::path ImportJob::find_fjimport() {
-    auto exe = platform::executable_path();
-    auto dir = exe.parent_path();
+    auto dir = platform::executable_path().parent_path();
+    const auto exe = std::string("fjimport") + platform::EXE_EXT;
     // Same directory as the engine executable (install layout)
-    auto candidate = dir / "fjimport";
+    auto candidate = dir / exe;
     if (fs::exists(candidate)) return candidate;
     // Dev build layout: engine at build/src/fjell, fjimport at build/tools/fjimport/fjimport
-    candidate = dir.parent_path() / "tools" / "fjimport" / "fjimport";
+    candidate = dir.parent_path() / "tools" / "fjimport" / exe;
     if (fs::exists(candidate)) return candidate;
+    // MSVC multi-config puts it in a per-config subdirectory.
+    for (const char* config : {"Debug", "Release"}) {
+        candidate = dir.parent_path() / "tools" / "fjimport" / config / exe;
+        if (fs::exists(candidate)) return candidate;
+    }
     return {};
 }
 

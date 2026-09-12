@@ -2,6 +2,7 @@
 
 #include "core/result.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -36,9 +37,16 @@ Result<> open_path(const std::filesystem::path& path);
 // ── Subprocess with stdout pipe ─────────────────────────────────────────
 
 /// Handle for a child process whose stdout is captured via a pipe.
+///
+/// `process` and `stdout_read` are opaque OS handles: a pid and a file
+/// descriptor on POSIX, a HANDLE and a pipe HANDLE on Windows. Only the
+/// platform backend interprets them; callers pass the struct around and read
+/// `finished`/`exit_code`. `INVALID` marks an unset handle on both.
 struct SubprocessHandle {
-    int pid{-1};
-    int stdout_fd{-1};
+    static constexpr std::uintptr_t INVALID = static_cast<std::uintptr_t>(-1);
+
+    std::uintptr_t process{INVALID};
+    std::uintptr_t stdout_read{INVALID};
     bool finished{false};
     int exit_code{-1};
 };
