@@ -11,4 +11,5 @@ else()
     target_compile_options(fjreflect PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-install(TARGETS fjreflect RUNTIME DESTINATION bin)
+# Installed where ProjectManager looks for it, mirroring the dev build tree.
+install(TARGETS fjreflect RUNTIME DESTINATION tools/fjreflect)

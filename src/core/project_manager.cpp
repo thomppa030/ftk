@@ -9,12 +9,46 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
 namespace fjell {
+namespace {
+
+/// Locate the fjreflect codegen tool. Covers the dev build tree, MSVC's
+/// per-config subdirectories, and the install layout.
+std::filesystem::path find_fjreflect() {
+    namespace fs = std::filesystem;
+    const auto exe = std::string("fjreflect") + platform::EXE_EXT;
+    const auto& root = base_path::dir();
+
+    const std::array candidates{
+        root / "tools" / "fjreflect" / exe,
+        root / "tools" / "fjreflect" / "Debug" / exe,
+        root / "tools" / "fjreflect" / "Release" / exe,
+        root / "bin" / exe,
+        root / exe,
+    };
+
+    for (const auto& path : candidates) {
+        if (fs::exists(path)) return path;
+    }
+
+    std::string searched;
+    for (const auto& path : candidates) {
+        searched += "\n  " + path.string();
+    }
+    FJELL_CORE_ERROR(
+        "fjreflect not found — component reflection will be skipped, so [[fj::property]] "
+        "fields and FJELL_COMPONENT types will not appear in the editor. Searched:{}",
+        searched);
+    return {};
+}
+
+} // namespace
 
 void ProjectManager::open(const std::filesystem::path& path) {
     auto proj = Project::open(path);
@@ -116,25 +150,8 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
     auto generated_dir = scripts_dir / "generated";
     auto so_path = project_root / (std::string("game") + platform::SHARED_LIB_EXT);
 
-#ifdef _WIN32
-    auto fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "fjreflect.exe";
-    if (!fs::exists(fjreflect_path)) {
-        // MSVC multi-config puts executables in Debug/ or Release/ subdirs
-        fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "Debug" / "fjreflect.exe";
-    }
-    if (!fs::exists(fjreflect_path)) {
-        fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "Release" / "fjreflect.exe";
-    }
-    if (!fs::exists(fjreflect_path)) {
-        fjreflect_path = base_path::dir() / "fjreflect.exe";
-    }
-#else
-    auto fjreflect_path = base_path::dir() / "tools" / "fjreflect" / "fjreflect";
-    if (!fs::exists(fjreflect_path)) {
-        fjreflect_path = base_path::dir() / "fjreflect";
-    }
-#endif
-    auto sdk_include = base_path::dir() / ".." / "src" / "scripting";
+    auto fjreflect_path = find_fjreflect();
+    auto sdk_include = base_path::sdk_include();
 
     FJELL_CORE_INFO("Building scripts...");
 
