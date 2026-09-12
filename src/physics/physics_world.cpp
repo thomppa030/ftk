@@ -3,6 +3,8 @@
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/components/terrain_component.hpp"
+#include "renderer/resources/terrain_asset.hpp"
 #include "renderer/resources/model.hpp"
 #include "scene/scene.hpp"
 
@@ -20,6 +22,7 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -348,6 +351,50 @@ static glm::vec3 clamp_positive(const glm::vec3& v) {
     return {std::max(v.x, MIN_DIMENSION), std::max(v.y, MIN_DIMENSION), std::max(v.z, MIN_DIMENSION)};
 }
 
+// ── Terrain ─────────────────────────────────────────────────────────────
+
+// Builds the static body for a terrain node. Heights are stored normalized, so
+// the scale carries `height_scale` and the offset carries `height_offset` —
+// the same reconstruction the terrain shader performs, expressed as Jolt's
+// surface equation rather than repeated per sample.
+static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, const TerrainAsset& terrain,
+                                       const Node3D& node) {
+    const auto& data = terrain.data();
+    const uint32_t samples = data.sample_count();
+
+    // Jolt subdivides the field into blocks and needs at least two per side.
+    if (samples < 2 || data.heights.size() < static_cast<size_t>(samples) * samples) {
+        return {};
+    }
+
+    // Sample spacing on X and Z; the node's scale stretches the whole field.
+    const float spacing = data.header.world_size / static_cast<float>(samples - 1);
+    const auto& s = node.transform.scale;
+
+    JPH::HeightFieldShapeSettings settings(
+        data.heights.data(),
+        JPH::Vec3(0.0f, data.header.height_offset * s.y, 0.0f),
+        JPH::Vec3(spacing * s.x, data.header.height_scale * s.y, spacing * s.z),
+        samples);
+
+    auto shape_result = settings.Create();
+    if (shape_result.HasError()) {
+        FJELL_CORE_ERROR("Failed to create terrain collision shape: {}",
+                         shape_result.GetError().c_str());
+        return {};
+    }
+
+    // The field grows from its origin corner rather than from its centre, so
+    // the body sits at the node's position and the samples extend from there.
+    JPH::BodyCreationSettings body_settings(
+        shape_result.Get(),
+        to_jolt(node.transform.position),
+        to_jolt_quat(node.transform.rotation),
+        JPH::EMotionType::Static, layers::STATIC);
+
+    return bi.CreateAndAddBody(body_settings, JPH::EActivation::DontActivate);
+}
+
 // ── Body creation ───────────────────────────────────────────────────────
 
 void PhysicsWorld::create_bodies(Scene& scene) {
@@ -384,6 +431,22 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             auto inner_id = character->GetInnerBodyID();
             if (!inner_id.IsInvalid()) {
                 impl_->body_to_object[inner_id.GetIndexAndSequenceNumber()] = obj->id;
+            }
+            continue;
+        }
+
+        // Terrain is solid by virtue of being terrain — no collider component,
+        // the way landscapes work in every engine that has them. The heights
+        // the shader draws from are the heights bodies collide against, so the
+        // surface can never disagree with what is on screen.
+        if (const auto* terrain_comp = obj->components.get<TerrainComponent>();
+            terrain_comp != nullptr && terrain_comp->terrain != nullptr) {
+            if (auto body_id = create_terrain_body(bi, *terrain_comp->terrain, *spatial);
+                !body_id.IsInvalid()) {
+                impl_->object_to_body[obj->id] = body_id;
+                impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = obj->id;
+            } else {
+                FJELL_CORE_ERROR("Failed to create terrain body for '{}'", obj->name);
             }
             continue;
         }
