@@ -49,7 +49,9 @@ FetchContent_Declare(
     imgui
     GIT_REPOSITORY https://github.com/ocornut/imgui.git
     GIT_TAG        f5f6ca07be7ce0ea9eed6c04d55833bac3f6b50b  # docking branch, 1.92.7
-    GIT_SHALLOW    TRUE
+    # No GIT_SHALLOW: a shallow clone fetches branch tips, and this pin is a
+    # commit off docking rather than a tag, so the checkout lands on the tip and
+    # then fails. The patch step needs the exact commit it was generated against.
 )
 
 FetchContent_Declare(
