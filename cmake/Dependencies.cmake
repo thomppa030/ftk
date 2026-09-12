@@ -52,6 +52,7 @@ FetchContent_Declare(
     # No GIT_SHALLOW: a shallow clone fetches branch tips, and this pin is a
     # commit off docking rather than a tag, so the checkout lands on the tip and
     # then fails. The patch step needs the exact commit it was generated against.
+    SOURCE_SUBDIR  no-cmake-here
 )
 
 FetchContent_Declare(
@@ -59,6 +60,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
     GIT_TAG        master
     GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  no-cmake-here
 )
 
 FetchContent_Declare(
@@ -66,6 +68,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/Nelarius/imnodes.git
     GIT_TAG        master
     GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  no-cmake-here
 )
 
 FetchContent_Declare(
@@ -73,6 +76,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/thedmd/imgui-node-editor.git
     GIT_TAG        master
     GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  no-cmake-here
 )
 
 FetchContent_Declare(
@@ -101,6 +105,7 @@ FetchContent_Declare(
     GIT_REPOSITORY https://github.com/mackron/miniaudio.git
     GIT_TAG        0.11.21
     GIT_SHALLOW    TRUE
+    SOURCE_SUBDIR  no-cmake-here
 )
 
 FetchContent_Declare(
@@ -282,17 +287,12 @@ endif()
 
 FetchContent_MakeAvailable(msdfgen)
 
-# miniaudio — header-only, just populate
-FetchContent_GetProperties(miniaudio)
-if(NOT miniaudio_POPULATED)
-    FetchContent_Populate(miniaudio)
-endif()
+# Consumed as plain sources — these either ship no CMakeLists or have their
+# files compiled straight into our targets, so they are fetched but never
+# added as subdirectories.
+FetchContent_MakeAvailable(miniaudio imgui imguizmo imnodes imgui_node_editor)
 
-# ImGui doesn't have a CMakeLists, so just populate and expose sources
-FetchContent_GetProperties(imgui)
-if(NOT imgui_POPULATED)
-    FetchContent_Populate(imgui)
-
+block()
     # Apply stack layout extensions (BeginHorizontal/BeginVertical/Spring)
     # from imgui-node-editor: https://github.com/thedmd/imgui-node-editor
     # Original PR: https://github.com/ocornut/imgui/pull/846
@@ -321,24 +321,9 @@ if(NOT imgui_POPULATED)
                 "${_patch_error}\nDelete ${imgui_SOURCE_DIR} and reconfigure to retry.")
         endif()
     endif()
-endif()
+endblock()
 
-# ImGuizmo — same pattern
-FetchContent_GetProperties(imguizmo)
-if(NOT imguizmo_POPULATED)
-    FetchContent_Populate(imguizmo)
-endif()
-
-# imnodes — same pattern
-FetchContent_GetProperties(imnodes)
-if(NOT imnodes_POPULATED)
-    FetchContent_Populate(imnodes)
-endif()
-
-# imgui-node-editor — same pattern
-FetchContent_GetProperties(imgui_node_editor)
-if(NOT imgui_node_editor_POPULATED)
-    FetchContent_Populate(imgui_node_editor)
+block()
     # Patch: guard operator*(float, ImVec2) which ImGui docking branch already defines
     foreach(_file
         "${imgui_node_editor_SOURCE_DIR}/imgui_extra_math.h"
@@ -362,7 +347,7 @@ if(NOT imgui_node_editor_POPULATED)
         endif()
         file(WRITE "${_file}" "${_contents}")
     endforeach()
-endif()
+endblock()
 
 find_package(Vulkan)
 if(NOT Vulkan_FOUND)
