@@ -174,8 +174,7 @@ void Project::refresh_headers(const Project& /*project*/) {
 
 void Project::write_scripts_cmake(const Project& project) {
     auto cmake_path = project.root() / "scripts" / "CMakeLists.txt";
-    auto sdk_include = base_path::dir() / ".." / "src" / "scripting";
-    write_scripts_cmake_to(cmake_path, sdk_include);
+    write_scripts_cmake_to(cmake_path, base_path::sdk_include());
 }
 
 void Project::write_gitignore(const std::filesystem::path& root) {

@@ -15,6 +15,11 @@ namespace base_path {
 /// Resolves a relative path against the executable directory.
 [[nodiscard]] std::string resolve(const std::string& relative);
 
+/// Directory to put on a game project's include path so its scripts can
+/// `#include <fjell/...>`. Points into the engine source tree for a dev build
+/// and at the installed SDK headers otherwise.
+[[nodiscard]] const std::filesystem::path& sdk_include();
+
 /// Resolves an asset path: uses project root if available, otherwise engine root.
 ///
 /// A reference may be either a project-relative path or an asset id (32 hex

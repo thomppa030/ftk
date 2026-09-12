@@ -34,6 +34,17 @@ std::string resolve(const std::string& relative) {
     return (dir() / relative).string();
 }
 
+const std::filesystem::path& sdk_include() {
+    static const auto path = [] {
+        // Installed layout: headers land in sdk/fjell, so sdk/ is the include root.
+        auto installed = dir() / "sdk";
+        if (std::filesystem::is_directory(installed)) return installed;
+        // Dev layout: included straight out of the engine source tree.
+        return dir() / ".." / "src" / "scripting";
+    }();
+    return path;
+}
+
 bool is_asset_id(const std::string& reference) {
     // An id is 32 hex characters. No path the engine stores looks like that —
     // they all carry a directory separator or an extension.
