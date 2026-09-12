@@ -18,6 +18,12 @@
 namespace fjell {
 namespace {
 
+/// Wrap a path for a shell command line. Project and engine paths routinely
+/// contain spaces, especially on Windows.
+std::string quoted(const std::filesystem::path& path) {
+    return "\"" + path.string() + "\"";
+}
+
 /// Locate the fjreflect codegen tool. Covers the dev build tree, MSVC's
 /// per-config subdirectories, and the install layout.
 std::filesystem::path find_fjreflect() {
@@ -176,7 +182,7 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                     if (!entry.is_regular_file()) continue;
                     auto name = entry.path().filename().string();
                     if (!name.ends_with(".hpp")) continue;
-                    source_list += " " + entry.path().string();
+                    source_list += " " + quoted(entry.path());
                 }
 
                 if (!source_list.empty()) {
@@ -184,25 +190,21 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
 
 #ifdef _WIN32
     #ifdef FJELL_CXX_COMPILER
-                    auto reflect_cmd = fjreflect_path.string() +
-                        " --output-dir " + generated_dir.string() +
-                        " --include-dir " + sdk_include.string() +
-                        " --compiler \"" FJELL_CXX_COMPILER "\"";
+                    // The compiler the engine itself was built with.
+                    const std::string compiler = FJELL_CXX_COMPILER;
     #else
-                    auto reflect_cmd = fjreflect_path.string() +
-                        " --output-dir " + generated_dir.string() +
-                        " --include-dir " + sdk_include.string() +
-                        " --compiler cl";
+                    const std::string compiler = "cl";
     #endif
 #else
-                    auto reflect_cmd = fjreflect_path.string() +
-                        " --output-dir " + generated_dir.string() +
-                        " --include-dir " + sdk_include.string() +
-                        " --compiler g++";
+                    const std::string compiler = "g++";
 #endif
+                    auto reflect_cmd = quoted(fjreflect_path) +
+                        " --output-dir " + quoted(generated_dir) +
+                        " --include-dir " + quoted(sdk_include) +
+                        " --compiler \"" + compiler + "\"";
 
                     if (fs::exists(glm_dir)) {
-                        reflect_cmd += " --include-dir " + glm_dir.string();
+                        reflect_cmd += " --include-dir " + quoted(glm_dir);
                     }
 
                     reflect_cmd += source_list + " 2>&1";
@@ -329,9 +331,12 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
             }
 
             // ── cmake configure + build ──────────────────────────────
-            auto cmd = "cmake -B " + build_dir.string() + " -S " + scripts_dir.string() +
-                       " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
-                       "cmake --build " + build_dir.string() + " --parallel 2>&1";
+            // Paths are quoted: a project under "C:\Users\Name\My Documents" or
+            // any other directory with a space is otherwise split into arguments.
+            const auto build_q = quoted(build_dir);
+            const auto cmd = "cmake -B " + build_q + " -S " + quoted(scripts_dir) +
+                             " -DCMAKE_BUILD_TYPE=Release 2>&1 && "
+                             "cmake --build " + build_q + " --parallel 2>&1";
 
             std::string build_output;
             int ret = platform::run_command(cmd, build_output);
