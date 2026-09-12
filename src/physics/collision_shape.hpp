@@ -53,4 +53,15 @@ struct CollisionMesh {
 // invalid CollisionMesh when the model has none.
 [[nodiscard]] CollisionMesh collision_mesh_of(const Model& model);
 
+// The edges of the convex hull of `points`, as line-segment pairs in the same
+// space the points are given in. Empty when fewer than four points are given.
+// Coplanar input yields the flat outline rather than nothing, which is the
+// honest picture of what such a collider would be.
+//
+// A hull collider stores only its points, since that is all a backend needs to
+// build one. Anything that has to *show* the hull needs its shape, and
+// deriving it here means the overlay draws the same solid the body will
+// collide against rather than a second opinion about it.
+[[nodiscard]] std::vector<glm::vec3> convex_hull_edges(const std::vector<glm::vec3>& points);
+
 } // namespace fjell

@@ -1,6 +1,7 @@
 #include "renderer/debug_draw.hpp"
 #include "renderer/components/arrow_component.hpp"
 #include "renderer/gpu/buffer.hpp"
+#include "physics/collision_shape.hpp"
 #include "physics/physics_types.hpp"
 #include "renderer/uniform_types.hpp"
 #include "scripting/debug_draw_queue.hpp"
@@ -157,14 +158,13 @@ void DebugDraw::submit_authored_collision(const std::vector<glm::vec3>& vertices
 
 void DebugDraw::generate_collision_wireframe(const std::vector<glm::vec3>& vertices,
                                              const std::vector<uint32_t>& indices) {
-    // A hull stores points and no triangles. Drawing each as a small cross is
-    // enough to read its extent, and there are no edges to derive.
+    // A hull stores only the points it is built from, so its surface has to be
+    // derived. Drawing the points themselves shows nothing about whether the
+    // hull swallowed a concavity, which is the whole reason to look at it.
     if (indices.empty()) {
-        constexpr float TICK = 0.01f;
-        for (const auto& p : vertices) {
-            add_line(p - glm::vec3{TICK, 0.0f, 0.0f}, p + glm::vec3{TICK, 0.0f, 0.0f});
-            add_line(p - glm::vec3{0.0f, TICK, 0.0f}, p + glm::vec3{0.0f, TICK, 0.0f});
-            add_line(p - glm::vec3{0.0f, 0.0f, TICK}, p + glm::vec3{0.0f, 0.0f, TICK});
+        auto edges = convex_hull_edges(vertices);
+        for (size_t i = 0; i + 1 < edges.size(); i += 2) {
+            add_line(edges[i], edges[i + 1]);
         }
         return;
     }

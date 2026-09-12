@@ -32,6 +32,7 @@
 
 #include <cstdarg>
 #include <mutex>
+#include <unordered_set>
 #include <thread>
 
 // Jolt requires a custom trace and assert implementation
@@ -792,6 +793,57 @@ const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::trigger_en
 
 const std::vector<std::pair<uint32_t, CollisionEvent>>& PhysicsWorld::trigger_exit_events() const {
     return impl_->contact_listener.trigger_exit_events;
+}
+
+// ── Hull faces ──────────────────────────────────────────────────────────
+
+// Declared in collision_shape.hpp, defined here because this is the file that
+// is allowed to know which backend builds the hull. Callers get engine types
+// and never learn where the faces came from.
+std::vector<glm::vec3> convex_hull_edges(const std::vector<glm::vec3>& points) {
+    // Four non-coplanar points are the minimum for a volume; Create() reports
+    // the coplanar case as an error rather than returning a degenerate hull.
+    if (points.size() < 4) return {};
+
+    ensure_jolt_init();
+
+    JPH::Array<JPH::Vec3> jolt_points;
+    jolt_points.reserve(points.size());
+    for (const auto& p : points) jolt_points.push_back(to_jolt(p));
+
+    auto result = JPH::ConvexHullShapeSettings(jolt_points).Create();
+    if (result.HasError()) return {};
+
+    const auto* hull = static_cast<const JPH::ConvexHullShape*>(result.Get().GetPtr());
+
+    // Jolt reports points relative to the center of mass, so shifting by it
+    // returns them to the space the caller passed in.
+    auto com = to_glm(hull->GetCenterOfMass());
+
+    std::vector<glm::vec3> edges;
+    std::vector<JPH::uint> face_indices;
+    std::unordered_set<uint64_t> seen;
+
+    for (JPH::uint f = 0, face_count = hull->GetNumFaces(); f < face_count; ++f) {
+        JPH::uint vertex_count = hull->GetNumVerticesInFace(f);
+        if (vertex_count < 3) continue;
+
+        face_indices.resize(vertex_count);
+        hull->GetFaceVertices(f, vertex_count, face_indices.data());
+
+        // Every edge borders two faces, so the second visit is a duplicate.
+        for (JPH::uint i = 0; i < vertex_count; ++i) {
+            JPH::uint a = face_indices[i];
+            JPH::uint b = face_indices[(i + 1) % vertex_count];
+            uint64_t key = a < b ? (static_cast<uint64_t>(a) << 32) | b
+                                 : (static_cast<uint64_t>(b) << 32) | a;
+            if (!seen.insert(key).second) continue;
+
+            edges.push_back(to_glm(hull->GetPoint(a)) + com);
+            edges.push_back(to_glm(hull->GetPoint(b)) + com);
+        }
+    }
+    return edges;
 }
 
 } // namespace fjell
