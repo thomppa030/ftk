@@ -2,6 +2,7 @@
 #define FJELL_INPUT_HPP
 
 #include "fjell/api.h"
+#include "core/delegate.hpp"
 #include <glm/glm.hpp>
 
 #include <array>
@@ -10,6 +11,15 @@
 struct GLFWwindow;
 
 namespace fjell {
+
+/// Which kind of device the player is currently using. Drives prompts and
+/// anything else that should follow the player between keyboard and pad; it
+/// does not gate input itself, since every bound source keeps being read.
+enum class InputDevice : uint8_t { keyboard_mouse, gamepad };
+
+[[nodiscard]] constexpr const char* input_device_name(InputDevice device) {
+    return device == InputDevice::gamepad ? "gamepad" : "keyboard_mouse";
+}
 
 class Input {
 public:
@@ -45,6 +55,14 @@ public:
     /// Name of the pad currently being read, empty when none is connected.
     [[nodiscard]] const std::string& pad_name() const { return pad_name_; }
 
+    /// The device the player last used with enough intent to count. Starts
+    /// as keyboard_mouse and only changes when the other device is used
+    /// past a threshold — see the switch thresholds in the implementation.
+    [[nodiscard]] InputDevice active_device() const { return active_device_; }
+
+    /// Fires when active_device() changes, with the new device.
+    Delegate<void(InputDevice)> on_device_changed;
+
 private:
     static constexpr int MAX_KEYS = 512;
     static constexpr int MAX_BUTTONS = 8;
@@ -67,6 +85,12 @@ private:
     /// plugged in after startup is still found.
     int pad_jid_{-1};
     std::string pad_name_;
+
+    InputDevice active_device_{InputDevice::keyboard_mouse};
+
+    /// Update active_device_ from this frame's input, firing the delegate on
+    /// a change. Thresholds live in the implementation.
+    void detect_active_device();
     /// Slots already tried and found unmappable, cleared when they empty, so
     /// the per-frame scan reports each connection once instead of every frame.
     /// Sized for GLFW's joystick slots, which are ids 0 through 15.

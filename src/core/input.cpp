@@ -7,6 +7,7 @@
 
 #include <GLFW/glfw3.h>
 
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -188,6 +189,66 @@ void Input::resolve_pad() {
     }
 }
 
+void Input::detect_active_device() {
+    // Switching repaints every prompt, so it takes more than the deadzone a
+    // bound action moves on: a resting stick drifts, and a mouse picks up
+    // desk vibration. Both would otherwise flip the device back and forth
+    // while the player is not touching either.
+    constexpr float PAD_STICK_SWITCH = 0.5F;
+    constexpr float PAD_TRIGGER_SWITCH = 0.3F;
+    constexpr double MOUSE_MOVE_SWITCH = 8.0;  // pixels in one frame
+
+    auto pad_active = [&] {
+        if (!pad_connected_) return false;
+        for (int i = 0; i < MAX_PAD_BUTTONS; ++i) {
+            if (pad_buttons_[i] != 0U) return true;
+        }
+        // Sticks are checked by magnitude so a diagonal push counts the same
+        // as an axis-aligned one.
+        for (int axis = 0; axis < 4; axis += 2) {
+            float x = pad_axes_[axis];
+            float y = pad_axes_[axis + 1];
+            if (std::sqrt((x * x) + (y * y)) > PAD_STICK_SWITCH) return true;
+        }
+        // Triggers rest at -1 and read 1 fully pressed.
+        for (int axis = 4; axis < MAX_PAD_AXES; ++axis) {
+            if ((pad_axes_[axis] + 1.0F) * 0.5F > PAD_TRIGGER_SWITCH) return true;
+        }
+        return false;
+    };
+
+    auto keyboard_mouse_active = [&] {
+        for (auto key : keys_) {
+            if (key == KeyState::Pressed || key == KeyState::Held) return true;
+        }
+        for (auto btn : mouse_buttons_) {
+            if (btn == KeyState::Pressed || btn == KeyState::Held) return true;
+        }
+        if (std::abs(mouse_delta_.x) > MOUSE_MOVE_SWITCH
+            || std::abs(mouse_delta_.y) > MOUSE_MOVE_SWITCH) {
+            return true;
+        }
+        return scroll_delta_.x != 0.0 || scroll_delta_.y != 0.0;
+    };
+
+    // Only the device that is not already active can take over, so holding a
+    // key does not keep re-asserting a device that already owns the state.
+    auto wanted = active_device_;
+    if (active_device_ == InputDevice::keyboard_mouse) {
+        if (pad_active()) wanted = InputDevice::gamepad;
+    } else if (keyboard_mouse_active()) {
+        wanted = InputDevice::keyboard_mouse;
+    }
+
+    // A pad that goes away cannot stay the active device.
+    if (!pad_connected_) wanted = InputDevice::keyboard_mouse;
+
+    if (wanted != active_device_) {
+        active_device_ = wanted;
+        on_device_changed.broadcast(active_device_);
+    }
+}
+
 void Input::update() {
     FJELL_PROFILE_SCOPE_N("input_update");
     for (auto& key : keys_) {
@@ -204,9 +265,6 @@ void Input::update() {
             btn = KeyState::Idle;
         }
     }
-    mouse_delta_ = {0.0, 0.0};
-    scroll_delta_ = {0.0, 0.0};
-
     // Gamepad polling
     pad_buttons_prev_ = pad_buttons_;
     resolve_pad();
@@ -225,6 +283,14 @@ void Input::update() {
         pad_buttons_.fill(0);
         pad_axes_.fill(0.0F);
     }
+
+    // Runs while the mouse deltas still hold what the callbacks accumulated
+    // during the last poll_events(); they are cleared for the next frame
+    // immediately below.
+    detect_active_device();
+
+    mouse_delta_ = {0.0, 0.0};
+    scroll_delta_ = {0.0, 0.0};
 }
 
 FJELL_SDK_EXPORT bool Input::is_key_pressed(int key) const {
