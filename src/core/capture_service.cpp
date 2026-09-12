@@ -183,13 +183,24 @@ bool write_png(const std::filesystem::path& path, uint32_t w, uint32_t h,
     return true;
 }
 
+/// Thread-safe local time. The reentrant call is spelled differently on each
+/// platform, and the two take their arguments in opposite orders.
+std::tm local_time(std::time_t t) {
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    localtime_r(&t, &tm);
+#endif
+    return tm;
+}
+
 } // namespace
 
 std::filesystem::path CaptureService::next_output_path(const std::string& tag) const {
     auto now = std::chrono::system_clock::now();
     auto t = std::chrono::system_clock::to_time_t(now);
-    std::tm tm{};
-    localtime_r(&t, &tm);
+    const std::tm tm = local_time(t);
 
     std::stringstream ss;
     ss << tag << "_"
