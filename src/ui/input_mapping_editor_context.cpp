@@ -315,6 +315,26 @@ void InputMappingEditorContext::draw_mappings() {
             ImGui::SetTooltip("Consume matched inputs, blocking lower contexts");
         }
 
+        // Which device is live right now, so bindings can be checked against
+        // a real controller without writing a script to print it.
+        if (deps_.input != nullptr) {
+            ImGui::SameLine(0.0F, 20.0F);
+            const bool on_pad = deps_.input->active_device() == InputDevice::gamepad;
+            ImGui::TextDisabled("Active:");
+            ImGui::SameLine(0.0F, 6.0F);
+            if (on_pad) {
+                ImGui::TextColored(theme::accent(), "Gamepad");
+            } else {
+                ImGui::TextUnformatted("Keyboard/Mouse");
+            }
+            if (ImGui::IsItemHovered()) {
+                const auto& pad = deps_.input->pad_name();
+                ImGui::SetTooltip("%s", pad.empty()
+                                            ? "No gamepad connected"
+                                            : pad.c_str());
+            }
+        }
+
         // Right-aligned: unsaved indicator + Add Action button
         const char* add_label = "+  Add Action";
         float add_w = ImGui::CalcTextSize(add_label).x + ImGui::GetStyle().FramePadding.x * 2.0F;
