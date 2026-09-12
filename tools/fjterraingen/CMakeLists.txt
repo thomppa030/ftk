@@ -13,3 +13,5 @@ target_include_directories(fjterraingen PRIVATE
 target_link_libraries(fjterraingen PRIVATE
     glm::glm
 )
+
+install(TARGETS fjterraingen RUNTIME DESTINATION .)

@@ -52,3 +52,5 @@ get_target_property(OZZ_OFFLINE_DIRS ozz_animation_offline INTERFACE_INCLUDE_DIR
 if(OZZ_OFFLINE_DIRS)
     target_include_directories(fjimport SYSTEM PRIVATE ${OZZ_OFFLINE_DIRS})
 endif()
+
+install(TARGETS fjimport RUNTIME DESTINATION .)

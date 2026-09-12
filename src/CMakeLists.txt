@@ -539,9 +539,19 @@ else()
 endif()
 
 # --- Install rules ---
-install(TARGETS fjell fjell-hub RUNTIME DESTINATION .)
+# ARCHIVE carries MSVC's import library: ENABLE_EXPORTS emits fjell.lib beside
+# fjell.exe, and generated game projects link against it to resolve engine symbols.
+install(TARGETS fjell fjell-hub
+        RUNTIME DESTINATION .
+        ARCHIVE DESTINATION .)
 install(DIRECTORY "${SHADER_OUTPUT_DIR}/" DESTINATION shaders
         FILES_MATCHING PATTERN "*.spv")
+# The FJSL material system generates and compiles GLSL at runtime, so the
+# templates it injects and the .fjsl sources have to ship alongside the SPIR-V.
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/shaders/include" DESTINATION shaders
+        FILES_MATCHING PATTERN "*.glsl")
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/shaders/" DESTINATION shaders
+        FILES_MATCHING PATTERN "*.fjsl")
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/assets/" DESTINATION assets)
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/engine_assets/" DESTINATION engine_assets)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scripting/fjell" DESTINATION sdk)
