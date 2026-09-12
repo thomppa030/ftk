@@ -75,14 +75,9 @@ private:
 
     mutable std::shared_mutex mutex_;
 
-    /// Check if a file extension should be tracked.
+    /// Check if a file extension should be tracked. Where an asset's id lives
+    /// is asset_identity's business, not the database's.
     static bool is_trackable(const std::string& ext);
-
-    /// Check if a file extension is a Fjell JSON format (can embed __uuid).
-    static bool is_fjell_json(const std::string& ext);
-
-    /// Try to read __uuid from a Fjell JSON file. Returns invalid AssetId if not present.
-    static AssetId read_inline_uuid(const std::filesystem::path& file);
 
     /// Insert an entry into both maps. Caller holds exclusive lock.
     void insert_locked(AssetId id, std::string relative_path);

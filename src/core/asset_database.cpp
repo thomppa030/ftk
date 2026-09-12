@@ -344,39 +344,6 @@ bool AssetDatabase::is_trackable(const std::string& ext) {
     return exts.contains(ext);
 }
 
-bool AssetDatabase::is_fjell_json(const std::string& ext) {
-    static const std::unordered_set<std::string> exts = {
-        ".fjmat", ".fjvfx", ".fjanimset", ".fjblend1D", ".fjblend2D",
-        ".fjaction", ".fjinput", ".fjanim", ".fjaudio",
-        ".fjwidget", ".fjp", ".fjell",
-    };
-    return exts.contains(ext);
-}
-
-AssetId AssetDatabase::read_inline_uuid(const fs::path& file) {
-    std::ifstream in(file);
-    if (!in.is_open()) return {};
-
-    // Read enough to find __uuid near the top of the file.
-    // Don't parse the entire file — just look for the field.
-    std::string line;
-    int lines_read = 0;
-    while (std::getline(in, line) && lines_read < 10) {
-        auto pos = line.find("\"__uuid\"");
-        if (pos != std::string::npos) {
-            // Find the value — look for the next quoted string
-            auto quote1 = line.find('"', pos + 8);
-            if (quote1 == std::string::npos) return {};
-            auto quote2 = line.find('"', quote1 + 1);
-            if (quote2 == std::string::npos) return {};
-            auto val = line.substr(quote1 + 1, quote2 - quote1 - 1);
-            return AssetId::from_string(val);
-        }
-        ++lines_read;
-    }
-    return {};
-}
-
 void AssetDatabase::insert_locked(AssetId id, std::string relative_path) {
     by_path_[relative_path] = id;
     by_id_[id] = AssetEntry{id, std::move(relative_path)};

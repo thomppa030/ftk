@@ -59,6 +59,12 @@ std::string asset_reference(const std::string& path_or_id, const Project* projec
     return id.valid() ? id.to_string() : path_or_id;
 }
 
+std::string asset_display_path(const std::string& reference, const Project* project) {
+    if (reference.empty() || !is_asset_id(reference)) return reference;
+    if (!project) return {};
+    return project->path_of(AssetId::from_string(reference));
+}
+
 std::string resolve_asset(const std::string& reference, const Project* project) {
     if (is_asset_id(reference)) {
         if (!project) {

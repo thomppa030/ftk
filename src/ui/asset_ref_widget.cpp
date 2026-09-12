@@ -62,10 +62,10 @@ bool asset_ref_field(const AssetRefConfig& config, std::string& path) {
         return base_path::asset_reference(picked, project);
     };
     auto display_path = [&](const std::string& reference) -> std::string {
-        if (!base_path::is_asset_id(reference)) return reference;
-        if (!project) return reference;
-        auto rel = project->path_of(AssetId::from_string(reference));
-        return rel.empty() ? reference : rel;
+        auto shown = base_path::asset_display_path(reference, project);
+        // An id the database no longer knows: show it, so the field reads as
+        // broken rather than empty.
+        return shown.empty() ? reference : shown;
     };
 
     ImGui::PushID(config.id);

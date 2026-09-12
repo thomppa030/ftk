@@ -228,13 +228,9 @@ void MeshEditorContext::draw_slots_panel() {
             // Slots hold ids; show the path they point at.
             std::string shown = "(none)";
             if (!slot.path.empty()) {
-                shown = slot.path;
-                if (base_path::is_asset_id(slot.path)) {
-                    const auto* proj = deps_.project_mgr->active();
-                    auto rel = proj ? proj->path_of(AssetId::from_string(slot.path))
-                                    : std::string{};
-                    shown = rel.empty() ? slot.path + "  (missing)" : rel;
-                }
+                shown = base_path::asset_display_path(
+                    slot.path, deps_.project_mgr->active());
+                if (shown.empty()) shown = slot.path + "  (missing)";
             }
             ImGui::Text("%zu  %s", i, slot.name.c_str());
             ImGui::TextDisabled("%s", shown.c_str());

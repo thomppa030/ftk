@@ -42,5 +42,12 @@ namespace base_path {
 [[nodiscard]] std::string asset_reference(const std::string& path_or_id,
                                           const Project* project);
 
+/// The project-relative path a reference points at, for display. An id becomes
+/// the path it resolves to; a path is returned as-is. An id the database does
+/// not know comes back empty, so callers can say so rather than showing a bare
+/// uuid. Use resolve_asset to get an absolute path for loading.
+[[nodiscard]] std::string asset_display_path(const std::string& reference,
+                                             const Project* project);
+
 } // namespace base_path
 } // namespace fjell
