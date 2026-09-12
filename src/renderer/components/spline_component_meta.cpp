@@ -161,7 +161,8 @@ static const bool registered = [] {
             sp.spline.build_reparam_table(sp.reparam_samples);
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             auto* sp = static_cast<const SplineComponent*>(ptr);
             out["closed"] = sp->spline.closed;
             out["reparam_samples"] = sp->reparam_samples;

@@ -43,7 +43,10 @@ struct ComponentMeta {
 
     std::function<bool(Node3D& node, void* component, const InspectorContext& ctx)> draw;
     std::function<void(Node3D& node, const InspectorContext& ctx)> init;
-    std::function<void(const void* component, const Node& node, nlohmann::json& out)> serialize;
+    // Both sides take the project: deserialize resolves asset references
+    // through it, serialize writes them as ids through it.
+    std::function<void(const void* component, const Node& node, nlohmann::json& out,
+                       const Project* proj)> serialize;
     std::function<void(Node& node, const nlohmann::json& j, ResourceManager& res, const Project* proj)> deserialize;
 
     // Script API dispatch (null = not script-accessible)

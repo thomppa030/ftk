@@ -33,7 +33,8 @@ static const bool registered = [] {
             node.components.add<CharacterComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             auto* cc = static_cast<const CharacterComponent*>(ptr);
             out["capsule_radius"] = cc->capsule_radius;
             out["capsule_height"] = cc->capsule_height;

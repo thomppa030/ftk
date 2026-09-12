@@ -604,13 +604,13 @@ void Scene::reparent(uint32_t child_id, int32_t new_parent_id) {
     dirty_ = true;
 }
 
-Result<> Scene::save(const std::string& path) {
+Result<> Scene::save(const std::string& path, const Project* project) {
     nlohmann::json j;
     j["next_id"] = next_id_;
     j["objects"] = nlohmann::json::array();
 
     for (const auto& obj : objects_) {
-        j["objects"].push_back(serialize_node(*obj));
+        j["objects"].push_back(serialize_node(*obj, project));
     }
 
     // Point lights

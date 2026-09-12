@@ -1,4 +1,5 @@
 #include "scene/component_registry.hpp"
+#include "core/base_path.hpp"
 #include "renderer/components/sprite_anim_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -54,12 +55,13 @@ static const bool registered = [] {
             node.components.add<SpriteAnimComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* sa = static_cast<const SpriteAnimComponent*>(ptr);
             nlohmann::json anims;
             for (auto& [name, path] : sa->animations) anims[name] = path;
             if (!anims.empty()) out["animations"] = anims;
-            if (!sa->animset_path.empty()) out["animset"] = sa->animset_path;
+            if (!sa->animset_path.empty()) out["animset"] = base_path::asset_reference(sa->animset_path, proj);
             if (!sa->default_animation.empty()) out["default"] = sa->default_animation;
             if (sa->playback_speed != 1.0f) out["playback_speed"] = sa->playback_speed;
         },

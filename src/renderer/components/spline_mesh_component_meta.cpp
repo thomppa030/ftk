@@ -267,9 +267,10 @@ static const bool registered = [] {
             resolve_material(&sm, ctx);
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* sm = static_cast<const SplineMeshComponent*>(ptr);
-            out["material"]       = sm->material_name;
+            out["material"]       = base_path::asset_reference(sm->material_name, proj);
             out["forward"]        = static_cast<int>(sm->forward);
             out["up"]             = {sm->up_dir.x, sm->up_dir.y, sm->up_dir.z};
             out["closed"]         = sm->spline.closed;

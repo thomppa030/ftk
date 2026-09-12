@@ -12,14 +12,14 @@ namespace fjell {
 
 // ── Save ─────────────────────────────────────────────────────────────────
 
-Result<> Preset::save(const std::string& path) const {
+Result<> Preset::save(const std::string& path, const Project* project) const {
     nlohmann::json j;
     j["preset"] = {{"name", header_.name}};
     j["next_id"] = local_next_id_;
     j["objects"] = nlohmann::json::array();
 
     for (const auto& node : nodes_) {
-        j["objects"].push_back(serialize_node(*node));
+        j["objects"].push_back(serialize_node(*node, project));
     }
 
     std::ofstream file(path);

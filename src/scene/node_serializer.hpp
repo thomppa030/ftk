@@ -11,7 +11,10 @@ class Project;
 
 /// Serialize a single scene node (any type) to JSON.
 /// Handles node type discrimination, components, scripts, and transform.
-[[nodiscard]] nlohmann::json serialize_node(const Node& node);
+/// Asset references are written as ids where the project tracks the asset, so
+/// they survive it being moved or renamed; pass the project for that.
+[[nodiscard]] nlohmann::json serialize_node(const Node& node,
+                                            const Project* project = nullptr);
 
 /// Deserialize a single scene node from JSON.
 /// Returns nullptr on failure (missing model, parse error, etc.).

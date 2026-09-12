@@ -1,4 +1,5 @@
 #include "scene/component_registry.hpp"
+#include "core/base_path.hpp"
 #include "renderer/components/tilemap_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -48,16 +49,17 @@ static const bool registered = [] {
             tm.tiles.resize(tm.map_size.x * tm.map_size.y, -1);
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* tm = static_cast<const TilemapComponent*>(ptr);
-            out["tileset"] = tm->tileset_texture;
+            out["tileset"] = base_path::asset_reference(tm->tileset_texture, proj);
             out["tile_size"] = {tm->tile_size.x, tm->tile_size.y};
             out["map_size"] = {tm->map_size.x, tm->map_size.y};
             out["world_tile_size"] = tm->world_tile_size;
             out["sort_layer"] = tm->sort_layer;
             if (tm->pixel_art != true) out["pixel_art"] = tm->pixel_art;
             if (!tm->lit) out["lit"] = false;  // default true for tilemaps
-            if (!tm->normal_path.empty()) out["normal"] = tm->normal_path;
+            if (!tm->normal_path.empty()) out["normal"] = base_path::asset_reference(tm->normal_path, proj);
             if (tm->roughness != 1.0f) out["roughness"] = tm->roughness;
             if (tm->metallic != 0.0f) out["metallic"] = tm->metallic;
             if (tm->emission != 0.0f) out["emission"] = tm->emission;

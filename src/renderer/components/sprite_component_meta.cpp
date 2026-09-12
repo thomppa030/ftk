@@ -1,4 +1,5 @@
 #include "scene/component_registry.hpp"
+#include "core/base_path.hpp"
 #include "renderer/components/sprite_desc.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -54,9 +55,10 @@ static const bool registered = [] {
             node.components.add<SpriteComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* sp = static_cast<const SpriteComponent*>(ptr);
-            out["texture"] = sp->texture_path;
+            out["texture"] = base_path::asset_reference(sp->texture_path, proj);
             out["tint"] = {sp->tint.r, sp->tint.g, sp->tint.b, sp->tint.a};
             out["opacity"] = sp->opacity;
             out["editor_only"] = sp->editor_only;
@@ -68,7 +70,7 @@ static const bool registered = [] {
             if (sp->sort_layer != 0) out["sort_layer"] = sp->sort_layer;
             if (sp->sort_order != 0) out["sort_order"] = sp->sort_order;
             if (sp->lit) out["lit"] = true;
-            if (!sp->normal_path.empty()) out["normal"] = sp->normal_path;
+            if (!sp->normal_path.empty()) out["normal"] = base_path::asset_reference(sp->normal_path, proj);
             if (sp->roughness != 1.0f) out["roughness"] = sp->roughness;
             if (sp->metallic != 0.0f) out["metallic"] = sp->metallic;
             if (sp->emission != 0.0f) out["emission"] = sp->emission;

@@ -143,7 +143,8 @@ static const bool registered = [] {
             node.components.add<EmitterComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             auto* em = static_cast<const EmitterComponent*>(ptr);
             if (!em->vfx_path.empty()) {
                 out["_vfx_path"] = em->vfx_path;

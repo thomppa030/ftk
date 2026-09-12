@@ -62,9 +62,10 @@ static const bool registered = [] {
             node.components.add<MeshComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* mesh = static_cast<const MeshComponent*>(ptr);
-            out["material"] = mesh->material_name;
+            out["material"] = base_path::asset_reference(mesh->material_name, proj);
             if (mesh->material) {
                 const auto& bcf = mesh->material->params().base_color_factor;
                 if (bcf.r != 1.0f || bcf.g != 1.0f || bcf.b != 1.0f || bcf.a != 1.0f) {

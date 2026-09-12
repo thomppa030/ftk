@@ -118,7 +118,8 @@ static const bool registered = [] {
             node.components.add<AnimatorComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             auto* anim = static_cast<const AnimatorComponent*>(ptr);
             if (!anim->clip_paths.empty()) out["clips"] = anim->clip_paths;
             if (!anim->animset_path.empty()) out["animset"] = anim->animset_path;

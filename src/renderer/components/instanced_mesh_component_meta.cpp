@@ -220,9 +220,10 @@ static const bool registered = [] {
             node.components.add<InstancedMeshComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* inst = static_cast<const InstancedMeshComponent*>(ptr);
-            out["material"] = inst->material_name;
+            out["material"] = base_path::asset_reference(inst->material_name, proj);
 
             nlohmann::json arr = nlohmann::json::array();
             arr.get_ptr<nlohmann::json::array_t*>()->reserve(inst->instances.size());

@@ -69,7 +69,8 @@ static const bool registered = [] {
             else col.shape = ColliderShape::Box;
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             auto* col = static_cast<const ColliderComponent*>(ptr);
             out["shape"] = static_cast<int>(col->shape);
             out["inherit_from_mesh"] = col->inherit_from_mesh;

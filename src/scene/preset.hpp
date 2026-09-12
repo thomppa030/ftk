@@ -24,7 +24,7 @@ public:
     [[nodiscard]] static Result<Preset> load(const std::string& path,
                                              ResourceManager& resources,
                                              const Project* project = nullptr);
-    [[nodiscard]] Result<> save(const std::string& path) const;
+    [[nodiscard]] Result<> save(const std::string& path, const Project* project = nullptr) const;
 
     /// Instantiate into scene. Returns root node ID.
     /// All preset-local IDs are remapped to fresh scene IDs.

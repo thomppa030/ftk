@@ -1,4 +1,5 @@
 #include "scene/component_registry.hpp"
+#include "core/base_path.hpp"
 #include "ui/game_ui/ui_widget_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -35,9 +36,10 @@ static const bool registered = [] {
             node.components.add<UiWidgetComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* wc = static_cast<const UiWidgetComponent*>(ptr);
-            out["widget"] = wc->widget_path;
+            out["widget"] = base_path::asset_reference(wc->widget_path, proj);
             if (wc->render_mode != UiWidgetComponent::RenderMode::screen_space)
                 out["render_mode"] = static_cast<int>(wc->render_mode);
             if (!wc->style_classes.empty()) out["style_classes"] = wc->style_classes;

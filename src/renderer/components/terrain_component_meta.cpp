@@ -65,7 +65,8 @@ static const bool registered = [] {
             node.components.add<TerrainComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             const auto* terrain = static_cast<const TerrainComponent*>(ptr);
             out["terrain_path"] = terrain->terrain_path;
         },

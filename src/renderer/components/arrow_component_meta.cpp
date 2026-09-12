@@ -31,7 +31,8 @@ static const bool registered = [] {
             node.components.add<ArrowComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             auto* arr = static_cast<const ArrowComponent*>(ptr);
             out["length"] = arr->length;
             out["color"] = {arr->color.x, arr->color.y, arr->color.z};

@@ -25,12 +25,14 @@ namespace fjell {
 
 // ── Serialize ────────────────────────────────────────────────────────────
 
-nlohmann::json serialize_node(const Node& node) {
+nlohmann::json serialize_node(const Node& node, const Project* project) {
     nlohmann::json j;
     j["id"] = node.id;
     j["parent_id"] = node.parent_id;
     j["name"] = node.name;
-    j["source"] = node.source;
+    // The model a mesh node draws. Primitives are a built-in name rather than
+    // an asset, so asset_reference leaves them alone.
+    j["source"] = base_path::asset_reference(node.source, project);
     if (!node.preset_source.empty()) {
         j["preset_source"] = node.preset_source;
     }
@@ -45,7 +47,7 @@ nlohmann::json serialize_node(const Node& node) {
         auto* meta = registry.find(id);
         if (!meta) return;
         nlohmann::json comp_json;
-        meta->serialize(ptr, node, comp_json);
+        meta->serialize(ptr, node, comp_json, project);
         if (!comp_json.empty()) {
             j[meta->json_key] = std::move(comp_json);
         }

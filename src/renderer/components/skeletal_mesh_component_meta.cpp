@@ -69,9 +69,10 @@ static const bool registered = [] {
             }
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* skel = static_cast<const SkeletalMeshComponent*>(ptr);
-            out["material"] = skel->material_name;
+            out["material"] = base_path::asset_reference(skel->material_name, proj);
         },
 
         .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/, const Project* /*proj*/) {

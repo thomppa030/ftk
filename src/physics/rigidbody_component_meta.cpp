@@ -42,7 +42,8 @@ static const bool registered = [] {
             node.components.add<RigidbodyComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             auto* rb = static_cast<const RigidbodyComponent*>(ptr);
             out["body_type"] = static_cast<int>(rb->body_type);
             out["mass"] = rb->mass;

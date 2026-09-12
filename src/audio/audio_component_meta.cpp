@@ -1,4 +1,5 @@
 #include "scene/component_registry.hpp"
+#include "core/base_path.hpp"
 #include "audio/audio_component.hpp"
 #include "scene/node.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -42,9 +43,10 @@ static const bool registered = [] {
             node.components.add<AudioSourceComponent>();
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* proj) {
             auto* au = static_cast<const AudioSourceComponent*>(ptr);
-            out["clip"] = au->clip_path;
+            out["clip"] = base_path::asset_reference(au->clip_path, proj);
             out["volume"] = au->volume;
             out["pitch"] = au->pitch;
             out["min_distance"] = au->min_distance;

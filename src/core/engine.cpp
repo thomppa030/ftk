@@ -412,7 +412,7 @@ void Engine::init_content_browser() {
                     if (!std::filesystem::exists(alt)) { path = alt; break; }
                 }
             }
-            auto result = preset.save(path.string());
+            auto result = preset.save(path.string(), project_mgr_.active());
             if (!result) {
                 FJELL_CORE_ERROR("Failed to save preset: {}", result.error());
             }
@@ -791,7 +791,7 @@ void Engine::save_scene() {
         script_subsystem_->manager().serialize_all(scene_);
     }
     save_material_assets();
-    if (auto r = scene_.save(current_scene_path_); !r) {
+    if (auto r = scene_.save(current_scene_path_, project_mgr_.active()); !r) {
         FJELL_CORE_ERROR("{}", r.error());
     }
 }

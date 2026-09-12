@@ -39,7 +39,8 @@ static const bool registered = [] {
             node.components.add<InputComponent>().actions_dir = "assets/input/actions";
         },
 
-        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out) {
+        .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,
+                        const Project* /*proj*/) {
             auto* ic = static_cast<const InputComponent*>(ptr);
             out["contexts"] = ic->context_paths;
             if (!ic->actions_dir.empty()) out["actions_dir"] = ic->actions_dir;
