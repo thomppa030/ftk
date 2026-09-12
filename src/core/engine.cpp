@@ -1447,7 +1447,8 @@ void Engine::draw_ui() {
             project_mgr_.active()->save();
         }
     }
-    if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Space)) {
+    if (!ImGui::IsAnyItemActive() && ImGui::GetIO().KeyCtrl &&
+        ImGui::IsKeyPressed(ImGuiKey_Space)) {
         content_browser_.toggle_visibility();
     }
     if (!ImGui::IsAnyItemActive() && ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
