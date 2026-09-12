@@ -19,8 +19,11 @@ static std::optional<std::string> extract_single_key(const std::string& s) {
 DataBindResult UiDataBind::resolve(UiNode& root, UiContext& context) {
     FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
     uint64_t gen = context.generation();
-    if (gen == last_generation_) return {}; // nothing changed
+    // A context that has never been written to sits at generation 0, so the
+    // generation alone cannot tell "unchanged" apart from "not yet resolved".
+    if (has_resolved_ && gen == last_generation_) return {}; // nothing changed
     last_generation_ = gen;
+    has_resolved_ = true;
     DataBindResult result{};
     resolve_node(root, context, result);
     return result;

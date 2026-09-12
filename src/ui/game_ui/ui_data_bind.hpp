@@ -36,6 +36,7 @@ private:
     void resolve_node(UiNode& node, UiContext& context, DataBindResult& result);
     void resolve_foreach(UiNode& parent, UiContext& context, DataBindResult& result);
     uint64_t last_generation_{0};
+    bool has_resolved_{false};
 };
 
 } // namespace fjell
