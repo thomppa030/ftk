@@ -2,6 +2,7 @@
 
 #include "ui/editor_context.hpp"
 #include "ui/viewport_manager.hpp"
+#include "physics/collision_shape.hpp"
 #include "renderer/resources/fjmesh.hpp"
 #include "renderer/resources/resource_handle.hpp"
 #include "scene/scene.hpp"
@@ -94,7 +95,15 @@ private:
     bool collision_dirty_{false};
     bool show_collision_{true};
 
+    // The shapes the mesh collides as. A mesh that authors none collides as its
+    // geometry, which is the pre-v8 behaviour and what the loader synthesizes,
+    // so an empty list here is a valid state rather than an unfinished one.
+    std::vector<CollisionPrimitive> collision_primitives_;
+    int selected_primitive_{-1};
+
     void rebuild_collision();
+    void draw_primitive_list();
+    void add_primitive(CollisionPrimitiveKind kind, bool fit_to_bounds);
 
     // Preview scene
     Scene preview_scene_;

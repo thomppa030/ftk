@@ -156,6 +156,37 @@ void DebugDraw::submit_authored_collision(const std::vector<glm::vec3>& vertices
     std::swap(vertices_, authored_collision_lines_);
 }
 
+void DebugDraw::submit_collision_primitive(const CollisionPrimitive& prim, bool highlight) {
+    uint32_t first = static_cast<uint32_t>(authored_collision_lines_.size());
+    std::swap(vertices_, authored_collision_lines_);
+
+    switch (prim.kind) {
+        case CollisionPrimitiveKind::box:
+            generate_box(prim.extents);
+            break;
+        case CollisionPrimitiveKind::sphere:
+            generate_sphere(prim.extents.x);
+            break;
+        case CollisionPrimitiveKind::capsule:
+            generate_capsule(prim.extents.x, prim.extents.y);
+            break;
+        default:
+            // Hull and triangle-mesh shapes are drawn from the geometry they
+            // index, which submit_authored_collision already covers.
+            break;
+    }
+
+    std::swap(vertices_, authored_collision_lines_);
+    uint32_t count = static_cast<uint32_t>(authored_collision_lines_.size()) - first;
+    if (count == 0) return;
+
+    auto model = glm::translate(glm::mat4(1.0f), prim.position) *
+                 glm::mat4_cast(prim.rotation);
+    authored_shapes_.push_back({model, first, count,
+                                highlight ? glm::vec4{1.0f, 0.75f, 0.2f, 1.0f}
+                                          : glm::vec4{0.25f, 0.85f, 0.4f, 1.0f}});
+}
+
 void DebugDraw::generate_collision_wireframe(const std::vector<glm::vec3>& vertices,
                                              const std::vector<uint32_t>& indices) {
     // A hull stores only the points it is built from, so its surface has to be
@@ -198,13 +229,23 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
     // transform — the preview places the mesh at identity. Consumed here, so
     // an editor that stops submitting stops being drawn.
     if (!authored_collision_lines_.empty()) {
-        uint32_t first = static_cast<uint32_t>(vertices_.size());
+        uint32_t base = static_cast<uint32_t>(vertices_.size());
         vertices_.insert(vertices_.end(), authored_collision_lines_.begin(),
                          authored_collision_lines_.end());
-        auto count = static_cast<uint32_t>(authored_collision_lines_.size());
-        draw_commands_.push_back({glm::mat4(1.0f), first, count,
-                                  {0.25f, 0.85f, 0.4f, 1.0f}});
+
+        if (authored_shapes_.empty()) {
+            // Geometry submitted on its own, with no shape list over it.
+            draw_commands_.push_back({glm::mat4(1.0f), base,
+                                      static_cast<uint32_t>(authored_collision_lines_.size()),
+                                      {0.25f, 0.85f, 0.4f, 1.0f}});
+        } else {
+            for (const auto& shape : authored_shapes_) {
+                draw_commands_.push_back({shape.model, base + shape.first,
+                                          shape.count, shape.color});
+            }
+        }
         authored_collision_lines_.clear();
+        authored_shapes_.clear();
     }
 
     if (show_colliders) {

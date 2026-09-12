@@ -54,6 +54,9 @@ struct FjMeshData {
 
     // Authored settings (v5+)
     MeshAuthoredData authored;
+
+    // The file format version this was read from.
+    uint32_t version{0};
 };
 
 // Runtime LOD level: maps to a range of MegaMeshEntries
@@ -129,6 +132,11 @@ public:
         return collision_primitives_;
     }
 
+    // The .fjmesh version this was loaded from, so the editor can tell whether
+    // the file has room for what is being authored. Zero for meshes not loaded
+    // from a file at all.
+    [[nodiscard]] uint32_t authored_version() const { return authored_version_; }
+
     [[nodiscard]] const AABB& local_aabb() const { return local_aabb_; }
 
     [[nodiscard]] const std::vector<MegaMeshEntry>& mega_entries() const { return mega_entries_; }
@@ -186,6 +194,7 @@ private:
     std::vector<glm::vec3> collision_full_vertices_;
     std::vector<uint32_t> collision_full_indices_;
     std::vector<CollisionPrimitive> collision_primitives_;
+    uint32_t authored_version_{0};
     AABB local_aabb_;
     std::vector<MegaMeshEntry> mega_entries_;
     std::vector<MeshletBuildResult> meshlet_results_;

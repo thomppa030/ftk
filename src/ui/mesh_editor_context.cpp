@@ -64,9 +64,20 @@ void MeshEditorContext::draw(float dt) {
     // Submitted every frame while this context is the one drawing. DebugDraw
     // keeps the generated lines rather than these vectors, so switching away
     // from the mesh editor simply stops the overlay.
-    if (show_collision_ && !collision_vertices_.empty()) {
-        deps_.vulkan_context->debug_draw().submit_authored_collision(
-            collision_vertices_, collision_indices_);
+    if (show_collision_) {
+        auto& debug = deps_.vulkan_context->debug_draw();
+        if (collision_primitives_.empty()) {
+            // No shapes authored, so the geometry is what this mesh collides as.
+            if (!collision_vertices_.empty()) {
+                debug.submit_authored_collision(collision_vertices_, collision_indices_);
+            }
+        } else {
+            for (int i = 0; i < static_cast<int>(collision_primitives_.size()); ++i) {
+                debug.submit_collision_primitive(
+                    collision_primitives_[static_cast<size_t>(i)],
+                    i == selected_primitive_);
+            }
+        }
     }
 
     viewport_manager_.draw(*deps_.vulkan_context, *deps_.input, dt);
@@ -134,6 +145,19 @@ void MeshEditorContext::open_mesh(const std::string& fjmesh_path) {
     collision_vertices_ = model_->collision_vertices();
     collision_indices_ = model_->collision_indices();
     collision_dirty_ = false;
+
+    // The loader synthesizes one geometry-derived shape for a mesh that
+    // authored none. That is not an authored shape, so it is not shown as one:
+    // an empty list here means "collides as its geometry".
+    collision_primitives_.clear();
+    const auto& loaded = model_->collision_primitives();
+    bool is_synthesized = loaded.size() == 1 && !loaded.front().is_convex() &&
+                          loaded.front().first_vertex == 0 &&
+                          loaded.front().first_index == 0;
+    if (!is_synthesized) {
+        collision_primitives_ = loaded;
+    }
+    selected_primitive_ = -1;
 
     setup_preview_scene();
     frame_camera();
@@ -287,10 +311,26 @@ bool MeshEditorContext::save() {
     if (collision_dirty_) {
         section.vertices = collision_vertices_;
         section.indices = collision_indices_;
-        // Shapes index into the geometry that just changed, so they are written
-        // to match it. The editor authors no shape list yet, which the loader
-        // reads as "collide as the geometry" — the behaviour before v8.
-        section.primitives.clear();
+        section.primitives.reserve(collision_primitives_.size());
+        for (const auto& prim : collision_primitives_) {
+            FjMeshCollisionPrimitive out{};
+            out.kind = static_cast<uint32_t>(prim.kind);
+            out.position[0] = prim.position.x;
+            out.position[1] = prim.position.y;
+            out.position[2] = prim.position.z;
+            out.rotation[0] = prim.rotation.x;
+            out.rotation[1] = prim.rotation.y;
+            out.rotation[2] = prim.rotation.z;
+            out.rotation[3] = prim.rotation.w;
+            out.extents[0] = prim.extents.x;
+            out.extents[1] = prim.extents.y;
+            out.extents[2] = prim.extents.z;
+            out.first_vertex = prim.first_vertex;
+            out.vertex_count = prim.vertex_count;
+            out.first_index = prim.first_index;
+            out.index_count = prim.index_count;
+            section.primitives.push_back(out);
+        }
     }
 
     bool written = collision_dirty_
@@ -319,6 +359,157 @@ void MeshEditorContext::rebuild_collision() {
     collision_indices_ = std::move(built.indices);
     collision_dirty_ = true;
     dirty_ = true;
+}
+
+void MeshEditorContext::add_primitive(CollisionPrimitiveKind kind, bool fit_to_bounds) {
+    CollisionPrimitive prim;
+    prim.kind = kind;
+
+    if (fit_to_bounds && model_ != nullptr) {
+        // Sizing to the mesh's own bounds is the common case by a wide margin,
+        // and typing six numbers to reach it is the kind of thing that stops
+        // people authoring colliders at all.
+        const auto& aabb = model_->local_aabb();
+        if (aabb.valid()) {
+            prim.position = (aabb.min + aabb.max) * 0.5F;
+            glm::vec3 half = (aabb.max - aabb.min) * 0.5F;
+            switch (kind) {
+                case CollisionPrimitiveKind::box:
+                    prim.extents = half;
+                    break;
+                case CollisionPrimitiveKind::sphere:
+                    // The enclosing sphere, so nothing pokes out of it.
+                    prim.extents = glm::vec3{std::max({half.x, half.y, half.z})};
+                    break;
+                case CollisionPrimitiveKind::capsule:
+                    // Upright, sized to the wider horizontal axis; y carries
+                    // the full height the way the shape builder reads it.
+                    prim.extents = {std::max(half.x, half.z), half.y * 2.0F, 0.0F};
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    collision_primitives_.push_back(prim);
+    selected_primitive_ = static_cast<int>(collision_primitives_.size()) - 1;
+    collision_dirty_ = true;
+    dirty_ = true;
+}
+
+void MeshEditorContext::draw_primitive_list() {
+    ImGui::SeparatorText("Shapes");
+
+    if (model_ != nullptr && model_->authored_version() < FJMESH_VERSION) {
+        ImGui::TextWrapped(
+            "This mesh was written by an older version of the format and has no "
+            "room for a shape list. Reimport it to author shapes.");
+        return;
+    }
+
+    if (collision_primitives_.empty()) {
+        ImGui::TextWrapped(
+            "No shapes authored — this mesh collides as its geometry above. "
+            "Add a shape to collide as something simpler, or as several convex "
+            "pieces so it can move.");
+    }
+
+    static constexpr struct { CollisionPrimitiveKind kind; const char* label; } KINDS[] = {
+        {CollisionPrimitiveKind::box, "Box"},
+        {CollisionPrimitiveKind::sphere, "Sphere"},
+        {CollisionPrimitiveKind::capsule, "Capsule"},
+    };
+
+    if (ImGui::Button("Fit to Bounds")) ImGui::OpenPopup("fit_kind");
+    if (ImGui::BeginPopup("fit_kind")) {
+        for (const auto& k : KINDS) {
+            if (ImGui::Selectable(k.label)) add_primitive(k.kind, true);
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Add")) ImGui::OpenPopup("add_kind");
+    if (ImGui::BeginPopup("add_kind")) {
+        for (const auto& k : KINDS) {
+            if (ImGui::Selectable(k.label)) add_primitive(k.kind, false);
+        }
+        ImGui::EndPopup();
+    }
+
+    static const char* KIND_NAMES[] = {"Box", "Sphere", "Capsule", "Convex Hull",
+                                        "Triangle Mesh"};
+
+    for (int i = 0; i < static_cast<int>(collision_primitives_.size()); ++i) {
+        auto& prim = collision_primitives_[static_cast<size_t>(i)];
+        ImGui::PushID(i);
+
+        bool selected = selected_primitive_ == i;
+        auto label = std::string(KIND_NAMES[static_cast<int>(prim.kind)]) +
+                     "##" + std::to_string(i);
+        if (ImGui::Selectable(label.c_str(), selected)) {
+            selected_primitive_ = selected ? -1 : i;
+        }
+
+        if (selected) {
+            ImGui::Indent();
+            bool changed = false;
+
+            ImGui::SetNextItemWidth(-1);
+            if (ImGui::DragFloat3("##Position", &prim.position.x, 0.01F)) changed = true;
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Position");
+
+            switch (prim.kind) {
+                case CollisionPrimitiveKind::box:
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat3("##Extents", &prim.extents.x, 0.01F, 0.001F, 1000.0F)) {
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Half extents");
+                    break;
+                case CollisionPrimitiveKind::sphere:
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##Radius", &prim.extents.x, 0.01F, 0.001F, 1000.0F)) {
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius");
+                    break;
+                case CollisionPrimitiveKind::capsule:
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##CapRadius", &prim.extents.x, 0.01F, 0.001F, 1000.0F)) {
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius");
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::DragFloat("##CapHeight", &prim.extents.y, 0.01F, 0.001F, 1000.0F)) {
+                        changed = true;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Height");
+                    break;
+                default:
+                    ImGui::TextDisabled("Derived from the mesh geometry.");
+                    break;
+            }
+
+            if (ImGui::SmallButton("Remove")) {
+                collision_primitives_.erase(collision_primitives_.begin() + i);
+                selected_primitive_ = -1;
+                changed = true;
+                ImGui::Unindent();
+                ImGui::PopID();
+                collision_dirty_ = true;
+                dirty_ = true;
+                break;
+            }
+
+            if (changed) {
+                collision_dirty_ = true;
+                dirty_ = true;
+            }
+            ImGui::Unindent();
+        }
+        ImGui::PopID();
+    }
 }
 
 void MeshEditorContext::draw_collision_panel() {
@@ -411,6 +602,8 @@ void MeshEditorContext::draw_collision_panel() {
                 dirty_ = true;
             }
         }
+
+        draw_primitive_list();
 
         ImGui::SeparatorText("Current geometry");
 

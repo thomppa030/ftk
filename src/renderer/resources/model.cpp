@@ -454,6 +454,7 @@ FjMeshData Model::load_fjmesh(const std::string& path) {
     }
 
     FjMeshData data;
+    data.version = header.version;
     data.aabb.min = header.aabb_min;
     data.aabb.max = header.aabb_max;
 
@@ -592,6 +593,7 @@ Model::Model(VmaAllocator allocator, UploadContext& upload,
     collision_full_vertices_ = std::move(data.collision_full_vertices);
     collision_full_indices_ = std::move(data.collision_full_indices);
     collision_primitives_ = std::move(data.collision_primitives);
+    authored_version_ = data.version;
     authored_ = std::move(data.authored);
     local_aabb_ = data.aabb;
     sdf_data_ = std::move(data.sdf_data);

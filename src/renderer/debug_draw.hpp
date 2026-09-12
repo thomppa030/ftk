@@ -2,6 +2,8 @@
 
 #include "renderer/renderer_constants.hpp"
 
+#include "physics/collision_shape.hpp"
+
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -45,6 +47,11 @@ public:
     void submit_authored_collision(const std::vector<glm::vec3>& vertices,
                                    const std::vector<uint32_t>& indices);
 
+    /// One authored collision shape, drawn in the mesh's local space. Submitted
+    /// per shape while the mesh editor is open; `highlight` picks out the one
+    /// being edited so a drag is visible against the others.
+    void submit_collision_primitive(const CollisionPrimitive& primitive, bool highlight);
+
     /// Whether geometry has been submitted but not yet consumed by `update()`.
     /// The frame loop skips the update entirely when nothing needs drawing,
     /// and an editor's submission is not visible in the scene it checks.
@@ -79,6 +86,15 @@ private:
 
     VkDevice device_;
     VmaAllocator allocator_;
+
+    // Shapes submitted this frame, each with its own colour.
+    struct AuthoredShape {
+        glm::mat4 model;
+        uint32_t first;
+        uint32_t count;
+        glm::vec4 color;
+    };
+    std::vector<AuthoredShape> authored_shapes_;
 
     // Line vertices built from the last submit_authored_collision() call,
     // prepended to each frame's buffer and cleared by update(). Owning them
