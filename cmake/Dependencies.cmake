@@ -362,7 +362,13 @@ if(NOT imgui_node_editor_POPULATED)
     endforeach()
 endif()
 
-find_package(Vulkan REQUIRED)
+find_package(Vulkan)
+if(NOT Vulkan_FOUND)
+    message(FATAL_ERROR
+        "Vulkan SDK not found — it is the only dependency Fjell does not fetch itself. "
+        "Install it from https://vulkan.lunarg.com/ (or your distro's vulkan-devel "
+        "package) and make sure VULKAN_SDK is set in the environment.")
+endif()
 
 # VMA — Vulkan Memory Allocator
 FetchContent_Declare(
