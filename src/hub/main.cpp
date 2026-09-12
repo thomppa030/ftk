@@ -12,14 +12,22 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 static constexpr int HUB_WIDTH = 480;
 static constexpr int HUB_HEIGHT = 760;
 
-static void launch_editor(const std::string& project_path) {
+static void launch_editor(const std::string& project_path, const std::string& create_name) {
     auto exe = fjell::platform::executable_path();
-    auto editor_path = exe.parent_path() / "fjell";
-    auto result = fjell::platform::exec_replace({editor_path.string(), project_path});
+    auto editor_path = exe.parent_path() / ("fjell" + std::string{fjell::platform::EXE_EXT});
+
+    std::vector<std::string> args{editor_path.string(), project_path};
+    if (!create_name.empty()) {
+        args.emplace_back("--create-project");
+        args.push_back(create_name);
+    }
+
+    auto result = fjell::platform::exec_replace(args);
     // exec_replace only returns on failure
     FJELL_CORE_ERROR("Failed to launch editor: {}", result.error());
 }
@@ -38,6 +46,7 @@ static std::string resolve_font_dir() {
 int main() {
     fjell::log::init();
     std::string pending_launch;
+    std::string pending_create_name;
 
     try {
         fjell::Window window{"Fjell", HUB_WIDTH, HUB_HEIGHT};
@@ -151,6 +160,7 @@ int main() {
 
             if (!launch.empty()) {
                 pending_launch = launch;
+                pending_create_name = hub_ui.launch_create_name();
                 glfwSetWindowShouldClose(window.handle(), GLFW_TRUE);
             }
         }
@@ -168,7 +178,7 @@ int main() {
     // exec into the editor after all cleanup — replaces this process,
     // so the shell waits for the editor naturally and logs go to the terminal.
     if (!pending_launch.empty()) {
-        launch_editor(pending_launch);
+        launch_editor(pending_launch, pending_create_name);
     }
 
     return EXIT_SUCCESS;

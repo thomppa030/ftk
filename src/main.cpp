@@ -36,19 +36,22 @@ int main(int argc, char* argv[]) {
     std::filesystem::path project_path;
     bool play_immediate = false;
     std::string scene_override;
+    std::string create_name;
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--play") == 0) {
             play_immediate = true;
         } else if (std::strcmp(argv[i], "--scene") == 0 && i + 1 < argc) {
             scene_override = argv[++i];
+        } else if (std::strcmp(argv[i], "--create-project") == 0 && i + 1 < argc) {
+            create_name = argv[++i];
         } else {
             project_path = argv[i];
         }
     }
 
     try {
-        fjell::Engine engine{"Fjell Engine", 2560, 1360, project_path};
+        fjell::Engine engine{"Fjell Engine", 2560, 1360, project_path, create_name};
         if (!scene_override.empty()) engine.set_scene_override(scene_override);
         if (play_immediate) engine.set_play_immediate(true);
         engine.run();

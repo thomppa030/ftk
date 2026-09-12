@@ -30,6 +30,10 @@ public:
 
     [[nodiscard]] const std::string& launch_path() const { return launch_path_; }
 
+    /// Non-empty when the pending launch should scaffold a new project of this
+    /// name rather than open an existing one.
+    [[nodiscard]] const std::string& launch_create_name() const { return launch_create_name_; }
+
     RecentProjects& recent() { return recent_; }
 
 private:
@@ -38,13 +42,15 @@ private:
     void draw_splash(float window_w, float window_h);
     void setup_style();
 
-    void launch_project(const std::string& path, const std::string& name);
+    void launch_project(const std::string& path, const std::string& name,
+                        const std::string& create_name = {});
 
     RecentProjects recent_;
     bool splash_active_{false};
     float splash_timer_{0.0f};
     std::string launch_path_;
     std::string launch_name_;
+    std::string launch_create_name_;
 
     // File browsers (standalone windows)
     FileBrowser open_browser_;

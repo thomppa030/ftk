@@ -37,7 +37,10 @@ void HubUI::set_gpu(fjell::GpuCore* gpu) {
         }));
     browser_connections_.push_back(
         new_browser_.on_location_selected.bind([this](const std::string& path, const std::string& name) {
-            launch_project(path, name);
+            // The browser yields the containing directory plus a name; the project
+            // root is the two joined.
+            auto root = std::filesystem::path(path) / name;
+            launch_project(root.string(), name, name);
         }));
 }
 
@@ -198,12 +201,14 @@ void HubUI::draw_hub(float window_w, float window_h) {
     ImGui::End();
 }
 
-void HubUI::launch_project(const std::string& path, const std::string& name) {
+void HubUI::launch_project(const std::string& path, const std::string& name,
+                           const std::string& create_name) {
     recent_.add(path, name);
     splash_active_ = true;
     splash_timer_ = 0.0f;
     launch_path_ = path;
     launch_name_ = name;
+    launch_create_name_ = create_name;
 }
 
 void HubUI::draw_splash(float window_w, float window_h) {

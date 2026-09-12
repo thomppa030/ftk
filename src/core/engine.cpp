@@ -92,7 +92,8 @@ T* Engine::add_subsystem(Args&&... args) {
 }
 
 Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
-               const std::filesystem::path& project_path)
+               const std::filesystem::path& project_path,
+               const std::string& create_name)
     : window_{title, width, height}
     , vulkan_context_{std::make_unique<VulkanContext>(window_)}
 {
@@ -131,7 +132,7 @@ Engine::Engine(std::string_view title, uint32_t width, uint32_t height,
     asset_file_browser_.set_icon_provider(icon_provider);
 
     init_subsystems();
-    init_project(project_path);
+    init_project(project_path, create_name);
     init_ui();
     init_resources();
     init_scene();
@@ -187,7 +188,17 @@ void Engine::init_subsystems() {
 #endif
 }
 
-void Engine::init_project(const std::filesystem::path& project_path) {
+void Engine::init_project(const std::filesystem::path& project_path,
+                          const std::string& create_name) {
+    // Scaffold first so the open path below picks up the fresh manifest.
+    // `project_path` is the project root either way — for a create, its parent
+    // is the containing directory the user picked. Only the directories and
+    // manifest are made here; init_scene() supplies the default scene once the
+    // renderer and resource manager exist.
+    if (!create_name.empty() && !project_path.empty()) {
+        Project::create(project_path.parent_path(), create_name);
+    }
+
     auto game_config_path = base_path::resolve("game.fjell");
     if (std::filesystem::exists(game_config_path)) {
         game_mode_ = true;
@@ -876,6 +887,17 @@ void Engine::save_material_assets() {
     }
 }
 
+void Engine::create_project(const std::filesystem::path& parent, const std::string& name) {
+    project_mgr_.create(parent, name);
+    if (!project_mgr_.active()) return;
+
+    window_.set_title("Fjell - " + project_mgr_.active()->config().name);
+    current_scene_path_ =
+        project_mgr_.active()->resolve(project_mgr_.active()->config().default_scene);
+    scene_.clear();
+    create_default_scene();
+}
+
 void Engine::create_default_scene() {
     vulkan_context_->wait_idle();
     auto tex = resource_manager_->load_texture(
@@ -1266,13 +1288,7 @@ void Engine::bind_menu_bar() {
         }));
     connections_.push_back(menu_bar_.on_create_project.bind(
         [this](const std::filesystem::path& path, const std::string& name) {
-            project_mgr_.create(path, name);
-            if (project_mgr_.active()) {
-                current_scene_path_ = project_mgr_.active()->resolve(
-                    project_mgr_.active()->config().default_scene);
-                scene_.clear();
-                create_default_scene();
-            }
+            create_project(path, name);
         }));
     connections_.push_back(menu_bar_.on_save_layout.bind(
         [this](const std::string& name) { save_layout(name); }));

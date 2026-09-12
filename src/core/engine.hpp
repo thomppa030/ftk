@@ -62,8 +62,11 @@ class VulkanContext;
 
 class Engine {
 public:
+    /// `create_name` scaffolds a new project named that under `project_path`
+    /// instead of opening an existing one.
     Engine(std::string_view title, uint32_t width, uint32_t height,
-           const std::filesystem::path& project_path = {});
+           const std::filesystem::path& project_path = {},
+           const std::string& create_name = {});
     ~Engine();
 
     Engine(const Engine&) = delete;
@@ -77,13 +80,15 @@ public:
 
 private:
     void init_subsystems();
-    void init_project(const std::filesystem::path& project_path);
+    void init_project(const std::filesystem::path& project_path,
+                      const std::string& create_name = {});
     void init_ui();
     void init_resources();
     void init_scene();
     void init_content_browser();
     void init_editor();
 
+    void create_project(const std::filesystem::path& parent, const std::string& name);
     void create_default_scene();
     void save_scene();
     void save_material_assets();
