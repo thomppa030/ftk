@@ -13,8 +13,6 @@ The editor is built with Dear ImGui (docking branch) and ImGuizmo. The layout is
 |                                     +-----------------+
 +-------------------------------------+ Properties      |
 | Stats / Console (tabs)              |                 |
-+-------------------------------------+                 |
-| Code Editor                         |                 |
 +-------------------------------------+-----------------+
 
          [ Content Browser — overlay, Ctrl+Space ]
@@ -81,7 +79,7 @@ Dual-pane view: a directory tree on the left, a file grid with icons on the righ
 - **Delete** to delete (with confirmation dialog)
 - **Backspace** to navigate up one directory
 - Drag-and-drop files between folders
-- Double-click behavior depends on file type: scripts open in the neovim panel, models get added to the scene, scenes get loaded, folders get navigated into
+- Double-click behavior depends on file type: scripts open in your system's default editor, models get added to the scene, scenes get loaded, folders get navigated into
 
 ### Stats
 
@@ -90,10 +88,6 @@ GPU name, FPS, frame time (ms), draw calls, triangle count, culled object count,
 ### Console
 
 Log output from the engine with severity coloring. Auto-scrolls to the latest entry. Has a level filter to show/hide by severity.
-
-### Code Editor
-
-Embedded neovim instance via libvterm. Opens when you double-click a script in the Content Browser. Opening another script switches the buffer directly — no swap file warnings.
 
 ## Menu Bar
 

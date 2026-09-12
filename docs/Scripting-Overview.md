@@ -74,7 +74,8 @@ You see your changes without restarting the editor.
 
 **Scripts > New Component** generates a template `.cpp` file in your project's `scripts/` directory with the boilerplate already filled in. Edit it, hit Build & Reload, and you're good to go.
 
-Scripts show up in the Content Browser and can be opened by double-clicking to edit in the embedded neovim panel.
+Scripts show up in the Content Browser. Double-clicking one hands it to your system's
+default handler for that file type, so it opens in whatever editor you have registered.
 
 ## Hot-Reload (Debug Builds)
 

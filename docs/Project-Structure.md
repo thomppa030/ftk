@@ -148,7 +148,6 @@ All panels use Dear ImGui. Each is a self-contained class.
 | `history_panel` | Undo/redo history list |
 | `content_browser` | File browser with icon thumbnails (overlay panel) |
 | `icon_cache` | Loads and caches PNG icon textures |
-| `nvim_panel` | Embedded neovim terminal |
 | `console` | Log output panel |
 | `file_browser` | File open/save dialogs |
 

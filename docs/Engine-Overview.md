@@ -1,6 +1,6 @@
 # Engine Overview
 
-Fjell is a Vulkan game engine and editor built in C++23 for Linux. It ships two executables:
+Fjell is a Vulkan game engine and editor built in C++23 for Linux and Windows. It ships two executables:
 
 - **fjell** — the editor and runtime. You build scenes, attach scripts, hit play, and iterate.
 - **fjell-hub** — a launcher for managing projects.
@@ -27,7 +27,6 @@ Engine
   │     ├── StatsPanel        FPS, draw calls, triangle counts, GPU info
   │     ├── HistoryPanel      Visual undo/redo history
   │     ├── ContentBrowser    File browser with PNG icon thumbnails
-  │     ├── NvimPanel         Embedded neovim for editing scripts without leaving the editor
   │     └── IconCache         Loads and caches icon textures for the content browser
   │
   ├── PlaySession (optional)

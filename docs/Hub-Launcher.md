@@ -8,7 +8,10 @@
 2. Lists recent projects (persisted in `~/.config/fjell/hub.json`)
 3. Provides New Project and Open Project dialogs
 4. On project selection: shows splash screen with animated logo and spinner
-5. Forks the editor process via `fork()` + `execl()` with the project path as argument
+5. Replaces itself with the editor process, passing the project path — `execv` on Linux,
+   `CreateProcess` on Windows, behind `platform::exec_replace`. Creating a new project
+   adds `--create-project <name>`, so the editor does the scaffolding through the same
+   path the File menu uses.
 
 ## Architecture
 

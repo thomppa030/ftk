@@ -1,6 +1,6 @@
 # Fjell Engine
 
-Vulkan game engine written in C++23, targeting Linux.
+Vulkan game engine written in C++23, targeting Linux and Windows.
 
 ## Documentation
 
