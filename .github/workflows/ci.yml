@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (Ninja, GCC)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools and X11 headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xorg-dev
+
+      - name: Install the Vulkan SDK
+        run: |
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list \
+            https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+
+      # The runner images ship a CMake older than this project's minimum.
+      - uses: lukka/get-cmake@v4.4.0
+        with:
+          cmakeVersion: "4.4.0"
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-linux-${{ hashFiles('cmake/Dependencies.cmake') }}
+
+      - name: Configure
+        run: cmake --preset debug
+
+      - name: Build
+        run: cmake --build --preset debug
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    name: Windows (Ninja, MSVC)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      # Puts cl.exe and the MSVC toolchain on PATH so the Ninja generator
+      # finds them without a Visual Studio developer prompt.
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install the Vulkan SDK
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          cache: true
+          install_runtime: false
+          # Keeps glslc, which the shader build and the runtime FJSL compiler
+          # both invoke.
+          stripdown: false
+
+      - uses: lukka/get-cmake@v4.4.0
+        with:
+          cmakeVersion: "4.4.0"
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-windows-${{ hashFiles('cmake/Dependencies.cmake') }}
+
+      - name: Configure
+        run: cmake --preset debug
+
+      - name: Build
+        run: cmake --build --preset debug
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
