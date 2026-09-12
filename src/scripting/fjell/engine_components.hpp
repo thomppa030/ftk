@@ -27,14 +27,39 @@ struct RigidbodyComponent {
     bool gravity_enabled{true};
 };
 
+enum class CollisionChannel : uint8_t {
+    world_static = 0,
+    world_dynamic = 1,
+    pawn = 2,
+    trigger = 3,
+    projectile = 4,
+};
+
+enum class CollisionResponse : uint8_t { ignore = 0, overlap = 1, block = 2 };
+
+struct CollisionFilter {
+    CollisionChannel channel{CollisionChannel::world_static};
+    uint32_t block_mask{0xFFFFFFFF};
+    uint32_t overlap_mask{0};
+
+    [[nodiscard]] CollisionResponse response_to(CollisionChannel other) const {
+        const uint32_t bit = 1U << static_cast<uint32_t>(other);
+        if ((block_mask & bit) != 0) return CollisionResponse::block;
+        if ((overlap_mask & bit) != 0) return CollisionResponse::overlap;
+        return CollisionResponse::ignore;
+    }
+};
+
 struct ColliderComponent {
     static constexpr const char* type_name = "ColliderComponent";
+    bool inherit_from_mesh{false};
     ColliderShape shape{ColliderShape::Box};
     glm::vec3 half_extents{0.5f};
     float radius{0.5f};
     float height{1.0f};
     glm::vec3 offset{0.0f};
     bool is_trigger{false};
+    CollisionFilter filter{};
 };
 
 enum class CharacterGroundState : uint8_t { OnGround, OnSteepGround, NotSupported, InAir };

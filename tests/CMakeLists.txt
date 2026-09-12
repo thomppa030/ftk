@@ -2,6 +2,7 @@
 add_library(fjell-testable STATIC
     test_log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/core/math/spline.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/collision_channel.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/frame_cache_key.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
@@ -34,6 +35,7 @@ endif()
 # --- Test executable ---
 add_executable(fjell-tests
     test_resource_handle.cpp
+    test_collision_channel.cpp
     test_delegate.cpp
     test_fjui_parser.cpp
     test_fjss_parser.cpp

@@ -1,4 +1,5 @@
 #include "physics/physics_world.hpp"
+#include "physics/collision_channel.hpp"
 #include "physics/collision_shape.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
@@ -66,7 +67,9 @@ namespace layers {
 static constexpr JPH::ObjectLayer STATIC = 0;
 static constexpr JPH::ObjectLayer MOVING = 1;
 static constexpr JPH::ObjectLayer SENSOR = 2;
-static constexpr JPH::uint NUM_LAYERS = 3;
+// Filtered bodies get one layer each from here up, one per distinct filter.
+static constexpr JPH::ObjectLayer FIRST_FILTERED = 3;
+static constexpr JPH::uint NUM_LAYERS = 256;
 } // namespace layers
 
 namespace broad_phase {
@@ -76,12 +79,55 @@ static constexpr JPH::BroadPhaseLayer SENSOR(2);
 static constexpr JPH::uint NUM_LAYERS = 3;
 } // namespace broad_phase
 
+// Jolt asks about pairs by object layer, so each distinct CollisionFilter in
+// the scene is registered as one layer and the pair filter looks both sides up
+// here. The rule itself stays in collision_channel.cpp: this translates, it
+// does not decide.
+class FilterTable {
+public:
+    // Layers 0-2 keep their meaning for bodies with no filter of their own
+    // (terrain, character inner bodies), so the broadphase mapping below stays
+    // valid for them.
+    [[nodiscard]] JPH::ObjectLayer layer_for(const CollisionFilter& filter) {
+        for (size_t i = 0; i < filters_.size(); ++i) {
+            if (filters_[i].channel == filter.channel &&
+                filters_[i].block_mask == filter.block_mask &&
+                filters_[i].overlap_mask == filter.overlap_mask) {
+                return static_cast<JPH::ObjectLayer>(layers::FIRST_FILTERED + i);
+            }
+        }
+        filters_.push_back(filter);
+        return static_cast<JPH::ObjectLayer>(layers::FIRST_FILTERED + filters_.size() - 1);
+    }
+
+    [[nodiscard]] const CollisionFilter* find(JPH::ObjectLayer layer) const {
+        if (layer < layers::FIRST_FILTERED) return nullptr;
+        size_t index = layer - layers::FIRST_FILTERED;
+        return index < filters_.size() ? &filters_[index] : nullptr;
+    }
+
+    void clear() { filters_.clear(); }
+
+private:
+    std::vector<CollisionFilter> filters_;
+};
+
 class BPLayerInterface final : public JPH::BroadPhaseLayerInterface {
 public:
     [[nodiscard]] JPH::uint GetNumBroadPhaseLayers() const override {
         return broad_phase::NUM_LAYERS;
     }
+    // Filtered layers carry their own channel, but the broadphase split is a
+    // spatial optimization rather than a gameplay concept, so it only needs to
+    // know whether a body is expected to move.
+    const FilterTable* table{nullptr};
+
     [[nodiscard]] JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override {
+        if (const auto* filter = table != nullptr ? table->find(layer) : nullptr) {
+            if (filter->channel == CollisionChannel::trigger) return broad_phase::SENSOR;
+            if (filter->channel == CollisionChannel::world_static) return broad_phase::STATIC;
+            return broad_phase::MOVING;
+        }
         switch (layer) {
             case layers::STATIC: return broad_phase::STATIC;
             case layers::SENSOR: return broad_phase::SENSOR;
@@ -98,8 +144,18 @@ public:
 
 class ObjectVsBroadPhaseFilter final : public JPH::ObjectVsBroadPhaseLayerFilter {
 public:
+    const FilterTable* table{nullptr};
+
     [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer obj_layer,
                                      JPH::BroadPhaseLayer bp_layer) const override {
+        // A filtered body's own table decides; the broadphase only prunes the
+        // pair of static groups that can never move into each other.
+        if (const auto* filter = table != nullptr ? table->find(obj_layer) : nullptr) {
+            if (filter->channel == CollisionChannel::world_static) {
+                return bp_layer != broad_phase::STATIC;
+            }
+            return true;
+        }
         // Static vs static = no collision
         if (obj_layer == layers::STATIC)
             return bp_layer != broad_phase::STATIC;
@@ -113,10 +169,18 @@ public:
 
 class ObjectLayerPairFilter final : public JPH::ObjectLayerPairFilter {
 public:
+    const FilterTable* table{nullptr};
+
     [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer a, JPH::ObjectLayer b) const override {
-        // Static vs static = no collision
-        if (a == layers::STATIC && b == layers::STATIC)
-            return false;
+        const auto* fa = table != nullptr ? table->find(a) : nullptr;
+        const auto* fb = table != nullptr ? table->find(b) : nullptr;
+        if (fa != nullptr && fb != nullptr) {
+            // Overlap still needs the pair reported, so only ignore drops it.
+            return collision_response(*fa, *fb) != CollisionResponse::ignore;
+        }
+
+        // Unfiltered bodies keep the original coarse rule.
+        if (a == layers::STATIC && b == layers::STATIC) return false;
         return true;
     }
 };
@@ -273,6 +337,7 @@ struct PhysicsWorld::Impl {
     std::unique_ptr<JPH::JobSystemThreadPool> job_system;
     std::unique_ptr<JPH::PhysicsSystem> physics_system;
 
+    FilterTable filter_table;
     BPLayerInterface bp_layer_interface;
     ObjectVsBroadPhaseFilter obj_vs_bp_filter;
     ObjectLayerPairFilter obj_pair_filter;
@@ -316,6 +381,10 @@ PhysicsWorld::PhysicsWorld() : impl_(std::make_unique<Impl>()) {
     constexpr JPH::uint num_body_mutexes = 0; // auto
     constexpr JPH::uint max_body_pairs = 4096;
     constexpr JPH::uint max_contact_constraints = 2048;
+
+    impl_->bp_layer_interface.table = &impl_->filter_table;
+    impl_->obj_vs_bp_filter.table = &impl_->filter_table;
+    impl_->obj_pair_filter.table = &impl_->filter_table;
 
     impl_->physics_system = std::make_unique<JPH::PhysicsSystem>();
     impl_->physics_system->Init(
@@ -477,8 +546,8 @@ static JPH::ShapeRefC build_authored_shape(const std::vector<CollisionPrimitive>
 // the scale carries `height_scale` and the offset carries `height_offset` —
 // the same reconstruction the terrain shader performs, expressed as Jolt's
 // surface equation rather than repeated per sample.
-static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, const TerrainAsset& terrain,
-                                       const Node3D& node) {
+static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filters,
+                                       const TerrainAsset& terrain, const Node3D& node) {
     const auto& data = terrain.data();
     const uint32_t samples = data.sample_count();
 
@@ -506,11 +575,16 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, const TerrainAsse
 
     // The field grows from its origin corner rather than from its centre, so
     // the body sits at the node's position and the samples extend from there.
+    // Terrain is world geometry, so it answers the channel table like any
+    // other collider — a projectile set to ignore the world has to pass
+    // through the ground too, not just through walls.
+    auto layer = filters.layer_for(default_filter_for(CollisionChannel::world_static));
+
     JPH::BodyCreationSettings body_settings(
         shape_result.Get(),
         to_jolt(node.transform.position),
         to_jolt_quat(node.transform.rotation),
-        JPH::EMotionType::Static, layers::STATIC);
+        JPH::EMotionType::Static, layer);
 
     return bi.CreateAndAddBody(body_settings, JPH::EActivation::DontActivate);
 }
@@ -561,7 +635,8 @@ void PhysicsWorld::create_bodies(Scene& scene) {
         // surface can never disagree with what is on screen.
         if (const auto* terrain_comp = obj->components.get<TerrainComponent>();
             terrain_comp != nullptr && terrain_comp->terrain != nullptr) {
-            if (auto body_id = create_terrain_body(bi, *terrain_comp->terrain, *spatial);
+            if (auto body_id = create_terrain_body(bi, impl_->filter_table,
+                                                   *terrain_comp->terrain, *spatial);
                 !body_id.IsInvalid()) {
                 impl_->object_to_body[obj->id] = body_id;
                 impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = obj->id;
@@ -659,33 +734,37 @@ void PhysicsWorld::create_bodies(Scene& scene) {
             effective_type = BodyType::Static;
         }
 
-        // Sensors use SENSOR layer
-        bool is_sensor = col.is_trigger;
+        // A collider on the Trigger channel is a sensor by definition, so the
+        // is_trigger flag and the channel mean the same thing and either sets
+        // it. The flag predates channels and still works on its own.
+        bool is_sensor = col.is_trigger ||
+                         col.filter.channel == CollisionChannel::trigger;
 
         JPH::EMotionType motion;
-        JPH::ObjectLayer layer;
         if (is_sensor) {
             // Sensors are kinematic so they can be moved and generate contacts
             motion = (effective_type == BodyType::Static)
                 ? JPH::EMotionType::Static : JPH::EMotionType::Kinematic;
-            layer = layers::SENSOR;
         } else {
             switch (effective_type) {
                 case BodyType::Static:
                     motion = JPH::EMotionType::Static;
-                    layer = layers::STATIC;
                     break;
                 case BodyType::Kinematic:
                     motion = JPH::EMotionType::Kinematic;
-                    layer = layers::MOVING;
                     break;
                 case BodyType::Dynamic:
                 default:
                     motion = JPH::EMotionType::Dynamic;
-                    layer = layers::MOVING;
                     break;
             }
         }
+
+        // The filter decides what this body collides with; the layer is just
+        // the handle Jolt uses to ask about it.
+        auto filter = col.filter;
+        if (is_sensor) filter.channel = CollisionChannel::trigger;
+        JPH::ObjectLayer layer = impl_->filter_table.layer_for(filter);
 
         JPH::BodyCreationSettings body_settings(
             shape,

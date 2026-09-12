@@ -1,5 +1,6 @@
 #pragma once
 
+#include "physics/collision_channel.hpp"
 #include "scene/node_component.hpp"
 
 #include <glm/glm.hpp>
@@ -33,6 +34,9 @@ struct ColliderComponent : NodeComponent {
     float height{1.0f};
     glm::vec3 offset{0.0f};
     bool is_trigger{false};
+
+    // What this collider is, and what it does about everything else.
+    CollisionFilter filter{default_filter_for(CollisionChannel::world_static)};
 };
 
 enum class CharacterGroundState : uint8_t { OnGround, OnSteepGround, NotSupported, InAir };
