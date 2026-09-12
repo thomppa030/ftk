@@ -8,6 +8,13 @@
 
 namespace fjell::platform {
 
+/// Filename extension for executables, for composing sibling tool paths.
+#ifdef _WIN32
+inline constexpr const char* EXE_EXT = ".exe";
+#else
+inline constexpr const char* EXE_EXT = "";
+#endif
+
 /// Returns the absolute path of the running executable.
 [[nodiscard]] std::filesystem::path executable_path();
 
