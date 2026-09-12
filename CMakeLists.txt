@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.25)
+cmake_minimum_required(VERSION 4.3)
 
 # Use dynamic CRT on MSVC for all targets (including FetchContent dependencies)
 cmake_policy(SET CMP0091 NEW)
