@@ -739,8 +739,13 @@ void AnimatorComponent::compute_skin_matrices() {
     const auto& inv_bind = skeleton_->inverse_bind_matrices();
     int num_joints = skeleton_->num_joints();
 
+    bone_matrices_.resize(static_cast<size_t>(num_joints));
     for (int i = 0; i < num_joints; ++i) {
-        skin_matrices_[i] = ozz_to_glm(model_matrices_[i]) * inv_bind[i];
+        // The bone's own transform is the half of this that places things at a
+        // joint; the inverse bind turns it into the deformation applied to
+        // skinned vertices. Both are wanted, and the first is free here.
+        bone_matrices_[i] = ozz_to_glm(model_matrices_[i]);
+        skin_matrices_[i] = bone_matrices_[i] * inv_bind[i];
     }
 }
 

@@ -86,6 +86,12 @@ public:
 
     // Output: final skin matrices (model * inverse_bind) ready for GPU upload.
     [[nodiscard]] const std::vector<glm::mat4>& skin_matrices() const { return skin_matrices_; }
+
+    /// Model-space transform of each bone in the current pose, indexed by joint.
+    /// Unlike skin_matrices(), these place something *at* a bone rather than
+    /// deform geometry by it — what a collider, an attachment or a debug marker
+    /// needs. Multiply by the node's world matrix to get world space.
+    [[nodiscard]] const std::vector<glm::mat4>& bone_matrices() const { return bone_matrices_; }
     [[nodiscard]] uint32_t bone_count() const { return static_cast<uint32_t>(skin_matrices_.size()); }
 
     [[nodiscard]] const Skeleton* skeleton() const { return skeleton_; }
@@ -141,6 +147,10 @@ private:
 
     // Final output for GPU
     std::vector<glm::mat4> skin_matrices_;
+
+    // Model-space bone transforms, kept because computing skin_matrices_
+    // produces them anyway and callers that place things at bones need them.
+    std::vector<glm::mat4> bone_matrices_;
 
 };
 
