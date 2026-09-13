@@ -183,8 +183,12 @@ void main() {
         // than distant ones.
         float dist_fade = 1.0 - smoothstep(pc.max_reach * 0.5, pc.max_reach, march_t);
 
-        // Beer-Lambert transmittance for this segment.
-        float extinction = pc.density;
+        // Beer-Lambert transmittance for this segment. Extinction is kept
+        // well below the scattering coefficient (same ratio as the froxel
+        // fog) so a dense setting brightens the shafts linearly instead of
+        // saturating the ray before it reaches the shadow wedges near the
+        // ground, which is where a side or top-down view gets its shape.
+        float extinction = pc.density * 0.1;
         float seg_tr = exp(-extinction * step_size);
 
         // In-scatter: sun radiance × phase × shadow × (1 - seg_tr)/extinction
