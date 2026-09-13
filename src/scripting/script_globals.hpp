@@ -11,6 +11,7 @@ class DebugDrawQueue;
 class Input;
 class InputActionMap;
 class NetManager;
+class PhysicsWorld;
 class Project;
 class ResourceManager;
 class Scene;
@@ -34,6 +35,9 @@ struct ScriptServices {
     DebugDrawQueue* debug_queue{};
     ScreenDebugQueue* screen_debug_queue{};
     NetManager* net{};
+
+    // Per-play: the physics world only exists while play mode runs.
+    PhysicsWorld* physics{};
 
     // Per-frame (set by ScriptManager::prepare/update)
     Scene* scene{};

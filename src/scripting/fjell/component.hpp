@@ -125,7 +125,7 @@ public:
     [[nodiscard]] const Input& input() const { return world_->input(); }
 
     /// Physics world, for raycasts and queries. Null if physics is disabled.
-    [[nodiscard]] PhysicsWorld* physics() { return world_->physics(); }
+
 
     /// Seconds since the previous frame — the same value passed to `tick()`.
     /// Useful from handlers that don't receive it as an argument.

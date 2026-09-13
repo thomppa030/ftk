@@ -225,6 +225,7 @@ add_executable(fjell
     scripting/animator_api.cpp
     scripting/sprite_anim_api.cpp
     scripting/vfx_api.cpp
+    scripting/physics_api.cpp
     scripting/viewport_api.cpp
     scripting/timer_manager.cpp
     scripting/timer_api.cpp

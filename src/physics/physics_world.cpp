@@ -29,6 +29,9 @@
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 
 #include <glm/gtc/quaternion.hpp>
@@ -37,6 +40,7 @@
 
 #include <cstdarg>
 #include <mutex>
+#include <algorithm>
 #include <unordered_set>
 #include <thread>
 
@@ -970,35 +974,187 @@ glm::vec3 PhysicsWorld::get_angular_velocity(uint32_t object_id) const {
 
 // ── Raycast ─────────────────────────────────────────────────────────────
 
+// Translates an engine-side QueryFilter into the body filter Jolt asks with.
+// The channel test goes through the same filter table the pair filter uses, so
+// a query and a contact agree about what a channel means.
+class QueryBodyFilter final : public JPH::BodyFilter {
+public:
+    const QueryFilter* query{nullptr};
+    const FilterTable* table{nullptr};
+    const std::unordered_map<uint32_t, uint32_t>* body_to_object{nullptr};
+
+    [[nodiscard]] bool ShouldCollideLocked(const JPH::Body& body) const override {
+        if (query == nullptr) return true;
+
+        if (const auto* filter = table != nullptr ? table->find(body.GetObjectLayer())
+                                                  : nullptr) {
+            if (!query->allows(filter->channel)) return false;
+        }
+
+        if (!query->ignore_nodes.empty() && body_to_object != nullptr) {
+            auto it = body_to_object->find(body.GetID().GetIndexAndSequenceNumber());
+            if (it != body_to_object->end() && query->ignores(it->second)) return false;
+        }
+        return true;
+    }
+};
+
+// Fills a RaycastHit from a body and a point on it. Surface normals need the
+// body locked, so this is the one place that does it.
+static void fill_hit(const JPH::PhysicsSystem& system,
+                     const std::unordered_map<uint32_t, uint32_t>& body_to_object,
+                     JPH::BodyID body_id, JPH::SubShapeID sub_shape,
+                     JPH::RVec3Arg point, float distance, RaycastHit& out) {
+    out.position = to_glm(point);
+    out.distance = distance;
+
+    auto it = body_to_object.find(body_id.GetIndexAndSequenceNumber());
+    out.object_id = it != body_to_object.end() ? it->second : 0;
+
+    JPH::BodyLockRead lock(system.GetBodyLockInterface(), body_id);
+    if (lock.Succeeded()) {
+        out.normal = to_glm(lock.GetBody().GetWorldSpaceSurfaceNormal(sub_shape, point));
+    }
+}
+
+// The shape a cast or overlap sweeps, in the engine's vocabulary.
+static JPH::ShapeRefC query_shape(QueryShape shape, const glm::vec3& extents) {
+    switch (shape) {
+        case QueryShape::sphere:
+            return new JPH::SphereShape(clamp_positive(extents.x));
+        case QueryShape::box: {
+            auto he = clamp_positive(extents);
+            return new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
+        }
+        case QueryShape::capsule:
+            return new JPH::CapsuleShape(clamp_positive(extents.y * 0.5f),
+                                         clamp_positive(extents.x));
+    }
+    return {};
+}
+
 bool PhysicsWorld::raycast(const glm::vec3& origin, const glm::vec3& direction,
-                           float max_distance, RaycastHit& out_hit) const {
+                           float max_distance, RaycastHit& out_hit,
+                           const QueryFilter& filter) const {
     auto dir_norm = glm::normalize(direction);
     JPH::RRayCast ray(to_jolt(origin), to_jolt(dir_norm * max_distance));
     JPH::RayCastResult result;
 
-    if (!impl_->physics_system->GetNarrowPhaseQuery().CastRay(ray, result)) {
+    QueryBodyFilter body_filter;
+    body_filter.query = &filter;
+    body_filter.table = &impl_->filter_table;
+    body_filter.body_to_object = &impl_->body_to_object;
+
+    if (!impl_->physics_system->GetNarrowPhaseQuery().CastRay(
+            ray, result, {}, {}, body_filter)) {
         return false;
     }
 
-    auto hit_point = ray.GetPointOnRay(result.mFraction);
-    out_hit.position = to_glm(hit_point);
-    out_hit.distance = max_distance * result.mFraction;
-
-    // Look up object ID from body
-    auto body_it = impl_->body_to_object.find(result.mBodyID.GetIndexAndSequenceNumber());
-    if (body_it != impl_->body_to_object.end()) {
-        out_hit.object_id = body_it->second;
-    }
-
-    // Get surface normal
-    JPH::BodyLockRead lock(impl_->physics_system->GetBodyLockInterface(), result.mBodyID);
-    if (lock.Succeeded()) {
-        auto normal = lock.GetBody().GetWorldSpaceSurfaceNormal(
-            result.mSubShapeID2, hit_point);
-        out_hit.normal = to_glm(normal);
-    }
-
+    fill_hit(*impl_->physics_system, impl_->body_to_object, result.mBodyID,
+             result.mSubShapeID2, ray.GetPointOnRay(result.mFraction),
+             max_distance * result.mFraction, out_hit);
     return true;
+}
+
+std::vector<RaycastHit> PhysicsWorld::raycast_all(const glm::vec3& origin,
+                                                  const glm::vec3& direction,
+                                                  float max_distance,
+                                                  const QueryFilter& filter) const {
+    auto dir_norm = glm::normalize(direction);
+    JPH::RRayCast ray(to_jolt(origin), to_jolt(dir_norm * max_distance));
+
+    JPH::AllHitCollisionCollector<JPH::CastRayCollector> collector;
+    QueryBodyFilter body_filter;
+    body_filter.query = &filter;
+    body_filter.table = &impl_->filter_table;
+    body_filter.body_to_object = &impl_->body_to_object;
+
+    impl_->physics_system->GetNarrowPhaseQuery().CastRay(
+        ray, {}, collector, {}, {}, body_filter);
+    collector.Sort();
+
+    std::vector<RaycastHit> hits;
+    hits.reserve(collector.mHits.size());
+    for (const auto& hit : collector.mHits) {
+        RaycastHit out;
+        fill_hit(*impl_->physics_system, impl_->body_to_object, hit.mBodyID,
+                 hit.mSubShapeID2, ray.GetPointOnRay(hit.mFraction),
+                 max_distance * hit.mFraction, out);
+        hits.push_back(out);
+    }
+    return hits;
+}
+
+bool PhysicsWorld::shape_cast(QueryShape shape, const glm::vec3& extents,
+                              const glm::vec3& origin, const glm::vec3& direction,
+                              float max_distance, RaycastHit& out_hit,
+                              const QueryFilter& filter) const {
+    auto jolt_shape = query_shape(shape, extents);
+    if (!jolt_shape) return false;
+
+    auto dir_norm = glm::normalize(direction);
+    JPH::RShapeCast cast(jolt_shape, JPH::Vec3::sReplicate(1.0f),
+                         JPH::RMat44::sTranslation(to_jolt(origin)),
+                         to_jolt(dir_norm * max_distance));
+
+    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+    QueryBodyFilter body_filter;
+    body_filter.query = &filter;
+    body_filter.table = &impl_->filter_table;
+    body_filter.body_to_object = &impl_->body_to_object;
+
+    JPH::ShapeCastSettings settings;
+    impl_->physics_system->GetNarrowPhaseQuery().CastShape(
+        cast, settings, JPH::RVec3::sZero(), collector, {}, {}, body_filter);
+
+    if (!collector.HadHit()) return false;
+
+    const auto& hit = collector.mHit;
+    fill_hit(*impl_->physics_system, impl_->body_to_object, hit.mBodyID2,
+             hit.mSubShapeID2, cast.GetPointOnRay(hit.mFraction),
+             max_distance * hit.mFraction, out_hit);
+    // A swept shape's contact normal is the separating axis, which is more
+    // useful here than the surface normal at the touch point.
+    out_hit.normal = to_glm(-hit.mPenetrationAxis.Normalized());
+    return true;
+}
+
+std::vector<uint32_t> PhysicsWorld::overlap(QueryShape shape, const glm::vec3& extents,
+                                            const glm::vec3& position,
+                                            const QueryFilter& filter) const {
+    auto jolt_shape = query_shape(shape, extents);
+    if (!jolt_shape) return {};
+
+    JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+    QueryBodyFilter body_filter;
+    body_filter.query = &filter;
+    body_filter.table = &impl_->filter_table;
+    body_filter.body_to_object = &impl_->body_to_object;
+
+    JPH::CollideShapeSettings settings;
+    impl_->physics_system->GetNarrowPhaseQuery().CollideShape(
+        jolt_shape, JPH::Vec3::sReplicate(1.0f),
+        JPH::RMat44::sTranslation(to_jolt(position)),
+        settings, JPH::RVec3::sZero(), collector, {}, {}, body_filter);
+
+    // One body can report several contacts; the caller wants nodes, once each.
+    std::vector<uint32_t> nodes;
+    for (const auto& hit : collector.mHits) {
+        auto it = impl_->body_to_object.find(hit.mBodyID2.GetIndexAndSequenceNumber());
+        if (it == impl_->body_to_object.end()) continue;
+        if (std::find(nodes.begin(), nodes.end(), it->second) == nodes.end()) {
+            nodes.push_back(it->second);
+        }
+    }
+    return nodes;
+}
+
+void PhysicsWorld::set_gravity(const glm::vec3& gravity) {
+    impl_->physics_system->SetGravity(to_jolt(gravity));
+}
+
+glm::vec3 PhysicsWorld::gravity() const {
+    return to_glm(impl_->physics_system->GetGravity());
 }
 
 // ── Collision/trigger event access ──────────────────────────────────────

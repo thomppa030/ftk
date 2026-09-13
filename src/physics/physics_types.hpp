@@ -5,7 +5,9 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <cstdint>
+#include <vector>
 
 namespace fjell {
 
@@ -66,5 +68,30 @@ struct RaycastHit {
     float distance{0.0f};
     uint32_t object_id{0};
 };
+
+// Which bodies a query considers. Expressed in the terms gameplay reasons
+// about — channels and nodes — so a backend swap rewrites the collector and
+// leaves every call site alone.
+struct QueryFilter {
+    // Bit N set means channel N is eligible. Defaults to everything.
+    uint32_t channel_mask{0xFFFFFFFF};
+
+    // Nodes to skip. The common case is one entry: whatever fired the query,
+    // which would otherwise hit itself from the inside.
+    std::vector<uint32_t> ignore_nodes;
+
+    [[nodiscard]] bool allows(CollisionChannel channel) const {
+        return (channel_mask & (1U << static_cast<uint32_t>(channel))) != 0;
+    }
+
+    [[nodiscard]] bool ignores(uint32_t node_id) const {
+        return std::find(ignore_nodes.begin(), ignore_nodes.end(), node_id) !=
+               ignore_nodes.end();
+    }
+};
+
+// The shape a cast sweeps. A ray is the degenerate case and has its own entry
+// point, since it is by far the most common and needs no shape at all.
+enum class QueryShape : uint8_t { sphere, box, capsule };
 
 } // namespace fjell

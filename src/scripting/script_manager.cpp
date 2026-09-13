@@ -415,7 +415,7 @@ void ScriptManager::remove_script(Node3D& obj, const std::string& type_name) {
 void ScriptManager::populate_world(const Input& input, const Clock& clock,
                                    PhysicsWorld* physics) {
     world_.input_ = &input;
-    world_.physics_ = physics;
+    s_services.physics = physics;
     world_.delta_time = clock.game_delta_time();
     world_.elapsed_time = clock.game_elapsed();
 }
