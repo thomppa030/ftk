@@ -480,6 +480,11 @@ void SkyCubemapPass::generate_mips(VkCommandBuffer cmd) {
 }
 
 void SkyCubemapPass::create_cubemap() {
+    // A fresh image starts in UNDEFINED, so the next generate has to barrier
+    // from that rather than from SHADER_READ_ONLY. Tied to image creation
+    // because the pass can be created more than once against the same object.
+    first_generate_ = true;
+
     // Create cubemap image
     VkImageCreateInfo ci{};
     ci.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
