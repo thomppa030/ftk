@@ -680,8 +680,15 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers = &cmd;
-    vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
-    vkQueueWaitIdle(gpu_.graphics_queue());
+    if (VkResult r = vkQueueSubmit(gpu_.graphics_queue(), 1, &submit, VK_NULL_HANDLE);
+        r != VK_SUCCESS) {
+        FJELL_GFX_CRITICAL("render_preview vkQueueSubmit failed: VkResult={}", static_cast<int>(r));
+        if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("preview submit");
+    }
+    if (VkResult r = vkQueueWaitIdle(gpu_.graphics_queue()); r != VK_SUCCESS) {
+        FJELL_GFX_CRITICAL("render_preview vkQueueWaitIdle failed: VkResult={}", static_cast<int>(r));
+        if (r == VK_ERROR_DEVICE_LOST) gpu_.device_ref().dump_device_fault("preview wait idle");
+    }
 
     vkFreeCommandBuffers(vk, gpu_.command_pool(), 1, &cmd);
 }
