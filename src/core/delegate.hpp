@@ -74,7 +74,8 @@ public:
         requires std::invocable<F, Args...>
     [[nodiscard]] Connection bind(F&& callback) {
         auto id = state_->next_id++;
-        state_->listeners.push_back(
+        auto& target = state_->broadcast_depth > 0 ? state_->pending : state_->listeners;
+        target.push_back(
             {id, std::move_only_function<void(Args...)>{std::forward<F>(callback)}});
 
         std::weak_ptr<State> weak = state_;
@@ -90,6 +91,9 @@ public:
                         return;
                     }
                 }
+                // Bound during this same broadcast and disconnected before it
+                // ended — drop it rather than merging it in.
+                std::erase_if(s->pending, [id](const Listener& l) { return l.id == id; });
             } else {
                 auto& v = s->listeners;
                 for (auto it = v.begin(); it != v.end(); ++it) {
@@ -108,18 +112,33 @@ public:
         auto s = state_; // local copy keeps state alive if Delegate is destroyed mid-broadcast
         s->broadcast_depth++;
 
+        // The size is snapshotted so a listener bound during the broadcast
+        // waits for the next one. Binding also reallocates the vector, so the
+        // callback is fetched through a fresh subscript each iteration rather
+        // than through a reference taken before the call — the old buffer is
+        // freed the moment a listener binds another.
         auto count = s->listeners.size();
         for (size_t i = 0; i < count; ++i) {
-            if (s->listeners[i].callback) {
-                s->listeners[i].callback(args...);
-            }
+            auto& callback = s->listeners[i].callback;
+            if (!callback) continue;
+            callback(args...);
         }
 
         s->broadcast_depth--;
 
-        if (s->broadcast_depth == 0 && s->dirty) {
-            std::erase_if(s->listeners, [](const Listener& l) { return !l.callback; });
-            s->dirty = false;
+        if (s->broadcast_depth == 0) {
+            if (s->dirty) {
+                std::erase_if(s->listeners, [](const Listener& l) { return !l.callback; });
+                s->dirty = false;
+            }
+            // Anything bound while broadcasting joins now, after the cleanup
+            // above so a clear() during the broadcast cannot take it with it.
+            if (!s->pending.empty()) {
+                s->listeners.insert(s->listeners.end(),
+                                    std::make_move_iterator(s->pending.begin()),
+                                    std::make_move_iterator(s->pending.end()));
+                s->pending.clear();
+            }
         }
     }
 
@@ -146,6 +165,11 @@ private:
 
     struct State {
         std::vector<Listener> listeners;
+        // Listeners bound while a broadcast is running. They must not go into
+        // `listeners` yet: growing it reallocates the storage the in-flight
+        // callback is executing from. Merged in once the outermost broadcast
+        // finishes, which is also when they first become eligible to fire.
+        std::vector<Listener> pending;
         uint64_t next_id{1};
         uint32_t broadcast_depth{0};
         bool dirty{false};
