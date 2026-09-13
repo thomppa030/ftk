@@ -999,11 +999,16 @@ static bool write_fjskel(const std::string& output_path,
             prev_header.collider_count > 0) {
             std::vector<char> prev_names(prev_header.name_table_size);
             std::fseek(prev, static_cast<long>(prev_header.name_table_offset), SEEK_SET);
-            std::fread(prev_names.data(), 1, prev_names.size(), prev);
+            // A short read leaves the tail zero-filled while the offset checks
+            // below still pass against the requested size, so the bone names
+            // would come back empty or truncated. Treat it as no carry-over.
+            const bool names_ok =
+                std::fread(prev_names.data(), 1, prev_names.size(), prev) == prev_names.size();
 
             existing_colliders.resize(prev_header.collider_count);
             std::fseek(prev, static_cast<long>(prev_header.colliders_offset), SEEK_SET);
-            if (std::fread(existing_colliders.data(), sizeof(fjell::FjSkelCollider),
+            if (names_ok &&
+                std::fread(existing_colliders.data(), sizeof(fjell::FjSkelCollider),
                            prev_header.collider_count, prev) == prev_header.collider_count) {
                 for (const auto& c : existing_colliders) {
                     std::string bone;
