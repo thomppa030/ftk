@@ -105,6 +105,10 @@ set(USE_STATIC_MSVC_RUNTIME_LIBRARY OFF CACHE BOOL "" FORCE)
 # types' typeinfo (implicitly required by polymorphic destruction through
 # base pointers, e.g. std::unique_ptr<JPH::Shape>) to link against.
 set(CPP_RTTI_ENABLED ON CACHE BOOL "" FORCE)
+# Jolt installs its headers and a CMake package config by default, which would
+# otherwise end up in the packaged engine — a few hundred files nothing in a
+# download needs.
+set(ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
     JoltPhysics
     GIT_REPOSITORY https://github.com/jrouwe/JoltPhysics.git
