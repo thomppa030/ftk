@@ -70,6 +70,30 @@ public:
                                                 const glm::vec3& position,
                                                 const QueryFilter& filter = {}) const;
 
+    /// Rewrite a rectangle of a terrain body's heights, in normalized [0,1]
+    /// samples matching the .fjterrain array. `heights` is row-major and
+    /// `size_x * size_z` long. Jolt updates its acceleration structure for the
+    /// affected blocks only, which is what keeps a sculpt stroke cheap on the
+    /// physics side — the render side does the matching partial texture upload.
+    ///
+    /// The rect is snapped outward to Jolt's block size, so the region written
+    /// may be larger than the one requested. Heights outside [0,1] clamp.
+    void update_terrain_heights(uint32_t object_id, uint32_t x, uint32_t z,
+                                uint32_t size_x, uint32_t size_z,
+                                const float* heights);
+
+    /// World-space ground height under a point, from the collision shape rather
+    /// than a separate interpolation of the height array, so gameplay queries
+    /// and what a character stands on cannot disagree. Returns false when
+    /// nothing is below the point within `max_distance`.
+    [[nodiscard]] bool ground_height_at(const glm::vec3& world_position,
+                                        float max_distance, float& out_height) const;
+
+    /// Ground normal under a point, from the same downward query as
+    /// ground_height_at.
+    [[nodiscard]] bool ground_normal_at(const glm::vec3& world_position,
+                                        float max_distance, glm::vec3& out_normal) const;
+
     void set_gravity(const glm::vec3& gravity);
     [[nodiscard]] glm::vec3 gravity() const;
 

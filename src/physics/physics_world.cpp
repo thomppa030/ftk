@@ -27,6 +27,7 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/OffsetCenterOfMassShape.h>
@@ -612,6 +613,13 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
         JPH::Vec3(0.0f, data.header.height_offset * s.y, 0.0f),
         JPH::Vec3(spacing * s.x, data.header.height_scale * s.y, spacing * s.z),
         samples);
+
+    // Heights are normalized, so the format's full range is [0,1] whatever the
+    // loaded data happens to span. Reserve all of it: SetHeights clamps to the
+    // range fixed here, and sculpting terrain above its original peak would
+    // otherwise flatten against a ceiling derived from the initial samples.
+    settings.mMinHeightValue = 0.0f;
+    settings.mMaxHeightValue = 1.0f;
 
     auto shape_result = settings.Create();
     if (shape_result.HasError()) {
@@ -1235,6 +1243,80 @@ static JPH::ShapeRefC query_shape(QueryShape shape, const glm::vec3& extents) {
                                          clamp_positive(extents.x));
     }
     return {};
+}
+
+void PhysicsWorld::update_terrain_heights(uint32_t object_id, uint32_t x, uint32_t z,
+                                          uint32_t size_x, uint32_t size_z,
+                                          const float* heights) {
+    if (heights == nullptr || size_x == 0 || size_z == 0) return;
+
+    auto it = impl_->object_to_body.find(object_id);
+    if (it == impl_->object_to_body.end()) return;
+
+    JPH::BodyLockWrite lock(impl_->physics_system->GetBodyLockInterface(), it->second);
+    if (!lock.Succeeded()) return;
+
+    auto* shape = const_cast<JPH::Shape*>(lock.GetBody().GetShape());
+    if (shape == nullptr || shape->GetSubType() != JPH::EShapeSubType::HeightField) {
+        return;
+    }
+    auto* field = static_cast<JPH::HeightFieldShape*>(shape);
+
+    // SetHeights needs both origin and size block-aligned, so grow the rect
+    // outward to the enclosing blocks rather than rejecting an unaligned brush
+    // footprint. GetSampleCount is itself rounded up to a block multiple, so
+    // clamping the far edge to it keeps the size aligned too.
+    const uint32_t block = field->GetBlockSize();
+    const uint32_t samples = field->GetSampleCount();
+    if (block == 0 || x >= samples || z >= samples) return;
+
+    const uint32_t x0 = (x / block) * block;
+    const uint32_t z0 = (z / block) * block;
+    const uint32_t x1 = std::min(((x + size_x + block - 1) / block) * block, samples);
+    const uint32_t z1 = std::min(((z + size_z + block - 1) / block) * block, samples);
+    if (x1 <= x0 || z1 <= z0) return;
+
+    const uint32_t w = x1 - x0;
+    const uint32_t h = z1 - z0;
+
+    // The caller's rect covers only part of the aligned region, so seed the
+    // buffer with what the shape already holds and overwrite the middle.
+    std::vector<float> block_heights(static_cast<size_t>(w) * h);
+    field->GetHeights(x0, z0, w, h, block_heights.data(), static_cast<intptr_t>(w));
+
+    for (uint32_t row = 0; row < size_z; ++row) {
+        const uint32_t dst_z = z + row;
+        if (dst_z < z0 || dst_z >= z1) continue;
+        for (uint32_t col = 0; col < size_x; ++col) {
+            const uint32_t dst_x = x + col;
+            if (dst_x < x0 || dst_x >= x1) continue;
+            block_heights[(static_cast<size_t>(dst_z - z0) * w) + (dst_x - x0)] =
+                heights[(static_cast<size_t>(row) * size_x) + col];
+        }
+    }
+
+    field->SetHeights(x0, z0, w, h, block_heights.data(), static_cast<intptr_t>(w),
+                      *impl_->temp_allocator);
+}
+
+bool PhysicsWorld::ground_height_at(const glm::vec3& world_position, float max_distance,
+                                    float& out_height) const {
+    RaycastHit hit;
+    if (!raycast(world_position, glm::vec3{0.0f, -1.0f, 0.0f}, max_distance, hit)) {
+        return false;
+    }
+    out_height = hit.position.y;
+    return true;
+}
+
+bool PhysicsWorld::ground_normal_at(const glm::vec3& world_position, float max_distance,
+                                    glm::vec3& out_normal) const {
+    RaycastHit hit;
+    if (!raycast(world_position, glm::vec3{0.0f, -1.0f, 0.0f}, max_distance, hit)) {
+        return false;
+    }
+    out_normal = hit.normal;
+    return true;
 }
 
 bool PhysicsWorld::raycast(const glm::vec3& origin, const glm::vec3& direction,
