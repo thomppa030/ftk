@@ -228,9 +228,9 @@ void PipelineCache::compile_entry(Entry& entry) {
         jobs.push_back({next.generated_frag_path, stem + ".frag"});
 
         if (next.has_custom_vertex) {
-            auto gen_source = [&](const std::string& tmpl, const std::string& suffix) -> std::string {
-                if (tmpl.empty()) return {};
-                std::string src = generate_vertex_shader(next.metadata, tmpl);
+            auto gen_source = [&](const std::string& vertex_tmpl, const std::string& suffix) -> std::string {
+                if (vertex_tmpl.empty()) return {};
+                std::string src = generate_vertex_shader(next.metadata, vertex_tmpl);
                 std::string path = generated_dir_ + "/" + stem + suffix;
                 std::ofstream out(path);
                 if (!out.is_open()) return {};
@@ -239,8 +239,8 @@ void PipelineCache::compile_entry(Entry& entry) {
                 return path;
             };
 
-            auto add_job = [&](const std::string& tmpl, const std::string& suffix) {
-                std::string path = gen_source(tmpl, suffix);
+            auto add_job = [&](const std::string& vertex_tmpl, const std::string& suffix) {
+                std::string path = gen_source(vertex_tmpl, suffix);
                 if (!path.empty()) {
                     jobs.push_back({path, stem + suffix});
                 }

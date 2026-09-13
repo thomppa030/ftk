@@ -254,10 +254,10 @@ void Device::pick_physical_device() {
         as_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
         as_features.pNext = &rt_features;
 
-        VkPhysicalDeviceFeatures2 features2{};
-        features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-        features2.pNext = &as_features;
-        vkGetPhysicalDeviceFeatures2(physical_device_, &features2);
+        VkPhysicalDeviceFeatures2 rt_query{};
+        rt_query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        rt_query.pNext = &as_features;
+        vkGetPhysicalDeviceFeatures2(physical_device_, &rt_query);
 
         if (rt_features.rayTracingPipeline && as_features.accelerationStructure) {
             ray_tracing_supported_ = true;
