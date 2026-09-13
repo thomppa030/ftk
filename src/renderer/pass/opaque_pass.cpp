@@ -15,7 +15,6 @@
 #include "renderer/resources/skeletal_model.hpp"
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/pass/terrain_pass.hpp"
-#include "renderer/pass/debug_pass.hpp"
 #include "scene/scene.hpp"
 
 #ifdef FJELL_ENABLE_TRACY
@@ -262,7 +261,6 @@ void OpaquePass::record(const FrameContext& ctx) {
     // Before sky: terrain is opaque geometry and writes depth.
     ctx.passes->get<TerrainPass>("terrain").record(ctx);
 
-    ctx.passes->get<DebugPass>("debug").record(ctx);
     draw_outline(ctx);
 
     vkCmdEndRendering(ctx.cmd);
