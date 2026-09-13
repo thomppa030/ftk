@@ -8,11 +8,16 @@
     "resources": {},
 
     "passes": [
-        // Core geometry — required.
-        { "class": "DepthPrePass",     "name": "depth_prepass" },
-        { "class": "DepthResolvePass", "name": "depth_resolve" },
-        { "class": "InstanceCullPass", "name": "instance_cull" },
-        { "class": "TerrainPass",      "name": "terrain" },
+        // Core geometry — required. Static opaque geometry only has a
+        // mesh-shader path, so the meshlet expand/cull chain has to run here
+        // to fill the indirect buffers the depth and color passes draw from.
+        { "class": "DepthPrePass",        "name": "depth_prepass" },
+        { "class": "DepthResolvePass",    "name": "depth_resolve" },
+        { "class": "HizPass",             "name": "hiz_build" },
+        { "class": "InstanceCullPass",    "name": "instance_cull" },
+        { "class": "MeshletInstancePass", "name": "meshlet_cull" },
+        { "class": "MeshletCullPass2",    "name": "meshlet_cull_pass2" },
+        { "class": "TerrainPass",         "name": "terrain" },
 
         // Shadows — keeps lighting recognizable. SkyCubemapPass also writes
         // the env cubemap that opaque samples for IBL.
@@ -21,15 +26,15 @@
         { "class": "SkyCubemapPass",   "name": "sky_cubemap" },
 
         // Color.
-        { "class": "OpaquePass",       "name": "opaque" },
-        { "class": "TransparentPass",  "name": "transparent" },
+        { "class": "OpaquePass",       "name": "color_opaque" },
+        { "class": "TransparentPass",  "name": "color_transparent" },
         { "class": "SkyPass",          "name": "sky" },
 
         // Forward+ tile cull — opaque needs the tile SSBO.
         { "class": "LightCullPass",    "name": "light_cull" },
 
         // Auto-exposure + tonemap — always on.
-        { "class": "ExposurePass",     "name": "exposure" },
+        { "class": "ExposurePass",     "name": "exposure_histogram" },
         { "class": "TonemapPass",      "name": "tonemap" }
     ]
 }
