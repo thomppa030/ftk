@@ -27,6 +27,7 @@ struct FjSkinnedMeshData {
     AABB aabb;
     // Skeleton data (populated when loading .fjskel)
     std::vector<FjSkelJoint> joints;
+    std::vector<BoneCollider> colliders;
 };
 
 // A skinned mesh with per-model VBO/IBO (not MegaBuffer).

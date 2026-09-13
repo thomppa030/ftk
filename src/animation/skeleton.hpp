@@ -1,6 +1,7 @@
 #pragma once
 
 #include "animation/fjskel.hpp"
+#include "physics/collision_shape.hpp"
 #include "core/result.hpp"
 
 #include <ozz/animation/runtime/skeleton.h>
@@ -32,11 +33,17 @@ public:
     [[nodiscard]] const std::vector<BoneSlot>& slots() const { return slots_; }
     [[nodiscard]] std::vector<BoneSlot>& slots() { return slots_; }
 
+    /// Collision shapes carried by this skeleton's bones. Every character using
+    /// the skeleton collides as these.
+    [[nodiscard]] const std::vector<BoneCollider>& colliders() const { return colliders_; }
+    [[nodiscard]] std::vector<BoneCollider>& colliders() { return colliders_; }
+
 private:
     ozz::animation::Skeleton skeleton_;
     std::vector<glm::mat4> inverse_bind_matrices_;
     std::vector<FjSkelJoint> joints_;
     std::vector<BoneSlot> slots_;
+    std::vector<BoneCollider> colliders_;
 };
 
 } // namespace fjell

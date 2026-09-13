@@ -170,7 +170,7 @@ struct FjMeshCollisionPrimitive {
 // then skeleton joints section, then joint name table.
 
 static constexpr uint32_t FJSKEL_MAGIC   = 0x4C4B5346; // "FSKL" little-endian
-static constexpr uint32_t FJSKEL_VERSION = 1;
+static constexpr uint32_t FJSKEL_VERSION = 2;
 
 // Binary joint for the embedded skeleton section.
 struct FjSkelJointBin {
@@ -207,6 +207,26 @@ struct FjSkelHeader {
     uint64_t joints_offset;             // FjSkelJointBin[joint_count]
     uint64_t name_table_offset;         // packed joint name strings
     uint64_t name_table_size;           // total bytes in name table
+
+    // v2+ fields — collision shapes carried by the skeleton's bones. Authored
+    // on the skeleton so every character using it inherits them, the same way
+    // mesh collision is authored on the .fjmesh.
+    uint32_t collider_count;
+    uint32_t pad_v2;
+    uint64_t colliders_offset;          // FjSkelCollider[collider_count]
+};
+
+// On-disk form of a bone collider. The bone is named rather than indexed so a
+// re-export with a different joint order cannot silently move every shape onto
+// the wrong limb; the name indexes the same table the joints use.
+struct FjSkelCollider {
+    uint32_t kind;              // CollisionPrimitiveKind
+    uint32_t bone_name_offset;
+    uint32_t bone_name_length;
+    uint32_t pad;
+    float position[3];
+    float rotation[4];          // x, y, z, w
+    float extents[3];
 };
 
 // ── Authored mesh settings (v5) ─────────────────────────────────────────

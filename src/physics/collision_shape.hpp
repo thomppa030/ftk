@@ -12,6 +12,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace fjell {
@@ -46,6 +47,11 @@ struct CollisionPrimitive {
     // trivially serializable and the inspector uniform.
     glm::vec3 extents{0.5F};
 
+    // Joint this shape is parented to, for a shape authored on a skeleton.
+    // -1 places it at the mesh origin, which is what every shape authored on a
+    // mesh means, so the field is inert unless a skeleton put something in it.
+    int32_t bone{-1};
+
     // Range into the mesh's collision arrays, for the geometry kinds. A hull
     // reads vertices only; a triangle mesh reads both.
     uint32_t first_vertex{0};
@@ -58,6 +64,15 @@ struct CollisionPrimitive {
     [[nodiscard]] bool is_convex() const {
         return kind != CollisionPrimitiveKind::triangle_mesh;
     }
+};
+
+// A collision shape carried by a skeleton, parented to one of its joints.
+// Authored on the skeleton rather than on a scene node, so every character
+// using it inherits the shapes — the same way mesh collision is authored once
+// on the .fjmesh and inherited by everything placed from it.
+struct BoneCollider {
+    CollisionPrimitive shape;
+    std::string bone_name;  // resolved to shape.bone at load
 };
 
 // Collision geometry in the mesh's local space. A convex hull is stored as a

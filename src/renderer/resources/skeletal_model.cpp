@@ -4,6 +4,7 @@
 #include "renderer/resources/meshlet_buffer.hpp"
 #include "core/log.hpp"
 
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -55,6 +56,17 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, UploadContext& upload,
     if (!data.joints.empty()) {
         auto skel_result = Skeleton::from_joints(data.joints);
         if (skel_result) {
+            // Resolve each collider's bone now the joint list is final. A name
+            // that no longer exists leaves the shape unparented rather than
+            // attaching it to joint 0, which would be plausible and wrong.
+            skel_result->colliders() = std::move(data.colliders);
+            for (auto& col : skel_result->colliders()) {
+                col.shape.bone = skel_result->find_joint(col.bone_name);
+                if (col.shape.bone < 0 && !col.bone_name.empty()) {
+                    FJELL_CORE_WARN("Skeleton: collider references unknown bone '{}'",
+                                    col.bone_name);
+                }
+            }
             skeleton_ = std::make_shared<Skeleton>(std::move(*skel_result));
         } else {
             FJELL_CORE_ERROR("Failed to build skeleton: {}", skel_result.error());
@@ -104,10 +116,21 @@ FjSkinnedMeshData SkeletalModel::load_fjskel(const std::string& path) {
         throw std::runtime_error("Invalid .fjskel file (expected FSKL magic): " + path);
     }
 
+    // v1 files end where the v2 fields begin, so the header is read in two
+    // parts rather than one sizeof() that would run past the end of an older
+    // file and into its geometry.
     FjSkelHeader header{};
-    if (std::fread(&header, sizeof(header), 1, f) != 1) {
+    constexpr size_t V1_SIZE = offsetof(FjSkelHeader, collider_count);
+    if (std::fread(&header, V1_SIZE, 1, f) != 1) {
         std::fclose(f);
         throw std::runtime_error("Failed to read .fjskel header: " + path);
+    }
+    if (header.version >= 2) {
+        auto* v2_ptr = reinterpret_cast<char*>(&header) + V1_SIZE;
+        if (std::fread(v2_ptr, sizeof(FjSkelHeader) - V1_SIZE, 1, f) != 1) {
+            std::fclose(f);
+            throw std::runtime_error("Failed to read .fjskel v2 header fields: " + path);
+        }
     }
 
     FjSkinnedMeshData data;
@@ -162,6 +185,34 @@ FjSkinnedMeshData SkeletalModel::load_fjskel(const std::string& path) {
             dst.scale = {src.scale[0], src.scale[1], src.scale[2]};
             if (src.name_length > 0 && src.name_offset + src.name_length <= header.name_table_size) {
                 dst.name = std::string(name_table.data() + src.name_offset, src.name_length);
+            }
+        }
+
+        // Bone colliders (v2+), named out of the same table as the joints.
+        if (header.version >= 2 && header.collider_count > 0 &&
+            header.colliders_offset > 0) {
+            std::vector<FjSkelCollider> bin_colliders(header.collider_count);
+            std::fseek(f, static_cast<long>(header.colliders_offset), SEEK_SET);
+            if (std::fread(bin_colliders.data(), sizeof(FjSkelCollider),
+                           header.collider_count, f) != header.collider_count) {
+                std::fclose(f);
+                throw std::runtime_error("Failed to read .fjskel colliders: " + path);
+            }
+
+            data.colliders.reserve(bin_colliders.size());
+            for (const auto& src : bin_colliders) {
+                BoneCollider col;
+                col.shape.kind = static_cast<CollisionPrimitiveKind>(src.kind);
+                col.shape.position = {src.position[0], src.position[1], src.position[2]};
+                col.shape.rotation = glm::quat(src.rotation[3], src.rotation[0],
+                                               src.rotation[1], src.rotation[2]);
+                col.shape.extents = {src.extents[0], src.extents[1], src.extents[2]};
+                if (src.bone_name_length > 0 &&
+                    src.bone_name_offset + src.bone_name_length <= header.name_table_size) {
+                    col.bone_name = std::string(name_table.data() + src.bone_name_offset,
+                                                src.bone_name_length);
+                }
+                data.colliders.push_back(std::move(col));
             }
         }
     }

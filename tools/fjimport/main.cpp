@@ -986,6 +986,42 @@ static bool import_skinned_mesh(const aiScene* scene, SkinnedImportResult& resul
 static bool write_fjskel(const std::string& output_path,
                           const SkinnedImportResult& mesh_result,
                           const ozz::animation::Skeleton& skeleton) {
+    // Carry over bone colliders from a previous import of this skeleton. They
+    // are authored by hand and belong to the skeleton, not to the source file,
+    // so reimporting the mesh must not throw them away. Read before the file is
+    // overwritten; names are re-added to the new table below.
+    std::vector<fjell::FjSkelCollider> existing_colliders;
+    std::vector<std::string> existing_collider_bones;
+    if (std::FILE* prev = std::fopen(output_path.c_str(), "rb")) {
+        fjell::FjSkelHeader prev_header{};
+        if (std::fread(&prev_header, sizeof(prev_header), 1, prev) == 1 &&
+            prev_header.magic == fjell::FJSKEL_MAGIC && prev_header.version >= 2 &&
+            prev_header.collider_count > 0) {
+            std::vector<char> prev_names(prev_header.name_table_size);
+            std::fseek(prev, static_cast<long>(prev_header.name_table_offset), SEEK_SET);
+            std::fread(prev_names.data(), 1, prev_names.size(), prev);
+
+            existing_colliders.resize(prev_header.collider_count);
+            std::fseek(prev, static_cast<long>(prev_header.colliders_offset), SEEK_SET);
+            if (std::fread(existing_colliders.data(), sizeof(fjell::FjSkelCollider),
+                           prev_header.collider_count, prev) == prev_header.collider_count) {
+                for (const auto& c : existing_colliders) {
+                    std::string bone;
+                    if (c.bone_name_length > 0 &&
+                        c.bone_name_offset + c.bone_name_length <= prev_names.size()) {
+                        bone.assign(prev_names.data() + c.bone_name_offset, c.bone_name_length);
+                    }
+                    existing_collider_bones.push_back(std::move(bone));
+                }
+            } else {
+                existing_colliders.clear();
+            }
+        }
+        std::fclose(prev);
+    }
+
+    // Opening for writing truncates, so anything to be carried over has to be
+    // read before this line.
     FILE* f = std::fopen(output_path.c_str(), "wb");
     if (!f) {
         std::fprintf(stderr, "error: cannot open '%s' for writing\n", output_path.c_str());
@@ -1031,6 +1067,14 @@ static bool write_fjskel(const std::string& output_path,
         name_table.insert(name_table.end(), name.begin(), name.end());
     }
 
+    // Re-point the carried colliders at the new name table.
+    for (size_t i = 0; i < existing_colliders.size(); ++i) {
+        const auto& bone = existing_collider_bones[i];
+        existing_colliders[i].bone_name_offset = static_cast<uint32_t>(name_table.size());
+        existing_colliders[i].bone_name_length = static_cast<uint32_t>(bone.size());
+        name_table.insert(name_table.end(), bone.begin(), bone.end());
+    }
+
     auto align_to = [](uint64_t val, uint64_t alignment) -> uint64_t {
         return (val + alignment - 1) & ~(alignment - 1);
     };
@@ -1063,6 +1107,13 @@ static bool write_fjskel(const std::string& output_path,
 
     header.joints_offset = align_to(offset, 8);
     offset = header.joints_offset + num_joints * sizeof(fjell::FjSkelJointBin);
+
+    // Bone colliders carried over from a previous import, so authoring them is
+    // not undone by reimporting the mesh they belong to.
+    header.collider_count = static_cast<uint32_t>(existing_colliders.size());
+    header.colliders_offset = align_to(offset, 4);
+    offset = header.colliders_offset +
+             (existing_colliders.size() * sizeof(fjell::FjSkelCollider));
 
     header.name_table_offset = align_to(offset, 4);
     header.name_table_size = name_table.size();
@@ -1097,6 +1148,10 @@ static bool write_fjskel(const std::string& output_path,
 
     pad_to(header.joints_offset);
     std::fwrite(bin_joints.data(), sizeof(fjell::FjSkelJointBin), bin_joints.size(), f);
+
+    pad_to(header.colliders_offset);
+    std::fwrite(existing_colliders.data(), sizeof(fjell::FjSkelCollider),
+                existing_colliders.size(), f);
 
     pad_to(header.name_table_offset);
     std::fwrite(name_table.data(), 1, name_table.size(), f);
