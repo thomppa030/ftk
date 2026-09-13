@@ -1524,12 +1524,10 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
     elapsed_time_ += dt;
 
     gpu_.render_stats().reset();
-    bool has_script_draws = debug_draw_queue_ && !debug_draw_queue_->primitives().empty();
-    // Authored collision is submitted by an editor rather than found on a node,
-    // so none of the scene-derived conditions above see it.
-    bool has_authored_collision = debug_draw_->has_pending_authored_collision();
-    if (scene && (show_colliders_ || selected_id != 0 || has_script_draws ||
-                  has_authored_collision)) {
+    // Always rebuild when there's a scene: update() is what clears the vertex
+    // and command buffers, so skipping it on the frame a source turns off
+    // leaves that frame's geometry on screen until something else redraws.
+    if (scene) {
         debug_draw_->update(*scene, current_frame_, selected_id, show_colliders_, debug_draw_queue_);
     }
     if (debug_draw_queue_) {

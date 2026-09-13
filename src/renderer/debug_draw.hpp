@@ -52,13 +52,6 @@ public:
     /// being edited so a drag is visible against the others.
     void submit_collision_primitive(const CollisionPrimitive& primitive, bool highlight);
 
-    /// Whether geometry has been submitted but not yet consumed by `update()`.
-    /// The frame loop skips the update entirely when nothing needs drawing,
-    /// and an editor's submission is not visible in the scene it checks.
-    [[nodiscard]] bool has_pending_authored_collision() const {
-        return !authored_collision_lines_.empty();
-    }
-
     /// Draw with the buffer populated by the matching `update()` call.
     void draw(VkCommandBuffer cmd, VkPipelineLayout layout, uint32_t frame_index) const;
 
