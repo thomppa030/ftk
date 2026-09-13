@@ -80,6 +80,24 @@ Shortcuts: Ctrl+P toggles play, Shift+Esc stops. ESC is never intercepted, so
 a game can bind it. In game mode (`game.fjell` present) there is no snapshot;
 play starts immediately and `stop()` closes the window.
 
+### Pause, step, time scale
+
+Backed by `Clock`, not separate controller state — a script calling
+`fjell_time_set_paused`/`fjell_time_set_scale` shows up in the toolbar and
+status bar the same as the editor's own controls, since both read the same
+clock. `pause()`/`resume()` also tell `AudioSubsystem` to freeze and thaw
+every tracked node source in place (one-shot sounds are deliberately left
+running — they have no node to resume against).
+
+`step()` marks the session as stepping and calls `resume()`; the next call to
+`PlayController::begin_frame()` (from `Engine::run`, right after `clock_.tick()`
+and before the play phases tick) re-pauses immediately after that one frame
+runs, so exactly one tick of gameplay advances.
+
+Shortcuts: Ctrl+Shift+P toggles pause, Ctrl+Alt+P steps one frame. The
+viewport toolbar shows pause and step buttons only while playing, plus a
+time-scale drag field (0.1–4×).
+
 ## Physics Step Order
 
 The ordering within a play-mode frame matters:

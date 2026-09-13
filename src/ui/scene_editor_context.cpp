@@ -598,6 +598,107 @@ bool toolbar_toggle(const char* id, const char* glyph, bool on, const char* tool
 
 } // namespace
 
+SceneEditorContext::PlayControlsRect SceneEditorContext::draw_play_controls(
+    ImDrawList* dl, const glm::vec2& origin, const glm::vec2& size) {
+    auto* icons = IconCache::instance();
+    if (!icons) return {};
+
+    float icon_size = ImGui::GetFrameHeight() + 4.0f;
+    float pad = 6.0f;
+    float inner_spacing = 4.0f;
+
+    const bool playing = deps_.play->playing();
+    const bool paused = deps_.play->paused();
+
+    // Play/stop always shows; pause, step and the time-scale row only make
+    // sense once playing — showing them disabled while stopped would invite
+    // clicking a control that can't do anything yet.
+    const int button_count = playing ? 3 : 1;
+    const float scale_row_h = playing ? ImGui::GetFrameHeight() + pad : 0.0f;
+    float box_w = pad * 2.0f + static_cast<float>(button_count) * icon_size
+                + static_cast<float>(button_count - 1) * inner_spacing;
+    box_w = std::max(box_w, playing ? 140.0f : 0.0f); // room for the scale drag
+    float box_h = icon_size + pad * 2.0f + scale_row_h;
+    float box_x = origin.x + (size.x - box_w) * 0.5f;
+    float box_y = origin.y + pad;
+
+    dl->AddRectFilled(
+        {box_x, box_y}, {box_x + box_w, box_y + box_h},
+        IM_COL32(0, 0, 0, 128), 6.0f);
+
+    // Icons are centered within the box: it can be wider than the icon
+    // cluster once the time-scale row forces a minimum width.
+    const float icons_w = static_cast<float>(button_count) * icon_size
+                        + static_cast<float>(button_count - 1) * inner_spacing;
+    const float icons_x0 = box_x + (box_w - icons_w) * 0.5f;
+
+    // Bindless-texture icon button drawn at a fixed slot in the box, sharing
+    // the invisible-button-then-AddImage pattern the play button established
+    // (so a click still registers even though there's no ImGui::Button glyph
+    // to hit-test against under the custom tint).
+    auto icon_button = [&](int slot, const char* icon_name, bool active,
+                           const ImVec4& idle_tint, const ImVec4& active_tint,
+                           const char* tooltip) -> bool {
+        float x = icons_x0 + static_cast<float>(slot) * (icon_size + inner_spacing);
+        ImGui::SetCursorScreenPos({x, box_y + pad});
+        ImGui::PushID(slot);
+        bool clicked = ImGui::InvisibleButton("##toolbar_icon", {icon_size, icon_size});
+        bool hovered = ImGui::IsItemHovered();
+        ImGui::PopID();
+
+        ImVec4 tint = active ? active_tint : idle_tint;
+        if (hovered) {
+            tint.x = std::min(tint.x + 0.2f, 1.0f);
+            tint.y = std::min(tint.y + 0.2f, 1.0f);
+            tint.z = std::min(tint.z + 0.2f, 1.0f);
+        }
+
+        auto desc = icons->icon(icon_name);
+        if (desc) {
+            dl->AddImage(reinterpret_cast<ImTextureID>(desc),
+                {x, box_y + pad}, {x + icon_size, box_y + pad + icon_size},
+                {0, 0}, {1, 1}, ImGui::ColorConvertFloat4ToU32(tint));
+        }
+        if (hovered && tooltip) ImGui::SetTooltip("%s", tooltip);
+        return clicked;
+    };
+
+    if (icon_button(0, playing ? "stop" : "play", playing,
+                    {0.4f, 1.0f, 0.5f, 1.0f}, {1.0f, 0.4f, 0.4f, 1.0f},
+                    playing ? "Stop (Ctrl+P)" : "Play (Ctrl+P)")) {
+        deps_.play->toggle();
+    }
+
+    if (playing) {
+        if (icon_button(1, "pause", paused,
+                        {0.85f, 0.85f, 0.85f, 1.0f}, {1.0f, 0.85f, 0.3f, 1.0f},
+                        paused ? "Resume (Ctrl+Shift+P)" : "Pause (Ctrl+Shift+P)")) {
+            deps_.play->toggle_pause();
+        }
+        if (icon_button(2, "step", false,
+                        {0.85f, 0.85f, 0.85f, 1.0f}, {0.85f, 0.85f, 0.85f, 1.0f},
+                        "Step one frame (Ctrl+Alt+P)")) {
+            deps_.play->step();
+        }
+
+        // Time-scale row: a narrow drag field centered under the icons.
+        float scale = deps_.play->time_scale();
+        float drag_w = box_w - pad * 2.0f;
+        ImGui::SetCursorScreenPos({box_x + pad, box_y + icon_size + pad * 2.0f});
+        ImGui::SetNextItemWidth(drag_w);
+        ImGui::PushID("play_time_scale");
+        if (ImGui::DragFloat("##scale", &scale, 0.01f, 0.1f, 4.0f, "%.2fx")) {
+            deps_.play->set_time_scale(scale);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Time scale");
+        }
+        ImGui::PopID();
+    }
+
+    return {box_x, box_y, box_w, box_h};
+}
+
 void SceneEditorContext::draw_play_toolbar() {
     auto* vp = viewport_manager_.active_panel();
     if (!vp) return;
@@ -611,48 +712,12 @@ void SceneEditorContext::draw_play_toolbar() {
         return;
     }
 
-    float icon_size = ImGui::GetFrameHeight() + 4.0f;
-
-    float pad = 6.0f;
-    float box_w = icon_size + pad * 2.0f;
-    float box_h = icon_size + pad * 2.0f;
-    float box_x = vp->img_pos.x + (vp->img_size.x - box_w) * 0.5f;
-    float box_y = vp->img_pos.y + pad;
+    const bool playing = deps_.play->playing();
+    const float pad = 6.0f;
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
-    draw_list->AddRectFilled(
-        {box_x, box_y}, {box_x + box_w, box_y + box_h},
-        IM_COL32(0, 0, 0, 128), 6.0f);
-
-    // Invisible button for hit testing
-    ImGui::SetCursorScreenPos({box_x + pad, box_y + pad});
-    bool hovered = false;
-    bool clicked = ImGui::InvisibleButton("##play_btn", {icon_size, icon_size});
-    hovered = ImGui::IsItemHovered();
-
-    // Draw icon with color change on hover
-    const bool playing = deps_.play->playing();
-    const char* icon_name = playing ? "stop" : "play";
-    ImVec4 tint = playing
-        ? ImVec4{1.0f, 0.4f, 0.4f, 1.0f}
-        : ImVec4{0.4f, 1.0f, 0.5f, 1.0f};
-    if (hovered) {
-        tint = playing
-            ? ImVec4{1.0f, 0.6f, 0.6f, 1.0f}
-            : ImVec4{0.6f, 1.0f, 0.7f, 1.0f};
-    }
-
-    auto desc = icons->icon(icon_name);
-    if (desc) {
-        draw_list->AddImage(reinterpret_cast<ImTextureID>(desc),
-            {box_x + pad, box_y + pad},
-            {box_x + pad + icon_size, box_y + pad + icon_size},
-            {0, 0}, {1, 1}, ImGui::ColorConvertFloat4ToU32(tint));
-    }
-
-    if (clicked) {
-        deps_.play->toggle();
-    }
+    auto box = draw_play_controls(draw_list, vp->img_pos, vp->img_size);
+    const float box_x = box.x, box_y = box.y, box_w = box.w, box_h = box.h;
 
     // Net mode selector — sits just left of the play button. The engine never
     // acts on this; it sets NetManager's launch mode, which the running game
@@ -900,29 +965,11 @@ void SceneEditorContext::draw_play_overlay() {
         ImGui::Image(tex_id, viewport->WorkSize);
     }
 
-    // Overlay bar at top center
-    float bar_width = 220.0f;
-    float bar_height = 32.0f;
-    float bar_x = viewport->WorkPos.x + (viewport->WorkSize.x - bar_width) * 0.5f;
-    float bar_y = viewport->WorkPos.y + 8.0f;
-
-    ImGui::SetNextWindowPos({bar_x, bar_y});
-    ImGui::SetNextWindowSize({bar_width, bar_height});
-    ImGui::SetNextWindowBgAlpha(0.6f);
-    ImGui::Begin("##PlayBar", nullptr,
-                 ImGuiWindowFlags_NoTitleBar |
-                 ImGuiWindowFlags_NoResize |
-                 ImGuiWindowFlags_NoMove |
-                 ImGuiWindowFlags_NoScrollbar |
-                 ImGuiWindowFlags_NoDocking |
-                 ImGuiWindowFlags_NoFocusOnAppearing);
-
-    ImGui::Text("Ctrl+P to stop");
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Stop")) {
-        deps_.play->stop();
-    }
-    ImGui::End();
+    // Play/stop/pause/step/time-scale box, top center. Same control drawn
+    // over the docked viewport panel while editing — see draw_play_toolbar.
+    draw_play_controls(ImGui::GetWindowDrawList(),
+                       {viewport->WorkPos.x, viewport->WorkPos.y},
+                       {viewport->WorkSize.x, viewport->WorkSize.y});
 
     // FPS overlay: top-right corner, updates every 0.5s. Kept as an ImGui
     // draw instead of a {fps} game-UI binding so the player-facing HUD

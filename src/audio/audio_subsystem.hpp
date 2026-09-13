@@ -27,6 +27,9 @@ public:
         engine_.stop_play();
     }
 
+    void on_paused() { engine_.pause_all(); }
+    void on_resumed() { engine_.resume_all(); }
+
     void play_oneshot(AudioAssetHandle asset, const glm::vec3& position,
                       ResourceManager& resources,
                       float volume_scale = 1.0f, float pitch_scale = 1.0f,

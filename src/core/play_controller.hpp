@@ -78,6 +78,23 @@ public:
     [[nodiscard]] PlayState state() const { return state_; }
     [[nodiscard]] bool playing() const { return state_ != PlayState::stopped; }
 
+    /// No-op unless playing. Backed by Clock, so a script calling
+    /// fjell_time_set_paused shows up here too.
+    void pause();
+    void resume();
+    void toggle_pause();
+    [[nodiscard]] bool paused() const;
+
+    /// Resume for exactly one tick, then re-pause. No-op unless playing.
+    void step();
+
+    void set_time_scale(float scale);
+    [[nodiscard]] float time_scale() const;
+
+    /// Called once per frame from Engine::run, before the play phases tick.
+    /// Turns a pending step() into exactly one unpaused frame.
+    void begin_frame();
+
     /// Load every InputComponent's action set and push its mapping contexts.
     /// Called at play start and again whenever a node with an InputComponent
     /// is spawned during play, so its bindings can dispatch.
@@ -89,6 +106,8 @@ public:
     Delegate<void()> on_stopping;
     /// Fires after the editor scene has been restored.
     Delegate<void()> on_stopped;
+    Delegate<void()> on_paused;
+    Delegate<void()> on_resumed;
 
 private:
     void check_component_serialization() const;
@@ -97,6 +116,10 @@ private:
     bool game_mode_{false};
     PlayState state_{PlayState::stopped};
     std::unique_ptr<PlaySession> session_;
+
+    // Set by step(), consumed by begin_frame(): resume this frame, then
+    // re-pause at the start of the next one.
+    bool stepping_{false};
 };
 
 } // namespace fjell

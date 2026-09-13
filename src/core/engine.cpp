@@ -1586,6 +1586,14 @@ void Engine::handle_play_shortcuts() {
     if (ImGui::IsAnyItemActive()) return;
 
     const auto& io = ImGui::GetIO();
+    if (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_P)) {
+        play_controller_.toggle_pause();
+        return;
+    }
+    if (io.KeyCtrl && io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_P)) {
+        play_controller_.step();
+        return;
+    }
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_P)) {
         play_controller_.toggle();
     }
@@ -1634,6 +1642,7 @@ void Engine::run() {
         if (asset_file_browser_.is_open()) asset_file_browser_.tick();
         menu_bar_.tick_browsers();
         clock_.tick();
+        play_controller_.begin_frame();
 
 #ifndef NDEBUG
         if (shader_watcher_ && shader_watcher_->poll()) {
@@ -1960,8 +1969,15 @@ void Engine::draw_status_bar() {
     }
 
     const bool playing = play_controller_.playing();
-    StatusBar::item(playing ? ICON_LC_PLAY : ICON_LC_PENCIL,
-                    playing ? "Playing" : "Editing");
+    const bool paused = play_controller_.paused();
+    StatusBar::item(paused ? ICON_LC_PAUSE : playing ? ICON_LC_PLAY : ICON_LC_PENCIL,
+                    paused ? "Paused" : playing ? "Playing" : "Editing");
+    if (playing && play_controller_.time_scale() != 1.0f) {
+        StatusBar::separator();
+        char scale_buf[32];
+        std::snprintf(scale_buf, sizeof(scale_buf), "%.2fx", play_controller_.time_scale());
+        StatusBar::item(ICON_LC_GAUGE, scale_buf);
+    }
 
     // Selected entity (scene context only — other contexts have no scene selection)
     if (scene_context_ != nullptr && &active_context() == scene_context_) {

@@ -140,6 +140,18 @@ void AudioEngine::stop_all() {
     impl_->oneshots.clear();
 }
 
+void AudioEngine::pause_all() {
+    for (auto& [id, entry] : impl_->sounds) {
+        if (entry.active) ma_sound_stop(&entry.sound);
+    }
+}
+
+void AudioEngine::resume_all() {
+    for (auto& [id, entry] : impl_->sounds) {
+        if (entry.active) ma_sound_start(&entry.sound);
+    }
+}
+
 void AudioEngine::play_oneshot(const std::string& clip_path,
                                 const glm::vec3& position,
                                 float volume, float pitch,

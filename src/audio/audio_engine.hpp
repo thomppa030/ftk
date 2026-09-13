@@ -32,6 +32,13 @@ public:
     void stop(uint32_t node_id);
     void stop_all();
 
+    // Pause/resume every tracked node source in place (position preserved).
+    // One-shot sounds (play_oneshot) are deliberately left out: they have no
+    // node to resume against, and a paused one would look "not playing" to
+    // the reap check in play_oneshot() and be destroyed instead of resumed.
+    void pause_all();
+    void resume_all();
+
     // Fire-and-forget spatial sound (not tied to any node)
     void play_oneshot(const std::string& clip_path, const glm::vec3& position,
                       float volume = 1.0f, float pitch = 1.0f,

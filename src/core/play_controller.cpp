@@ -59,6 +59,55 @@ void PlayController::toggle() {
     }
 }
 
+void PlayController::pause() {
+    if (!playing() || paused()) return;
+    s_.clock->set_paused(true);
+    s_.audio->on_paused();
+    on_paused.broadcast();
+}
+
+void PlayController::resume() {
+    if (!playing() || !paused()) return;
+    s_.clock->set_paused(false);
+    s_.audio->on_resumed();
+    on_resumed.broadcast();
+}
+
+void PlayController::toggle_pause() {
+    if (paused()) {
+        resume();
+    } else {
+        pause();
+    }
+}
+
+bool PlayController::paused() const {
+    return playing() && s_.clock->is_paused();
+}
+
+void PlayController::step() {
+    if (!playing()) return;
+    stepping_ = true;
+    resume();
+}
+
+void PlayController::set_time_scale(float scale) {
+    s_.clock->set_time_scale(scale);
+}
+
+float PlayController::time_scale() const {
+    return s_.clock->time_scale();
+}
+
+void PlayController::begin_frame() {
+    if (!stepping_) return;
+    stepping_ = false;
+    // The frame this unlocked is about to tick; re-pause so the next one
+    // doesn't advance too, without ever broadcasting resume/pause for what
+    // is really a single-frame nudge.
+    s_.clock->set_paused(true);
+}
+
 void PlayController::load_input_contexts() {
     auto* project = s_.project_mgr->active();
     for (const auto& obj : s_.scene->objects()) {

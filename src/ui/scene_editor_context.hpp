@@ -111,6 +111,17 @@ private:
     void draw_play_toolbar();
     void draw_spline_visuals();
 
+    // Play/stop/pause/step/time-scale cluster, centered along the top edge
+    // of the rect the scene image occupies. Shared between the docked
+    // viewport panel and the fullscreen play view — the caller supplies the
+    // draw list of the window it is drawing inside, same convention as
+    // draw_screen_debug below. Returns the screen-space rect it drew, so a
+    // caller with more chrome around it (the docked toolbar's net selector,
+    // gizmo cluster, ortho toggle) knows what to avoid overlapping.
+    struct PlayControlsRect { float x, y, w, h; };
+    PlayControlsRect draw_play_controls(ImDrawList* dl, const glm::vec2& origin,
+                                        const glm::vec2& size);
+
     // Screen-space debug text submitted by scripts (fjell::Debug::screen /
     // print / watch / text_3d). Drawn into the rect the scene image occupies,
     // so the same code serves the fullscreen play view and the editor panel.
