@@ -221,12 +221,14 @@ void HubUI::draw_splash(float window_w, float window_h) {
 
     float cx = window_w * 0.5f;
 
-    // Logo
-    float logo_scale = window_w / 300.0f;
+    // Logo. A fixed scale rather than one derived from the window width — the
+    // splash is centred content, not a stretched layout, so widening the window
+    // should leave more space around it instead of inflating it.
+    constexpr float LOGO_SCALE = 1.6f;
     float logo_top = 80.0f;
-    draw_logo(cx, logo_top, logo_scale);
+    draw_logo(cx, logo_top, LOGO_SCALE);
 
-    float logo_bottom = logo_top + (275.0f - 48.0f) * logo_scale;
+    float logo_bottom = logo_top + (275.0f - 48.0f) * LOGO_SCALE;
 
     // "FJELL" title
     ImGui::SetCursorPosY(logo_bottom + 15.0f);
