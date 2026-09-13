@@ -714,6 +714,10 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         FrameContext prep_ctx{};
         prep_ctx.scene = scene;
         prep_ctx.frame_index = current_frame_;
+        // Terrain uploads its ray mesh here: this is the pass hook that carries
+        // the scene, and geometry has to reach the mega-buffer before the TLAS
+        // is built during recording.
+        prep_ctx.mega_buffer = gpu_.mega_buffer();
         if (!viewports.empty() && viewports[0].target) {
             prep_ctx.view = viewports[0].view;
             prep_ctx.projection = viewports[0].projection;

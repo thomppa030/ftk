@@ -1,5 +1,6 @@
 #include "renderer/resources/terrain_asset.hpp"
 
+#include "core/log.hpp"
 #include "renderer/gpu/image.hpp"
 #include "renderer/gpu/upload_context.hpp"
 #include "renderer/resources/fjterrain_io.hpp"
@@ -58,6 +59,12 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     }
     asset->min_world_height_ = asset->data_.world_height(lowest);
     asset->max_world_height_ = asset->data_.world_height(highest);
+    asset->build_ray_mesh();
+    FJELL_GFX_DEBUG("Terrain '{}': {}x{} samples, ray mesh {} verts / {} tris ({:.1f} MB)",
+                    path, samples, samples, asset->ray_vertices_.size(),
+                    asset->ray_indices_.size() / 3,
+                    static_cast<double>(asset->ray_vertices_.size() * sizeof(Vertex) +
+                                        asset->ray_indices_.size() * sizeof(uint32_t)) / 1e6);
     const VkDeviceSize bytes = texels.size() * sizeof(uint16_t);
 
     auto image = Image::create(allocator, samples, samples, VK_FORMAT_R16_UNORM,
@@ -116,6 +123,77 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     }
 
     return asset;
+}
+
+namespace {
+
+// Every 4th sample: 256x256 vertices for a 1024-sample field, ~130k triangles
+// at roughly 2 m spacing over 512 m. Rays do not resolve finer than that, and
+// the full density would be 2M triangles for no visible gain.
+constexpr uint32_t RAY_MESH_STEP = 4;
+
+} // namespace
+
+void TerrainAsset::build_ray_mesh() {
+    const uint32_t samples = data_.sample_count();
+    if (samples < 2) return;
+
+    const uint32_t step = std::min(RAY_MESH_STEP, samples - 1);
+    // Round up, so the last row lands on the final sample rather than short of
+    // it. Truncating leaves a strip of missing ground along two edges that rays
+    // pass straight through.
+    const uint32_t count = ((samples - 1 + step - 1) / step) + 1;
+    const float spacing = data_.header.world_size / static_cast<float>(samples - 1);
+
+    ray_vertices_.resize(static_cast<size_t>(count) * count);
+    for (uint32_t z = 0; z < count; ++z) {
+        for (uint32_t x = 0; x < count; ++x) {
+            const uint32_t sx = std::min(x * step, samples - 1);
+            const uint32_t sz = std::min(z * step, samples - 1);
+
+            Vertex& v = ray_vertices_[(static_cast<size_t>(z) * count) + x];
+            v.position = {static_cast<float>(sx) * spacing,
+                          data_.world_height(height_at_sample(sx, sz)),
+                          static_cast<float>(sz) * spacing};
+            v.color = glm::vec3{1.0F};
+            v.tex_coord = {static_cast<float>(sx) / static_cast<float>(samples - 1),
+                           static_cast<float>(sz) / static_cast<float>(samples - 1)};
+
+            // Central differences over the decimated stride, matching the
+            // geometry actually being built rather than the source grid.
+            const uint32_t xm = sx >= step ? sx - step : sx;
+            const uint32_t xp = std::min(sx + step, samples - 1);
+            const uint32_t zm = sz >= step ? sz - step : sz;
+            const uint32_t zp = std::min(sz + step, samples - 1);
+            const float dx = static_cast<float>(xp - xm) * spacing;
+            const float dz = static_cast<float>(zp - zm) * spacing;
+            const float hl = data_.world_height(height_at_sample(xm, sz));
+            const float hr = data_.world_height(height_at_sample(xp, sz));
+            const float hd = data_.world_height(height_at_sample(sx, zm));
+            const float hu = data_.world_height(height_at_sample(sx, zp));
+            v.normal = glm::normalize(glm::vec3{dx > 0.0F ? -(hr - hl) / dx : 0.0F, 1.0F,
+                                                dz > 0.0F ? -(hu - hd) / dz : 0.0F});
+            v.tangent = glm::vec4{1.0F, 0.0F, 0.0F, 1.0F};
+        }
+    }
+
+    ray_indices_.clear();
+    ray_indices_.reserve(static_cast<size_t>(count - 1) * (count - 1) * 6);
+    for (uint32_t z = 0; z + 1 < count; ++z) {
+        for (uint32_t x = 0; x + 1 < count; ++x) {
+            const uint32_t v0 = (z * count) + x;
+            const uint32_t v1 = v0 + 1;
+            const uint32_t v2 = v0 + count;
+            const uint32_t v3 = v2 + 1;
+            // Winding matches terrain.mesh so both agree on which side faces up.
+            ray_indices_.insert(ray_indices_.end(), {v0, v2, v1, v1, v2, v3});
+        }
+    }
+}
+
+void TerrainAsset::upload_ray_mesh(MegaBuffer& mega) {
+    if (ray_mesh_uploaded() || ray_indices_.empty()) return;
+    ray_mesh_entry_ = mega.upload(ray_vertices_, ray_indices_);
 }
 
 float TerrainAsset::height_at_sample(uint32_t x, uint32_t z) const {

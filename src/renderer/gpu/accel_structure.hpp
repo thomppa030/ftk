@@ -77,11 +77,21 @@ public:
         const Blas* blas;
     };
 
-    /// Rebuild TLAS from scene draws + particle emitters.
+    /// A terrain's ray mesh, placed by its node transform. Terrain carries no
+    /// Model — its render geometry is generated in a mesh shader — so it cannot
+    /// ride the draw arrays.
+    struct TerrainInstanceInfo {
+        glm::mat4 transform{1.0F};
+        uint32_t material_id{0};
+        const Blas* blas{nullptr};
+    };
+
+    /// Rebuild TLAS from scene draws + particle emitters + terrain.
     void build_tlas(VkCommandBuffer cmd, uint32_t frame_index,
                     const GpuDrawData* draw_data, uint32_t draw_count,
                     const std::vector<const Model*>& draw_models,
-                    const std::vector<ParticleEmitterInfo>& particle_emitters = {});
+                    const std::vector<ParticleEmitterInfo>& particle_emitters = {},
+                    const std::vector<TerrainInstanceInfo>& terrains = {});
 
     /// Free per-frame TLAS/instance buffers + TLAS handles that build_tlas
     /// retired (on growth) the LAST time this slot was used. Call once per

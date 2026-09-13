@@ -2,12 +2,15 @@
 
 #include "core/result.hpp"
 #include "renderer/resources/fjterrain.hpp"
+#include "renderer/resources/mega_buffer.hpp"
+#include "renderer/resources/vertex.hpp"
 
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace fjell {
 
@@ -61,6 +64,24 @@ public:
     [[nodiscard]] float min_world_height() const { return min_world_height_; }
     [[nodiscard]] float max_world_height() const { return max_world_height_; }
 
+    /// Terrain-local triangle mesh for ray tracing, decimated from the height
+    /// array. Rendering needs no such thing — the mesh shader derives vertices
+    /// from the texture — but an acceleration structure has to be built from
+    /// real triangles, and GI rays do not resolve the full sample density.
+    ///
+    /// Positions are relative to the terrain's own origin; the TLAS instance
+    /// transform places it in the world.
+    [[nodiscard]] const std::vector<Vertex>& ray_vertices() const { return ray_vertices_; }
+    [[nodiscard]] const std::vector<uint32_t>& ray_indices() const { return ray_indices_; }
+
+    /// Where the ray mesh lives in the mega-buffer, once uploaded. Empty until
+    /// something calls upload_ray_mesh().
+    [[nodiscard]] const MegaMeshEntry& ray_mesh_entry() const { return ray_mesh_entry_; }
+    [[nodiscard]] bool ray_mesh_uploaded() const { return ray_mesh_entry_.index_count > 0; }
+
+    /// Upload the ray mesh into the mega-buffer. Idempotent.
+    void upload_ray_mesh(MegaBuffer& mega);
+
     /// Normalized height at a sample index, clamped at the edges.
     [[nodiscard]] float height_at_sample(uint32_t x, uint32_t z) const;
 
@@ -70,8 +91,14 @@ public:
     [[nodiscard]] float height_at(float local_x, float local_z) const;
 
 private:
+    /// Decimate the height array into the triangle mesh ray tracing needs.
+    void build_ray_mesh();
+
     FjTerrainData data_;
     std::string path_;
+    std::vector<Vertex> ray_vertices_;
+    std::vector<uint32_t> ray_indices_;
+    MegaMeshEntry ray_mesh_entry_{};
     float min_world_height_{0.0F};
     float max_world_height_{0.0F};
     VkDevice device_{VK_NULL_HANDLE};

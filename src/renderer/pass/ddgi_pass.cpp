@@ -1,4 +1,6 @@
 #include "renderer/pass/ddgi_pass.hpp"
+#include "renderer/components/terrain_component.hpp"
+#include "renderer/resources/terrain_asset.hpp"
 #include "core/profiler.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/accel_structure.hpp"
@@ -1067,6 +1069,22 @@ void DdgiPass::update_constants(Images& imgs, const FrameContext& ctx) {
 void DdgiPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) {
     if (!ctx.scene) return;
 
+    // Terrain's render geometry is generated in a mesh shader and never exists
+    // as triangles, so ray tracing needs the decimated mesh the asset builds
+    // from its height array. Done here rather than in pre_record because this
+    // is the hook that carries the scene.
+    if (backend_ == DdgiBackend::ray_traced && accel_manager_ != nullptr &&
+        ctx.mega_buffer != nullptr) {
+        for (const auto& obj : ctx.scene->objects()) {
+            auto* tc = obj->components.get<TerrainComponent>();
+            if (tc == nullptr || tc->terrain == nullptr) continue;
+            tc->terrain->upload_ray_mesh(*ctx.mega_buffer);
+            if (!tc->terrain->ray_mesh_uploaded()) continue;
+            accel_manager_->ensure_blas_entry(tc->terrain, tc->terrain->ray_mesh_entry(),
+                                              *ctx.mega_buffer);
+        }
+    }
+
     for (const auto& obj : ctx.scene->objects()) {
         if (const auto* dl = dynamic_cast<const DirectionalLightNode*>(obj.get())) {
             light_direction_ = glm::normalize(-dl->direction);
@@ -1550,10 +1568,28 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                 }
             }
 
-            if (!tlas_draws.empty() || !particle_infos.empty()) {
+            std::vector<AccelStructureManager::TerrainInstanceInfo> terrain_infos;
+            if (ctx.scene != nullptr) {
+                for (const auto& obj : ctx.scene->objects()) {
+                    const auto* tc = obj->components.get<TerrainComponent>();
+                    if (tc == nullptr || tc->terrain == nullptr) continue;
+                    const auto* blas = accel_manager_->find_blas(tc->terrain);
+                    if (blas == nullptr) continue;
+
+                    const auto* spatial = obj->as_spatial();
+                    AccelStructureManager::TerrainInstanceInfo info{};
+                    info.transform = spatial != nullptr ? spatial->world_matrix_
+                                                        : glm::mat4{1.0F};
+                    info.material_id = 0;
+                    info.blas = blas;
+                    terrain_infos.push_back(info);
+                }
+            }
+
+            if (!tlas_draws.empty() || !particle_infos.empty() || !terrain_infos.empty()) {
                 accel_manager_->build_tlas(ctx.cmd, ctx.frame_index, tlas_draws.data(),
                                            static_cast<uint32_t>(tlas_draws.size()),
-                                           tlas_models, particle_infos);
+                                           tlas_models, particle_infos, terrain_infos);
             }
         }
     }
