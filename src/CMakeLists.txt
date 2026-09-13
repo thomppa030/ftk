@@ -387,6 +387,10 @@ else()
     # stb_image_resize2.h (vendored, included from our .cpp wrapper) trips
     # -Wunused-but-set-variable under some compiler/flag combinations.
     set_source_files_properties(renderer/resources/stb_image_resize.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=unused-but-set-variable")
+    # miniaudio (vendored, included from our .cpp wrapper) makes GCC report a
+    # bogus out-of-bounds inside <vector>'s move path once the optimiser is on,
+    # so it only appears in release builds.
+    set_source_files_properties(audio/audio_engine.cpp PROPERTIES COMPILE_FLAGS "-Wno-error=array-bounds")
 endif()
 
 # Treat VMA headers as system headers to suppress warnings from them
@@ -399,6 +403,30 @@ if(MSVC)
     set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "/w")
 else()
     set_source_files_properties(renderer/gpu/vma_impl.cpp PROPERTIES COMPILE_FLAGS "-w")
+endif()
+
+# imgui — third-party, and the stack layout patch leaves unused parameters that
+# only surface once the optimiser runs, so debug builds never saw them.
+if(MSVC)
+    set_source_files_properties(
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+        PROPERTIES COMPILE_FLAGS "/w")
+else()
+    set_source_files_properties(
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+        PROPERTIES COMPILE_FLAGS "-w")
 endif()
 
 # imgui-node-editor — suppress warnings from third-party code
