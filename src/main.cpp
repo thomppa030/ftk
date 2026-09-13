@@ -6,6 +6,10 @@
 #include <filesystem>
 
 #ifdef _WIN32
+// Without NOMINMAX, Windows.h defines min/max as macros that break std::min
+// and std::max in anything included after it.
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <Windows.h>
 #endif
 

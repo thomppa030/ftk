@@ -138,7 +138,8 @@ void AssetDatabase::rebuild() {
     for (const auto& entry : fs::recursive_directory_iterator(project_root_, ec)) {
         if (!entry.is_regular_file()) continue;
 
-        auto rel = fs::relative(entry.path(), project_root_, ec).string();
+        // generic_string so the separator checks below hold on every platform.
+        auto rel = fs::relative(entry.path(), project_root_, ec).generic_string();
         if (ec) continue;
 
         // Skip engine metadata, build dirs, hidden dirs
