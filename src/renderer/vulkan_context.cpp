@@ -663,7 +663,7 @@ void VulkanContext::render_preview(const ViewportRenderRequest& req,
     }
 
     update_uniform_buffer(current_frame_, req.view, req.projection,
-                          req.camera_position, light, scene, req.target->extent());
+                          req.camera_position, light, scene, req.target->extent(), *pp);
     update_light_ssbo(current_frame_, scene);
     render_scene_to(cmd, *req.target, scene, dt, selected_id, pool, pp,
                     req.skip_shadows, req.flip_tonemap_y, req.viewport_graph,
@@ -768,7 +768,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         if (!vp.target) continue;
         auto* pp = vp.pp_resources ? vp.pp_resources : default_pp_.get();
         update_uniform_buffer(current_frame_, vp.view, vp.projection,
-                              vp.camera_position, light, scene, vp.target->extent());
+                              vp.camera_position, light, scene, vp.target->extent(), *pp);
         update_light_ssbo(current_frame_, scene);
         render_scene_to(cmd, *vp.target, scene, dt, selected_id, pool, pp,
                         vp.skip_shadows, /*flip_tonemap_y*/ false, vp.viewport_graph);
@@ -872,16 +872,19 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
                                           const glm::mat4& projection,
                                           const glm::vec3& camera_position,
                                           const DirectionalLight& light,
-                                          Scene* scene, VkExtent2D extent) {
+                                          Scene* scene, VkExtent2D extent,
+                                          PostProcessResources& pp) {
     FJELL_PROFILE_SCOPE_N("update_uniform_buffer");
 
+    ViewHistory& history = pp.view_history();
+
     // TAA sub-pixel jitter: offset the projection matrix by ±0.5 pixels
-    bool taa_enabled = default_pp_ && default_pp_->config().taa;
+    bool taa_enabled = pp.config().taa;
     glm::mat4 jittered_projection = projection;
     float jx = 0.0f;
     float jy = 0.0f;
     if (taa_enabled && extent.width > 0 && extent.height > 0) {
-        int idx = static_cast<int>((taa_frame_count_++) % 16) + 1; // 1-based, 16-sample cycle
+        int idx = static_cast<int>((history.taa_frame_count++) % 16) + 1; // 1-based, 16-sample cycle
         jx = (halton(idx, 2) - 0.5f) / static_cast<float>(extent.width);
         jy = (halton(idx, 3) - 0.5f) / static_cast<float>(extent.height);
         // Apply jitter as a translation in clip space (NDC offset).
@@ -903,7 +906,7 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.view = view;
     ubo.projection = jittered_projection;
     ubo.unjittered_vp = projection * view;
-    ubo.prev_unjittered_vp = prev_unjittered_vp_;
+    ubo.prev_unjittered_vp = history.unjittered_view_proj;
     ubo.jitter_x = jx;
     ubo.jitter_y = jy;
     // Find directional light from scene nodes, fall back to passed-in light
@@ -957,13 +960,13 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     }
     ubo.cascade_splits = glm::vec4(splits[0], splits[1], splits[2], 0.0f);
     // DDGI: sun bounce indirect
-    if (default_pp_ && default_pp_->config().ddgi) {
+    if (pp.config().ddgi) {
         ubo.gi_intensity = ddgi_pass().config().gi_intensity;
     } else {
         ubo.gi_intensity = 0.0f;
     }
     // SS-GI: emissive color bleeding (supplements DDGI)
-    if (default_pp_ && default_pp_->config().ss_gi && default_pp_->ss_gi() && !default_pp_->ss_gi()->first_frame) {
+    if (pp.config().ss_gi && pp.ss_gi() && !pp.ss_gi()->first_frame) {
         ubo.ss_gi_intensity = ss_gi_pass().config().intensity;
     } else {
         ubo.ss_gi_intensity = 0.0f;
@@ -976,14 +979,13 @@ void VulkanContext::update_uniform_buffer(uint32_t frame_index,
     ubo.tile_info = glm::uvec4(tiles_x, tiles_y, point_count, spot_count);
     ubo.inv_projection = glm::inverse(jittered_projection);
     ubo.inv_view_proj = glm::inverse(jittered_projection * view);
-    ubo.prev_view_proj = gatherer_.prev_view_proj();
-    ubo.prev_view = gatherer_.prev_view();
+    ubo.prev_view_proj = history.view_proj;
+    ubo.prev_view = history.view;
     ubo.time = elapsed_time_;
 
     gpu_.uniform_buffer(frame_index).write(&ubo, sizeof(ubo));
 
-    gatherer_.update_prev_view_proj();
-    prev_unjittered_vp_ = projection * view;
+    history.advance(view, jittered_projection, projection);
 }
 
 void VulkanContext::update_light_ssbo(uint32_t frame_index, Scene* scene) {

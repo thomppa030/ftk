@@ -344,11 +344,14 @@ private:
                        bool flip_tonemap_y = false,
                        const FjGraph *viewport_graph = nullptr,
                        VkDescriptorSet global_set = VK_NULL_HANDLE);
+  /// `pp` is the viewport being rendered: its config decides which temporal
+  /// effects the UBO enables (TAA jitter, GI intensities) and its ViewHistory
+  /// supplies and receives the previous-frame camera.
   void update_uniform_buffer(uint32_t frame_index, const glm::mat4 &view,
                              const glm::mat4 &projection,
                              const glm::vec3 &camera_position,
                              const struct DirectionalLight &light, Scene *scene,
-                             VkExtent2D extent);
+                             VkExtent2D extent, PostProcessResources &pp);
 
   // `global_set` overrides the per-frame global descriptor set bound for the
   // frame (used by previews that own a private set); null = per-frame set.
@@ -486,10 +489,6 @@ private:
   float ibl_intensity_{1.0f};
   float elapsed_time_{0.0f};
   int debug_light_channel_{0}; // see DebugLightChannel in uniform_types.hpp
-
-  // ── TAA jitter state ─────────────────────────────────────────────────
-  uint32_t taa_frame_count_{0};
-  glm::mat4 prev_unjittered_vp_{1.0f};
 
   // ── Scene viewports (render-to-texture for materials) ─────────────────
   std::unordered_map<std::string, std::unique_ptr<SceneViewport>> scene_viewports_;

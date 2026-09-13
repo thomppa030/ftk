@@ -114,7 +114,8 @@ PostProcessResources::PostProcessResources(PostProcessResources&& other) noexcep
     , ddgi_images_(std::move(other.ddgi_images_))
     , ss_gi_images_(std::move(other.ss_gi_images_))
     , taa_images_(other.taa_images_)
-    , rt_reflection_images_(std::move(other.rt_reflection_images_)) {
+    , rt_reflection_images_(std::move(other.rt_reflection_images_))
+    , view_history_(other.view_history_) {
     passes_ = passes_storage_.get();
     other.device_ = VK_NULL_HANDLE;
     other.hiz_images_ = {};
@@ -152,6 +153,7 @@ PostProcessResources& PostProcessResources::operator=(PostProcessResources&& oth
         ss_gi_images_ = std::move(other.ss_gi_images_);
         taa_images_ = other.taa_images_;
         rt_reflection_images_ = std::move(other.rt_reflection_images_);
+        view_history_ = other.view_history_;
         other.device_ = VK_NULL_HANDLE;
         other.hiz_images_ = {};
         other.gtao_images_ = {};

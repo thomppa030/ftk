@@ -10,6 +10,7 @@
 #include "renderer/pass/taa_resolve_pass.hpp"
 #include "renderer/pass/tonemap_pass.hpp"
 #include "renderer/pass/volumetric_fog_pass.hpp"
+#include "renderer/view_history.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -88,6 +89,10 @@ public:
 
     [[nodiscard]] const PostProcessConfig& config() const { return config_; }
 
+    /// Camera this viewport rendered with last frame; the temporal passes
+    /// above reproject through it.
+    [[nodiscard]] ViewHistory& view_history() { return view_history_; }
+
     /// Release all imgui texture descriptors (call before swapchain recreation).
     void invalidate_imgui_textures();
 
@@ -108,6 +113,7 @@ private:
     SsGiPass::Images ss_gi_images_;
     TaaResolvePass::Images taa_images_;
     RtReflectionPass::Images rt_reflection_images_;
+    ViewHistory view_history_;
 };
 
 } // namespace fjell
