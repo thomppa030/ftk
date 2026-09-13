@@ -38,6 +38,19 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
+# fastgltf needs simdjson and, left alone, pulls the single-header build with a
+# bare file(DOWNLOAD) whose result it never checks — a failed fetch writes an
+# empty file that its EXISTS guard then accepts forever. Fetching simdjson here
+# means fastgltf takes the `if (TARGET simdjson::simdjson)` branch instead, so
+# the version is pinned and configuring stays offline once _deps is populated.
+set(SIMDJSON_DEVELOPER_MODE OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    simdjson
+    GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+    GIT_TAG        v3.9.4
+    EXCLUDE_FROM_ALL
+)
+
 FetchContent_Declare(
     fastgltf
     GIT_REPOSITORY https://github.com/spnda/fastgltf.git
@@ -231,7 +244,8 @@ FetchContent_Declare(
 )
 
 
-FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga freetype tracy meshoptimizer ozz-animation assimp Catch2 enet)
+# simdjson ahead of fastgltf so the target exists when fastgltf configures.
+FetchContent_MakeAvailable(glfw glm spdlog stb simdjson fastgltf json JoltPhysics yoga freetype tracy meshoptimizer ozz-animation assimp Catch2 enet)
 
 # ENet's CMakeLists exports an unaliased `enet` target; give it the include dir.
 if(TARGET enet)
