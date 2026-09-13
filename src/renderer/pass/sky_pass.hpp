@@ -19,6 +19,8 @@ class SkyPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     void record(const FrameContext& ctx) override;
     void prepare_frame(const FrameContext& ctx, GpuContext& gpu) override;
     void post_create(GpuContext& gpu, PassRegistry& passes) override;
@@ -50,6 +52,11 @@ public:
     [[nodiscard]] float atmosphere_hdri_floor() const { return atm_hdri_floor_; }
 
 private:
+    /// Open the sky's rendering scope: color + metallic-roughness + normal
+    /// loaded, depth bound read-only. Both the built-in and FJSL paths
+    /// render into it.
+    void begin_rendering(const FrameContext& ctx);
+
     // Build the FJSL pipeline + allocate its material/params row. Called
     // when sky_shader_ changes. Idempotent: safe to call on the same path
     // multiple times — only rebuilds when the path changes or the FJSL is

@@ -5,6 +5,7 @@
 #include "renderer/gpu_context.hpp"
 #include "renderer/offscreen_pass.hpp"
 #include "renderer/pass/pass_gpu_zone.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/project.hpp"
@@ -110,11 +111,7 @@ Result<> SkyPass::create(Device& device, const PassResources& resources) {
     normal_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
     normal_blend.blendEnable = VK_FALSE;
 
-    VkPipelineColorBlendAttachmentState velocity_blend{};
-    velocity_blend.colorWriteMask = 0;
-    velocity_blend.blendEnable = VK_FALSE;
-
-    std::array blend_attachments = {blend, mr_blend, normal_blend, velocity_blend};
+    std::array blend_attachments = {blend, mr_blend, normal_blend};
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -150,7 +147,8 @@ Result<> SkyPass::create(Device& device, const PassResources& resources) {
     }
 
     VkFormat depth_format = resources.depth_format;
-    std::array<VkFormat, 4> color_formats = {resources.color_format, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT};
+    std::array<VkFormat, 3> color_formats = {resources.color_format, VK_FORMAT_R8G8_UNORM,
+                                             OffscreenPass::NORMAL_FORMAT};
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
@@ -199,11 +197,84 @@ void SkyPass::destroy() {
     if (layout_ != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device_, layout_, nullptr); layout_ = VK_NULL_HANDLE; }
 }
 
+PassSetup SkyPass::setup() const {
+    return {
+        .name = "sky",
+        .phase = RenderPhase::Color,
+        .sub_order = 8, // after opaque (0) has laid down depth, before the
+                        // grid (10) which draws on top of the sky
+    };
+}
+
+void SkyPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto msaa_color = builder.import_named(ctx, "msaa_color");
+    auto msaa_mr = builder.import_named(ctx, "msaa_mr");
+    auto msaa_normal = builder.import_named(ctx, "msaa_normal");
+    auto msaa_depth = builder.import_named(ctx, "msaa_depth");
+    // The sky clears metallic-roughness and normal on background pixels.
+    // GTAO, SS-GI and RT reflections all sample those targets, so dropping
+    // the writes would leave them reading whatever the opaque clear left.
+    builder.write(msaa_color, ResourceAccess::color_attachment);
+    builder.write(msaa_mr, ResourceAccess::color_attachment);
+    builder.write(msaa_normal, ResourceAccess::color_attachment);
+    // Depth-tested so the sky only fills pixels no geometry reached, but
+    // never written.
+    builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
+    // The backward cull walk starts at tonemap and follows readers of the
+    // resolved `color`. With MSAA on, `msaa_color` is a separate image
+    // nothing samples, so without this anchor the sky is culled entirely.
+    builder.has_side_effects();
+}
+
+void SkyPass::begin_rendering(const FrameContext& ctx) {
+    auto* target = ctx.target;
+
+    std::array<VkRenderingAttachmentInfo, 3> color_attachments{};
+    const std::array<VkImageView, 3> views = {
+        target->msaa_color_view(), target->msaa_mr_view(), target->msaa_normal_view()};
+    for (size_t i = 0; i < color_attachments.size(); ++i) {
+        color_attachments[i].sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+        color_attachments[i].imageView = views[i];
+        color_attachments[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        color_attachments[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        color_attachments[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    }
+
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = target->msaa_depth_view();
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingInfo ri{};
+    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    ri.renderArea.extent = target->extent();
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = static_cast<uint32_t>(color_attachments.size());
+    ri.pColorAttachments = color_attachments.data();
+    ri.pDepthAttachment = &depth_attachment;
+
+    vkCmdBeginRendering(ctx.cmd, &ri);
+
+    VkViewport vp{};
+    vp.width = static_cast<float>(target->extent().width);
+    vp.height = static_cast<float>(target->extent().height);
+    vp.maxDepth = 1.0f;
+    vkCmdSetViewport(ctx.cmd, 0, 1, &vp);
+
+    VkRect2D sc{};
+    sc.extent = target->extent();
+    vkCmdSetScissor(ctx.cmd, 0, 1, &sc);
+}
+
 void SkyPass::record(const FrameContext& ctx) {
     if (!ctx.target) return;
 
     FJELL_PROFILE_SCOPE_N("record_sky");
     FJELL_GPU_ZONE(ctx, "Sky");
+
+    begin_rendering(ctx);
 
     if (mode_ == Mode::Fjsl && fjsl_pipeline_ != VK_NULL_HANDLE) {
         struct {
@@ -226,6 +297,7 @@ void SkyPass::record(const FrameContext& ctx) {
         vkCmdPushConstants(ctx.cmd, fjsl_layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
                            0, sizeof(push), &push);
         vkCmdDraw(ctx.cmd, 3, 1, 0, 0);
+        vkCmdEndRendering(ctx.cmd);
         return;
     }
 
@@ -263,6 +335,8 @@ void SkyPass::record(const FrameContext& ctx) {
     vkCmdPushConstants(ctx.cmd, layout_, VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(push), &push);
     vkCmdDraw(ctx.cmd, 3, 1, 0, 0);
+
+    vkCmdEndRendering(ctx.cmd);
 }
 
 void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
@@ -396,9 +470,7 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     mr_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
     VkPipelineColorBlendAttachmentState normal_blend{};
     normal_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
-    VkPipelineColorBlendAttachmentState velocity_blend{};
-    velocity_blend.colorWriteMask = 0;
-    std::array blend_attachments = {blend, mr_blend, normal_blend, velocity_blend};
+    std::array blend_attachments = {blend, mr_blend, normal_blend};
 
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -412,9 +484,9 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
     depth_stencil.depthWriteEnable = VK_FALSE;
     depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 
-    std::array<VkFormat, 4> color_formats = {
+    std::array<VkFormat, 3> color_formats = {
         resources.color_format, VK_FORMAT_R8G8_UNORM,
-        OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT
+        OffscreenPass::NORMAL_FORMAT
     };
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
