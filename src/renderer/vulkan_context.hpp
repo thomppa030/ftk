@@ -352,10 +352,14 @@ private:
 
   // `global_set` overrides the per-frame global descriptor set bound for the
   // frame (used by previews that own a private set); null = per-frame set.
+  /// `viewport_graph` decides which passes this call runs, and so whether the
+  /// GPU-driven meshlet buffers may be handed to the color passes; null = the
+  /// global pass state governs.
   FrameContext build_frame_context(VkCommandBuffer cmd, OffscreenPass &target,
                                    Scene *scene, float dt, uint32_t selected_id,
                                    PostProcessResources *pp, bool skip_shadows,
                                    bool flip_tonemap_y,
+                                   const FjGraph *viewport_graph = nullptr,
                                    VkDescriptorSet global_set = VK_NULL_HANDLE);
 
   // ── GPU infrastructure ────────────────────────────────────────────────

@@ -267,6 +267,17 @@ const FjGraph* VulkanContext::get_or_load_graph(const std::string& path) {
 
 namespace {
 
+/// Whether a render call governed by `graph` runs the pass registered under
+/// `name`. A null graph means no per-viewport mask applies and the global
+/// pass state decides, so everything counts as running. Mirrors the
+/// membership test `RenderPipeline::execute` uses to build its mask.
+[[nodiscard]] bool runs_pass(const FjGraph* graph, std::string_view name) {
+    if (graph == nullptr) { return true; }
+    return std::ranges::any_of(graph->passes, [&](const FjGraphPass& p) {
+        return p.enabled && p.name == name;
+    });
+}
+
 // Compare params field-by-field. PassParams is small (3-5 keys per pass);
 // O(n*m) is fine.
 bool params_equal(const PassParams& a, const PassParams& b) {
@@ -334,6 +345,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
                                                  Scene* scene, float dt, uint32_t selected_id,
                                                  PostProcessResources* pp, bool skip_shadows,
                                                  bool flip_tonemap_y,
+                                                 const FjGraph* viewport_graph,
                                                  VkDescriptorSet global_set) {
     FrameContext ctx{};
     ctx.cmd = cmd;
@@ -357,7 +369,12 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.indirect_batch = gatherer_.indirect_batch();
     ctx.mega_buffer = gpu_.mega_buffer();
     ctx.pipeline_cache = gpu_.pipeline_cache();
-    if (passes_.has("meshlet_instance")) {
+    // The color passes draw indirect from these buffers, so they may only be
+    // handed over when the meshlet cull passes actually run in this call and
+    // fill them. A viewport graph that leaves the cull passes out would
+    // otherwise dispatch mesh tasks off whatever the buffers last held, which
+    // faults the device rather than drawing nothing.
+    if (passes_.has("meshlet_instance") && runs_pass(viewport_graph, "meshlet_cull")) {
         ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
         ctx.gpu_driven_indirect = meshlet_instance_pass()->indirect_buffer(current_frame_);
         ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
@@ -464,7 +481,8 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
     }
 
     current_ctx_ = build_frame_context(cmd, target, scene, dt, selected_id,
-                                        pp, skip_shadows, flip_tonemap_y, global_set);
+                                        pp, skip_shadows, flip_tonemap_y,
+                                        viewport_graph, global_set);
     // Hand the async CB + post-compute graphics CB to the graph, but
     // only for the main frame CB — preview viewports get their own
     // one-shot CBs from render_preview and have no paired compute/post
