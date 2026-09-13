@@ -1676,7 +1676,16 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         uint32_t groups_y = static_cast<uint32_t>(constants->probe_update_count);
         vkCmdDispatch(ctx.cmd, groups_x, groups_y, 1);
     } else {
-        // RT backend but TLAS not ready — skip trace this frame, keep previous radiance
+        // RT backend but TLAS not ready — skip trace this frame, keep previous radiance.
+        // The indirect image still has to reach SHADER_READ_ONLY: the global
+        // gi_indirect descriptor already points at it, and after a resize
+        // recreated it there is nothing else to move it out of UNDEFINED.
+        if (imgs.indirect_needs_init) {
+            barrier_image(imgs.indirect_image, VK_IMAGE_LAYOUT_UNDEFINED,
+                          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                          VK_ACCESS_2_SHADER_WRITE_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+            imgs.indirect_needs_init = false;
+        }
         frame_counter_++;
         return;
     }
