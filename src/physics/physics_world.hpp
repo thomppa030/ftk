@@ -9,8 +9,9 @@
 
 namespace fjell {
 
-class Scene;
 class Model;
+class Node;
+class Scene;
 
 class PhysicsWorld {
 public:
@@ -22,9 +23,18 @@ public:
     PhysicsWorld(PhysicsWorld&&) = delete;
     PhysicsWorld& operator=(PhysicsWorld&&) = delete;
 
+    /// Creates bodies for every node in the scene. Called once when play
+    /// starts; a node added later goes through create_body instead.
     void create_bodies(Scene& scene);
+
+    /// Creates the body for one node, replacing any it already has. Safe to
+    /// call on a node that should not have one — it simply makes none.
+    void create_body(Node& node);
+
+    /// Destroys a node's body. A no-op when it has none.
+    void destroy_body(uint32_t object_id);
+
     void step(float dt, Scene& scene);
-    void remove_body(uint32_t object_id);
 
     void apply_force(uint32_t object_id, const glm::vec3& force);
     void apply_impulse(uint32_t object_id, const glm::vec3& impulse);

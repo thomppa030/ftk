@@ -1562,6 +1562,14 @@ void Engine::flush_pending() {
         // A spawned node may carry an InputComponent (e.g. a player's camera);
         // load its contexts before begin_play so scripts can bind/activate input.
         load_input_contexts();
+        // Bodies before begin_play: a spawned node's script may query physics
+        // or set a velocity in its first frame, and a body that appears a tick
+        // later means the object falls through whatever it spawned on.
+        if (auto* physics = physics_subsystem_->world()) {
+            for (uint32_t id : spawned) {
+                if (auto* node = scene_.find(id)) physics->create_body(*node);
+            }
+        }
         // Give freshly-spawned nodes their script lifecycle (instantiate +
         // begin_play) — the play-start passes already ran without them.
         script_subsystem_->manager().initialize_spawned(scene_, spawned);
@@ -1571,7 +1579,7 @@ void Engine::flush_pending() {
     script_subsystem_->manager().trace_doomed_refs(scene_, scene_.pending_destroy());
     if (physics_subsystem_->world()) {
         for (uint32_t id : scene_.pending_destroy()) {
-            physics_subsystem_->world()->remove_body(id);
+            physics_subsystem_->world()->destroy_body(id);
         }
     }
     scene_.flush_destroyed();

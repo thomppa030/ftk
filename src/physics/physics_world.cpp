@@ -34,6 +34,7 @@
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 
+#include <glm/gtc/epsilon.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <Jolt/Physics/Character/CharacterVirtual.h>
@@ -92,28 +93,43 @@ public:
     // Layers 0-2 keep their meaning for bodies with no filter of their own
     // (terrain, character inner bodies), so the broadphase mapping below stays
     // valid for them.
-    [[nodiscard]] JPH::ObjectLayer layer_for(const CollisionFilter& filter) {
-        for (size_t i = 0; i < filters_.size(); ++i) {
-            if (filters_[i].channel == filter.channel &&
-                filters_[i].block_mask == filter.block_mask &&
-                filters_[i].overlap_mask == filter.overlap_mask) {
+    // Whether a body moves is a property of the body, not of its channel: a
+    // dynamic prop and the level geometry it lands on can share a channel and
+    // still need different broadphase treatment. Layers key on both so the
+    // spatial split stays correct.
+    struct Entry {
+        CollisionFilter filter;
+        bool movable;
+    };
+
+    [[nodiscard]] JPH::ObjectLayer layer_for(const CollisionFilter& filter, bool movable) {
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            if (entries_[i].movable == movable &&
+                entries_[i].filter.channel == filter.channel &&
+                entries_[i].filter.block_mask == filter.block_mask &&
+                entries_[i].filter.overlap_mask == filter.overlap_mask) {
                 return static_cast<JPH::ObjectLayer>(layers::FIRST_FILTERED + i);
             }
         }
-        filters_.push_back(filter);
-        return static_cast<JPH::ObjectLayer>(layers::FIRST_FILTERED + filters_.size() - 1);
+        entries_.push_back({filter, movable});
+        return static_cast<JPH::ObjectLayer>(layers::FIRST_FILTERED + entries_.size() - 1);
     }
 
     [[nodiscard]] const CollisionFilter* find(JPH::ObjectLayer layer) const {
-        if (layer < layers::FIRST_FILTERED) return nullptr;
-        size_t index = layer - layers::FIRST_FILTERED;
-        return index < filters_.size() ? &filters_[index] : nullptr;
+        const auto* entry = find_entry(layer);
+        return entry != nullptr ? &entry->filter : nullptr;
     }
 
-    void clear() { filters_.clear(); }
+    [[nodiscard]] const Entry* find_entry(JPH::ObjectLayer layer) const {
+        if (layer < layers::FIRST_FILTERED) return nullptr;
+        size_t index = layer - layers::FIRST_FILTERED;
+        return index < entries_.size() ? &entries_[index] : nullptr;
+    }
+
+    void clear() { entries_.clear(); }
 
 private:
-    std::vector<CollisionFilter> filters_;
+    std::vector<Entry> entries_;
 };
 
 class BPLayerInterface final : public JPH::BroadPhaseLayerInterface {
@@ -127,10 +143,9 @@ public:
     const FilterTable* table{nullptr};
 
     [[nodiscard]] JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override {
-        if (const auto* filter = table != nullptr ? table->find(layer) : nullptr) {
-            if (filter->channel == CollisionChannel::trigger) return broad_phase::SENSOR;
-            if (filter->channel == CollisionChannel::world_static) return broad_phase::STATIC;
-            return broad_phase::MOVING;
+        if (const auto* entry = table != nullptr ? table->find_entry(layer) : nullptr) {
+            if (entry->filter.channel == CollisionChannel::trigger) return broad_phase::SENSOR;
+            return entry->movable ? broad_phase::MOVING : broad_phase::STATIC;
         }
         switch (layer) {
             case layers::STATIC: return broad_phase::STATIC;
@@ -154,10 +169,11 @@ public:
                                      JPH::BroadPhaseLayer bp_layer) const override {
         // A filtered body's own table decides; the broadphase only prunes the
         // pair of static groups that can never move into each other.
-        if (const auto* filter = table != nullptr ? table->find(obj_layer) : nullptr) {
-            if (filter->channel == CollisionChannel::world_static) {
-                return bp_layer != broad_phase::STATIC;
-            }
+        if (const auto* entry = table != nullptr ? table->find_entry(obj_layer) : nullptr) {
+            // Two bodies that cannot move can never come to touch, which is the
+            // one pair the broadphase is free to drop. Everything else is the
+            // channel table's decision, not this one's.
+            if (!entry->movable) return bp_layer != broad_phase::STATIC;
             return true;
         }
         // Static vs static = no collision
@@ -336,6 +352,7 @@ struct CharacterEntry {
     uint32_t object_id;
 };
 
+
 struct PhysicsWorld::Impl {
     std::unique_ptr<JPH::TempAllocatorImpl> temp_allocator;
     std::unique_ptr<JPH::JobSystemThreadPool> job_system;
@@ -353,6 +370,11 @@ struct PhysicsWorld::Impl {
 
     // Character controllers
     std::vector<CharacterEntry> characters;
+
+    // A shape bakes the node's scale when it is created and cannot be
+    // rescaled afterwards, so the scale each body was built at is kept to
+    // notice when it no longer matches and the shape must be rebuilt.
+    std::unordered_map<uint32_t, glm::vec3> body_scales;
 };
 
 static bool s_jolt_initialized = false;
@@ -582,7 +604,8 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
     // Terrain is world geometry, so it answers the channel table like any
     // other collider — a projectile set to ignore the world has to pass
     // through the ground too, not just through walls.
-    auto layer = filters.layer_for(default_filter_for(CollisionChannel::world_static));
+    auto layer = filters.layer_for(default_filter_for(CollisionChannel::world_static),
+                                   false);
 
     JPH::BodyCreationSettings body_settings(
         shape_result.Get(),
@@ -595,220 +618,233 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
 
 // ── Body creation ───────────────────────────────────────────────────────
 
-void PhysicsWorld::create_bodies(Scene& scene) {
+// Creates the body for one node, if it should have one. Split out of the
+// play-start loop so a node spawned mid-play gets the same treatment as one
+// that was there from the beginning — the alternative is objects that look
+// solid and fall through the world.
+void PhysicsWorld::create_body(Node& node) {
     auto& bi = impl_->physics_system->GetBodyInterface();
 
-    for (auto& obj : scene.objects()) {
-        auto* spatial = obj->as_spatial();
-        if (!spatial) continue;
+    // A node that already has one is being rebuilt rather than added.
+    destroy_body(node.id);
 
-        // Character controller — handled in Step 5 section below
-        auto* char_comp = obj->components.get<CharacterComponent>();
-        if (char_comp) {
-            float r = clamp_positive(char_comp->capsule_radius);
-            float half_h = clamp_positive(char_comp->capsule_height * 0.5f);
+    auto* spatial = node.as_spatial();
+    if (spatial == nullptr) return;
 
-            JPH::CharacterVirtualSettings settings;
-            settings.mShape = new JPH::CapsuleShape(half_h, r);
-            settings.mMaxSlopeAngle = JPH::DegreesToRadians(char_comp->max_slope_angle);
-            settings.mMass = std::max(char_comp->mass, 1.0f);
-            settings.mUp = JPH::Vec3(0, 1, 0);
-            settings.mInnerBodyShape = new JPH::CapsuleShape(half_h, r);
-            settings.mInnerBodyLayer = layers::MOVING;
+    // Character controller — handled in Step 5 section below
+    auto* char_comp = node.components.get<CharacterComponent>();
+    if (char_comp) {
+        float r = clamp_positive(char_comp->capsule_radius);
+        float half_h = clamp_positive(char_comp->capsule_height * 0.5f);
 
-            auto character = new JPH::CharacterVirtual(
-                &settings,
-                to_jolt(spatial->transform.position),
-                to_jolt_quat(spatial->transform.rotation),
-                0, // user data
-                impl_->physics_system.get());
+        JPH::CharacterVirtualSettings settings;
+        settings.mShape = new JPH::CapsuleShape(half_h, r);
+        settings.mMaxSlopeAngle = JPH::DegreesToRadians(char_comp->max_slope_angle);
+        settings.mMass = std::max(char_comp->mass, 1.0f);
+        settings.mUp = JPH::Vec3(0, 1, 0);
+        settings.mInnerBodyShape = new JPH::CapsuleShape(half_h, r);
+        settings.mInnerBodyLayer = layers::MOVING;
 
-            impl_->characters.push_back({character, obj->id});
-
-            // Register inner body for contact resolution
-            auto inner_id = character->GetInnerBodyID();
-            if (!inner_id.IsInvalid()) {
-                impl_->body_to_object[inner_id.GetIndexAndSequenceNumber()] = obj->id;
-            }
-            continue;
-        }
-
-        // Terrain is solid by virtue of being terrain — no collider component,
-        // the way landscapes work in every engine that has them. The heights
-        // the shader draws from are the heights bodies collide against, so the
-        // surface can never disagree with what is on screen.
-        if (const auto* terrain_comp = obj->components.get<TerrainComponent>();
-            terrain_comp != nullptr && terrain_comp->terrain != nullptr) {
-            if (auto body_id = create_terrain_body(bi, impl_->filter_table,
-                                                   *terrain_comp->terrain, *spatial);
-                !body_id.IsInvalid()) {
-                impl_->object_to_body[obj->id] = body_id;
-                impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = obj->id;
-            } else {
-                FJELL_CORE_ERROR("Failed to create terrain body for '{}'", obj->name);
-            }
-            continue;
-        }
-
-        const auto* col_comp = obj->components.get<ColliderComponent>();
-        if (!col_comp) continue;
-
-        // Default to static if no rigidbody descriptor
-        static const auto default_static = [] {
-            RigidbodyComponent rb;
-            rb.body_type = BodyType::Static;
-            return rb;
-        }();
-        const auto* rb_comp = obj->components.get<RigidbodyComponent>();
-        const auto& rb = rb_comp ? *rb_comp : default_static;
-        const auto& col = *col_comp;
-
-        // Create shape, scaling by object's scale
-        JPH::ShapeRefC shape;
-        glm::vec3 s = spatial->transform.scale;
-        bool mesh_supports_dynamic = false;
-
-        // Collision authored on the mesh wins over the component's own fields,
-        // so a placed object needs no per-instance setup.
-        auto effective_shape = col.shape;
-        if (col.inherit_from_mesh) {
-            auto* mesh = obj->components.get<MeshComponent>();
-            if (mesh && mesh->model && collision_mesh_of(*mesh->model).valid()) {
-                effective_shape = ColliderShape::Mesh;
-            }
-        }
-
-        switch (effective_shape) {
-            case ColliderShape::Box: {
-                auto he = clamp_positive(col.half_extents * s);
-                shape = new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
-                break;
-            }
-            case ColliderShape::Sphere: {
-                float r = clamp_positive(col.radius * std::max({s.x, s.y, s.z}));
-                shape = new JPH::SphereShape(r);
-                break;
-            }
-            case ColliderShape::Capsule: {
-                float r = clamp_positive(col.radius * std::max(s.x, s.z));
-                float half_h = clamp_positive(col.height * 0.5f * s.y);
-                shape = new JPH::CapsuleShape(half_h, r);
-                break;
-            }
-            case ColliderShape::Mesh: {
-                auto* mesh = obj->components.get<MeshComponent>();
-                if (!mesh || !mesh->model) {
-                    FJELL_CORE_WARN("Object '{}' has Mesh collider but no mesh", obj->name);
-                    continue;
-                }
-                auto collision = collision_mesh_of(*mesh->model);
-                const auto& primitives = mesh->model->collision_primitives();
-                if (primitives.empty() || !collision.valid()) {
-                    FJELL_CORE_WARN("Object '{}' has Mesh collider but no collision mesh data",
-                                    obj->name);
-                    continue;
-                }
-
-                shape = build_authored_shape(primitives, collision, s, obj->name,
-                                             mesh_supports_dynamic);
-                if (!shape) continue;
-
-                // Triangle meshes can't back a moving body in Jolt.
-                if (!mesh_supports_dynamic && rb.body_type != BodyType::Static) {
-                    FJELL_CORE_WARN("Object '{}' has a triangle-mesh collider on a non-static "
-                                    "body — forcing static. Use a convex hull to keep it moving.",
-                                    obj->name);
-                }
-                break;
-            }
-        }
-
-        if (!shape) continue;
-
-        // Apply offset if non-zero
-        if (glm::length(col.offset) > 0.001f) {
-            shape = new JPH::OffsetCenterOfMassShape(shape, to_jolt(col.offset));
-        }
-
-        // Determine motion type. Only triangle-mesh colliders are static-only;
-        // a hull moves like any other convex shape.
-        auto effective_type = rb.body_type;
-        if (effective_shape == ColliderShape::Mesh && effective_type != BodyType::Static &&
-            !mesh_supports_dynamic) {
-            effective_type = BodyType::Static;
-        }
-
-        // A collider on the Trigger channel is a sensor by definition, so the
-        // is_trigger flag and the channel mean the same thing and either sets
-        // it. The flag predates channels and still works on its own.
-        bool is_sensor = col.is_trigger ||
-                         col.filter.channel == CollisionChannel::trigger;
-
-        JPH::EMotionType motion;
-        if (is_sensor) {
-            // Sensors are kinematic so they can be moved and generate contacts
-            motion = (effective_type == BodyType::Static)
-                ? JPH::EMotionType::Static : JPH::EMotionType::Kinematic;
-        } else {
-            switch (effective_type) {
-                case BodyType::Static:
-                    motion = JPH::EMotionType::Static;
-                    break;
-                case BodyType::Kinematic:
-                    motion = JPH::EMotionType::Kinematic;
-                    break;
-                case BodyType::Dynamic:
-                default:
-                    motion = JPH::EMotionType::Dynamic;
-                    break;
-            }
-        }
-
-        // The filter decides what this body collides with; the layer is just
-        // the handle Jolt uses to ask about it.
-        auto filter = col.filter;
-        if (is_sensor) filter.channel = CollisionChannel::trigger;
-        JPH::ObjectLayer layer = impl_->filter_table.layer_for(filter);
-
-        JPH::BodyCreationSettings body_settings(
-            shape,
+        auto character = new JPH::CharacterVirtual(
+            &settings,
             to_jolt(spatial->transform.position),
             to_jolt_quat(spatial->transform.rotation),
-            motion, layer);
+            0, // user data
+            impl_->physics_system.get());
 
-        body_settings.mFriction = rb.friction;
-        body_settings.mRestitution = rb.restitution;
-        body_settings.mLinearDamping = rb.linear_damping;
-        body_settings.mAngularDamping = rb.angular_damping;
-        body_settings.mGravityFactor = rb.gravity_enabled ? 1.0f : 0.0f;
+        impl_->characters.push_back({character, node.id});
 
-        // Native sensor support — Jolt handles contact callbacks without physical response
-        if (is_sensor) {
-            body_settings.mIsSensor = true;
+        // Register inner body for contact resolution
+        auto inner_id = character->GetInnerBodyID();
+        if (!inner_id.IsInvalid()) {
+            impl_->body_to_object[inner_id.GetIndexAndSequenceNumber()] = node.id;
         }
+        return;
+    }
 
-        // Enable kinematic contact generation against static and other kinematic bodies
-        if (effective_type == BodyType::Kinematic) {
-            body_settings.mCollideKinematicVsNonDynamic = true;
+    // Terrain is solid by virtue of being terrain — no collider component,
+    // the way landscapes work in every engine that has them. The heights
+    // the shader draws from are the heights bodies collide against, so the
+    // surface can never disagree with what is on screen.
+    if (const auto* terrain_comp = node.components.get<TerrainComponent>();
+        terrain_comp != nullptr && terrain_comp->terrain != nullptr) {
+        if (auto body_id = create_terrain_body(bi, impl_->filter_table,
+                                               *terrain_comp->terrain, *spatial);
+            !body_id.IsInvalid()) {
+            impl_->object_to_body[node.id] = body_id;
+            impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = node.id;
+        } else {
+            FJELL_CORE_ERROR("Failed to create terrain body for '{}'", node.name);
         }
+        return;
+    }
 
-        if (effective_type == BodyType::Dynamic) {
-            float mass = rb.mass > 0.0f ? rb.mass : 1.0f;
-            body_settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-            body_settings.mMassPropertiesOverride.mMass = mass;
+    const auto* col_comp = node.components.get<ColliderComponent>();
+    if (!col_comp) return;
+
+    // Default to static if no rigidbody descriptor
+    static const auto default_static = [] {
+        RigidbodyComponent rb;
+        rb.body_type = BodyType::Static;
+        return rb;
+    }();
+    const auto* rb_comp = node.components.get<RigidbodyComponent>();
+    const auto& rb = rb_comp ? *rb_comp : default_static;
+    const auto& col = *col_comp;
+
+    // Create shape, scaling by object's scale
+    JPH::ShapeRefC shape;
+    glm::vec3 s = spatial->transform.scale;
+    bool mesh_supports_dynamic = false;
+
+    // Collision authored on the mesh wins over the component's own fields,
+    // so a placed object needs no per-instance setup.
+    auto effective_shape = col.shape;
+    if (col.inherit_from_mesh) {
+        auto* mesh = node.components.get<MeshComponent>();
+        if (mesh && mesh->model && collision_mesh_of(*mesh->model).valid()) {
+            effective_shape = ColliderShape::Mesh;
         }
+    }
 
-        auto body_id = bi.CreateAndAddBody(body_settings,
-            effective_type == BodyType::Static ? JPH::EActivation::DontActivate
-                                              : JPH::EActivation::Activate);
-
-        if (body_id.IsInvalid()) {
-            FJELL_CORE_ERROR("Failed to create physics body for '{}'", obj->name);
-            continue;
+    switch (effective_shape) {
+        case ColliderShape::Box: {
+            auto he = clamp_positive(col.half_extents * s);
+            shape = new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
+            break;
         }
+        case ColliderShape::Sphere: {
+            float r = clamp_positive(col.radius * std::max({s.x, s.y, s.z}));
+            shape = new JPH::SphereShape(r);
+            break;
+        }
+        case ColliderShape::Capsule: {
+            float r = clamp_positive(col.radius * std::max(s.x, s.z));
+            float half_h = clamp_positive(col.height * 0.5f * s.y);
+            shape = new JPH::CapsuleShape(half_h, r);
+            break;
+        }
+        case ColliderShape::Mesh: {
+            auto* mesh = node.components.get<MeshComponent>();
+            if (!mesh || !mesh->model) {
+                FJELL_CORE_WARN("Object '{}' has Mesh collider but no mesh", node.name);
+                return;
+            }
+            auto collision = collision_mesh_of(*mesh->model);
+            const auto& primitives = mesh->model->collision_primitives();
+            if (primitives.empty() || !collision.valid()) {
+                FJELL_CORE_WARN("Object '{}' has Mesh collider but no collision mesh data",
+                                node.name);
+                return;
+            }
 
-        impl_->object_to_body[obj->id] = body_id;
-        impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = obj->id;
+            shape = build_authored_shape(primitives, collision, s, node.name,
+                                         mesh_supports_dynamic);
+            if (!shape) return;
+
+            // Triangle meshes can't back a moving body in Jolt.
+            if (!mesh_supports_dynamic && rb.body_type != BodyType::Static) {
+                FJELL_CORE_WARN("Object '{}' has a triangle-mesh collider on a non-static "
+                                "body — forcing static. Use a convex hull to keep it moving.",
+                                node.name);
+            }
+            break;
+        }
+    }
+
+    if (!shape) return;
+
+    // Apply offset if non-zero
+    if (glm::length(col.offset) > 0.001f) {
+        shape = new JPH::OffsetCenterOfMassShape(shape, to_jolt(col.offset));
+    }
+
+    // Determine motion type. Only triangle-mesh colliders are static-only;
+    // a hull moves like any other convex shape.
+    auto effective_type = rb.body_type;
+    if (effective_shape == ColliderShape::Mesh && effective_type != BodyType::Static &&
+        !mesh_supports_dynamic) {
+        effective_type = BodyType::Static;
+    }
+
+    // A collider on the Trigger channel is a sensor by definition, so the
+    // is_trigger flag and the channel mean the same thing and either sets
+    // it. The flag predates channels and still works on its own.
+    bool is_sensor = col.is_trigger ||
+                     col.filter.channel == CollisionChannel::trigger;
+
+    JPH::EMotionType motion;
+    if (is_sensor) {
+        // Sensors are kinematic so they can be moved and generate contacts
+        motion = (effective_type == BodyType::Static)
+            ? JPH::EMotionType::Static : JPH::EMotionType::Kinematic;
+    } else {
+        switch (effective_type) {
+            case BodyType::Static:
+                motion = JPH::EMotionType::Static;
+                break;
+            case BodyType::Kinematic:
+                motion = JPH::EMotionType::Kinematic;
+                break;
+            case BodyType::Dynamic:
+            default:
+                motion = JPH::EMotionType::Dynamic;
+                break;
+        }
+    }
+
+    // The filter decides what this body collides with; the layer is just
+    // the handle Jolt uses to ask about it.
+    auto filter = col.filter;
+    if (is_sensor) filter.channel = CollisionChannel::trigger;
+    JPH::ObjectLayer layer = impl_->filter_table.layer_for(
+        filter, motion != JPH::EMotionType::Static);
+
+    JPH::BodyCreationSettings body_settings(
+        shape,
+        to_jolt(spatial->transform.position),
+        to_jolt_quat(spatial->transform.rotation),
+        motion, layer);
+
+    body_settings.mFriction = rb.friction;
+    body_settings.mRestitution = rb.restitution;
+    body_settings.mLinearDamping = rb.linear_damping;
+    body_settings.mAngularDamping = rb.angular_damping;
+    body_settings.mGravityFactor = rb.gravity_enabled ? 1.0f : 0.0f;
+
+    // Native sensor support — Jolt handles contact callbacks without physical response
+    if (is_sensor) {
+        body_settings.mIsSensor = true;
+    }
+
+    // Enable kinematic contact generation against static and other kinematic bodies
+    if (effective_type == BodyType::Kinematic) {
+        body_settings.mCollideKinematicVsNonDynamic = true;
+    }
+
+    if (effective_type == BodyType::Dynamic) {
+        float mass = rb.mass > 0.0f ? rb.mass : 1.0f;
+        body_settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+        body_settings.mMassPropertiesOverride.mMass = mass;
+    }
+
+    auto body_id = bi.CreateAndAddBody(body_settings,
+        effective_type == BodyType::Static ? JPH::EActivation::DontActivate
+                                          : JPH::EActivation::Activate);
+
+    if (body_id.IsInvalid()) {
+        FJELL_CORE_ERROR("Failed to create physics body for '{}'", node.name);
+        return;
+    }
+
+    impl_->object_to_body[node.id] = body_id;
+    impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = node.id;
+    impl_->body_scales[node.id] = spatial->transform.scale;
+}
+
+void PhysicsWorld::create_bodies(Scene& scene) {
+    for (auto& obj : scene.objects()) {
+        create_body(*obj);
     }
 
     FJELL_CORE_INFO("Physics: created {} bodies, {} characters",
@@ -822,6 +858,29 @@ void PhysicsWorld::step(float dt, Scene& scene) {
     if (dt <= 0.0f) return;
     impl_->contact_listener.clear();
     auto& bi = impl_->physics_system->GetBodyInterface();
+
+    // A shape cannot be rescaled after creation, so a node whose scale changed
+    // needs its body rebuilt. Checked against the scale it was built at rather
+    // than a dirty flag, which would have to be set by everything that can
+    // move a transform — the inspector, scripts, animation, the gizmo.
+    for (auto& obj : scene.objects()) {
+        auto* spatial = obj->as_spatial();
+        if (spatial == nullptr) continue;
+
+        auto it = impl_->body_scales.find(obj->id);
+        if (it == impl_->body_scales.end()) continue;
+        if (glm::all(glm::epsilonEqual(it->second, spatial->transform.scale, 1e-5F))) {
+            continue;
+        }
+
+        // Rebuilding drops the body's velocity with it, so it is carried over —
+        // a rescaled object should keep moving, not stop dead.
+        auto velocity = get_linear_velocity(obj->id);
+        auto angular = get_angular_velocity(obj->id);
+        create_body(*obj);
+        set_linear_velocity(obj->id, velocity);
+        set_angular_velocity(obj->id, angular);
+    }
 
     // Sync kinematic bodies: push engine transforms -> Jolt
     for (auto& obj : scene.objects()) {
@@ -922,7 +981,22 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 
 // ── Body removal ────────────────────────────────────────────────────────
 
-void PhysicsWorld::remove_body(uint32_t object_id) {
+void PhysicsWorld::destroy_body(uint32_t object_id) {
+    // A character owns an inner body registered under the same node, so it has
+    // to go through its own teardown rather than the body interface.
+    auto character = std::find_if(impl_->characters.begin(), impl_->characters.end(),
+                                  [object_id](const CharacterEntry& entry) {
+                                      return entry.object_id == object_id;
+                                  });
+    if (character != impl_->characters.end()) {
+        auto inner_id = character->character->GetInnerBodyID();
+        if (!inner_id.IsInvalid()) {
+            impl_->body_to_object.erase(inner_id.GetIndexAndSequenceNumber());
+        }
+        impl_->characters.erase(character);
+        return;
+    }
+
     auto it = impl_->object_to_body.find(object_id);
     if (it == impl_->object_to_body.end()) return;
 
@@ -932,6 +1006,7 @@ void PhysicsWorld::remove_body(uint32_t object_id) {
 
     impl_->body_to_object.erase(it->second.GetIndexAndSequenceNumber());
     impl_->object_to_body.erase(it);
+    impl_->body_scales.erase(object_id);
 }
 
 // ── Forces / Velocities ─────────────────────────────────────────────────
