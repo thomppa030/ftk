@@ -13,6 +13,7 @@
 #include "renderer/components/arrow_component.hpp"
 #include "renderer/resources/asset_loader.hpp"
 #include "renderer/bindless.hpp"
+#include "physics/physics_types.hpp"
 #include "renderer/components/mesh_component.hpp"
 #include "renderer/resources/model.hpp"
 #include "renderer/resources/resource_manager.hpp"
@@ -1256,6 +1257,16 @@ void SceneEditorContext::add_primitive(const std::string& type) {
 
     selected_id_ = deps_.scene->add(*model_result, mat, *deps_.resource_manager,
                                      {}, name, "primitive:" + type);
+
+    // A primitive is solid out of the box. Its shape is known exactly, so
+    // making it collide is free, and a cube you have to configure before it
+    // stops things falling through is a worse default than one you delete.
+    // No rigidbody: a collider without one is static, which is what level
+    // geometry wants. Add a Rigidbody to make it fall.
+    if (auto* node = deps_.scene->find_spatial(selected_id_)) {
+        auto& col = node->components.add<ColliderComponent>();
+        fit_collider_to_primitive(col, node->source);
+    }
 }
 
 void SceneEditorContext::duplicate_selection() {

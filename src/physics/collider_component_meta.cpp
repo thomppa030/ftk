@@ -146,9 +146,11 @@ static const bool registered = [] {
 
         .init = [](Node3D& node, const InspectorContext& /*ctx*/) {
             auto& col = node.components.add<ColliderComponent>();
-            if (node.source == "primitive:cube") col.shape = ColliderShape::Box;
-            else if (node.source == "primitive:sphere") { col.shape = ColliderShape::Sphere; col.radius = 0.5f; }
-            else col.shape = ColliderShape::Box;
+            // A collider added to a primitive should already match it; anything
+            // else gets a unit box to be dragged into shape.
+            if (!fit_collider_to_primitive(col, node.source)) {
+                col.shape = ColliderShape::Box;
+            }
         },
 
         .serialize = [](const void* ptr, const Node& /*node*/, nlohmann::json& out,

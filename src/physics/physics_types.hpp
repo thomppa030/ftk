@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace fjell {
@@ -40,6 +41,13 @@ struct ColliderComponent : NodeComponent {
     // What this collider is, and what it does about everything else.
     CollisionFilter filter{default_filter_for(CollisionChannel::world_static)};
 };
+
+// Shapes a collider to match the primitive mesh a node was built from. The
+// primitives are unit-sized, so this is exact rather than a guess: a cube is
+// 1m across, a sphere 1m in diameter, a plane 1m square with no thickness.
+// Returns false when the source is not a primitive and the caller should leave
+// the collider alone.
+bool fit_collider_to_primitive(ColliderComponent& collider, const std::string& source);
 
 enum class CharacterGroundState : uint8_t { OnGround, OnSteepGround, NotSupported, InAir };
 
