@@ -218,11 +218,7 @@ uint32_t Scene::add(ModelHandle model_handle, MaterialHandle material_handle,
     obj->transform = transform;
     obj->name = name;
     obj->source = source;
-    id_to_index_[id] = static_cast<int>(objects_.size());
-    objects_.push_back(std::move(obj));
-    id_generation_[id] = 1;
-    dirty_ = true;
-    return id;
+    return add_node(std::move(obj));
 }
 
 uint32_t Scene::add_empty(Transform transform, const std::string& name) {
@@ -231,11 +227,7 @@ uint32_t Scene::add_empty(Transform transform, const std::string& name) {
     obj->id = id;
     obj->transform = transform;
     obj->name = name;
-    id_to_index_[id] = static_cast<int>(objects_.size());
-    objects_.push_back(std::move(obj));
-    id_generation_[id] = 1;
-    dirty_ = true;
-    return id;
+    return add_node(std::move(obj));
 }
 
 uint32_t Scene::add_folder(const std::string& name) {
@@ -243,11 +235,7 @@ uint32_t Scene::add_folder(const std::string& name) {
     auto obj = std::make_unique<Node>();
     obj->id = id;
     obj->name = name;
-    id_to_index_[id] = static_cast<int>(objects_.size());
-    objects_.push_back(std::move(obj));
-    id_generation_[id] = 1;
-    dirty_ = true;
-    return id;
+    return add_node(std::move(obj));
 }
 
 uint32_t Scene::add_node(std::unique_ptr<Node> node) {
@@ -427,6 +415,12 @@ Node* Scene::find(uint32_t id) {
     if (it != id_to_index_.end()) {
         return objects_[it->second].get();
     }
+    // A node spawned during a tick is real and has its id, it just has not
+    // been moved into objects_ yet. Callers are told they can use the id
+    // immediately, so looking it up has to work before the flush.
+    for (auto& pending : pending_spawn_) {
+        if (pending->id == id) return pending.get();
+    }
     return nullptr;
 }
 
@@ -434,6 +428,9 @@ const Node* Scene::find(uint32_t id) const {
     auto it = id_to_index_.find(id);
     if (it != id_to_index_.end()) {
         return objects_[it->second].get();
+    }
+    for (const auto& pending : pending_spawn_) {
+        if (pending->id == id) return pending.get();
     }
     return nullptr;
 }
