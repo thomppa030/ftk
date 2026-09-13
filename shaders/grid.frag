@@ -11,10 +11,17 @@ layout(push_constant) uniform GridPush {
 
 FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
 
-layout(location = 0) in vec3 world_pos;
+layout(location = 0) in vec2 ndc;
 layout(location = 0) out vec4 out_color;
-layout(location = 1) out vec2 out_metallic_roughness;
-layout(location = 2) out vec2 out_normal;
+
+// How far the fade radius reaches relative to the camera's height above the
+// plane. Without this the grid collapses to a small disc under the camera
+// when flying up.
+const float HEIGHT_FADE_SCALE = 4.0;
+
+// Below this |ray.y| the plane is edge-on and every LOD collapses into a
+// solid band along the horizon.
+const float GRAZING_EPSILON = 0.02;
 
 // Anti-aliased line mask for one grid level.
 // Returns coverage in [0, 1]: 1 on the line, 0 between lines.
@@ -27,9 +34,33 @@ float grid_line(vec2 p, float scale, vec2 fw, float thickness) {
     return max(line.x, line.y);
 }
 
+// World-space ray through this pixel, from the inverse of the same jittered
+// view-projection the geometry was rendered with, so the depth written below
+// is directly comparable to the depth buffer.
+vec3 ray_direction() {
+    vec4 near_h = ubo.inv_view_proj * vec4(ndc, 0.0, 1.0);
+    vec4 far_h  = ubo.inv_view_proj * vec4(ndc, 1.0, 1.0);
+    return normalize(far_h.xyz / far_h.w - near_h.xyz / near_h.w);
+}
+
 void main() {
-    vec2 p = world_pos.xz;
-    float dist = length(ubo.camera_position.xyz - world_pos);
+    vec3 origin = ubo.camera_position.xyz;
+    vec3 dir = ray_direction();
+
+    // Intersect y = 0. Rays parallel to the plane, and those pointing away
+    // from it, never hit. Works from below the plane as well as above.
+    if (abs(dir.y) < 1e-6) { discard; }
+    float t = -origin.y / dir.y;
+    if (t <= 0.0) { discard; }
+
+    vec3 hit = origin + dir * t;
+    vec2 p = hit.xz;
+
+    // Depth of the hit point, so the hardware depth test occludes the grid
+    // per sample against real geometry instead of against a quad.
+    vec4 clip = ubo.projection * ubo.view * vec4(hit, 1.0);
+    gl_FragDepth = clip.z / clip.w;
+
     vec2 fw = fwidth(p);
     float pixel_size = max(fw.x, fw.y);
 
@@ -59,12 +90,7 @@ void main() {
     float az = 1.0 - smoothstep(fw.y * grid.thickness * 0.5, fw.y * (grid.thickness * 0.5 + 1.0), abs(p.y));
 
     float any_line = max(max(fine, mid), max(coarse, max(ax, az)));
-    if (any_line < 0.01) {
-        out_color = vec4(0.0);
-        out_metallic_roughness = vec2(0.0);
-        out_normal = vec2(0.0);
-        return;
-    }
+    if (any_line < 0.01) { discard; }
 
     // Color: emphasized lines (every 10th, every 100th) are brighter.
     vec3 fine_color = vec3(0.08, 0.08, 0.09);
@@ -77,13 +103,22 @@ void main() {
     color = mix(color, vec3(0.15, 0.25, 0.8), ax);
     color = mix(color, vec3(0.8, 0.2, 0.15), az);
 
-    // Distance fade — soft falloff inside fade_distance.
-    float fade = 1.0 - smoothstep(grid.fade_distance * 0.3, grid.fade_distance, dist);
+    // Distance fade over the ray, widened by camera height so climbing keeps
+    // a usable grid instead of shrinking it to a disc.
+    float radius = max(grid.fade_distance, abs(origin.y) * HEIGHT_FADE_SCALE);
+    float fade = 1.0 - smoothstep(radius * 0.3, radius, t);
+
+    // Grazing fade — kills the solid band where the plane goes edge-on.
+    fade *= smoothstep(0.0, GRAZING_EPSILON, abs(dir.y));
+
+    // Coarsest-level fade — once one pixel spans the widest cell there is no
+    // structure left to draw, only aliasing.
+    fade *= 1.0 - smoothstep(s2 * 0.5, s2, pixel_size);
+
     // Emphasized lines stay more opaque than fine lines.
     float line_strength = max(max(fine * 0.6, mid * 0.85), max(coarse, max(ax, az)));
     float alpha = line_strength * fade * grid.opacity;
+    if (alpha < 0.001) { discard; }
 
     out_color = vec4(color, alpha);
-    out_metallic_roughness = vec2(0.0);
-    out_normal = vec2(0.0);
 }

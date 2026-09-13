@@ -81,7 +81,9 @@ Result<> GridPass::create(Device& device, const PassResources& resources) {
     color_blending.attachmentCount = 1;
     color_blending.pAttachments = &blend_attachment;
 
-    // Depth test enabled, write disabled — grid shows on ground but doesn't block objects
+    // The fragment shader writes gl_FragDepth from the ray-plane hit, so the
+    // hardware test occludes the grid per sample against real geometry.
+    // Depth writes stay off: the grid must not occlude anything after it.
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
     depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depth_stencil.depthTestEnable = VK_TRUE;
@@ -238,7 +240,7 @@ void GridPass::record(const FrameContext& ctx) {
     vkCmdPushConstants(ctx.cmd, layout_,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(GridPushConstants), &push);
-    vkCmdDraw(ctx.cmd, 6, 1, 0, 0);
+    vkCmdDraw(ctx.cmd, 3, 1, 0, 0);
 
     vkCmdEndRendering(ctx.cmd);
 }
