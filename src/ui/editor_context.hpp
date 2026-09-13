@@ -51,9 +51,7 @@ public:
     [[nodiscard]] virtual std::string asset_path() const { return {}; }
     virtual bool save() { return false; }
 
-    // Play mode
-    [[nodiscard]] virtual bool supports_play() const { return false; }
-    [[nodiscard]] virtual bool is_playing() const { return false; }
+    // Fullscreen play presentation. Only the scene context hosts play.
     virtual void draw_play_overlay() {}
 
     // Scene to render (nullptr = use main scene)
@@ -62,7 +60,6 @@ public:
     // Viewport render requests
     [[nodiscard]] virtual std::vector<ViewportRenderRequest> build_render_requests() = 0;
     virtual void apply_resize(VulkanContext& vk) = 0;
-    [[nodiscard]] virtual bool any_viewport_hovered() const { return false; }
 
     // Render auxiliary viewports (e.g. camera preview) in separate command buffers.
     // Called after apply_resize but before record_frame.
