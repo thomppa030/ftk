@@ -16,7 +16,6 @@
 #include "renderer/systems/render_subsystem.hpp"
 #include "renderer/pass/sky_pass.hpp"
 #include "renderer/pass/terrain_pass.hpp"
-#include "renderer/pass/grid_pass.hpp"
 #include "renderer/pass/debug_pass.hpp"
 #include "scene/scene.hpp"
 
@@ -261,11 +260,10 @@ void OpaquePass::record(const FrameContext& ctx) {
         ctx.subsystems[i]->record_opaque(ctx);
     }
 
-    // Before sky and grid: terrain is opaque geometry and writes depth.
+    // Before sky: terrain is opaque geometry and writes depth.
     ctx.passes->get<TerrainPass>("terrain").record(ctx);
 
     ctx.passes->get<SkyPass>("sky").record(ctx);
-    ctx.passes->get<GridPass>("grid").record(ctx);
     ctx.passes->get<DebugPass>("debug").record(ctx);
     draw_outline(ctx);
 

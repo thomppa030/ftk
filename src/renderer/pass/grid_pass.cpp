@@ -3,6 +3,7 @@
 #include "renderer/pass/pass_gpu_zone.hpp"
 #include "renderer/gpu/device.hpp"
 #include "renderer/offscreen_pass.hpp"
+#include "renderer/pass_builder.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
@@ -75,24 +76,10 @@ Result<> GridPass::create(Device& device, const PassResources& resources) {
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
         VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
-    VkPipelineColorBlendAttachmentState mr_blend{};
-    mr_blend.colorWriteMask = 0; // Grid doesn't write MR
-    mr_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState normal_blend{};
-    normal_blend.colorWriteMask = 0;
-    normal_blend.blendEnable = VK_FALSE;
-
-    VkPipelineColorBlendAttachmentState velocity_blend{};
-    velocity_blend.colorWriteMask = 0;
-    velocity_blend.blendEnable = VK_FALSE;
-
-    std::array blend_attachments = {blend_attachment, mr_blend, normal_blend, velocity_blend};
-
     VkPipelineColorBlendStateCreateInfo color_blending{};
     color_blending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_blending.attachmentCount = static_cast<uint32_t>(blend_attachments.size());
-    color_blending.pAttachments = blend_attachments.data();
+    color_blending.attachmentCount = 1;
+    color_blending.pAttachments = &blend_attachment;
 
     // Depth test enabled, write disabled — grid shows on ground but doesn't block objects
     VkPipelineDepthStencilStateCreateInfo depth_stencil{};
@@ -121,14 +108,13 @@ Result<> GridPass::create(Device& device, const PassResources& resources) {
         return make_error("Failed to create grid pipeline layout");
     }
 
-    VkFormat depth_format = resources.depth_format;
-    std::array<VkFormat, 4> color_formats = {resources.color_format, VK_FORMAT_R8G8_UNORM, OffscreenPass::NORMAL_FORMAT, OffscreenPass::VELOCITY_FORMAT};
+    VkFormat color_format = resources.color_format;
 
     VkPipelineRenderingCreateInfo rendering_info{};
     rendering_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-    rendering_info.colorAttachmentCount = static_cast<uint32_t>(color_formats.size());
-    rendering_info.pColorAttachmentFormats = color_formats.data();
-    rendering_info.depthAttachmentFormat = depth_format;
+    rendering_info.colorAttachmentCount = 1;
+    rendering_info.pColorAttachmentFormats = &color_format;
+    rendering_info.depthAttachmentFormat = resources.depth_format;
 
     VkGraphicsPipelineCreateInfo pipeline_info{};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -171,13 +157,64 @@ void GridPass::destroy() {
     }
 }
 
+PassSetup GridPass::setup() const {
+    return {
+        .name = "grid",
+        .phase = RenderPhase::Color,
+        .sub_order = 10, // after opaque (0), DDGI (5) and SS-GI (6),
+                         // before screen color copy (25) and transparent (50)
+    };
+}
+
+void GridPass::declare(PassBuilder& builder, const DeclareContext& ctx) {
+    auto msaa_color = builder.import_named(ctx, "msaa_color");
+    auto msaa_depth = builder.import_named(ctx, "msaa_depth");
+    builder.write(msaa_color, ResourceAccess::color_attachment);
+    // Depth-tested against scene geometry, but never written: the grid must
+    // not occlude anything drawn after it.
+    builder.read(msaa_depth, ResourceAccess::depth_attachment_read);
+    // The backward cull walk starts at tonemap and follows readers of
+    // `color`. With MSAA on, `msaa_color` is a distinct image nothing
+    // samples, so the grid has no path back to a root and would be culled
+    // despite being the whole point of the pass.
+    builder.has_side_effects();
+}
+
 void GridPass::record(const FrameContext& ctx) {
     if (!settings_.visible || !ctx.target) return;
 
     FJELL_PROFILE_SCOPE_N("record_grid");
     FJELL_GPU_ZONE(ctx, "Grid");
 
-    auto extent = ctx.target->extent();
+    auto* target = ctx.target;
+    auto extent = target->extent();
+
+    // Load the color the opaque pass wrote and add to it. The resolve to
+    // single-sample `color` belongs to the transparent pass, which renders
+    // after this one.
+    VkRenderingAttachmentInfo color_attachment{};
+    color_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    color_attachment.imageView = target->msaa_color_view();
+    color_attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingAttachmentInfo depth_attachment{};
+    depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+    depth_attachment.imageView = target->msaa_depth_view();
+    depth_attachment.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingInfo ri{};
+    ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+    ri.renderArea.extent = extent;
+    ri.layerCount = 1;
+    ri.colorAttachmentCount = 1;
+    ri.pColorAttachments = &color_attachment;
+    ri.pDepthAttachment = &depth_attachment;
+
+    vkCmdBeginRendering(ctx.cmd, &ri);
 
     VkViewport vp{};
     vp.width = static_cast<float>(extent.width);
@@ -202,6 +239,8 @@ void GridPass::record(const FrameContext& ctx) {
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(GridPushConstants), &push);
     vkCmdDraw(ctx.cmd, 6, 1, 0, 0);
+
+    vkCmdEndRendering(ctx.cmd);
 }
 
 } // namespace fjell

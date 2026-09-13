@@ -26,6 +26,8 @@ class GridPass : public RenderPass {
 public:
     Result<> create(Device& device, const PassResources& resources) override;
     void destroy() override;
+    [[nodiscard]] PassSetup setup() const override;
+    void declare(PassBuilder& builder, const DeclareContext& ctx) override;
     void record(const FrameContext& ctx) override;
 
     [[nodiscard]] GridSettings& settings() { return settings_; }
