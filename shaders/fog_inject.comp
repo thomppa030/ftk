@@ -216,11 +216,15 @@ void main() {
     far_world /= far_world.w;
     vec3 ray_dir = normalize(far_world.xyz - near_world.xyz);
 
-    // Scale along the ray by linear depth (depth along view Z axis)
+    // Walk from this froxel column's own near-plane point to the slice's
+    // view-space depth. Starting at the near point instead of the eye keeps
+    // the reconstruction valid for orthographic cameras, where each column
+    // has a distinct origin; for perspective the two coincide.
     vec3 view_forward = -vec3(ubo.view[0][2], ubo.view[1][2], ubo.view[2][2]);
     float cos_angle = dot(ray_dir, view_forward);
-    float ray_dist = linear_depth / max(cos_angle, 1e-6);
-    vec3 world_pos = ubo.camera_position.xyz + ray_dir * ray_dist;
+    float near_dist = -(ubo.view * near_world).z;
+    float ray_dist = (linear_depth - near_dist) / max(cos_angle, 1e-6);
+    vec3 world_pos = near_world.xyz + ray_dir * ray_dist;
 
     // Height fog density: exponential falloff above base height
     float h = world_pos.y - pc.height;
@@ -251,8 +255,7 @@ void main() {
     float scatter_coeff = fog_density * pc.scattering;
 
     // Directional light contribution
-    vec3 cam_to_froxel = normalize(world_pos - ubo.camera_position.xyz);
-    float cos_theta = dot(cam_to_froxel, ubo.light_direction.xyz);
+    float cos_theta = dot(ray_dir, ubo.light_direction.xyz);
     float phase = henyey_greenstein(pc.anisotropy, cos_theta);
 
     float shadow = sample_shadow(world_pos);
@@ -275,7 +278,7 @@ void main() {
         float inv_dist = inversesqrt(max(dist2, 1e-8));
         float dist = dist2 * inv_dist;
         vec3 L = to_light * inv_dist;
-        float pl_phase = henyey_greenstein(pc.anisotropy, dot(cam_to_froxel, L));
+        float pl_phase = henyey_greenstein(pc.anisotropy, dot(ray_dir, L));
         float atten = vol_attenuation(dist, radius);
         float pl_shadow = sample_point_shadow_vol(world_pos, pl, pcf_rot);
 
@@ -300,7 +303,7 @@ void main() {
         float spot_atten = smoothstep(sl.outer_cos, sl.direction_inner_cos.w, cos_theta);
         if (spot_atten <= 0.0) continue;
 
-        float sl_phase = henyey_greenstein(pc.anisotropy, dot(cam_to_froxel, L));
+        float sl_phase = henyey_greenstein(pc.anisotropy, dot(ray_dir, L));
         float atten = vol_attenuation(dist, radius) * spot_atten;
         float sl_shadow = sample_spot_shadow_vol(world_pos, sl, pcf_rot);
 

@@ -110,22 +110,28 @@ void main() {
     far_world /= far_world.w;
     vec3 ray_dir = normalize(far_world.xyz - near_world.xyz);
 
+    // The march starts at this pixel's own near-plane point rather than the
+    // eye. For a perspective camera the two lie on the same ray; for an
+    // orthographic camera every pixel has a distinct origin and marching
+    // from the eye would give the whole screen one identical ray.
+    vec3 ray_origin = near_world.xyz;
+    float near_dist = -(ubo.view * vec4(ray_origin, 1.0)).z;
+
     // March distance: to scene hit, or max_reach for sky pixels. Cap at the
     // furthest cascade's reach — samples beyond it have no shadow data and
     // waste march budget (the loop early-exits anyway when shadow == -1).
     float cascade_limit = ubo.cascade_splits[2];
     vec3 view_forward = -vec3(ubo.view[0][2], ubo.view[1][2], ubo.view[2][2]);
     float cos_angle = max(dot(ray_dir, view_forward), 1e-4);
-    float max_ray_dist = min(pc.max_reach, cascade_limit / cos_angle);
+    float max_ray_dist = min(pc.max_reach, (cascade_limit - near_dist) / cos_angle);
 
     float scene_dist;
     if (raw_depth >= 1.0) {
         scene_dist = max_ray_dist;
     } else {
-        vec4 clip = vec4(ndc, raw_depth, 1.0);
-        vec4 view = ubo.inv_projection * clip;
-        float linear_z = -view.z / view.w;
-        scene_dist = min(linear_z / cos_angle, max_ray_dist);
+        vec4 hit_world = ubo.inv_view_proj * vec4(ndc, raw_depth, 1.0);
+        hit_world /= hit_world.w;
+        scene_dist = min(distance(ray_origin, hit_world.xyz), max_ray_dist);
     }
 
     float step_size = scene_dist / float(pc.step_count);
@@ -149,7 +155,7 @@ void main() {
     float transmittance = 1.0;
 
     for (uint i = 0; i < pc.step_count; ++i) {
-        vec3 world_pos = ubo.camera_position.xyz + ray_dir * march_t;
+        vec3 world_pos = ray_origin + ray_dir * march_t;
 
         float shadow = sample_cascade_shadow(world_pos);
         // Beyond the shadow cascades there's no meaningful shaft shape —
@@ -196,7 +202,7 @@ void main() {
     // Screen-space reproject using prev view-projection.
     if (pc.history_blend > 0.0) {
         // Use a representative mid-ray point for reprojection (half of scene_dist).
-        vec3 repro_world = ubo.camera_position.xyz + ray_dir * (scene_dist * 0.5);
+        vec3 repro_world = ray_origin + ray_dir * (scene_dist * 0.5);
         vec4 prev_clip = ubo.prev_view_proj * vec4(repro_world, 1.0);
         if (prev_clip.w > 0.0) {
             vec2 prev_uv = (prev_clip.xy / prev_clip.w) * 0.5 + 0.5;
