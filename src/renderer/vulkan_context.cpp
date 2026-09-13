@@ -8,6 +8,8 @@
 #include "scripting/debug_draw_queue.hpp"
 #include "animation/animation_system.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/components/terrain_component.hpp"
+#include "renderer/resources/terrain_asset.hpp"
 #include "renderer/components/skeletal_mesh_component.hpp"
 #include "renderer/components/sprite_desc.hpp"
 #include "renderer/resources/skeletal_model.hpp"
@@ -1525,6 +1527,22 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
             for (const auto& obj : s.objects()) {
                 auto* spatial = obj->as_spatial();
                 if (!spatial) continue;
+
+                // Terrain has no Model, so it never reaches the mesh branch
+                // below, but it is the largest thing in most scenes. Leaving it
+                // out sizes the SDF volume and the DDGI probe grid as though the
+                // ground were not there.
+                if (const auto* tc = obj->components.get<TerrainComponent>();
+                    tc != nullptr && tc->terrain != nullptr) {
+                    const auto& origin = spatial->transform.position;
+                    const float span = tc->terrain->world_size();
+                    scene_bounds.expand({origin.x, origin.y + tc->terrain->min_world_height(),
+                                         origin.z});
+                    scene_bounds.expand({origin.x + span,
+                                         origin.y + tc->terrain->max_world_height(),
+                                         origin.z + span});
+                }
+
                 auto* mesh_comp = obj->components.get<MeshComponent>();
                 if (!mesh_comp || !mesh_comp->model) continue;
 

@@ -45,11 +45,19 @@ Result<std::unique_ptr<TerrainAsset>> TerrainAsset::load(
     // normalized channel, and 16 bits resolve finer than terrain authoring
     // does. No mips — sampling a coarser mip would move vertices, and the patch
     // grid already controls how densely the texture is read.
+    // The same walk that quantizes heights for the texture also measures the
+    // range, which bounding-box fitting needs and the format does not store.
     std::vector<uint16_t> texels(static_cast<size_t>(samples) * samples);
+    float lowest = 1.0F;
+    float highest = 0.0F;
     for (size_t i = 0; i < texels.size(); ++i) {
         const float clamped = std::clamp(asset->data_.heights[i], 0.0F, 1.0F);
+        lowest = std::min(lowest, clamped);
+        highest = std::max(highest, clamped);
         texels[i] = static_cast<uint16_t>(std::lround(clamped * UNORM16_MAX));
     }
+    asset->min_world_height_ = asset->data_.world_height(lowest);
+    asset->max_world_height_ = asset->data_.world_height(highest);
     const VkDeviceSize bytes = texels.size() * sizeof(uint16_t);
 
     auto image = Image::create(allocator, samples, samples, VK_FORMAT_R16_UNORM,

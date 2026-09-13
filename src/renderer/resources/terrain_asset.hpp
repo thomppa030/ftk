@@ -54,6 +54,13 @@ public:
     [[nodiscard]] float height_scale() const { return data_.header.height_scale; }
     [[nodiscard]] float height_offset() const { return data_.header.height_offset; }
 
+    /// World-space height range across the whole field, measured at load. The
+    /// nominal range (offset..offset+scale) is what the format *allows*; this is
+    /// what the data actually uses, which keeps a bounding box from claiming
+    /// empty air above a flat terrain.
+    [[nodiscard]] float min_world_height() const { return min_world_height_; }
+    [[nodiscard]] float max_world_height() const { return max_world_height_; }
+
     /// Normalized height at a sample index, clamped at the edges.
     [[nodiscard]] float height_at_sample(uint32_t x, uint32_t z) const;
 
@@ -65,6 +72,8 @@ public:
 private:
     FjTerrainData data_;
     std::string path_;
+    float min_world_height_{0.0F};
+    float max_world_height_{0.0F};
     VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<Image> height_image_;
     VkSampler sampler_{VK_NULL_HANDLE};
