@@ -81,6 +81,8 @@ public:
     [[nodiscard]] const std::vector<std::pair<uint32_t, CollisionEvent>>& trigger_exit_events() const;
 
 private:
+    void create_bone_bodies(Node& node, const class Skeleton& skeleton);
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

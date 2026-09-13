@@ -3,7 +3,11 @@
 #include "physics/collision_shape.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "animation/animator_component.hpp"
+#include "animation/skeleton.hpp"
 #include "renderer/components/mesh_component.hpp"
+#include "renderer/components/skeletal_mesh_component.hpp"
+#include "renderer/resources/skeletal_model.hpp"
 #include "renderer/components/terrain_component.hpp"
 #include "renderer/resources/terrain_asset.hpp"
 #include "renderer/resources/model.hpp"
@@ -371,6 +375,16 @@ struct PhysicsWorld::Impl {
     // Character controllers
     std::vector<CharacterEntry> characters;
 
+    // Bodies that follow an animated bone. One node owns several, so these sit
+    // beside object_to_body rather than in it; body_to_object still maps each
+    // back to the owning node, so a hit on a forearm reports the character.
+    struct BoneBody {
+        uint32_t object_id;
+        int32_t bone;
+        JPH::BodyID body;
+    };
+    std::vector<BoneBody> bone_bodies;
+
     // A shape bakes the node's scale when it is created and cannot be
     // rescaled afterwards, so the scale each body was built at is kept to
     // notice when it no longer matches and the shape must be rebuilt.
@@ -623,6 +637,50 @@ static JPH::BodyID create_terrain_body(JPH::BodyInterface& bi, FilterTable& filt
     return bi.CreateAndAddBody(body_settings, JPH::EActivation::DontActivate);
 }
 
+// ── Bone colliders ──────────────────────────────────────────────────────
+
+// One kinematic body per shape the skeleton authors. Kinematic because the
+// animation drives them: the solver reads where they are, it does not decide.
+// Each is registered against the owning node, so a query that hits a forearm
+// reports the character rather than a body nothing else knows about.
+void PhysicsWorld::create_bone_bodies(Node& node, const Skeleton& skeleton) {
+    const auto& colliders = skeleton.colliders();
+    if (colliders.empty()) return;
+
+    auto* spatial = node.as_spatial();
+    if (spatial == nullptr) return;
+
+    const auto* col_comp = node.components.get<ColliderComponent>();
+    auto filter = col_comp != nullptr ? col_comp->filter
+                                      : default_filter_for(CollisionChannel::pawn);
+    auto layer = impl_->filter_table.layer_for(filter, true);
+
+    auto& bi = impl_->physics_system->GetBodyInterface();
+    CollisionMesh no_geometry;
+
+    for (const auto& col : colliders) {
+        if (col.shape.bone < 0) continue;
+
+        auto shape = build_primitive_shape(col.shape, no_geometry,
+                                           spatial->transform.scale, node.name);
+        if (!shape) continue;
+
+        // Placed at the node for now; step() moves it onto its bone before the
+        // first solve, so the initial position only has to be valid.
+        JPH::BodyCreationSettings settings(
+            shape, to_jolt(spatial->transform.position),
+            to_jolt_quat(spatial->transform.rotation),
+            JPH::EMotionType::Kinematic, layer);
+        settings.mCollideKinematicVsNonDynamic = true;
+
+        auto body_id = bi.CreateAndAddBody(settings, JPH::EActivation::Activate);
+        if (body_id.IsInvalid()) continue;
+
+        impl_->bone_bodies.push_back({node.id, col.shape.bone, body_id});
+        impl_->body_to_object[body_id.GetIndexAndSequenceNumber()] = node.id;
+    }
+}
+
 // ── Body creation ───────────────────────────────────────────────────────
 
 // Creates the body for one node, if it should have one. Split out of the
@@ -684,6 +742,17 @@ void PhysicsWorld::create_body(Node& node) {
             FJELL_CORE_ERROR("Failed to create terrain body for '{}'", node.name);
         }
         return;
+    }
+
+    // Bone colliders: a skeletal mesh whose skeleton carries authored shapes
+    // gets one kinematic body per shape, moved to its bone every frame. They
+    // are independent of the node's own collider, so a character can have both
+    // a capsule for movement and per-bone shapes for hit detection.
+    if (const auto* skel_mesh = node.components.get<SkeletalMeshComponent>();
+        skel_mesh != nullptr && skel_mesh->skeletal_model != nullptr) {
+        if (const auto* skeleton = skel_mesh->skeletal_model->skeleton()) {
+            create_bone_bodies(node, *skeleton);
+        }
     }
 
     const auto* col_comp = node.components.get<ColliderComponent>();
@@ -889,6 +958,37 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         set_angular_velocity(obj->id, angular);
     }
 
+    // Move bone bodies onto their bones. MoveKinematic rather than a teleport
+    // so each body carries the velocity implied by the motion — a limb sweeping
+    // through a dynamic object pushes it instead of passing through.
+    if (!impl_->bone_bodies.empty()) {
+        for (const auto& entry : impl_->bone_bodies) {
+            auto* node = scene.find_spatial(entry.object_id);
+            if (node == nullptr) continue;
+            auto* anim = node->components.get<AnimatorComponent>();
+            if (anim == nullptr) continue;
+
+            const auto& bones = anim->bone_matrices();
+            if (entry.bone < 0 || static_cast<size_t>(entry.bone) >= bones.size()) {
+                continue;
+            }
+
+            // Bone transforms are model-space, so the node's world matrix puts
+            // them where the character actually is.
+            glm::mat4 world = node->world_matrix_ * bones[static_cast<size_t>(entry.bone)];
+            glm::vec3 position{world[3]};
+            // The shape already baked the node's scale, so the rotation has to
+            // come from a normalized basis or it would be scaled twice.
+            glm::mat3 basis{glm::normalize(glm::vec3(world[0])),
+                            glm::normalize(glm::vec3(world[1])),
+                            glm::normalize(glm::vec3(world[2]))};
+
+            bi.MoveKinematic(entry.body, to_jolt(position),
+                             to_jolt_quat(glm::quat_cast(basis)),
+                             std::max(dt, 1.0f / 120.0f));
+        }
+    }
+
     // Sync kinematic bodies: push engine transforms -> Jolt
     for (auto& obj : scene.objects()) {
         const auto* rb = obj->components.get<RigidbodyComponent>();
@@ -989,6 +1089,23 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 // ── Body removal ────────────────────────────────────────────────────────
 
 void PhysicsWorld::destroy_body(uint32_t object_id) {
+    // A node can own several of these at once — a character with a movement
+    // capsule and per-bone hit shapes owns both kinds — so each is cleaned up
+    // in turn rather than the first match winning.
+
+    // Bone bodies first: a character owning them would otherwise leak, since
+    // its own teardown below returns early.
+    if (!impl_->bone_bodies.empty()) {
+        auto& bi_bone = impl_->physics_system->GetBodyInterface();
+        std::erase_if(impl_->bone_bodies, [&](const Impl::BoneBody& entry) {
+            if (entry.object_id != object_id) return false;
+            impl_->body_to_object.erase(entry.body.GetIndexAndSequenceNumber());
+            bi_bone.RemoveBody(entry.body);
+            bi_bone.DestroyBody(entry.body);
+            return true;
+        });
+    }
+
     // A character owns an inner body registered under the same node, so it has
     // to go through its own teardown rather than the body interface.
     auto character = std::find_if(impl_->characters.begin(), impl_->characters.end(),
