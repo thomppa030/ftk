@@ -25,7 +25,6 @@ namespace {
 ImU32 to_imu32(ImVec4 v) { return ImGui::ColorConvertFloat4ToU32(v); }
 
 // Engine palette → ImU32 (uses sRGB→linear from theme.hpp)
-ImU32 col_separator()   { return to_imu32(theme::srgb(0.055F, 0.055F, 0.063F)); }
 ImU32 col_text_muted()  { return to_imu32(theme::srgb(0.447F, 0.455F, 0.486F)); }
 
 const char* modifier_type_label(ModifierType type) {
@@ -736,7 +735,6 @@ void InputMappingEditorContext::draw_modifier_chips(int binding_idx) {
         binding.modifiers.push_back({ModifierType::scale, 1.0F});
         dirty_ = true;
     }
-    (void)col_separator;
 }
 
 // ── Add Action popup ────────────────────────────────────────────────
