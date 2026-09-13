@@ -154,7 +154,19 @@ int main() {
             present.swapchainCount = 1;
             present.pSwapchains = &sc;
             present.pImageIndices = &img_idx;
-            vkQueuePresentKHR(gpu.graphics_queue(), &present);
+            VkResult present_result = vkQueuePresentKHR(gpu.graphics_queue(), &present);
+
+            // Without this the swapchain keeps its creation size while the
+            // window grows, so the UI lays out into a corner and the mouse
+            // lands nowhere near it. A compositor that resizes without
+            // reporting OUT_OF_DATE is why was_resized() is checked too.
+            if (present_result == VK_ERROR_OUT_OF_DATE_KHR ||
+                present_result == VK_SUBOPTIMAL_KHR ||
+                window.was_resized()) {
+                window.reset_resized();
+                gpu.wait_idle();
+                gpu.swapchain().recreate();
+            }
 
             frame = (frame + 1) % fjell::MAX_FRAMES_IN_FLIGHT;
 

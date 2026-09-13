@@ -215,7 +215,19 @@ void FileBrowser::tick() {
     present.swapchainCount = 1;
     present.pSwapchains = &sc;
     present.pImageIndices = &img_idx;
-    vkQueuePresentKHR(gpu_->graphics_queue(), &present);
+    VkResult present_result = vkQueuePresentKHR(gpu_->graphics_queue(), &present);
+
+    // A stale swapchain keeps its creation size while the window grows, which
+    // leaves the UI laid out in a corner and the mouse landing away from it.
+    // was_resized() covers compositors that resize without reporting
+    // OUT_OF_DATE.
+    if (present_result == VK_ERROR_OUT_OF_DATE_KHR ||
+        present_result == VK_SUBOPTIMAL_KHR ||
+        window_->was_resized()) {
+        window_->reset_resized();
+        vkDeviceWaitIdle(gpu_->vk_device());
+        swapchain_->recreate();
+    }
 
     frame_index_ = (frame_index_ + 1) % MAX_FRAMES_IN_FLIGHT;
 
