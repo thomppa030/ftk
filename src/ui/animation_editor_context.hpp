@@ -1,6 +1,7 @@
 #pragma once
 
 #include "animation/animation_state_machine.hpp"
+#include "physics/collision_shape.hpp"
 #include "ui/editor_context.hpp"
 #include "ui/timeline_widget.hpp"
 #include "ui/viewport_manager.hpp"
@@ -91,6 +92,8 @@ private:
     };
 
     void draw_bone_tree();
+    void draw_collider_panel();
+    void add_bone_collider(CollisionPrimitiveKind kind, bool fit_to_bone);
     void draw_clip_list();
     void draw_properties();
     void draw_state_graph();
@@ -119,6 +122,13 @@ private:
 
     // Loaded data
     std::shared_ptr<Skeleton> skeleton_;
+
+    // Bone colliders being edited, seeded from the skeleton on open and written
+    // back to the .fjskel on save.
+    std::vector<BoneCollider> colliders_;
+    int selected_collider_{-1};
+    bool colliders_dirty_{false};
+    bool show_colliders_{true};
     std::vector<std::string> available_clip_paths_;
     std::vector<std::string> available_clip_names_;
     std::shared_ptr<AnimationClip> current_clip_;

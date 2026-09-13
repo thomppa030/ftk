@@ -378,6 +378,117 @@ bool rewrite_collision_data(const std::string& path,
     return true;
 }
 
+bool rewrite_skeleton_colliders(const std::string& path,
+                                const std::vector<BoneCollider>& colliders) {
+    std::FILE* in = std::fopen(path.c_str(), "rb");
+    if (in == nullptr) return false;
+
+    FjSkelHeader header{};
+    constexpr size_t V1_SIZE = offsetof(FjSkelHeader, collider_count);
+    if (std::fread(&header, V1_SIZE, 1, in) != 1 || header.magic != FJSKEL_MAGIC) {
+        std::fclose(in);
+        return false;
+    }
+    // A v1 header is 16 bytes shorter, so its sections begin where the v2
+    // fields would be written. Growing the header in place would move every
+    // one of them while the offsets recorded in the file still pointed at the
+    // old layout, so an older skeleton has to be reimported rather than
+    // patched.
+    if (header.version < FJSKEL_VERSION) {
+        std::fclose(in);
+        return false;
+    }
+    auto* v2_ptr = reinterpret_cast<char*>(&header) + V1_SIZE;
+    if (std::fread(v2_ptr, sizeof(FjSkelHeader) - V1_SIZE, 1, in) != 1) {
+        std::fclose(in);
+        return false;
+    }
+
+    // Everything up to the name table is geometry and joints, untouched by this.
+    // The table itself is rewritten because collider bone names live in it.
+    uint64_t prefix_end = header.name_table_offset;
+    if (prefix_end <= V1_SIZE) {
+        std::fclose(in);
+        return false;
+    }
+
+    std::vector<char> prefix(prefix_end);
+    std::fseek(in, 0, SEEK_SET);
+    if (std::fread(prefix.data(), 1, prefix.size(), in) != prefix.size()) {
+        std::fclose(in);
+        return false;
+    }
+
+    std::vector<char> name_table(header.name_table_size);
+    if (header.name_table_size > 0) {
+        std::fseek(in, static_cast<long>(header.name_table_offset), SEEK_SET);
+        if (std::fread(name_table.data(), 1, name_table.size(), in) != name_table.size()) {
+            std::fclose(in);
+            return false;
+        }
+    }
+    std::fclose(in);
+
+    // Joint names already in the table are referenced by offsets in the prefix,
+    // so the table is only ever appended to.
+    std::vector<FjSkelCollider> bin;
+    bin.reserve(colliders.size());
+    for (const auto& col : colliders) {
+        FjSkelCollider out{};
+        out.kind = static_cast<uint32_t>(col.shape.kind);
+        out.bone_name_offset = static_cast<uint32_t>(name_table.size());
+        out.bone_name_length = static_cast<uint32_t>(col.bone_name.size());
+        name_table.insert(name_table.end(), col.bone_name.begin(), col.bone_name.end());
+        out.position[0] = col.shape.position.x;
+        out.position[1] = col.shape.position.y;
+        out.position[2] = col.shape.position.z;
+        out.rotation[0] = col.shape.rotation.x;
+        out.rotation[1] = col.shape.rotation.y;
+        out.rotation[2] = col.shape.rotation.z;
+        out.rotation[3] = col.shape.rotation.w;
+        out.extents[0] = col.shape.extents.x;
+        out.extents[1] = col.shape.extents.y;
+        out.extents[2] = col.shape.extents.z;
+        bin.push_back(out);
+    }
+
+    auto* out_header = reinterpret_cast<FjSkelHeader*>(prefix.data());
+
+    uint64_t offset = prefix_end;
+    out_header->collider_count = static_cast<uint32_t>(bin.size());
+    out_header->colliders_offset = align_to(offset, 4);
+    offset = out_header->colliders_offset + (bin.size() * sizeof(FjSkelCollider));
+
+    out_header->name_table_offset = align_to(offset, 4);
+    out_header->name_table_size = name_table.size();
+
+    std::string tmp = path + ".tmp";
+    std::FILE* out = std::fopen(tmp.c_str(), "wb");
+    if (out == nullptr) return false;
+
+    std::fwrite(prefix.data(), 1, prefix.size(), out);
+
+    pad_to_offset(out, out_header->colliders_offset);
+    std::fwrite(bin.data(), sizeof(FjSkelCollider), bin.size(), out);
+
+    pad_to_offset(out, out_header->name_table_offset);
+    std::fwrite(name_table.data(), 1, name_table.size(), out);
+
+    // The header was finalized during layout, so the copy at the top of the
+    // file is stale until it is written back.
+    std::fseek(out, 0, SEEK_SET);
+    std::fwrite(out_header, sizeof(FjSkelHeader), 1, out);
+    std::fclose(out);
+
+    std::error_code ec;
+    std::filesystem::rename(tmp, path, ec);
+    if (ec) {
+        std::filesystem::remove(tmp, ec);
+        return false;
+    }
+    return true;
+}
+
 std::string find_import_source(const std::string& fjmesh_path) {
     namespace fs = std::filesystem;
 

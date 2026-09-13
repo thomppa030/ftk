@@ -3,6 +3,7 @@
 // Writing side of the .fjmesh format. Shared by the fjimport tool and the
 // engine, so a mesh written by either is byte-identical in layout.
 
+#include "physics/collision_shape.hpp"
 #include "renderer/resources/fjmesh.hpp"
 
 #include <cstdio>
@@ -64,6 +65,16 @@ struct CollisionSectionData {
 [[nodiscard]] bool rewrite_collision_data(const std::string& path,
                                           const CollisionSectionData& collision,
                                           const MeshAuthoredData& authored);
+
+// Rewrites the collider section of an existing .fjskel, leaving its geometry,
+// joints and animations untouched.
+//
+// Colliders are authored in the editor while the rest of the file comes from
+// the importer, so this patches one section rather than rebuilding the file —
+// the same reason .fjmesh has rewrite_collision_data. Bone names are appended
+// to the name table, which grows the sections after it.
+[[nodiscard]] bool rewrite_skeleton_colliders(const std::string& path,
+                                              const std::vector<BoneCollider>& colliders);
 
 // Locates the source file a .fjmesh was imported from, using the provenance
 // recorded at import time. The path is stored relative to the mesh, so moving

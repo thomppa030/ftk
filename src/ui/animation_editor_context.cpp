@@ -7,6 +7,9 @@
 #include "scripting/field_inspector.hpp"
 #include "animation/skeleton.hpp"
 #include "core/base_path.hpp"
+#include <glm/gtc/matrix_transform.hpp>
+#include "renderer/debug_draw.hpp"
+#include "renderer/resources/fjmesh_writer.hpp"
 #include "core/clock.hpp"
 #include "core/input.hpp"
 #include "core/log.hpp"
@@ -130,6 +133,36 @@ void AnimationEditorContext::on_enter() {
 void AnimationEditorContext::draw(float dt) {
     update_preview(dt);
 
+    // Draw the authored shapes on the posed skeleton. Reading the animator's
+    // bone transforms rather than the rest pose is the point — a shape that
+    // looks right on a T-pose can be badly wrong once a limb swings.
+    if (show_colliders_ && !colliders_.empty()) {
+        auto& debug = deps_.vulkan_context->debug_draw();
+        auto* node = preview_scene_.find_spatial(preview_node_id_);
+        const auto* anim = node != nullptr
+            ? node->components.get<AnimatorComponent>() : nullptr;
+
+        for (int i = 0; i < static_cast<int>(colliders_.size()); ++i) {
+            auto shape = colliders_[static_cast<size_t>(i)].shape;
+            if (anim != nullptr && shape.bone >= 0) {
+                const auto& bones = anim->bone_matrices();
+                if (static_cast<size_t>(shape.bone) < bones.size()) {
+                    // Fold the bone into the shape's own placement, so the
+                    // wireframe sits where the body will.
+                    auto placed = bones[static_cast<size_t>(shape.bone)] *
+                                  glm::translate(glm::mat4(1.0F), shape.position) *
+                                  glm::mat4_cast(shape.rotation);
+                    shape.position = glm::vec3(placed[3]);
+                    shape.rotation = glm::quat_cast(glm::mat3(
+                        glm::normalize(glm::vec3(placed[0])),
+                        glm::normalize(glm::vec3(placed[1])),
+                        glm::normalize(glm::vec3(placed[2]))));
+                }
+            }
+            debug.submit_collision_primitive(shape, i == selected_collider_);
+        }
+    }
+
     if (auto* vp = viewport_manager_.active_panel()) {
         auto t = ctx_title("Anim Preview");
         if (vp->title != t) vp->title = std::move(t);
@@ -167,6 +200,7 @@ void AnimationEditorContext::draw(float dt) {
     }
 
     draw_bone_tree();
+    draw_collider_panel();
     draw_clip_list();
     draw_properties();
     draw_state_graph();
@@ -179,12 +213,13 @@ std::vector<std::string> AnimationEditorContext::docked_window_names() const {
     return {ctx_title("Bone Tree"), ctx_title("Clip List"), ctx_title("History"),
             ctx_title("Anim Parameters"), ctx_title("Anim Preview"),
             ctx_title("State Graph"), ctx_title("Anim Properties"),
-            ctx_title("Anim Timeline"), ctx_title("Stats"), ctx_title("Console")};
+            ctx_title("Anim Timeline"), ctx_title("Stats"), ctx_title("Console"),
+            ctx_title("Bone Colliders")};
 }
 
 void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
     enum class EPanel { BoneTree, ClipList, History, Parameters, Preview, StateGraph, Properties,
-                        Timeline, Stats, Console };
+                        Timeline, Stats, Console, Colliders };
     using N = DockNode;
     static const auto layout = N::horizontal_split(0.14f,
         N::vertical_split(0.35f,
@@ -196,7 +231,7 @@ void AnimationEditorContext::setup_dockspace(ImGuiID main_area) {
             N::vertical_split(0.68f,
                 N::leaf({EPanel::Preview, EPanel::StateGraph}),
                 N::leaf({EPanel::Timeline, EPanel::Stats, EPanel::Console})),
-            N::leaf({EPanel::Properties})));
+            N::leaf({EPanel::Properties, EPanel::Colliders})));
     build_dockspace(main_area, layout, docked_window_names());
 }
 
@@ -257,6 +292,21 @@ bool AnimationEditorContext::save() {
         }
     }
 
+    // Save bone colliders back to the .fjskel
+    if (colliders_dirty_ && !skeleton_path_.empty()) {
+        auto resolved = base_path::resolve_asset(skeleton_path_, deps_.project_mgr->active());
+        if (rewrite_skeleton_colliders(resolved, colliders_)) {
+            if (skeleton_) skeleton_->colliders() = colliders_;
+            colliders_dirty_ = false;
+            saved_any = true;
+            FJELL_CORE_INFO("AnimEditor: saved {} bone colliders to {}",
+                            colliders_.size(), skeleton_path_);
+        } else {
+            FJELL_CORE_ERROR("AnimEditor: failed to save bone colliders — reimport "
+                             "the skeleton if it predates the collider section");
+        }
+    }
+
     // Save animset
     if (!animset_path_.empty()) {
         auto resolved = base_path::resolve_asset(animset_path_, deps_.project_mgr->active());
@@ -281,6 +331,9 @@ void AnimationEditorContext::open_skeleton(const std::string& skel_path) {
     selected_bone_ = -1;
     selected_clip_ = -1;
     current_clip_.reset();
+    colliders_.clear();
+    selected_collider_ = -1;
+    colliders_dirty_ = false;
 
     // Load the .fjskel as a skeletal model (contains mesh + embedded skeleton)
     auto model_result = deps_.resource_manager->load_skeletal_model(resolved);
@@ -294,6 +347,7 @@ void AnimationEditorContext::open_skeleton(const std::string& skel_path) {
         FJELL_CORE_ERROR("AnimEditor: skeletal model has no embedded skeleton: {}", skel_path);
         return;
     }
+    colliders_ = skel_model->skeleton()->colliders();
 
     // Get skeleton from the model
     skeleton_ = skel_model->skeleton_shared();
@@ -396,6 +450,183 @@ void AnimationEditorContext::open_animset(const std::string& animset_path) {
 }
 
 // ── Panels ───────────────────────────────────────────────────────────────
+
+void AnimationEditorContext::add_bone_collider(CollisionPrimitiveKind kind,
+                                              bool fit_to_bone) {
+    if (!skeleton_ || selected_bone_ < 0) return;
+    const auto& joints = skeleton_->joints();
+    if (selected_bone_ >= static_cast<int>(joints.size())) return;
+
+    BoneCollider col;
+    col.bone_name = joints[static_cast<size_t>(selected_bone_)].name;
+    col.shape.kind = kind;
+    col.shape.bone = selected_bone_;
+
+    if (fit_to_bone) {
+        // A limb runs from its joint toward its child, so the distance between
+        // them is the length worth covering. Without a child there is nothing
+        // to measure against — a hand or a foot — so fall back to something
+        // small rather than guessing a direction.
+        float length = 0.0F;
+        for (size_t i = 0; i < joints.size(); ++i) {
+            if (joints[i].parent != selected_bone_) continue;
+            length = std::max(length, glm::length(joints[i].translation));
+        }
+
+        if (length > 0.0F) {
+            // Sit the shape at the midpoint so it spans joint to child.
+            col.shape.position = {0.0F, length * 0.5F, 0.0F};
+            float radius = std::max(length * 0.25F, 0.02F);
+            switch (kind) {
+                case CollisionPrimitiveKind::capsule:
+                    col.shape.extents = {radius, length, 0.0F};
+                    break;
+                case CollisionPrimitiveKind::sphere:
+                    col.shape.extents = glm::vec3{length * 0.5F};
+                    break;
+                default:
+                    col.shape.extents = {radius, length * 0.5F, radius};
+                    break;
+            }
+        } else {
+            col.shape.extents = glm::vec3{0.05F};
+        }
+    }
+
+    colliders_.push_back(col);
+    selected_collider_ = static_cast<int>(colliders_.size()) - 1;
+    colliders_dirty_ = true;
+}
+
+void AnimationEditorContext::draw_collider_panel() {
+    if (ImGui::Begin(ctx_title("Bone Colliders").c_str())) {
+        if (!skeleton_) {
+            ImGui::TextDisabled("No skeleton loaded");
+            ImGui::End();
+            return;
+        }
+
+        if (ImGui::Checkbox("Show in preview", &show_colliders_)) {
+            // Redrawn from the list each frame; nothing else to do.
+        }
+
+        const auto& joints = skeleton_->joints();
+        bool has_bone = selected_bone_ >= 0 &&
+                        selected_bone_ < static_cast<int>(joints.size());
+
+        static constexpr struct { CollisionPrimitiveKind kind; const char* label; } KINDS[] = {
+            {CollisionPrimitiveKind::capsule, "Capsule"},
+            {CollisionPrimitiveKind::sphere, "Sphere"},
+            {CollisionPrimitiveKind::box, "Box"},
+        };
+
+        ImGui::BeginDisabled(!has_bone);
+        if (ImGui::Button("Fit to Bone")) ImGui::OpenPopup("fit_bone_kind");
+        if (ImGui::BeginPopup("fit_bone_kind")) {
+            for (const auto& k : KINDS) {
+                if (ImGui::Selectable(k.label)) add_bone_collider(k.kind, true);
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Add")) ImGui::OpenPopup("add_bone_kind");
+        if (ImGui::BeginPopup("add_bone_kind")) {
+            for (const auto& k : KINDS) {
+                if (ImGui::Selectable(k.label)) add_bone_collider(k.kind, false);
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::EndDisabled();
+
+        if (!has_bone) {
+            ImGui::TextDisabled("Select a bone to add a shape to it.");
+        } else {
+            ImGui::SameLine();
+            ImGui::TextDisabled("on %s", joints[static_cast<size_t>(selected_bone_)].name.c_str());
+        }
+
+        ImGui::Separator();
+
+        if (colliders_.empty()) {
+            ImGui::TextWrapped(
+                "No shapes. A skeleton without them collides only as whatever "
+                "collider its node carries — add shapes here to get per-bone "
+                "hit detection.");
+        }
+
+        static const char* KIND_NAMES[] = {"Box", "Sphere", "Capsule",
+                                            "Convex Hull", "Triangle Mesh"};
+
+        for (int i = 0; i < static_cast<int>(colliders_.size()); ++i) {
+            auto& col = colliders_[static_cast<size_t>(i)];
+            ImGui::PushID(i);
+
+            bool selected = selected_collider_ == i;
+            auto label = std::string(KIND_NAMES[static_cast<int>(col.shape.kind)]) +
+                         " — " + col.bone_name;
+            if (ImGui::Selectable(label.c_str(), selected)) {
+                selected_collider_ = selected ? -1 : i;
+                // Selecting a shape follows it to its bone, so the tree and the
+                // preview agree about what is being edited.
+                if (!selected && col.shape.bone >= 0) selected_bone_ = col.shape.bone;
+            }
+
+            if (selected) {
+                ImGui::Indent();
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::DragFloat3("##Pos", &col.shape.position.x, 0.005F)) {
+                    colliders_dirty_ = true;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Position, in bone space");
+
+                switch (col.shape.kind) {
+                    case CollisionPrimitiveKind::capsule:
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::DragFloat("##Radius", &col.shape.extents.x, 0.005F,
+                                             0.001F, 100.0F)) {
+                            colliders_dirty_ = true;
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius");
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::DragFloat("##Height", &col.shape.extents.y, 0.005F,
+                                             0.001F, 100.0F)) {
+                            colliders_dirty_ = true;
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Height");
+                        break;
+                    case CollisionPrimitiveKind::sphere:
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::DragFloat("##SphRadius", &col.shape.extents.x, 0.005F,
+                                             0.001F, 100.0F)) {
+                            colliders_dirty_ = true;
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Radius");
+                        break;
+                    default:
+                        ImGui::SetNextItemWidth(-1);
+                        if (ImGui::DragFloat3("##Ext", &col.shape.extents.x, 0.005F,
+                                              0.001F, 100.0F)) {
+                            colliders_dirty_ = true;
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Half extents");
+                        break;
+                }
+
+                if (ImGui::SmallButton("Remove")) {
+                    colliders_.erase(colliders_.begin() + i);
+                    selected_collider_ = -1;
+                    colliders_dirty_ = true;
+                    ImGui::Unindent();
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::Unindent();
+            }
+            ImGui::PopID();
+        }
+    }
+    ImGui::End();
+}
 
 void AnimationEditorContext::draw_bone_tree() {
     if (ImGui::Begin(ctx_title("Bone Tree").c_str())) {
