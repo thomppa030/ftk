@@ -68,6 +68,10 @@ public:
     /// Get BLAS for a raw entry key (nullptr if not built).
     [[nodiscard]] const Blas* find_blas(const void* key) const;
 
+    /// Models keep their own map, keyed by Model* and rebuilt when the
+    /// mega-buffer moves. Separate from find_blas's mesh-entry map.
+    [[nodiscard]] const Blas* find_model_blas(const Model* model) const;
+
     /// Info about a mesh particle emitter to extract into the TLAS.
     struct ParticleEmitterInfo {
         uint32_t base_offset;     // into mega particle buffer
@@ -77,21 +81,23 @@ public:
         const Blas* blas;
     };
 
-    /// A terrain's ray mesh, placed by its node transform. Terrain carries no
-    /// Model — its render geometry is generated in a mesh shader — so it cannot
-    /// ride the draw arrays.
-    struct TerrainInstanceInfo {
+    /// One host-side TLAS instance. Everything whose count is known on the CPU
+    /// — mesh draws, terrain, and whatever comes next — reduces to this, so
+    /// adding a source means building these rather than extending build_tlas.
+    ///
+    /// Particles are deliberately not expressible here: their instances are
+    /// written by a compute shader into a region reserved from their upper
+    /// bound, because the count is not known until the GPU has culled them.
+    struct RtInstance {
         glm::mat4 transform{1.0F};
         uint32_t material_id{0};
         const Blas* blas{nullptr};
     };
 
-    /// Rebuild TLAS from scene draws + particle emitters + terrain.
+    /// Rebuild the TLAS from host instances plus GPU-generated particles.
     void build_tlas(VkCommandBuffer cmd, uint32_t frame_index,
-                    const GpuDrawData* draw_data, uint32_t draw_count,
-                    const std::vector<const Model*>& draw_models,
-                    const std::vector<ParticleEmitterInfo>& particle_emitters = {},
-                    const std::vector<TerrainInstanceInfo>& terrains = {});
+                    const std::vector<RtInstance>& host_instances,
+                    const std::vector<ParticleEmitterInfo>& particle_emitters = {});
 
     /// Free per-frame TLAS/instance buffers + TLAS handles that build_tlas
     /// retired (on growth) the LAST time this slot was used. Call once per

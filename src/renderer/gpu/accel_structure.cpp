@@ -267,6 +267,11 @@ const Blas* AccelStructureManager::find_blas(const void* key) const {
     return it != entry_blas_map_.end() ? &it->second : nullptr;
 }
 
+const Blas* AccelStructureManager::find_model_blas(const Model* model) const {
+    auto it = blas_map_.find(model);
+    return it != blas_map_.end() ? &it->second : nullptr;
+}
+
 void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& mega) {
     // The build's one-shot submit reads the mega buffer without waiting the
     // upload timeline — settle any batched geometry uploads first.
@@ -413,26 +418,19 @@ void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& meg
 }
 
 void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index,
-                                       const GpuDrawData* draw_data, uint32_t draw_count,
-                                       const std::vector<const Model*>& draw_models,
-                                       const std::vector<ParticleEmitterInfo>& particle_emitters,
-                                      const std::vector<TerrainInstanceInfo>& terrains) {
+                                       const std::vector<RtInstance>& host_instances,
+                                       const std::vector<ParticleEmitterInfo>& particle_emitters) {
 
     auto& frame = frames_[frame_index];
 
     // Build instance array + per-instance data for hit shader
     std::vector<VkAccelerationStructureInstanceKHR> instances;
     std::vector<GpuRtInstance> rt_instances;
-    instances.reserve(draw_count);
-    rt_instances.reserve(draw_count);
+    instances.reserve(host_instances.size());
+    rt_instances.reserve(host_instances.size());
 
-    for (uint32_t i = 0; i < draw_count; ++i) {
-        const auto* model = draw_models[i];
-        auto it = blas_map_.find(model);
-        if (it == blas_map_.end()) continue;
-
-        const auto& data = draw_data[i];
-        const auto& blas = it->second;
+    for (const auto& src : host_instances) {
+        if (src.blas == nullptr || src.blas->handle == VK_NULL_HANDLE) continue;
 
         // Skip instances with a non-finite or degenerate transform. A just-
         // spawned networked object can reach the render queue before its world
@@ -440,7 +438,7 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
         // the driver build a malformed TLAS that faults on traversal (the
         // bisect-confirmed spawn-storm device loss — both RT pipelines fault
         // identically inside AS traversal). Drop it this frame; it appears next.
-        const glm::mat4& m = data.model;
+        const glm::mat4& m = src.transform;
         bool finite = std::isfinite(m[0][0]) && std::isfinite(m[1][1]) && std::isfinite(m[2][2])
                    && std::isfinite(m[3][0]) && std::isfinite(m[3][1]) && std::isfinite(m[3][2]);
         // Degenerate (all-zero) upper-left 3x3 = zero scale → invalid AABB.
@@ -456,46 +454,18 @@ void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index
         instance.transform.matrix[1][0] = m[0][1]; instance.transform.matrix[1][1] = m[1][1]; instance.transform.matrix[1][2] = m[2][1]; instance.transform.matrix[1][3] = m[3][1];
         instance.transform.matrix[2][0] = m[0][2]; instance.transform.matrix[2][1] = m[1][2]; instance.transform.matrix[2][2] = m[2][2]; instance.transform.matrix[2][3] = m[3][2];
 
-        instance.instanceCustomIndex = data.material_id;
+        instance.instanceCustomIndex = src.material_id;
         instance.mask = 0xFF;
         instance.instanceShaderBindingTableRecordOffset = 0;
         instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        instance.accelerationStructureReference = blas.device_address;
+        instance.accelerationStructureReference = src.blas->device_address;
 
         instances.push_back(instance);
 
         GpuRtInstance rt_inst{};
-        rt_inst.material_id = data.material_id;
-        rt_inst.first_index = blas.first_index;
-        rt_inst.vertex_offset = blas.vertex_offset;
-        rt_instances.push_back(rt_inst);
-    }
-
-    // Terrain rides alongside the scene instances: same host-written region,
-    // its own source because it has no Model to carry draw data.
-    for (const auto& t : terrains) {
-        if (t.blas == nullptr || t.blas->handle == VK_NULL_HANDLE) continue;
-
-        const glm::mat4& m = t.transform;
-        VkAccelerationStructureInstanceKHR instance{};
-        instance.transform.matrix[0][0] = m[0][0]; instance.transform.matrix[0][1] = m[1][0]; instance.transform.matrix[0][2] = m[2][0]; instance.transform.matrix[0][3] = m[3][0];
-        instance.transform.matrix[1][0] = m[0][1]; instance.transform.matrix[1][1] = m[1][1]; instance.transform.matrix[1][2] = m[2][1]; instance.transform.matrix[1][3] = m[3][1];
-        instance.transform.matrix[2][0] = m[0][2]; instance.transform.matrix[2][1] = m[1][2]; instance.transform.matrix[2][2] = m[2][2]; instance.transform.matrix[2][3] = m[3][2];
-
-        instance.instanceCustomIndex = t.material_id;
-        instance.mask = 0xFF;
-        instance.instanceShaderBindingTableRecordOffset = 0;
-        // Terrain is a single-sided surface with consistent winding, but the
-        // hit shader has no per-face orientation to fall back on, so keep
-        // culling disabled as the mesh path does.
-        instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        instance.accelerationStructureReference = t.blas->device_address;
-        instances.push_back(instance);
-
-        GpuRtInstance rt_inst{};
-        rt_inst.material_id = t.material_id;
-        rt_inst.first_index = t.blas->first_index;
-        rt_inst.vertex_offset = t.blas->vertex_offset;
+        rt_inst.material_id = src.material_id;
+        rt_inst.first_index = src.blas->first_index;
+        rt_inst.vertex_offset = src.blas->vertex_offset;
         rt_instances.push_back(rt_inst);
     }
 

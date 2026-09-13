@@ -1532,23 +1532,48 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         FJELL_PROFILE_SCOPE_N("ddgi_tlas_build");
         FJELL_GPU_ZONE(ctx, "DDGI TLAS Build");
         const auto& cmds = ctx.queue->commands();
-        if (!cmds.empty()) {
+        {
             // Only include objects that rays can reach from the probe grid
             AABB bounds = trace_reach_bounds();
 
-            std::vector<GpuDrawData> tlas_draws;
-            std::vector<const Model*> tlas_models;
-            tlas_draws.reserve(cmds.size());
-            tlas_models.reserve(cmds.size());
+            // Everything whose instance count is known on the CPU goes in one
+            // list; build_tlas applies the same transform validation to all of
+            // it and reserves the particle region after.
+            std::vector<AccelStructureManager::RtInstance> host_instances;
+            host_instances.reserve(cmds.size() + 1);
+
             for (const auto& dc : cmds) {
                 if (!dc.model) continue;
                 if (!dc.world_aabb.intersects(bounds)) continue;
-                GpuDrawData data{};
-                data.model = dc.push.model;
-                data.material_id = dc.push.material_id;
-                tlas_draws.push_back(data);
-                tlas_models.push_back(dc.model);
+                const auto* blas = accel_manager_->find_model_blas(dc.model);
+                if (blas == nullptr) continue;
+
+                AccelStructureManager::RtInstance inst{};
+                inst.transform = dc.push.model;
+                inst.material_id = dc.push.material_id;
+                inst.blas = blas;
+                host_instances.push_back(inst);
             }
+
+            // Terrain generates its render geometry in a mesh shader, so it has
+            // no draw to ride in on and is collected from the scene directly.
+            if (ctx.scene != nullptr) {
+                for (const auto& obj : ctx.scene->objects()) {
+                    const auto* tc = obj->components.get<TerrainComponent>();
+                    if (tc == nullptr || tc->terrain == nullptr) continue;
+                    const auto* blas = accel_manager_->find_blas(tc->terrain);
+                    if (blas == nullptr) continue;
+
+                    const auto* spatial = obj->as_spatial();
+                    AccelStructureManager::RtInstance inst{};
+                    inst.transform = spatial != nullptr ? spatial->world_matrix_
+                                                        : glm::mat4{1.0F};
+                    inst.material_id = 0;
+                    inst.blas = blas;
+                    host_instances.push_back(inst);
+                }
+            }
+
             // Collect mesh particle emitters for per-particle TLAS instances
             std::vector<AccelStructureManager::ParticleEmitterInfo> particle_infos;
             if (particle_system_) {
@@ -1568,28 +1593,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
                 }
             }
 
-            std::vector<AccelStructureManager::TerrainInstanceInfo> terrain_infos;
-            if (ctx.scene != nullptr) {
-                for (const auto& obj : ctx.scene->objects()) {
-                    const auto* tc = obj->components.get<TerrainComponent>();
-                    if (tc == nullptr || tc->terrain == nullptr) continue;
-                    const auto* blas = accel_manager_->find_blas(tc->terrain);
-                    if (blas == nullptr) continue;
-
-                    const auto* spatial = obj->as_spatial();
-                    AccelStructureManager::TerrainInstanceInfo info{};
-                    info.transform = spatial != nullptr ? spatial->world_matrix_
-                                                        : glm::mat4{1.0F};
-                    info.material_id = 0;
-                    info.blas = blas;
-                    terrain_infos.push_back(info);
-                }
-            }
-
-            if (!tlas_draws.empty() || !particle_infos.empty() || !terrain_infos.empty()) {
-                accel_manager_->build_tlas(ctx.cmd, ctx.frame_index, tlas_draws.data(),
-                                           static_cast<uint32_t>(tlas_draws.size()),
-                                           tlas_models, particle_infos, terrain_infos);
+            if (!host_instances.empty() || !particle_infos.empty()) {
+                accel_manager_->build_tlas(ctx.cmd, ctx.frame_index, host_instances,
+                                           particle_infos);
             }
         }
     }
