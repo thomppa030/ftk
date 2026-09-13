@@ -60,7 +60,7 @@ Result<> spawn_detached(const std::vector<std::string>& args) {
         }
         argv.push_back(nullptr);
 
-        execv(argv[0], const_cast<char* const*>(argv.data()));
+        execvp(argv[0], const_cast<char* const*>(argv.data()));
         _exit(1);
     }
 
@@ -79,9 +79,9 @@ Result<> exec_replace(const std::vector<std::string>& args) {
     }
     argv.push_back(nullptr);
 
-    execv(argv[0], const_cast<char* const*>(argv.data()));
-    // execv only returns on failure
-    return make_error("exec_replace: execv failed");
+    execvp(argv[0], const_cast<char* const*>(argv.data()));
+    // execvp only returns on failure
+    return make_error("exec_replace: execvp failed");
 }
 
 Result<> open_path(const std::filesystem::path& path) {
@@ -118,7 +118,7 @@ Result<SubprocessHandle> spawn_with_pipe(const std::vector<std::string>& args) {
         }
         argv.push_back(nullptr);
 
-        execv(argv[0], const_cast<char* const*>(argv.data()));
+        execvp(argv[0], const_cast<char* const*>(argv.data()));
         _exit(1);
     }
 
