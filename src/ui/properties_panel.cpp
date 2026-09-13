@@ -371,6 +371,9 @@ void PropertiesPanel::draw() {
                         prop_row("Directionality", [&] {
                             ImGui::SliderFloat("##ShaftDirectionality", &vf->shaft_directionality, 0.0f, 1.0f);
                         });
+                        prop_row("Threshold", [&] {
+                            ImGui::SliderFloat("##ShaftThreshold", &vf->shaft_threshold, 0.0f, 0.95f);
+                        });
                         prop_row("Halo Inner", [&] {
                             ImGui::SliderFloat("##ShaftHaloInner", &vf->shaft_halo_inner, 0.0f, 1.0f);
                         });

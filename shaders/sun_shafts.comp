@@ -44,7 +44,7 @@ layout(push_constant) uniform PushConstants {
     float halo_inner;
     float halo_outer;
     float directionality;
-    float pad0;
+    float threshold;
 } pc;
 
 const float PI = 3.14159265;
@@ -163,7 +163,10 @@ void main() {
 
     vec3 sun_color = ubo.light_color.xyz * ubo.light_direction.w;
 
-    vec3 accumulated = vec3(0.0);
+    // Both integrals share the same march; `unshadowed` is what the ray
+    // would collect with no occluders and anchors the threshold below.
+    float accumulated = 0.0;
+    float unshadowed = 0.0;
     float transmittance = 1.0;
 
     for (uint i = 0; i < pc.step_count; ++i) {
@@ -191,12 +194,13 @@ void main() {
         float extinction = pc.density * 0.1;
         float seg_tr = exp(-extinction * step_size);
 
-        // In-scatter: sun radiance × phase × shadow × (1 - seg_tr)/extinction
-        // gives energy-conserving per-segment contribution.
-        vec3 in_scatter = sun_color * phase * shadow * pc.density * dist_fade;
-        vec3 seg_light = in_scatter * (1.0 - seg_tr) / max(extinction, 1e-6);
+        // In-scatter: phase × density × (1 - seg_tr)/extinction gives the
+        // energy-conserving per-segment contribution; sun radiance and
+        // shadow scale it.
+        float seg_light = phase * pc.density * dist_fade * (1.0 - seg_tr) / max(extinction, 1e-6);
 
-        accumulated += transmittance * seg_light;
+        accumulated += transmittance * seg_light * shadow;
+        unshadowed += transmittance * seg_light;
         transmittance *= seg_tr;
 
         march_t += step_size;
@@ -212,7 +216,15 @@ void main() {
         halo_fade = smoothstep(pc.halo_outer, pc.halo_inner, cos_theta);
     }
 
-    vec3 result = accumulated * pc.intensity * halo_fade;
+    // Threshold: subtract a share of the unshadowed integral and renormalise
+    // so a fully lit ray is unchanged while a partly shadowed one falls off
+    // faster than its shadowed share. Deepens beams and shadow wedges once
+    // the haze sits on top of a bright scene.
+    if (pc.threshold > 0.0) {
+        accumulated = max(accumulated - pc.threshold * unshadowed, 0.0) / (1.0 - pc.threshold);
+    }
+
+    vec3 result = sun_color * accumulated * pc.intensity * halo_fade;
 
     // Temporal accumulation: blend with previous frame's shafts.
     // Screen-space reproject using prev view-projection.

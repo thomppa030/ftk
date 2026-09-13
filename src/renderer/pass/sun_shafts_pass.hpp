@@ -81,6 +81,7 @@ private:
     int step_count_{32};
     float anisotropy_{0.75f};
     float directionality_{1.0f};
+    float threshold_{0.0f};
     float halo_inner_{0.95f};
     float halo_outer_{0.6f};
     float fog_density_{0.0f};

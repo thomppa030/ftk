@@ -32,7 +32,7 @@ struct ShaftsMarchPush {
     float halo_inner;
     float halo_outer;
     float directionality;
-    float pad0;
+    float threshold;
 };
 
 struct ShaftsCompositePush {
@@ -406,6 +406,7 @@ void SunShaftsPass::prepare_frame(const FrameContext& ctx, GpuContext& /*gpu*/) 
             step_count_ = fog->shaft_step_count;
             anisotropy_ = fog->shaft_anisotropy;
             directionality_ = fog->shaft_directionality;
+            threshold_ = fog->shaft_threshold;
             halo_inner_ = fog->shaft_halo_inner;
             halo_outer_ = fog->shaft_halo_outer;
             fog_density_ = fog->density;
@@ -580,7 +581,7 @@ void SunShaftsPass::record(const FrameContext& ctx) {
     march_push.halo_inner = halo_inner_;
     march_push.halo_outer = halo_outer_;
     march_push.directionality = std::clamp(directionality_, 0.0f, 1.0f);
-    march_push.pad0 = 0.0f;
+    march_push.threshold = std::clamp(threshold_, 0.0f, 0.95f);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, march_pipeline_);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, march_pipeline_layout_,
