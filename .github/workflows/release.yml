@@ -1,0 +1,93 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-2022
+          - name: Linux
+            os: ubuntu-24.04
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools and windowing headers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build xorg-dev \
+            libwayland-dev wayland-protocols libxkbcommon-dev extra-cmake-modules
+
+      - name: Install the Vulkan SDK
+        if: runner.os == 'Linux'
+        run: |
+          wget -qO- https://packages.lunarg.com/lunarg-signing-key-pub.asc \
+            | sudo tee /etc/apt/trusted.gpg.d/lunarg.asc > /dev/null
+          sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-noble.list \
+            https://packages.lunarg.com/vulkan/lunarg-vulkan-noble.list
+          sudo apt-get update
+          sudo apt-get install -y vulkan-sdk
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - name: Install the Vulkan SDK
+        if: runner.os == 'Windows'
+        uses: jakoch/install-vulkan-sdk-action@v1
+        with:
+          cache: true
+          install_runtime: false
+          stripdown: false
+
+      - uses: lukka/get-cmake@v4.4.0
+        with:
+          cmakeVersion: "4.4.0"
+
+      # Release rather than debug: this is what people download.
+      - name: Configure
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release
+
+      - name: Package
+        run: cpack --config build-release/CPackConfig.cmake -B build-release/pkg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fjell-${{ matrix.name }}
+          path: |
+            build-release/pkg/*.zip
+            build-release/pkg/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: package
+    runs-on: ubuntu-24.04
+    # Only for an actual tag — a manual run just leaves the artifacts attached
+    # to the workflow for checking before anything is published.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          draft: true
+          generate_release_notes: true
