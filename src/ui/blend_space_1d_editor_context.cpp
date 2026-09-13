@@ -15,6 +15,7 @@
 #include "renderer/vulkan_context.hpp"
 #include "scene/node.hpp"
 
+#include <algorithm>
 #include <nlohmann/json.hpp>
 
 #include <imgui.h>

@@ -20,6 +20,7 @@
 #include "ui/icon_cache.hpp"
 #include "ui/theme.hpp"
 
+#include <algorithm>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <imgui_node_editor.h>

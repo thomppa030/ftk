@@ -36,6 +36,7 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/icon_cache.hpp"
 
+#include <algorithm>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <ImGuizmo.h>
