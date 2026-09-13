@@ -71,8 +71,11 @@ Device::Device(Window& window) : window_{window} {
 Device::~Device() {
     if (device_ != VK_NULL_HANDLE)
         vkDestroyDevice(device_, nullptr);
-    if (enable_validation_ && debug_messenger_ != VK_NULL_HANDLE)
-        destroy_debug_utils_messenger(instance_, debug_messenger_, nullptr);
+    if constexpr (enable_validation_) {
+        if (debug_messenger_ != VK_NULL_HANDLE) {
+            destroy_debug_utils_messenger(instance_, debug_messenger_, nullptr);
+        }
+    }
     if (surface_ != VK_NULL_HANDLE)
         vkDestroySurfaceKHR(instance_, surface_, nullptr);
     if (instance_ != VK_NULL_HANDLE)
@@ -80,8 +83,10 @@ Device::~Device() {
 }
 
 void Device::create_instance() {
-    if (enable_validation_ && !check_validation_layer_support()) {
-        throw std::runtime_error("Validation layers requested but not available");
+    if constexpr (enable_validation_) {
+        if (!check_validation_layer_support()) {
+            throw std::runtime_error("Validation layers requested but not available");
+        }
     }
 
     VkApplicationInfo app_info{};
