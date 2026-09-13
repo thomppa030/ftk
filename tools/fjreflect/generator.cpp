@@ -29,7 +29,8 @@ static void write_generated_cpp(const ComponentInfo& comp,
     if (!comp.rpcs.empty()) {
         out << "#include \"fjell/net_api.hpp\"\n";
     }
-    out << "#include <cstdint>\n\n";
+    out << "#include <cstdint>\n";
+    out << "#include <cstring>\n\n";
 
     // Declare trace bridge functions if needed
     bool has_weak = false, has_ref = false, has_shared = false;
@@ -190,7 +191,7 @@ static void write_generated_cpp(const ComponentInfo& comp,
             for (size_t p = 0; p < rpc.params.size(); ++p) {
                 const auto& param = rpc.params[p];
                 out << "    " << param.cpp_type << " a" << p << ";\n";
-                out << "    __builtin_memcpy(&a" << p << ", in + off, sizeof("
+                out << "    std::memcpy(&a" << p << ", in + off, sizeof("
                     << param.cpp_type << ")); off += sizeof(" << param.cpp_type << ");\n";
             }
             out << "    fjell::FjellRpcAccess<" << comp.qualified_name << ">::"
@@ -251,7 +252,7 @@ static void write_generated_cpp(const ComponentInfo& comp,
                 out << "];\n";
                 out << "    uint32_t off = 0;\n";
                 for (size_t p = 0; p < rpc.params.size(); ++p) {
-                    out << "    __builtin_memcpy(buf + off, &" << rpc.params[p].name
+                    out << "    std::memcpy(buf + off, &" << rpc.params[p].name
                         << ", sizeof(" << rpc.params[p].cpp_type << ")); off += sizeof("
                         << rpc.params[p].cpp_type << ");\n";
                 }
