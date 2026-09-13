@@ -63,7 +63,7 @@ void SceneEditorContext::init() {
 
     hierarchy_panel_.init(deps_.scene, &viewport_manager_, &selected_id_,
                           &command_history(), deps_.icon_cache);
-    properties_panel_.init(deps_.scene, &selected_id_, &gizmo_op_, deps_.light,
+    properties_panel_.init(deps_.scene, &selected_id_, deps_.light,
                            &deps_.script_subsystem->manager(), &command_history(),
                            &deps_.vulkan_context->grid_pass().settings(),
                            deps_.vulkan_context->pipeline_cache(),

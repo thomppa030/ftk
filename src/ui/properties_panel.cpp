@@ -41,7 +41,7 @@ static glm::vec3 snap_to_grid(const glm::vec3& pos, float cell_size) {
     };
 }
 
-void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
+void PropertiesPanel::init(Scene* scene, uint32_t* selected_id,
                            DirectionalLight* light, ScriptManager* scripts,
                            CommandHistory* history, GridSettings* grid_settings,
                            PipelineCache* pipeline_cache,
@@ -53,7 +53,6 @@ void PropertiesPanel::init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
                            IconCache* icons) {
     scene_ = scene;
     selected_id_ = selected_id;
-    gizmo_op_ = gizmo_op;
     light_ = light;
     scripts_ = scripts;
     history_ = history;
@@ -93,12 +92,14 @@ void PropertiesPanel::draw() {
 
             if (obj) {
             section_header("TRANSFORM", ICON_LC_MOVE_3D);
-            float drag_speed = (grid_settings_ && grid_settings_->snap_enabled)
-                ? grid_settings_->cell_size : 0.1f;
+            // Matches the viewport gizmo: Ctrl inverts the toggle.
+            const bool snapping = grid_settings_
+                && (grid_settings_->snap_enabled != ImGui::GetIO().KeyCtrl);
+            float drag_speed = snapping ? grid_settings_->cell_size : 0.1f;
             if (auto t = PropertyTable("##xform")) {
                 prop_row("Position", [&] {
                     if (ImGui::DragFloat3("##Position", &obj->transform.position.x, drag_speed)) {
-                        if (grid_settings_ && grid_settings_->snap_enabled) {
+                        if (snapping) {
                             obj->transform.position = snap_to_grid(obj->transform.position, grid_settings_->cell_size);
                         }
                         scene_->mark_dirty();
@@ -114,7 +115,11 @@ void PropertiesPanel::draw() {
                 });
                 prop_row("Rotation", [&] {
                     glm::vec3 euler = obj->transform.euler_degrees();
-                    if (ImGui::DragFloat3("##Rotation", &euler.x, 1.0f)) {
+                    float rot_speed = snapping ? grid_settings_->rotation_snap_degrees : 1.0f;
+                    if (ImGui::DragFloat3("##Rotation", &euler.x, rot_speed)) {
+                        if (snapping) {
+                            euler = snap_to_grid(euler, grid_settings_->rotation_snap_degrees);
+                        }
                         obj->transform.set_euler_degrees(euler);
                         scene_->mark_dirty();
                     }
@@ -128,7 +133,15 @@ void PropertiesPanel::draw() {
                     }
                 });
                 prop_row("Scale", [&] {
-                    if (ImGui::DragFloat3("##Scale", &obj->transform.scale.x, 0.05f, 0.01f, 100.0f)) {
+                    float scale_speed = snapping ? grid_settings_->scale_snap : 0.05f;
+                    if (ImGui::DragFloat3("##Scale", &obj->transform.scale.x, scale_speed, 0.01f, 100.0f)) {
+                        if (snapping) {
+                            // Rounding down to zero would collapse the object;
+                            // hold the same floor the drag field enforces.
+                            glm::vec3 snapped = snap_to_grid(obj->transform.scale,
+                                                             grid_settings_->scale_snap);
+                            obj->transform.scale = glm::max(snapped, glm::vec3(0.01f));
+                        }
                         scene_->mark_dirty();
                     }
                     if (ImGui::IsItemActivated()) {
@@ -141,7 +154,7 @@ void PropertiesPanel::draw() {
                     }
                 });
             }
-            if (grid_settings_ && grid_settings_->snap_enabled) {
+            if (snapping) {
                 if (ImGui::SmallButton(ICON_LC_MAGNET " Snap to grid")) {
                     Transform before = obj->transform;
                     obj->transform.position = snap_to_grid(obj->transform.position, grid_settings_->cell_size);
@@ -152,11 +165,6 @@ void PropertiesPanel::draw() {
                     }
                 }
             }
-
-            section_header("GIZMO", ICON_LC_MOVE);
-            ImGui::RadioButton(ICON_LC_MOVE "  Move (W)", gizmo_op_, 0); ImGui::SameLine();
-            ImGui::RadioButton(ICON_LC_ROTATE_3D "  Rot (E)", gizmo_op_, 1); ImGui::SameLine();
-            ImGui::RadioButton(ICON_LC_SCALE_3D "  Scl (R)", gizmo_op_, 2);
 
             if (!obj->source.empty()) {
                 ImGui::Spacing();

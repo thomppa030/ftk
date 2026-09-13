@@ -90,6 +90,8 @@ void MenuBar::draw_view_menu() {
         ImGui::Checkbox("Show Grid", &grid.visible);
         ImGui::Checkbox("Snap to Grid", &grid.snap_enabled);
         ImGui::DragFloat("Grid Size", &grid.cell_size, 0.1f, 0.1f, 50.0f);
+        ImGui::DragFloat("Rotation Snap", &grid.rotation_snap_degrees, 1.0f, 1.0f, 90.0f, "%.0f deg");
+        ImGui::DragFloat("Scale Snap", &grid.scale_snap, 0.01f, 0.01f, 1.0f);
         ImGui::DragFloat("Grid Opacity", &grid.opacity, 0.01f, 0.0f, 1.0f);
         ImGui::DragFloat("Grid Fade", &grid.fade_distance, 1.0f, 10.0f, 500.0f);
     }

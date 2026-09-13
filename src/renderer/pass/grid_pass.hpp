@@ -12,7 +12,14 @@ struct GridSettings {
     float fade_distance{80.0f};
     float opacity{1.0f};
     bool visible{true};
+
+    // Snapping applies to every way an object is moved: the viewport gizmo and
+    // the inspector's drag fields. Translation snaps to `cell_size` so the
+    // object lands on the grid you can see; rotation and scale have no visual
+    // counterpart and carry their own step.
     bool snap_enabled{false};
+    float rotation_snap_degrees{15.0f};
+    float scale_snap{0.1f};
 };
 
 struct GridPushConstants {

@@ -23,7 +23,7 @@ struct GridSettings;
 
 class PropertiesPanel {
 public:
-    void init(Scene* scene, uint32_t* selected_id, int* gizmo_op,
+    void init(Scene* scene, uint32_t* selected_id,
               DirectionalLight* light, ScriptManager* scripts,
               CommandHistory* history, GridSettings* grid_settings = nullptr,
               PipelineCache* pipeline_cache = nullptr,
@@ -42,7 +42,6 @@ private:
 
     Scene* scene_{nullptr};
     uint32_t* selected_id_{nullptr};
-    int* gizmo_op_{nullptr};
     DirectionalLight* light_{nullptr};
     ScriptManager* scripts_{nullptr};
     CommandHistory* history_{nullptr};
