@@ -75,7 +75,7 @@ TEST_CASE("Missing key resolves to empty string", "[databind]") {
     REQUIRE(text->text_content == "Value: ");
 }
 
-TEST_CASE("No placeholders — text unchanged", "[databind]") {
+TEST_CASE("No placeholders - text unchanged", "[databind]") {
     auto root = make_element("div");
     auto* text = add_child(*root, make_text("static text"));
 
