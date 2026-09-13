@@ -1,21 +1,22 @@
 #include "renderer/pass_setup.hpp"
 #include "renderer/fjgraph_asset.hpp"
 #include "renderer/gpu_context.hpp"
+#include "renderer/gpu/device.hpp"
 #include "renderer/pass_factory.hpp"
 #include "renderer/pass_registry.hpp"
 #include "renderer/render_pipeline.hpp"
 #include "renderer/pass/render_pass.hpp"
 
-// Mesh shader passes are still constructed in C++ (conditional on device
-// features). Everything else flows through PassFactory by class name.
-#include "renderer/pass/cull_pass.hpp"
-#include "renderer/pass/cull_viz_pass.hpp"
-#include "renderer/pass/mesh_shader_depth_pass.hpp"
-#include "renderer/pass/meshlet_cull_pass2.hpp"
-#include "renderer/pass/meshlet_instance_pass.hpp"
-#include "renderer/pass/meshlet_viz_pass.hpp"
-
 namespace fjell {
+
+// A pass's `enabled_if` names a device capability rather than a boolean the
+// engine tracks generically — there's no feature registry yet, just this
+// switch. Add a case here when a pass needs to gate on something the device
+// may not support (mirrors the mesh-shader gate below).
+static bool feature_available(const std::string& key, const Device& device) {
+    if (key == "mesh_shaders") { return device.mesh_shader_supported(); }
+    return true;
+}
 
 Result<> create_passes_from_graph(const FjGraph& graph,
                                   PassRegistry& passes,
@@ -25,6 +26,15 @@ Result<> create_passes_from_graph(const FjGraph& graph,
     auto& device = gpu.device_ref();
 
     for (const auto& entry : graph.passes) {
+        // A pass whose device feature is missing is skipped rather than
+        // constructed and left disabled: building it at all would create a
+        // pipeline with mesh/task shader stages the device can't run —
+        // vkCreateGraphicsPipelines fails outright when the extension isn't
+        // enabled, not just at draw time.
+        if (entry.enabled_if && !feature_available(*entry.enabled_if, device)) {
+            continue;
+        }
+
         auto pass = PassFactory::make(entry.class_name, entry.params);
         if (!pass) {
             return make_error("PassFactory::make returned null for '" +
@@ -41,10 +51,6 @@ Result<> create_passes_from_graph(const FjGraph& graph,
         passes.add<RenderPass>(entry.name, std::move(pass));
     }
 
-    if (!create_meshlet_passes(passes, gpu, resources)) {
-        return make_error("Failed to create meshlet passes");
-    }
-
     passes.post_create_all(gpu);
     passes.register_with_pipeline(pipeline);
     apply_enabled_flags(graph, pipeline);
@@ -55,30 +61,6 @@ void apply_enabled_flags(const FjGraph& graph, RenderPipeline& pipeline) {
     for (const auto& entry : graph.passes) {
         pipeline.set_pass_enabled(entry.name, entry.enabled);
     }
-}
-
-bool create_meshlet_passes(PassRegistry& passes, GpuContext& gpu,
-                           const PassResources& resources) {
-    auto& device = gpu.device_ref();
-
-    auto add = [&](const std::string& name, auto pass) -> bool {
-        using T = std::remove_reference_t<decltype(*pass)>;
-        auto& ref = passes.add<T>(name, std::move(pass));
-        return static_cast<bool>(ref.create(device, resources));
-    };
-
-    if (!add("meshlet_instance", std::make_unique<MeshletInstancePass>())) {
-        return false;
-    }
-
-    auto pass2 = std::make_unique<MeshletCullPass2>();
-    pass2->set_instance_pass(&passes.get<MeshletInstancePass>("meshlet_instance"));
-    if (!add("meshlet_cull_pass2", std::move(pass2))) { return false; }
-
-    return add("mesh_shader_depth", std::make_unique<MeshShaderDepthPass>())
-        && add("meshlet_viz", std::make_unique<MeshletVizPass>())
-        && add("cull", std::make_unique<CullPass>())
-        && add("cull_viz", std::make_unique<CullVizPass>());
 }
 
 } // namespace fjell

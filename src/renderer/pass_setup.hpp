@@ -15,8 +15,9 @@ struct PassResources;
 /// apply per-pass `enabled` flags from the graph. Each pass is
 /// instantiated via `PassFactory::make` keyed on the entry's `class`.
 ///
-/// Mesh shader passes are *not* in the graph — they're created
-/// unconditionally via `create_meshlet_passes()` from the call site.
+/// An entry whose `enabled_if` names an unsupported device feature (mesh
+/// shaders, currently the only one) is skipped rather than constructed —
+/// see the `feature_available` switch in the .cpp.
 [[nodiscard]] Result<> create_passes_from_graph(const FjGraph& graph,
                                                 PassRegistry& passes,
                                                 RenderPipeline& pipeline,
@@ -29,10 +30,5 @@ struct PassResources;
 /// Callers diff old vs new graphs themselves to log a warning when shape
 /// changed.
 void apply_enabled_flags(const FjGraph& graph, RenderPipeline& pipeline);
-
-/// Create mesh shader passes (meshlet instance, cull, viz).
-/// Returns false if any pass failed to create.
-[[nodiscard]] bool create_meshlet_passes(PassRegistry& passes, GpuContext& gpu,
-                                         const PassResources& resources);
 
 } // namespace fjell

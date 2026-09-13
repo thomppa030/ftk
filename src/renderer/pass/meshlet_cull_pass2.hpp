@@ -11,10 +11,9 @@ class MeshletInstancePass;
 /// to the same visible buffer used by the color pass.
 class MeshletCullPass2 : public RenderPass {
 public:
-    void set_instance_pass(MeshletInstancePass* p) { instance_pass_ = p; }
-
     Result<> create(Device&, const PassResources&) override { return {}; }
     void destroy() override {}
+    void post_create(GpuContext& gpu, PassRegistry& passes) override;
     void record(const FrameContext& ctx) override;
 
     [[nodiscard]] PassSetup setup() const override;

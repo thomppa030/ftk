@@ -15,10 +15,18 @@
         { "class": "InstanceCullPass", "name": "instance_cull" },
         { "class": "TerrainPass",      "name": "terrain" },
 
-        // ── Mesh shader passes (created lazily when use_mesh_shaders) ──
-        // These are still instantiated by C++ in vulkan_context.cpp::create_meshlet_passes
-        // because they require dynamic device-feature checks; once the
-        // graph supports `enabled_if: "mesh_shaders"` they'll move here too.
+        // ── Mesh shader / GPU-driven cull ────────────────────────────────
+        // Skipped on a device without VK_EXT_mesh_shader: their pipelines
+        // use mesh/task shader stages, which fails pipeline creation
+        // outright rather than degrading at draw time.
+        { "class": "MeshletInstancePass", "name": "meshlet_cull",       "enabled_if": "mesh_shaders" },
+        { "class": "MeshletCullPass2",    "name": "meshlet_cull_pass2", "enabled_if": "mesh_shaders" },
+        { "class": "MeshShaderDepthPass", "name": "mesh_shader_depth",  "enabled_if": "mesh_shaders" },
+        { "class": "MeshletVizPass",      "name": "meshlet_viz",        "enabled_if": "mesh_shaders" },
+        { "class": "CullVizPass",         "name": "cull_viz",           "enabled_if": "mesh_shaders" },
+        // Plain compute, no mesh-shader dependency; currently unused by any
+        // caller (kept alive from an earlier occlusion-culling attempt).
+        { "class": "CullPass",            "name": "cull" },
 
         // ── Shadow ─────────────────────────────────────────────────────
         { "class": "ShadowPass",       "name": "shadow" },

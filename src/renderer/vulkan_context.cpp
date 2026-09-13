@@ -374,7 +374,7 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     // fill them. A viewport graph that leaves the cull passes out would
     // otherwise dispatch mesh tasks off whatever the buffers last held, which
     // faults the device rather than drawing nothing.
-    if (passes_.has("meshlet_instance") && runs_pass(viewport_graph, "meshlet_cull")) {
+    if (passes_.has("meshlet_cull") && runs_pass(viewport_graph, "meshlet_cull")) {
         ctx.meshlet_set = gpu_.meshlet_descriptor().descriptor_set(current_frame_);
         ctx.gpu_driven_indirect = meshlet_instance_pass()->indirect_buffer(current_frame_);
         ctx.gpu_driven_segment_size = meshlet_instance_pass()->segment_size(current_frame_);
@@ -473,7 +473,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
 
     // Update meshlet descriptor (set 3) — must be after pre_record (ensure_capacity)
     // so buffer handles are stable.
-    bool has_meshlet_passes = passes_.has("meshlet_instance");
+    bool has_meshlet_passes = passes_.has("meshlet_cull");
     if (has_meshlet_passes && gpu_.meshlet_buffer() && gpu_.meshlet_buffer()->total_meshlets() > 0) {
         gpu_.meshlet_descriptor().update(*gpu_.meshlet_buffer(), *gpu_.mega_buffer(), current_frame_,
                                     meshlet_instance_pass()->visible_buffer(current_frame_),
@@ -1999,6 +1999,15 @@ void VulkanContext::destroy_scene_viewport(const std::string& name) {
 SceneViewport* VulkanContext::scene_viewport(const std::string& name) {
     auto it = scene_viewports_.find(name);
     return it != scene_viewports_.end() ? it->second.get() : nullptr;
+}
+
+std::vector<std::string> VulkanContext::scene_viewport_names() const {
+    std::vector<std::string> names;
+    names.reserve(scene_viewports_.size());
+    for (const auto& [name, viewport] : scene_viewports_) {
+        names.push_back(name);
+    }
+    return names;
 }
 
 uint32_t VulkanContext::scene_viewport_bindless_index(const std::string& name) const {

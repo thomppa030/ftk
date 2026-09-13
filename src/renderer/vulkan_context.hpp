@@ -176,7 +176,7 @@ public:
   [[nodiscard]] SkyCubemapPass &sky_cubemap_pass() { return passes_.get<SkyCubemapPass>("sky_cubemap"); }
   [[nodiscard]] TransparentPass &transparent_pass() { return passes_.get<TransparentPass>("transparent"); }
   [[nodiscard]] MeshShaderDepthPass *mesh_shader_depth_pass() { return passes_.try_get<MeshShaderDepthPass>("mesh_shader_depth"); }
-  [[nodiscard]] MeshletInstancePass *meshlet_instance_pass() { return passes_.try_get<MeshletInstancePass>("meshlet_instance"); }
+  [[nodiscard]] MeshletInstancePass *meshlet_instance_pass() { return passes_.try_get<MeshletInstancePass>("meshlet_cull"); }
   [[nodiscard]] LightCullPass &light_cull_pass() { return passes_.get<LightCullPass>("light_cull"); }
   [[nodiscard]] SceneSdfPass &scene_sdf_pass() { return passes_.get<SceneSdfPass>("scene_sdf"); }
   [[nodiscard]] DepthVizPass &depth_viz_pass() { return passes_.get<DepthVizPass>("depth_viz"); }
@@ -314,6 +314,7 @@ public:
   [[nodiscard]] uint32_t create_scene_viewport(const SceneViewportConfig& config);
   void destroy_scene_viewport(const std::string& name);
   [[nodiscard]] SceneViewport* scene_viewport(const std::string& name);
+  [[nodiscard]] std::vector<std::string> scene_viewport_names() const;
   [[nodiscard]] uint32_t scene_viewport_bindless_index(const std::string& name) const;
 
   /// Render all scene viewports. Call before the main frame's record_frame().

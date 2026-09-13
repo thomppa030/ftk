@@ -15,6 +15,10 @@
 
 namespace fjell {
 
+void MeshletCullPass2::post_create(GpuContext& /*gpu*/, PassRegistry& passes) {
+    instance_pass_ = &passes.get<MeshletInstancePass>("meshlet_cull");
+}
+
 PassSetup MeshletCullPass2::setup() const {
     return {
         .name = "meshlet_cull_pass2",

@@ -15,8 +15,9 @@
         { "class": "DepthResolvePass",    "name": "depth_resolve" },
         { "class": "HizPass",             "name": "hiz" },
         { "class": "InstanceCullPass",    "name": "instance_cull" },
-        { "class": "MeshletInstancePass", "name": "meshlet_cull" },
-        { "class": "MeshletCullPass2",    "name": "meshlet_cull_pass2" },
+        { "class": "MeshletInstancePass", "name": "meshlet_cull",       "enabled_if": "mesh_shaders" },
+        { "class": "MeshletCullPass2",    "name": "meshlet_cull_pass2", "enabled_if": "mesh_shaders" },
+        { "class": "MeshShaderDepthPass", "name": "mesh_shader_depth",  "enabled_if": "mesh_shaders" },
         { "class": "TerrainPass",         "name": "terrain" },
 
         // Shadows — keeps lighting recognizable. SkyCubemapPass also writes
