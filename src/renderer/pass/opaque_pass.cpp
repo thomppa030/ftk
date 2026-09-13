@@ -312,7 +312,12 @@ void OpaquePass::draw_outline(const FrameContext& ctx) {
         float thickness;
     } push{};
     push.color = {1.0f, 0.6f, 0.15f, 0.7f};
-    push.thickness = 0.003f;
+
+    // The shader offsets in NDC, which spans 2 units across the viewport, so a
+    // fixed NDC thickness would grow with resolution. Convert from pixels.
+    constexpr float outline_px = 2.0f;
+    const float width = static_cast<float>(ctx.target->extent().width);
+    push.thickness = width > 0.0f ? (outline_px * 2.0f) / width : 0.003f;
 
     vkCmdPushConstants(ctx.cmd, layout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
