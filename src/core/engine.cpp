@@ -172,7 +172,11 @@ void Engine::init_subsystems() {
     play_phase_0_.push_back(camera_subsystem_);
     play_phase_1_.push_back(physics_subsystem_);
     play_phase_2_.push_back(vfx_subsystem_);
-    early_always_.push_back(animation_subsystem_);
+    // Animation is an input to physics — bone-driven colliders have to be at
+    // the pose the solver collides against, not one frame behind it — so while
+    // playing it runs ahead of the play phases rather than with the always
+    // subsystems. Outside play it still ticks every frame so the animation
+    // editor can scrub.
     early_always_.push_back(sprite_anim_subsystem_);
     // NetSend runs after physics + compute_world_matrices so it transmits final
     // post-physics transforms, at its own fixed network rate.
@@ -1766,6 +1770,10 @@ void Engine::run() {
                     cam_node->projection_matrix(aspect));
             }
 
+            // Animation before everything: scripts read the current pose, and
+            // physics collides against it.
+            animation_subsystem_->tick(ctx);
+
             // Phase 0: Scripts
             for (auto* s : play_phase_0_) s->tick(ctx);
             flush_pending();
@@ -1801,6 +1809,9 @@ void Engine::run() {
 #endif
 
         // Always-tick subsystems (before world matrices)
+        if (!active_context().is_playing()) {
+            animation_subsystem_->tick(ctx);
+        }
         for (auto* s : early_always_) s->tick(ctx);
         scene_.compute_world_matrices(&thread_pool_);
 
