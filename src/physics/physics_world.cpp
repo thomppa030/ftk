@@ -1013,11 +1013,16 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         auto* cc = node->components.get<CharacterComponent>();
         if (!cc) continue;
 
-        // Apply gravity if in air
         glm::vec3 vel = cc->linear_velocity;
         if (cc->ground_state == CharacterGroundState::InAir ||
             cc->ground_state == CharacterGroundState::NotSupported) {
             vel.y += gravity.GetY() * dt;
+        } else {
+            // Standing on something: vertical velocity is whatever the ground
+            // is doing, not what was left over from falling onto it. Keeping
+            // the accumulated value makes a landed character keep pushing into
+            // the floor, and on a moving platform it would be left behind.
+            vel.y = to_glm(entry.character->GetGroundVelocity()).y;
         }
         cc->linear_velocity = vel;
 
