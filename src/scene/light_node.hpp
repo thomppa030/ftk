@@ -93,6 +93,11 @@ struct VolumetricFogNode : Node3D {
     float shaft_max_reach{200.0f};
     int shaft_step_count{32};
     float shaft_anisotropy{0.75f};
+    // Blend between an isotropic phase and the forward HG lobe. 1 = pure
+    // forward lobe, shafts only read when looking toward the sun. Lower
+    // values add a direction-independent floor so shadow-bounded columns
+    // stay visible from the side and from above (top-down / isometric).
+    float shaft_directionality{1.0f};
     float shaft_halo_inner{0.95f};  // cos(angle): full-strength shafts within this cone around the sun
     float shaft_halo_outer{0.6f};   // cos(angle): shafts fade to zero here (wider = more sky coverage)
 
@@ -112,6 +117,7 @@ struct VolumetricFogNode : Node3D {
         copy->shaft_max_reach = shaft_max_reach;
         copy->shaft_step_count = shaft_step_count;
         copy->shaft_anisotropy = shaft_anisotropy;
+        copy->shaft_directionality = shaft_directionality;
         copy->shaft_halo_inner = shaft_halo_inner;
         copy->shaft_halo_outer = shaft_halo_outer;
         return copy;

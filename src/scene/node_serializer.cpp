@@ -142,6 +142,7 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"shaft_max_reach", vf->shaft_max_reach},
             {"shaft_step_count", vf->shaft_step_count},
             {"shaft_anisotropy", vf->shaft_anisotropy},
+            {"shaft_directionality", vf->shaft_directionality},
             {"shaft_halo_inner", vf->shaft_halo_inner},
             {"shaft_halo_outer", vf->shaft_halo_outer}
         };
@@ -356,6 +357,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 vf->shaft_max_reach = jf.value("shaft_max_reach", 200.0f);
                 vf->shaft_step_count = jf.value("shaft_step_count", 32);
                 vf->shaft_anisotropy = jf.value("shaft_anisotropy", 0.75f);
+                vf->shaft_directionality = jf.value("shaft_directionality", 1.0f);
                 vf->shaft_halo_inner = jf.value("shaft_halo_inner", 0.95f);
                 vf->shaft_halo_outer = jf.value("shaft_halo_outer", 0.6f);
             }

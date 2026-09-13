@@ -368,6 +368,9 @@ void PropertiesPanel::draw() {
                         prop_row("Anisotropy", [&] {
                             ImGui::SliderFloat("##ShaftAniso", &vf->shaft_anisotropy, 0.0f, 0.9f);
                         });
+                        prop_row("Directionality", [&] {
+                            ImGui::SliderFloat("##ShaftDirectionality", &vf->shaft_directionality, 0.0f, 1.0f);
+                        });
                         prop_row("Halo Inner", [&] {
                             ImGui::SliderFloat("##ShaftHaloInner", &vf->shaft_halo_inner, 0.0f, 1.0f);
                         });

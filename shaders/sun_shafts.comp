@@ -43,9 +43,11 @@ layout(push_constant) uniform PushConstants {
     float jitter;
     float halo_inner;
     float halo_outer;
+    float directionality;
     float pad0;
-    float pad1;
 } pc;
+
+const float PI = 3.14159265;
 
 // HG with peak clamp. Forward-scatter can spike to hundreds at g→1 and
 // paint a bright halo around the sun; cap at 1.0 to keep shafts visible
@@ -53,8 +55,18 @@ layout(push_constant) uniform PushConstants {
 float henyey_greenstein(float g, float cos_theta) {
     float g2 = g * g;
     float denom = 1.0 + g2 - 2.0 * g * cos_theta;
-    float phase = (1.0 - g2) / (4.0 * 3.14159265 * denom * sqrt(denom));
+    float phase = (1.0 - g2) / (4.0 * PI * denom * sqrt(denom));
     return min(phase, 1.0);
+}
+
+// Dual-lobe phase: forward HG lobe blended with an isotropic lobe. The HG
+// peak alone drops by ~50x at 90° to the sun, so shafts vanish unless the
+// camera looks toward it. The isotropic share keeps shadow-bounded columns
+// readable from the side and from above; the lit-vs-shadowed contrast
+// still comes from the cascade march, so the shafts keep their shape.
+float shaft_phase(float g, float directionality, float cos_theta) {
+    float isotropic = 1.0 / (4.0 * PI);
+    return mix(isotropic, henyey_greenstein(g, cos_theta), directionality);
 }
 
 // Interleaved gradient noise per pixel — cheap blue-noise-ish dither.
@@ -145,9 +157,9 @@ void main() {
     float pixel_jitter = ign(coord, pc.frame_index);
     float march_t = step_size * pixel_jitter;
 
-    // HG phase is view-dependent but constant along the ray (directional light).
+    // Phase is view-dependent but constant along the ray (directional light).
     float cos_theta = dot(ray_dir, ubo.light_direction.xyz);
-    float phase = henyey_greenstein(pc.anisotropy, cos_theta);
+    float phase = shaft_phase(pc.anisotropy, pc.directionality, cos_theta);
 
     vec3 sun_color = ubo.light_color.xyz * ubo.light_direction.w;
 
