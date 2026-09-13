@@ -34,7 +34,7 @@
         { "class": "LightCullPass",    "name": "light_cull" },
 
         // Auto-exposure + tonemap — always on.
-        { "class": "ExposurePass",     "name": "exposure_histogram" },
+        { "class": "ExposurePass",     "name": "exposure" },
         { "class": "TonemapPass",      "name": "tonemap" }
     ]
 }
