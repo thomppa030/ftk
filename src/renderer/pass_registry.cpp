@@ -5,8 +5,8 @@ namespace fjell {
 static void register_one(RenderPass* pass, RenderPipeline& pipeline) {
     auto s = pass->setup();
 
-    // Passes with empty setup name are sub-passes (sky, grid, debug)
-    // that are recorded by their parent — skip pipeline registration.
+    // A pass that returns no name from setup() is recorded by another pass
+    // rather than by the pipeline, so it gets no entry of its own.
     if (s.name.empty()) return;
 
     pipeline.register_pass({

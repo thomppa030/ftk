@@ -34,7 +34,7 @@ void OpaquePass::destroy() {}
 
 PassSetup OpaquePass::setup() const {
     return {
-        .name = "color_opaque",
+        .name = "opaque",
         .phase = RenderPhase::Color,
         .sub_order = 0,
     };

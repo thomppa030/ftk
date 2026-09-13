@@ -272,7 +272,7 @@ float ExposurePass::average_luminance(uint32_t frame_index) const {
 
 PassSetup ExposurePass::setup() const {
     return {
-        .name = "exposure_histogram",
+        .name = "exposure",
         .phase = RenderPhase::PostProcess,
         .sub_order = 25,  // after bloom (0), before tonemap (30)
     };

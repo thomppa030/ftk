@@ -13,7 +13,7 @@
         // to fill the indirect buffers the depth and color passes draw from.
         { "class": "DepthPrePass",        "name": "depth_prepass" },
         { "class": "DepthResolvePass",    "name": "depth_resolve" },
-        { "class": "HizPass",             "name": "hiz_build" },
+        { "class": "HizPass",             "name": "hiz" },
         { "class": "InstanceCullPass",    "name": "instance_cull" },
         { "class": "MeshletInstancePass", "name": "meshlet_cull" },
         { "class": "MeshletCullPass2",    "name": "meshlet_cull_pass2" },
@@ -26,8 +26,8 @@
         { "class": "SkyCubemapPass",   "name": "sky_cubemap" },
 
         // Color.
-        { "class": "OpaquePass",       "name": "color_opaque" },
-        { "class": "TransparentPass",  "name": "color_transparent" },
+        { "class": "OpaquePass",       "name": "opaque" },
+        { "class": "TransparentPass",  "name": "transparent" },
         { "class": "SkyPass",          "name": "sky" },
 
         // Forward+ tile cull — opaque needs the tile SSBO.

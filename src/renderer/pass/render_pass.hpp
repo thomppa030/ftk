@@ -137,7 +137,7 @@ struct FrameContext {
     // Debug viewport bitfield (which viz passes are active)
     uint32_t active_sources{0};
 
-    // Pass registry for cross-pass record calls (e.g. sky/grid/debug from color_opaque)
+    // Pass registry for cross-pass record calls (e.g. terrain from opaque)
     PassRegistry* passes{nullptr};
 
     // Game state for UI rendering

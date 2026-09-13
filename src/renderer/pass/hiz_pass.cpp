@@ -384,7 +384,7 @@ void HizPass::record_into(const FrameContext& ctx, Images& imgs) {
 
 PassSetup HizPass::setup() const {
     return {
-        .name = "hiz_build",
+        .name = "hiz",
         .phase = RenderPhase::DepthPrepass,
         .sub_order = 100,
         .async_hint = AsyncComputeHint::Prefer,

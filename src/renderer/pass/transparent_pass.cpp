@@ -356,7 +356,7 @@ void TransparentPass::record_draws(const FrameContext& ctx) {
 
 PassSetup TransparentPass::setup() const {
     return {
-        .name = "color_transparent",
+        .name = "transparent",
         .phase = RenderPhase::Color,
         .sub_order = 50,
     };
