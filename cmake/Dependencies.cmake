@@ -254,6 +254,10 @@ if(TARGET enet)
     # swallow std::min and std::max in anything that includes it.
     if(WIN32)
         target_compile_definitions(enet INTERFACE NOMINMAX WIN32_LEAN_AND_MEAN)
+        # ENet's own CMakeLists only links the sockets and timer libraries under
+        # MINGW, so an MSVC build leaves WSAStartup, htons and timeGetTime
+        # unresolved at link time.
+        target_link_libraries(enet PUBLIC ws2_32 winmm)
     endif()
 endif()
 
