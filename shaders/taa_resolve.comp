@@ -79,7 +79,18 @@ void main() {
     bool oob = history_uv.x < 0.0 || history_uv.x > 1.0 ||
                history_uv.y < 0.0 || history_uv.y > 1.0;
 
-    float alpha = oob ? 1.0 : blend_factor;
+    // Trust the current frame more as reprojected velocity grows: a moving
+    // surface's history sample is only as accurate as the velocity that
+    // located it, and that error scales with how far the sample traveled —
+    // a fixed low blend_factor (tuned for a static scene's noise reduction)
+    // accumulates that error across many frames and reads as persistent
+    // softness under any motion, even though each individual frame's
+    // reprojection is only slightly off. Ramp linearly over one texel of
+    // motion up to full speed; motion at or above that is already fast
+    // enough that leaning on history buys nothing but blur.
+    float speed = length(velocity) / length(texel_size);
+    float motion_alpha = mix(blend_factor, 1.0, clamp(speed, 0.0, 1.0));
+    float alpha = oob ? 1.0 : motion_alpha;
 
     // Blend in tonemapped space, convert back to HDR
     vec3 resolved = mix(history, current, alpha);
