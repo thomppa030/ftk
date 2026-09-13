@@ -261,6 +261,7 @@ void ProjectSettingsPanel::draw_debug_section() {
         "AO: depth input (banded)",
         "AO: surface normal",
         "AO: applied to ambient",
+        "Sun shafts",
     };
     int channel = vk_->debug_light_channel();
     if (ImGui::Combo("Channel", &channel, kChannelNames,

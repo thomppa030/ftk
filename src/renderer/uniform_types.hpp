@@ -53,6 +53,7 @@ enum class DebugLightChannel : int {
     DepthRecon    = 10, // linear depth GTAO reconstructs from
     NormalRecon   = 11, // geometric normal from the G-buffer
     AoApplied     = 12, // ambient after AO, the composited result
+    SunShafts     = 13, // sun shaft buffer alone, replaces the frame at the shafts composite
 };
 
 struct DirectionalLight {

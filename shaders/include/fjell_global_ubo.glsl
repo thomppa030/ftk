@@ -44,5 +44,6 @@ layout(set = SET, binding = BIND) uniform GlobalUbo {                          \
 #define DEBUG_LIGHT_CHANNEL_DEPTH_RECON   10 /* linear depth GTAO reconstructs from */
 #define DEBUG_LIGHT_CHANNEL_NORMAL_RECON  11 /* geometric normal from the G-buffer */
 #define DEBUG_LIGHT_CHANNEL_AO_APPLIED    12 /* ambient after AO, the composited result */
+#define DEBUG_LIGHT_CHANNEL_SUN_SHAFTS    13 /* sun shaft buffer alone, replaces the frame at the shafts composite */
 
 #endif // FJELL_GLOBAL_UBO_GLSL

@@ -357,8 +357,10 @@ Result<> SunShaftsPass::create(Device& device, const PassResources& resources) {
         ci.pBindings = bindings.data();
         vkCreateDescriptorSetLayout(device_, &ci, nullptr, &composite_set_layout_);
 
+        std::array layouts{global_set_layout, composite_set_layout_};
         composite_pipeline_layout_ = create_pipeline_layout(
-            device_, &composite_set_layout_, 1, sizeof(ShaftsCompositePush));
+            device_, layouts.data(), static_cast<uint32_t>(layouts.size()),
+            sizeof(ShaftsCompositePush));
         composite_pipeline_ = create_compute_pipeline(
             device_, composite_pipeline_layout_, "shaders/sun_shafts_composite.comp.spv",
             vk_pipeline_cache_);
@@ -609,8 +611,10 @@ void SunShaftsPass::record(const FrameContext& ctx) {
     comp_push.shafts_size = glm::uvec2(imgs.extent.width, imgs.extent.height);
 
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_);
+    std::array composite_sets{global_set, imgs.composite_sets[frame_index]};
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, composite_pipeline_layout_,
-                            0, 1, &imgs.composite_sets[frame_index], 0, nullptr);
+                            0, static_cast<uint32_t>(composite_sets.size()),
+                            composite_sets.data(), 0, nullptr);
     vkCmdPushConstants(cmd, composite_pipeline_layout_, VK_SHADER_STAGE_COMPUTE_BIT,
                        0, sizeof(comp_push), &comp_push);
 

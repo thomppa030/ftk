@@ -7,11 +7,15 @@
 // Half-res accumulation + full-res composite follows the standard
 // Frostbite / CryEngine post-process pattern (Hillaire 2015; Sousa 2013).
 
+#include "fjell_global_ubo.glsl"
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) uniform sampler2D shafts_tex;   // half-res
-layout(set = 0, binding = 1) uniform sampler2D depth_texture; // full-res
-layout(set = 0, binding = 2, rgba16f) uniform image2D scene_color;
+FJELL_DECLARE_GLOBAL_UBO(0, 0, ubo);
+
+layout(set = 1, binding = 0) uniform sampler2D shafts_tex;   // half-res
+layout(set = 1, binding = 1) uniform sampler2D depth_texture; // full-res
+layout(set = 1, binding = 2, rgba16f) uniform image2D scene_color;
 
 layout(push_constant) uniform PushConstants {
     uvec2 viewport_size;
@@ -36,6 +40,12 @@ void main() {
     vec3 shafts = texture(shafts_tex, uv).rgb;
 
     vec4 color = imageLoad(scene_color, coord);
-    color.rgb += shafts;
+    if (ubo.debug_light_channel == DEBUG_LIGHT_CHANNEL_SUN_SHAFTS) {
+        // Debug view: the shaft buffer on its own, so its shape and level can
+        // be judged without the scene underneath.
+        color.rgb = shafts;
+    } else {
+        color.rgb += shafts;
+    }
     imageStore(scene_color, coord, color);
 }
