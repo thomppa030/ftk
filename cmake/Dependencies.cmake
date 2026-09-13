@@ -236,6 +236,11 @@ FetchContent_MakeAvailable(glfw glm spdlog stb fastgltf json JoltPhysics yoga fr
 # ENet's CMakeLists exports an unaliased `enet` target; give it the include dir.
 if(TARGET enet)
     target_include_directories(enet INTERFACE "${enet_SOURCE_DIR}/include")
+    # enet.h pulls in winsock2.h, and so windows.h, whose min/max macros then
+    # swallow std::min and std::max in anything that includes it.
+    if(WIN32)
+        target_compile_definitions(enet INTERFACE NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
 endif()
 
 # Assimp has internal warnings that fail with -Werror in Release, suppress them
