@@ -455,6 +455,11 @@ std::vector<const Node*> Scene::collect_subtree(uint32_t root_id) const {
         }
     }
 
+    // Every node has one parent, so it is enqueued at most once and the whole
+    // scene is the ceiling. Reserving means the insert below never reallocates
+    // while the loop is walking the vector it appends to.
+    result.reserve(objects_.size());
+
     result.push_back(root);
     for (size_t i = 0; i < result.size(); ++i) {
         auto it = children_map.find(static_cast<int32_t>(result[i]->id));
