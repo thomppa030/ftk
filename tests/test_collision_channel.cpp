@@ -77,6 +77,12 @@ TEST_CASE("Defaults keep the pre-channel behaviour", "[collision]") {
     auto wall = default_filter_for(CollisionChannel::world_static);
     auto prop = default_filter_for(CollisionChannel::world_dynamic);
 
+    // A default collider dropped onto terrain: both are WorldStatic, and this
+    // pair returning Ignore is what makes a spawned object fall through the
+    // world. Verified by watching exactly that happen.
+    auto unconfigured = default_filter_for(CollisionChannel::world_static);
+    REQUIRE(collision_response(unconfigured, wall) == CollisionResponse::block);
+
     // A character walking into level geometry is the case that must not need
     // configuring to work.
     REQUIRE(collision_response(pawn, wall) == CollisionResponse::block);
@@ -97,11 +103,6 @@ TEST_CASE("Defaults that would otherwise be bugs", "[collision]") {
     SECTION("two triggers do not report each other") {
         auto other = default_filter_for(CollisionChannel::trigger);
         REQUIRE(collision_response(trigger, other) == CollisionResponse::ignore);
-    }
-
-    SECTION("static geometry does not collide with itself") {
-        auto other = default_filter_for(CollisionChannel::world_static);
-        REQUIRE(collision_response(wall, other) == CollisionResponse::ignore);
     }
 
     SECTION("projectiles pass each other but hit the world") {

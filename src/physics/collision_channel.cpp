@@ -37,6 +37,13 @@ CollisionFilter default_filter_for(CollisionChannel channel) {
     // Everything blocks everything by default, which is the behaviour before
     // channels existed. Departures below are the ones that would otherwise be
     // immediate bugs rather than preferences.
+    //
+    // "Static geometry never collides with itself" is not one of them, however
+    // true it sounds. A collider nobody has configured is WorldStatic, and so
+    // is terrain, so writing that as a response makes every default collider
+    // fall through the ground the moment it is given a dynamic body. Bodies
+    // that genuinely cannot move are dropped by the broadphase, which knows
+    // motion type and does not have to guess it from a channel.
     filter.block_mask = 0;
     for (uint32_t i = 0; i < COLLISION_CHANNEL_COUNT; ++i) {
         filter.set_response(static_cast<CollisionChannel>(i), CollisionResponse::block);
@@ -56,11 +63,6 @@ CollisionFilter default_filter_for(CollisionChannel channel) {
         case CollisionChannel::projectile:
             // Projectiles pass each other rather than deflecting mid-flight.
             filter.set_response(CollisionChannel::projectile, CollisionResponse::ignore);
-            break;
-
-        case CollisionChannel::world_static:
-            // Static geometry never moves, so a pair of it can never collide.
-            filter.set_response(CollisionChannel::world_static, CollisionResponse::ignore);
             break;
 
         default:
