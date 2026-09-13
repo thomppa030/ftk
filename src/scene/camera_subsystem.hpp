@@ -12,7 +12,6 @@ struct CameraNode;
 class CameraSubsystem : public Subsystem {
 public:
     [[nodiscard]] std::string_view name() const override { return "Camera"; }
-    [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
 
     void on_play_start(const TickContext& ctx) override;
     void on_play_stop(const TickContext& ctx) override;

@@ -118,10 +118,6 @@ void MeshEditorContext::apply_resize(VulkanContext& vk) {
     viewport_manager_.apply_resize(vk);
 }
 
-bool MeshEditorContext::any_viewport_hovered() const {
-    return viewport_manager_.any_hovered();
-}
-
 // ── Open ─────────────────────────────────────────────────────────────────
 
 void MeshEditorContext::open_mesh(const std::string& fjmesh_path) {

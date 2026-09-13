@@ -1,5 +1,3 @@
-extern "C" void fjell_input_clear_connections();
-
 #include "core/engine.hpp"
 #include "core/asset_references.hpp"
 #include "core/base_path.hpp"
@@ -7,7 +5,6 @@ extern "C" void fjell_input_clear_connections();
 #include "core/input_component.hpp"
 #include "core/commands.hpp"
 #include "core/game_builder.hpp"
-#include "core/layer.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
 #include "animation/animation_subsystem.hpp"
@@ -65,23 +62,6 @@ extern "C" void fjell_input_clear_connections();
 #include <sstream>
 
 namespace fjell {
-
-namespace {
-
-class ViewportLayer : public Layer {
-public:
-    explicit ViewportLayer(bool* hovered)
-        : Layer("Viewport"), hovered_{hovered} {}
-
-    [[nodiscard]] bool wants_input() const override {
-        return *hovered_ && !ImGui::GetIO().WantCaptureKeyboard;
-    }
-
-private:
-    bool* hovered_;
-};
-
-} // namespace
 
 template <typename T, typename... Args>
 T* Engine::add_subsystem(Args&&... args) {
@@ -261,7 +241,7 @@ void Engine::init_ui() {
             // game-UI context every 0.5s forces a full Yoga layout rebuild,
             // so we keep it out of the HUD.
 
-            if (!active_context().is_playing() && game_ui_.loaded()) {
+            if (!play_controller_.playing() && game_ui_.loaded()) {
                 game_ui_.update(static_cast<float>(extent.width),
                                 static_cast<float>(extent.height),
                                 frame_index, clock_.delta_time(), &input_);
@@ -537,7 +517,25 @@ void Engine::init_editor() {
         }
     }
 
-    layer_stack_.push_layer(std::make_unique<ViewportLayer>(&viewport_hovered_));
+    play_controller_.init(PlayServices{
+        .scene = &scene_,
+        .input = &input_,
+        .clock = &clock_,
+        .input_map = &input_action_map_,
+        .project_mgr = &project_mgr_,
+        .resources = resource_manager_.get(),
+        .vulkan = vulkan_context_.get(),
+        .window = &window_,
+        .game_ui = &game_ui_,
+        .screen_debug = screen_debug_queue_.get(),
+        .scripts = script_subsystem_,
+        .physics = physics_subsystem_,
+        .vfx = vfx_subsystem_,
+        .camera = camera_subsystem_,
+        .audio = audio_subsystem_,
+        .sprite_anim = sprite_anim_subsystem_,
+        .ui = ui_subsystem_,
+    }, game_mode_);
 
     {
         SceneEditorDeps deps{
@@ -559,9 +557,7 @@ void Engine::init_editor() {
             .net_manager = net_manager_.get(),
             .camera_subsystem = camera_subsystem_,
             .screen_debug_queue = screen_debug_queue_.get(),
-            .game_mode = game_mode_,
-            .start_play = [this]() { start_play(); },
-            .stop_play = [this]() { stop_play(); },
+            .play = &play_controller_,
         };
         auto ctx = std::make_unique<SceneEditorContext>(deps);
         ctx->init();
@@ -828,7 +824,7 @@ void Engine::save_scene() {
     // Flush live script-component state into each node's serialized JSON before
     // writing — otherwise inspector edits (e.g. asset Refs) made since load are
     // lost, since the file is written from the stored JSON, not the instances.
-    if (!active_context().is_playing()) {
+    if (!play_controller_.playing()) {
         script_subsystem_->manager().serialize_all(scene_);
     }
     save_material_assets();
@@ -1269,10 +1265,6 @@ void Engine::bind_menu_bar() {
         [this]() { project_mgr_.build_scripts(script_subsystem_->manager(), scene_); }));
     connections_.push_back(menu_bar_.on_new_script.bind(
         [this](const std::string& name) { project_mgr_.create_script(name); }));
-    connections_.push_back(menu_bar_.on_start_play.bind(
-        [this]() { start_play(); }));
-    connections_.push_back(menu_bar_.on_stop_play.bind(
-        [this]() { stop_play(); }));
     connections_.push_back(menu_bar_.on_open_project.bind(
         [this](const std::filesystem::path& path) {
             project_mgr_.open(path);
@@ -1524,7 +1516,6 @@ void Engine::draw_ui() {
 
 
     menu_bar_.set_project(project_mgr_.active());
-    menu_bar_.set_playing(active_context().is_playing());
     menu_bar_.set_building(project_mgr_.is_building());
     menu_bar_.set_scene_path(current_scene_path_);
     menu_bar_.set_vulkan_context(vulkan_context_.get());
@@ -1538,7 +1529,6 @@ void Engine::draw_ui() {
 
     // Active context draws its own panels (including Stats, Console, History)
     active_context().draw(clock_.delta_time());
-    viewport_hovered_ = active_context().any_viewport_hovered();
 
     content_browser_.draw();
 
@@ -1562,10 +1552,10 @@ TickContext Engine::make_frame_context() {
 void Engine::flush_pending() {
     // Materialize nodes spawned mid-tick before anything else walks objects_.
     auto spawned = scene_.flush_spawned();
-    if (!spawned.empty() && active_context().is_playing()) {
+    if (!spawned.empty() && play_controller_.playing()) {
         // A spawned node may carry an InputComponent (e.g. a player's camera);
         // load its contexts before begin_play so scripts can bind/activate input.
-        load_input_contexts();
+        play_controller_.load_input_contexts();
         // Bodies before begin_play: a spawned node's script may query physics
         // or set a velocity in its first frame, and a body that appears a tick
         // later means the object falls through whatever it spawned on.
@@ -1589,125 +1579,19 @@ void Engine::flush_pending() {
     scene_.flush_destroyed();
 }
 
-void Engine::load_input_contexts() {
-    for (const auto& obj : scene_.objects()) {
-        const auto* ic = obj->components.get<InputComponent>();
-        if (!ic) continue;
+void Engine::handle_play_shortcuts() {
+    // Only the scene context hosts play. Read after ImGui's NewFrame so the
+    // key state is this frame's, in both the editor and the play overlay.
+    if (&active_context() != scene_context_) return;
+    if (ImGui::IsAnyItemActive()) return;
 
-        auto actions_dir = ic->actions_dir;
-        if (actions_dir.empty()) actions_dir = "assets/input/actions";
-        if (project_mgr_.active()) {
-            input_action_map_.load_actions_dir(project_mgr_.active()->resolve(actions_dir));
-        }
-
-        for (const auto& ctx_path : ic->context_paths) {
-            std::string resolved = ctx_path;
-            if (project_mgr_.active()) {
-                resolved = project_mgr_.active()->resolve(ctx_path);
-            }
-            input_action_map_.load_context(resolved);
-            auto fname = std::filesystem::path(ctx_path).stem().string();
-            input_action_map_.push_context(fname);
-        }
+    const auto& io = ImGui::GetIO();
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_P)) {
+        play_controller_.toggle();
     }
-}
-
-void Engine::start_play() {
-    // Editor pre-play work (snapshot, clear undo)
-    scene_context_->on_play_enter();
-
-    // Serialize script state before play modifies it
-    script_subsystem_->manager().serialize_all(scene_);
-
-    // Phase 1: Physics + VFX (no physics dependency between them)
-    {
-        TickContext ctx{
-            .scene = scene_,
-            .input = input_,
-            .clock = clock_,
-            .dt = clock_.delta_time(),
-            .physics = nullptr,
-            .project = project_mgr_.active(),
-        };
-        physics_subsystem_->notify_play_start(ctx);
-        vfx_subsystem_->notify_play_start(ctx);
+    if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        play_controller_.stop();
     }
-
-    // Phase 2: Everything else (physics world now exists)
-    {
-        TickContext ctx{
-            .scene = scene_,
-            .input = input_,
-            .clock = clock_,
-            .dt = clock_.delta_time(),
-            .physics = physics_subsystem_->world(),
-            .project = project_mgr_.active(),
-        };
-        camera_subsystem_->notify_play_start(ctx);
-        audio_subsystem_->notify_play_start(ctx);
-        sprite_anim_subsystem_->notify_play_start(ctx);
-
-        // Load input contexts BEFORE scripts start (begin_play calls InputAPI::bind)
-        load_input_contexts();
-
-        // Clear stale input bindings from a prior reload's begin_play —
-        // those captured `this` pointers to instances that were just replaced
-        // by deserialize_all above.
-        fjell_input_clear_connections();
-
-        script_subsystem_->notify_play_start(ctx);
-        ui_subsystem_->notify_play_start(ctx);
-
-        // begin_play may have spawned nodes carrying InputComponents (e.g. a
-        // server spawning each player + its camera). Re-scan so their contexts
-        // load now that they're in the scene — the binds above already attached
-        // to the actions; loading the context just enables dispatch.
-        load_input_contexts();
-    }
-
-    vulkan_context_->set_playing(true);
-    game_ui_.mark_dirty();
-    FJELL_CORE_INFO("Play mode started");
-}
-
-void Engine::stop_play() {
-    if (game_mode_) {
-        glfwSetWindowShouldClose(window_.handle(), GLFW_TRUE);
-        return;
-    }
-
-    TickContext ctx{
-        .scene = scene_,
-        .input = input_,
-        .clock = clock_,
-        .dt = clock_.delta_time(),
-        .physics = physics_subsystem_->world(),
-        .project = project_mgr_.active(),
-    };
-
-    // Reset time state before notifying subsystems
-    clock_.set_time_scale(1.0f);
-    clock_.set_paused(false);
-
-    fjell_input_clear_connections();
-    ui_subsystem_->notify_play_stop(ctx);
-    camera_subsystem_->notify_play_stop(ctx);
-    audio_subsystem_->notify_play_stop(ctx);
-    sprite_anim_subsystem_->notify_play_stop(ctx);
-    script_subsystem_->notify_play_stop(ctx);
-    vfx_subsystem_->notify_play_stop(ctx);
-
-    // Editor post-play work (restore scene snapshot)
-    scene_context_->on_play_exit();
-
-    script_subsystem_->manager().deserialize_all(scene_);
-    physics_subsystem_->notify_play_stop(ctx);
-
-    vulkan_context_->set_playing(false);
-    if (input_.is_cursor_captured()) {
-        input_.set_cursor_captured(window_.handle(), false);
-    }
-    FJELL_CORE_INFO("Play mode stopped");
 }
 
 void Engine::set_scene_override(const std::string& scene_name) {
@@ -1731,7 +1615,7 @@ void Engine::run() {
 
     // Game mode or --play: start playing immediately
     if (game_mode_ || play_immediate_) {
-        start_play();
+        play_controller_.start();
     }
 
     while (!window_.should_close()) {
@@ -1760,7 +1644,7 @@ void Engine::run() {
 
         auto ctx = make_frame_context();
 
-        if (active_context().is_playing()) {
+        if (play_controller_.playing()) {
             // Update camera state for worldspace UI billboard computation
             if (auto* cam_node = camera_subsystem_->active_camera(scene_)) {
                 float aspect = scene_context_->viewport_manager().active_aspect();
@@ -1788,14 +1672,10 @@ void Engine::run() {
 
             // Phase 2: VFX
             for (auto* s : play_phase_2_) s->tick(ctx);
-
-            if (scene_context_->play_wants_stop()) {
-                stop_play();
-            }
         }
 
         project_mgr_.poll_build(script_subsystem_->manager(), scene_,
-                                active_context().is_playing());
+                                play_controller_.playing());
 
 #ifndef NDEBUG
         // Skip .so file watcher while a background build is running —
@@ -1809,7 +1689,7 @@ void Engine::run() {
 #endif
 
         // Always-tick subsystems (before world matrices)
-        if (!active_context().is_playing()) {
+        if (!play_controller_.playing()) {
             animation_subsystem_->tick(ctx);
         }
         for (auto* s : early_always_) s->tick(ctx);
@@ -1819,7 +1699,7 @@ void Engine::run() {
         for (auto* s : late_always_) s->tick(ctx);
 
         // Play-only subsystems that need world matrices (e.g. audio listener)
-        if (active_context().is_playing()) {
+        if (play_controller_.playing()) {
             for (auto* s : late_play_) s->tick(ctx);
         }
 
@@ -1845,7 +1725,8 @@ void Engine::run() {
                                             scene_context_->viewport_manager());
 
         imgui_layer_->begin_frame();
-        if (active_context().is_playing()) {
+        handle_play_shortcuts();
+        if (play_controller_.playing()) {
             active_context().draw_play_overlay();
         } else {
             draw_ui();
@@ -1859,14 +1740,18 @@ void Engine::run() {
 
         auto requests = active_context().build_render_requests();
 
-        // In play mode, override the active viewport's camera with the scene CameraNode
-        if (active_context().is_playing() && !requests.empty()) {
+        // In play mode, override the active viewport's camera with the scene
+        // CameraNode, and drop the editor-only passes (grid, collider debug)
+        // that have no business in the running game.
+        if (play_controller_.playing() && !requests.empty()) {
             if (auto* cam_node = camera_subsystem_->active_camera(scene_)) {
                 float aspect = scene_context_->viewport_manager().active_aspect();
                 requests[0].view = cam_node->view_matrix();
                 requests[0].projection = cam_node->projection_matrix(aspect);
                 requests[0].camera_position = cam_node->position();
             }
+            requests[0].viewport_graph =
+                vulkan_context_->get_or_load_graph("assets/render_graphs/play.fjgraph");
         }
 
         // Contexts with 3D viewports return their scene (main or preview).
@@ -1894,7 +1779,7 @@ void Engine::run() {
         // Phase 4: Record commands
         vulkan_context_->record_frame(requests, light_, render_scene, clock_.game_delta_time(),
                                        scene_context_->selected_id(), thread_pool_,
-                                       active_context().is_playing());
+                                       play_controller_.playing());
 
         // Age out screen debug text after the overlay has drawn it, so a
         // single-frame entry survives exactly the frame it was submitted in.
@@ -2074,7 +1959,7 @@ void Engine::draw_status_bar() {
         StatusBar::separator();
     }
 
-    const bool playing = active_context().is_playing();
+    const bool playing = play_controller_.playing();
     StatusBar::item(playing ? ICON_LC_PLAY : ICON_LC_PENCIL,
                     playing ? "Playing" : "Editing");
 

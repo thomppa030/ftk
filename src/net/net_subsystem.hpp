@@ -22,7 +22,6 @@ public:
         : net_(net), scripts_(scripts) {}
 
     [[nodiscard]] std::string_view name() const override { return "NetReceive"; }
-    [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
 
     void tick(const TickContext& ctx) override;
 
@@ -40,7 +39,6 @@ public:
         : net_(net), scripts_(scripts) {}
 
     [[nodiscard]] std::string_view name() const override { return "NetSend"; }
-    [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
 
     void tick(const TickContext& ctx) override;
 

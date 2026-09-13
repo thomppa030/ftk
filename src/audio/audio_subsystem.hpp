@@ -16,7 +16,6 @@ class ResourceManager;
 class AudioSubsystem : public Subsystem {
 public:
     [[nodiscard]] std::string_view name() const override { return "Audio"; }
-    [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
 
     void tick(const TickContext& ctx) override;
 

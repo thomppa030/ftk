@@ -1,10 +1,12 @@
 #include "ui/scene_editor_context.hpp"
 #include "ui/dockspace_layout.hpp"
+#include "ui/icons_lc.hpp"
 #include "core/base_path.hpp"
 #include "core/clock.hpp"
 #include "core/commands.hpp"
 #include "core/input.hpp"
 #include "core/log.hpp"
+#include "core/play_controller.hpp"
 #include "core/project_manager.hpp"
 #include "core/window.hpp"
 #include "animation/animation_clip.hpp"
@@ -72,6 +74,16 @@ void SceneEditorContext::init() {
                            deps_.content_browser, deps_.file_browser,
                            deps_.icon_cache);
     node_editor_panel_.init(deps_.scene, &selected_id_);
+
+    // Undo commands mutate a scene that stop() throws away, and a selection
+    // made in the editor rarely means anything once the game rearranges it.
+    connections_.push_back(deps_.play->on_started.bind([this] {
+        command_history().clear();
+        selected_id_ = 0;
+    }));
+    connections_.push_back(deps_.play->on_stopped.bind([this] {
+        focus_viewport_frames_ = 2;
+    }));
 
     // Bind context-level delegates
     connections_.push_back(hierarchy_panel_.on_add_primitive.bind(
@@ -403,12 +415,38 @@ void SceneEditorContext::draw_gizmo(ViewportPanel& vp) {
         if (gizmo_op_ == 2) op = ImGuizmo::SCALE;
     }
 
+    // Snapping. Ctrl inverts the toolbar toggle, so a coarse grid can be
+    // escaped (or a fine one temporarily enforced) without leaving the drag.
+    // ImGuizmo reads as many components as the operation uses: three for
+    // translate and scale, one for rotate.
+    const float* snap = nullptr;
+    glm::vec3 snap_values{0.0f};
+    if (deps_.vulkan_context) {
+        const auto& grid = deps_.vulkan_context->grid_pass().settings();
+        if (grid.snap_enabled != ImGui::GetIO().KeyCtrl) {
+            switch (op) {
+                case ImGuizmo::ROTATE:
+                    snap_values = glm::vec3(grid.rotation_snap_degrees);
+                    break;
+                case ImGuizmo::SCALE:
+                    snap_values = glm::vec3(grid.scale_snap);
+                    break;
+                default:
+                    snap_values = glm::vec3(grid.cell_size);
+                    break;
+            }
+            snap = glm::value_ptr(snap_values);
+        }
+    }
+
     ImGuizmo::Manipulate(
         glm::value_ptr(view),
         glm::value_ptr(projection),
         op,
         ImGuizmo::LOCAL,
-        glm::value_ptr(gizmo_matrix_));
+        glm::value_ptr(gizmo_matrix_),
+        nullptr,
+        snap);
 
     ImGui::End();
 
@@ -539,6 +577,27 @@ void SceneEditorContext::draw_spline_visuals() {
     }
 }
 
+namespace {
+
+// One toolbar toggle: an icon that reads as pressed while `on` is true.
+// Returns true on click. `tooltip` carries the name and shortcut, since the
+// buttons are icon-only.
+bool toolbar_toggle(const char* id, const char* glyph, bool on, const char* tooltip) {
+    ImVec4 active{0.26f, 0.59f, 0.98f, 0.65f};
+    ImVec4 idle{0.0f, 0.0f, 0.0f, 0.0f};
+    ImGui::PushStyleColor(ImGuiCol_Button, on ? active : idle);
+    ImGui::PushID(id);
+    bool clicked = ImGui::Button(glyph);
+    ImGui::PopID();
+    ImGui::PopStyleColor();
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("%s", tooltip);
+    }
+    return clicked;
+}
+
+} // namespace
+
 void SceneEditorContext::draw_play_toolbar() {
     auto* vp = viewport_manager_.active_panel();
     if (!vp) return;
@@ -572,12 +631,13 @@ void SceneEditorContext::draw_play_toolbar() {
     hovered = ImGui::IsItemHovered();
 
     // Draw icon with color change on hover
-    const char* icon_name = is_playing() ? "stop" : "play";
-    ImVec4 tint = is_playing()
+    const bool playing = deps_.play->playing();
+    const char* icon_name = playing ? "stop" : "play";
+    ImVec4 tint = playing
         ? ImVec4{1.0f, 0.4f, 0.4f, 1.0f}
         : ImVec4{0.4f, 1.0f, 0.5f, 1.0f};
     if (hovered) {
-        tint = is_playing()
+        tint = playing
             ? ImVec4{1.0f, 0.6f, 0.6f, 1.0f}
             : ImVec4{0.6f, 1.0f, 0.7f, 1.0f};
     }
@@ -591,24 +651,26 @@ void SceneEditorContext::draw_play_toolbar() {
     }
 
     if (clicked) {
-        if (is_playing()) {
-            request_stop();
-        } else {
-            request_play();
-        }
+        deps_.play->toggle();
     }
 
     // Net mode selector — sits just left of the play button. The engine never
     // acts on this; it sets NetManager's launch mode, which the running game
     // script reads in begin_play to host/join/stay offline. Hidden while playing
     // (mode is latched for the session) and when there's no NetManager.
-    if (deps_.net_manager && !is_playing()) {
+    // Room for the selector between the viewport's left edge and the play box?
+    // If not it is skipped rather than sliding off or overlapping.
+    const float kNetComboW = 78.0f;
+    const bool net_selector_fits =
+        (box_x - kNetComboW - pad) >= (vp->img_pos.x + pad);
+
+    if (deps_.net_manager && !playing && net_selector_fits) {
         static const char* const kModeLabels[] = {"Offline", "Host", "Join"};
         auto mode = deps_.net_manager->launch_mode();
         int mode_idx = static_cast<int>(mode);
 
         const char* label = kModeLabels[mode_idx];
-        float combo_w = 78.0f;
+        float combo_w = kNetComboW;
         float combo_h = ImGui::GetFrameHeight();
         float combo_x = box_x - combo_w - pad;
         float combo_y = box_y + (box_h - combo_h) * 0.5f;
@@ -640,22 +702,99 @@ void SceneEditorContext::draw_play_toolbar() {
         }
     }
 
+    // Left cluster: gizmo mode, then the view toggles. Both act on the
+    // viewport, so they live over it rather than in a panel or a menu.
+    //
+    // The play box is centered, so the space a left-aligned cluster can use is
+    // the gap before it. Buttons are dropped from the right (lowest priority
+    // first) rather than being allowed to slide under the play button.
+    {
+        const float spacing = 2.0f;
+        const float btn_w = ImGui::CalcTextSize(ICON_LC_MOVE).x
+                          + ImGui::GetStyle().FramePadding.x * 2.0f;
+        const float sep_w = ImGui::CalcTextSize("|").x + spacing;
+        const float budget = (box_x - pad) - (vp->img_pos.x + pad);
+
+        auto fits = [&](int buttons, bool separator) {
+            float w = static_cast<float>(buttons) * (btn_w + spacing);
+            if (separator) { w += sep_w; }
+            return w <= budget;
+        };
+
+        const bool has_vk = deps_.vulkan_context != nullptr;
+        // 3 gizmo + separator + 3 view toggles, shed in that order.
+        const bool show_views = has_vk && fits(6, true);
+        const bool show_gizmo = fits(3, false);
+
+        if (show_gizmo) {
+            ImGui::SetCursorScreenPos({vp->img_pos.x + pad, vp->img_pos.y + pad});
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {spacing, 0.0f});
+
+            if (toolbar_toggle("gizmo_move", ICON_LC_MOVE, gizmo_op_ == 0, "Move (W)")) {
+                gizmo_op_ = 0;
+            }
+            ImGui::SameLine();
+            if (toolbar_toggle("gizmo_rotate", ICON_LC_ROTATE_3D, gizmo_op_ == 1, "Rotate (E)")) {
+                gizmo_op_ = 1;
+            }
+            ImGui::SameLine();
+            if (toolbar_toggle("gizmo_scale", ICON_LC_SCALE_3D, gizmo_op_ == 2, "Scale (R)")) {
+                gizmo_op_ = 2;
+            }
+
+            if (show_views) {
+                auto& grid = deps_.vulkan_context->grid_pass().settings();
+
+                ImGui::SameLine();
+                ImGui::TextDisabled("|");
+
+                ImGui::SameLine();
+                bool colliders = deps_.vulkan_context->show_colliders();
+                if (toolbar_toggle("show_colliders", ICON_LC_BOX, colliders,
+                                   "Show colliders")) {
+                    deps_.vulkan_context->set_show_colliders(!colliders);
+                }
+                ImGui::SameLine();
+                if (toolbar_toggle("show_grid", ICON_LC_GRID_3X3, grid.visible,
+                                   "Show grid")) {
+                    grid.visible = !grid.visible;
+                }
+                ImGui::SameLine();
+                if (toolbar_toggle("snap_grid", ICON_LC_MAGNET, grid.snap_enabled,
+                                   "Snap to grid")) {
+                    grid.snap_enabled = !grid.snap_enabled;
+                }
+            }
+
+            ImGui::PopStyleVar();
+        }
+    }
+
     // Perspective / Orthographic toggle (top-right of viewport)
     {
-        const char* label = vp->camera.mode() == EditorCameraMode::perspective
-                            ? "Persp" : "Ortho";
+        bool persp = vp->camera.mode() == EditorCameraMode::perspective;
+        const char* label = persp ? ICON_LC_CAMERA : ICON_LC_SQUARE;
+        const char* tip = persp ? "Perspective — click for orthographic"
+                                : "Orthographic — click for perspective";
         ImVec2 label_size = ImGui::CalcTextSize(label);
         float btn_w = label_size.x + 12.0f;
         float btn_h = ImGui::GetFrameHeight();
         float btn_x = vp->img_pos.x + vp->img_size.x - btn_w - pad;
         float btn_y = vp->img_pos.y + pad;
 
+        // Only draw when it clears the play box.
+        if (btn_x < box_x + box_w + pad) {
+            ImGui::End();
+            return;
+        }
+
         ImGui::SetCursorScreenPos({btn_x, btn_y});
         if (ImGui::Button(label, {btn_w, btn_h})) {
-            auto new_mode = vp->camera.mode() == EditorCameraMode::perspective
-                            ? EditorCameraMode::orthographic
-                            : EditorCameraMode::perspective;
-            vp->camera.set_mode(new_mode);
+            vp->camera.set_mode(persp ? EditorCameraMode::orthographic
+                                      : EditorCameraMode::perspective);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("%s", tip);
         }
     }
 
@@ -731,30 +870,6 @@ bool SceneEditorContext::handle_shortcuts() {
 
 // --- Play mode ---
 
-void SceneEditorContext::on_play_enter() {
-    command_history().clear();
-    play_session_ = std::make_unique<PlaySession>(*deps_.scene);
-    selected_id_ = 0;
-}
-
-void SceneEditorContext::on_play_exit() {
-    play_session_->restore(*deps_.scene);
-    play_session_.reset();
-    focus_viewport_frames_ = 2;
-}
-
-void SceneEditorContext::request_play() {
-    deps_.start_play();
-}
-
-void SceneEditorContext::request_stop() {
-    deps_.stop_play();
-}
-
-bool SceneEditorContext::play_wants_stop() const {
-    return play_session_ && play_session_->wants_stop(*deps_.input);
-}
-
 void SceneEditorContext::draw_play_overlay() {
     // In play mode, resize the active viewport's offscreen to fill the window
     auto w = deps_.window->width();
@@ -802,10 +917,10 @@ void SceneEditorContext::draw_play_overlay() {
                  ImGuiWindowFlags_NoDocking |
                  ImGuiWindowFlags_NoFocusOnAppearing);
 
-    ImGui::Text("Press ESC to stop");
+    ImGui::Text("Ctrl+P to stop");
     ImGui::SameLine();
     if (ImGui::SmallButton("Stop")) {
-        request_stop();
+        deps_.play->stop();
     }
     ImGui::End();
 
@@ -928,7 +1043,7 @@ void SceneEditorContext::draw_screen_debug(ImDrawList* dl, const glm::vec2& orig
     const float aspect = size.x / size.y;
     bool have_camera = false;
 
-    if (is_playing() && deps_.scene && deps_.camera_subsystem) {
+    if (deps_.play->playing() && deps_.scene && deps_.camera_subsystem) {
         if (auto* cam = deps_.camera_subsystem->active_camera(*deps_.scene)) {
             view = cam->view_matrix();
             proj = cam->projection_matrix(aspect);
@@ -1001,7 +1116,7 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
     viewport_manager_.apply_resize(vk);
 
     // Camera preview lifecycle — safe here because begin_frame fence already waited
-    bool need_preview = (selected_id_ != 0 && !is_playing() && deps_.scene);
+    bool need_preview = (selected_id_ != 0 && !deps_.play->playing() && deps_.scene);
     if (need_preview) {
         auto* node = deps_.scene->find(selected_id_);
         need_preview = (dynamic_cast<CameraNode*>(node) != nullptr);
@@ -1049,10 +1164,6 @@ void SceneEditorContext::apply_resize(VulkanContext& vk) {
         camera_preview_skip_frames_ = 0;
         camera_preview_graph_ = nullptr;
     }
-}
-
-bool SceneEditorContext::any_viewport_hovered() const {
-    return viewport_manager_.any_hovered();
 }
 
 // --- Scene mutation ---

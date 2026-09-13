@@ -272,10 +272,6 @@ void AnimationEditorContext::apply_resize(VulkanContext& vk) {
     viewport_manager_.apply_resize(vk);
 }
 
-bool AnimationEditorContext::any_viewport_hovered() const {
-    return viewport_manager_.any_hovered();
-}
-
 // ── Save ─────────────────────────────────────────────────────────────────
 
 bool AnimationEditorContext::save() {

@@ -81,10 +81,6 @@ void MaterialEditorContext::apply_resize(VulkanContext& vk) {
     viewport_manager_.apply_resize(vk);
 }
 
-bool MaterialEditorContext::any_viewport_hovered() const {
-    return viewport_manager_.any_hovered();
-}
-
 // ── Open / Save ──────────────────────────────────────────────────────────
 
 void MaterialEditorContext::open_material(const std::string& fjmat_path) {

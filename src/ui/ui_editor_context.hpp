@@ -57,7 +57,6 @@ public:
     // No 3D viewport — UI editor renders via ImGui draw lists
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override { return {}; }
     void apply_resize(VulkanContext& vk) override;
-    [[nodiscard]] bool any_viewport_hovered() const override { return false; }
 
     // Open a .fjui from the content browser
     void open_ui(const std::string& fjui_path);

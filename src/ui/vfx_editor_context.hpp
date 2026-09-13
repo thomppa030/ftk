@@ -80,7 +80,6 @@ public:
     [[nodiscard]] Scene* render_scene() override { return &preview_scene_; }
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override;
     void apply_resize(VulkanContext& vk) override;
-    [[nodiscard]] bool any_viewport_hovered() const override;
 
     // Open a .fjvfx from the content browser
     void open_effect(const std::string& fjvfx_path);

@@ -40,14 +40,14 @@ add_executable(fjell
     core/game_builder.cpp
     core/capture_service.cpp
     core/engine.cpp
-    core/layer_stack.cpp
     core/math/spline.cpp
     core/input.cpp
     core/input_action_map.cpp
     core/input_context_io.cpp
     core/input_modifier.cpp
     core/input_source.cpp
-    core/play_session.cpp
+    core/play_controller.cpp
+    core/play_snapshot.cpp
     core/project.cpp
     core/thread_pool.cpp
     core/log.cpp

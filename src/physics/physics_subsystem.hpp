@@ -13,7 +13,6 @@ namespace fjell {
 class PhysicsSubsystem : public Subsystem {
 public:
     [[nodiscard]] std::string_view name() const override { return "Physics"; }
-    [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
 
     void tick(const TickContext& ctx) override {
         if (!world_) return;

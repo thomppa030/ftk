@@ -5,6 +5,8 @@
 #include "renderer/uniform_types.hpp"
 #include "scene/node.hpp"
 
+#include <nlohmann/json_fwd.hpp>
+
 #include <cstdint>
 #include <memory>
 #include <span>
@@ -51,12 +53,21 @@ public:
     [[nodiscard]] std::vector<const Node*> collect_subtree(uint32_t root_id) const;
 
     Result<> save(const std::string& path, const Project* project = nullptr);
-
-    void mark_dirty() { dirty_ = true; }
-    [[nodiscard]] bool is_dirty() const { return dirty_; }
     static Result<Scene> load(const std::string& path,
                               ResourceManager& resources,
                               const Project* project = nullptr);
+
+    /// The scene as save() writes it, without touching the file system.
+    /// Asset references are written as ids when the project tracks them.
+    [[nodiscard]] nlohmann::json to_json(const Project* project = nullptr) const;
+    /// A scene built from to_json() output. A node that fails to deserialize
+    /// is reported and left out; the caller decides whether that is fatal.
+    [[nodiscard]] static Scene from_json(const nlohmann::json& j,
+                                         ResourceManager& resources,
+                                         const Project* project = nullptr);
+
+    void mark_dirty() { dirty_ = true; }
+    [[nodiscard]] bool is_dirty() const { return dirty_; }
 
     [[nodiscard]] int object_count() const { return static_cast<int>(objects_.size()); }
     [[nodiscard]] auto& objects() { return objects_; }

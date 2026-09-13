@@ -22,7 +22,6 @@ class ResourceManager;
 class VfxSubsystem : public Subsystem {
 public:
     [[nodiscard]] std::string_view name() const override { return "VFX"; }
-    [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
 
     void tick(const TickContext& ctx) override;
 

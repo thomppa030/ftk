@@ -655,8 +655,4 @@ void BlendSpace1DEditorContext::apply_resize(VulkanContext& vk) {
     viewport_manager_.apply_resize(vk);
 }
 
-bool BlendSpace1DEditorContext::any_viewport_hovered() const {
-    return viewport_manager_.any_hovered();
-}
-
 } // namespace fjell

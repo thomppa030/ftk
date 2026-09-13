@@ -13,8 +13,8 @@ Quick map of the source tree. If you're looking for something specific, this sho
 | `input` | Keyboard and mouse state polling |
 | `clock` | Frame delta time and elapsed time |
 | `project` | Project configuration (paths, settings) |
-| `play_session` | Play mode state — owns the fly camera and physics world |
-| `layer` / `layer_stack` | Input layer priority stack |
+| `play_controller` | Play mode lifecycle: state machine, subsystem start/stop order, transition delegates |
+| `play_session` / `play_snapshot` | State alive only while playing, and the editor scene captured for restore |
 | `game_builder` | Builds standalone game packages |
 | `log` | spdlog setup and console sink |
 | `base_path` | Resolves paths relative to the executable |

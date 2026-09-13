@@ -7,7 +7,6 @@
 #include "ui/properties_panel.hpp"
 #include "ui/viewport_manager.hpp"
 #include "core/delegate.hpp"
-#include "core/play_session.hpp"
 #include "scene/transform.hpp"
 
 #include <glm/glm.hpp>
@@ -33,6 +32,7 @@ class ContentBrowser;
 class FileBrowser;
 class NetManager;
 class CameraSubsystem;
+class PlayController;
 class ScreenDebugQueue;
 class VulkanContext;
 class Window;
@@ -57,11 +57,7 @@ struct SceneEditorDeps {
     NetManager* net_manager{nullptr};
     CameraSubsystem* camera_subsystem{nullptr};
     ScreenDebugQueue* screen_debug_queue{nullptr};
-    bool game_mode;
-
-    // Play lifecycle callbacks (Engine provides these)
-    std::function<void()> start_play;
-    std::function<void()> stop_play;
+    PlayController* play{nullptr};
 };
 
 class SceneEditorContext final : public EditorContext {
@@ -82,24 +78,11 @@ public:
     // Scene to render
     [[nodiscard]] Scene* render_scene() override { return deps_.scene; }
 
-    // Play mode
-    [[nodiscard]] bool supports_play() const override { return true; }
-    [[nodiscard]] bool is_playing() const override { return play_session_ != nullptr; }
     void draw_play_overlay() override;
-
-    // Called by Engine before/after subsystem lifecycle
-    void on_play_enter();
-    void on_play_exit();
-
-    // Called by UI buttons — delegates to Engine via callbacks
-    void request_play();
-    void request_stop();
-    [[nodiscard]] bool play_wants_stop() const;
 
     // Viewport render requests
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override;
     void apply_resize(VulkanContext& vk) override;
-    [[nodiscard]] bool any_viewport_hovered() const override;
     void render_previews(VulkanContext& vk, Scene* scene, float dt,
                           const DirectionalLight& light, ThreadPool& pool) override;
 
@@ -156,7 +139,6 @@ private:
     uint32_t selected_id_{0};
     int gizmo_op_{0};
     int focus_viewport_frames_{0}; // countdown: focus viewport after N frames
-    std::unique_ptr<PlaySession> play_session_;
 
     // Play-mode FPS overlay (frames counted locally, updated every 0.5s).
     // Kept out of the game UI context so the HUD layout never rebuilds for it.

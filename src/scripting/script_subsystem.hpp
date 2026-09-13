@@ -11,7 +11,6 @@ namespace fjell {
 class ScriptSubsystem : public Subsystem {
 public:
     [[nodiscard]] std::string_view name() const override { return "Scripts"; }
-    [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::PLAY_ONLY; }
 
     void tick(const TickContext& ctx) override {
         manager_.update(ctx.scene, ctx.input, ctx.clock, ctx.physics);

@@ -41,7 +41,6 @@ public:
 
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override { return {}; }
     void apply_resize(VulkanContext&) override {}
-    [[nodiscard]] bool any_viewport_hovered() const override { return false; }
 
     void open_context(const std::string& fjinput_path);
     void open_action(const std::string& fjaction_path);

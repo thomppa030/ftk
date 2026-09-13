@@ -11,7 +11,6 @@ class ResourceManager;
 class SpriteAnimSubsystem : public Subsystem {
 public:
     [[nodiscard]] std::string_view name() const override { return "SpriteAnim"; }
-    [[nodiscard]] TickPolicy tick_policy() const override { return TickPolicy::ALWAYS; }
 
     void set_resource_manager(ResourceManager* rm) { resources_ = rm; }
 

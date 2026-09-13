@@ -605,7 +605,7 @@ void Scene::reparent(uint32_t child_id, int32_t new_parent_id) {
     dirty_ = true;
 }
 
-Result<> Scene::save(const std::string& path, const Project* project) {
+nlohmann::json Scene::to_json(const Project* project) const {
     nlohmann::json j;
     j["next_id"] = next_id_;
     j["objects"] = nlohmann::json::array();
@@ -643,11 +643,15 @@ Result<> Scene::save(const std::string& path, const Project* project) {
         }
     }
 
+    return j;
+}
+
+Result<> Scene::save(const std::string& path, const Project* project) {
     std::ofstream file(path);
     if (!file.is_open()) {
         return make_error("Failed to save scene: " + path);
     }
-    file << j.dump(2);
+    file << to_json(project).dump(2);
     dirty_ = false;
     FJELL_CORE_INFO("Scene saved: {}", path);
     return {};
@@ -667,12 +671,23 @@ Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
         return make_error(std::string("Failed to parse scene: ") + e.what());
     }
 
+    Scene scene = from_json(j, resources, project);
+    FJELL_CORE_INFO("Scene loaded: {} objects from {}", scene.object_count(), path);
+    return scene;
+}
+
+Scene Scene::from_json(const nlohmann::json& j, ResourceManager& resources,
+                       const Project* project) {
     Scene scene;
     uint32_t max_id = 0;
 
     for (const auto& jobj : j["objects"]) {
         auto node = deserialize_node(jobj, resources, project);
-        if (!node) continue;
+        if (!node) {
+            FJELL_CORE_ERROR("Scene: node '{}' could not be deserialized and was dropped",
+                             jobj.value("name", "?"));
+            continue;
+        }
 
         if (node->id > 0 && node->id > max_id) {
             max_id = node->id;
@@ -727,7 +742,6 @@ Result<Scene> Scene::load(const std::string& path, ResourceManager& resources,
         scene.set_next_id(max_id + 1);
     }
 
-    FJELL_CORE_INFO("Scene loaded: {} objects from {}", scene.object_count(), path);
     return scene;
 }
 

@@ -6,7 +6,7 @@
 #include "core/input_action_map.hpp"
 #include "core/subsystem.hpp"
 #include "core/thread_pool.hpp"
-#include "core/layer_stack.hpp"
+#include "core/play_controller.hpp"
 #include "core/project_manager.hpp"
 #include "core/window.hpp"
 #include "renderer/resources/resource_handle.hpp"
@@ -103,14 +103,10 @@ private:
 
     void load_scene(const std::string& path);
     void load_input_actions();
-    void load_input_contexts();
     void load_project_scripts();
     void flush_pending();
     [[nodiscard]] TickContext make_frame_context();
-
-    // Play lifecycle (subsystem start/stop ordering lives here)
-    void start_play();
-    void stop_play();
+    void handle_play_shortcuts();
 
     // Context management
     [[nodiscard]] EditorContext& active_context();
@@ -194,13 +190,10 @@ private:
 
     // Play mode
     bool play_immediate_{false};
+    PlayController play_controller_;
 
     // Game UI (owned by game layer, rendered via callback)
     GameUi game_ui_;
-
-    // Layer stack for input routing
-    LayerStack layer_stack_;
-    bool viewport_hovered_{false};
 
     // UI state
     bool layout_built_{false};

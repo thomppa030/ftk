@@ -345,10 +345,6 @@ void VfxEditorContext::apply_resize(VulkanContext& vk) {
     viewport_manager_.apply_resize(vk);
 }
 
-bool VfxEditorContext::any_viewport_hovered() const {
-    return viewport_manager_.any_hovered();
-}
-
 // ── Open / Save ─────────────────────────────────────────────────────────
 
 void VfxEditorContext::open_effect(const std::string& fjvfx_path) {

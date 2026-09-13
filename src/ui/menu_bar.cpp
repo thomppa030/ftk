@@ -23,7 +23,6 @@ void MenuBar::draw() {
         draw_view_menu();
         draw_layout_menu();
         draw_scripts_menu();
-        draw_play_button();
         ImGui::EndMainMenuBar();
     }
     draw_popups();
@@ -156,10 +155,6 @@ void MenuBar::draw_scripts_menu() {
         on_build_scripts.broadcast();
     }
     ImGui::EndMenu();
-}
-
-void MenuBar::draw_play_button() {
-    // Play controls moved to viewport toolbar
 }
 
 void MenuBar::draw_popups() {

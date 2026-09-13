@@ -1,25 +1,23 @@
 #pragma once
 
-#include "scene/scene.hpp"
+#include "core/play_snapshot.hpp"
 
-#include <memory>
-#include <vector>
+#include <optional>
 
 namespace fjell {
 
-class Input;
-
+/// State that exists only while play mode is running. Created by
+/// PlayController::start(), destroyed by stop().
 class PlaySession {
 public:
-    explicit PlaySession(Scene& scene);
+    explicit PlaySession(std::optional<PlaySnapshot> snapshot)
+        : snapshot_{std::move(snapshot)} {}
 
-    [[nodiscard]] bool wants_stop(const Input& input) const;
-
-    void restore(Scene& scene);
+    /// Empty in game mode, where there is no editor scene to go back to.
+    [[nodiscard]] const std::optional<PlaySnapshot>& snapshot() const { return snapshot_; }
 
 private:
-    std::vector<std::unique_ptr<Node>> scene_snapshot_;
-    uint32_t next_id_snapshot_;
+    std::optional<PlaySnapshot> snapshot_;
 };
 
 } // namespace fjell

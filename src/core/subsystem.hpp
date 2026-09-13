@@ -7,17 +7,14 @@ namespace fjell {
 
 struct TickContext;
 
-enum class TickPolicy : uint8_t {
-    ALWAYS,
-    PLAY_ONLY,
-};
-
+/// A self-contained engine system ticked once per frame. Engine places each
+/// subsystem in a phase group, which decides both the order and whether it
+/// runs only during play.
 class Subsystem {
 public:
     virtual ~Subsystem() = default;
 
     [[nodiscard]] virtual std::string_view name() const = 0;
-    [[nodiscard]] virtual TickPolicy tick_policy() const { return TickPolicy::ALWAYS; }
 
     virtual void tick(const TickContext& /*ctx*/) {}
 

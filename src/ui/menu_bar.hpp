@@ -24,7 +24,6 @@ public:
 
     // ── Per-frame state (set by Engine before draw) ─────────────────────
     void set_project(Project* p) { project_ = p; }
-    void set_playing(bool p) { playing_ = p; }
     void set_building(bool b) { building_ = b; }
     void set_scene_path(const std::string& p) { scene_path_ = &p; }
     void set_vulkan_context(VulkanContext* vk) { vk_ = vk; }
@@ -46,8 +45,6 @@ public:
     Delegate<void(const std::filesystem::path&, const std::string&)> on_create_project;
     Delegate<void()> on_close_project;
     Delegate<void()> on_build_scripts;
-    Delegate<void()> on_start_play;
-    Delegate<void()> on_stop_play;
     Delegate<void(const std::string&)> on_new_script;
     Delegate<void()> on_build_game;
     Delegate<void(const std::string&)> on_save_layout;
@@ -61,7 +58,6 @@ private:
     void draw_view_menu();
     void draw_layout_menu();
     void draw_scripts_menu();
-    void draw_play_button();
     void draw_popups();
 
     // Per-frame (set externally)
@@ -69,7 +65,6 @@ private:
     VulkanContext* vk_{nullptr};
     ViewportManager* viewports_{nullptr};
     const std::string* scene_path_{nullptr};
-    bool playing_{false};
     bool building_{false};
 
     // Owned state

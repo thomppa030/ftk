@@ -64,7 +64,6 @@ public:
     [[nodiscard]] Scene* render_scene() override { return &preview_scene_; }
     [[nodiscard]] std::vector<ViewportRenderRequest> build_render_requests() override;
     void apply_resize(VulkanContext& vk) override;
-    [[nodiscard]] bool any_viewport_hovered() const override;
 
     // Open from asset path
     void open_skeleton(const std::string& skel_path);
