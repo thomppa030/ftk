@@ -10,7 +10,7 @@
 namespace fjell {
 
 class Model;
-class Node;
+struct Node;
 class Scene;
 
 class PhysicsWorld {
