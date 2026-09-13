@@ -439,12 +439,19 @@ PhysicsWorld::~PhysicsWorld() {
 
 static constexpr float MIN_DIMENSION = 0.001f;
 
-static float clamp_positive(float v) {
-    return std::max(v, MIN_DIMENSION);
+// A box half-extent below the backend's convex radius trips an assert rather
+// than producing a degenerate shape, so a collider authored thinner than this
+// is widened instead of taking the process down with it.
+static constexpr float MIN_BOX_HALF_EXTENT = JPH::cDefaultConvexRadius;
+
+static glm::vec3 clamp_box_half_extents(const glm::vec3& v) {
+    return {std::max(v.x, MIN_BOX_HALF_EXTENT),
+            std::max(v.y, MIN_BOX_HALF_EXTENT),
+            std::max(v.z, MIN_BOX_HALF_EXTENT)};
 }
 
-static glm::vec3 clamp_positive(const glm::vec3& v) {
-    return {std::max(v.x, MIN_DIMENSION), std::max(v.y, MIN_DIMENSION), std::max(v.z, MIN_DIMENSION)};
+static float clamp_positive(float v) {
+    return std::max(v, MIN_DIMENSION);
 }
 
 // ── Collision primitives ────────────────────────────────────────────────
@@ -459,7 +466,7 @@ static JPH::ShapeRefC build_primitive_shape(const CollisionPrimitive& prim,
                                             const std::string& owner) {
     switch (prim.kind) {
         case CollisionPrimitiveKind::box: {
-            auto he = clamp_positive(prim.extents * scale);
+            auto he = clamp_box_half_extents(prim.extents * scale);
             return new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
         }
         case CollisionPrimitiveKind::sphere: {
@@ -709,7 +716,7 @@ void PhysicsWorld::create_body(Node& node) {
 
     switch (effective_shape) {
         case ColliderShape::Box: {
-            auto he = clamp_positive(col.half_extents * s);
+            auto he = clamp_box_half_extents(col.half_extents * s);
             shape = new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
             break;
         }
@@ -1098,7 +1105,7 @@ static JPH::ShapeRefC query_shape(QueryShape shape, const glm::vec3& extents) {
         case QueryShape::sphere:
             return new JPH::SphereShape(clamp_positive(extents.x));
         case QueryShape::box: {
-            auto he = clamp_positive(extents);
+            auto he = clamp_box_half_extents(extents);
             return new JPH::BoxShape(JPH::Vec3(he.x, he.y, he.z));
         }
         case QueryShape::capsule:
