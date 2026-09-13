@@ -236,6 +236,15 @@ Model::Model(VmaAllocator allocator, UploadContext& upload,
     }
     collision_indices_ = data.indices;
 
+    // Primitives are convex by construction, so their collision is a hull
+    // rather than a triangle mesh. That matters beyond efficiency: a triangle
+    // mesh cannot back a moving body, so without this a cube with a dynamic
+    // rigidbody is silently forced static and never falls.
+    CollisionPrimitive hull;
+    hull.kind = CollisionPrimitiveKind::convex_hull;
+    hull.vertex_count = static_cast<uint32_t>(collision_vertices_.size());
+    collision_primitives_.push_back(hull);
+
     auto meshlet_result = build_meshlets(
         data.vertices.data(), static_cast<uint32_t>(data.vertices.size()),
         data.indices.data(), static_cast<uint32_t>(data.indices.size()));
