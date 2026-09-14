@@ -30,6 +30,13 @@ struct FjSkinnedMeshData {
     std::vector<BoneCollider> colliders;
 };
 
+// The bone influences of one render vertex, kept on the CPU so the mesh can
+// be posed without the GPU.
+struct SkinInfluence {
+    glm::uvec4 bone_ids;
+    glm::vec4 bone_weights;
+};
+
 // A skinned mesh with per-model VBO/IBO (not MegaBuffer).
 // Used for skeletal animation — different vertex stride (SkinnedVertex, 92 bytes)
 // and separate draw path from static Model.
@@ -80,6 +87,18 @@ public:
         return collision_indices_;
     }
 
+    // The rendered triangle list, indexing the positions pose_surface() writes.
+    [[nodiscard]] const std::vector<uint32_t>& surface_indices() const {
+        return surface_indices_;
+    }
+
+    // Model-space positions of every render vertex under `skin_matrices`, the
+    // model * inverse-bind palette an animator produces (one entry per joint).
+    // An empty palette yields the bind pose, which is also what the renderer
+    // shows when no animator drives the mesh. `out` is resized to fit.
+    void pose_surface(const std::vector<glm::mat4>& skin_matrices,
+                      std::vector<glm::vec3>& out) const;
+
 private:
     Buffer vertex_buffer_;
     Buffer index_buffer_;
@@ -89,6 +108,9 @@ private:
     float bounding_radius_{0.0f};
     std::vector<glm::vec3> collision_vertices_;
     std::vector<uint32_t> collision_indices_;
+    std::vector<glm::vec3> surface_positions_;
+    std::vector<SkinInfluence> surface_influences_;
+    std::vector<uint32_t> surface_indices_;
     std::shared_ptr<Skeleton> skeleton_;
     MeshletBuildResult meshlets_;
     MeshletRange meshlet_range_;

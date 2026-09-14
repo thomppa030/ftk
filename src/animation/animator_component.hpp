@@ -100,6 +100,14 @@ public:
     // Set by AnimationSystem::update() each frame for notify dispatch.
     void set_owner(Node3D* owner) { owner_ = owner; }
     [[nodiscard]] bool has_active_clip() const { return layers_[0].clip != nullptr || has_active_blend_space(); }
+
+    /// True when skin_matrices() describe a real pose: the animator is bound to
+    /// a skeleton, has something playing, and has produced a palette. Anything
+    /// that shows or tests the mesh uses this to decide between the animated
+    /// pose and the bind pose, so they always agree on which one is on screen.
+    [[nodiscard]] bool drives_pose() const {
+        return initialized() && has_active_clip() && !skin_matrices_.empty();
+    }
     [[nodiscard]] bool has_active_blend_space() const;
 
     // Access the state machine (for setting params, reading state, binding on_transition).

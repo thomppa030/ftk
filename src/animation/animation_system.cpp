@@ -60,9 +60,8 @@ void AnimationSystem::upload_bones(Scene& scene, uint32_t frame_index) {
             bone_counts_.resize(id + 1, 0);
         }
 
-        // Use animated pose if AnimatorComponent exists and has a valid pose
         auto* anim = obj->components.get<AnimatorComponent>();
-        if (anim && anim->initialized() && anim->has_active_clip() && anim->bone_count() > 0) {
+        if (anim && anim->drives_pose()) {
             uint32_t offset = bone_buffer_.upload(anim->skin_matrices(), frame_index);
             bone_offsets_[id] = offset;
             bone_counts_[id] = anim->bone_count();

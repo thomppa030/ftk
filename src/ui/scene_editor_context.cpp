@@ -163,6 +163,65 @@ bool ray_hits_model(const glm::vec3& origin, const glm::vec3& dir,
     return true;
 }
 
+// Skinned counterpart of ray_hits_model. The surface is posed on the CPU
+// first, using the animator's palette when it drives the mesh and the bind
+// pose otherwise, exactly as the renderer chooses. A posed character can
+// reach well outside its bind-pose bounds, so there is no box broad phase;
+// scenes hold few enough skinned meshes that posing each one per click is
+// cheap. `scratch` holds the posed positions between calls.
+bool ray_hits_skeletal_model(const glm::vec3& origin, const glm::vec3& dir,
+                             const SkeletalModel& model,
+                             const AnimatorComponent* animator,
+                             const glm::mat4& world, float t_limit,
+                             std::vector<glm::vec3>& scratch, float& out_t) {
+    static const std::vector<glm::mat4> BIND_POSE;
+    const auto& palette = (animator && animator->drives_pose())
+        ? animator->skin_matrices() : BIND_POSE;
+    model.pose_surface(palette, scratch);
+
+    const auto& indices = model.surface_indices();
+    float best_t = t_limit;
+    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+        const glm::vec3 a{world * glm::vec4(scratch[indices[i + 0]], 1.0f)};
+        const glm::vec3 b{world * glm::vec4(scratch[indices[i + 1]], 1.0f)};
+        const glm::vec3 c{world * glm::vec4(scratch[indices[i + 2]], 1.0f)};
+
+        float t = 0.0f;
+        if (ray_hits_triangle(origin, dir, a, b, c, t) && t < best_t) {
+            best_t = t;
+        }
+    }
+    if (best_t >= t_limit) return false;
+    out_t = best_t;
+    return true;
+}
+
+// Radius of the sphere the camera frames when double-clicking `obj`: the
+// farthest surface point from the node origin, in world units.
+float focus_radius_of(const Node3D& obj, std::vector<glm::vec3>& scratch) {
+    const glm::vec3 center = glm::vec3(obj.world_matrix_[3]);
+    float max_r2 = 0.0f;
+    auto extend = [&](const glm::vec3& local) {
+        const auto wv = glm::vec3(obj.world_matrix_ * glm::vec4(local, 1.0f));
+        max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
+    };
+
+    if (const auto* mesh = obj.components.get<MeshComponent>();
+        mesh && mesh->model) {
+        for (const auto& v : mesh->model->collision_vertices()) extend(v);
+    } else if (const auto* skel = obj.components.get<SkeletalMeshComponent>();
+               skel && skel->skeletal_model) {
+        const auto* animator = obj.components.get<AnimatorComponent>();
+        static const std::vector<glm::mat4> BIND_POSE;
+        skel->skeletal_model->pose_surface(
+            (animator && animator->drives_pose()) ? animator->skin_matrices() : BIND_POSE,
+            scratch);
+        for (const auto& v : scratch) extend(v);
+    }
+
+    return max_r2 > 0.0f ? std::max(std::sqrt(max_r2), 0.1f) : 1.0f;
+}
+
 } // namespace
 
 SceneEditorContext::SceneEditorContext(SceneEditorDeps deps)
@@ -453,16 +512,25 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
 
         float closest_t = std::numeric_limits<float>::max();
         uint32_t hit_id = 0;
+        std::vector<glm::vec3> posed;
 
         for (const auto& obj : deps_.scene->objects()) {
-            auto* mesh = obj->components.get<MeshComponent>();
-            if (!mesh || !mesh->model) continue;
             const auto* spatial = obj->as_spatial();
             if (!spatial) continue;
 
             float t = 0.0f;
-            if (ray_hits_model(ray_origin, ray_dir, *mesh->model,
-                               spatial->world_matrix_, closest_t, t)) {
+            bool hit = false;
+            if (const auto* mesh = obj->components.get<MeshComponent>();
+                mesh && mesh->model) {
+                hit = ray_hits_model(ray_origin, ray_dir, *mesh->model,
+                                     spatial->world_matrix_, closest_t, t);
+            } else if (const auto* skel = obj->components.get<SkeletalMeshComponent>();
+                       skel && skel->skeletal_model) {
+                hit = ray_hits_skeletal_model(ray_origin, ray_dir, *skel->skeletal_model,
+                                              obj->components.get<AnimatorComponent>(),
+                                              spatial->world_matrix_, closest_t, posed, t);
+            }
+            if (hit) {
                 closest_t = t;
                 hit_id = obj->id;
             }
@@ -472,19 +540,8 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
             selected_id_ = hit_id;
             if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 if (auto* hit_obj = deps_.scene->find_spatial(hit_id)) {
-                    glm::vec3 center = glm::vec3(hit_obj->world_matrix_[3]);
-                    float radius = 1.0f;
-                    auto* hit_mesh = hit_obj->components.get<MeshComponent>();
-                    if (hit_mesh && hit_mesh->model &&
-                        !hit_mesh->model->collision_vertices().empty()) {
-                        float max_r2 = 0.0f;
-                        for (const auto& v : hit_mesh->model->collision_vertices()) {
-                            auto wv = glm::vec3(hit_obj->world_matrix_ * glm::vec4(v, 1.0f));
-                            max_r2 = std::max(max_r2, glm::dot(wv - center, wv - center));
-                        }
-                        radius = std::max(std::sqrt(max_r2), 0.1f);
-                    }
-                    vp.camera.focus(center, radius);
+                    vp.camera.focus(glm::vec3(hit_obj->world_matrix_[3]),
+                                    focus_radius_of(*hit_obj, posed));
                 }
             }
         } else {

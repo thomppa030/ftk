@@ -5,6 +5,7 @@
 #include "core/log.hpp"
 
 #include <cstddef>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -28,7 +29,15 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, UploadContext& upload,
     , joint_count_{data.joint_count}
     , local_aabb_{data.aabb}
     , collision_vertices_{std::move(data.collision_vertices)}
-    , collision_indices_{std::move(data.collision_indices)} {
+    , collision_indices_{std::move(data.collision_indices)}
+    , surface_indices_{data.indices} {
+
+    surface_positions_.reserve(data.vertices.size());
+    surface_influences_.reserve(data.vertices.size());
+    for (const auto& v : data.vertices) {
+        surface_positions_.push_back(v.position);
+        surface_influences_.push_back({v.bone_ids, v.bone_weights});
+    }
 
     glm::vec3 center = (local_aabb_.min + local_aabb_.max) * 0.5f;
     bounding_radius_ = glm::length(local_aabb_.max - center);
@@ -82,6 +91,30 @@ SkeletalModel::SkeletalModel(VmaAllocator allocator, UploadContext& upload,
     FJELL_GFX_DEBUG("SkeletalModel created: {} verts, {} indices, {} joints{}",
                     data.vertices.size(), data.indices.size(), joint_count_,
                     skeleton_ ? " (with skeleton)" : "");
+}
+
+void SkeletalModel::pose_surface(const std::vector<glm::mat4>& skin_matrices,
+                                 std::vector<glm::vec3>& out) const {
+    out.resize(surface_positions_.size());
+    if (skin_matrices.empty()) {
+        std::copy(surface_positions_.begin(), surface_positions_.end(), out.begin());
+        return;
+    }
+
+    // Same weighted sum the skinning vertex shader computes, so the posed
+    // surface lands exactly where the rendered one does.
+    for (size_t i = 0; i < surface_positions_.size(); ++i) {
+        const glm::vec4 p{surface_positions_[i], 1.0f};
+        const auto& inf = surface_influences_[i];
+        glm::vec3 posed{0.0f};
+        for (int k = 0; k < 4; ++k) {
+            const float w = inf.bone_weights[k];
+            const uint32_t bone = inf.bone_ids[k];
+            if (w == 0.0f || bone >= skin_matrices.size()) continue;
+            posed += glm::vec3(skin_matrices[bone] * p) * w;
+        }
+        out[i] = posed;
+    }
 }
 
 void SkeletalModel::bind(VkCommandBuffer cmd) const {
