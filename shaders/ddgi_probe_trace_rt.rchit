@@ -9,7 +9,6 @@ layout(push_constant) uniform PushConstants {
     float light_intensity;
     vec3 light_color;
     float max_trace_dist;
-    float emissive_gi_boost;
 };
 
 // ── DDGI atlases for hit-point indirect (multi-bounce) ──────────────────

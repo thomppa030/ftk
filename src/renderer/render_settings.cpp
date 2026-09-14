@@ -39,7 +39,6 @@ void to_json(nlohmann::json& j, const RenderSettings& s) {
         {"ddgi", {
             {"enabled",                s.ddgi.enabled},
             {"gi_intensity",           s.ddgi.gi_intensity},
-            {"emissive_gi_boost",      s.ddgi.emissive_gi_boost},
             {"infinite_bounces_mult",  s.ddgi.infinite_bounces_mult},
             {"normal_bias",            s.ddgi.normal_bias},
             {"view_bias",              s.ddgi.view_bias},
@@ -81,7 +80,6 @@ void from_json(const nlohmann::json& j, RenderSettings& s) {
         const auto& d = j["ddgi"];
         s.ddgi.enabled               = d.value("enabled",               s.ddgi.enabled);
         s.ddgi.gi_intensity          = d.value("gi_intensity",          s.ddgi.gi_intensity);
-        s.ddgi.emissive_gi_boost     = d.value("emissive_gi_boost",     s.ddgi.emissive_gi_boost);
         s.ddgi.infinite_bounces_mult = d.value("infinite_bounces_mult", s.ddgi.infinite_bounces_mult);
         s.ddgi.normal_bias           = d.value("normal_bias",           s.ddgi.normal_bias);
         s.ddgi.view_bias             = d.value("view_bias",             s.ddgi.view_bias);
@@ -149,7 +147,6 @@ void snapshot_render_settings(VulkanContext& ctx, RenderSettings& out) {
     const auto& ddgi = ctx.ddgi_pass().config();
     out.ddgi.enabled               = ddgi.enabled;
     out.ddgi.gi_intensity          = ddgi.gi_intensity;
-    out.ddgi.emissive_gi_boost     = ddgi.emissive_gi_boost;
     out.ddgi.infinite_bounces_mult = ddgi.infinite_bounces_mult;
     out.ddgi.normal_bias           = ddgi.normal_bias;
     out.ddgi.view_bias             = ddgi.view_bias;

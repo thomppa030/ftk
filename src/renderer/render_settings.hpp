@@ -21,7 +21,6 @@ struct RenderSettings {
     struct Ddgi {
         bool enabled{true};
         float gi_intensity{1.0f};
-        float emissive_gi_boost{4.0f};
         // See DdgiConfig::infinite_bounces_mult in ddgi_pass.hpp for why
         // this default was lowered from 0.8 (steady-state feedback settles
         // at direct_light / (1 - this) — 0.8 meant 5x, kept clamping bright

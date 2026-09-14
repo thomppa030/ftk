@@ -122,7 +122,6 @@ void ProjectSettingsPanel::draw_render_section() {
                                     cfg.probe_spacing.x);
             }
             if (ImGui::SliderFloat("GI Intensity##ddgi", &s.ddgi.gi_intensity, 0.0f, 2.0f)) { dirty = true; }
-            if (ImGui::SliderFloat("Emissive Boost##ddgi", &s.ddgi.emissive_gi_boost, 1.0f, 30.0f)) { dirty = true; }
             if (ImGui::SliderFloat("Infinite Bounces##ddgi", &s.ddgi.infinite_bounces_mult, 0.0f, 3.0f)) { dirty = true; }
             if (ImGui::SliderFloat("Normal Bias##ddgi", &s.ddgi.normal_bias, 0.0f, 1.0f)) { dirty = true; }
             ImGui::SameLine(0, 10); ImGui::TextDisabled("(?)");

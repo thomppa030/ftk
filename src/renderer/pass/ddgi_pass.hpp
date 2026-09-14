@@ -120,7 +120,6 @@ struct DdgiConfig {
     float view_bias{0.6f};
     float max_probe_offset{0.5f};
     float gi_intensity{1.0f};
-    float emissive_gi_boost{4.0f};
     // Per-bounce energy retained in the multi-bounce feedback loop
     // (ddgi_probe_trace_rt.rchit adds sample_ddgi_irradiance() * this back
     // into each ray hit's radiance). The feedback is a geometric series —
@@ -410,14 +409,10 @@ public:
         float light_intensity;
         glm::vec3 light_color;
         float max_trace_dist;
-        float emissive_gi_boost;
-        float pad0;
-        float pad1;
-        float pad2;
         glm::vec3 sdf_volume_min;
-        float pad3;
+        float pad0;
         glm::vec3 sdf_volume_max;
-        float pad4;
+        float pad1;
     };
 
     /// Push constants for the irradiance spatial filter.

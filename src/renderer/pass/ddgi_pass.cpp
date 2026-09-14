@@ -1704,7 +1704,6 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
         rt_push.light_intensity = light_intensity_;
         rt_push.light_color = light_color_;
         rt_push.max_trace_dist = MAX_TRACE_DIST;
-        rt_push.emissive_gi_boost = config_.emissive_gi_boost;
         rt_push.sdf_volume_min = sdf_volume_min_;
         rt_push.sdf_volume_max = sdf_volume_max_;
 

@@ -26,7 +26,6 @@ layout(push_constant) uniform PushConstants {
     float light_intensity;
     vec3 light_color;
     float max_trace_dist;
-    float emissive_gi_boost;
     vec3 sdf_volume_min;
     float pad_pc0;
     vec3 sdf_volume_max;
