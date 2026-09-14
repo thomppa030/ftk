@@ -156,7 +156,7 @@ enum class CharacterGroundState : uint8_t {
 /// @code
 /// if (auto* c = self().get_component<fjell::CharacterComponent>()) {
 ///     if (c->ground_state == fjell::CharacterGroundState::OnGround) {
-///         c->linear_velocity.y = jump_speed_;
+///         c->velocity.y = jump_speed_;
 ///     }
 /// }
 /// @endcode
@@ -165,6 +165,58 @@ struct CharacterComponent {
 
     /// Radius of the character's capsule — roughly shoulder width.
     float capsule_radius{0.3f};
+
+    /// Capsule height between cap centers; total standing height is this plus
+    /// twice the radius.
+    float capsule_height{1.4f};
+
+    /// Steepest slope in degrees the character can stand on. Steeper ground
+    /// reports `OnSteepGround` and the character slides down it.
+    float max_slope_angle{50.0f};
+
+    /// Mass in kilograms. Bounds how hard the character pushes dynamic bodies.
+    float mass{80.0f};
+
+    /// Stand the capsule on the node origin, where a character mesh has its
+    /// feet. Off, the capsule is centered on the origin.
+    bool feet_at_origin{true};
+
+    /// Extra offset of the capsule center from the node origin, applied on
+    /// top of `feet_at_origin`.
+    glm::vec3 shape_offset{0.0f};
+
+    /// Tallest ledge the character walks up without jumping.
+    float step_up{0.4f};
+
+    /// How far the ground may drop below the feet before the character stops
+    /// following it and goes airborne. Keeps it on the floor down stairs.
+    float step_down{0.5f};
+
+    /// The velocity to move with, in world units per second. Write it before
+    /// the physics step; the solver writes back what it actually did.
+    /// Horizontal components persist until rewritten, so set them every tick,
+    /// to zero when there is no input. Vertical is gravity's: write a positive
+    /// value while `OnGround` to jump, and otherwise leave it alone.
+    glm::vec3 velocity{0.0f};
+
+    /// Whether the character is grounded. Read-only output, refreshed each
+    /// frame — check it before allowing a jump.
+    CharacterGroundState ground_state{CharacterGroundState::InAir};
+
+    /// Surface normal underfoot; `(0,1,0)` when airborne. Read-only output,
+    /// useful for aligning to slopes.
+    glm::vec3 ground_normal{0.0f, 1.0f, 0.0f};
+
+    /// Velocity of the surface underfoot, for moving platforms. Read-only output.
+    glm::vec3 ground_velocity{0.0f};
+
+    /// Where the capsule's center sits relative to the node origin.
+    [[nodiscard]] glm::vec3 capsule_center() const {
+        glm::vec3 center = shape_offset;
+        if (feet_at_origin) center.y += capsule_height * 0.5f + capsule_radius;
+        return center;
+    }
+};
 
     /// Capsule height between cap centers; total standing height is this plus
     /// twice the radius.

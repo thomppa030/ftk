@@ -94,7 +94,7 @@ TEST_CASE("A character falls onto the floor and reports it", "[character]") {
 
     REQUIRE(w.settle(id));
     REQUIRE(w.character(id).ground_normal.y == Approx(1.0f).margin(0.01f));
-    REQUIRE(w.character(id).linear_velocity.y == Approx(0.0f).margin(0.05f));
+    REQUIRE(w.character(id).velocity.y == Approx(0.0f).margin(0.05f));
 }
 
 TEST_CASE("A grounded character's feet rest on the floor at the node origin", "[character]") {
@@ -117,7 +117,7 @@ TEST_CASE("Writing an upward velocity while grounded starts a jump", "[character
     REQUIRE(w.settle(id));
     float rest_y = w.node(id).transform.position.y;
 
-    w.character(id).linear_velocity.y = 5.0f;
+    w.character(id).velocity.y = 5.0f;
     w.step(1);
     REQUIRE(w.character(id).ground_state == CharacterGroundState::InAir);
 
@@ -139,9 +139,12 @@ TEST_CASE("A character on ground steeper than its slope limit slides down", "[ch
     auto id = w.add_character({1.0f, 4.0f, 0.0f});
     w.start();
 
-    // Let it land; it must not be reported as walkable ground.
+    // Let it land; it must not be reported as walkable ground. Jolt reports
+    // a steep contact as OnSteepGround while at rest and NotSupported once
+    // sliding, and either is right here.
     w.step(90);
-    REQUIRE(w.character(id).ground_state == CharacterGroundState::OnSteepGround);
+    REQUIRE(w.character(id).ground_state != CharacterGroundState::OnGround);
+    REQUIRE(w.character(id).ground_state != CharacterGroundState::InAir);
     float y_on_contact = w.node(id).transform.position.y;
 
     w.step(60);
@@ -159,8 +162,8 @@ TEST_CASE("Low steps are climbed and tall steps block", "[character]") {
         float rest_y = w.node(id).transform.position.y;
 
         for (int i = 0; i < 120; ++i) {
-            w.character(id).linear_velocity.x = 2.0f;
-            w.character(id).linear_velocity.z = 0.0f;
+            w.character(id).velocity.x = 2.0f;
+            w.character(id).velocity.z = 0.0f;
             w.step(1);
         }
         return w.node(id).transform.position.y - rest_y;
@@ -183,8 +186,8 @@ TEST_CASE("A character that stood still is still detected by trigger volumes", "
 
     bool entered = false;
     for (int i = 0; i < 180 && !entered; ++i) {
-        w.character(id).linear_velocity.x = 2.0f;
-        w.character(id).linear_velocity.z = 0.0f;
+        w.character(id).velocity.x = 2.0f;
+        w.character(id).velocity.z = 0.0f;
         w.step(1);
         for (const auto& [node_id, event] : w.physics.trigger_enter_events()) {
             if (node_id == trigger && event.other_id == id) entered = true;

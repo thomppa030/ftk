@@ -712,9 +712,22 @@ void PhysicsWorld::create_body(Node& node) {
 
         JPH::CharacterVirtualSettings settings;
         settings.mShape = new JPH::CapsuleShape(half_h, r);
+        settings.mShapeOffset = to_jolt(char_comp->capsule_center());
         settings.mMaxSlopeAngle = JPH::DegreesToRadians(char_comp->max_slope_angle);
         settings.mMass = std::max(char_comp->mass, 1.0f);
+        // Pushing a dynamic body is bounded by roughly the character's own
+        // weight, so a heavy character shoves a crate and a light one is
+        // stopped by it. Unbounded, the default is a fixed 100 N for everyone.
+        settings.mMaxStrength = settings.mMass * impl_->physics_system->GetGravity().Length();
         settings.mUp = JPH::Vec3(0, 1, 0);
+        // Only contacts on the lower hemisphere count as ground. Without this
+        // the capsule's side does too, and a character hanging off a ledge by
+        // its waist reads as standing on it.
+        float bottom_cap_center = char_comp->capsule_center().y - half_h;
+        settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -bottom_cap_center);
+        // Mesh colliders have internal edges between their triangles; without
+        // this the capsule catches on them while crossing a flat floor.
+        settings.mEnhancedInternalEdgeRemoval = true;
         settings.mInnerBodyShape = new JPH::CapsuleShape(half_h, r);
         settings.mInnerBodyLayer = layers::MOVING;
 
@@ -1021,22 +1034,26 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         auto* cc = node->components.get<CharacterComponent>();
         if (!cc) continue;
 
-        glm::vec3 vel = cc->linear_velocity;
-        if (cc->ground_state == CharacterGroundState::InAir ||
-            cc->ground_state == CharacterGroundState::NotSupported) {
-            vel.y += gravity.GetY() * dt;
+        glm::vec3 vel = cc->velocity;
+        if (cc->ground_state == CharacterGroundState::OnGround) {
+            // Standing on something: vertical velocity is at least whatever the
+            // ground is doing, so a landed character stops pushing into the
+            // floor and a moving platform carries it. Anything faster upward
+            // was written by gameplay and is a jump, so it stays.
+            entry.character->UpdateGroundVelocity();
+            vel.y = std::max(vel.y, to_glm(entry.character->GetGroundVelocity()).y);
         } else {
-            // Standing on something: vertical velocity is whatever the ground
-            // is doing, not what was left over from falling onto it. Keeping
-            // the accumulated value makes a landed character keep pushing into
-            // the floor, and on a moving platform it would be left behind.
-            vel.y = to_glm(entry.character->GetGroundVelocity()).y;
+            // Airborne, or on ground too steep to stand on: gravity applies,
+            // which is what makes a steep slope something to slide down.
+            vel += to_glm(gravity) * dt;
         }
-        cc->linear_velocity = vel;
+        cc->velocity = vel;
 
         entry.character->SetLinearVelocity(to_jolt(vel));
 
         JPH::CharacterVirtual::ExtendedUpdateSettings update_settings;
+        update_settings.mWalkStairsStepUp = JPH::Vec3(0.0f, std::max(cc->step_up, 0.0f), 0.0f);
+        update_settings.mStickToFloorStepDown = JPH::Vec3(0.0f, -std::max(cc->step_down, 0.0f), 0.0f);
         entry.character->ExtendedUpdate(dt, gravity, update_settings,
             impl_->physics_system->GetDefaultBroadPhaseLayerFilter(layers::MOVING),
             impl_->physics_system->GetDefaultLayerFilter(layers::MOVING),
@@ -1077,7 +1094,7 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 
         node->transform.position = to_glm(entry.character->GetPosition());
 
-        cc->linear_velocity = to_glm(entry.character->GetLinearVelocity());
+        cc->velocity = to_glm(entry.character->GetLinearVelocity());
         cc->ground_velocity = to_glm(entry.character->GetGroundVelocity());
         cc->ground_normal = to_glm(entry.character->GetGroundNormal());
 

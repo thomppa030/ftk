@@ -305,7 +305,8 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
         uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
         if (count == 0) continue;
 
-        glm::mat4 model = glm::translate(glm::mat4(1.0f), spatial->transform.position);
+        glm::mat4 model = glm::translate(glm::mat4(1.0f),
+                                         spatial->transform.position + cc->capsule_center());
         draw_commands_.push_back({model, first, count, {0.0f, 0.9f, 0.9f, 1.0f}});
     }
 

@@ -51,17 +51,42 @@ bool fit_collider_to_primitive(ColliderComponent& collider, const std::string& s
 
 enum class CharacterGroundState : uint8_t { OnGround, OnSteepGround, NotSupported, InAir };
 
+// A capsule that walks. Field order is mirrored by the script SDK's copy of
+// this struct; change both together.
 struct CharacterComponent : NodeComponent {
     float capsule_radius{0.3f};
     float capsule_height{1.4f};
     float max_slope_angle{50.0f};
     float mass{80.0f};
 
+    // The node origin is where a character mesh has its feet, so the capsule
+    // is lifted to stand on it. Off, the capsule is centered on the origin.
+    bool feet_at_origin{true};
+    // Applied on top of that, for a capsule that sits off-center by design.
+    glm::vec3 shape_offset{0.0f};
+
+    // Tallest ledge walked up without jumping, and how far below the feet the
+    // ground may drop before the character stops following it.
+    float step_up{0.4f};
+    float step_down{0.5f};
+
+    // The velocity to move with, written by gameplay before the step, and the
+    // velocity the solver ended up with, written back after it. Horizontal
+    // components persist until rewritten; vertical is gravity's unless a
+    // positive value is written while grounded, which is a jump.
+    glm::vec3 velocity{0.0f};
+
     // Runtime (not serialized, updated by physics each frame)
     CharacterGroundState ground_state{CharacterGroundState::InAir};
     glm::vec3 ground_normal{0.0f, 1.0f, 0.0f};
     glm::vec3 ground_velocity{0.0f};
-    glm::vec3 linear_velocity{0.0f};
+
+    // Where the capsule's center sits relative to the node origin.
+    [[nodiscard]] glm::vec3 capsule_center() const {
+        glm::vec3 center = shape_offset;
+        if (feet_at_origin) center.y += capsule_height * 0.5f + capsule_radius;
+        return center;
+    }
 };
 
 struct CollisionEvent {

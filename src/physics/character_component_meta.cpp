@@ -24,8 +24,19 @@ static const bool registered = [] {
             if (ImGui::DragFloat("##CharSlope", &cc->max_slope_angle, 0.5f, 0.0f, 89.0f)) changed = true;
             ImGui::Text("Mass"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragFloat("##CharMass", &cc->mass, 0.5f, 1.0f, 500.0f)) changed = true;
+            if (ImGui::Checkbox("Feet At Origin", &cc->feet_at_origin)) changed = true;
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Stand the capsule on the node origin, where a character mesh has its feet");
+            }
+            ImGui::Text("Shape Offset"); ImGui::SetNextItemWidth(-1);
+            if (ImGui::DragFloat3("##CharOffset", &cc->shape_offset.x, 0.01f)) changed = true;
+            ImGui::Text("Step Up"); ImGui::SetNextItemWidth(-1);
+            if (ImGui::DragFloat("##CharStepUp", &cc->step_up, 0.01f, 0.0f, 5.0f)) changed = true;
+            ImGui::Text("Step Down"); ImGui::SetNextItemWidth(-1);
+            if (ImGui::DragFloat("##CharStepDown", &cc->step_down, 0.01f, 0.0f, 5.0f)) changed = true;
             static const char* ground_labels[] = {"On Ground", "On Steep Ground", "Not Supported", "In Air"};
             ImGui::TextDisabled("Ground: %s", ground_labels[static_cast<int>(cc->ground_state)]);
+            ImGui::TextDisabled("Velocity: %.2f %.2f %.2f", cc->velocity.x, cc->velocity.y, cc->velocity.z);
             return changed;
         },
 
@@ -40,6 +51,10 @@ static const bool registered = [] {
             out["capsule_height"] = cc->capsule_height;
             out["max_slope_angle"] = cc->max_slope_angle;
             out["mass"] = cc->mass;
+            out["feet_at_origin"] = cc->feet_at_origin;
+            out["shape_offset"] = {cc->shape_offset.x, cc->shape_offset.y, cc->shape_offset.z};
+            out["step_up"] = cc->step_up;
+            out["step_down"] = cc->step_down;
         },
 
         .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/, const Project* /*proj*/) {
@@ -48,6 +63,13 @@ static const bool registered = [] {
             cc.capsule_height = j.value("capsule_height", 1.4f);
             cc.max_slope_angle = j.value("max_slope_angle", 50.0f);
             cc.mass = j.value("mass", 80.0f);
+            cc.feet_at_origin = j.value("feet_at_origin", true);
+            if (j.contains("shape_offset")) {
+                auto& o = j["shape_offset"];
+                cc.shape_offset = {o[0].get<float>(), o[1].get<float>(), o[2].get<float>()};
+            }
+            cc.step_up = j.value("step_up", 0.4f);
+            cc.step_down = j.value("step_down", 0.5f);
         },
 
         .script_type_name = "CharacterComponent",
