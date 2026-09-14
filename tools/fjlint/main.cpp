@@ -2,21 +2,28 @@
 // .fjss stylesheets and .fjwidget files, without starting the engine.
 //
 //   fjlint <file or directory>...
+//   fjlint --stdin-filename <name> -
 //
 // Directories are searched for *.fjss and *.fjwidget. A widget's own
-// stylesheet is checked along with it. Exit status is 1 when anything was
-// reported, so a project's UI can be checked in CI or a pre-commit hook.
+// stylesheet is checked along with it. With "-" the stylesheet text is read
+// from stdin and reported under the given name, which is how an editor
+// checks a buffer while it is being typed, before it is saved. Exit status
+// is 1 when anything was reported, so a project's UI can be checked in CI
+// or a pre-commit hook.
 //
 // Reports use the compiler convention "file:line:column: severity: message",
-// which editors parse as is. For Neovim with nvim-lint:
+// which editors parse as is. For Neovim with nvim-lint, warnings appear on
+// their lines as you type:
 //
 //   require("lint").linters.fjlint = {
-//     cmd = "fjlint", stdin = false, args = {}, stream = "stdout",
-//     ignore_exitcode = true,
+//     cmd = "fjlint", stdin = true, stream = "stdout", ignore_exitcode = true,
+//     args = { "--stdin-filename", function() return vim.api.nvim_buf_get_name(0) end, "-" },
 //     parser = require("lint.parser").from_errorformat(
 //       "%f:%l:%c: %t%*[^:]: %m", { source = "fjlint" }),
 //   }
 //   require("lint").linters_by_ft.fjss = { "fjlint" }
+//   vim.api.nvim_create_autocmd({ "BufWritePost", "TextChanged", "InsertLeave" },
+//     { callback = function() require("lint").try_lint() end })
 //
 // with a filetype rule mapping *.fjss to "fjss". Vim's own :make works with
 // `set makeprg=fjlint\ %` and the default errorformat.
@@ -28,8 +35,10 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -49,6 +58,12 @@ struct Tally {
     int problems{0}; ///< only problems the tool finds itself: unreadable or unknown files
 };
 
+void check_stylesheet_text(const std::string& text, const std::string& name, Tally& tally) {
+    // The parser logs each diagnostic as it finishes; the log sink counts.
+    (void)FjssParser::parse(text, name);
+    ++tally.files;
+}
+
 void check_stylesheet(const fs::path& path, Tally& tally) {
     std::ifstream file(path);
     if (!file) {
@@ -58,9 +73,7 @@ void check_stylesheet(const fs::path& path, Tally& tally) {
     }
     std::ostringstream text;
     text << file.rdbuf();
-    // The parser logs each diagnostic as it finishes; the log sink counts.
-    (void)FjssParser::parse(text.str(), path.string());
-    ++tally.files;
+    check_stylesheet_text(text.str(), path.string(), tally);
 }
 
 void check_widget(const fs::path& path, Tally& tally) {
@@ -116,13 +129,25 @@ void check_path(const fs::path& path, Tally& tally) {
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::fprintf(stderr, "usage: fjlint <file or directory>...\n");
+        std::fprintf(stderr, "usage: fjlint <file or directory>...\n"
+                             "       fjlint --stdin-filename <name> -\n");
         return 2;
     }
     log::init();
 
     Tally tally;
+    std::string stdin_name = "<stdin>";
     for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--stdin-filename") == 0 && i + 1 < argc) {
+            stdin_name = argv[++i];
+            continue;
+        }
+        if (std::strcmp(argv[i], "-") == 0) {
+            std::ostringstream text;
+            text << std::cin.rdbuf();
+            check_stylesheet_text(text.str(), stdin_name, tally);
+            continue;
+        }
         check_path(argv[i], tally);
     }
 
