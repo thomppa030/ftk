@@ -27,6 +27,10 @@ public:
     void resolve(UiNode& root, const std::string& base_dir,
                  Stylesheet& stylesheet, UiContext& root_context);
 
+    /// Every file read while resolving the last tree — each .fjwidget and
+    /// each widget stylesheet — so the owner can watch them for changes.
+    [[nodiscard]] const std::vector<std::string>& dependencies() const { return dependencies_; }
+
 private:
     void resolve_node(UiNode& node, const std::string& base_dir,
                       Stylesheet& stylesheet, UiContext& parent_context,
@@ -36,7 +40,11 @@ private:
     static std::string tag_to_filename(const std::string& tag);
 
     uint32_t scope_counter_{0};
+    // Dedupes repeated uses of one widget within a single resolve. It is
+    // cleared per resolve on purpose: kept across loads it would keep
+    // serving markup from before the file changed on disk.
     std::unordered_map<std::string, WidgetAsset> widget_cache_;
+    std::vector<std::string> dependencies_;
 };
 
 } // namespace fjell

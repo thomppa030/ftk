@@ -71,8 +71,17 @@ public:
     /// Load from an already-parsed tree (used by .fjwidget inline markup).
     /// Takes ownership of the tree. fjss_path is resolved on disk.
     /// base_dir is used for widget tag resolution (widgets/<tag>.fjwidget).
+    /// markup_path is the file the tree was parsed from, so an edit to it
+    /// raises a reload request like an edit to any other source file.
     void load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjss_path,
-                        const std::string& base_dir);
+                        const std::string& base_dir, const std::string& markup_path);
+
+    /// True once after any file this UI was built from — root markup,
+    /// stylesheet, or a widget pulled in by tag — changed on disk. The owner
+    /// rebuilds by loading again; until then the current tree stays intact,
+    /// so nothing the owner still points into vanishes underneath it.
+    /// Always false in release builds, which do not watch files.
+    [[nodiscard]] bool consume_reload_request();
 
     /// Re-resolve styles, compute layout, shape text, process input.
     /// viewport_offset is the top-left of the viewport in window pixels (for input mapping).
@@ -113,6 +122,8 @@ private:
                           uint32_t frame_index);
     void init_text_templates(UiNode& node);
     void resolve_textures(UiNode& node);
+    // Debug builds watch every file the loaded tree came from.
+    void watch_sources(const std::string& markup_path, const std::string& fjss_path);
 
     std::unique_ptr<UiNode> root_;
     Stylesheet stylesheet_;
@@ -145,8 +156,7 @@ private:
 
 #ifndef NDEBUG
     std::unique_ptr<UiWatcher> watcher_;
-    std::string loaded_fjui_path_;
-    std::string loaded_fjss_path_;
+    bool reload_requested_{false};
 #endif
 };
 

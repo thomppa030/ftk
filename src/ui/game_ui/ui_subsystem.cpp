@@ -26,6 +26,16 @@ UiSubsystem::UiSubsystem(VulkanContext& vulkan_context, GameUi& editor_game_ui,
     : vulkan_context_{vulkan_context}, editor_game_ui_{editor_game_ui}
     , script_manager_{&script_manager} {}
 
+/// Loads the .fjwidget an instance was placed with, rejecting one that
+/// parsed but carries no markup — there would be nothing to show for it.
+static Result<WidgetAsset> load_instance_widget(const std::string& path) {
+    auto result = load_widget_asset(path);
+    if (result && !result->markup_root) {
+        return make_error("widget has no markup: " + path);
+    }
+    return result;
+}
+
 void UiSubsystem::on_play_start(const TickContext& ctx) {
     instances_.clear();
     world_records_.clear();
@@ -34,128 +44,38 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         const auto* wc = obj->components.get<UiWidgetComponent>();
         if (!wc || wc->widget_path.empty()) continue;
 
-        // Load the .fjwidget asset. widget_path may be a project-relative
-        // path or an asset id (see UiWidgetComponent's serialize, which
-        // writes whichever the project's asset database gives it) —
-        // resolve_asset handles both, the same way mesh/skeletal components
-        // resolve their own asset references at the point of use.
+        // widget_path may be a project-relative path or an asset id (see
+        // UiWidgetComponent's serialize, which writes whichever the project's
+        // asset database gives it) — resolve_asset handles both, the same way
+        // mesh/skeletal components resolve their own asset references at the
+        // point of use.
         std::string widget_resolved = base_path::resolve_asset(wc->widget_path, ctx.project);
 
-        auto widget_result = load_widget_asset(widget_resolved);
+        auto widget_result = load_instance_widget(widget_resolved);
         if (!widget_result) {
             FJELL_CORE_WARN("UiSubsystem: {}", widget_result.error());
             continue;
         }
-        auto& widget_asset = *widget_result;
 
-        if (!widget_asset.markup_root) {
-            FJELL_CORE_WARN("UiSubsystem: widget has no markup: {}", wc->widget_path);
-            continue;
-        }
-
-        // Resolve .fjss path relative to the widget file's directory
-        std::string fjss_path;
-        if (!widget_asset.fjss_path.empty()) {
-            auto widget_dir = std::filesystem::path(widget_resolved).parent_path();
-            fjss_path = (widget_dir / widget_asset.fjss_path).string();
-        }
-        if (!fjss_path.empty() && !std::filesystem::exists(fjss_path)) {
-            fjss_path.clear();
-        }
-
-        auto render_mode = wc->render_mode;
-
-        auto game_ui = std::make_unique<GameUi>();
-        if (render_mode == UiWidgetComponent::RenderMode::world_space) {
-            vulkan_context_.init_game_ui_world(*game_ui, editor_game_ui_.font());
+        UiInstance inst;
+        inst.node_id = obj->id;
+        inst.widget_path = widget_resolved;
+        inst.render_mode = wc->render_mode;
+        inst.game_ui = std::make_unique<GameUi>();
+        if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) {
+            vulkan_context_.init_game_ui_world(*inst.game_ui, editor_game_ui_.font());
         } else {
             // Screen-space widgets composite into PlayController's HUD
             // target, an OffscreenPass, not the swapchain — the pipeline's
             // color format has to match what it will actually render into.
-            vulkan_context_.init_game_ui_shared(*game_ui,
+            vulkan_context_.init_game_ui_shared(*inst.game_ui,
                 editor_game_ui_.font(),
                 OffscreenPass::COLOR_FORMAT);
         }
+        inst.game_ui->set_project(ctx.project);
+        if (resource_manager_) inst.game_ui->set_resource_manager(resource_manager_);
 
-        game_ui->set_project(ctx.project);
-        if (resource_manager_) game_ui->set_resource_manager(resource_manager_);
-
-        // Deep-clone the markup tree (each instance needs its own mutable copy)
-        auto tree_clone = UiDataBind::clone_node(*widget_asset.markup_root, nullptr);
-        auto base_dir = std::filesystem::path(widget_resolved).parent_path().string();
-        game_ui->load_from_tree(std::move(tree_clone), fjss_path, base_dir);
-
-        // Apply <prop> defaults from the .fjwidget to the root context. Child
-        // widgets get this via widget_resolver; the root widget's context is
-        // game_ui's top-level one, so we do it here.
-        for (const auto& prop : widget_asset.props) {
-            if (prop.default_value.empty()) continue;
-            auto& ctx_out = game_ui->context();
-            if (prop.type == "float") {
-                try { ctx_out.set_float(prop.name, std::stof(prop.default_value)); }
-                catch (...) { ctx_out.set(prop.name, prop.default_value); }
-            } else if (prop.type == "int") {
-                try { ctx_out.set_int(prop.name, std::stoi(prop.default_value)); }
-                catch (...) { ctx_out.set(prop.name, prop.default_value); }
-            } else if (prop.type == "bool") {
-                ctx_out.set_bool(prop.name,
-                    prop.default_value != "0" && prop.default_value != "false");
-            } else {
-                ctx_out.set(prop.name, prop.default_value);
-            }
-        }
-
-        game_ui->mark_dirty();
-
-        UiInstance inst;
-        inst.node_id = obj->id;
-        inst.game_ui = std::move(game_ui);
-        inst.render_mode = render_mode;
-
-        if (script_manager_ && script_manager_->is_loaded()) {
-            // Create the top-level widget from .fjwidget class name
-            if (!widget_asset.class_name.empty()) {
-                auto* wt = script_manager_->find_ui_widget_type(widget_asset.class_name);
-                if (!wt) {
-                    FJELL_CORE_WARN("UiSubsystem: widget class '{}' not found in script types",
-                                    widget_asset.class_name);
-                }
-                if (wt && wt->create) {
-                    WidgetInstance wi;
-                    wi.type = wt;
-                    wi.widget_context = &inst.game_ui->context();
-                    wi.widget.reset(wt->create());
-                    wi.widget->ui_context_.ctx_ = wi.widget_context;
-                    inst.widgets.push_back(std::move(wi));
-                    FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
-                }
-            }
-
-            // Also walk the resolved UI tree for sub-widgets (embedded via tags)
-            auto* root = inst.game_ui->root();
-            if (root) {
-                collect_widgets(*root, inst);
-            }
-        }
-
-        // Validate on:click targets against declared actions
-        for (auto& wi : inst.widgets) {
-            if (wi.type && !wi.type->actions.empty()) {
-                auto* ui_root = inst.game_ui->root();
-                if (ui_root) {
-                    validate_widget_actions(*ui_root, wi.type);
-                }
-            }
-        }
-
-        // Set connections pointers now that the vector is done growing
-        for (auto& wi : inst.widgets) {
-            wi.widget->ui_context_.connections_ = &wi.connections;
-        }
-
-        for (auto& wi : inst.widgets) {
-            wi.widget->begin_play();
-        }
+        apply_widget(inst, *widget_result);
 
         FJELL_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets)",
                         wc->widget_path, obj->id, inst.widgets.size());
@@ -165,6 +85,123 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
 
     // Resolve [[fj::bind]] UiWidget* pointers on ScriptComponents
     resolve_widget_bindings(ctx.scene);
+}
+
+void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset) {
+    // Resolve .fjss path relative to the widget file's directory
+    auto widget_dir = std::filesystem::path(inst.widget_path).parent_path();
+    std::string fjss_path;
+    if (!widget_asset.fjss_path.empty()) {
+        fjss_path = (widget_dir / widget_asset.fjss_path).string();
+    }
+    if (!fjss_path.empty() && !std::filesystem::exists(fjss_path)) {
+        fjss_path.clear();
+    }
+
+    // Controllers bind actions on contexts owned by the tree that is about
+    // to be replaced, so they go first — their connections must detach
+    // while those contexts still exist.
+    destroy_controllers(inst);
+
+    // Deep-clone the markup tree (each instance needs its own mutable copy)
+    auto tree_clone = UiDataBind::clone_node(*widget_asset.markup_root, nullptr);
+    inst.game_ui->load_from_tree(std::move(tree_clone), fjss_path, widget_dir.string(),
+                                 inst.widget_path);
+
+    // Apply <prop> defaults from the .fjwidget to the root context. Child
+    // widgets get this via widget_resolver; the root widget's context is
+    // game_ui's top-level one, so we do it here.
+    auto& ctx_out = inst.game_ui->context();
+    for (const auto& prop : widget_asset.props) {
+        if (prop.default_value.empty()) continue;
+        if (prop.type == "float") {
+            try { ctx_out.set_float(prop.name, std::stof(prop.default_value)); }
+            catch (...) { ctx_out.set(prop.name, prop.default_value); }
+        } else if (prop.type == "int") {
+            try { ctx_out.set_int(prop.name, std::stoi(prop.default_value)); }
+            catch (...) { ctx_out.set(prop.name, prop.default_value); }
+        } else if (prop.type == "bool") {
+            ctx_out.set_bool(prop.name,
+                prop.default_value != "0" && prop.default_value != "false");
+        } else {
+            ctx_out.set(prop.name, prop.default_value);
+        }
+    }
+
+    inst.game_ui->mark_dirty();
+
+    create_controllers(inst, widget_asset);
+}
+
+void UiSubsystem::create_controllers(UiInstance& inst, const WidgetAsset& widget_asset) {
+    if (!script_manager_ || !script_manager_->is_loaded()) return;
+
+    // Create the top-level widget from .fjwidget class name
+    if (!widget_asset.class_name.empty()) {
+        auto* wt = script_manager_->find_ui_widget_type(widget_asset.class_name);
+        if (!wt) {
+            FJELL_CORE_WARN("UiSubsystem: widget class '{}' not found in script types",
+                            widget_asset.class_name);
+        }
+        if (wt && wt->create) {
+            WidgetInstance wi;
+            wi.type = wt;
+            wi.widget_context = &inst.game_ui->context();
+            wi.widget.reset(wt->create());
+            wi.widget->ui_context_.ctx_ = wi.widget_context;
+            inst.widgets.push_back(std::move(wi));
+            FJELL_CORE_INFO("UiSubsystem: created widget '{}'", widget_asset.class_name);
+        }
+    }
+
+    // Also walk the resolved UI tree for sub-widgets (embedded via tags)
+    auto* root = inst.game_ui->root();
+    if (root) {
+        collect_widgets(*root, inst);
+    }
+
+    // Validate on:click targets against declared actions
+    for (auto& wi : inst.widgets) {
+        if (wi.type && !wi.type->actions.empty()) {
+            auto* ui_root = inst.game_ui->root();
+            if (ui_root) {
+                validate_widget_actions(*ui_root, wi.type);
+            }
+        }
+    }
+
+    // Set connections pointers now that the vector is done growing
+    for (auto& wi : inst.widgets) {
+        wi.widget->ui_context_.connections_ = &wi.connections;
+    }
+
+    for (auto& wi : inst.widgets) {
+        wi.widget->begin_play();
+    }
+}
+
+void UiSubsystem::destroy_controllers(UiInstance& inst) {
+    for (auto& wi : inst.widgets) {
+        if (wi.widget) {
+            wi.widget->end_play();
+        }
+        wi.connections.clear();
+        wi.widget.reset();
+    }
+    inst.widgets.clear();
+}
+
+void UiSubsystem::reload_instance(UiInstance& inst) {
+    auto widget_result = load_instance_widget(inst.widget_path);
+    if (!widget_result) {
+        // A half-typed edit is the usual reason a reload fails; the last
+        // good tree stays up and the next save gets another chance.
+        FJELL_CORE_WARN("UiSubsystem: reload skipped, {}", widget_result.error());
+        return;
+    }
+    apply_widget(inst, *widget_result);
+    FJELL_CORE_INFO("UiSubsystem: reloaded widget '{}' ({} sub-widgets)",
+                    inst.widget_path, inst.widgets.size());
 }
 
 void UiSubsystem::resolve_widget_bindings(Scene& scene) {
@@ -274,7 +311,12 @@ void UiSubsystem::sync_bind_fields(WidgetInstance& wi) {
 }
 
 void UiSubsystem::tick(const TickContext& ctx) {
+    bool any_reloaded = false;
     for (auto& inst : instances_) {
+        if (inst.game_ui && inst.game_ui->consume_reload_request()) {
+            reload_instance(inst);
+            any_reloaded = true;
+        }
         for (auto& wi : inst.widgets) {
             if (!wi.widget) continue;
             wi.widget->tick(ctx.dt);
@@ -291,6 +333,10 @@ void UiSubsystem::tick(const TickContext& ctx) {
         }
     }
 
+    // Scripts hold raw pointers to root widgets; a rebuilt instance has new ones.
+    if (any_reloaded) {
+        resolve_widget_bindings(ctx.scene);
+    }
 }
 
 void UiSubsystem::update_world_records(const TickContext& ctx) {
@@ -353,13 +399,7 @@ void UiSubsystem::set_camera(const glm::vec3& pos, const glm::mat4& view, const 
 void UiSubsystem::on_play_stop(const TickContext& /*ctx*/) {
     world_records_.clear();
     for (auto& inst : instances_) {
-        for (auto& wi : inst.widgets) {
-            if (wi.widget) {
-                wi.widget->end_play();
-            }
-            wi.connections.clear();
-            wi.widget.reset();
-        }
+        destroy_controllers(inst);
     }
 
     vulkan_context_.wait_idle();

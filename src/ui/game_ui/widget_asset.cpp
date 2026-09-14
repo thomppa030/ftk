@@ -133,6 +133,16 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
         }
     }
 
+    // A same-named .fjui beside the widget dates from before markup moved
+    // into .fjwidget files. Nothing reads it for this widget, so edits made
+    // there silently go nowhere.
+    auto stale_markup = std::filesystem::path(path).replace_extension(".fjui");
+    if (std::filesystem::exists(stale_markup)) {
+        FJELL_CORE_WARN("Widget '{}': '{}' is not part of this widget, its markup comes from the .fjwidget",
+                        std::filesystem::path(path).stem().string(),
+                        stale_markup.filename().string());
+    }
+
     return asset;
 }
 

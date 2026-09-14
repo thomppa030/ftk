@@ -65,6 +65,15 @@ void UiEditorContext::shutdown() {
 
 void UiEditorContext::draw(float dt) {
     elapsed_time_ += dt;
+
+    // A source file changed on disk: rebuild the preview from the files.
+    // Inspector edits live only in the in-memory stylesheet and do not
+    // survive this, and the history's commands point into the old tree.
+    if (preview_ui_ && preview_ui_->consume_reload_request()) {
+        command_history().clear();
+        open_ui(fjui_path_);
+    }
+
     draw_preview(dt);
     draw_element_tree();
     draw_inspector();
@@ -196,7 +205,7 @@ void UiEditorContext::open_ui(const std::string& path) {
     if (is_widget_file && loaded_widget_.markup_root) {
         auto tree_clone = UiDataBind::clone_node(*loaded_widget_.markup_root, nullptr);
         auto base_dir = fs::path(abs_path).parent_path().string();
-        preview_ui_->load_from_tree(std::move(tree_clone), fjss_path_, base_dir);
+        preview_ui_->load_from_tree(std::move(tree_clone), fjss_path_, base_dir, abs_path);
     } else {
         preview_ui_->load(abs_path, fjss_path_);
     }

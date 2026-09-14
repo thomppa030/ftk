@@ -54,6 +54,8 @@ std::string WidgetResolver::tag_to_filename(const std::string& tag) {
 void WidgetResolver::resolve(UiNode& root, const std::string& base_dir,
                               Stylesheet& stylesheet, UiContext& root_context) {
     scope_counter_ = 0;
+    widget_cache_.clear();
+    dependencies_.clear();
     std::unordered_set<std::string> resolution_stack;
     resolve_node(root, base_dir, stylesheet, root_context, resolution_stack);
 }
@@ -99,6 +101,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             }
             auto [it, _] = widget_cache_.emplace(widget_path, std::move(*result));
             widget_asset = &it->second;
+            dependencies_.push_back(widget_path);
         }
 
         if (!widget_asset->markup_root) {
@@ -118,6 +121,10 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
         auto scope_class = "__w_" + filename + "_" + std::to_string(scope_counter_++);
 
         if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
+            if (std::find(dependencies_.begin(), dependencies_.end(), fjss_path) ==
+                dependencies_.end()) {
+                dependencies_.push_back(fjss_path);
+            }
             std::ifstream fjss_file(fjss_path);
             std::ostringstream fjss_ss;
             fjss_ss << fjss_file.rdbuf();

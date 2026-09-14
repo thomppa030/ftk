@@ -98,23 +98,13 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     }
 
     dirty_ = true;
-
-#ifndef NDEBUG
-    loaded_fjui_path_ = fjui_path;
-    loaded_fjss_path_ = fjss_path;
-    watcher_ = std::make_unique<UiWatcher>(fjui_path, fjss_path,
-        [this](const std::string& ui_path, const std::string& css_path) {
-            // Reset watcher before reloading to avoid re-entrancy
-            watcher_.reset();
-            load(ui_path, css_path);
-        });
-#endif
+    watch_sources(fjui_path, fjss_path);
 
     FJELL_CORE_INFO("GameUi: loaded {} ({} style rules)", fjui_path, stylesheet_.rules.size());
 }
 
 void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjss_path,
-                             const std::string& base_dir) {
+                             const std::string& base_dir, const std::string& markup_path) {
     root_ = std::move(root);
     if (!root_) return;
 
@@ -140,8 +130,31 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
     }
 
     dirty_ = true;
+    watch_sources(markup_path, fjss_path);
 
     FJELL_CORE_INFO("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
+}
+
+void GameUi::watch_sources(const std::string& markup_path, const std::string& fjss_path) {
+#ifndef NDEBUG
+    std::vector<std::string> paths{markup_path, fjss_path};
+    const auto& widget_files = widget_resolver_.dependencies();
+    paths.insert(paths.end(), widget_files.begin(), widget_files.end());
+    watcher_ = std::make_unique<UiWatcher>(paths, [this] { reload_requested_ = true; });
+#else
+    (void)markup_path;
+    (void)fjss_path;
+#endif
+}
+
+bool GameUi::consume_reload_request() {
+#ifndef NDEBUG
+    bool requested = reload_requested_;
+    reload_requested_ = false;
+    return requested;
+#else
+    return false;
+#endif
 }
 
 void GameUi::update(float viewport_width, float viewport_height,

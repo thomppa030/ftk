@@ -20,6 +20,7 @@ class ScriptManager;
 class VulkanContext;
 struct OwnedUiWidgetType;
 struct UiNode;
+struct WidgetAsset;
 
 /// Manages runtime game UI instances. Finds nodes with UiWidgetComponent in
 /// the scene on play start, creates a GameUi per node, and tears them down
@@ -54,6 +55,7 @@ public:
 
     struct UiInstance {
         uint32_t node_id;
+        std::string widget_path; // absolute .fjwidget path the instance is built from
         std::unique_ptr<GameUi> game_ui;
         std::vector<WidgetInstance> widgets;
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};
@@ -78,6 +80,15 @@ public:
     void set_camera(const glm::vec3& pos, const glm::mat4& view, const glm::mat4& proj);
 
 private:
+    // Builds (or rebuilds) an instance's UI tree and controllers from a
+    // parsed widget asset. Safe to call on a live instance: the previous
+    // controllers are torn down first.
+    void apply_widget(UiInstance& inst, const WidgetAsset& widget_asset);
+    void create_controllers(UiInstance& inst, const WidgetAsset& widget_asset);
+    void destroy_controllers(UiInstance& inst);
+    // Re-reads the instance's .fjwidget from disk after it changed. A file
+    // that fails to parse leaves the instance showing its last good tree.
+    void reload_instance(UiInstance& inst);
     void collect_widgets(UiNode& node, UiInstance& instance);
     void sync_bind_fields(WidgetInstance& wi);
     void resolve_widget_bindings(Scene& scene);
