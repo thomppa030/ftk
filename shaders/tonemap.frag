@@ -5,6 +5,7 @@
 #include "include/tonemap/reinhard.glsl"
 #include "include/tonemap/hable.glsl"
 #include "include/tonemap/neutral.glsl"
+#include "include/fjell_color_space.glsl"
 
 layout(set = 0, binding = 0) uniform sampler2D hdr_tex;
 layout(set = 0, binding = 1) uniform sampler2D bloom_tex;
@@ -46,16 +47,12 @@ void main() {
         default:                  mapped = clamp(color, 0.0, 1.0);  break; // Linear
     }
 
-    vec3 srgb = mix(1.055 * pow(mapped, vec3(1.0/2.4)) - 0.055,
-                    12.92 * mapped,
-                    lessThanEqual(mapped, vec3(0.0031308)));
+    vec3 srgb = linear_to_srgb(mapped);
     vec2 nuv = gl_FragCoord.xy * vec2(0.7548776662, 0.5698402909);
     float r1 = fract(52.9829189 * fract(dot(nuv, vec2(0.06711056, 0.00583715))));
     float r2 = fract(52.9829189 * fract(dot(nuv.yx + 17.0, vec2(0.06711056, 0.00583715))));
     srgb += vec3(r1 + r2 - 1.0) / 255.0;
-    mapped = mix(pow((srgb + 0.055) / 1.055, vec3(2.4)),
-                 srgb / 12.92,
-                 lessThanEqual(srgb, vec3(0.04045)));
+    mapped = srgb_to_linear(srgb);
 
     out_color = vec4(mapped, 1.0);
 }
