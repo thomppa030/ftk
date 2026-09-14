@@ -160,6 +160,11 @@ void UiEditorContext::open_ui(const std::string& path) {
     // Initialize preview GameUi if needed
     if (!preview_ui_) {
         preview_ui_ = std::make_unique<GameUi>();
+        if (deps_.project_mgr && deps_.project_mgr->active()) {
+            const auto& ui = deps_.project_mgr->active()->config().ui;
+            preview_width_ = static_cast<float>(ui.design_width);
+            preview_height_ = static_cast<float>(ui.design_height);
+        }
         if (deps_.engine_game_ui) {
             // Share font atlas; use offscreen color format (not swapchain format)
             deps_.vulkan_context->init_game_ui_shared(*preview_ui_,
@@ -368,6 +373,22 @@ void UiEditorContext::draw_preview(float dt) {
         // Resolution controls
         ImGui::Text("Resolution:");
         ImGui::SameLine();
+        if (deps_.project_mgr && deps_.project_mgr->active()) {
+            const auto& ui = deps_.project_mgr->active()->config().ui;
+            std::string design = std::to_string(ui.design_width) + "x" + std::to_string(ui.design_height);
+            if (ImGui::SmallButton(design.c_str())) {
+                preview_width_ = static_cast<float>(ui.design_width);
+                preview_height_ = static_cast<float>(ui.design_height);
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("The project's design resolution");
+            ImGui::SameLine();
+            ImGui::Checkbox("Design scale", &design_scale_);
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Scale the preview by the design height, as a screen-space\n"
+                                  "placement does in game. Turn off for world-space widgets.");
+            }
+            ImGui::SameLine();
+        }
         if (ImGui::SmallButton("800x600")) { preview_width_ = 800; preview_height_ = 600; }
         ImGui::SameLine();
         if (ImGui::SmallButton("1280x720")) { preview_width_ = 1280; preview_height_ = 720; }
@@ -438,6 +459,12 @@ void UiEditorContext::draw_preview(float dt) {
         // into one of the PREVIEW_FRAMES SSBO slots, leaving the other
         // slots (and the offscreen images tied to them) permanently
         // stale, which reads as "edits don't show up in the preview."
+        UiDesignFrame design_frame{};
+        if (design_scale_ && deps_.project_mgr && deps_.project_mgr->active()) {
+            const auto& ui = deps_.project_mgr->active()->config().ui;
+            design_frame = {static_cast<float>(ui.design_width), static_cast<float>(ui.design_height)};
+        }
+        preview_ui_->set_design_frame(design_frame);
         preview_ui_->update(preview_width_, preview_height_,
                             deps_.vulkan_context->current_frame_index(), dt, input_ptr);
 
@@ -445,6 +472,9 @@ void UiEditorContext::draw_preview(float dt) {
         float scale_x = avail.x / preview_width_;
         float scale_y = avail.y / preview_height_;
         float scale = std::min(scale_x, scale_y);
+        // Overlays and picking work on layout rects, which are in design-frame
+        // pixels; the preview image is in preview pixels. Two scales apart.
+        float layout_scale = scale * preview_ui_->frame_scale();
 
         float scaled_w = preview_width_ * scale;
         float scaled_h = preview_height_ * scale;
@@ -493,7 +523,7 @@ void UiEditorContext::draw_preview(float dt) {
         auto* root = preview_ui_->root();
         if (!play_mode_ && show_layout_overlay_ && root) {
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
-            draw_layout_overlay(root, draw_list, origin, scale);
+            draw_layout_overlay(root, draw_list, origin, layout_scale);
         }
 
         // Invisible button for interaction (placed over the image)
@@ -503,14 +533,14 @@ void UiEditorContext::draw_preview(float dt) {
         if (play_mode_) {
             // Play mode: forward mouse events to GameUi for interaction
             if (root) {
-                process_play_input(root, origin, scale);
+                process_play_input(root, origin, layout_scale);
             }
         } else {
             // Edit mode: click-to-select elements
             if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 ImVec2 mouse = ImGui::GetMousePos();
-                float local_x = (mouse.x - origin.x) / scale;
-                float local_y = (mouse.y - origin.y) / scale;
+                float local_x = (mouse.x - origin.x) / layout_scale;
+                float local_y = (mouse.y - origin.y) / layout_scale;
 
                 UiNode* hit = nullptr;
                 std::function<void(UiNode*)> hit_test = [&](UiNode* node) {

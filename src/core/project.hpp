@@ -45,6 +45,16 @@ struct ProjectConfig {
         // survives a restart the same way the dockspace layout choice does.
         bool fullscreen{false};
     } play;
+
+    struct UiConfig {
+        // The resolution game UI is designed at. The UI editor previews at
+        // this size, and screen-space widgets scale so a viewport of any
+        // size shows the same proportions, unless a placement opts out. A
+        // designer working in pixels against this frame gets a reactive HUD
+        // without writing a single relative unit.
+        uint32_t design_width{1920};
+        uint32_t design_height{1080};
+    } ui;
 };
 
 class Project {

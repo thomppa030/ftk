@@ -9,6 +9,8 @@
 
 #include <imgui.h>
 
+#include <algorithm>
+
 #include <cstddef>
 #include <iterator>
 
@@ -31,9 +33,31 @@ void ProjectSettingsPanel::draw(const char* title) {
             ImGui::TextDisabled("Ctrl+Shift+S to persist changes to project.fjell.");
             ImGui::Separator();
             draw_render_section();
+            draw_ui_section();
             draw_debug_section();
         }
     }
+}
+
+void ProjectSettingsPanel::draw_ui_section() {
+    if (!ImGui::CollapsingHeader("Game UI", ImGuiTreeNodeFlags_DefaultOpen)) {
+        return;
+    }
+    auto& ui = projects_->active()->config().ui;
+    int size[2] = {static_cast<int>(ui.design_width), static_cast<int>(ui.design_height)};
+    if (ImGui::DragInt2("Design Resolution", size, 1.0f, 320, 7680)) {
+        ui.design_width = static_cast<uint32_t>(std::max(size[0], 320));
+        ui.design_height = static_cast<uint32_t>(std::max(size[1], 240));
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("The frame game UI is designed in. The UI editor previews at this\n"
+                          "size and HUDs scale to keep these proportions at any viewport.");
+    }
+    if (ImGui::SmallButton("1920x1080")) { ui.design_width = 1920; ui.design_height = 1080; }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("2560x1440")) { ui.design_width = 2560; ui.design_height = 1440; }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("1280x720")) { ui.design_width = 1280; ui.design_height = 720; }
 }
 
 // Any edit in this section writes to the project's RenderSettings AND

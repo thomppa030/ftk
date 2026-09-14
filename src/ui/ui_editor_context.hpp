@@ -186,6 +186,10 @@ private:
     // Preview resolution
     float preview_width_{800.0f};
     float preview_height_{600.0f};
+    // Scale the preview by the project's design height, the way a
+    // screen-space placement will in game. Off for world-space widgets,
+    // which draw at their own virtual viewport instead.
+    bool design_scale_{true};
 
     // Action log
     struct ActionLogEntry {

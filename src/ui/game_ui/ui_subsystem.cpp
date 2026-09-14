@@ -36,6 +36,24 @@ static Result<WidgetAsset> load_instance_widget(const std::string& path) {
     return result;
 }
 
+/// The design frame a placement is scaled by (see UiDesignFrame). Only
+/// screen-space placements scale: a world-space widget lays out in its own
+/// virtual viewport and is sized by the quad it is drawn on.
+static UiDesignFrame design_frame_for(const UiWidgetComponent& wc, const Project* project) {
+    if (wc.render_mode == UiWidgetComponent::RenderMode::world_space) return {};
+    switch (wc.scaling) {
+    case UiWidgetComponent::Scaling::design_resolution:
+        if (!project) return {};
+        return {static_cast<float>(project->config().ui.design_width),
+                static_cast<float>(project->config().ui.design_height)};
+    case UiWidgetComponent::Scaling::native:
+        return {};
+    case UiWidgetComponent::Scaling::custom:
+        return {0.0f, wc.custom_reference_height};
+    }
+    return {};
+}
+
 void UiSubsystem::on_play_start(const TickContext& ctx) {
     instances_.clear();
     world_records_.clear();
@@ -74,15 +92,21 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
                 OffscreenPass::COLOR_FORMAT);
         }
         inst.game_ui->set_project(ctx.project);
+        UiDesignFrame design_frame = design_frame_for(*wc, ctx.project);
+        inst.game_ui->set_design_frame(design_frame);
         if (resource_manager_) inst.game_ui->set_resource_manager(resource_manager_);
 
         apply_widget(inst, *widget_result);
 
         std::string classes;
         for (const auto& cls : inst.style_classes) classes += " ." + cls;
-        FJELL_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets{}{})",
+        FJELL_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets{}{}, {})",
                         wc->widget_path, obj->id, inst.widgets.size(),
-                        classes.empty() ? "" : ", classes:", classes);
+                        classes.empty() ? "" : ", classes:", classes,
+                        design_frame.height > 0.0f
+                            ? "scaled to fit " + std::to_string(static_cast<int>(design_frame.width)) + "x" +
+                                  std::to_string(static_cast<int>(design_frame.height))
+                            : std::string("native pixels"));
 
         instances_.push_back(std::move(inst));
     }

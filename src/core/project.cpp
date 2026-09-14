@@ -68,6 +68,11 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
             config.network.tick_rate   = n.value("tick_rate", 30U);
             config.network.port        = static_cast<uint16_t>(n.value("port", 7777U));
         }
+        if (j.contains("ui")) {
+            const auto& u = j["ui"];
+            config.ui.design_width = u.value("design_width", 1920U);
+            config.ui.design_height = u.value("design_height", 1080U);
+        }
         if (j.contains("play")) {
             config.play.fullscreen = j["play"].value("fullscreen", false);
         }
@@ -160,6 +165,10 @@ void Project::save() const {
         {"port", config_.network.port},
     };
 
+    j["ui"] = {
+        {"design_width", config_.ui.design_width},
+        {"design_height", config_.ui.design_height},
+    };
     j["play"] = {
         {"fullscreen", config_.play.fullscreen},
     };

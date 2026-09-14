@@ -62,6 +62,20 @@ static const bool registered = [] {
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Classes added to the widget's root node for this placement");
             }
+            if (wc->render_mode == UiWidgetComponent::RenderMode::screen_space) {
+                using Scaling = UiWidgetComponent::Scaling;
+                int scaling = static_cast<int>(wc->scaling);
+                const char* scalings[] = {"Design resolution", "Native pixels", "Custom height"};
+                if (ImGui::Combo("Scaling", &scaling, scalings, 3)) { wc->scaling = static_cast<Scaling>(scaling); changed = true; }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Design resolution: scale so the project's design height fills the viewport.\n"
+                                      "Native pixels: one layout pixel per screen pixel.\n"
+                                      "Custom height: scale so this many layout pixels fill the viewport.");
+                }
+                if (wc->scaling == Scaling::custom) {
+                    if (ImGui::DragFloat("Reference Height", &wc->custom_reference_height, 1.0f, 240.0f, 4320.0f, "%.0f")) changed = true;
+                }
+            }
             if (wc->render_mode == UiWidgetComponent::RenderMode::world_space) {
                 if (ImGui::DragFloat("Pixels/Unit", &wc->pixels_per_unit, 1.0f, 1.0f, 1000.0f)) changed = true;
                 if (ImGui::Checkbox("Billboard", &wc->billboard)) changed = true;
@@ -82,6 +96,10 @@ static const bool registered = [] {
             if (wc->render_mode != UiWidgetComponent::RenderMode::screen_space)
                 out["render_mode"] = static_cast<int>(wc->render_mode);
             if (!wc->style_classes.empty()) out["style_classes"] = wc->style_classes;
+            if (wc->scaling != UiWidgetComponent::Scaling::design_resolution)
+                out["scaling"] = static_cast<int>(wc->scaling);
+            if (wc->scaling == UiWidgetComponent::Scaling::custom)
+                out["reference_height"] = wc->custom_reference_height;
             if (wc->render_mode == UiWidgetComponent::RenderMode::world_space) {
                 out["pixels_per_unit"] = wc->pixels_per_unit;
                 out["billboard"] = wc->billboard;
@@ -97,6 +115,8 @@ static const bool registered = [] {
             if (j.contains("style_classes") && j["style_classes"].is_array()) {
                 for (const auto& cls : j["style_classes"]) wc.style_classes.push_back(cls.get<std::string>());
             }
+            wc.scaling = static_cast<UiWidgetComponent::Scaling>(j.value("scaling", 0));
+            wc.custom_reference_height = j.value("reference_height", 1080.0f);
             wc.pixels_per_unit = j.value("pixels_per_unit", 100.0f);
             wc.billboard = j.value("billboard", true);
             if (j.contains("virtual_viewport")) { auto& vv = j["virtual_viewport"]; wc.virtual_viewport = {vv[0].get<float>(), vv[1].get<float>()}; }
