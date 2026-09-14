@@ -7,22 +7,50 @@
 
 namespace fjell {
 
-struct StyleSelector {
-    std::string tag;      // e.g. "div"
-    std::string id;       // e.g. "health-bar" (without #)
-    std::string class_;   // e.g. "panel" (without .)
-    std::string parent;   // ancestor tag for descendant combinator
-    std::string pseudo;   // e.g. "hover", "active", "focus" (without :)
+/// How an ancestor compound relates to the compound on its right.
+enum class UiCombinator : uint8_t {
+    descendant, ///< `a b`   — any ancestor, however deep
+    child,      ///< `a > b` — the immediate parent only
+};
 
-    [[nodiscard]] uint32_t specificity() const {
-        uint32_t s = 0;
-        if (!id.empty()) s += 100;
-        if (!class_.empty()) s += 10;
-        if (!pseudo.empty()) s += 10;
-        if (!tag.empty()) s += 1;
-        return s;
+/// One compound selector: everything between two combinators, e.g. the
+/// `div#main.panel.wide:hover` of `body > div#main.panel.wide:hover`.
+/// Every listed part must hold on the same node.
+struct StyleCompound {
+    std::string tag;                        // e.g. "div"
+    std::string id;                         // e.g. "health-bar" (without #)
+    std::vector<std::string> classes;       // e.g. {"panel", "wide"} (without .)
+    std::vector<std::string> pseudo_classes; // e.g. {"hover"} (without :)
+
+    [[nodiscard]] bool empty() const {
+        return tag.empty() && id.empty() && classes.empty() && pseudo_classes.empty();
     }
 };
+
+/// One ancestor step of a selector chain, with the combinator that joins
+/// it to the compound on its right.
+struct StyleAncestorStep {
+    StyleCompound compound;
+    UiCombinator combinator{UiCombinator::descendant};
+};
+
+/// A full selector: the subject compound plus the ancestors that must match
+/// above it, stored outermost first so it reads in source order
+/// (`a > b c` is ancestors [a via child, b via descendant], subject `c`).
+struct StyleSelector {
+    StyleCompound subject;
+    std::vector<StyleAncestorStep> ancestors;
+
+    /// CSS specificity — (ids, classes and pseudo-classes, tags) counted
+    /// across every compound — packed one byte per field so a single integer
+    /// comparison orders selectors the way the spec's triple does.
+    [[nodiscard]] uint32_t specificity() const;
+};
+
+/// True when the selector is exactly `#id` with nothing else: no tag, class,
+/// pseudo-class or ancestor. The editor routes its per-node style edits into
+/// such a rule, and every place that needs to recognize one must agree.
+[[nodiscard]] bool selects_only_id(const StyleSelector& selector, std::string_view id);
 
 /// One authored `name: value;`. Declarations keep their source order so a
 /// shorthand and a longhand in the same rule apply the way they were
@@ -89,7 +117,11 @@ private:
     /// selectors (`.a, .b { ... }`), so a single source rule can yield
     /// several StyleRules.
     std::vector<StyleRule> parse_rule();
+    /// A chain of compounds joined by combinators, up to `{` or `,`.
     StyleSelector parse_selector();
+    /// One part of a compound — `tag`, `.class`, `#id` or `:pseudo` — appended
+    /// to `compound`. Always consumes at least one character.
+    void parse_compound_part(StyleCompound& compound);
     void parse_declarations(std::vector<StyleDeclaration>& declarations);
 
     void skip_whitespace();
@@ -107,6 +139,7 @@ private:
     [[nodiscard]] bool at_end() const;
     [[nodiscard]] char peek() const;
     char advance();
+    [[nodiscard]] std::string read_identifier();
 
     struct SourcePosition {
         uint32_t line;
@@ -118,14 +151,15 @@ private:
     [[nodiscard]] SourcePosition position_at(size_t offset) const;
     void diagnose(size_t offset, FjssSeverity severity, std::string message);
     void log_diagnostics() const;
+    /// Records the first reason a selector cannot be matched (`::before`,
+    /// `:not(...)`, `[attr]`, `*`, `+`, `~`). The rule is still consumed so
+    /// the sheet stays in sync, then dropped with this as the reason.
+    void reject_selector(std::string reason);
 
     std::string_view source_;
     std::string source_name_;
     size_t pos_{0};
     Stylesheet sheet_;
-    /// Set by parse_selector on syntax the engine cannot match (`::before`,
-    /// `:not(...)`, `>`, `[attr]`, `*`). The rule is still consumed so the
-    /// sheet stays in sync, then dropped with this as the reason.
     std::string selector_problem_;
 };
 

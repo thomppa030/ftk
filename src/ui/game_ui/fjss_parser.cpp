@@ -7,6 +7,30 @@
 
 namespace fjell {
 
+uint32_t StyleSelector::specificity() const {
+    uint32_t ids = 0;
+    uint32_t classes = 0;
+    uint32_t tags = 0;
+    auto count = [&](const StyleCompound& c) {
+        if (!c.id.empty()) ++ids;
+        classes += static_cast<uint32_t>(c.classes.size() + c.pseudo_classes.size());
+        if (!c.tag.empty()) ++tags;
+    };
+    count(subject);
+    for (const auto& step : ancestors) count(step.compound);
+
+    constexpr uint32_t FIELD_MAX = 255;
+    return (std::min(ids, FIELD_MAX) << 16)
+         | (std::min(classes, FIELD_MAX) << 8)
+         |  std::min(tags, FIELD_MAX);
+}
+
+bool selects_only_id(const StyleSelector& selector, std::string_view id) {
+    const auto& s = selector.subject;
+    return s.id == id && s.tag.empty() && s.classes.empty() &&
+           s.pseudo_classes.empty() && selector.ancestors.empty();
+}
+
 const StyleDeclaration* StyleRule::find(std::string_view name) const {
     for (auto it = declarations.rbegin(); it != declarations.rend(); ++it) {
         if (it->name == name) return &*it;
@@ -132,130 +156,115 @@ std::vector<StyleRule> FjssParser::parse_rule() {
 
 StyleSelector FjssParser::parse_selector() {
     StyleSelector sel;
+    StyleCompound current;
+    // The combinator that will join `current` to the compound after it,
+    // once that next compound starts. Whitespace alone means descendant.
+    UiCombinator pending = UiCombinator::descendant;
+    bool boundary = false; // whitespace or a combinator since `current` ended
+
     skip_whitespace();
-
-    // Parse selector parts: tag, .class, #id, :pseudo, or ancestor descendant
-    std::string current;
-    bool parsing = true;
-    while (!at_end() && parsing) {
+    while (!at_end()) {
         char c = peek();
-        switch (c) {
-        case '#': {
-            if (!current.empty() && sel.tag.empty()) sel.tag = current;
-            current.clear();
-            advance(); // #
-            while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) ||
-                   peek() == '-' || peek() == '_')) {
-                current += advance();
-            }
-            sel.id = current;
-            current.clear();
-            break;
+        if (c == '{' || c == ',' || c == '}' || c == ';') break;
+
+        if (std::isspace(static_cast<unsigned char>(c))) {
+            skip_whitespace();
+            boundary = true;
+            continue;
         }
-        case '.': {
-            if (!current.empty() && sel.tag.empty()) sel.tag = current;
-            current.clear();
-            advance(); // .
-            while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) ||
-                   peek() == '-' || peek() == '_')) {
-                current += advance();
-            }
-            sel.class_ = current;
-            current.clear();
-            break;
-        }
-        case ':': {
-            if (!current.empty() && sel.tag.empty()) sel.tag = current;
-            current.clear();
-            advance(); // :
-            bool pseudo_element = !at_end() && peek() == ':';
-            if (pseudo_element) advance(); // second :
-            while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) ||
-                   peek() == '-' || peek() == '_')) {
-                current += advance();
-            }
-            if (pseudo_element) {
-                if (selector_problem_.empty()) {
-                    selector_problem_ = "'::" + current + "' pseudo-elements are not supported";
-                }
-            } else if (!at_end() && peek() == '(') {
-                // Functional pseudo-classes such as :not(.x) or :nth-child(2)
-                int depth = 0;
-                while (!at_end()) {
-                    char p = advance();
-                    if (p == '(') ++depth;
-                    else if (p == ')' && --depth == 0) break;
-                }
-                if (selector_problem_.empty()) {
-                    selector_problem_ = "':" + current + "()' is not supported";
-                }
-            } else {
-                sel.pseudo = current;
-            }
-            current.clear();
-            break;
-        }
-        case '*':
+        if (c == '>') {
             advance();
-            if (selector_problem_.empty()) {
-                selector_problem_ = "'*' universal selector is not supported";
+            if (current.empty()) {
+                reject_selector("'>' has nothing on its left");
             }
-            break;
-        case '[': {
-            while (!at_end() && advance() != ']') {}
-            if (selector_problem_.empty()) {
-                selector_problem_ = "attribute selectors are not supported";
-            }
-            break;
+            pending = UiCombinator::child;
+            boundary = true;
+            continue;
         }
-        case '>':
-        case '+':
-        case '~': {
-            char combinator = advance();
-            if (selector_problem_.empty()) {
-                selector_problem_ = std::string("'") + combinator + "' combinator is not supported";
-            }
-            break;
+        if (c == '+' || c == '~') {
+            reject_selector(std::string("'") + advance() + "' combinator is not supported");
+            boundary = true;
+            continue;
         }
-        case '{':
-        case ',':
-        case '}':
-        case ';':
-            // '}' and ';' can never start or continue a selector; leaving
-            // them for the caller turns a stray one into a diagnostic
-            // instead of an ancestor named "}".
-            parsing = false;
-            break;
-        case ' ':
-        case '\t':
-        case '\n':
-        case '\r': {
-            if (!current.empty()) {
-                // This could be a descendant combinator
-                // Save current as potential parent, parse next part
-                skip_whitespace();
-                if (!at_end() && peek() != '{' && peek() != ',') {
-                    sel.parent = current;
-                    current.clear();
-                } else {
-                    parsing = false;
-                }
-            } else {
-                skip_whitespace();
-            }
-            break;
+
+        if (boundary && !current.empty()) {
+            sel.ancestors.push_back({std::move(current), pending});
+            current = {};
+            pending = UiCombinator::descendant;
         }
-        default:
-            current += advance();
-            break;
-        }
+        boundary = false;
+        parse_compound_part(current);
     }
 
-    if (!current.empty()) {
-        if (sel.tag.empty()) sel.tag = current;
+    if (pending == UiCombinator::child) {
+        reject_selector("'>' has nothing on its right");
     }
-
+    sel.subject = std::move(current);
     return sel;
+}
+
+void FjssParser::parse_compound_part(StyleCompound& compound) {
+    char c = peek();
+    switch (c) {
+    case '#':
+        advance();
+        compound.id = read_identifier();
+        return;
+    case '.':
+        advance();
+        compound.classes.push_back(read_identifier());
+        return;
+    case ':': {
+        advance();
+        bool pseudo_element = !at_end() && peek() == ':';
+        if (pseudo_element) advance();
+        auto name = read_identifier();
+        if (pseudo_element) {
+            reject_selector("'::" + name + "' pseudo-elements are not supported");
+        } else if (!at_end() && peek() == '(') {
+            // Functional pseudo-classes such as :not(.x) or :nth-child(2)
+            int depth = 0;
+            while (!at_end()) {
+                char p = advance();
+                if (p == '(') ++depth;
+                else if (p == ')' && --depth == 0) break;
+            }
+            reject_selector("':" + name + "()' is not supported");
+        } else {
+            compound.pseudo_classes.push_back(name);
+        }
+        return;
+    }
+    case '*':
+        advance();
+        reject_selector("'*' universal selector is not supported");
+        return;
+    case '[':
+        while (!at_end() && advance() != ']') {}
+        reject_selector("attribute selectors are not supported");
+        return;
+    default:
+        break;
+    }
+
+    if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') {
+        compound.tag = read_identifier();
+        return;
+    }
+    reject_selector(std::string("unexpected '") + advance() + "' in selector");
+}
+
+std::string FjssParser::read_identifier() {
+    std::string ident;
+    while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) ||
+                         peek() == '-' || peek() == '_')) {
+        ident += advance();
+    }
+    return ident;
+}
+
+void FjssParser::reject_selector(std::string reason) {
+    if (selector_problem_.empty()) selector_problem_ = std::move(reason);
 }
 
 void FjssParser::parse_declarations(std::vector<StyleDeclaration>& declarations) {

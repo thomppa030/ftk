@@ -962,11 +962,7 @@ std::string UiEditorContext::style_prop_string(const UiNode& node, const char* p
                                                 const std::string& fallback) const {
     if (!preview_ui_) return fallback;
     for (const auto& rule : preview_ui_->stylesheet().rules) {
-        if (rule.selector.id != node.id || !rule.selector.tag.empty() ||
-            !rule.selector.class_.empty() || !rule.selector.pseudo.empty() ||
-            !rule.selector.parent.empty()) {
-            continue;
-        }
+        if (!selects_only_id(rule.selector, node.id)) continue;
         if (const auto* decl = rule.find(property)) return decl->value;
     }
     return fallback;

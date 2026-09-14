@@ -130,8 +130,12 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             fjss_ss << fjss_file.rdbuf();
             auto widget_sheet = FjssParser::parse(fjss_ss.str(), fjss_path);
 
+            // The scope class sits on the widget's instance node, above
+            // everything its own sheet targets.
+            StyleAncestorStep scope;
+            scope.compound.classes.push_back(scope_class);
             for (auto& rule : widget_sheet.rules) {
-                rule.selector.parent = scope_class;
+                rule.selector.ancestors = {scope};
             }
             stylesheet.rules.insert(stylesheet.rules.end(),
                                     widget_sheet.rules.begin(),

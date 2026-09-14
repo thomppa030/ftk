@@ -34,7 +34,13 @@ private:
     void apply_cascade(UiNode& node, const Stylesheet& sheet,
                        const UiComputedStyle* parent_style);
     void inherit_properties(UiComputedStyle& style, const UiComputedStyle& parent);
-    [[nodiscard]] bool selector_matches(const UiNode& node, const StyleSelector& sel) const;
+    [[nodiscard]] static bool selector_matches(const UiNode& node, const StyleSelector& sel);
+    [[nodiscard]] static bool compound_matches(const UiNode& node, const StyleCompound& compound);
+    /// Matches `steps[0..remaining)` against the chain above `current`,
+    /// innermost step first.
+    [[nodiscard]] static bool ancestors_match(const UiNode* current,
+                                              const std::vector<StyleAncestorStep>& steps,
+                                              size_t remaining);
     void apply_property(UiComputedStyle& style, const std::string& name, const std::string& value);
     static UiEdges parse_edges(const std::string& value);
     static UiCorners parse_corners(const std::string& value);

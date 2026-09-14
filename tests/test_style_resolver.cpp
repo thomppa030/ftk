@@ -614,27 +614,87 @@ TEST_CASE("Tag+class selector requires both to match", "[style][edge]") {
     REQUIRE(div_only->style.width == Catch::Approx(-1.0f)); // no match (no class)
 }
 
-TEST_CASE("Descendant selector matches ancestor by class", "[style][edge]") {
-    // "panel .label" — ancestor check tests tag, class, AND id.
-    // So a parent with class="panel" should match the descendant selector.
-    auto root = make_node("div", "", {"panel"}); // class, not tag
-    auto* child = add_child(*root, make_node("span", "", {"label"}));
+TEST_CASE("Bare ancestor name is a tag, not a class or id", "[style][selector]") {
+    // "panel .label" — the ancestor must be a <panel>, exactly as in CSS.
+    auto by_class = make_node("div", "", {"panel"});
+    auto* c1 = add_child(*by_class, make_node("span", "", {"label"}));
+    auto by_id = make_node("div", "panel");
+    auto* c2 = add_child(*by_id, make_node("span", "", {"label"}));
 
     auto sheet = FjssParser::parse("panel .label { width: 77; }");
     StyleResolver resolver;
-    resolver.resolve(*root, sheet);
-    // "panel" in descendant selector matches parent's class "panel"
-    REQUIRE(child->style.width == Catch::Approx(77.0f));
+    resolver.resolve(*by_class, sheet);
+    resolver.resolve(*by_id, sheet);
+    REQUIRE(c1->style.width == Catch::Approx(-1.0f));
+    REQUIRE(c2->style.width == Catch::Approx(-1.0f));
 }
 
-TEST_CASE("Descendant selector matches ancestor by id", "[style][edge]") {
-    auto root = make_node("div", "panel");
+TEST_CASE("Class and id ancestors match their own kind", "[style][selector]") {
+    auto root = make_node("div", "hud", {"panel"});
     auto* child = add_child(*root, make_node("span", "", {"label"}));
+    StyleResolver resolver;
 
-    auto sheet = FjssParser::parse("panel .label { width: 88; }");
+    resolver.resolve(*root, FjssParser::parse(".panel .label { width: 1; }"));
+    REQUIRE(child->style.width == Catch::Approx(1.0f));
+    resolver.resolve(*root, FjssParser::parse("#hud .label { width: 2; }"));
+    REQUIRE(child->style.width == Catch::Approx(2.0f));
+    resolver.resolve(*root, FjssParser::parse(".other .label { width: 3; }"));
+    REQUIRE(child->style.width == Catch::Approx(-1.0f));
+}
+
+TEST_CASE("Multi-class compound needs every class and outranks a single one", "[style][selector]") {
+    auto both = make_node("div", "", {"vital-fill", "blue"});
+    auto one = make_node("div", "", {"blue"});
+    auto sheet = FjssParser::parse(R"(
+        .vital-fill.blue { width: 1; }
+        .blue { width: 2; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*both, sheet);
+    resolver.resolve(*one, sheet);
+    // Two classes beat one even though the single-class rule comes later
+    REQUIRE(both->style.width == Catch::Approx(1.0f));
+    REQUIRE(one->style.width == Catch::Approx(2.0f));
+}
+
+TEST_CASE("Child combinator matches only the direct parent", "[style][selector]") {
+    auto root = make_node("div", "", {"a"});
+    auto* mid = add_child(*root, make_node("div"));
+    auto* direct = add_child(*root, make_node("div", "", {"b"}));
+    auto* grand = add_child(*mid, make_node("div", "", {"b"}));
+
+    auto sheet = FjssParser::parse(".a > .b { width: 5; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(child->style.width == Catch::Approx(88.0f));
+    REQUIRE(direct->style.width == Catch::Approx(5.0f));
+    REQUIRE(grand->style.width == Catch::Approx(-1.0f));
+}
+
+TEST_CASE("Every step of a deep chain must be present", "[style][selector]") {
+    auto root = make_node("div", "", {"a"});
+    auto* b = add_child(*root, make_node("div", "", {"b"}));
+    auto* c_under_b = add_child(*b, make_node("div", "", {"c"}));
+    auto* c_under_a = add_child(*root, make_node("div", "", {"c"}));
+
+    auto sheet = FjssParser::parse(".a .b .c { width: 9; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(c_under_b->style.width == Catch::Approx(9.0f));
+    REQUIRE(c_under_a->style.width == Catch::Approx(-1.0f));
+}
+
+TEST_CASE("Mixed combinators backtrack past the nearest candidate", "[style][selector]") {
+    // .a > .b .c must match when the nearest .b above .c is not a child of
+    // .a, but a farther .b is: greedy matching from the inside would miss it.
+    auto a = make_node("div", "", {"a"});
+    auto* outer_b = add_child(*a, make_node("div", "", {"b"}));
+    auto* inner_b = add_child(*outer_b, make_node("div", "", {"b"}));
+    auto* c = add_child(*inner_b, make_node("div", "", {"c"}));
+
+    auto sheet = FjssParser::parse(".a > .b .c { width: 4; }");
+    StyleResolver resolver;
+    resolver.resolve(*a, sheet);
+    REQUIRE(c->style.width == Catch::Approx(4.0f));
 }
 
 TEST_CASE("Calling resolve resets and reapplies from scratch", "[style][edge]") {

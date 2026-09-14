@@ -59,7 +59,7 @@ private:
         StyleRule* rule = find_rule(sheet);
         if (!rule) {
             StyleRule new_rule;
-            new_rule.selector.id = node_.id;
+            new_rule.selector.subject.id = node_.id;
             sheet.rules.push_back(std::move(new_rule));
             rule = &sheet.rules.back();
         }
@@ -73,11 +73,7 @@ private:
 
     [[nodiscard]] StyleRule* find_rule(Stylesheet& sheet) const {
         for (auto& rule : sheet.rules) {
-            if (rule.selector.id == node_.id && rule.selector.tag.empty() &&
-                rule.selector.class_.empty() && rule.selector.pseudo.empty() &&
-                rule.selector.parent.empty()) {
-                return &rule;
-            }
+            if (selects_only_id(rule.selector, node_.id)) return &rule;
         }
         return nullptr;
     }

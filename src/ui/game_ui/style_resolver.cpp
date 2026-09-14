@@ -76,30 +76,44 @@ void StyleResolver::inherit_properties(UiComputedStyle& style, const UiComputedS
     style.opacity = parent.opacity;
 }
 
-bool StyleResolver::selector_matches(const UiNode& node, const StyleSelector& sel) const {
-    if (!sel.id.empty() && node.id != sel.id) return false;
-    if (!sel.class_.empty() && !node.has_class(sel.class_)) return false;
-    if (!sel.tag.empty() && node.tag != sel.tag) return false;
-
-    // Check pseudo-class against interaction state
-    if (!sel.pseudo.empty()) {
-        if (sel.pseudo == "hover" && !node.is_hovered()) return false;
-        if (sel.pseudo == "active" && !node.is_active()) return false;
-        if (sel.pseudo == "focus" && !node.is_focused()) return false;
+bool StyleResolver::compound_matches(const UiNode& node, const StyleCompound& c) {
+    if (!c.id.empty() && node.id != c.id) return false;
+    if (!c.tag.empty() && node.tag != c.tag) return false;
+    for (const auto& cls : c.classes) {
+        if (!node.has_class(cls)) return false;
     }
-
-    if (!sel.parent.empty()) {
-        bool found = false;
-        for (auto* p = node.parent; p != nullptr; p = p->parent) {
-            if (p->tag == sel.parent || p->has_class(sel.parent) || p->id == sel.parent) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) return false;
+    for (const auto& pseudo : c.pseudo_classes) {
+        if (pseudo == "hover" && !node.is_hovered()) return false;
+        if (pseudo == "active" && !node.is_active()) return false;
+        if (pseudo == "focus" && !node.is_focused()) return false;
     }
-
     return true;
+}
+
+bool StyleResolver::ancestors_match(const UiNode* current,
+                                    const std::vector<StyleAncestorStep>& steps,
+                                    size_t remaining) {
+    if (remaining == 0) return true;
+    const auto& step = steps[remaining - 1];
+    if (step.combinator == UiCombinator::child) {
+        return current != nullptr && compound_matches(*current, step.compound) &&
+               ancestors_match(current->parent, steps, remaining - 1);
+    }
+    // Descendant: try every ancestor that fits and let the steps further
+    // out decide, so `a > b c` still matches when the nearest `b` above `c`
+    // is not a child of an `a` but a farther one is.
+    for (; current != nullptr; current = current->parent) {
+        if (compound_matches(*current, step.compound) &&
+            ancestors_match(current->parent, steps, remaining - 1)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool StyleResolver::selector_matches(const UiNode& node, const StyleSelector& sel) {
+    if (!compound_matches(node, sel.subject)) return false;
+    return ancestors_match(node.parent, sel.ancestors, sel.ancestors.size());
 }
 
 void StyleResolver::apply_property(UiComputedStyle& style, const std::string& name,

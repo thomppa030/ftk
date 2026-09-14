@@ -11,6 +11,24 @@ static std::string prop(const fjell::StyleRule& rule, const char* name) {
     return decl->value;
 }
 
+// The selector rendered back to source form, e.g. "panel > .slot:hover",
+// so a test can state the whole expected shape in one line.
+static std::string compound_text(const fjell::StyleCompound& c) {
+    std::string out = c.tag;
+    if (!c.id.empty()) out += "#" + c.id;
+    for (const auto& cls : c.classes) out += "." + cls;
+    for (const auto& p : c.pseudo_classes) out += ":" + p;
+    return out;
+}
+static std::string selector_text(const fjell::StyleSelector& sel) {
+    std::string out;
+    for (const auto& step : sel.ancestors) {
+        out += compound_text(step.compound);
+        out += step.combinator == fjell::UiCombinator::child ? " > " : " ";
+    }
+    return out + compound_text(sel.subject);
+}
+
 using namespace fjell;
 
 static struct LogInit {
@@ -22,48 +40,48 @@ static struct LogInit {
 TEST_CASE("Parse tag selector", "[fjss]") {
     auto sheet = FjssParser::parse("div { width: 100; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.tag == "div");
+    REQUIRE(sheet.rules[0].selector.subject.tag == "div");
 }
 
 TEST_CASE("Parse class selector", "[fjss]") {
     auto sheet = FjssParser::parse(".panel { width: 100; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "panel");
-    REQUIRE(sheet.rules[0].selector.tag.empty());
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"panel"});
+    REQUIRE(sheet.rules[0].selector.subject.tag.empty());
 }
 
 TEST_CASE("Parse id selector", "[fjss]") {
     auto sheet = FjssParser::parse("#hud { opacity: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.id == "hud");
+    REQUIRE(sheet.rules[0].selector.subject.id == "hud");
 }
 
 TEST_CASE("Parse pseudo-class selector", "[fjss]") {
     auto sheet = FjssParser::parse(".slot:hover { border-color: #888; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "slot");
-    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"slot"});
+    REQUIRE(sheet.rules[0].selector.subject.pseudo_classes == std::vector<std::string>{"hover"});
 }
 
 TEST_CASE("Parse tag + class selector", "[fjss]") {
     auto sheet = FjssParser::parse("div.panel { width: 100; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.tag == "div");
-    REQUIRE(sheet.rules[0].selector.class_ == "panel");
+    REQUIRE(sheet.rules[0].selector.subject.tag == "div");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"panel"});
 }
 
 TEST_CASE("Parse tag + id selector", "[fjss]") {
     auto sheet = FjssParser::parse("panel#hud { opacity: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.tag == "panel");
-    REQUIRE(sheet.rules[0].selector.id == "hud");
+    REQUIRE(sheet.rules[0].selector.subject.tag == "panel");
+    REQUIRE(sheet.rules[0].selector.subject.id == "hud");
 }
 
 TEST_CASE("Parse descendant combinator", "[fjss]") {
     auto sheet = FjssParser::parse("panel .label { color: #fff; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.parent == "panel");
-    REQUIRE(sheet.rules[0].selector.class_ == "label");
+    REQUIRE(selector_text(sheet.rules[0].selector) == "panel .label");
+    REQUIRE(sheet.rules[0].selector.ancestors[0].combinator == UiCombinator::descendant);
 }
 
 // --- Specificity ---
@@ -75,24 +93,24 @@ TEST_CASE("Specificity: tag = 1", "[fjss]") {
 
 TEST_CASE("Specificity: class = 10", "[fjss]") {
     auto sheet = FjssParser::parse(".foo { width: 1; }");
-    REQUIRE(sheet.rules[0].selector.specificity() == 10);
+    REQUIRE(sheet.rules[0].selector.specificity() == (1u << 8));
 }
 
 TEST_CASE("Specificity: id = 100", "[fjss]") {
     auto sheet = FjssParser::parse("#bar { width: 1; }");
-    REQUIRE(sheet.rules[0].selector.specificity() == 100);
+    REQUIRE(sheet.rules[0].selector.specificity() == (1u << 16));
 }
 
 TEST_CASE("Specificity: pseudo = 10", "[fjss]") {
     auto sheet = FjssParser::parse(".slot:hover { width: 1; }");
     // class(10) + pseudo(10) = 20
-    REQUIRE(sheet.rules[0].selector.specificity() == 20);
+    REQUIRE(sheet.rules[0].selector.specificity() == (2u << 8));
 }
 
 TEST_CASE("Specificity: tag + class + pseudo", "[fjss]") {
     auto sheet = FjssParser::parse("div.slot:active { width: 1; }");
     // tag(1) + class(10) + pseudo(10) = 21
-    REQUIRE(sheet.rules[0].selector.specificity() == 21);
+    REQUIRE(sheet.rules[0].selector.specificity() == (2u << 8) + 1u);
 }
 
 // --- Declarations ---
@@ -134,9 +152,9 @@ TEST_CASE("Parse multiple rules", "[fjss]") {
         .active { border-color: #d4a054; }
     )");
     REQUIRE(sheet.rules.size() == 3);
-    REQUIRE(sheet.rules[0].selector.class_ == "slot");
-    REQUIRE(sheet.rules[1].selector.pseudo == "hover");
-    REQUIRE(sheet.rules[2].selector.class_ == "active");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"slot"});
+    REQUIRE(sheet.rules[1].selector.subject.pseudo_classes == std::vector<std::string>{"hover"});
+    REQUIRE(sheet.rules[2].selector.subject.classes == std::vector<std::string>{"active"});
 }
 
 // --- Comments ---
@@ -178,49 +196,46 @@ TEST_CASE("Transition property value is preserved", "[fjss]") {
 
 TEST_CASE("Hyphenated class name", "[fjss]") {
     auto sheet = FjssParser::parse(".my-class { width: 1; }");
-    REQUIRE(sheet.rules[0].selector.class_ == "my-class");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"my-class"});
 }
 
 TEST_CASE("Hyphenated id name", "[fjss]") {
     auto sheet = FjssParser::parse("#health-bar { width: 1; }");
-    REQUIRE(sheet.rules[0].selector.id == "health-bar");
+    REQUIRE(sheet.rules[0].selector.subject.id == "health-bar");
 }
 
 TEST_CASE("Underscored class name", "[fjss]") {
     auto sheet = FjssParser::parse(".my_class { width: 1; }");
-    REQUIRE(sheet.rules[0].selector.class_ == "my_class");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"my_class"});
 }
 
 TEST_CASE("Class name with numbers", "[fjss]") {
     auto sheet = FjssParser::parse(".slot2 { width: 1; }");
-    REQUIRE(sheet.rules[0].selector.class_ == "slot2");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"slot2"});
 }
 
 TEST_CASE("Tag + pseudo without class", "[fjss]") {
     auto sheet = FjssParser::parse("div:hover { opacity: 1; }");
-    REQUIRE(sheet.rules[0].selector.tag == "div");
-    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
-    REQUIRE(sheet.rules[0].selector.class_.empty());
+    REQUIRE(sheet.rules[0].selector.subject.tag == "div");
+    REQUIRE(sheet.rules[0].selector.subject.pseudo_classes == std::vector<std::string>{"hover"});
+    REQUIRE(sheet.rules[0].selector.subject.classes.empty());
 }
 
 TEST_CASE("ID + class + pseudo combo", "[fjss]") {
     auto sheet = FjssParser::parse("#hud.panel:hover { opacity: 1; }");
-    REQUIRE(sheet.rules[0].selector.id == "hud");
-    REQUIRE(sheet.rules[0].selector.class_ == "panel");
-    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+    REQUIRE(sheet.rules[0].selector.subject.id == "hud");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"panel"});
+    REQUIRE(sheet.rules[0].selector.subject.pseudo_classes == std::vector<std::string>{"hover"});
 }
 
 TEST_CASE("Descendant with class and pseudo on child", "[fjss]") {
     auto sheet = FjssParser::parse("panel .slot:hover { width: 1; }");
-    REQUIRE(sheet.rules[0].selector.parent == "panel");
-    REQUIRE(sheet.rules[0].selector.class_ == "slot");
-    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+    REQUIRE(selector_text(sheet.rules[0].selector) == "panel .slot:hover");
 }
 
 TEST_CASE("Descendant with tag child", "[fjss]") {
     auto sheet = FjssParser::parse("panel div { width: 1; }");
-    REQUIRE(sheet.rules[0].selector.parent == "panel");
-    REQUIRE(sheet.rules[0].selector.tag == "div");
+    REQUIRE(selector_text(sheet.rules[0].selector) == "panel div");
 }
 
 TEST_CASE("All pseudo-classes parse correctly", "[fjss]") {
@@ -229,20 +244,20 @@ TEST_CASE("All pseudo-classes parse correctly", "[fjss]") {
         .b:active { width: 1; }
         .c:focus { width: 1; }
     )");
-    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
-    REQUIRE(sheet.rules[1].selector.pseudo == "active");
-    REQUIRE(sheet.rules[2].selector.pseudo == "focus");
+    REQUIRE(sheet.rules[0].selector.subject.pseudo_classes == std::vector<std::string>{"hover"});
+    REQUIRE(sheet.rules[1].selector.subject.pseudo_classes == std::vector<std::string>{"active"});
+    REQUIRE(sheet.rules[2].selector.subject.pseudo_classes == std::vector<std::string>{"focus"});
 }
 
 TEST_CASE("Specificity: id + class + tag + pseudo", "[fjss]") {
     // Build selector manually since parser can't do all 4 in one selector string easily
     StyleSelector sel;
-    sel.id = "hud";
-    sel.class_ = "panel";
-    sel.tag = "div";
-    sel.pseudo = "hover";
-    // 100 + 10 + 1 + 10 = 121
-    REQUIRE(sel.specificity() == 121);
+    sel.subject.id = "hud";
+    sel.subject.classes = {"panel"};
+    sel.subject.tag = "div";
+    sel.subject.pseudo_classes = {"hover"};
+    // one id, one class + one pseudo-class, one tag
+    REQUIRE(sel.specificity() == (1u << 16) + (2u << 8) + 1u);
 }
 
 TEST_CASE("Specificity: empty selector = 0", "[fjss]") {
@@ -301,7 +316,7 @@ TEST_CASE("Property value trailing whitespace is trimmed", "[fjss]") {
 TEST_CASE("Rule with empty body is not added", "[fjss]") {
     auto sheet = FjssParser::parse(".empty {} .real { width: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "real");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"real"});
 }
 
 TEST_CASE("Multiple rules with same selector are both kept", "[fjss]") {
@@ -396,11 +411,11 @@ TEST_CASE("Real-world stylesheet", "[fjss]") {
         .active { border-color: #d4a054; }
     )");
     REQUIRE(sheet.rules.size() == 4);
-    REQUIRE(sheet.rules[0].selector.class_ == "slot");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"slot"});
     REQUIRE(sheet.rules[0].declarations.size() == 6);
-    REQUIRE(sheet.rules[1].selector.pseudo == "hover");
-    REQUIRE(sheet.rules[2].selector.pseudo == "active");
-    REQUIRE(sheet.rules[3].selector.class_ == "active");
+    REQUIRE(sheet.rules[1].selector.subject.pseudo_classes == std::vector<std::string>{"hover"});
+    REQUIRE(sheet.rules[2].selector.subject.pseudo_classes == std::vector<std::string>{"active"});
+    REQUIRE(sheet.rules[3].selector.subject.classes == std::vector<std::string>{"active"});
 }
 
 // --- Selector groups ---
@@ -408,8 +423,8 @@ TEST_CASE("Real-world stylesheet", "[fjss]") {
 TEST_CASE("Selector group yields one rule per selector", "[fjss]") {
     auto sheet = FjssParser::parse(".a, .b { width: 1; }");
     REQUIRE(sheet.rules.size() == 2);
-    REQUIRE(sheet.rules[0].selector.class_ == "a");
-    REQUIRE(sheet.rules[1].selector.class_ == "b");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"a"});
+    REQUIRE(sheet.rules[1].selector.subject.classes == std::vector<std::string>{"b"});
     REQUIRE(prop(sheet.rules[0], "width") == "1");
     REQUIRE(prop(sheet.rules[1], "width") == "1");
 }
@@ -417,10 +432,10 @@ TEST_CASE("Selector group yields one rule per selector", "[fjss]") {
 TEST_CASE("Selector group with three members and mixed kinds", "[fjss]") {
     auto sheet = FjssParser::parse("div, #hud, .slot:hover { opacity: 0.5; }");
     REQUIRE(sheet.rules.size() == 3);
-    REQUIRE(sheet.rules[0].selector.tag == "div");
-    REQUIRE(sheet.rules[1].selector.id == "hud");
-    REQUIRE(sheet.rules[2].selector.class_ == "slot");
-    REQUIRE(sheet.rules[2].selector.pseudo == "hover");
+    REQUIRE(sheet.rules[0].selector.subject.tag == "div");
+    REQUIRE(sheet.rules[1].selector.subject.id == "hud");
+    REQUIRE(sheet.rules[2].selector.subject.classes == std::vector<std::string>{"slot"});
+    REQUIRE(sheet.rules[2].selector.subject.pseudo_classes == std::vector<std::string>{"hover"});
     for (const auto& rule : sheet.rules) {
         REQUIRE(prop(rule, "opacity") == "0.5");
     }
@@ -429,29 +444,27 @@ TEST_CASE("Selector group with three members and mixed kinds", "[fjss]") {
 TEST_CASE("Selector group without spaces around commas", "[fjss]") {
     auto sheet = FjssParser::parse(".a,.b,.c{width:1}");
     REQUIRE(sheet.rules.size() == 3);
-    REQUIRE(sheet.rules[2].selector.class_ == "c");
+    REQUIRE(sheet.rules[2].selector.subject.classes == std::vector<std::string>{"c"});
 }
 
 TEST_CASE("Selector group with descendant member", "[fjss]") {
     auto sheet = FjssParser::parse("panel .label, .title { width: 1; }");
     REQUIRE(sheet.rules.size() == 2);
-    REQUIRE(sheet.rules[0].selector.parent == "panel");
-    REQUIRE(sheet.rules[0].selector.class_ == "label");
-    REQUIRE(sheet.rules[1].selector.class_ == "title");
-    REQUIRE(sheet.rules[1].selector.parent.empty());
+    REQUIRE(selector_text(sheet.rules[0].selector) == "panel .label");
+    REQUIRE(selector_text(sheet.rules[1].selector) == ".title");
 }
 
 TEST_CASE("Selector group followed by another rule", "[fjss]") {
     auto sheet = FjssParser::parse(".a, .b { width: 1; } .c { height: 2; }");
     REQUIRE(sheet.rules.size() == 3);
-    REQUIRE(sheet.rules[2].selector.class_ == "c");
+    REQUIRE(sheet.rules[2].selector.subject.classes == std::vector<std::string>{"c"});
     REQUIRE(prop(sheet.rules[2], "height") == "2");
 }
 
 TEST_CASE("Selector group with empty body is dropped entirely", "[fjss]") {
     auto sheet = FjssParser::parse(".a, .b { } .c { width: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "c");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"c"});
 }
 
 // --- Termination on malformed input ---
@@ -476,19 +489,19 @@ TEST_CASE("Only commas terminates", "[fjss]") {
 TEST_CASE("Selector without block is skipped and the next rule parses", "[fjss]") {
     auto sheet = FjssParser::parse("garbage; .a { width: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "a");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"a"});
 }
 
 TEST_CASE("Stray closing brace is skipped", "[fjss]") {
     auto sheet = FjssParser::parse("} .a { width: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "a");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"a"});
 }
 
 TEST_CASE("Nested braces without a selector are skipped as one construct", "[fjss]") {
     auto sheet = FjssParser::parse("@media (x) { .a { width: 1; } } .b { height: 2; }");
     REQUIRE(sheet.rules.size() >= 1);
-    REQUIRE(sheet.rules.back().selector.class_ == "b");
+    REQUIRE(sheet.rules.back().selector.subject.classes == std::vector<std::string>{"b"});
 }
 
 TEST_CASE("Every truncated prefix of a real stylesheet terminates", "[fjss]") {
@@ -590,8 +603,8 @@ TEST_CASE("Line counting is by newline and column is 1-based", "[fjss][diag]") {
 TEST_CASE("@import is skipped with a diagnostic and the next rule parses", "[fjss][unsupported]") {
     auto sheet = FjssParser::parse("@import \"base.fjss\";\n.a { width: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "a");
-    REQUIRE(sheet.rules[0].selector.parent.empty());
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"a"});
+    REQUIRE(sheet.rules[0].selector.ancestors.empty());
     REQUIRE(sheet.diagnostics.size() == 1);
     REQUIRE(sheet.diagnostics[0].message.find("@import") != std::string::npos);
     REQUIRE(sheet.diagnostics[0].line == 1);
@@ -601,7 +614,7 @@ TEST_CASE("@media block is skipped whole, including nested rules", "[fjss][unsup
     auto sheet = FjssParser::parse(
         "@media (min-width: 800) { .a { width: 1; } .x { height: 9; } }\n.b { height: 2; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "b");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"b"});
     REQUIRE(sheet.diagnostics.size() == 1);
     REQUIRE(sheet.diagnostics[0].message.find("@media") != std::string::npos);
 }
@@ -610,13 +623,13 @@ TEST_CASE("@keyframes percentages never become tag rules", "[fjss][unsupported]"
     auto sheet = FjssParser::parse(
         "@keyframes pulse { 0% { opacity: 0; } 100% { opacity: 1; } } .b { width: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "b");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"b"});
 }
 
 TEST_CASE("Pseudo-element rule is dropped with a diagnostic", "[fjss][unsupported]") {
     auto sheet = FjssParser::parse(".a::before { width: 1; }\n.b { height: 2; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "b");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"b"});
     REQUIRE(sheet.diagnostics.size() == 1);
     REQUIRE(sheet.diagnostics[0].message.find("::before") != std::string::npos);
     REQUIRE(sheet.diagnostics[0].line == 1);
@@ -625,7 +638,7 @@ TEST_CASE("Pseudo-element rule is dropped with a diagnostic", "[fjss][unsupporte
 TEST_CASE("Functional pseudo-classes are dropped with a diagnostic", "[fjss][unsupported]") {
     auto sheet = FjssParser::parse(".a:not(.b) { width: 1; } .c:nth-child(2) { width: 2; } .d { width: 3; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "d");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"d"});
     REQUIRE(sheet.diagnostics.size() == 2);
     REQUIRE(sheet.diagnostics[0].message.find(":not()") != std::string::npos);
     REQUIRE(sheet.diagnostics[1].message.find(":nth-child()") != std::string::npos);
@@ -634,21 +647,25 @@ TEST_CASE("Functional pseudo-classes are dropped with a diagnostic", "[fjss][uns
 TEST_CASE("Plain pseudo-classes still parse next to unsupported ones", "[fjss][unsupported]") {
     auto sheet = FjssParser::parse(".a:hover { width: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+    REQUIRE(sheet.rules[0].selector.subject.pseudo_classes == std::vector<std::string>{"hover"});
     REQUIRE(sheet.diagnostics.empty());
 }
 
-TEST_CASE("Child combinator is reported instead of matching nothing", "[fjss][unsupported]") {
-    auto sheet = FjssParser::parse(".a > .b { width: 1; }");
-    REQUIRE(sheet.rules.empty());
-    REQUIRE(sheet.diagnostics.size() == 1);
-    REQUIRE(sheet.diagnostics[0].message.find("'>'") != std::string::npos);
+TEST_CASE("Child combinator parses with either spacing", "[fjss][selector]") {
+    auto spaced = FjssParser::parse(".a > .b { width: 1; }");
+    auto tight = FjssParser::parse(".a>.b { width: 1; }");
+    REQUIRE(spaced.rules.size() == 1);
+    REQUIRE(tight.rules.size() == 1);
+    REQUIRE(selector_text(spaced.rules[0].selector) == ".a > .b");
+    REQUIRE(selector_text(tight.rules[0].selector) == ".a > .b");
+    REQUIRE(spaced.rules[0].selector.ancestors[0].combinator == UiCombinator::child);
+    REQUIRE(spaced.diagnostics.empty());
 }
 
 TEST_CASE("Universal and attribute selectors are reported", "[fjss][unsupported]") {
     auto sheet = FjssParser::parse("* { width: 1; } div[type=text] { width: 2; } .ok { width: 3; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.class_ == "ok");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"ok"});
     REQUIRE(sheet.diagnostics.size() == 2);
     REQUIRE(sheet.diagnostics[0].message.find("'*'") != std::string::npos);
     REQUIRE(sheet.diagnostics[1].message.find("attribute") != std::string::npos);
@@ -664,11 +681,11 @@ TEST_CASE("Nested rule inside a block is skipped and the outer rule survives", "
     auto sheet = FjssParser::parse(
         ".a {\n    width: 1;\n    .b:hover { height: 2; }\n    height: 3;\n}\n.c { width: 4; }");
     REQUIRE(sheet.rules.size() == 2);
-    REQUIRE(sheet.rules[0].selector.class_ == "a");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"a"});
     REQUIRE(prop(sheet.rules[0], "width") == "1");
     REQUIRE(prop(sheet.rules[0], "height") == "3");
     REQUIRE(sheet.rules[0].find("b") == nullptr);
-    REQUIRE(sheet.rules[1].selector.class_ == "c");
+    REQUIRE(sheet.rules[1].selector.subject.classes == std::vector<std::string>{"c"});
     REQUIRE(sheet.diagnostics.size() == 1);
     REQUIRE(sheet.diagnostics[0].message.find(".b:hover") != std::string::npos);
     REQUIRE(sheet.diagnostics[0].line == 3);
@@ -720,4 +737,62 @@ TEST_CASE("StyleRule::erase removes every declaration of that name", "[fjss][ord
     REQUIRE(rule.declarations.size() == 1);
     REQUIRE(rule.find("width") == nullptr);
     REQUIRE(prop(rule, "height") == "5");
+}
+
+// --- Compound selectors and chains ---
+
+TEST_CASE("Multiple classes on one compound", "[fjss][selector]") {
+    auto sheet = FjssParser::parse(".vital-fill.blue { width: 1; }");
+    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"vital-fill", "blue"});
+    REQUIRE(sheet.rules[0].selector.specificity() == (2u << 8));
+}
+
+TEST_CASE("Compound keeps every part in any order", "[fjss][selector]") {
+    auto sheet = FjssParser::parse("div.panel#main.wide:hover:focus { width: 1; }");
+    REQUIRE(selector_text(sheet.rules[0].selector) == "div#main.panel.wide:hover:focus");
+    REQUIRE(sheet.rules[0].selector.specificity() == (1u << 16) + (4u << 8) + 1u);
+}
+
+TEST_CASE("Ancestors keep their own kind", "[fjss][selector]") {
+    auto by_tag = FjssParser::parse("panel .label { width: 1; }");
+    auto by_class = FjssParser::parse(".panel .label { width: 1; }");
+    auto by_id = FjssParser::parse("#panel .label { width: 1; }");
+    REQUIRE(by_tag.rules[0].selector.ancestors[0].compound.tag == "panel");
+    REQUIRE(by_class.rules[0].selector.ancestors[0].compound.classes == std::vector<std::string>{"panel"});
+    REQUIRE(by_id.rules[0].selector.ancestors[0].compound.id == "panel");
+    REQUIRE(by_class.rules[0].selector.specificity() == (2u << 8));
+    REQUIRE(by_id.rules[0].selector.specificity() == (1u << 16) + (1u << 8));
+}
+
+TEST_CASE("Deep chains keep every step outermost first", "[fjss][selector]") {
+    auto sheet = FjssParser::parse("#hud .row > .slot:hover text { width: 1; }");
+    const auto& sel = sheet.rules[0].selector;
+    REQUIRE(selector_text(sel) == "#hud .row > .slot:hover text");
+    REQUIRE(sel.ancestors.size() == 3);
+    REQUIRE(sel.ancestors[0].combinator == UiCombinator::descendant);
+    REQUIRE(sel.ancestors[1].combinator == UiCombinator::child);
+    REQUIRE(sel.ancestors[2].combinator == UiCombinator::descendant);
+    REQUIRE(sel.subject.tag == "text");
+}
+
+TEST_CASE("Specificity counts across the whole chain", "[fjss][selector]") {
+    auto chain = FjssParser::parse("#a .b .c { width: 1; }");
+    auto single = FjssParser::parse("#a.b.c { width: 1; }");
+    REQUIRE(chain.rules[0].selector.specificity() == single.rules[0].selector.specificity());
+}
+
+TEST_CASE("A dangling child combinator is rejected", "[fjss][selector]") {
+    auto leading = FjssParser::parse("> .b { width: 1; }");
+    auto trailing = FjssParser::parse(".a > { width: 1; }");
+    REQUIRE(leading.rules.empty());
+    REQUIRE(trailing.rules.empty());
+    REQUIRE(leading.diagnostics.size() == 1);
+    REQUIRE(trailing.diagnostics.size() == 1);
+}
+
+TEST_CASE("Stray characters inside a selector are rejected, not swallowed", "[fjss][selector]") {
+    auto sheet = FjssParser::parse(".a\"b { width: 1; } .c { width: 2; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(selector_text(sheet.rules[0].selector) == ".c");
+    REQUIRE(sheet.diagnostics.size() == 1);
 }
