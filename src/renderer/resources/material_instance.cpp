@@ -5,6 +5,7 @@
 #include "renderer/pipeline_cache.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 
+#include <algorithm>
 #include <array>
 
 namespace fjell {
@@ -80,7 +81,11 @@ void MaterialInstance::write_floats(const std::string& name,
                            name, expected, count);
             return;
         }
-        bindless_->write_params(material_.custom_param_offset() + u.slot, data, count);
+        std::array<float, 4> encoded{};
+        std::copy_n(data, count, encoded.begin());
+        encode_uniform_for_gpu(u, std::span{encoded}.first(count));
+        bindless_->write_params(material_.custom_param_offset() + u.slot,
+                                encoded.data(), count);
         return;
     }
     FJELL_GFX_WARN("MaterialInstance::set_param('{}'): no such uniform on shader '{}'",

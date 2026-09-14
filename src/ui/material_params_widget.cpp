@@ -71,6 +71,7 @@ bool draw_material_params(const ShaderMetadata& meta,
         for (uint32_t i = 0; i < fcount; ++i) {
             temp[i] = bindless.read_param(abs_offset + i);
         }
+        decode_uniform_from_gpu(u, std::span{temp}.first(fcount));
 
         switch (u.type) {
             case UniformType::Float:
@@ -97,6 +98,7 @@ bool draw_material_params(const ShaderMetadata& meta,
             case UniformType::Vec3:
                 if (u.hint == UniformHint::Color) {
                     if (ImGui::ColorEdit3("##val", temp)) {
+                        encode_uniform_for_gpu(u, std::span{temp}.first(3));
                         bindless.write_params(abs_offset, temp, 3);
                         changed = true;
                     }
@@ -111,6 +113,7 @@ bool draw_material_params(const ShaderMetadata& meta,
             case UniformType::Vec4:
                 if (u.hint == UniformHint::Color) {
                     if (ImGui::ColorEdit4("##val", temp)) {
+                        encode_uniform_for_gpu(u, std::span{temp}.first(4));
                         bindless.write_params(abs_offset, temp, 4);
                         changed = true;
                     }

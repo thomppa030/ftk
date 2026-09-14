@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -98,5 +99,16 @@ struct ShaderMetadata {
 
 // Return the number of floats consumed by a uniform type.
 [[nodiscard]] uint32_t uniform_float_count(UniformType type);
+
+/// Turn an authored uniform value into what the params SSBO holds. A
+/// `hint_color` is authored in sRGB everywhere a person sees it — the `.fjsl`
+/// default, the `.fjmat`, the colour picker, the script API — while the GPU
+/// multiplies linear light, so its RGB is converted here. Alpha and every
+/// other uniform pass through untouched.
+void encode_uniform_for_gpu(const FjslUniform& u, std::span<float> values);
+
+/// Inverse of encode_uniform_for_gpu, for a value read back from the SSBO
+/// that is about to be saved to a `.fjmat` or shown in a colour picker.
+void decode_uniform_from_gpu(const FjslUniform& u, std::span<float> values);
 
 } // namespace fjell

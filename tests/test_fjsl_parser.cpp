@@ -661,3 +661,53 @@ TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc
     }
     REQUIRE(checked > 0);
 }
+
+TEST_CASE("hint_color uniforms are authored in sRGB and stored linear", "[fjsl][color]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform vec3 tint : hint_color = vec3(0.5, 1.0, 0.0);
+        uniform vec4 glow : hint_color = vec4(0.5, 0.5, 0.5, 0.6);
+        uniform vec3 offset = vec3(0.5, 0.5, 0.5);
+        uniform float amount : hint_range(0.0, 1.0, 0.1) = 0.5;
+        void fragment() { ALBEDO = tint + offset * amount + glow.rgb; }
+    )");
+    auto uniform = [&](const std::string& name) -> const FjslUniform& {
+        for (const auto& u : meta.uniforms) if (u.name == name) return u;
+        FAIL("no uniform " << name);
+        return meta.uniforms.front();
+    };
+
+    SECTION("a colour's RGB is decoded from sRGB") {
+        std::vector<float> v = uniform("tint").default_value;
+        encode_uniform_for_gpu(uniform("tint"), v);
+        REQUIRE(v[0] == Catch::Approx(0.2140f).margin(0.0005f));
+        REQUIRE(v[1] == Catch::Approx(1.0f));
+        REQUIRE(v[2] == 0.0f);
+    }
+
+    SECTION("alpha is coverage and stays as authored") {
+        std::vector<float> v = uniform("glow").default_value;
+        encode_uniform_for_gpu(uniform("glow"), v);
+        REQUIRE(v[0] == Catch::Approx(0.2140f).margin(0.0005f));
+        REQUIRE(v[2] == Catch::Approx(0.2140f).margin(0.0005f));
+        REQUIRE(v[3] == Catch::Approx(0.6f));
+    }
+
+    SECTION("vectors and scalars without hint_color pass through") {
+        std::vector<float> v = uniform("offset").default_value;
+        encode_uniform_for_gpu(uniform("offset"), v);
+        REQUIRE(v[0] == Catch::Approx(0.5f));
+        std::vector<float> a = uniform("amount").default_value;
+        encode_uniform_for_gpu(uniform("amount"), a);
+        REQUIRE(a[0] == Catch::Approx(0.5f));
+    }
+
+    SECTION("decoding restores the authored value") {
+        std::vector<float> v = uniform("tint").default_value;
+        encode_uniform_for_gpu(uniform("tint"), v);
+        decode_uniform_from_gpu(uniform("tint"), v);
+        REQUIRE(v[0] == Catch::Approx(0.5f).epsilon(1e-5f));
+        REQUIRE(v[1] == Catch::Approx(1.0f).epsilon(1e-5f));
+        REQUIRE(v[2] == 0.0f);
+    }
+}

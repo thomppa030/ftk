@@ -432,6 +432,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
                         param_data[u.slot + i] = u.default_value[i];
                     }
                 }
+                encode_uniform_for_gpu(u, std::span{param_data}.subspan(u.slot, count));
             }
             bindless_.write_params(offset, param_data.data(), shader_meta->custom_param_count);
         }
@@ -440,9 +441,14 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     // What the ray-traced GI paths read of this material, derived from the
     // shader's tagged uniforms and this asset's values for them.
     if (shader_meta) {
+        // Derived from the same linear values the params SSBO holds, so the
+        // GI paths and the raster path agree on the colour.
         auto gi = derive_material_gi_params(*shader_meta, [&](const FjslUniform& u) {
             auto p_it = asset.params.find(u.name);
-            return p_it != asset.params.end() ? p_it->second : u.default_value;
+            std::vector<float> values =
+                p_it != asset.params.end() ? p_it->second : u.default_value;
+            encode_uniform_for_gpu(u, values);
+            return values;
         }, params.has_emissive_texture);
         params.emission_color = gi.emission;
         params.gi_albedo_override = gi.gi_albedo_override;

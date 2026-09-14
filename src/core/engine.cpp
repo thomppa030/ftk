@@ -862,6 +862,7 @@ void Engine::save_material_assets() {
             for (uint32_t i = 0; i < fcount; ++i) {
                 vals[i] = bindless.read_param(gpu.param_offset + u.slot + i);
             }
+            decode_uniform_from_gpu(u, vals);
             asset.params[u.name] = vals;
         }
 

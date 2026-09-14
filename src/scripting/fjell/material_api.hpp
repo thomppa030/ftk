@@ -46,7 +46,9 @@ struct MaterialAPI {
         fjell_mesh_set_param_vec2(node_id, name, x, y);
     }
 
-    /// Set a `vec3` uniform — also the form for `hint_color` colors, as RGB.
+    /// Set a `vec3` uniform — also the form for `hint_color` colors, as sRGB
+    /// RGB exactly as the picker and the `.fjmat` show them; the engine
+    /// converts to linear on the way to the GPU.
     static void set_param(uint32_t node_id, const char* name, float x, float y, float z) {
         fjell_mesh_set_param_vec3(node_id, name, x, y, z);
     }

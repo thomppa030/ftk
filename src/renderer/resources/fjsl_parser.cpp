@@ -1,5 +1,6 @@
 #include "renderer/resources/fjsl_parser.hpp"
 #include "core/log.hpp"
+#include "core/math/color_space.hpp"
 
 #include <algorithm>
 #include <regex>
@@ -17,6 +18,33 @@ uint32_t uniform_float_count(UniformType type) {
         case UniformType::Sampler2D: return 0;
     }
     return 0;
+}
+
+namespace {
+
+// Only a colour vector is authored in sRGB; a hint_color on any other type
+// is meaningless and left alone.
+bool is_authored_color(const FjslUniform& u) {
+    return u.hint == UniformHint::Color
+        && (u.type == UniformType::Vec3 || u.type == UniformType::Vec4);
+}
+
+} // namespace
+
+void encode_uniform_for_gpu(const FjslUniform& u, std::span<float> values) {
+    if (!is_authored_color(u)) return;
+    const size_t rgb = std::min<size_t>(values.size(), 3);
+    for (size_t i = 0; i < rgb; ++i) {
+        values[i] = color_space::srgb_to_linear(values[i]);
+    }
+}
+
+void decode_uniform_from_gpu(const FjslUniform& u, std::span<float> values) {
+    if (!is_authored_color(u)) return;
+    const size_t rgb = std::min<size_t>(values.size(), 3);
+    for (size_t i = 0; i < rgb; ++i) {
+        values[i] = color_space::linear_to_srgb(values[i]);
+    }
 }
 
 static UniformType parse_type(const std::string& t) {

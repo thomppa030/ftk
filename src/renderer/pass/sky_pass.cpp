@@ -391,6 +391,7 @@ void SkyPass::ensure_fjsl_pipeline(const PassResources& resources) {
             for (uint32_t i = 0; i < count && i < u.default_value.size(); ++i) {
                 seed[u.slot + i] = u.default_value[i];
             }
+            encode_uniform_for_gpu(u, std::span{seed}.subspan(u.slot, count));
         }
         fjsl_bindless_->write_params(gpu.param_offset, seed.data(), meta.custom_param_count);
     }

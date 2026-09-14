@@ -130,6 +130,7 @@ void MaterialEditorContext::save_material() {
             for (uint32_t i = 0; i < fcount; ++i) {
                 vals[i] = bindless.read_param(gpu.param_offset + u.slot + i);
             }
+            decode_uniform_from_gpu(u, vals);
             asset_.params[u.name] = vals;
         }
     }
