@@ -336,4 +336,10 @@ void PlayController::stop() {
     on_stopped.broadcast();
 }
 
+void PlayController::shutdown() {
+    if (!hud_target_) return;
+    s_.vulkan->wait_idle();
+    hud_target_.reset();
+}
+
 } // namespace fjell

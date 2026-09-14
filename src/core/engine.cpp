@@ -775,6 +775,18 @@ void Engine::init_editor() {
 }
 
 Engine::~Engine() {
+    // Quitting while still playing (window closed, process killed) skips
+    // run()'s normal path to stop() entirely — nothing in the main loop calls
+    // it on the way out. Without this, subsystems_.clear() below destroys
+    // UiSubsystem's widget instances after ScriptSubsystem (registered
+    // earlier, so destroyed first) has already unloaded game.so in
+    // ScriptManager's destructor — a widget's on:click Connection still
+    // holds a std::function whose vtable lives in that now-unloaded library,
+    // and destroying it walks into freed memory. stop() runs the same
+    // teardown play's own Stop button does, while every subsystem the game
+    // depends on is still alive; it's a no-op if play was never started.
+    play_controller_.stop();
+
     vulkan_context_->wait_idle();
     vulkan_context_->set_overlay_callback(nullptr);
     game_ui_.destroy();
@@ -788,7 +800,12 @@ Engine::~Engine() {
     resource_manager_.reset();
     IconCache::set_instance(nullptr);
     icon_cache_.reset();
-    // Release ImGui descriptor sets before ImGui shuts down
+    // Release ImGui descriptor sets before ImGui shuts down. hud_target_ is
+    // a plain PlayController member, so without this it would destroy
+    // itself later, after imgui_layer_ below is already gone — its own
+    // teardown removes an ImGui texture the same way the other release
+    // calls here do.
+    play_controller_.shutdown();
     vulkan_context_->release_imgui_textures();
     imgui_layer_.reset();
     FJELL_CORE_INFO("Engine shut down");

@@ -80,6 +80,14 @@ public:
     void stop();
     void toggle();
 
+    /// Destroys the HUD target now, while ImGui and Vulkan are still alive.
+    /// Call once, from Engine's destructor, before it starts tearing down
+    /// ImGui — the default destructor would otherwise run this same
+    /// teardown later, after ImGui is already gone, since hud_target_ is a
+    /// plain member that destructs on its own. A no-op if the target was
+    /// never created.
+    void shutdown();
+
     [[nodiscard]] PlayState state() const { return state_; }
     [[nodiscard]] bool playing() const { return state_ != PlayState::stopped; }
 
