@@ -28,9 +28,10 @@ GpuMaterial Material::gpu_material() const {
     }
 
     // Base PBR params
-    m.base_params[0] = params_.base_color_factor.x;
-    m.base_params[1] = params_.base_color_factor.y;
-    m.base_params[2] = params_.base_color_factor.z;
+    const glm::vec3 base_rgb = glm::vec3{params_.base_color_factor} * params_.albedo_factor;
+    m.base_params[0] = base_rgb.x;
+    m.base_params[1] = base_rgb.y;
+    m.base_params[2] = base_rgb.z;
     m.base_params[3] = params_.base_color_factor.w;
     m.base_params[4] = params_.metallic_factor;
     m.base_params[5] = params_.roughness_factor;
@@ -42,13 +43,6 @@ GpuMaterial Material::gpu_material() const {
     m.base_params[11] = params_.emission_color.z;
 
     m.has_emissive_texture = params_.has_emissive_texture ? 1U : 0U;
-
-    if (params_.gi_albedo_override) {
-        m.base_params[12] = params_.gi_albedo_override->x;
-        m.base_params[13] = params_.gi_albedo_override->y;
-        m.base_params[14] = params_.gi_albedo_override->z;
-        m.has_gi_albedo_override = 1;
-    }
 
     // Custom params reference
     m.param_offset = custom_param_offset_;

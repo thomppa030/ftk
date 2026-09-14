@@ -67,6 +67,11 @@ struct FjslUniform {
     // Separate from `hint` because it combines with it: an emission colour
     // still wants a colour picker, an emission strength still wants a slider.
     bool emission{false};
+    // hint_albedo: this uniform is part of the surface colour. The product
+    // of all such uniforms multiplies the base colour texture before
+    // fragment() runs, and is what the GI paths read as the material's
+    // albedo, so a shader that tags its tint does not apply it again.
+    bool albedo{false};
     std::vector<float> default_value; // scalar or vector components
     uint32_t slot{0}; // texture slot (4-7) for sampler2D, or param offset for scalars
 };

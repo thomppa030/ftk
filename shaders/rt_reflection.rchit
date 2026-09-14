@@ -220,19 +220,13 @@ void main() {
     if (uv_scale_x > 0.0) uv.x *= uv_scale_x;
     if (uv_scale_y > 0.0) uv.y *= uv_scale_y;
 
-    // Albedo. Custom FJSL shaders that override ALBEDO from their own
-    // uniform (solid_lit.fjsl, chrome.fjsl, ...) can't run that fragment()
-    // logic here, so gi_albedo_override stands in for it when present — see
-    // GpuMaterial in fjell_gpu_types.glsl.
-    vec3 albedo;
-    if (mat.has_gi_albedo_override != 0u) {
-        albedo = vec3(mat.base_params[12], mat.base_params[13], mat.base_params[14]);
-    } else {
-        albedo = vec3(mat.base_params[0], mat.base_params[1], mat.base_params[2]);
-        uint base_color_tex = mat.texture_indices[0];
-        if (base_color_tex > 0) {
-            albedo *= textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0).rgb;
-        }
+    // Base colour factor times texture, the same albedo the raster template
+    // starts fragment() from. A shader's hint_albedo uniforms are already
+    // folded into the factor, so a solid-colour material reflects its tint.
+    vec3 albedo = vec3(mat.base_params[0], mat.base_params[1], mat.base_params[2]);
+    uint base_color_tex = mat.texture_indices[0];
+    if (base_color_tex > 0) {
+        albedo *= textureLod(textures[nonuniformEXT(base_color_tex)], uv, 2.0).rgb;
     }
 
     // Sun direct (no shadow ray in V1 — overshade through walls is the

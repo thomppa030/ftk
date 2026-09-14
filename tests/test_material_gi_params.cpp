@@ -119,24 +119,31 @@ TEST_CASE("A uniform the reader cannot supply is skipped", "[material_gi]") {
     require_vec3(gi.emission, 2.0f, 2.0f, 2.0f);
 }
 
-TEST_CASE("Albedo override needs exactly one hint_color vector", "[material_gi]") {
-    auto one = parse_fjsl(R"(
+TEST_CASE("Tagged albedo uniforms multiply into the albedo factor", "[material_gi]") {
+    auto meta = parse_fjsl(R"(
         shader_type spatial;
-        uniform vec4 colour : hint_color = vec4(0.2, 0.4, 0.6, 1.0);
-        void fragment() { ALBEDO = colour.rgb; }
-    )");
-    auto gi = derive_material_gi_params(one, values({}), false);
-    REQUIRE(gi.gi_albedo_override.has_value());
-    require_vec3(*gi.gi_albedo_override, 0.2f, 0.4f, 0.6f);
-
-    auto two = parse_fjsl(R"(
-        shader_type spatial;
-        uniform vec3 a : hint_color = vec3(1.0);
-        uniform vec3 b : hint_color = vec3(0.0);
+        uniform vec4 colour : hint_color, hint_albedo = vec4(0.2, 0.4, 0.6, 1.0);
+        uniform float brightness : hint_range(0.0, 2.0, 0.1), hint_albedo = 0.5;
         void fragment() {}
     )");
-    REQUIRE_FALSE(derive_material_gi_params(two, values({}), false).gi_albedo_override.has_value());
+    auto gi = derive_material_gi_params(meta, values({}), false);
+    require_vec3(gi.albedo, 0.1f, 0.2f, 0.3f);
+
+    auto overridden = derive_material_gi_params(meta, values({{"brightness", {2.0f}}}), false);
+    require_vec3(overridden.albedo, 0.4f, 0.8f, 1.2f);
+}
+
+TEST_CASE("A colour without hint_albedo does not become the albedo", "[material_gi]") {
+    // A tint that only mixes into the texture cannot be expressed as a
+    // factor, so the shader leaves it untagged and the texture stands.
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform vec3 tint : hint_color = vec3(0.2, 0.4, 0.6);
+        uniform float strength : hint_range(0.0, 1.0, 0.01) = 0.5;
+        void fragment() { ALBEDO = mix(ALBEDO, ALBEDO * tint, strength); }
+    )");
+    require_vec3(derive_material_gi_params(meta, values({}), false).albedo, 1.0f, 1.0f, 1.0f);
 
     auto none = parse_fjsl("shader_type spatial;\nvoid fragment() {}");
-    REQUIRE_FALSE(derive_material_gi_params(none, values({}), false).gi_albedo_override.has_value());
+    require_vec3(derive_material_gi_params(none, values({}), false).albedo, 1.0f, 1.0f, 1.0f);
 }

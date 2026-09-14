@@ -3,14 +3,13 @@ shader_type spatial;
 // Stepped diffuse + a hard rim. Looks best with a flat ALBEDO and no
 // normal map — drop on a sphere or character to see the bands snap.
 
-uniform vec3 tint : hint_color = vec3(0.931, 0.701, 0.584);
+uniform vec3 tint : hint_color, hint_albedo = vec3(0.931, 0.701, 0.584);
 uniform float band_count : hint_range(2.0, 8.0, 1.0) = 3.0;
 uniform float specular_strength : hint_range(0.0, 2.0, 0.05) = 0.4;
 uniform float specular_sharpness : hint_range(1.0, 256.0, 1.0) = 48.0;
 uniform float rim_strength : hint_range(0.0, 2.0, 0.05) = 0.6;
 
 void fragment() {
-    ALBEDO *= tint;
 }
 
 void light() {

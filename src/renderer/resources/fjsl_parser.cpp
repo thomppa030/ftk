@@ -135,6 +135,10 @@ static void apply_hint(FjslUniform& u, const std::string& token) {
         u.emission = true;
         return;
     }
+    if (token == "hint_albedo") {
+        u.albedo = true;
+        return;
+    }
 
     auto hint = parse_hint_name(token);
     if (hint == UniformHint::None) {

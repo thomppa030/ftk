@@ -1,7 +1,8 @@
 shader_type spatial;
 
-uniform vec3 tint : hint_color = vec3(1.0, 1.0, 1.0);
+// The tagged tint seeds ALBEDO before fragment() runs and is what the GI
+// paths bounce, so there is nothing left to write here.
+uniform vec3 tint : hint_color, hint_albedo = vec3(1.0, 1.0, 1.0);
 
 void fragment() {
-    ALBEDO = tint;
 }

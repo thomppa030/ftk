@@ -129,14 +129,11 @@ struct PbrParams {
     // texture leaves the emission colour as-is, a black texel means none.
     bool has_emissive_texture{false};
 
-    // RT GI: what this material bounces as diffuse indirect. Unset for most
-    // materials — DDGI falls back to base_color_factor * base color texture,
-    // which is correct when ALBEDO comes from the standard PBR base color.
-    // Set when the FJSL shader overrides ALBEDO from a single custom
-    // hint_color uniform (solid_lit.fjsl, chrome.fjsl, etc.) — the RT/SDF
-    // trace shaders can't run custom fragment() logic, so base_color_factor
-    // (left at its default) would otherwise silently bounce the wrong color.
-    std::optional<glm::vec3> gi_albedo_override;
+    // Product of the shader's hint_albedo uniforms, one when it tags none.
+    // Folded into the base colour factor the GPU sees, so the raster template
+    // seeds ALBEDO with it and the trace shaders, which cannot run
+    // fragment(), bounce the same colour. See material_gi_params.hpp.
+    glm::vec3 albedo_factor{1.0f};
 };
 
 } // namespace fjell

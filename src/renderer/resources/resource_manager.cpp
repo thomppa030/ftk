@@ -452,7 +452,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
             return values;
         }, params.has_emissive_texture);
         params.emission_color = gi.emission;
-        params.gi_albedo_override = gi.gi_albedo_override;
+        params.albedo_factor = gi.albedo;
     }
 
     // Rebuild material with updated emission params

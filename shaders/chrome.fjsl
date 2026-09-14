@@ -1,10 +1,9 @@
 shader_type spatial;
 
-uniform vec3 tint : hint_color = vec3(0.906, 0.906, 0.931);
+uniform vec3 tint : hint_color, hint_albedo = vec3(0.906, 0.906, 0.931);
 uniform float roughness_override : hint_range(0.0, 1.0, 0.01) = 0.05;
 
 void fragment() {
-    ALBEDO = tint;
     METALLIC = 1.0;
     ROUGHNESS = roughness_override;
 }

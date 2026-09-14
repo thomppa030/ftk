@@ -23,10 +23,12 @@ struct GpuSpotLight {
     vec4 vol_params;            // x = volumetric scatter intensity multiplier
 };
 
-// 112-byte bindless material record. Mirrors fjell::GpuMaterial in bindless.hpp.
+// 96-byte bindless material record. Mirrors fjell::GpuMaterial in bindless.hpp.
 //   texture_indices[0..3]  : PBR slots (base color, normal, MR, emissive)
 //   texture_indices[4..7]  : custom FJSL sampler2D uniforms
-//   base_params[0..3]      : base_color_factor (rgba)
+//   base_params[0..3]      : base colour factor (rgba) — the file's factor
+//                            times the shader's hint_albedo product;
+//                            multiplies the base colour texture on every path
 //   base_params[4]         : metallic_factor
 //   base_params[5]         : roughness_factor
 //   base_params[6]         : has_normal_map (0/1)
@@ -34,20 +36,14 @@ struct GpuSpotLight {
 //   base_params[9..11]     : emission factor — scales the emissive texture on
 //                            every path; the emission itself when no texture
 //                            is bound (see has_emissive_texture)
-//   base_params[12..14]    : gi_albedo_override (RT/SDF GI diffuse bounce
-//                            color; only valid when has_gi_albedo_override
-//                            != 0 — otherwise fall back to
-//                            base_color_factor * base color texture)
-//   has_gi_albedo_override : 0/1, see base_params[12..14]
 //   has_emissive_texture   : 0/1, texture_indices[3] was bound by the material
 //                            rather than defaulted to black — see
 //                            fjell_material_emission.glsl
 struct GpuMaterial {
     uint texture_indices[8];
-    float base_params[15];
+    float base_params[12];
     uint param_offset;
     uint param_count;
-    uint has_gi_albedo_override;
     uint has_emissive_texture;
     uint padding;
 };

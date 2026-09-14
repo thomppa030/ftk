@@ -15,12 +15,14 @@ namespace fjell {
 
 class Texture;
 
-// Material data as stored in the GPU storage buffer (112 bytes).
+// Material data as stored in the GPU storage buffer (96 bytes).
 // Indexed by material ID from push constants.
 // Layout:
 //   texture_indices[0-3]:   fixed PBR (base_color, normal, metallic_roughness, emissive)
 //   texture_indices[4-7]:   custom shader textures
-//   base_params[0..3]:    base_color_factor (vec4)
+//   base_params[0..3]:    base colour factor (vec4) — the file's factor times
+//                         the shader's hint_albedo product; multiplies the
+//                         base colour texture on every path
 //   base_params[4]:       metallic_factor
 //   base_params[5]:       roughness_factor
 //   base_params[6]:       has_normal_map
@@ -30,25 +32,19 @@ class Texture;
 //                         every path; the emission itself when no texture
 //                         is bound (see has_emissive_texture); zero when
 //                         the material emits nothing
-//   base_params[12..14]:  gi_albedo_override (RT/SDF GI diffuse bounce
-//                         color; only valid when has_gi_albedo_override
-//                         != 0 — otherwise fall back to
-//                         base_color_factor * base color texture)
 //   param_offset:         offset into custom params SSBO (in floats)
 //   param_count:          number of custom floats
-//   has_gi_albedo_override: 0/1, see base_params[12..14]
 //   has_emissive_texture: 0/1 — whether texture_indices[3] is a texture the
 //                         material bound, as opposed to the black default
 //                         every unbound slot resolves to. The GI paths need
 //                         it to tell "no texture" from "texture, black here".
 struct GpuMaterial {
     uint32_t texture_indices[8]{};      // 32 bytes — slots 0-3: PBR, 4-7: custom
-    float base_params[15]{};            // 60 bytes — PBR + GI params
+    float base_params[12]{};            // 48 bytes — PBR + GI params
     uint32_t param_offset{0};           // 4 bytes  — offset into params SSBO (in floats)
     uint32_t param_count{0};            // 4 bytes  — number of custom floats
-    uint32_t has_gi_albedo_override{0}; // 4 bytes  — see base_params[12..14]
     uint32_t has_emissive_texture{0};   // 4 bytes  — see layout note above
-    uint32_t padding{0};                // 4 bytes  — align to 112
+    uint32_t padding{0};                // 4 bytes  — align to 96
 };
 
 // Manages a single large descriptor set containing all textures and materials

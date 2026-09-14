@@ -151,14 +151,10 @@ bool draw_material_params(const ShaderMetadata& meta,
         updated.base_params[9] = gi.emission.x;
         updated.base_params[10] = gi.emission.y;
         updated.base_params[11] = gi.emission.z;
-        if (gi.gi_albedo_override) {
-            updated.base_params[12] = gi.gi_albedo_override->x;
-            updated.base_params[13] = gi.gi_albedo_override->y;
-            updated.base_params[14] = gi.gi_albedo_override->z;
-            updated.has_gi_albedo_override = 1;
-        } else {
-            updated.has_gi_albedo_override = 0;
-        }
+        const glm::vec3 base_rgb = glm::vec3{material.params().base_color_factor} * gi.albedo;
+        updated.base_params[0] = base_rgb.x;
+        updated.base_params[1] = base_rgb.y;
+        updated.base_params[2] = base_rgb.z;
         bindless.update_material(material.material_id(), updated);
     }
 

@@ -5,7 +5,6 @@
 #include <glm/glm.hpp>
 
 #include <functional>
-#include <optional>
 #include <vector>
 
 namespace fjell {
@@ -28,11 +27,11 @@ struct MaterialGiParams {
     /// emits.
     glm::vec3 emission{0.0F};
 
-    /// The surface colour, when the shader sources ALBEDO from a single
-    /// hint_color uniform rather than the base colour texture. Without it
-    /// the trace shaders bounce base_color_factor, which such shaders leave
-    /// at its white default.
-    std::optional<glm::vec3> gi_albedo_override;
+    /// The material's albedo factor: the product of every hint_albedo
+    /// uniform, one when the shader tags none. Multiplies the base colour
+    /// texture on every path, so a solid-colour shader that tags its tint
+    /// bounces that tint in the trace shaders, which cannot run fragment().
+    glm::vec3 albedo{1.0F};
 };
 
 /// Current floats for a non-sampler uniform: what the material stores for
