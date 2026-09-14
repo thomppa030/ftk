@@ -24,8 +24,11 @@ void save_material_asset(const std::string& path, const MaterialAsset& asset);
 /// Factors every material carries regardless of its shader: the base PBR
 /// multipliers and the UV scale. They live in `params` under these reserved
 /// names next to the shader's own uniforms, and a value at its default is
-/// left out of the file so a hand-written material stays short.
+/// left out of the file so a hand-written material stays short. The base
+/// colour is linear here, like every colour the renderer multiplies, and
+/// sRGB in the file, like every colour a person reads.
 struct MaterialBaseParams {
+    glm::vec4 base_color_factor{1.0f};
     float metallic_factor{1.0f};
     float roughness_factor{1.0f};
     glm::vec2 uv_scale{1.0f, 1.0f};

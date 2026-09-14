@@ -1478,7 +1478,18 @@ static void export_materials(const aiScene* scene,
             }
         }
 
-        if (asset.textures.empty()) continue; // nothing worth writing
+        // The scalar factors glTF carries next to its textures. A material
+        // with no textures but a solid base colour is still a material.
+        fjell::MaterialBaseParams base;
+        aiColor4D base_color;
+        if (mat->Get(AI_MATKEY_BASE_COLOR, base_color) == AI_SUCCESS) {
+            base.base_color_factor = {base_color.r, base_color.g, base_color.b, base_color.a};
+        }
+        mat->Get(AI_MATKEY_METALLIC_FACTOR, base.metallic_factor);
+        mat->Get(AI_MATKEY_ROUGHNESS_FACTOR, base.roughness_factor);
+        fjell::write_base_params(asset, base);
+
+        if (asset.textures.empty() && asset.params.empty()) continue; // nothing worth writing
 
         // Name after the mesh so assets stay greppable — source material names
         // are often generator UUIDs. Suffix only when there is more than one.

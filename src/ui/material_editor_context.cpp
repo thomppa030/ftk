@@ -134,6 +134,7 @@ void MaterialEditorContext::save_material() {
             asset_.params[u.name] = vals;
         }
         write_base_params(asset_, {
+            .base_color_factor = material_->params().base_color_factor,
             .metallic_factor = gpu.base_params[4],
             .roughness_factor = gpu.base_params[5],
             .uv_scale = {gpu.base_params[7], gpu.base_params[8]},

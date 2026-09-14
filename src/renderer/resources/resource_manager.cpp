@@ -381,6 +381,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     // named: a texture that failed to load is the black default too.
     params.has_emissive_texture = (em_idx != bindless_index(default_black_handle_));
     const MaterialBaseParams base = read_base_params(asset);
+    params.base_color_factor = base.base_color_factor;
     params.metallic_factor = base.metallic_factor;
     params.roughness_factor = base.roughness_factor;
     params.uv_scale = base.uv_scale;

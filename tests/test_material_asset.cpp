@@ -71,3 +71,21 @@ TEST_CASE("Base factors survive a save and load", "[material_asset]") {
     REQUIRE(base.uv_scale.y == Catch::Approx(3.0f));
     REQUIRE(loaded.params.at("tint")[0] == Catch::Approx(0.4f));
 }
+
+TEST_CASE("Base colour is sRGB in the file and linear in the params", "[material_asset]") {
+    MaterialAsset asset;
+    write_base_params(asset, {.base_color_factor = {0.214f, 1.0f, 0.0f, 0.5f}});
+    const auto& file = asset.params.at("base_color_factor");
+    REQUIRE(file.size() == 4);
+    REQUIRE(file[0] == Catch::Approx(0.5f).margin(0.001f));
+    REQUIRE(file[1] == Catch::Approx(1.0f));
+    REQUIRE(file[2] == 0.0f);
+    REQUIRE(file[3] == Catch::Approx(0.5f));
+
+    auto base = read_base_params(asset);
+    REQUIRE(base.base_color_factor.r == Catch::Approx(0.214f).margin(0.001f));
+    REQUIRE(base.base_color_factor.a == Catch::Approx(0.5f));
+
+    write_base_params(asset, {});
+    REQUIRE_FALSE(asset.params.contains("base_color_factor"));
+}

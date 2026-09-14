@@ -866,6 +866,7 @@ void Engine::save_material_assets() {
         // The inspector edits the base factors on the GPU row, so that is
         // where the current values are.
         write_base_params(asset, {
+            .base_color_factor = mesh->material->params().base_color_factor,
             .metallic_factor = gpu.base_params[4],
             .roughness_factor = gpu.base_params[5],
             .uv_scale = {gpu.base_params[7], gpu.base_params[8]},
