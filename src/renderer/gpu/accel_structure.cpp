@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cmath>
+#include <span>
 
 namespace fjell {
 
@@ -76,9 +77,11 @@ AccelStructureManager::~AccelStructureManager() {
                 destroy_fn(vk_device_, frame.tlas_handle, nullptr);
             }
         }
-        for (auto& [model, blas] : blas_map_) {
-            if (blas.handle != VK_NULL_HANDLE) {
-                destroy_fn(vk_device_, blas.handle, nullptr);
+        for (auto& [model, blases] : blas_map_) {
+            for (Blas& blas : blases) {
+                if (blas.handle != VK_NULL_HANDLE) {
+                    destroy_fn(vk_device_, blas.handle, nullptr);
+                }
             }
         }
         for (auto& [key, blas] : entry_blas_map_) {
@@ -110,30 +113,28 @@ void AccelStructureManager::reclaim_retired(uint32_t frame_index) {
     retired_buffers_[frame_index].clear();  // ~Buffer -> vmaDestroyBuffer
 }
 
-void AccelStructureManager::destroy_blas(Blas& blas) {
-    if (blas.handle != VK_NULL_HANDLE) {
-        // GPU must be idle — callers wait before invoking. The BLAS build path
-        // below already drains the queue, so a fresh build can follow safely.
-        device_.destroy_accel_struct_fn()(vk_device_, blas.handle, nullptr);
-        blas.handle = VK_NULL_HANDLE;
-    }
-    blas.buffer.reset();
-}
-
 void AccelStructureManager::ensure_blas(const Model* model, const MegaBuffer& mega) {
     auto it = blas_map_.find(model);
     if (it != blas_map_.end()) {
-        // Up to date — the mega-buffer hasn't moved since this BLAS baked its
-        // vertex/index device addresses.
-        if (it->second.mega_generation == mega.generation()) return;
+        // Up to date — the mega-buffer hasn't moved since these BLASes baked
+        // their vertex/index device addresses.
+        if (it->second.front().mega_generation == mega.generation()) return;
         // Stale: the mega-buffer reallocated (new device address). The baked
         // addresses now dangle; retire and rebuild against the current buffer.
-        // In-flight frames may still trace against the old BLAS — keep it
-        // alive until their fences signal.
-        retire_blas(std::move(it->second));
+        // In-flight frames may still trace against the old BLASes — keep
+        // them alive until their fences signal.
+        for (Blas& blas : it->second) retire_blas(std::move(blas));
         blas_map_.erase(it);
     }
-    build_blas(model, mega);
+
+    // LOD 0 only: rays want the highest-quality geometry regardless of what
+    // the raster path picked for this frame.
+    const auto& lods = model->lod_levels();
+    if (lods.empty()) return;
+    std::span<const MegaMeshEntry> all = model->mega_entries();
+    if (lods[0].first_mega_entry + lods[0].mega_entry_count > all.size()) return;
+    auto built = build_blases(all.subspan(lods[0].first_mega_entry, lods[0].mega_entry_count), mega);
+    if (!built.empty()) blas_map_[model] = std::move(built);
 }
 
 void AccelStructureManager::retire_blas(Blas blas) {
@@ -152,114 +153,10 @@ void AccelStructureManager::ensure_blas_entry(const void* key, const MegaMeshEnt
         retire_blas(std::move(it->second));
         entry_blas_map_.erase(it);
     }
-    if (entry.index_count == 0) return;
-
-    // The build's one-shot submit reads the mega buffer without waiting the
-    // upload timeline — settle any batched geometry uploads first.
-    upload_.wait_all();
-
-    VkDeviceAddress vertex_addr = buffer_address(mega.vertex_buffer_handle());
-    VkDeviceAddress index_addr = buffer_address(mega.index_buffer_handle());
-
-    VkAccelerationStructureGeometryTrianglesDataKHR triangles{};
-    triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-    triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-    triangles.vertexData.deviceAddress = vertex_addr + entry.vertex_offset * sizeof(Vertex);
-    triangles.vertexStride = sizeof(Vertex);
-    // See build_blas: maxVertex is count-1, not index_count, or the driver
-    // overreads the vertex region and builds a BLAS that faults on traversal.
-    triangles.maxVertex = entry.vertex_count > 0 ? entry.vertex_count - 1 : 0;
-    triangles.indexType = VK_INDEX_TYPE_UINT32;
-    triangles.indexData.deviceAddress = index_addr + entry.first_index * sizeof(uint32_t);
-
-    VkAccelerationStructureGeometryKHR geom{};
-    geom.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-    geom.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-    geom.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-    geom.geometry.triangles = triangles;
-
-    uint32_t prim_count = entry.index_count / 3;
-
-    VkAccelerationStructureBuildGeometryInfoKHR build_info{};
-    build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-    build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-    build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-    build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-    build_info.geometryCount = 1;
-    build_info.pGeometries = &geom;
-
-    VkAccelerationStructureBuildSizesInfoKHR sizes{};
-    sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-    device_.get_accel_struct_build_sizes_fn()(
-        vk_device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-        &build_info, &prim_count, &sizes);
-
-    Blas blas{};
-    blas.buffer = std::make_unique<Buffer>(
-        allocator_, sizes.accelerationStructureSize,
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-        VMA_MEMORY_USAGE_AUTO);
-
-    VkAccelerationStructureCreateInfoKHR create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-    create_info.buffer = blas.buffer->handle();
-    create_info.size = sizes.accelerationStructureSize;
-    create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-    vk_check(device_.create_accel_struct_fn()(vk_device_, &create_info, nullptr, &blas.handle),
-             "Failed to create particle BLAS");
-
-    VkAccelerationStructureDeviceAddressInfoKHR addr_info{};
-    addr_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
-    addr_info.accelerationStructure = blas.handle;
-    blas.device_address = device_.get_accel_struct_device_address_fn()(vk_device_, &addr_info);
-    blas.first_index = entry.first_index;
-    blas.vertex_offset = entry.vertex_offset;
-    blas.mega_generation = mega.generation();
-
-    Buffer scratch{allocator_, sizes.buildScratchSize,
-                   VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
-                   VMA_MEMORY_USAGE_AUTO, 0, scratch_alignment_};
-
-    build_info.dstAccelerationStructure = blas.handle;
-    build_info.scratchData.deviceAddress = buffer_address(scratch.handle());
-
-    VkCommandBufferAllocateInfo alloc_info{};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandPool = command_pool_;
-    alloc_info.commandBufferCount = 1;
-
-    VkCommandBuffer cmd;
-    vk_check(vkAllocateCommandBuffers(vk_device_, &alloc_info, &cmd),
-             "Failed to allocate particle BLAS build command buffer");
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vk_check(vkBeginCommandBuffer(cmd, &begin), "Failed to begin particle BLAS build");
-
-    VkAccelerationStructureBuildRangeInfoKHR range{};
-    range.primitiveCount = prim_count;
-    const VkAccelerationStructureBuildRangeInfoKHR* range_ptr = &range;
-    device_.cmd_build_accel_structs_fn()(cmd, 1, &build_info, &range_ptr);
-
-    vk_check(vkEndCommandBuffer(cmd), "Failed to end particle BLAS build");
-
-    // Wait for all in-flight frames before submitting, since this uses the shared
-    // graphics queue and command pool. One-time cost per unique mesh shape.
-    vkDeviceWaitIdle(vk_device_);
-
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd;
-    vk_check(vkQueueSubmit(queue_, 1, &submit, VK_NULL_HANDLE), "Failed to submit particle BLAS build");
-    vkQueueWaitIdle(queue_);
-    vkFreeCommandBuffers(vk_device_, command_pool_, 1, &cmd);
-
-    entry_blas_map_[key] = std::move(blas);
-    FJELL_GFX_DEBUG("Mesh-entry BLAS built: {} tris, {}KB", entry.index_count / 3,
-                    sizes.accelerationStructureSize / 1024);
+    auto built = build_blases(std::span<const MegaMeshEntry>{&entry, 1}, mega);
+    if (!built.empty() && built.front().handle != VK_NULL_HANDLE) {
+        entry_blas_map_[key] = std::move(built.front());
+    }
 }
 
 const Blas* AccelStructureManager::find_blas(const void* key) const {
@@ -267,33 +164,47 @@ const Blas* AccelStructureManager::find_blas(const void* key) const {
     return it != entry_blas_map_.end() ? &it->second : nullptr;
 }
 
-const Blas* AccelStructureManager::find_model_blas(const Model* model) const {
+std::span<const Blas> AccelStructureManager::model_blases(const Model* model) const {
     auto it = blas_map_.find(model);
-    return it != blas_map_.end() ? &it->second : nullptr;
+    if (it == blas_map_.end()) return {};
+    return it->second;
 }
 
-void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& mega) {
-    // The build's one-shot submit reads the mega buffer without waiting the
-    // upload timeline — settle any batched geometry uploads first.
-    upload_.wait_all();
+std::vector<Blas> AccelStructureManager::build_blases(std::span<const MegaMeshEntry> entries,
+                                                      const MegaBuffer& mega) {
+    std::vector<Blas> out(entries.size());
+    for (Blas& blas : out) blas.mega_generation = mega.generation();
 
-    // Use LOD 0 (highest quality) for BLAS
-    const auto& lod_levels = model->lod_levels();
-    if (lod_levels.empty() || model->mega_entries().empty()) return;
+    // Every structure of the batch shares one buffer and one scratch region,
+    // so a model with many submeshes still costs one dedicated allocation.
+    struct Pending {
+        size_t entry;
+        VkAccelerationStructureGeometryKHR geom{};
+        VkAccelerationStructureBuildGeometryInfoKHR info{};
+        VkAccelerationStructureBuildRangeInfoKHR range{};
+        VkAccelerationStructureBuildSizesInfoKHR sizes{};
+        VkDeviceSize as_offset{0};
+        VkDeviceSize scratch_offset{0};
+    };
+    std::vector<Pending> pending;
+    pending.reserve(entries.size());
 
-    const auto& lod0 = lod_levels[0];
-    const auto& entries = model->mega_entries();
-
-    // Collect all geometries from LOD 0
-    std::vector<VkAccelerationStructureGeometryKHR> geometries;
-    std::vector<VkAccelerationStructureBuildRangeInfoKHR> ranges;
-    std::vector<uint32_t> max_prim_counts;
+    // Acceleration structures inside a buffer must start on a 256-byte
+    // boundary; scratch regions on the device's own alignment.
+    constexpr VkDeviceSize AS_OFFSET_ALIGNMENT = 256;
+    auto align_up = [](VkDeviceSize v, VkDeviceSize a) { return (v + a - 1) / a * a; };
 
     VkDeviceAddress vertex_addr = buffer_address(mega.vertex_buffer_handle());
     VkDeviceAddress index_addr = buffer_address(mega.index_buffer_handle());
+    VkDeviceSize as_total = 0;
+    VkDeviceSize scratch_total = 0;
 
-    for (uint32_t i = 0; i < lod0.mega_entry_count; ++i) {
-        const auto& entry = entries[lod0.first_mega_entry + i];
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const MegaMeshEntry& entry = entries[i];
+        if (entry.index_count == 0) continue;
+
+        Pending p{};
+        p.entry = i;
 
         VkAccelerationStructureGeometryTrianglesDataKHR triangles{};
         triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
@@ -308,76 +219,83 @@ void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& meg
         triangles.indexType = VK_INDEX_TYPE_UINT32;
         triangles.indexData.deviceAddress = index_addr + entry.first_index * sizeof(uint32_t);
 
-        VkAccelerationStructureGeometryKHR geom{};
-        geom.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-        geom.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-        geom.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
-        geom.geometry.triangles = triangles;
-        geometries.push_back(geom);
+        p.geom.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+        p.geom.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+        p.geom.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+        p.geom.geometry.triangles = triangles;
 
-        uint32_t prim_count = entry.index_count / 3;
+        p.range.primitiveCount = entry.index_count / 3;
 
-        VkAccelerationStructureBuildRangeInfoKHR range{};
-        range.primitiveCount = prim_count;
-        range.primitiveOffset = 0;
-        range.firstVertex = 0;
-        range.transformOffset = 0;
-        ranges.push_back(range);
+        p.info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        p.info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        p.info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+        p.info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        p.info.geometryCount = 1;
+        p.info.pGeometries = &p.geom;
 
-        max_prim_counts.push_back(prim_count);
+        p.sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+        device_.get_accel_struct_build_sizes_fn()(
+            vk_device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+            &p.info, &p.range.primitiveCount, &p.sizes);
+
+        p.as_offset = align_up(as_total, AS_OFFSET_ALIGNMENT);
+        as_total = p.as_offset + p.sizes.accelerationStructureSize;
+        p.scratch_offset = align_up(scratch_total, scratch_alignment_);
+        scratch_total = p.scratch_offset + p.sizes.buildScratchSize;
+
+        pending.push_back(p);
     }
+    if (pending.empty()) return out;
 
-    if (geometries.empty()) return;
+    // The build's one-shot submit reads the mega buffer without waiting the
+    // upload timeline — settle any batched geometry uploads first.
+    upload_.wait_all();
 
-    // Query build sizes
-    VkAccelerationStructureBuildGeometryInfoKHR build_info{};
-    build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-    build_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-    build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
-    build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-    build_info.geometryCount = static_cast<uint32_t>(geometries.size());
-    build_info.pGeometries = geometries.data();
-
-    VkAccelerationStructureBuildSizesInfoKHR sizes{};
-    sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-
-    device_.get_accel_struct_build_sizes_fn()(
-        vk_device_, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
-        &build_info, max_prim_counts.data(), &sizes);
-
-    // Create BLAS buffer
-    Blas blas{};
-    blas.buffer = std::make_unique<Buffer>(
-        allocator_, sizes.accelerationStructureSize,
+    auto buffer = std::make_shared<Buffer>(
+        allocator_, as_total,
         VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
         VMA_MEMORY_USAGE_AUTO, as_dedicated_flag());
-
-    // Create acceleration structure
-    VkAccelerationStructureCreateInfoKHR create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-    create_info.buffer = blas.buffer->handle();
-    create_info.size = sizes.accelerationStructureSize;
-    create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-
-    vk_check(device_.create_accel_struct_fn()(vk_device_, &create_info, nullptr, &blas.handle),
-             "Failed to create BLAS");
-
-    // Get BLAS device address
-    VkAccelerationStructureDeviceAddressInfoKHR addr_info{};
-    addr_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
-    addr_info.accelerationStructure = blas.handle;
-    blas.device_address = device_.get_accel_struct_device_address_fn()(vk_device_, &addr_info);
-
-    // Scratch buffer (must meet minAccelerationStructureScratchOffsetAlignment)
-    Buffer scratch{allocator_, sizes.buildScratchSize,
+    Buffer scratch{allocator_, scratch_total,
                    VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
                    VMA_MEMORY_USAGE_AUTO, 0, scratch_alignment_};
+    VkDeviceAddress scratch_addr = buffer_address(scratch.handle());
+
+    std::vector<VkAccelerationStructureBuildGeometryInfoKHR> infos;
+    std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> ranges;
+    infos.reserve(pending.size());
+    ranges.reserve(pending.size());
+
+    for (Pending& p : pending) {
+        // The vector is final now, so the geometry pointer can be taken.
+        p.info.pGeometries = &p.geom;
+
+        VkAccelerationStructureCreateInfoKHR create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+        create_info.buffer = buffer->handle();
+        create_info.offset = p.as_offset;
+        create_info.size = p.sizes.accelerationStructureSize;
+        create_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+
+        Blas& blas = out[p.entry];
+        vk_check(device_.create_accel_struct_fn()(vk_device_, &create_info, nullptr, &blas.handle),
+                 "Failed to create BLAS");
+
+        VkAccelerationStructureDeviceAddressInfoKHR addr_info{};
+        addr_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+        addr_info.accelerationStructure = blas.handle;
+        blas.device_address = device_.get_accel_struct_device_address_fn()(vk_device_, &addr_info);
+        blas.buffer = buffer;
+        blas.first_index = entries[p.entry].first_index;
+        blas.vertex_offset = entries[p.entry].vertex_offset;
+
+        p.info.dstAccelerationStructure = blas.handle;
+        p.info.scratchData.deviceAddress = scratch_addr + p.scratch_offset;
+        infos.push_back(p.info);
+        ranges.push_back(&p.range);
+    }
 
     // Build on GPU via one-shot command buffer
-    build_info.dstAccelerationStructure = blas.handle;
-    build_info.scratchData.deviceAddress = buffer_address(scratch.handle());
-
     VkCommandBufferAllocateInfo alloc_info{};
     alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
@@ -393,8 +311,8 @@ void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& meg
     begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vk_check(vkBeginCommandBuffer(cmd, &begin), "Failed to begin BLAS build");
 
-    const VkAccelerationStructureBuildRangeInfoKHR* range_ptr = ranges.data();
-    device_.cmd_build_accel_structs_fn()(cmd, 1, &build_info, &range_ptr);
+    device_.cmd_build_accel_structs_fn()(cmd, static_cast<uint32_t>(infos.size()),
+                                         infos.data(), ranges.data());
 
     vk_check(vkEndCommandBuffer(cmd), "Failed to end BLAS build");
 
@@ -406,15 +324,8 @@ void AccelStructureManager::build_blas(const Model* model, const MegaBuffer& meg
     vkQueueWaitIdle(queue_);
     vkFreeCommandBuffers(vk_device_, command_pool_, 1, &cmd);
 
-    // Store geometry offsets for hit shader vertex lookup
-    const auto& first_entry = entries[lod0.first_mega_entry];
-    blas.first_index = first_entry.first_index;
-    blas.vertex_offset = first_entry.vertex_offset;
-    blas.mega_generation = mega.generation();
-
-    blas_map_[model] = std::move(blas);
-    FJELL_GFX_DEBUG("BLAS built: {} geometries, {}KB",
-                    geometries.size(), sizes.accelerationStructureSize / 1024);
+    FJELL_GFX_DEBUG("BLAS batch built: {} structures, {}KB", pending.size(), as_total / 1024);
+    return out;
 }
 
 void AccelStructureManager::build_tlas(VkCommandBuffer cmd, uint32_t frame_index,

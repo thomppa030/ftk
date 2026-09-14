@@ -52,8 +52,8 @@ void SceneGatherer::gather(const GatherInput& input) {
         // geometry is, exactly as off-screen casters still have to be in
         // the shadow cascades. That covers both what lights the scene from
         // off screen and what blocks that light.
-        auto keep_for_gi = [&input](const DrawCommand& dc) {
-            return !dc.transparent && input.gi_reach && input.gi_reach->intersects(dc.world_aabb);
+        auto in_gi_reach = [&input](const DrawCommand& dc) {
+            return input.gi_reach && input.gi_reach->intersects(dc.world_aabb);
         };
 
         // Build per-cascade shadow caster frustums from light matrices.
@@ -115,7 +115,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                                 }
                             }
                             if (!camera_frustum.intersects(dc.world_aabb)) {
-                                if (keep_for_gi(dc)) gi_cmds.push_back(dc);
+                                if (!dc.transparent && in_gi_reach(dc)) gi_cmds.push_back(dc);
                                 local_culled_[chunk_id]++;
                                 claimed = true;
                                 break;
@@ -162,7 +162,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                             }
                         }
                         if (!camera_frustum.intersects(dc.world_aabb)) {
-                            if (keep_for_gi(dc)) gi_cmds.push_back(dc);
+                            if (!dc.transparent && in_gi_reach(dc)) gi_cmds.push_back(dc);
                             local_culled_[chunk_id]++;
                             continue;
                         }
@@ -210,13 +210,9 @@ void SceneGatherer::gather(const GatherInput& input) {
                         }
                     }
 
-                    if (!camera_frustum.intersects(dc.world_aabb)) {
-                        if (keep_for_gi(dc)) gi_cmds.push_back(dc);
-                        local_culled_[chunk_id]++;
-                        continue;
-                    }
-
-                    if (dc.transparent) {
+                    // The transparent sort key; a submesh can be transparent
+                    // when the object's own material is not.
+                    {
                         glm::vec3 diff = camera_position_ - glm::vec3(dc.world_matrix[3]);
                         dc.camera_distance = glm::dot(diff, diff);
                     }
@@ -224,9 +220,15 @@ void SceneGatherer::gather(const GatherInput& input) {
                     // A mesh whose submeshes use different materials emits one
                     // command per distinct slot, since pipeline and material id
                     // are per-command. Shadow cascades keep the single command
-                    // above — the depth pass doesn't read materials.
-                    const auto& entry_slots = mesh->model->entry_material_slots();
-                    if (!mesh->slot_materials.empty() && !entry_slots.empty()) {
+                    // above — the depth pass doesn't read materials. The GI
+                    // list gets the same split, so an off-screen submesh keeps
+                    // its own material in the acceleration structure.
+                    auto for_each_slot_command = [&](auto&& sink) {
+                        const auto& entry_slots = mesh->model->entry_material_slots();
+                        if (mesh->slot_materials.empty() || entry_slots.empty()) {
+                            sink(dc);
+                            return;
+                        }
                         // Slot indices are few, so a linear scan over a
                         // scratch vector de-duplicates cheaper than a set.
                         auto& seen = local_slot_scratch_[chunk_id];
@@ -246,12 +248,21 @@ void SceneGatherer::gather(const GatherInput& input) {
                                             || (slot_mat->params().base_color_factor.w < 1.0f);
                             sub.sort_key = RenderQueue::make_sort_key(
                                 sub.pipeline_id, sub.push.material_id, obj->id);
-                            commands.push_back(sub);
+                            sink(sub);
                         }
+                    };
+
+                    if (!camera_frustum.intersects(dc.world_aabb)) {
+                        if (in_gi_reach(dc)) {
+                            for_each_slot_command([&](const DrawCommand& sub) {
+                                if (!sub.transparent) gi_cmds.push_back(sub);
+                            });
+                        }
+                        local_culled_[chunk_id]++;
                         continue;
                     }
 
-                    commands.push_back(dc);
+                    for_each_slot_command([&](const DrawCommand& sub) { commands.push_back(sub); });
                 }
             });
 

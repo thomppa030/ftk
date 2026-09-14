@@ -231,9 +231,7 @@ void IndirectBatch::build(const std::vector<DrawCommand>& opaque_commands,
     // Multi-material meshes emit one draw command per slot; each command draws
     // only the entries whose submesh uses that slot.
     auto entry_matches_slot = [](const DrawCommand& dc, uint32_t entry) -> bool {
-        if (dc.material_slot == UINT32_MAX) return true;
-        const auto& slots = dc.model->entry_material_slots();
-        return entry < slots.size() && slots[entry] == dc.material_slot;
+        return dc.model->entry_uses_slot(entry, dc.material_slot);
     };
 
     auto select_lod = [&](const Model& model, const glm::mat4& world) -> uint32_t {

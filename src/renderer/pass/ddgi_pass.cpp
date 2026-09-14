@@ -10,6 +10,7 @@
 #include "renderer/resource_registry.hpp"
 #include "renderer/render_queue.hpp"
 #include "renderer/render_stats.hpp"
+#include "renderer/resources/model.hpp"
 #include "renderer/systems/particle_system.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -1560,20 +1561,27 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             std::vector<AccelStructureManager::RtInstance> host_instances;
             host_instances.reserve(cmds.size() + gi_only.size() + 1);
 
-            auto add_instance = [&](const DrawCommand& dc) {
+            // One instance per submesh the command draws, each over that
+            // submesh's own BLAS, so a hit reports the triangle against the
+            // material and index range of the geometry it actually struck.
+            auto add_instances = [&](const DrawCommand& dc) {
                 if (!dc.model) return;
                 if (!dc.world_aabb.intersects(bounds)) return;
-                const auto* blas = accel_manager_->find_model_blas(dc.model);
-                if (blas == nullptr) return;
+                const auto& lods = dc.model->lod_levels();
+                if (lods.empty()) return;
+                auto blases = accel_manager_->model_blases(dc.model);
+                for (uint32_t i = 0; i < blases.size(); ++i) {
+                    if (!dc.model->entry_uses_slot(lods[0].first_mega_entry + i, dc.material_slot)) continue;
 
-                AccelStructureManager::RtInstance inst{};
-                inst.transform = dc.push.model;
-                inst.material_id = dc.push.material_id;
-                inst.blas = blas;
-                host_instances.push_back(inst);
+                    AccelStructureManager::RtInstance inst{};
+                    inst.transform = dc.push.model;
+                    inst.material_id = dc.push.material_id;
+                    inst.blas = &blases[i];
+                    host_instances.push_back(inst);
+                }
             };
-            for (const auto& dc : cmds) add_instance(dc);
-            for (const auto& dc : gi_only) add_instance(dc);
+            for (const auto& dc : cmds) add_instances(dc);
+            for (const auto& dc : gi_only) add_instances(dc);
 
             // Terrain generates its render geometry in a mesh shader, so it has
             // no draw to ride in on and is collected from the scene directly.

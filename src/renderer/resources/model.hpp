@@ -175,6 +175,12 @@ public:
     [[nodiscard]] const std::vector<uint32_t>& entry_material_slots() const {
         return entry_material_slots_;
     }
+    // Whether a draw limited to `slot` covers mega entry `entry`. UINT32_MAX
+    // is the single-material draw and covers every entry.
+    [[nodiscard]] bool entry_uses_slot(uint32_t entry, uint32_t slot) const {
+        if (slot == UINT32_MAX) return true;
+        return entry < entry_material_slots_.size() && entry_material_slots_[entry] == slot;
+    }
     [[nodiscard]] uint32_t material_slot_count() const {
         return static_cast<uint32_t>(authored_.material_slots.size());
     }

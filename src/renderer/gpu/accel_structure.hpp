@@ -12,6 +12,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -28,13 +29,17 @@ struct GpuRtInstance {
     uint32_t pad;
 };
 
-/// One bottom-level acceleration structure (BLAS) per unique Model.
+/// One bottom-level acceleration structure (BLAS) over one mesh entry, so
+/// gl_PrimitiveID in a hit shader indexes that entry's triangles from
+/// first_index and a TLAS instance carries exactly one material.
 struct Blas {
     VkAccelerationStructureKHR handle{VK_NULL_HANDLE};
-    std::unique_ptr<Buffer> buffer;
+    // Shared by every BLAS built in the same batch: a model's submeshes live
+    // in one buffer at 256-byte offsets rather than one allocation each.
+    std::shared_ptr<Buffer> buffer;
     VkDeviceAddress device_address{0};
-    uint32_t first_index{0};    // LOD 0 first_index in MegaBuffer
-    uint32_t vertex_offset{0};  // LOD 0 vertex_offset in MegaBuffer
+    uint32_t first_index{0};    // the entry's first_index in MegaBuffer
+    uint32_t vertex_offset{0};  // the entry's vertex_offset in MegaBuffer
     // MegaBuffer::generation() when this BLAS baked its absolute vertex/index
     // device addresses. If the mega-buffer later grows (new device address),
     // this goes stale and the BLAS must be rebuilt before the TLAS references
@@ -58,19 +63,22 @@ public:
     AccelStructureManager(AccelStructureManager&&) = delete;
     AccelStructureManager& operator=(AccelStructureManager&&) = delete;
 
-    /// Build or retrieve BLAS for a Model. Call during model load.
+    /// Build or retrieve the BLASes for a Model: one per LOD 0 mesh entry.
     void ensure_blas(const Model* model, const MegaBuffer& mega);
 
-    /// Build or retrieve BLAS from a raw MegaMeshEntry (for particle mesh primitives).
-    /// Uses the entry pointer as the map key.
+    /// Build or retrieve BLAS from a raw MegaMeshEntry (terrain, particle
+    /// mesh primitives). Uses the entry pointer as the map key.
     void ensure_blas_entry(const void* key, const MegaMeshEntry& entry, const MegaBuffer& mega);
 
     /// Get BLAS for a raw entry key (nullptr if not built).
     [[nodiscard]] const Blas* find_blas(const void* key) const;
 
-    /// Models keep their own map, keyed by Model* and rebuilt when the
-    /// mega-buffer moves. Separate from find_blas's mesh-entry map.
-    [[nodiscard]] const Blas* find_model_blas(const Model* model) const;
+    /// A model's BLASes, parallel to its LOD 0 mega entries: element i covers
+    /// entry lod_levels()[0].first_mega_entry + i, and an entry without
+    /// triangles holds a null handle. Empty until ensure_blas has run. Models
+    /// keep their own map, keyed by Model* and rebuilt when the mega-buffer
+    /// moves, separate from find_blas's mesh-entry map.
+    [[nodiscard]] std::span<const Blas> model_blases(const Model* model) const;
 
     /// Info about a mesh particle emitter to extract into the TLAS.
     struct ParticleEmitterInfo {
@@ -125,11 +133,13 @@ public:
 
 private:
     VkDeviceAddress buffer_address(VkBuffer buffer) const;
-    void build_blas(const Model* model, const MegaBuffer& mega);
 
-    // Destroy a BLAS's acceleration structure handle (GPU must be idle).
-    // Used to retire a stale BLAS before rebuilding against a moved mega-buffer.
-    void destroy_blas(Blas& blas);
+    // Build one BLAS per entry in a single buffer with a single submit. The
+    // result is parallel to `entries`; an entry without triangles yields a
+    // Blas with a null handle. Blocks until the GPU has finished building.
+    [[nodiscard]] std::vector<Blas> build_blases(std::span<const MegaMeshEntry> entries,
+                                                 const MegaBuffer& mega);
+
     // Hand a stale BLAS to the deferred deleter (frame-fenced destruction).
     void retire_blas(Blas blas);
 
@@ -142,7 +152,7 @@ private:
     DeferredDeleter& deleter_;
     VkDeviceSize scratch_alignment_{256}; // minAccelerationStructureScratchOffsetAlignment
 
-    std::unordered_map<const Model*, Blas> blas_map_;
+    std::unordered_map<const Model*, std::vector<Blas>> blas_map_;
     std::unordered_map<const void*, Blas> entry_blas_map_;
 
     // Particle → TLAS compute pipeline
