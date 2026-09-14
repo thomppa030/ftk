@@ -37,6 +37,91 @@ static UniformHint parse_hint_name(const std::string& h) {
     return UniformHint::None;
 }
 
+// One declaration grammar shared by the metadata pass and the strip pass, so
+// a form one of them accepts is never left behind by the other in the
+// generated GLSL.
+//   uniform <type> <name> [: <hint>[, <hint>...]] [= <default>];
+// Groups: 1 type, 2 name, 3 hint list, 4 default.
+static const std::regex& uniform_declaration_re() {
+    static const std::regex re(
+        R"(uniform\s+(\w+)\s+(\w+)\s*(?::\s*([^=;]+?))?\s*(?:=\s*([^;]+))?\s*;)");
+    return re;
+}
+
+static std::string trim(const std::string& str) {
+    auto s = str.find_first_not_of(" \t\r\n");
+    if (s == std::string::npos) return {};
+    auto e = str.find_last_not_of(" \t\r\n");
+    return str.substr(s, e - s + 1);
+}
+
+// Split "hint_range(0.0, 1.0, 0.01), hint_emission" on the commas that
+// separate hints, not the ones inside a hint's argument list.
+static std::vector<std::string> split_hint_list(const std::string& list) {
+    std::vector<std::string> out;
+    std::string current;
+    int depth = 0;
+    for (char c : list) {
+        if (c == '(') ++depth;
+        else if (c == ')') --depth;
+        if (c == ',' && depth == 0) {
+            out.push_back(trim(current));
+            current.clear();
+            continue;
+        }
+        current += c;
+    }
+    auto last = trim(current);
+    if (!last.empty()) out.push_back(last);
+    return out;
+}
+
+static void apply_hint(FjslUniform& u, const std::string& token) {
+    if (token.rfind("hint_range", 0) == 0) {
+        // hint_range(min, max[, step]) — stored beside the UI hint rather
+        // than as one, since a ranged float has no picker to choose.
+        auto open = token.find('(');
+        auto close = token.rfind(')');
+        if (open == std::string::npos || close == std::string::npos || close < open) {
+            FJELL_GFX_WARN("FJSL: hint_range on '{}' has no argument list", u.name);
+            return;
+        }
+        std::istringstream as(token.substr(open + 1, close - open - 1));
+        std::string tok;
+        std::vector<float> vals;
+        while (std::getline(as, tok, ',')) {
+            auto t = trim(tok);
+            if (!t.empty()) vals.push_back(std::stof(t));
+        }
+        if (vals.size() >= 2) {
+            u.range.min = vals[0];
+            u.range.max = vals[1];
+        }
+        if (vals.size() >= 3) {
+            u.range.step = vals[2];
+        }
+        return;
+    }
+
+    if (token == "hint_emission") {
+        u.emission = true;
+        return;
+    }
+
+    auto hint = parse_hint_name(token);
+    if (hint == UniformHint::None) {
+        // A misspelt hint would otherwise silently change how the uniform
+        // is presented and which fallback texture it gets.
+        FJELL_GFX_WARN("FJSL: unknown hint '{}' on uniform '{}'", token, u.name);
+        return;
+    }
+    if (u.hint != UniformHint::None && u.hint != hint) {
+        FJELL_GFX_WARN("FJSL: uniform '{}' declares more than one presentation hint; "
+                       "'{}' wins", u.name, token);
+    }
+    u.hint = hint;
+}
+
 static std::vector<float> parse_default_value(const std::string& val_str, UniformType type) {
     std::vector<float> result;
     // Match patterns like "0.5", "vec3(1.0, 0.5, 0.2)", "vec4(1.0)"
@@ -144,9 +229,7 @@ static std::string extract_user_globals(const std::string& source) {
     s = std::regex_replace(s, shader_type_re, std::string{});
     s = std::regex_replace(s, render_mode_re, std::string{});
     // Strip uniform declarations.
-    static const std::regex uniform_re(
-        R"(uniform\s+\w+\s+\w+\s*(?::\s*\w+(?:\s*\([^)]*\))?)?\s*(?:=\s*[^;]+)?\s*;)");
-    s = std::regex_replace(s, uniform_re, std::string{});
+    s = std::regex_replace(s, uniform_declaration_re(), std::string{});
     // Strip the reserved function definitions (fragment/vertex/light for
     // spatial shaders; sky for shader_type sky). Whatever's left is the
     // user's file-scope code — helpers, structs, constants.
@@ -199,11 +282,7 @@ ShaderMetadata parse_fjsl(const std::string& source) {
     }
 
     // Parse uniform declarations
-    // uniform <type> <name> [: <hint>[(args)]] [= <default>];
-    static const std::regex uniform_re(
-        R"(uniform\s+(\w+)\s+(\w+)\s*(?::\s*(\w+)(?:\s*\(([^)]*)\))?)?\s*(?:=\s*([^;]+))?\s*;)");
-
-    auto begin = std::sregex_iterator(source.begin(), source.end(), uniform_re);
+    auto begin = std::sregex_iterator(source.begin(), source.end(), uniform_declaration_re());
     auto end = std::sregex_iterator();
 
     uint32_t texture_slot = 4; // custom textures start at slot 4
@@ -215,37 +294,13 @@ ShaderMetadata parse_fjsl(const std::string& source) {
         u.name = (*it)[2].str();
 
         if ((*it)[3].matched) {
-            std::string hint_str = (*it)[3].str();
-            if (hint_str == "hint_range") {
-                u.hint = UniformHint::None; // range is stored separately
-                if ((*it)[4].matched) {
-                    // Parse range args: min, max[, step]
-                    std::string args = (*it)[4].str();
-                    std::istringstream as(args);
-                    std::string tok;
-                    std::vector<float> vals;
-                    while (std::getline(as, tok, ',')) {
-                        auto s = tok.find_first_not_of(" \t");
-                        auto e = tok.find_last_not_of(" \t");
-                        if (s != std::string::npos) {
-                            vals.push_back(std::stof(tok.substr(s, e - s + 1)));
-                        }
-                    }
-                    if (vals.size() >= 2) {
-                        u.range.min = vals[0];
-                        u.range.max = vals[1];
-                    }
-                    if (vals.size() >= 3) {
-                        u.range.step = vals[2];
-                    }
-                }
-            } else {
-                u.hint = parse_hint_name(hint_str);
+            for (const auto& token : split_hint_list((*it)[3].str())) {
+                apply_hint(u, token);
             }
         }
 
-        if ((*it)[5].matched) {
-            std::string def_str = (*it)[5].str();
+        if ((*it)[4].matched) {
+            std::string def_str = (*it)[4].str();
             // Trim whitespace
             auto s = def_str.find_first_not_of(" \t");
             auto e = def_str.find_last_not_of(" \t");

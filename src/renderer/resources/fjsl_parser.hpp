@@ -60,6 +60,12 @@ struct FjslUniform {
     UniformType type{UniformType::Float};
     UniformHint hint{UniformHint::None};
     HintRange range{};
+    // hint_emission: this uniform is part of what the surface emits. The
+    // product of all such uniforms is the material's emission for the GI
+    // paths, which cannot run fragment() and need a value they can read.
+    // Separate from `hint` because it combines with it: an emission colour
+    // still wants a colour picker, an emission strength still wants a slider.
+    bool emission{false};
     std::vector<float> default_value; // scalar or vector components
     uint32_t slot{0}; // texture slot (4-7) for sampler2D, or param offset for scalars
 };

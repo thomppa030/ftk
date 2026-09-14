@@ -123,6 +123,61 @@ TEST_CASE("Parse all hint types", "[fjsl]") {
     REQUIRE(meta.uniforms[3].hint == UniformHint::DefaultMr);
 }
 
+TEST_CASE("Hints combine in a comma-separated list", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform float strength : hint_range(0.0, 20.0, 0.1), hint_emission = 5.0;
+        uniform vec3 glow : hint_color, hint_emission = vec3(1.0, 0.7, 0.2);
+        uniform vec3 tint : hint_color = vec3(1.0);
+        void fragment() {}
+    )");
+    REQUIRE(meta.uniforms.size() == 3);
+
+    // Commas inside hint_range's arguments must not split the list.
+    const auto& strength = meta.uniforms[0];
+    REQUIRE(strength.emission);
+    REQUIRE(strength.hint == UniformHint::None);
+    REQUIRE(strength.range.min == Catch::Approx(0.0f));
+    REQUIRE(strength.range.max == Catch::Approx(20.0f));
+    REQUIRE(strength.range.step == Catch::Approx(0.1f));
+    REQUIRE(strength.default_value.size() == 1);
+    REQUIRE(strength.default_value[0] == Catch::Approx(5.0f));
+
+    // hint_emission sits beside a presentation hint rather than replacing it.
+    const auto& glow = meta.uniforms[1];
+    REQUIRE(glow.emission);
+    REQUIRE(glow.hint == UniformHint::Color);
+    REQUIRE(glow.default_value.size() == 3);
+
+    REQUIRE_FALSE(meta.uniforms[2].emission);
+    REQUIRE(meta.uniforms[2].hint == UniformHint::Color);
+}
+
+TEST_CASE("Unknown hint is ignored rather than fatal", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform vec3 tint : hint_typo = vec3(1.0);
+        void fragment() {}
+    )");
+    REQUIRE(meta.uniforms.size() == 1);
+    REQUIRE(meta.uniforms[0].hint == UniformHint::None);
+    REQUIRE_FALSE(meta.uniforms[0].emission);
+}
+
+TEST_CASE("Listed hints are stripped from user globals", "[fjsl]") {
+    auto meta = parse_fjsl(R"(
+        shader_type spatial;
+        uniform float strength : hint_range(0.0, 20.0, 0.1), hint_emission = 5.0;
+        const float HELPER = 2.0;
+        void fragment() {}
+    )");
+    // The strip pass must recognise the same grammar as the metadata pass,
+    // or the declaration leaks into generated GLSL as a stray token.
+    REQUIRE(meta.user_globals.find("uniform") == std::string::npos);
+    REQUIRE(meta.user_globals.find("hint_emission") == std::string::npos);
+    REQUIRE(meta.user_globals.find("HELPER") != std::string::npos);
+}
+
 // --- render_mode ---
 
 TEST_CASE("Parse render_mode unlit", "[fjsl]") {
