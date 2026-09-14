@@ -3,6 +3,7 @@
 #include "core/frame_context.hpp"
 #include "core/log.hpp"
 #include "core/project.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/resources/texture.hpp"
 #include "renderer/vulkan_context.hpp"
 #include "scene/node.hpp"
@@ -33,13 +34,12 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         const auto* wc = obj->components.get<UiWidgetComponent>();
         if (!wc || wc->widget_path.empty()) continue;
 
-        // Load the .fjwidget asset
-        std::string widget_resolved;
-        if (ctx.project) {
-            widget_resolved = ctx.project->resolve(wc->widget_path);
-        } else {
-            widget_resolved = base_path::resolve(wc->widget_path);
-        }
+        // Load the .fjwidget asset. widget_path may be a project-relative
+        // path or an asset id (see UiWidgetComponent's serialize, which
+        // writes whichever the project's asset database gives it) —
+        // resolve_asset handles both, the same way mesh/skeletal components
+        // resolve their own asset references at the point of use.
+        std::string widget_resolved = base_path::resolve_asset(wc->widget_path, ctx.project);
 
         auto widget_result = load_widget_asset(widget_resolved);
         if (!widget_result) {
@@ -69,9 +69,12 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         if (render_mode == UiWidgetComponent::RenderMode::world_space) {
             vulkan_context_.init_game_ui_world(*game_ui, editor_game_ui_.font());
         } else {
+            // Screen-space widgets composite into PlayController's HUD
+            // target, an OffscreenPass, not the swapchain — the pipeline's
+            // color format has to match what it will actually render into.
             vulkan_context_.init_game_ui_shared(*game_ui,
                 editor_game_ui_.font(),
-                vulkan_context_.swapchain_format());
+                OffscreenPass::COLOR_FORMAT);
         }
 
         game_ui->set_project(ctx.project);

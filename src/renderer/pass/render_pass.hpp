@@ -143,11 +143,13 @@ struct FrameContext {
     // Game state for UI rendering
     bool playing{false};
 
-    // UI rendering callbacks (set by game layer, used by transparent pass)
+    // Worldspace UI rendering callback (set by game layer, used by transparent
+    // pass). Screen-space UI no longer has a FrameContext-level callback —
+    // it goes through PlayController's own HUD target and VulkanContext's
+    // play_hud_callback_, invoked from record_command_buffer.
     using UiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
                                           VkDescriptorSet, VkExtent2D, uint32_t)>;
     UiCallback world_ui_callback;
-    UiCallback game_ui_callback;
 
     // Per-cascade shadow batches (indexed by cascade index)
     static constexpr uint32_t MAX_SHADOW_CASCADES = 3;

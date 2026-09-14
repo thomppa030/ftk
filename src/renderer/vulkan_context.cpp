@@ -403,7 +403,6 @@ FrameContext VulkanContext::build_frame_context(VkCommandBuffer cmd, OffscreenPa
     ctx.passes = &passes_;
     ctx.playing = playing_;
     ctx.world_ui_callback = world_ui_callback_;
-    ctx.game_ui_callback = game_ui_callback_;
 
     // Shadow cascade batches (filled from gatherer, consumed by ShadowPass::build)
     for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
@@ -697,8 +696,7 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
                                           const std::vector<ViewportRenderRequest>& viewports,
                                           const DirectionalLight& light,
                                           Scene* scene, float dt,
-                                          uint32_t selected_id, ThreadPool& pool,
-                                          bool playing) {
+                                          uint32_t selected_id, ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("record_command_buffer");
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -779,6 +777,11 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
         ui_preview_callback_(current_frame_);
     }
 
+    // --- Play mode HUD offscreen pass ---
+    if (play_hud_callback_) {
+        play_hud_callback_(current_frame_);
+    }
+
     // ImGui to swapchain runs post-compute: on frames with async work
     // it needs to wait for both the graphics pre-CB and compute CB to
     // finish. Easiest is to record into the post-compute CB when the
@@ -816,13 +819,6 @@ void VulkanContext::record_command_buffer(VkCommandBuffer cmd, uint32_t image_in
 
         if (overlay_callback_) {
             overlay_callback_(swap_cmd);
-        }
-
-        // Game UI renders to swapchain in play mode, after ImGui
-        if (playing && game_ui_callback_) {
-            game_ui_callback_(swap_cmd, gpu_.global_descriptor_set(current_frame_),
-                              gpu_.bindless_textures().descriptor_set(),
-                              gpu_.swapchain().extent(), current_frame_);
         }
 
         vkCmdEndRendering(swap_cmd);
@@ -1141,7 +1137,17 @@ void VulkanContext::init_game_ui_world(GameUi& ui, const FontAtlas& shared_atlas
 void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
                                               uint32_t frame_index) {
     if (!ui.loaded()) return;
+    record_game_ui_offscreen_multi(
+        [&ui](VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
+             VkExtent2D extent, uint32_t idx) {
+            ui.record(cmd, global_set, bindless_set, extent, idx);
+        },
+        target, frame_index);
+}
 
+void VulkanContext::record_game_ui_offscreen_multi(const GameUiRecordFn& record_fn,
+                                                    OffscreenPass& target,
+                                                    uint32_t frame_index) {
     VkCommandBuffer cmd = gpu_.command_buffer(frame_index);
     VkExtent2D extent = target.extent();
 
@@ -1186,7 +1192,7 @@ void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
 
     // .fjsl materials sample TIME from the global UBO, but that UBO is
     // only otherwise refreshed by a scene viewport's render request
-    // (update_uniform_buffer()) — when this offscreen preview is the
+    // (update_uniform_buffer()) — when this offscreen target is the
     // only thing rendering this frame (e.g. the UI editor tab open with
     // no 3D viewport active), TIME would sit frozen at whatever a scene
     // viewport last wrote, so animated UI materials appear static in
@@ -1198,7 +1204,7 @@ void VulkanContext::record_game_ui_offscreen(GameUi& ui, OffscreenPass& target,
                     offsetof(GlobalUbo, time),
                 &live_time, sizeof(live_time));
 
-    ui.record(cmd, gpu_.global_descriptor_set(frame_index),
+    record_fn(cmd, gpu_.global_descriptor_set(frame_index),
               gpu_.bindless_textures().descriptor_set(),
               extent, frame_index);
 
@@ -1518,8 +1524,7 @@ bool VulkanContext::begin_frame(ThreadPool& pool) {
 void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewports,
                                  const DirectionalLight& light,
                                  Scene* scene, float dt,
-                                 uint32_t selected_id, ThreadPool& pool,
-                                 bool playing) {
+                                 uint32_t selected_id, ThreadPool& pool) {
     FJELL_PROFILE_SCOPE_N("record_frame");
     elapsed_time_ += dt;
 
@@ -1742,7 +1747,7 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
 
     vkResetCommandBuffer(gpu_.command_buffer(current_frame_), 0);
     record_command_buffer(gpu_.command_buffer(current_frame_), pending_image_index_,
-                          viewports, light, scene, dt, selected_id, pool, playing);
+                          viewports, light, scene, dt, selected_id, pool);
 
     recorded_frame_ = current_frame_;
     recorded_image_index_ = pending_image_index_;

@@ -98,8 +98,7 @@ public:
   /// after any resize/ImGui work.
   void record_frame(const std::vector<ViewportRenderRequest> &viewports,
                     const struct DirectionalLight &light, Scene *scene,
-                    float dt, uint32_t selected_id, ThreadPool &pool,
-                    bool playing = false);
+                    float dt, uint32_t selected_id, ThreadPool &pool);
 
   void update_light_ssbo(uint32_t frame_index, Scene *scene);
   void wait_idle();
@@ -265,15 +264,19 @@ public:
   void init_game_ui_shared(class GameUi& ui, const class FontAtlas& shared_atlas,
                            VkFormat output_format = VK_FORMAT_R8G8B8A8_SRGB);
 
-  /// Callback for game UI rendering. Set by the game layer.
-  /// Receives: cmd, global_set, bindless_set, extent, frame_index.
-  using GameUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
-                                            VkDescriptorSet, VkExtent2D, uint32_t)>;
-  void set_game_ui_callback(GameUiCallback cb) { game_ui_callback_ = std::move(cb); }
-
   /// Record a GameUi into an offscreen pass (for editor preview).
   void record_game_ui_offscreen(class GameUi& ui, OffscreenPass& target,
                                  uint32_t frame_index);
+
+  /// Same transient render target and transitions as record_game_ui_offscreen,
+  /// but the caller supplies the draw calls instead of a single GameUi — used
+  /// by play mode, which composites every screen-space UiSubsystem instance
+  /// into one shared HUD target (cmd, global_set, bindless_set, extent,
+  /// frame_index — same shape as GameUi::record).
+  using GameUiRecordFn = std::function<void(VkCommandBuffer, VkDescriptorSet,
+                                            VkDescriptorSet, VkExtent2D, uint32_t)>;
+  void record_game_ui_offscreen_multi(const GameUiRecordFn& record_fn,
+                                       OffscreenPass& target, uint32_t frame_index);
 
   /// Callback for worldspace UI rendering (color pass, after transparent objects).
   using WorldUiCallback = std::function<void(VkCommandBuffer, VkDescriptorSet,
@@ -286,6 +289,12 @@ public:
   /// Callback for UI editor preview rendering (offscreen, called during record_frame).
   using UiPreviewCallback = std::function<void(uint32_t frame_index)>;
   void set_ui_preview_callback(UiPreviewCallback cb) { ui_preview_callback_ = std::move(cb); }
+
+  /// Callback for play mode's HUD target (see PlayController::record_hud).
+  /// Same shape and same call site as ui_preview_callback_ — inside the main
+  /// command buffer's recording scope, so record_game_ui_offscreen_multi's
+  /// barriers land on a buffer that is actually open.
+  void set_play_hud_callback(UiPreviewCallback cb) { play_hud_callback_ = std::move(cb); }
 
   /// Set by ViewportManager each frame — top-left of the active viewport in
   /// window pixels.
@@ -337,8 +346,7 @@ private:
   record_command_buffer(VkCommandBuffer cmd, uint32_t image_index,
                         const std::vector<ViewportRenderRequest> &viewports,
                         const struct DirectionalLight &light, Scene *scene,
-                        float dt, uint32_t selected_id, ThreadPool &pool,
-                        bool playing);
+                        float dt, uint32_t selected_id, ThreadPool &pool);
   void render_scene_to(VkCommandBuffer cmd, OffscreenPass &target, Scene *scene,
                        float dt, uint32_t selected_id, ThreadPool &pool,
                        PostProcessResources *pp, bool skip_shadows = false,
@@ -427,9 +435,9 @@ private:
   std::unique_ptr<DebugDraw> debug_draw_;
   DebugDrawQueue* debug_draw_queue_{nullptr};
   OverlayCallback overlay_callback_;
-  GameUiCallback game_ui_callback_;
   WorldUiCallback world_ui_callback_;
   UiPreviewCallback ui_preview_callback_;
+  UiPreviewCallback play_hud_callback_;
   glm::vec2 viewport_offset_{0.0f, 0.0f};
   bool show_colliders_{false};
   Scene* active_render_scene_{nullptr}; // editor context's preview scene (if different from main)

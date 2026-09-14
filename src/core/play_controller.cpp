@@ -13,6 +13,7 @@ extern "C" void fjell_input_clear_connections();
 #include "core/window.hpp"
 #include "audio/audio_subsystem.hpp"
 #include "physics/physics_subsystem.hpp"
+#include "renderer/offscreen_pass.hpp"
 #include "renderer/systems/sprite_anim_subsystem.hpp"
 #include "renderer/systems/vfx_subsystem.hpp"
 #include "renderer/vulkan_context.hpp"
@@ -22,6 +23,7 @@ extern "C" void fjell_input_clear_connections();
 #include "scripting/script_subsystem.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_subsystem.hpp"
+#include "ui/game_ui/ui_widget_component.hpp"
 
 #include <GLFW/glfw3.h>
 
@@ -36,6 +38,15 @@ void PlayController::init(PlayServices services, bool game_mode) {
     s_ = services;
     game_mode_ = game_mode;
     check_component_serialization();
+
+    // Registered once here rather than called directly from Engine::run:
+    // the HUD's barriers and dynamic-rendering calls must land inside the
+    // main command buffer's recording scope, which is only open partway
+    // through VulkanContext::record_command_buffer — the same reason the UI
+    // editor's own preview uses ui_preview_callback_ instead of a direct call.
+    s_.vulkan->set_play_hud_callback([this](uint32_t frame_index) {
+        record_hud(frame_index);
+    });
 }
 
 void PlayController::check_component_serialization() const {
@@ -126,6 +137,66 @@ void PlayController::load_input_contexts() {
             s_.input_map->push_context(std::filesystem::path(ctx_path).stem().string());
         }
     }
+}
+
+void PlayController::apply_pending_hud_resize() {
+    if (hud_pending_destroy_) {
+        // begin_frame()'s fence wait (already run by the time Engine::run
+        // calls this) only guarantees the GPU is done with the *current*
+        // frame-in-flight slot. With more than one frame pipelined at once,
+        // hud_target_'s descriptor may have last been referenced by a draw
+        // recorded into a *different* slot's command buffer — confirmed by
+        // hitting this exact free from gdb and seeing the validation layer
+        // reject it as still in use by graphics_post[2] while begin_frame
+        // had only fenced a different slot. A full wait_idle is the same
+        // price stop() and UiSubsystem::on_play_stop already pay before
+        // tearing down GameUi pipelines, for the same reason.
+        s_.vulkan->wait_idle();
+        hud_target_.reset();
+        hud_pending_destroy_ = false;
+    }
+
+    if (!playing()) return;
+    if (hud_img_size_.x <= 0.0f || hud_img_size_.y <= 0.0f) return;
+
+    auto w = static_cast<uint32_t>(hud_img_size_.x);
+    auto h = static_cast<uint32_t>(hud_img_size_.y);
+    if (!hud_target_) {
+        hud_target_ = std::make_unique<OffscreenPass>(
+            s_.vulkan->device_ref(), s_.vulkan->allocator(), w, h, VK_SAMPLE_COUNT_1_BIT);
+    } else {
+        // Unlike the destroy branch above, this was never the vulnerable
+        // path: OffscreenPass::resize() already calls vkDeviceWaitIdle
+        // itself before touching anything, and only when the size actually
+        // changes (an early-return no-op otherwise).
+        hud_target_->resize(w, h);
+    }
+}
+
+void PlayController::record_hud(uint32_t frame_index) {
+    if (!playing() || !hud_target_) return;
+
+    s_.vulkan->record_game_ui_offscreen_multi(
+        [this](VkCommandBuffer cmd, VkDescriptorSet global_set,
+              VkDescriptorSet bindless_set, VkExtent2D extent, uint32_t idx) {
+            for (auto& inst : s_.ui->instances()) {
+                if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) continue;
+                if (!inst.game_ui || !inst.game_ui->loaded()) continue;
+                // viewport_offset translates raw (window-absolute) mouse
+                // coordinates into the HUD target's own local space; the
+                // target itself is already sized to the panel, so the
+                // offset is the panel's own window-absolute top-left.
+                inst.game_ui->update(hud_img_size_.x, hud_img_size_.y, idx,
+                                     s_.clock->delta_time(), s_.input, hud_img_pos_);
+                inst.game_ui->record(cmd, global_set, bindless_set, extent, idx);
+            }
+        },
+        *hud_target_, frame_index);
+}
+
+VkDescriptorSet PlayController::hud_texture() {
+    if (!hud_target_) return VK_NULL_HANDLE;
+    return hud_target_->imgui_texture();
 }
 
 void PlayController::start() {
@@ -229,6 +300,13 @@ void PlayController::stop() {
     // Bodies are keyed by node id, so the world can outlive the play scene
     // by a moment without referencing anything that is gone.
     s_.physics->notify_play_stop(ctx);
+
+    // Not destroyed here — see hud_pending_destroy_'s comment. Deferring
+    // costs one frame of an unused OffscreenPass sitting around, which is
+    // fine; destroying it early risks a validation error every time stop()
+    // runs mid-draw (the toolbar's Stop button) rather than only from a
+    // shortcut evaluated before any drawing starts.
+    hud_pending_destroy_ = true;
 
     session_.reset();
     state_ = PlayState::stopped;

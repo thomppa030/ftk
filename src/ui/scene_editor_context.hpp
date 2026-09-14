@@ -97,6 +97,15 @@ public:
     ViewportManager& viewport_manager() { return viewport_manager_; }
     void request_focus_viewport() { focus_viewport_frames_ = 2; }
 
+    /// Where the scene image was actually drawn this frame — the docked
+    /// viewport panel's img_pos/img_size, or the fullscreen play view's
+    /// window rect. Set by draw()/draw_play_overlay() each frame they run;
+    /// Engine reads it to size and position PlayController's HUD target,
+    /// since that differs by presentation and neither ViewportPanel's own
+    /// fields nor a fixed window rect covers both cases.
+    struct ScreenRect { glm::vec2 pos{0.0f}; glm::vec2 size{0.0f}; };
+    [[nodiscard]] ScreenRect scene_image_rect() const { return scene_image_rect_; }
+
     // Selection access
     [[nodiscard]] uint32_t selected_id() const { return selected_id_; }
     [[nodiscard]] uint32_t* selected_id_ptr() { return &selected_id_; }
@@ -150,6 +159,7 @@ private:
     uint32_t selected_id_{0};
     int gizmo_op_{0};
     int focus_viewport_frames_{0}; // countdown: focus viewport after N frames
+    ScreenRect scene_image_rect_;
 
     // Play-mode FPS overlay (frames counted locally, updated every 0.5s).
     // Kept out of the game UI context so the HUD layout never rebuilds for it.

@@ -227,38 +227,13 @@ void Engine::init_ui() {
         imgui_layer_->render(cmd);
     });
 
+    // game_ui_ is the editor's own dev-facing HUD; it has no play-mode role
+    // (screen-space widgets from the scene are ui_subsystem_'s job, recorded
+    // into PlayController's HUD target — see Engine::run) and no docked
+    // presentation of its own yet, so it still targets the swapchain.
     vulkan_context_->init_game_ui(game_ui_,
         base_path::resolve("engine_assets/fonts/Inter-Regular.ttf"),
         vulkan_context_->swapchain_format());
-
-    vulkan_context_->set_game_ui_callback(
-        [this](
-               VkCommandBuffer cmd, VkDescriptorSet global_set,
-               VkDescriptorSet bindless_set, VkExtent2D extent,
-               uint32_t frame_index) {
-            // FPS is shown as an ImGui overlay in play mode (see
-            // SceneEditorContext::draw_play_overlay). Pushing it into the
-            // game-UI context every 0.5s forces a full Yoga layout rebuild,
-            // so we keep it out of the HUD.
-
-            if (!play_controller_.playing() && game_ui_.loaded()) {
-                game_ui_.update(static_cast<float>(extent.width),
-                                static_cast<float>(extent.height),
-                                frame_index, clock_.delta_time(), &input_);
-                game_ui_.record(cmd, global_set, bindless_set, extent,
-                                frame_index);
-            }
-
-            for (auto& inst : ui_subsystem_->instances()) {
-                if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) continue;
-                if (!inst.game_ui || !inst.game_ui->loaded()) continue;
-                inst.game_ui->update(static_cast<float>(extent.width),
-                                     static_cast<float>(extent.height),
-                                     frame_index, clock_.delta_time(), &input_);
-                inst.game_ui->record(cmd, global_set, bindless_set, extent,
-                                     frame_index);
-            }
-        });
 
     ui_subsystem_ = add_subsystem<UiSubsystem>(*vulkan_context_, game_ui_,
                                                script_subsystem_->manager());
@@ -802,7 +777,6 @@ void Engine::init_editor() {
 Engine::~Engine() {
     vulkan_context_->wait_idle();
     vulkan_context_->set_overlay_callback(nullptr);
-    vulkan_context_->set_game_ui_callback(nullptr);
     game_ui_.destroy();
     for (auto& ctx : contexts_) ctx->shutdown();
     contexts_.clear();
@@ -1733,6 +1707,14 @@ void Engine::run() {
         capture_service_.resize_for_capture(*vulkan_context_,
                                             scene_context_->viewport_manager());
 
+        // Applies last frame's scene_image_rect() (set below, after
+        // draw_ui()/draw_play_overlay() ran) to the HUD target, if its size
+        // changed. Must happen before begin_frame() so this frame's
+        // ImGui::Image(hud_texture()) calls never read a descriptor that a
+        // resize is about to destroy later in this same frame — see
+        // PlayController::apply_pending_hud_resize.
+        play_controller_.apply_pending_hud_resize();
+
         imgui_layer_->begin_frame();
         handle_play_shortcuts();
         if (play_controller_.playing()) {
@@ -1782,13 +1764,23 @@ void Engine::run() {
         active_context().render_previews(*vulkan_context_, render_scene,
                                           clock_.game_delta_time(), light_, thread_pool_);
 
+        // Tell the controller what rect the scene image actually occupied
+        // this frame — the docked panel or the fullscreen play view,
+        // whichever ran during this frame's draw_ui()/draw_play_overlay()
+        // above. The HUD itself is recorded later, from inside
+        // record_frame(), once the main command buffer is open — see
+        // PlayController::init.
+        if (play_controller_.playing()) {
+            auto rect = scene_context_->scene_image_rect();
+            play_controller_.set_hud_rect(rect.pos, rect.size);
+        }
+
         // Set active editor's render scene for SDF gathering
         vulkan_context_->set_active_render_scene(active_context().render_scene());
 
         // Phase 4: Record commands
         vulkan_context_->record_frame(requests, light_, render_scene, clock_.game_delta_time(),
-                                       scene_context_->selected_id(), thread_pool_,
-                                       play_controller_.playing());
+                                       scene_context_->selected_id(), thread_pool_);
 
         // Age out screen debug text after the overlay has drawn it, so a
         // single-frame entry survives exactly the frame it was submitted in.

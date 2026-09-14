@@ -715,6 +715,20 @@ void SceneEditorContext::draw_play_toolbar() {
     const bool playing = deps_.play->playing();
     const float pad = 6.0f;
 
+    if (playing) {
+        scene_image_rect_.pos = vp->img_pos;
+        scene_image_rect_.size = vp->img_size;
+
+        // HUD composited on top of the docked panel's own scene image,
+        // which viewport_manager_.draw() already drew before this runs —
+        // see draw_play_overlay for the fullscreen equivalent.
+        auto hud_tex = deps_.play->hud_texture();
+        if (hud_tex) {
+            ImGui::SetCursorScreenPos({vp->img_pos.x, vp->img_pos.y});
+            ImGui::Image(hud_tex, {vp->img_size.x, vp->img_size.y});
+        }
+    }
+
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     auto box = draw_play_controls(draw_list, vp->img_pos, vp->img_size);
     const float box_x = box.x, box_y = box.y, box_w = box.w, box_h = box.h;
@@ -959,10 +973,22 @@ void SceneEditorContext::draw_play_overlay() {
     ImGui::Begin("##PlayView", nullptr, flags);
     ImGui::PopStyleVar();
 
+    scene_image_rect_.pos = {viewport->WorkPos.x, viewport->WorkPos.y};
+    scene_image_rect_.size = {viewport->WorkSize.x, viewport->WorkSize.y};
+
     // Scene image fills the window — use active viewport's offscreen
     auto tex_id = viewport_manager_.active_texture(*deps_.vulkan_context);
     if (tex_id) {
         ImGui::Image(tex_id, viewport->WorkSize);
+    }
+
+    // HUD composited on top: a transparent texture PlayController rendered
+    // separately (see PlayController::record_hud), not baked into the scene
+    // image, so it can be resized and hit-tested independently of it.
+    auto hud_tex = deps_.play->hud_texture();
+    if (hud_tex) {
+        ImGui::SetCursorScreenPos(viewport->WorkPos);
+        ImGui::Image(hud_tex, viewport->WorkSize);
     }
 
     // Play/stop/pause/step/time-scale box, top center. Same control drawn
