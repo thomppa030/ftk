@@ -29,11 +29,9 @@ static const bool registered = [] {
 
             // Space-separated, the way a class="..." attribute reads. The
             // buffer is refilled from the component whenever the field is
-            // not being typed into, so undo and external edits show up. The
-            // component is updated on every keystroke rather than on
-            // commit: a value typed right before pressing Play must already
-            // be there when play starts. The raw text, spaces and all, stays
-            // in the buffer for as long as the field is active.
+            // not being typed into, so undo and external edits show up, and
+            // the value commits on Enter or focus loss like every other
+            // text field, so the split never runs under the cursor.
             static char class_buf[256];
             static const void* class_buf_owner = nullptr;
             bool refill = class_buf_owner != ptr || !ImGui::IsAnyItemActive();
@@ -46,7 +44,8 @@ static const bool registered = [] {
                 std::snprintf(class_buf, sizeof(class_buf), "%s", joined.c_str());
                 class_buf_owner = ptr;
             }
-            if (ImGui::InputText("Style Classes", class_buf, sizeof(class_buf))) {
+            ImGui::InputText("Style Classes", class_buf, sizeof(class_buf));
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
                 wc->style_classes.clear();
                 std::string token;
                 for (const char* c = class_buf;; ++c) {
