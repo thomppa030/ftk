@@ -1114,14 +1114,18 @@ void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
     if (backend_ != DdgiBackend::ray_traced || !accel_manager_ || !ctx.queue || !ctx.mega_buffer)
         return;
 
-    const auto& cmds = ctx.queue->commands();
     AABB bounds = trace_reach_bounds();
 
-    for (const auto& dc : cmds) {
-        if (!dc.model) continue;
-        if (!dc.world_aabb.intersects(bounds)) continue;
+    // Culled emitters need a BLAS as much as visible geometry: the TLAS
+    // build skips any model without one, so an emitter that has been off
+    // screen since load would otherwise never make it in.
+    auto ensure = [&](const DrawCommand& dc) {
+        if (!dc.model) return;
+        if (!dc.world_aabb.intersects(bounds)) return;
         accel_manager_->ensure_blas(dc.model, *ctx.mega_buffer);
-    }
+    };
+    for (const auto& dc : ctx.queue->commands()) ensure(dc);
+    for (const auto& dc : ctx.queue->gi_only_commands()) ensure(dc);
 
     // Cache particle SSBO for compute dispatch + build particle mesh BLASes
     if (particle_system_) {
@@ -1549,21 +1553,26 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             // Everything whose instance count is known on the CPU goes in one
             // list; build_tlas applies the same transform validation to all of
             // it and reserves the particle region after.
+            // Visible draws plus the emissive ones the camera culled: those
+            // are off screen but still light what is on it.
+            const auto& gi_only = ctx.queue->gi_only_commands();
             std::vector<AccelStructureManager::RtInstance> host_instances;
-            host_instances.reserve(cmds.size() + 1);
+            host_instances.reserve(cmds.size() + gi_only.size() + 1);
 
-            for (const auto& dc : cmds) {
-                if (!dc.model) continue;
-                if (!dc.world_aabb.intersects(bounds)) continue;
+            auto add_instance = [&](const DrawCommand& dc) {
+                if (!dc.model) return;
+                if (!dc.world_aabb.intersects(bounds)) return;
                 const auto* blas = accel_manager_->find_model_blas(dc.model);
-                if (blas == nullptr) continue;
+                if (blas == nullptr) return;
 
                 AccelStructureManager::RtInstance inst{};
                 inst.transform = dc.push.model;
                 inst.material_id = dc.push.material_id;
                 inst.blas = blas;
                 host_instances.push_back(inst);
-            }
+            };
+            for (const auto& dc : cmds) add_instance(dc);
+            for (const auto& dc : gi_only) add_instance(dc);
 
             // Terrain generates its render geometry in a mesh shader, so it has
             // no draw to ride in on and is collected from the scene directly.

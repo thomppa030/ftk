@@ -10,6 +10,7 @@ namespace fjell {
 void RenderQueue::clear() {
     opaque_.clear();
     transparent_.clear();
+    gi_only_.clear();
 }
 
 void RenderQueue::reserve(size_t count) {

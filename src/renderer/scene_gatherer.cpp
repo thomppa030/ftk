@@ -1,5 +1,6 @@
 #include "renderer/scene_gatherer.hpp"
 #include "renderer/frustum.hpp"
+#include "renderer/bindless.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/instance_provider.hpp"
 #include "renderer/resources/material.hpp"
@@ -46,6 +47,20 @@ void SceneGatherer::gather(const GatherInput& input) {
         render_queue_.reserve(input.scene->objects().size());
         Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
 
+        // Whether a material lights the scene, from the same record the GI
+        // paths read. An emitter the camera cannot see still has to be in
+        // the acceleration structure: rays leave from on-screen probes and
+        // reflecting surfaces but hit wherever the geometry is, exactly as
+        // off-screen casters still have to be in the shadow cascades. Only
+        // the draw's resolved material is consulted, which is also all the
+        // TLAS records per instance.
+        auto emits = [bindless = input.bindless](uint32_t material_id) {
+            if (bindless == nullptr || material_id >= bindless->material_count()) return false;
+            const auto& mat = bindless->material_at(material_id);
+            return mat.has_emissive_texture != 0U
+                || mat.base_params[9] > 0.0F || mat.base_params[10] > 0.0F || mat.base_params[11] > 0.0F;
+        };
+
         // Build per-cascade shadow caster frustums from light matrices.
         // Near plane removed so objects behind the cascade (toward the light)
         // are included — they may cast shadows into the visible area.
@@ -60,18 +75,21 @@ void SceneGatherer::gather(const GatherInput& input) {
 
         uint32_t num_chunks = input.pool->thread_count() + 1;
         local_commands_.resize(num_chunks);
+        local_gi_commands_.resize(num_chunks);
         local_shadow_commands_.resize(num_chunks);
         local_slot_scratch_.resize(num_chunks);
         local_total_.assign(num_chunks, 0);
         local_culled_.assign(num_chunks, 0);
         for (uint32_t ch = 0; ch < num_chunks; ++ch) {
             local_commands_[ch].clear();
+            local_gi_commands_[ch].clear();
             for (auto& sc : local_shadow_commands_[ch]) sc.clear();
         }
 
         input.pool->parallel_for(0, object_count,
             [&](uint32_t chunk_id, uint32_t begin, uint32_t end) {
                 auto& commands = local_commands_[chunk_id];
+                auto& gi_cmds = local_gi_commands_[chunk_id];
                 auto& cascade_cmds = local_shadow_commands_[chunk_id];
 
                 for (uint32_t i = begin; i < end; ++i) {
@@ -102,6 +120,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                                 }
                             }
                             if (!camera_frustum.intersects(dc.world_aabb)) {
+                                if (!dc.transparent && emits(dc.push.material_id)) gi_cmds.push_back(dc);
                                 local_culled_[chunk_id]++;
                                 claimed = true;
                                 break;
@@ -148,6 +167,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                             }
                         }
                         if (!camera_frustum.intersects(dc.world_aabb)) {
+                            if (!dc.transparent && emits(dc.push.material_id)) gi_cmds.push_back(dc);
                             local_culled_[chunk_id]++;
                             continue;
                         }
@@ -196,6 +216,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                     }
 
                     if (!camera_frustum.intersects(dc.world_aabb)) {
+                        if (!dc.transparent && emits(dc.push.material_id)) gi_cmds.push_back(dc);
                         local_culled_[chunk_id]++;
                         continue;
                     }
@@ -245,6 +266,9 @@ void SceneGatherer::gather(const GatherInput& input) {
             input.stats->objects_culled += local_culled_[i];
             for (const auto& dc : local_commands_[i]) {
                 render_queue_.push(dc);
+            }
+            for (const auto& dc : local_gi_commands_[i]) {
+                render_queue_.push_gi_only(dc);
             }
             for (uint32_t c = 0; c < FrameContext::MAX_SHADOW_CASCADES; ++c) {
                 for (const auto& dc : local_shadow_commands_[i][c]) {

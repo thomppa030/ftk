@@ -435,6 +435,7 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         gi.pool = &pool;
         gi.stats = &gpu_.render_stats();
         gi.animation_system = animation_system_;
+        gi.bindless = &gpu_.bindless_textures();
         gatherer_.gather(gi);
     }
 

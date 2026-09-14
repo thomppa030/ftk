@@ -20,6 +20,8 @@ class ShadowPass;
 class ThreadPool;
 struct RenderStats;
 
+class BindlessTextures;
+
 /// Input parameters for SceneGatherer::gather().
 struct GatherInput {
     Scene* scene{nullptr};
@@ -31,6 +33,9 @@ struct GatherInput {
     ThreadPool* pool{nullptr};
     RenderStats* stats{nullptr};
     AnimationSystem* animation_system{nullptr};
+    /// Lets the cull keep emissive geometry the camera rejects, so it stays
+    /// in the GI acceleration structure. Null skips that.
+    const BindlessTextures* bindless{nullptr};
 };
 
 /// Extracts renderable data from the scene: frustum culling, draw command
@@ -79,6 +84,7 @@ private:
     // Reusable per-frame scratch (avoid heap allocs every frame)
     std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES> shadow_commands_;
     std::vector<std::vector<DrawCommand>> local_commands_;
+    std::vector<std::vector<DrawCommand>> local_gi_commands_;
     // Per-chunk, per-cascade shadow command scratch
     std::vector<std::array<std::vector<DrawCommand>, FrameContext::MAX_SHADOW_CASCADES>> local_shadow_commands_;
     // Per-chunk scratch for de-duplicating a mesh's material slots

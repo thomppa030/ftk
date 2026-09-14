@@ -99,6 +99,7 @@ public:
     [[nodiscard]] VkDescriptorSetLayout layout() const { return layout_; }
     [[nodiscard]] VkDescriptorSet descriptor_set() const { return set_; }
     [[nodiscard]] const GpuMaterial& material_at(uint32_t index) const { return materials_[index]; }
+    [[nodiscard]] uint32_t material_count() const { return static_cast<uint32_t>(materials_.size()); }
 
     // Read a custom param value by absolute offset (for UI readback)
     [[nodiscard]] float read_param(uint32_t offset) const {
