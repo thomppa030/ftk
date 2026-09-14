@@ -46,6 +46,10 @@ std::filesystem::path executable_path() {
     return std::filesystem::path(buf.data());
 }
 
+std::uint32_t process_id() {
+    return static_cast<std::uint32_t>(GetCurrentProcessId());
+}
+
 int run_command(const std::string& cmd, std::string& output) {
     output.clear();
     // _popen is the MSVC equivalent of POSIX popen

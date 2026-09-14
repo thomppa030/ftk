@@ -22,6 +22,10 @@ std::filesystem::path executable_path() {
     return std::filesystem::path(buf.data());
 }
 
+std::uint32_t process_id() {
+    return static_cast<std::uint32_t>(::getpid());
+}
+
 int run_command(const std::string& cmd, std::string& output) {
     output.clear();
     auto* pipe = popen(cmd.c_str(), "r");

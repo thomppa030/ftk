@@ -3,6 +3,7 @@
 #include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
 
 #include "ui_length_printer.hpp"
 
@@ -11,7 +12,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <unistd.h>
 
 using namespace fjell;
 namespace fs = std::filesystem;
@@ -26,7 +26,7 @@ struct WidgetFixture {
     fs::path base;
 
     WidgetFixture() {
-        base = fs::temp_directory_path() / ("fjell_widget_test_" + std::to_string(::getpid()));
+        base = fs::temp_directory_path() / ("fjell_widget_test_" + std::to_string(platform::process_id()));
         fs::create_directories(base / "widgets");
         write("widgets/my_widget.fjwidget",
               "<widget style=\"my_widget.fjss\">\n"

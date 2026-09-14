@@ -4,12 +4,12 @@
 #include "ui/game_ui/widget_resolver.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "core/log.hpp"
+#include "platform/platform.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <filesystem>
 #include <fstream>
-#include <unistd.h>
 
 using namespace fjell;
 namespace fs = std::filesystem;
@@ -59,7 +59,7 @@ TEST_CASE("Quotes inside attribute values are escaped and read back", "[fjui-ser
 struct WidgetDir {
     fs::path base;
     WidgetDir() {
-        base = fs::temp_directory_path() / ("fjell_serialize_test_" + std::to_string(::getpid()));
+        base = fs::temp_directory_path() / ("fjell_serialize_test_" + std::to_string(platform::process_id()));
         fs::create_directories(base / "widgets");
         std::ofstream(base / "widgets/item_slot.fjwidget") <<
             "<widget style=\"slot.fjss\">\n"

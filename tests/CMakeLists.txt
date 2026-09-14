@@ -29,6 +29,7 @@ target_include_directories(fjell-testable PUBLIC
     ${CMAKE_SOURCE_DIR}/src/scripting
 )
 target_link_libraries(fjell-testable PUBLIC
+    fjell-platform
     spdlog::spdlog
     nlohmann_json::nlohmann_json
     glm::glm
