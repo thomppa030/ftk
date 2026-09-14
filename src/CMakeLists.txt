@@ -271,6 +271,7 @@ add_executable(fjell
     ui/context_registry.cpp
     ui/input_mapping_editor_context.cpp
     ui/material_editor_context.cpp
+    ui/material_thumbnail_renderer.cpp
     ui/mesh_editor_context.cpp
     ui/ui_editor_context.cpp
     ui/vfx_editor_context.cpp
