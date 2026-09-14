@@ -87,9 +87,9 @@ void ContentBrowser::refresh_current_dir() {
 }
 
 void ContentBrowser::navigate_to(const std::filesystem::path& dir) {
-    // Called from inside the draw loop (breadcrumb, folder open, Backspace).
-    // Clearing thumbnails here would free descriptor sets that drawn-but-not-yet-
-    // submitted ImGui commands still reference, so the switch waits for frame end.
+    // Called from inside the draw loop (breadcrumb, folder open, Backspace),
+    // which may still be iterating entries_. Refreshing it here would
+    // invalidate that iteration, so the switch is applied at the next draw.
     pending_dir_ = dir;
     has_pending_dir_ = true;
 }
@@ -237,8 +237,7 @@ void ContentBrowser::draw_collapsed_tab() {
 }
 
 void ContentBrowser::draw() {
-    // Apply a directory switch requested during the previous frame's draw, before
-    // any command referencing the old thumbnails can be recorded again.
+    // Apply a directory switch requested during the previous frame's draw.
     apply_pending_navigation();
 
     // Process deferred texture preview release/load (must happen before ImGui draws referencing it)

@@ -1759,6 +1759,12 @@ void Engine::run() {
         // PlayController::apply_pending_hud_resize.
         play_controller_.apply_pending_hud_resize();
 
+        // Same rule for thumbnails the content browser retired during last
+        // frame's draw: panels drawn before it (material inspector, VFX
+        // editor) had already recorded those descriptors into ImGui's draw
+        // list, so they can only be freed once that list has been rendered.
+        if (icon_cache_) icon_cache_->destroy_retired_thumbnails();
+
         // While the game has input focus, ImGui must not also react to the
         // keyboard — a WASD move shouldn't nudge a still-open properties
         // field, and Tab/arrow-key navigation shouldn't steal focus back.

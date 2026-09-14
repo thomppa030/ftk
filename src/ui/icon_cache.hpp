@@ -67,8 +67,15 @@ public:
     /// Return cached thumbnail only (no loading). VK_NULL_HANDLE if not yet loaded.
     [[nodiscard]] VkDescriptorSet thumbnail_cached(const std::string& path) const;
 
-    /// Release all cached thumbnails.
+    /// Forget all cached thumbnails. Their GPU resources are retired, not
+    /// destroyed: a descriptor handed out earlier in the current frame may
+    /// already sit in ImGui's draw list, so freeing it here would leave that
+    /// draw referencing a dead set. destroy_retired_thumbnails() frees them.
     void clear_thumbnails();
+
+    /// Destroy thumbnails retired by clear_thumbnails(). Call once per frame
+    /// before ImGui begins recording, when no draw list can still reference them.
+    void destroy_retired_thumbnails();
 
     /// Queue async thumbnail decode for a list of image paths.
     /// CPU decode runs on background threads, GPU upload happens in poll_thumbnails().
@@ -101,6 +108,7 @@ private:
 
     std::unordered_map<std::string, IconEntry> icons_;
     std::unordered_map<std::string, IconEntry> thumbnails_;
+    std::vector<IconEntry> retired_thumbnails_;
 
     // Per-context icon descriptors for secondary ImGui contexts.
     // Key: (ImGuiContext*, icon_name) → VkDescriptorSet
