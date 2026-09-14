@@ -17,11 +17,13 @@ class Input;
 class UiInput {
 public:
     /// Process input for the current frame.
-    /// viewport_offset is the top-left of the game viewport in window pixels.
+    /// viewport_offset is the top-left of the game viewport in window pixels;
+    /// scale is how many window pixels one layout pixel covers, for a UI
+    /// drawn at a reference resolution.
     /// Returns true if any node's interaction state changed.
     bool process(UiNode& root, const Input& input, UiContext& context,
                  float viewport_width, float viewport_height,
-                 glm::vec2 viewport_offset = {0.0f, 0.0f});
+                 glm::vec2 viewport_offset = {0.0f, 0.0f}, float scale = 1.0f);
 
     /// Nodes whose interaction state changed this frame (need style re-resolve).
     [[nodiscard]] const std::vector<UiNode*>& dirty_nodes() const { return dirty_nodes_; }

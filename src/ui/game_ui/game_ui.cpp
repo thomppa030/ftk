@@ -11,6 +11,7 @@
 #include "core/profiler.hpp"
 #include "core/project.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -179,6 +180,16 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     needs_redraw_ = false;
 
+    // Design-frame scaling: everything below works in layout pixels of the
+    // design frame, scaled so the frame fits the real viewport. The
+    // renderer maps layout pixels onto the target by this one factor, the
+    // mouse is brought into layout space by it, and layout rounds to it so
+    // edges land on real pixels.
+    float scale = design_frame_.scale_for(viewport_width, viewport_height);
+    frame_scale_ = scale;
+    viewport_width /= scale;
+    viewport_height /= scale;
+
     // The viewport can resize (window resize, docked panel drag) without any
     // binding, style, input, or animation change firing below — check for it
     // directly so the layout doesn't keep stretching a stale computation at
@@ -216,7 +227,7 @@ void GameUi::update(float viewport_width, float viewport_height,
     if (input != nullptr) {
         bool input_changed = ui_input_.process(*root_, *input, context_,
                                                 viewport_width, viewport_height,
-                                                viewport_offset);
+                                                viewport_offset, scale);
         // 4. Re-resolve only dirty nodes (state changed by input)
         if (input_changed) {
             needs_redraw_ = true;
@@ -243,12 +254,12 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     // 6. Compute flexbox layout (only when structure/style changed, not text-only)
     if (dirty_ || layout_dirty_) {
-        layout_.compute(*root_, viewport_width, viewport_height);
+        layout_.compute(*root_, viewport_width, viewport_height, scale);
         layout_dirty_ = false;
     }
 
     // 7. Flatten quads to SSBO
-    renderer_.update(*root_, viewport_width, viewport_height, frame_index);
+    renderer_.update(*root_, viewport_width, viewport_height, scale, frame_index);
 
     // 8. Shape and upload text for all text nodes
     if (font().valid()) {

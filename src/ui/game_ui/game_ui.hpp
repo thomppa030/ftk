@@ -106,6 +106,16 @@ public:
     void set_resource_manager(ResourceManager* rm);
     void set_project(const class Project* project) { project_ = project; }
 
+    /// Lay out and draw in this design frame, scaled to fit the real
+    /// viewport (see UiDesignFrame). Percentages and viewport units measure
+    /// the scaled frame, so they follow it.
+    void set_design_frame(UiDesignFrame frame) { design_frame_ = frame; }
+
+    /// Screen pixels per layout pixel as of the last update(): what the
+    /// design frame scaled by. Anything that maps layout rects to the screen
+    /// outside the renderer, such as editor overlays, multiplies by this.
+    [[nodiscard]] float frame_scale() const { return frame_scale_; }
+
     [[nodiscard]] UiContext& context() { return context_; }
     [[nodiscard]] const UiContext& context() const { return context_; }
     [[nodiscard]] const FontAtlas& font() const { return shared_font_atlas_ ? *shared_font_atlas_ : font_atlas_; }
@@ -152,6 +162,8 @@ private:
     // still triggers a relayout instead of stretching the stale one.
     float last_layout_width_{-1.0f};
     float last_layout_height_{-1.0f};
+    UiDesignFrame design_frame_{};
+    float frame_scale_{1.0f};
 
     ResourceManager* resource_manager_{nullptr};
     const class Project* project_{nullptr};

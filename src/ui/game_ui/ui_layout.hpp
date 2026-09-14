@@ -20,7 +20,10 @@ public:
 
     /// Build yoga nodes from the UI tree, compute layout at given viewport size,
     /// and write layout_rect back to each UiNode.
-    void compute(UiNode& root, float viewport_width, float viewport_height);
+    /// pixel_scale is how many screen pixels one layout pixel covers; layout
+    /// results are rounded so that edges land on whole screen pixels.
+    void compute(UiNode& root, float viewport_width, float viewport_height,
+                 float pixel_scale = 1.0f);
 
 private:
     void build_yoga_tree(UiNode& node, YGNode* parent);

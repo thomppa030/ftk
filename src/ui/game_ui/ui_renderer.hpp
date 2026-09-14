@@ -45,8 +45,10 @@ public:
     void destroy();
 
     /// Flatten the UI node tree into GPU quads and upload to SSBO.
+    /// viewport_width/height are the layout space the quads are positioned
+    /// in; frame_scale is how many target pixels one layout pixel covers.
     void update(const UiNode& root, float viewport_width, float viewport_height,
-                uint32_t frame_index);
+                float frame_scale, uint32_t frame_index);
 
     /// Upload shaped text glyphs to the text SSBO.
     void update_text(const std::vector<PositionedGlyph>& glyphs,
@@ -158,6 +160,10 @@ private:
 
     // Per-frame counts
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> quad_counts_{};
+    // Screen pixels per layout pixel for each frame's quads. The shader
+    // maps layout space onto the target through viewport_size; scissors are
+    // set in target pixels and need the same factor.
+    std::array<float, MAX_FRAMES_IN_FLIGHT> frame_scales_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> opaque_counts_{};
     std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> text_counts_{};
 

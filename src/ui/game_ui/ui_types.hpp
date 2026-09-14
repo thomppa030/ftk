@@ -85,6 +85,27 @@ struct UiColor {
     }
 };
 
+/// The frame a UI is designed in, and how it is scaled to whatever viewport
+/// shows it. The frame is scaled to fit: by height on a viewport at least as
+/// wide as the frame's aspect, by width on a narrower one, so the UI never
+/// overflows either way. A zero width scales by height alone; a zero height
+/// means no scaling, one layout pixel per screen pixel.
+struct UiDesignFrame {
+    float width{0.0f};
+    float height{0.0f};
+
+    /// Screen pixels per layout pixel for a viewport of the given size.
+    [[nodiscard]] constexpr float scale_for(float viewport_width, float viewport_height) const {
+        if (height <= 0.0f || viewport_height <= 0.0f) return 1.0f;
+        float scale = viewport_height / height;
+        if (width > 0.0f && viewport_width > 0.0f) {
+            float by_width = viewport_width / width;
+            if (by_width < scale) scale = by_width;
+        }
+        return scale;
+    }
+};
+
 struct UiRect {
     float x{0.0f};
     float y{0.0f};

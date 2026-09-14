@@ -108,3 +108,41 @@ TEST_CASE("vmin picks the smaller viewport side", "[layout][units]") {
     REQUIRE(l.child->layout_rect.w == Catch::Approx(30.0f));
     REQUIRE(l.child->layout_rect.h == Catch::Approx(40.0f));
 }
+
+// --- Design frame ---
+
+TEST_CASE("Design frame scales by height on a viewport at least as wide", "[frame]") {
+    UiDesignFrame frame{1920.0f, 1080.0f};
+    REQUIRE(frame.scale_for(1920.0f, 1080.0f) == Catch::Approx(1.0f));
+    REQUIRE(frame.scale_for(3840.0f, 2160.0f) == Catch::Approx(2.0f));
+    REQUIRE(frame.scale_for(2560.0f, 1080.0f) == Catch::Approx(1.0f)); // ultrawide: height wins
+}
+
+TEST_CASE("Design frame scales by width on a narrower viewport", "[frame]") {
+    UiDesignFrame frame{1920.0f, 1080.0f};
+    REQUIRE(frame.scale_for(960.0f, 1080.0f) == Catch::Approx(0.5f));
+    REQUIRE(frame.scale_for(1067.0f, 1430.0f) == Catch::Approx(1067.0f / 1920.0f));
+}
+
+TEST_CASE("A frame without a width scales by height alone", "[frame]") {
+    UiDesignFrame frame{0.0f, 1080.0f};
+    REQUIRE(frame.scale_for(960.0f, 1080.0f) == Catch::Approx(1.0f));
+    REQUIRE(frame.scale_for(960.0f, 540.0f) == Catch::Approx(0.5f));
+}
+
+TEST_CASE("A frame without a height means native pixels", "[frame]") {
+    UiDesignFrame frame{};
+    REQUIRE(frame.scale_for(800.0f, 600.0f) == Catch::Approx(1.0f));
+}
+
+TEST_CASE("Layout rounds to whole screen pixels at the frame scale", "[frame]") {
+    auto root = make_node("panel", {"root"});
+    auto* child = add_child(*root, make_node("div", {"a"}));
+    auto sheet = FjssParser::parse(".a { width: 10.3; height: 10.3; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    UiLayout layout;
+    // Two screen pixels per layout pixel: results land on halves.
+    layout.compute(*root, 400.0f, 300.0f, 2.0f);
+    REQUIRE(child->layout_rect.w == Catch::Approx(10.5f));
+}

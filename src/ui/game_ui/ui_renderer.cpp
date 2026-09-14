@@ -329,7 +329,7 @@ std::vector<UiRenderer::ClipGroup> UiRenderer::build_clip_groups(
 }
 
 void UiRenderer::update(const UiNode& root, float viewport_width, float viewport_height,
-                         uint32_t frame_index) {
+                         float frame_scale, uint32_t frame_index) {
     FJELL_PROFILE_SCOPE_N("ui_renderer_update");
     std::vector<GpuUiQuad> quads;
     collect_quads(root, quads, viewport_width, viewport_height);
@@ -359,6 +359,7 @@ void UiRenderer::update(const UiNode& root, float viewport_width, float viewport
 
     uint32_t count = std::min(static_cast<uint32_t>(sorted.size()), MAX_UI_QUADS);
     quad_counts_[frame_index] = count;
+    frame_scales_[frame_index] = frame_scale;
     uint32_t opaque_count = std::min(static_cast<uint32_t>(opaque.size()), count);
     opaque_counts_[frame_index] = opaque_count;
     uint32_t transparent_count = count - opaque_count;
@@ -544,8 +545,12 @@ void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescr
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout_,
                             0, 3, sets, 0, nullptr);
 
-    // Helper: set scissor from a clip_rect (pixels), clamped to extent
-    auto set_scissor = [&](const glm::vec4& clip) {
+    // Clip rects are in layout pixels; scissors are in target pixels.
+    float frame_scale = frame_scales_[frame_index];
+
+    // Helper: set scissor from a clip_rect (layout pixels), clamped to extent
+    auto set_scissor = [&](const glm::vec4& layout_clip) {
+        glm::vec4 clip = layout_clip * frame_scale;
         VkRect2D sc{};
         sc.offset.x = static_cast<int32_t>(std::max(0.0f, clip.x));
         sc.offset.y = static_cast<int32_t>(std::max(0.0f, clip.y));

@@ -17,13 +17,13 @@ void UiInput::forget_tree() {
 
 bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
                       float viewport_width, float viewport_height,
-                      glm::vec2 viewport_offset) {
+                      glm::vec2 viewport_offset, float scale) {
     FJELL_PROFILE_SCOPE_N("ui_input_process");
     dirty_nodes_.clear();
 
     auto mouse = input.mouse_position();
-    float mx = static_cast<float>(mouse.x) - viewport_offset.x;
-    float my = static_cast<float>(mouse.y) - viewport_offset.y;
+    float mx = (static_cast<float>(mouse.x) - viewport_offset.x) / scale;
+    float my = (static_cast<float>(mouse.y) - viewport_offset.y) / scale;
 
     // Ignore input outside viewport bounds
     if (mx < 0.0f || my < 0.0f || mx > viewport_width || my > viewport_height) {
