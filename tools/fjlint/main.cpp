@@ -6,6 +6,20 @@
 // Directories are searched for *.fjss and *.fjwidget. A widget's own
 // stylesheet is checked along with it. Exit status is 1 when anything was
 // reported, so a project's UI can be checked in CI or a pre-commit hook.
+//
+// Reports use the compiler convention "file:line:column: severity: message",
+// which editors parse as is. For Neovim with nvim-lint:
+//
+//   require("lint").linters.fjlint = {
+//     cmd = "fjlint", stdin = false, args = {}, stream = "stdout",
+//     ignore_exitcode = true,
+//     parser = require("lint.parser").from_errorformat(
+//       "%f:%l:%c: %t%*[^:]: %m", { source = "fjlint" }),
+//   }
+//   require("lint").linters_by_ft.fjss = { "fjlint" }
+//
+// with a filetype rule mapping *.fjss to "fjss". Vim's own :make works with
+// `set makeprg=fjlint\ %` and the default errorformat.
 
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/ui_node.hpp"

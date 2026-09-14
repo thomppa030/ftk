@@ -547,12 +547,14 @@ void FjssParser::diagnose(size_t offset, FjssSeverity severity, std::string mess
 }
 
 void FjssParser::log_diagnostics() const {
+    // "file:line:column: severity: message" — the compiler convention, which
+    // editors and their linter plugins parse without configuration.
     for (const auto& d : sheet_.diagnostics) {
         const auto& name = d.source.empty() ? std::string_view{"<fjss>"} : std::string_view{d.source};
         if (d.severity == FjssSeverity::error) {
-            FJELL_CORE_ERROR("{}:{}:{}: {}", name, d.line, d.column, d.message);
+            FJELL_CORE_ERROR("{}:{}:{}: error: {}", name, d.line, d.column, d.message);
         } else {
-            FJELL_CORE_WARN("{}:{}:{}: {}", name, d.line, d.column, d.message);
+            FJELL_CORE_WARN("{}:{}:{}: warning: {}", name, d.line, d.column, d.message);
         }
     }
 }

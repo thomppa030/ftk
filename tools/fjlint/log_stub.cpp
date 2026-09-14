@@ -1,6 +1,7 @@
 // Log implementation for the fjlint tool. The parsers report every problem
-// through the core logger as "file:line:column: message", so the pattern
-// prints exactly that and nothing else.
+// through the core logger as "file:line:column: severity: message", the
+// compiler convention editors parse, so the pattern prints the message and
+// nothing else.
 
 #include "core/log.hpp"
 
@@ -43,7 +44,7 @@ static std::shared_ptr<ConsoleSink> s_console_sink;
 
 void init() {
     auto sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    sink->set_pattern("%^%l%$: %v");
+    sink->set_pattern("%v");
     auto counter = std::make_shared<CountingSink>();
     spdlog::sinks_init_list sinks{sink, counter};
 
