@@ -1,6 +1,8 @@
 #include "animation/animator_component.hpp"
 #include "core/log.hpp"
 #include "core/profiler.hpp"
+#include "renderer/components/skeletal_mesh_component.hpp"
+#include "renderer/resources/skeletal_model.hpp"
 
 #include <ozz/base/maths/simd_math.h>
 
@@ -746,6 +748,41 @@ void AnimatorComponent::compute_skin_matrices() {
         // skinned vertices. Both are wanted, and the first is free here.
         bone_matrices_[i] = ozz_to_glm(model_matrices_[i]);
         skin_matrices_[i] = bone_matrices_[i] * inv_bind[i];
+    }
+}
+
+void clone_component(const ComponentStorage& from, const AnimatorComponent& src, ComponentStorage& to) {
+    auto& copy = to.add<AnimatorComponent>();
+    copy.clip_paths = src.clip_paths;
+    copy.animset_path = src.animset_path;
+    copy.clips = src.clips;
+
+    if (const auto* mesh = from.get<SkeletalMeshComponent>()) {
+        if (mesh->skeletal_model && mesh->skeletal_model->skeleton()) {
+            copy.init(mesh->skeletal_model->skeleton());
+        }
+    }
+
+    for (size_t i = 0; i < copy.clips.size(); ++i) {
+        if (i < copy.clip_paths.size()) {
+            copy.set_clip(copy.clip_paths[i], copy.clips[i].get());
+        }
+        if (i == 0) {
+            copy.play(copy.clips[i].get());
+        }
+    }
+
+    // The source's state machine and blend spaces were resolved when it was
+    // deserialized, so they are copied rather than loaded again.
+    if (!src.animset_path.empty()) {
+        copy.state_machine().copy_definition_from(src.state_machine());
+        for (const auto& [path, bs] : src.blend_spaces_1d()) {
+            copy.load_blend_space_1d(path, bs);
+        }
+        for (const auto& [path, bs] : src.blend_spaces_2d()) {
+            copy.load_blend_space_2d(path, bs);
+        }
+        copy.enable_state_machine();
     }
 }
 

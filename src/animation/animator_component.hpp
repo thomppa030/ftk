@@ -4,6 +4,7 @@
 #include "animation/animation_state_machine.hpp"
 #include "animation/blend_space.hpp"
 #include "animation/skeleton.hpp"
+#include "scene/component_storage.hpp"
 #include "scene/node_component.hpp"
 
 #include <ozz/animation/runtime/blending_job.h>
@@ -161,5 +162,10 @@ private:
     std::vector<glm::mat4> bone_matrices_;
 
 };
+
+// A duplicate is re-initialised against the skeleton of the sibling
+// SkeletalMeshComponent on the source node and re-registers the source's clips,
+// state machine, and blend spaces; the playback state itself starts fresh.
+void clone_component(const ComponentStorage& from, const AnimatorComponent& src, ComponentStorage& to);
 
 } // namespace fjell

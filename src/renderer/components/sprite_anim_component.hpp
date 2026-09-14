@@ -2,6 +2,7 @@
 
 #include "animation/animation_state_machine.hpp"
 #include "renderer/systems/sprite_sheet.hpp"
+#include "scene/component_storage.hpp"
 #include "scene/node_component.hpp"
 
 #include <cstdint>
@@ -30,5 +31,16 @@ struct SpriteAnimComponent : NodeComponent {
     bool finished{false};
     bool loaded{false};
 };
+
+// A duplicate takes the authored animation set and loads its own sheets; the
+// playback state starts from the beginning rather than mid-animation.
+inline void clone_component(const ComponentStorage& /*from*/, const SpriteAnimComponent& src,
+                            ComponentStorage& to) {
+    auto& copy = to.add<SpriteAnimComponent>();
+    copy.animset_path = src.animset_path;
+    copy.animations = src.animations;
+    copy.default_animation = src.default_animation;
+    copy.playback_speed = src.playback_speed;
+}
 
 } // namespace fjell

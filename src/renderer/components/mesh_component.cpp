@@ -10,6 +10,16 @@ MeshComponent::~MeshComponent() = default;
 MeshComponent::MeshComponent(MeshComponent&&) noexcept = default;
 MeshComponent& MeshComponent::operator=(MeshComponent&&) noexcept = default;
 
+void clone_component(const ComponentStorage& /*from*/, const MeshComponent& src, ComponentStorage& to) {
+    auto& dst = to.add<MeshComponent>();
+    dst.model_handle = src.model_handle;
+    dst.material_handle = src.material_handle;
+    dst.model = src.model;
+    dst.material = src.material;
+    dst.material_name = src.material_name;
+    dst.slot_materials = src.slot_materials;
+}
+
 uint32_t MeshComponent::resolved_material_id() const {
     if (instance) return instance->material_id();
     return material ? material->material_id() : 0;

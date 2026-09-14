@@ -1,34 +1,7 @@
 #include "scene/scene.hpp"
-#include "animation/animator_component.hpp"
-#include "core/input_component.hpp"
-#include "ui/game_ui/ui_widget_component.hpp"
-#include "audio/audio_component.hpp"
-#include "physics/physics_types.hpp"
-#include "renderer/components/arrow_component.hpp"
-#include "renderer/components/mesh_component.hpp"
-#include "renderer/components/terrain_component.hpp"
-#include "renderer/components/particle_emitter.hpp"
-#include "renderer/systems/vfx_asset.hpp"
-#include "renderer/systems/vfx_emitter.hpp"
-#include "renderer/components/skeletal_mesh_component.hpp"
-#include "renderer/components/sprite_anim_component.hpp"
-#include "renderer/components/sprite_desc.hpp"
-#include "renderer/components/tilemap_component.hpp"
 #include "core/thread_pool.hpp"
 #include "core/profiler.hpp"
-#include "renderer/resources/material.hpp"
-#include "renderer/resources/model.hpp"
-#include "renderer/resources/skeletal_model.hpp"
-#include "renderer/resources/texture.hpp"
 #include "scripting/fjell/component.hpp"
-#include "core/base_path.hpp"
-#include "scene/camera_node.hpp"
-#include "scene/light_node.hpp"
-#include "core/log.hpp"
-
-#include <nlohmann/json.hpp>
-
-#include <cstring>
 
 #include <algorithm>
 
@@ -54,121 +27,12 @@ void Node::clone_base_into(Node& target) const {
     target.name = name;
     target.source = source;
     target.preset_source = preset_source;
-    if (const auto* mc = components.get<MeshComponent>()) {
-        // Copy the renderable bits; the MaterialInstance (if any) is per-mesh
-        // runtime override state that doesn't transfer to a duplicate.
-        auto& dst = target.components.add<MeshComponent>();
-        dst.model_handle = mc->model_handle;
-        dst.material_handle = mc->material_handle;
-        dst.model = mc->model;
-        dst.material = mc->material;
-        dst.material_name = mc->material_name;
-    }
+    components.clone_into(target.components);
     for (const auto& s : scripts) {
         ScriptEntry entry;
         entry.type_name = s.type_name;
         entry.serialized = s.serialized;
         target.scripts.push_back(std::move(entry));
-    }
-    if (const auto* rb = components.get<RigidbodyComponent>()) {
-        target.components.add<RigidbodyComponent>(*rb);
-    }
-    if (const auto* col = components.get<ColliderComponent>()) {
-        target.components.add<ColliderComponent>(*col);
-    }
-    if (const auto* em = components.get<EmitterComponent>()) {
-        target.components.add<EmitterComponent>(*em);
-    }
-    if (const auto* sp = components.get<SpriteComponent>()) {
-        target.components.add<SpriteComponent>(*sp);
-    }
-    if (const auto* sa = components.get<SpriteAnimComponent>()) {
-        auto& copy = target.components.add<SpriteAnimComponent>();
-        copy.animset_path = sa->animset_path;
-        copy.animations = sa->animations;
-        copy.default_animation = sa->default_animation;
-        copy.playback_speed = sa->playback_speed;
-    }
-    if (const auto* tm = components.get<TilemapComponent>()) {
-        auto& copy = target.components.add<TilemapComponent>();
-        copy.tileset_texture = tm->tileset_texture;
-        copy.tile_size = tm->tile_size;
-        copy.map_size = tm->map_size;
-        copy.world_tile_size = tm->world_tile_size;
-        copy.sort_layer = tm->sort_layer;
-        copy.pixel_art = tm->pixel_art;
-        copy.tiles = tm->tiles;
-    }
-    if (const auto* terrain = components.get<TerrainComponent>()) {
-        auto& copy = target.components.add<TerrainComponent>();
-        copy.terrain_path = terrain->terrain_path;
-        copy.terrain_handle = terrain->terrain_handle;
-        // The asset is owned by ResourceManager and outlives the clone, so the
-        // resolved pointer carries over rather than being re-loaded.
-        copy.terrain = terrain->terrain;
-        copy.show_wireframe = terrain->show_wireframe;
-    }
-    if (const auto* arr = components.get<ArrowComponent>()) {
-        target.components.add<ArrowComponent>(*arr);
-    }
-    if (const auto* au = components.get<AudioSourceComponent>()) {
-        auto& copy = target.components.add<AudioSourceComponent>();
-        copy.clip_path = au->clip_path;
-        copy.volume = au->volume;
-        copy.pitch = au->pitch;
-        copy.min_distance = au->min_distance;
-        copy.max_distance = au->max_distance;
-        copy.loop = au->loop;
-        copy.spatial = au->spatial;
-        copy.play_on_start = au->play_on_start;
-    }
-    if (const auto* cc = components.get<CharacterComponent>()) {
-        auto& copy = target.components.add<CharacterComponent>();
-        copy.capsule_radius = cc->capsule_radius;
-        copy.capsule_height = cc->capsule_height;
-        copy.max_slope_angle = cc->max_slope_angle;
-        copy.mass = cc->mass;
-    }
-    if (const auto* wc = components.get<UiWidgetComponent>()) {
-        target.components.add<UiWidgetComponent>(*wc);
-    }
-    if (const auto* ic = components.get<InputComponent>()) {
-        target.components.add<InputComponent>(*ic);
-    }
-    if (const auto* smc = components.get<SkeletalMeshComponent>()) {
-        target.components.add<SkeletalMeshComponent>(*smc);
-    }
-    if (const auto* anim = components.get<AnimatorComponent>()) {
-        auto& copy = target.components.add<AnimatorComponent>();
-        copy.clip_paths = anim->clip_paths;
-        copy.animset_path = anim->animset_path;
-        copy.clips = anim->clips;
-        // Init from SkeletalModel's embedded skeleton
-        if (const auto* smc = components.get<SkeletalMeshComponent>()) {
-            if (smc->skeletal_model && smc->skeletal_model->skeleton()) {
-                copy.init(smc->skeletal_model->skeleton());
-            }
-        }
-        // Re-register clips in the clip map
-        for (size_t i = 0; i < copy.clips.size(); ++i) {
-            if (i < copy.clip_paths.size()) {
-                copy.set_clip(copy.clip_paths[i], copy.clips[i].get());
-            }
-            if (i == 0) {
-                copy.play(copy.clips[i].get());
-            }
-        }
-        // Copy state machine and blend spaces from source (already loaded at deserialization)
-        if (!anim->animset_path.empty()) {
-            copy.state_machine().copy_definition_from(anim->state_machine());
-            for (const auto& [path, bs] : anim->blend_spaces_1d()) {
-                copy.load_blend_space_1d(path, bs);
-            }
-            for (const auto& [path, bs] : anim->blend_spaces_2d()) {
-                copy.load_blend_space_2d(path, bs);
-            }
-            copy.enable_state_machine();
-        }
     }
 }
 

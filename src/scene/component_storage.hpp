@@ -21,6 +21,18 @@ ComponentTypeId component_type_id() {
     return id;
 }
 
+class ComponentStorage;
+
+// How a component is duplicated when its node is. The default copy-constructs,
+// which is right for plain data. A type whose copy would be wrong — runtime
+// handles that must not be shared, state that has to be rebuilt against a
+// sibling component, or no copy constructor at all — declares an overload
+// next to its own definition. `from` is the storage of the node being copied,
+// for rules that need a sibling. A type without a copy constructor and without
+// an overload fails to compile, so no component can be forgotten.
+template <typename T>
+void clone_component(const ComponentStorage& from, const T& src, ComponentStorage& to);
+
 // Type-erased component storage.
 // Holds any mix of component types, queryable by compile-time type ID.
 // Optimized for small counts (1-4 components per node) via linear scan.
@@ -68,9 +80,19 @@ public:
             component_type_id<T>(),
             ptr,
             [](void* p) { delete static_cast<T*>(p); },
+            [](const ComponentStorage& from, const void* p, ComponentStorage& to) {
+                clone_component(from, *static_cast<const T*>(p), to);
+            },
             sizeof(T)
         });
         return *ptr;
+    }
+
+    // Duplicates every component into `to`, each by its own clone rule.
+    void clone_into(ComponentStorage& to) const {
+        for (const auto& e : entries_) {
+            e.cloner(*this, e.ptr, to);
+        }
     }
 
     template <typename T>
@@ -154,10 +176,16 @@ private:
         ComponentTypeId type_id;
         void* ptr;
         void (*deleter)(void*);
-        uint32_t size; // for cloning/serialization if needed
+        void (*cloner)(const ComponentStorage& from, const void* src, ComponentStorage& to);
+        uint32_t size; // for serialization if needed
     };
 
     std::vector<Entry> entries_;
 };
+
+template <typename T>
+void clone_component(const ComponentStorage& /*from*/, const T& src, ComponentStorage& to) {
+    to.add<T>(src);
+}
 
 } // namespace fjell

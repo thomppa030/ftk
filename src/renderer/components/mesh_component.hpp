@@ -1,6 +1,7 @@
 #pragma once
 
 #include "renderer/resources/resource_handle.hpp"
+#include "scene/component_storage.hpp"
 #include "scene/node_component.hpp"
 
 #include <memory>
@@ -44,5 +45,10 @@ struct MeshComponent : NodeComponent {
     [[nodiscard]] Material* material_for_slot(uint32_t slot) const;
     [[nodiscard]] uint32_t resolved_material_id(uint32_t slot) const;
 };
+
+// A duplicate renders the same model with the same materials but starts
+// without the per-mesh MaterialInstance: that is runtime override state that
+// belongs to the one mesh it was set on.
+void clone_component(const ComponentStorage& from, const MeshComponent& src, ComponentStorage& to);
 
 } // namespace fjell
