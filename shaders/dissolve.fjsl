@@ -9,7 +9,7 @@ render_mode blend_alpha;
 uniform sampler2D noise_tex;
 uniform float dissolve : hint_range(0.0, 1.0, 0.01) = 0.0;
 uniform float edge_width : hint_range(0.0, 0.3, 0.005) = 0.06;
-uniform vec3 edge_color : hint_color = vec3(2.5, 1.2, 0.3);
+uniform vec3 edge_color : hint_color, hint_emission = vec3(2.5, 1.2, 0.3);
 
 void fragment() {
     float n = texture(noise_tex, UV * 3.0).r;

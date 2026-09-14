@@ -1,4 +1,5 @@
 #include "renderer/resources/resource_manager.hpp"
+#include "renderer/resources/material_gi_params.hpp"
 #include "core/log.hpp"
 #include "renderer/bindless.hpp"
 #include "scene/preset_asset.hpp"
@@ -426,65 +427,19 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
         }
     }
 
-    // Compute emission color for RT GI from FJSL uniform metadata.
-    // Scans resolved param values for emission/glow uniforms and combines them.
+    // What the ray-traced GI paths read of this material, derived from the
+    // shader's tagged uniforms and this asset's values for them.
     if (shader_meta) {
-        float emission_strength = 0.0f;
-        glm::vec3 glow_color{0.0f};
-        bool has_glow_color = false;
-
-        for (const auto& u : shader_meta->uniforms) {
-            if (u.type == UniformType::Sampler2D) continue;
-
-            // Resolve actual value (from .fjmat or default)
-            std::vector<float> values = u.default_value;
+        auto gi = derive_material_gi_params(*shader_meta, [&](const FjslUniform& u) {
             auto p_it = asset.params.find(u.name);
-            if (p_it != asset.params.end()) values = p_it->second;
-
-            if ((u.name == "emission_strength" || u.name == "glow_strength") && !values.empty()) {
-                emission_strength = values[0];
-            } else if ((u.name == "glow_color" || u.name == "emission_color") && values.size() >= 3) {
-                glow_color = {values[0], values[1], values[2]};
-                has_glow_color = true;
-            }
-        }
-
-        if (has_glow_color && emission_strength > 0.0f) {
-            params.emission_color = glow_color * emission_strength;
-        } else if (has_glow_color) {
-            params.emission_color = glow_color;
-        } else if (emission_strength > 0.0f) {
-            params.emission_color = glm::vec3(emission_strength);
-        }
-
-        // GI diffuse albedo override for RT GI: the DDGI RT/SDF trace
-        // shaders can't run a custom fragment() body, so they normally read
-        // base_color_factor as the bounce color. That's wrong for a shader
-        // that overrides ALBEDO from a custom uniform instead (solid_lit.fjsl,
-        // chrome.fjsl, unlit.fjsl, ...) — base_color_factor is left at its
-        // unused default (white) in that case, so DDGI would silently bounce
-        // white regardless of the material's real color. Detectable
-        // unambiguously when the shader has exactly one hint_color uniform:
-        // that's "the" surface color by construction of the hint, whether or
-        // not fragment() happens to also read it. Shaders with zero or
-        // multiple hint_color uniforms are left alone (ambiguous which one
-        // is "the" albedo, or none override ALBEDO from a custom color).
-        const FjslUniform* sole_color_uniform = nullptr;
-        int color_uniform_count = 0;
-        for (const auto& u : shader_meta->uniforms) {
-            if (u.hint == UniformHint::Color
-                && (u.type == UniformType::Vec3 || u.type == UniformType::Vec4)) {
-                sole_color_uniform = &u;
-                ++color_uniform_count;
-            }
-        }
-        if (color_uniform_count == 1) {
-            std::vector<float> values = sole_color_uniform->default_value;
-            auto p_it = asset.params.find(sole_color_uniform->name);
-            if (p_it != asset.params.end()) values = p_it->second;
-            if (values.size() >= 3) {
-                params.gi_albedo_override = glm::vec3{values[0], values[1], values[2]};
-            }
+            return p_it != asset.params.end() ? p_it->second : u.default_value;
+        });
+        params.emission_color = gi.emission;
+        params.gi_albedo_override = gi.gi_albedo_override;
+        if (gi.emission_from_names) {
+            FJELL_GFX_WARN("Material '{}': '{}' emits through uniform names alone; "
+                           "tag its emission uniforms with hint_emission",
+                           path, asset.shader);
         }
     }
 

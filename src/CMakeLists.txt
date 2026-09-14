@@ -71,6 +71,7 @@ add_executable(fjell
     renderer/resources/material.cpp
     renderer/resources/fjmesh_writer.cpp
     renderer/resources/material_asset.cpp
+    renderer/resources/material_gi_params.cpp
     renderer/resources/material_instance.cpp
     renderer/components/mesh_component.cpp
     renderer/systems/vfx_asset.cpp

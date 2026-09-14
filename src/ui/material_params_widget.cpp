@@ -3,6 +3,7 @@
 #include "renderer/bindless.hpp"
 #include "renderer/resources/fjsl_parser.hpp"
 #include "renderer/resources/material.hpp"
+#include "renderer/resources/material_gi_params.hpp"
 #include "renderer/uniform_types.hpp"
 
 #include <imgui.h>
@@ -128,61 +129,33 @@ bool draw_material_params(const ShaderMetadata& meta,
         ImGui::PopID();
     }
 
-    // Recompute emission_color (base_params[9..11]) and gi_albedo_override
-    // (base_params[12..14]) for RT GI — see resource_manager.cpp's material
-    // load path, which this mirrors so a live-edited color stays in sync
-    // with what DDGI/RT reflections bounce off the surface.
+    // Re-derive what the GI paths read of this material from the live param
+    // values, the same way the loader derives it from the asset, so an edit
+    // here lights the scene exactly as saving and reloading would.
     if (changed) {
-        float emission_strength = 0.0f;
-        glm::vec3 glow_color{0.0f};
-        bool has_glow_color = false;
-
-        const FjslUniform* sole_color_uniform = nullptr;
-        int color_uniform_count = 0;
-
-        for (const auto& u : meta.uniforms) {
-            if (u.type == UniformType::Sampler2D) continue;
+        auto gi = derive_material_gi_params(meta, [&](const FjslUniform& u) {
+            std::vector<float> values;
             uint32_t fcount = uniform_float_count(u.type);
-            if (u.slot + fcount > param_count) continue;
-
-            uint32_t abs = gpu.param_offset + u.slot;
-
-            if ((u.name == "emission_strength" || u.name == "glow_strength") && fcount >= 1) {
-                emission_strength = bindless.read_param(abs);
-            } else if ((u.name == "glow_color" || u.name == "emission_color") && fcount >= 3) {
-                glow_color = {bindless.read_param(abs), bindless.read_param(abs + 1), bindless.read_param(abs + 2)};
-                has_glow_color = true;
+            if (u.slot + fcount > param_count) return values;
+            values.reserve(fcount);
+            for (uint32_t i = 0; i < fcount; ++i) {
+                values.push_back(bindless.read_param(gpu.param_offset + u.slot + i));
             }
-
-            if (u.hint == UniformHint::Color
-                && (u.type == UniformType::Vec3 || u.type == UniformType::Vec4)) {
-                sole_color_uniform = &u;
-                ++color_uniform_count;
-            }
-        }
-
-        glm::vec3 emission{0.0f};
-        if (has_glow_color && emission_strength > 0.0f) {
-            emission = glow_color * emission_strength;
-        } else if (has_glow_color) {
-            emission = glow_color;
-        } else if (emission_strength > 0.0f) {
-            emission = glm::vec3(emission_strength);
-        }
+            return values;
+        });
 
         GpuMaterial updated = bindless.material_at(material.material_id());
-        updated.base_params[9] = emission.x;
-        updated.base_params[10] = emission.y;
-        updated.base_params[11] = emission.z;
-
-        if (color_uniform_count == 1) {
-            uint32_t abs = gpu.param_offset + sole_color_uniform->slot;
-            updated.base_params[12] = bindless.read_param(abs);
-            updated.base_params[13] = bindless.read_param(abs + 1);
-            updated.base_params[14] = bindless.read_param(abs + 2);
+        updated.base_params[9] = gi.emission.x;
+        updated.base_params[10] = gi.emission.y;
+        updated.base_params[11] = gi.emission.z;
+        if (gi.gi_albedo_override) {
+            updated.base_params[12] = gi.gi_albedo_override->x;
+            updated.base_params[13] = gi.gi_albedo_override->y;
+            updated.base_params[14] = gi.gi_albedo_override->z;
             updated.has_gi_albedo_override = 1;
+        } else {
+            updated.has_gi_albedo_override = 0;
         }
-
         bindless.update_material(material.material_id(), updated);
     }
 

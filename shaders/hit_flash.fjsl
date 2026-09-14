@@ -4,8 +4,8 @@ shader_type spatial;
 // "white flash on damage" effect — script pulses flash_amount from
 // 1.0 → 0.0 over a few frames per hit. Standard PBR otherwise.
 
-uniform vec3 flash_color : hint_color = vec3(1.0, 1.0, 1.0);
-uniform float flash_amount : hint_range(0.0, 1.0, 0.01) = 0.0;
+uniform vec3 flash_color : hint_color, hint_emission = vec3(1.0, 1.0, 1.0);
+uniform float flash_amount : hint_range(0.0, 1.0, 0.01), hint_emission = 0.0;
 
 void fragment() {
     ALBEDO = mix(ALBEDO, flash_color, flash_amount);

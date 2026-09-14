@@ -5,9 +5,9 @@ shader_type spatial;
 // only writes EMISSION so it doesn't bake into ALBEDO and stays a
 // pure additive overlay.
 
-uniform vec3 rim_color : hint_color = vec3(0.3, 0.7, 1.0);
+uniform vec3 rim_color : hint_color, hint_emission = vec3(0.3, 0.7, 1.0);
 uniform float rim_power : hint_range(0.5, 8.0, 0.1) = 3.0;
-uniform float rim_intensity : hint_range(0.0, 5.0, 0.05) = 1.5;
+uniform float rim_intensity : hint_range(0.0, 5.0, 0.05), hint_emission = 1.5;
 
 // Optional secondary "core glow" — keep visible across the whole
 // surface, useful for shields / holograms. Set scale=0 to disable.
