@@ -1215,3 +1215,40 @@ TEST_CASE("Relative lengths round-trip through to_css", "[style][units]") {
     }
     REQUIRE(to_css(UiLength{1.5f, UiUnit::em}) == "1.5em");
 }
+
+// --- Explaining the cascade ---
+
+TEST_CASE("explain names the winning rule per property", "[style][explain]") {
+    auto root = make_node("div", "hud", {"panel"});
+    auto* child = add_child(*root, make_node("span", "", {"label"}));
+    auto sheet = FjssParser::parse(R"(
+        .label { width: 10; color: red; }
+        #hud .label { width: 20; }
+        .panel span { height: 5; }
+    )", "hud.fjss");
+
+    auto origins = StyleResolver::explain(*child, sheet);
+    REQUIRE(origins.size() == 3);
+    REQUIRE(to_css(origins.at("width").rule->selector) == "#hud .label");
+    REQUIRE(origins.at("width").declaration->value == "20");
+    REQUIRE(to_css(origins.at("color").rule->selector) == ".label");
+    REQUIRE(to_css(origins.at("height").rule->selector) == ".panel span");
+    REQUIRE(origins.at("height").rule->source == "hud.fjss");
+    // Inherited or default properties are not listed
+    REQUIRE(origins.count("font-size") == 0);
+}
+
+TEST_CASE("explain reports inline style attributes over any rule", "[style][explain]") {
+    auto root = make_node("div", "", {"a"});
+    root->attributes["style-width"] = "42";
+    auto sheet = FjssParser::parse(".a { width: 10; }");
+    auto origins = StyleResolver::explain(*root, sheet);
+    REQUIRE(origins.at("width").inline_style);
+    REQUIRE(origins.at("width").rule == nullptr);
+}
+
+TEST_CASE("Selectors print the way they are written", "[style][explain]") {
+    auto sheet = FjssParser::parse("panel > .slot:hover text, #a.b.c { width: 1; }");
+    REQUIRE(to_css(sheet.rules[0].selector) == "panel > .slot:hover text");
+    REQUIRE(to_css(sheet.rules[1].selector) == "#a.b.c");
+}

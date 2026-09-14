@@ -190,21 +190,8 @@ std::string FjuiSerializer::serialize(const UiNode& root) {
 
 // ── FjssSerializer ──────────────────────────────────────────────────────
 
-static void write_compound(const StyleCompound& c, std::string& out) {
-    out += c.tag;
-    if (!c.id.empty()) out += "#" + c.id;
-    for (const auto& cls : c.classes) out += "." + cls;
-    for (const auto& pseudo : c.pseudo_classes) out += ":" + pseudo;
-}
-
 std::string FjssSerializer::write_selector(const StyleSelector& sel) {
-    std::string out;
-    for (const auto& step : sel.ancestors) {
-        write_compound(step.compound, out);
-        out += step.combinator == UiCombinator::child ? " > " : " ";
-    }
-    write_compound(sel.subject, out);
-    return out;
+    return to_css(sel);
 }
 
 std::string FjssSerializer::serialize(const Stylesheet& sheet) {

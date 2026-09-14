@@ -4,12 +4,30 @@
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_style_properties.hpp"
 
+#include <string>
+#include <unordered_map>
+
 namespace fjell {
+
+/// Where one computed property value came from: the winning declaration
+/// and the rule that holds it, or nothing when no matching rule sets the
+/// property and it is inherited or at its default.
+struct StyleOrigin {
+    const StyleRule* rule{nullptr};
+    const StyleDeclaration* declaration{nullptr};
+    bool inline_style{false}; ///< a `style-*` attribute on the node itself
+};
 
 class StyleResolver {
 public:
     /// Apply stylesheet rules to a UI node tree, computing styles per node.
     void resolve(UiNode& root, const Stylesheet& sheet);
+
+    /// The winning declaration for each property the cascade set on `node`,
+    /// keyed by property name, in the same order apply_cascade applies them.
+    /// A property missing from the result is inherited or at its default.
+    [[nodiscard]] static std::unordered_map<std::string, StyleOrigin>
+    explain(const UiNode& node, const Stylesheet& sheet);
 
     /// Re-resolve a node and everything below it, e.g. when its interaction
     /// state changes. Descendants are included because inherited values

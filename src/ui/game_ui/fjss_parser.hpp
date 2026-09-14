@@ -48,6 +48,9 @@ struct StyleSelector {
     [[nodiscard]] uint32_t specificity() const;
 };
 
+/// The selector as it is written in a stylesheet, e.g. `panel > .slot:hover`.
+[[nodiscard]] std::string to_css(const StyleSelector& selector);
+
 /// True when the selector is exactly `#id` with nothing else: no tag, class,
 /// pseudo-class or ancestor. The editor routes its per-node style edits into
 /// such a rule, and every place that needs to recognize one must agree.

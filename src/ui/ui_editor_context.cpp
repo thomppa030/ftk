@@ -1062,6 +1062,7 @@ void UiEditorContext::style_edit_float(UiNode& node, const char* property, const
     float edited = dragging ? it->second : source_value;
 
     ImGui::DragFloat(label, &edited, speed, min, max, "%.1f");
+    style_origin_tooltip(property);
 
     if (ImGui::IsItemActive()) {
         active_float_edits_[id] = edited;
@@ -1100,6 +1101,7 @@ void UiEditorContext::style_edit_length(UiNode& node, const char* property,
         if (ImGui::Button("auto", ImVec2(ImGui::CalcItemWidth(), 0.0f))) {
             commit(UiLength::pixels(0.0f));
         }
+        style_origin_tooltip(property);
         ImGui::SameLine();
         ImGui::TextUnformatted(property);
     } else {
@@ -1117,6 +1119,7 @@ void UiEditorContext::style_edit_length(UiNode& node, const char* property,
         if (desc->auto_allowed) min = -limit;
         float step = source.is_relative() ? speed / 16.0f : speed;
         ImGui::DragFloat(property, &edited, step, min, limit, format.c_str());
+        style_origin_tooltip(property);
 
         if (ImGui::IsItemActive()) {
             active_float_edits_[id] = edited;
@@ -1171,6 +1174,7 @@ void UiEditorContext::style_edit_color(UiNode& node, const char* property, const
         ? it->second : std::array{source.r, source.g, source.b, source.a};
 
     ImGui::ColorEdit4(label, rgba.data(), ImGuiColorEditFlags_AlphaBar);
+    style_origin_tooltip(property);
 
     if (ImGui::IsItemActive()) {
         active_color_edits_[id] = rgba;
@@ -1211,6 +1215,7 @@ void UiEditorContext::style_edit_keyword(UiNode& node, const char* property) {
 
     int edited = index;
     ImGui::Combo(property, &edited, items.data(), static_cast<int>(items.size()));
+    style_origin_tooltip(property);
 
     if (edited != index) {
         // Same empty-means-unset convention as style_edit_float/color:
@@ -1222,8 +1227,30 @@ void UiEditorContext::style_edit_keyword(UiNode& node, const char* property) {
     }
 }
 
+void UiEditorContext::style_origin_tooltip(const char* property) {
+    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) return;
+    auto it = style_origins_.find(property);
+    if (it == style_origins_.end()) {
+        const auto* desc = find_ui_style_property(property);
+        ImGui::SetTooltip("%s", desc && desc->inherited ? "inherited from the parent (no rule sets it here)"
+                                                        : "default (no rule sets it)");
+        return;
+    }
+    const auto& origin = it->second;
+    if (origin.inline_style) {
+        ImGui::SetTooltip("style-%s attribute on this element", property);
+        return;
+    }
+    auto file = fs::path(origin.rule->source).filename().string();
+    if (file.empty()) file = "(unsaved rule)";
+    ImGui::SetTooltip("%s: %s\n%s { %s: %s; }", file.c_str(), to_css(origin.rule->selector).c_str(),
+                      to_css(origin.rule->selector).c_str(), property, origin.declaration->value.c_str());
+}
+
 void UiEditorContext::draw_style_editor(UiNode& node) {
     auto& s = node.style;
+    style_origins_ = preview_ui_ ? StyleResolver::explain(node, preview_ui_->stylesheet())
+                                 : std::unordered_map<std::string, StyleOrigin>{};
 
     if (ImGui::TreeNodeEx("Layout", ImGuiTreeNodeFlags_DefaultOpen)) {
         style_edit_keyword(node, "display");

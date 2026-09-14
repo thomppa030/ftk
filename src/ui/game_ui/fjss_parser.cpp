@@ -27,6 +27,23 @@ uint32_t StyleSelector::specificity() const {
          |  std::min(tags, FIELD_MAX);
 }
 
+static void append_compound(const StyleCompound& c, std::string& out) {
+    out += c.tag;
+    if (!c.id.empty()) out += "#" + c.id;
+    for (const auto& cls : c.classes) out += "." + cls;
+    for (const auto& pseudo : c.pseudo_classes) out += ":" + pseudo;
+}
+
+std::string to_css(const StyleSelector& selector) {
+    std::string out;
+    for (const auto& step : selector.ancestors) {
+        append_compound(step.compound, out);
+        out += step.combinator == UiCombinator::child ? " > " : " ";
+    }
+    append_compound(selector.subject, out);
+    return out;
+}
+
 bool selects_only_id(const StyleSelector& selector, std::string_view id) {
     const auto& s = selector.subject;
     return s.id == id && s.tag.empty() && s.classes.empty() &&

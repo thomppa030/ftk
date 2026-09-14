@@ -27,6 +27,37 @@ void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
     }
 }
 
+std::unordered_map<std::string, StyleOrigin> StyleResolver::explain(const UiNode& node,
+                                                                    const Stylesheet& sheet) {
+    // The same ordering apply_cascade uses, so the last writer here is the
+    // one whose value the node actually shows.
+    struct Match {
+        uint32_t specificity;
+        const StyleRule* rule;
+    };
+    std::vector<Match> matches;
+    for (const auto& rule : sheet.rules) {
+        if (selector_matches(node, rule.selector)) {
+            matches.push_back({rule.selector.specificity(), &rule});
+        }
+    }
+    std::stable_sort(matches.begin(), matches.end(),
+                     [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
+
+    std::unordered_map<std::string, StyleOrigin> origins;
+    for (const auto& match : matches) {
+        for (const auto& decl : match.rule->declarations) {
+            origins[decl.name] = {match.rule, &decl, false};
+        }
+    }
+    for (const auto& [name, value] : node.attributes) {
+        if (name.find("style-") == 0) {
+            origins[name.substr(6)] = {nullptr, nullptr, true};
+        }
+    }
+    return origins;
+}
+
 void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
                                   const UiComputedStyle* parent_style) {
     // Reset to defaults, then inherit from parent (ensures removed classes

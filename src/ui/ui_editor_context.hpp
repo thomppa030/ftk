@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/editor_context.hpp"
+#include "ui/game_ui/style_resolver.hpp"
 #include "ui/game_ui/ui_types.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "core/delegate.hpp"
@@ -96,6 +97,12 @@ private:
     // the caller; `names[resolved_index]` must be the CSS value FjssParser
     // expects to read back (see StyleResolver::apply_property).
     void style_edit_keyword(UiNode& node, const char* property);
+    // Hover text for the style row just drawn: which rule in which file set
+    // the property, or that it is inherited or a default. Uses the origins
+    // computed for the selected node at the top of draw_style_editor.
+    void style_origin_tooltip(const char* property);
+
+    std::unordered_map<std::string, StyleOrigin> style_origins_;
 
     // Live value for a drag/color gesture in progress, keyed by ImGui ID.
     // A DragFloat/ColorEdit's displayed value must come from this buffer
