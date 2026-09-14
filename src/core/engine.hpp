@@ -15,7 +15,7 @@
 #include "scene/scene.hpp"
 #include "import/import_dialog.hpp"
 #include "core/capture_service.hpp"
-#include "ui/material_thumbnail_renderer.hpp"
+#include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/capture_popup.hpp"
 #include "ui/content_browser.hpp"
 #include "ui/context_registry.hpp"
@@ -224,9 +224,10 @@ private:
     CaptureService capture_service_;
     CapturePopup capture_popup_;
 
-    // Sphere previews for .fjmat assets (content browser, asset inspector)
-    MaterialThumbnailRenderer material_thumbnails_;
-    [[nodiscard]] MaterialThumbnailRenderer::Deps material_thumbnail_deps();
+    // Rendered previews of materials, meshes and skeletal meshes (content
+    // browser, asset inspector)
+    AssetThumbnailRenderer asset_thumbnails_;
+    [[nodiscard]] AssetThumbnailRenderer::Deps asset_thumbnail_deps();
 
     // In-engine mesh importer
     ImportDialog import_dialog_;

@@ -4,7 +4,7 @@
 #include "core/base_path.hpp"
 #include "core/project.hpp"
 #include "ui/icon_cache.hpp"
-#include "ui/material_thumbnail_renderer.hpp"
+#include "ui/asset_thumbnail_renderer.hpp"
 
 #include <imgui.h>
 
@@ -72,7 +72,7 @@ static const bool reg_material = [] {
         .draw_preview = [](const std::string& path, ResourceManager& /*rm*/,
                            fjell::IconCache* icons, const fjell::Project* project,
                            float width) {
-            auto* thumbnails = fjell::MaterialThumbnailRenderer::instance();
+            auto* thumbnails = fjell::AssetThumbnailRenderer::instance();
             if (!thumbnails || !project || path.empty() || path == "default") return;
 
             auto abs_mat = fjell::base_path::resolve_asset(path, project);

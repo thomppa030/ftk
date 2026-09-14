@@ -338,7 +338,7 @@ void Engine::init_scene() {
     }
 }
 
-MaterialThumbnailRenderer::Deps Engine::material_thumbnail_deps() {
+AssetThumbnailRenderer::Deps Engine::asset_thumbnail_deps() {
     return {
         .vulkan_context = vulkan_context_.get(),
         .resource_manager = resource_manager_.get(),
@@ -355,8 +355,8 @@ void Engine::init_content_browser() {
         base_path::resolve("engine_assets/icons"));
     IconCache::set_instance(icon_cache_.get());
 
-    MaterialThumbnailRenderer::set_instance(&material_thumbnails_);
-    content_browser_.init(icon_cache_.get(), &material_thumbnails_,
+    AssetThumbnailRenderer::set_instance(&asset_thumbnails_);
+    content_browser_.init(icon_cache_.get(), &asset_thumbnails_,
                           vulkan_context_.get(), resource_manager_.get());
     connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
@@ -802,8 +802,8 @@ Engine::~Engine() {
     vulkan_context_->wait_idle();
     vulkan_context_->set_overlay_callback(nullptr);
     game_ui_.destroy();
-    MaterialThumbnailRenderer::set_instance(nullptr);
-    material_thumbnails_.shutdown(material_thumbnail_deps());
+    AssetThumbnailRenderer::set_instance(nullptr);
+    asset_thumbnails_.shutdown(asset_thumbnail_deps());
     for (auto& ctx : contexts_) ctx->shutdown();
     contexts_.clear();
     scene_context_ = nullptr;
@@ -1850,9 +1850,9 @@ void Engine::run() {
         active_context().render_previews(*vulkan_context_, render_scene,
                                           clock_.game_delta_time(), light_, thread_pool_);
 
-        // Same window for material thumbnails: their one-shot submit needs the
+        // Same window for asset thumbnails: their one-shot submit needs the
         // frame fence behind it and the main command buffer still unrecorded.
-        material_thumbnails_.tick(material_thumbnail_deps(), light_, clock_.game_delta_time());
+        asset_thumbnails_.tick(asset_thumbnail_deps(), light_, clock_.game_delta_time());
 
         // Tell the controller what rect the scene image actually occupied
         // this frame — the docked panel or the fullscreen play view,

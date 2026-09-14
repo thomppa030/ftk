@@ -1,9 +1,9 @@
-// Single-frame pipeline for material thumbnails: one lit sphere rendered
+// Single-frame pipeline for asset thumbnails: one lit subject rendered
 // once and read back. Nothing temporal may run — exposure adapts over
 // frames and would bake an unsettled value — and nothing that needs a
 // second object to matter (shadows, GI, occlusion) is worth its cost here.
 {
-    "name": "material_thumbnail",
+    "name": "asset_thumbnail",
     "resources": {},
 
     "passes": [

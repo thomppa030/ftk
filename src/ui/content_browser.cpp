@@ -3,7 +3,7 @@
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "ui/asset_templates.hpp"
 #include "ui/icon_cache.hpp"
-#include "ui/material_thumbnail_renderer.hpp"
+#include "ui/asset_thumbnail_renderer.hpp"
 #include "ui/icons_lc.hpp"
 #include "ui/status_bar.hpp"
 #include "ui/theme.hpp"
@@ -27,11 +27,11 @@
 
 namespace fjell {
 
-void ContentBrowser::init(IconCache* icons, MaterialThumbnailRenderer* material_thumbnails,
+void ContentBrowser::init(IconCache* icons, AssetThumbnailRenderer* asset_thumbnails,
                           VulkanContext* vk_ctx, ResourceManager* resources,
                           ThreadPool* pool) {
     icons_ = icons;
-    material_thumbnails_ = material_thumbnails;
+    asset_thumbnails_ = asset_thumbnails;
     vk_ctx_ = vk_ctx;
     resources_ = resources;
     pool_ = pool;
@@ -117,12 +117,12 @@ void ContentBrowser::apply_pending_navigation() {
         }
     }
 
-    // Material thumbnails stream in one per frame, cache hits first. A
-    // refresh also re-renders a material edited since its thumbnail was made.
-    if (material_thumbnails_) {
+    // Asset thumbnails stream in one per frame, cache hits first. A refresh
+    // also re-renders an asset edited since its thumbnail was made.
+    if (asset_thumbnails_) {
         for (const auto& entry : entries_) {
-            if (entry.type == FileType::material) {
-                material_thumbnails_->refresh(entry.path.string());
+            if (AssetThumbnailRenderer::supports(entry.path)) {
+                asset_thumbnails_->refresh(entry.path.string());
             }
         }
     }
@@ -428,8 +428,8 @@ void ContentBrowser::draw() {
                 // without it.
                 std::error_code side_ec;
                 std::filesystem::remove(asset_identity::sidecar_path(e.path), side_ec);
-                if (e.type == FileType::material && material_thumbnails_) {
-                    material_thumbnails_->invalidate(e.path.string());
+                if (asset_thumbnails_ && AssetThumbnailRenderer::supports(e.path)) {
+                    asset_thumbnails_->invalidate(e.path.string());
                 }
             }
             if (!ec) {
@@ -613,10 +613,10 @@ void ContentBrowser::draw_file_grid() {
                 icon_desc = icons_->thumbnail(thumb_path);
                 ++thumbs_loaded_this_frame;
             }
-        } else if (entry.type == FileType::material && material_thumbnails_) {
-            auto mat_path = entry.path.string();
-            icon_desc = material_thumbnails_->descriptor(mat_path);
-            if (!icon_desc) material_thumbnails_->request(mat_path);
+        } else if (asset_thumbnails_ && AssetThumbnailRenderer::supports(entry.path)) {
+            auto asset_path = entry.path.string();
+            icon_desc = asset_thumbnails_->descriptor(asset_path);
+            if (!icon_desc) asset_thumbnails_->request(asset_path);
         }
         if (!icon_desc && icons_) {
             icon_desc = icons_->icon(icon_name(entry.type));
@@ -656,8 +656,8 @@ void ContentBrowser::draw_file_grid() {
                         std::filesystem::rename(
                             from_side, asset_identity::sidecar_path(new_path), sc);
                     }
-                    if (entry.type == FileType::material && material_thumbnails_) {
-                        material_thumbnails_->invalidate(entry.path.string());
+                    if (asset_thumbnails_ && AssetThumbnailRenderer::supports(entry.path)) {
+                        asset_thumbnails_->invalidate(entry.path.string());
                     }
 
                     auto old_rel = std::filesystem::relative(entry.path, root_);
@@ -765,8 +765,8 @@ void ContentBrowser::draw_file_grid() {
                                 IconCache::ensure_thumbnail_cache(dest_str);
                             });
                         }
-                        if (src.type == FileType::material && material_thumbnails_) {
-                            material_thumbnails_->invalidate(src.path.string());
+                        if (asset_thumbnails_ && AssetThumbnailRenderer::supports(src.path)) {
+                            asset_thumbnails_->invalidate(src.path.string());
                         }
                         refresh_current_dir();
                     } else {
