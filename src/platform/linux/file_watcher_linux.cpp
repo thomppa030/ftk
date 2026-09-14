@@ -8,16 +8,26 @@
 #include <array>
 #include <cstring>
 #include <unordered_map>
+#include <vector>
 
 namespace fjell::platform {
 
 struct FileWatcher::Impl {
     int inotify_fd{-1};
 
-    struct WatchEntry {
-        std::filesystem::path base_path; // watched dir or file's parent
-        std::filesystem::path file_name; // empty for directory watches
+    /// One caller's interest in a directory: either every file in it
+    /// (empty file_name) or a single file by name.
+    struct Subscriber {
+        std::filesystem::path file_name;
         Callback callback;
+    };
+
+    /// inotify hands out one watch descriptor per directory no matter how
+    /// many times it is added, so all files watched in the same directory
+    /// share a single entry and are told apart by name when events arrive.
+    struct WatchEntry {
+        std::filesystem::path dir_path;
+        std::vector<Subscriber> subscribers;
     };
 
     // inotify watch descriptor → entry
@@ -49,6 +59,9 @@ struct FileWatcher::Impl {
     bool add_watch(const std::filesystem::path& path, Callback callback) {
         if (inotify_fd < 0) return false;
 
+        // Files are watched through their directory: editors that save by
+        // writing a temporary file and renaming it over the original would
+        // silently detach a watch placed on the file's own inode.
         bool is_dir = std::filesystem::is_directory(path);
         std::filesystem::path watch_path = is_dir ? path : path.parent_path();
         std::filesystem::path file_name = is_dir ? "" : path.filename();
@@ -60,11 +73,9 @@ struct FileWatcher::Impl {
             return false;
         }
 
-        // If this wd already exists (same directory watched again), inotify
-        // returns the same wd. We overwrite — last callback wins for that wd.
-        // For multi-file watches on the same dir, we'd need a different approach,
-        // but each consumer (shader/ui/script) watches different dirs.
-        watches[wd] = {watch_path, file_name, std::move(callback)};
+        auto& entry = watches[wd];
+        entry.dir_path = watch_path;
+        entry.subscribers.push_back({file_name, std::move(callback)});
         return true;
     }
 
@@ -84,21 +95,21 @@ struct FileWatcher::Impl {
         const char* ptr = buf.data();
         while (ptr < buf.data() + len) {
             const auto* event = reinterpret_cast<const inotify_event*>(ptr);
+            ptr += sizeof(inotify_event) + event->len;
 
             auto it = watches.find(event->wd);
-            if (it != watches.end()) {
-                const auto& entry = it->second;
-                std::filesystem::path changed_file =
-                    (event->len > 0) ? std::filesystem::path(event->name) : entry.file_name;
+            // Events without a name concern the directory itself, not a
+            // file in it; no subscriber is interested in those.
+            if (it == watches.end() || event->len == 0) continue;
 
-                // If watching a specific file, only fire for that file
-                if (entry.file_name.empty() || changed_file == entry.file_name) {
-                    entry.callback(entry.base_path / changed_file);
+            const auto& entry = it->second;
+            std::filesystem::path changed_file{event->name};
+            for (const auto& sub : entry.subscribers) {
+                if (sub.file_name.empty() || changed_file == sub.file_name) {
+                    sub.callback(entry.dir_path / changed_file);
                     any_fired = true;
                 }
             }
-
-            ptr += sizeof(inotify_event) + event->len;
         }
 
         return any_fired;
