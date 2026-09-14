@@ -34,13 +34,18 @@ class Texture;
 //   param_offset:         offset into custom params SSBO (in floats)
 //   param_count:          number of custom floats
 //   has_gi_albedo_override: 0/1, see base_params[12..14]
+//   has_emissive_texture: 0/1 — whether texture_indices[3] is a texture the
+//                         material bound, as opposed to the black default
+//                         every unbound slot resolves to. The GI paths need
+//                         it to tell "no texture" from "texture, black here".
 struct GpuMaterial {
     uint32_t texture_indices[8]{};      // 32 bytes — slots 0-3: PBR, 4-7: custom
     float base_params[15]{};            // 60 bytes — PBR + GI params
     uint32_t param_offset{0};           // 4 bytes  — offset into params SSBO (in floats)
     uint32_t param_count{0};            // 4 bytes  — number of custom floats
     uint32_t has_gi_albedo_override{0}; // 4 bytes  — see base_params[12..14]
-    uint32_t padding[2]{};              // 8 bytes  — align to 112
+    uint32_t has_emissive_texture{0};   // 4 bytes  — see layout note above
+    uint32_t padding{0};                // 4 bytes  — align to 112
 };
 
 // Manages a single large descriptor set containing all textures and materials

@@ -37,13 +37,17 @@ struct GpuSpotLight {
 //                            != 0 — otherwise fall back to
 //                            base_color_factor * base color texture)
 //   has_gi_albedo_override : 0/1, see base_params[12..14]
+//   has_emissive_texture   : 0/1, texture_indices[3] was bound by the material
+//                            rather than defaulted to black — see
+//                            fjell_material_emission.glsl
 struct GpuMaterial {
     uint texture_indices[8];
     float base_params[15];
     uint param_offset;
     uint param_count;
     uint has_gi_albedo_override;
-    uint padding[2];
+    uint has_emissive_texture;
+    uint padding;
 };
 
 // Per-BLAS instance metadata used by the RT closest-hit shaders to fetch

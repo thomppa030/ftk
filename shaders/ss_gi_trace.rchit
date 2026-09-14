@@ -16,6 +16,7 @@ layout(push_constant) uniform PushConstants {
 // ── Material access (set 1 = bindless) ──────────────────────────────────
 
 #include "fjell_gpu_types.glsl"
+#include "fjell_material_emission.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
 
@@ -93,14 +94,8 @@ void main() {
     if (uv_scale_y > 0.0) uv.y *= uv_scale_y;
 
     // Emission only
-    vec3 emission = vec3(mat.base_params[9], mat.base_params[10], mat.base_params[11]);
-    uint emissive_tex = mat.texture_indices[3];
-    if (emissive_tex > 0 && length(emission) > 0.0) {
-        vec3 emissive_sample = textureLod(textures[nonuniformEXT(emissive_tex)], uv, 1.0).rgb;
-        if (length(emissive_sample) > 0.01) {
-            emission = emissive_sample * emission;
-        }
-    }
+    vec3 emissive_sample = textureLod(textures[nonuniformEXT(mat.texture_indices[3])], uv, 1.0).rgb;
+    vec3 emission = material_emission(mat, emissive_sample);
 
     payload = vec4(emission, hit_t);
 }

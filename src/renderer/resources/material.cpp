@@ -41,6 +41,8 @@ GpuMaterial Material::gpu_material() const {
     m.base_params[10] = params_.emission_color.y;
     m.base_params[11] = params_.emission_color.z;
 
+    m.has_emissive_texture = params_.has_emissive_texture ? 1U : 0U;
+
     if (params_.gi_albedo_override) {
         m.base_params[12] = params_.gi_albedo_override->x;
         m.base_params[13] = params_.gi_albedo_override->y;

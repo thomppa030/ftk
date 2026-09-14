@@ -255,6 +255,7 @@ MaterialHandle ResourceManager::create_material(const std::string& name,
     uint32_t nm_idx = bindless_index(normal_map.valid()          ? normal_map          : default_normal_handle_);
     uint32_t mr_idx = bindless_index(metallic_roughness.valid()  ? metallic_roughness  : default_mr_handle_);
     uint32_t em_idx = bindless_index(emissive.valid()            ? emissive            : default_black_handle_);
+    params.has_emissive_texture = emissive.valid();
 
     // Build GPU material and register in SSBO
     auto material = std::make_unique<Material>(0, bc_idx, nm_idx, mr_idx, em_idx, params);
@@ -370,6 +371,9 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
 
     PbrParams params;
     params.has_normal_map = asset.textures.contains("normal_map");
+    // Compared by what actually reached the GPU rather than what the asset
+    // named: a texture that failed to load is the black default too.
+    params.has_emissive_texture = (em_idx != bindless_index(default_black_handle_));
     auto uv_it = asset.params.find("uv_scale");
     if (uv_it != asset.params.end() && uv_it->second.size() >= 2) {
         params.uv_scale = {uv_it->second[0], uv_it->second[1]};

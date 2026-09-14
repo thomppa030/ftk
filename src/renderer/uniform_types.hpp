@@ -120,6 +120,12 @@ struct PbrParams {
     glm::vec2 uv_scale{1.0f, 1.0f};
     glm::vec3 emission_color{0.0f};  // RT GI: emissive contribution for probe tracing
 
+    // The material bound an emissive texture. Unbound slots hold the shared
+    // black default, which a shader cannot tell apart from a texture that is
+    // black at the sampled texel — and those mean different things: no
+    // texture leaves the emission colour as-is, a black texel means none.
+    bool has_emissive_texture{false};
+
     // RT GI: what this material bounces as diffuse indirect. Unset for most
     // materials — DDGI falls back to base_color_factor * base color texture,
     // which is correct when ALBEDO comes from the standard PBR base color.

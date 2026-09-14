@@ -41,6 +41,7 @@ layout(std430, set = 0, binding = 13) readonly buffer ProbeStatusSSBO {
 // ── Material access (set 1 = bindless) ─────────────────────────────────
 
 #include "fjell_gpu_types.glsl"
+#include "fjell_material_emission.glsl"
 
 layout(set = 1, binding = 0) uniform sampler2D textures[];
 layout(set = 1, binding = 1) readonly buffer MaterialBuffer {
@@ -244,12 +245,8 @@ void main() {
     vec3 indirect = sample_ddgi_irradiance(world_pos, N) * albedo;
 
     // Emissive
-    vec3 emission = vec3(mat.base_params[9], mat.base_params[10], mat.base_params[11]);
-    uint emissive_tex = mat.texture_indices[3];
-    if (emissive_tex > 0 && length(emission) > 0.0) {
-        vec3 e_sample = textureLod(textures[nonuniformEXT(emissive_tex)], uv, 1.0).rgb;
-        if (length(e_sample) > 0.01) emission = e_sample * emission;
-    }
+    vec3 emissive_sample = textureLod(textures[nonuniformEXT(mat.texture_indices[3])], uv, 1.0).rgb;
+    vec3 emission = material_emission(mat, emissive_sample);
 
     payload = vec4(sun_radiance + indirect + emission, hit_t);
 }
