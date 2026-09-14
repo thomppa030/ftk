@@ -2,6 +2,11 @@
 
 #include "ui/game_ui/ui_types.hpp"
 
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
 namespace fjell {
 
 struct UiComputedStyle {
@@ -57,6 +62,25 @@ struct UiComputedStyle {
 
     // Transition spec (parsed by UiAnimation)
     std::string transition;
+
+    // Custom properties (`--name: value`) in effect on this node, its own
+    // and inherited ones. Substituted into `var(--name)` when the node's
+    // other declarations are applied. A small linear list: a UI names a
+    // handful of colors and sizes, not hundreds.
+    std::vector<std::pair<std::string, std::string>> custom_properties;
+
+    [[nodiscard]] const std::string* custom_property(std::string_view name) const {
+        for (const auto& [key, value] : custom_properties) {
+            if (key == name) return &value;
+        }
+        return nullptr;
+    }
+    void set_custom_property(std::string_view name, std::string value) {
+        for (auto& [key, existing] : custom_properties) {
+            if (key == name) { existing = std::move(value); return; }
+        }
+        custom_properties.emplace_back(std::string{name}, std::move(value));
+    }
 };
 
 } // namespace fjell

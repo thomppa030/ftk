@@ -3,6 +3,7 @@
 #include "core/profiler.hpp"
 
 #include <algorithm>
+#include <optional>
 #include <charconv>
 #include <cstdlib>
 #include <sstream>
@@ -86,9 +87,33 @@ void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
     std::stable_sort(matches.begin(), matches.end(),
                      [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
 
+    // Custom properties first, from every matching rule and the node's own
+    // style-* attributes, so a var() anywhere below sees the final values
+    // whatever order the rules came in.
     for (const auto& match : matches) {
         for (const auto& decl : match.rule->declarations) {
-            apply_property(node.style, decl.name, decl.value);
+            if (decl.name.starts_with("--")) node.style.set_custom_property(decl.name, decl.value);
+        }
+    }
+    for (const auto& [name, value] : node.attributes) {
+        if (name.starts_with("style---")) node.style.set_custom_property(name.substr(6), value);
+    }
+
+    auto apply = [&](const std::string& name, const std::string& value) {
+        if (name.starts_with("--")) return;
+        if (value.find("var(") == std::string::npos) {
+            apply_property(node.style, name, value);
+            return;
+        }
+        // A var() that cannot be resolved leaves the declaration out, the
+        // way CSS treats a value invalid at computed-value time.
+        if (auto substituted = substitute_variables(node.style, value)) {
+            apply_property(node.style, name, *substituted);
+        }
+    };
+    for (const auto& match : matches) {
+        for (const auto& decl : match.rule->declarations) {
+            apply(decl.name, decl.value);
         }
     }
 
@@ -96,7 +121,7 @@ void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
     for (const auto& [name, value] : node.attributes) {
         if (name == "id" || name == "class" || name == "style") continue;
         if (name.find("style-") == 0) {
-            apply_property(node.style, name.substr(6), value);
+            apply(name.substr(6), value);
         }
     }
 
@@ -115,6 +140,8 @@ void StyleResolver::inherit_properties(UiComputedStyle& style, const UiComputedS
     for (const auto& desc : ui_style_properties()) {
         if (desc.inherited) ui_style_copy(style, parent, desc);
     }
+    // Every custom property inherits, as in CSS
+    style.custom_properties = parent.custom_properties;
 }
 
 bool StyleResolver::compound_matches(const UiNode& node, const StyleCompound& c) {
@@ -127,8 +154,45 @@ bool StyleResolver::compound_matches(const UiNode& node, const StyleCompound& c)
         if (pseudo == "hover" && !node.is_hovered()) return false;
         if (pseudo == "active" && !node.is_active()) return false;
         if (pseudo == "focus" && !node.is_focused()) return false;
+        if (pseudo == "root" && node.parent != nullptr) return false;
     }
     return true;
+}
+
+std::optional<std::string> StyleResolver::substitute_variables(const UiComputedStyle& style,
+                                                               std::string value) {
+    // Each var(--name[, fallback]) is replaced in place; a fallback may hold
+    // another var(), which the next round picks up.
+    for (int round = 0; round < 8; ++round) {
+        auto start = value.find("var(");
+        if (start == std::string::npos) return value;
+        int depth = 0;
+        size_t end = start + 3;
+        for (; end < value.size(); ++end) {
+            if (value[end] == '(') ++depth;
+            else if (value[end] == ')' && --depth == 0) break;
+        }
+        if (end >= value.size()) return std::nullopt; // unbalanced
+        std::string inner = value.substr(start + 4, end - start - 4);
+        auto comma = inner.find(',');
+        std::string name = inner.substr(0, comma);
+        auto trim = [](std::string s) {
+            auto b = s.find_first_not_of(" \t");
+            auto e = s.find_last_not_of(" \t");
+            return b == std::string::npos ? std::string{} : s.substr(b, e - b + 1);
+        };
+        name = trim(name);
+        std::string replacement;
+        if (const auto* found = style.custom_property(name)) {
+            replacement = *found;
+        } else if (comma != std::string::npos) {
+            replacement = trim(inner.substr(comma + 1));
+        } else {
+            return std::nullopt; // no such variable and nothing to fall back to
+        }
+        value.replace(start, end - start + 1, replacement);
+    }
+    return std::nullopt;
 }
 
 bool StyleResolver::ancestors_match(const UiNode* current,

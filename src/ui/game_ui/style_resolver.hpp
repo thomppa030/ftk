@@ -4,6 +4,7 @@
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_style_properties.hpp"
 
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -65,6 +66,10 @@ private:
     void apply_cascade(UiNode& node, const Stylesheet& sheet,
                        const UiComputedStyle* parent_style);
     void inherit_properties(UiComputedStyle& style, const UiComputedStyle& parent);
+    /// Replaces every var(--name[, fallback]) in `value` with the node's
+    /// custom property, or nothing when one is unknown and has no fallback.
+    [[nodiscard]] static std::optional<std::string> substitute_variables(
+        const UiComputedStyle& style, std::string value);
     [[nodiscard]] static bool selector_matches(const UiNode& node, const StyleSelector& sel);
     [[nodiscard]] static bool compound_matches(const UiNode& node, const StyleCompound& compound);
     /// Matches `steps[0..remaining)` against the chain above `current`,

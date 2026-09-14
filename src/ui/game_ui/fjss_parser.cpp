@@ -249,8 +249,10 @@ void FjssParser::parse_compound_part(StyleCompound& compound) {
                 else if (p == ')' && --depth == 0) break;
             }
             reject_selector("':" + name + "()' is not supported");
-        } else {
+        } else if (name == "hover" || name == "active" || name == "focus" || name == "root") {
             compound.pseudo_classes.push_back(name);
+        } else {
+            reject_selector("':" + name + "' pseudo-class is not supported");
         }
         return;
     }
@@ -395,14 +397,13 @@ void FjssParser::skip_malformed_rule() {
 
 void FjssParser::validate_declaration(size_t offset, const std::string& name,
                                       const std::string& value) {
+    // A custom property takes any value; a value built from one can only
+    // be checked once it is substituted, at resolve time.
+    if (name.starts_with("--") || value.find("var(") != std::string::npos) return;
+
     const auto* desc = find_ui_style_property(name);
     if (!desc) {
-        if (name.starts_with("--")) {
-            diagnose(offset, FjssSeverity::warning,
-                     "custom properties are not supported, '" + name + "' has no effect");
-        } else {
-            diagnose(offset, FjssSeverity::warning, "unknown property '" + name + "'");
-        }
+        diagnose(offset, FjssSeverity::warning, "unknown property '" + name + "'");
         return;
     }
     switch (desc->kind) {

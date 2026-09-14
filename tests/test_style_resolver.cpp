@@ -1252,3 +1252,88 @@ TEST_CASE("Selectors print the way they are written", "[style][explain]") {
     REQUIRE(to_css(sheet.rules[0].selector) == "panel > .slot:hover text");
     REQUIRE(to_css(sheet.rules[1].selector) == "#a.b.c");
 }
+
+// --- Custom properties ---
+
+TEST_CASE("var() reads a custom property declared on :root", "[style][vars]") {
+    auto root = make_node("panel");
+    auto* child = add_child(*root, make_node("div", "", {"a"}));
+    auto* grandchild = add_child(*child, make_node("text", "", {"b"}));
+    auto sheet = FjssParser::parse(R"(
+        :root { --accent: #ff0000; --pad: 8; }
+        .a { color: var(--accent); padding: var(--pad); }
+        .b { border-color: var(--accent); }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.color.r == Catch::Approx(1.0f));
+    REQUIRE(child->style.color.g == Catch::Approx(0.0f));
+    REQUIRE(child->style.padding.left == UiLength::pixels(8.0f));
+    REQUIRE(grandchild->style.border_color.r == Catch::Approx(1.0f));
+}
+
+TEST_CASE(":root matches only the root node", "[style][vars]") {
+    auto root = make_node("panel");
+    auto* child = add_child(*root, make_node("panel"));
+    auto sheet = FjssParser::parse(":root { width: 5; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == UiLength::pixels(5.0f));
+    REQUIRE(child->style.width.is_auto());
+}
+
+TEST_CASE("A nearer rule overrides an inherited custom property", "[style][vars]") {
+    auto root = make_node("panel");
+    auto* child = add_child(*root, make_node("div", "", {"danger"}));
+    auto* grandchild = add_child(*child, make_node("text", "", {"label"}));
+    auto sheet = FjssParser::parse(R"(
+        :root { --fg: #ffffff; }
+        .danger { --fg: #ff0000; }
+        .label { color: var(--fg); }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(grandchild->style.color.g == Catch::Approx(0.0f));
+}
+
+TEST_CASE("var() falls back when the property is unset", "[style][vars]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { width: var(--missing, 42); color: var(--nope); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == UiLength::pixels(42.0f));
+    // No fallback and no property: the declaration is left out, color stays default
+    REQUIRE(root->style.color.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.color.g == Catch::Approx(1.0f));
+}
+
+TEST_CASE("var() works inside a composite value and a fallback may nest", "[style][vars]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(R"(
+        .a { --from: #000000; --to: #ffffff;
+             background: linear-gradient(90deg, var(--from), var(--to));
+             height: var(--h, var(--fallback-h, 7)); }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.gradient.active());
+    REQUIRE(root->style.gradient.to.r == Catch::Approx(1.0f));
+    REQUIRE(root->style.height == UiLength::pixels(7.0f));
+}
+
+TEST_CASE("Custom properties declared in any order are visible to var()", "[style][vars]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { width: var(--w); --w: 33; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == UiLength::pixels(33.0f));
+}
+
+TEST_CASE("An inline style---name attribute sets a custom property on the node", "[style][vars]") {
+    auto root = make_node("div", "", {"fill"});
+    root->attributes["style---tint"] = "#00ff00";
+    auto sheet = FjssParser::parse(".fill { background-color: var(--tint); }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.background_color.g == Catch::Approx(1.0f));
+}

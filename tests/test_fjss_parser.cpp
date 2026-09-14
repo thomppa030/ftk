@@ -817,10 +817,18 @@ TEST_CASE("Wrong keyword value is reported with the accepted ones", "[fjss][diag
     REQUIRE(msg.find("none") != std::string::npos);
 }
 
-TEST_CASE("Custom properties are reported as unsupported", "[fjss][diag]") {
-    auto sheet = FjssParser::parse(":root { --accent: #ff0000; }");
+TEST_CASE("Custom properties and var() values pass validation", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(":root { --accent: #ff0000; --pad: 8; } .a { color: var(--accent); width: var(--w, 10); }");
+    REQUIRE(sheet.diagnostics.empty());
+    REQUIRE(sheet.rules[0].selector.subject.pseudo_classes == std::vector<std::string>{"root"});
+    REQUIRE(sheet.rules[0].find("--accent")->value == "#ff0000");
+}
+
+TEST_CASE("Unknown pseudo-classes are rejected instead of matching everything", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a:visited { width: 1; } .b:hover { width: 2; }");
+    REQUIRE(sheet.rules.size() == 1);
     REQUIRE(sheet.diagnostics.size() == 1);
-    REQUIRE(sheet.diagnostics[0].message.find("--accent") != std::string::npos);
+    REQUIRE(sheet.diagnostics[0].message.find(":visited") != std::string::npos);
 }
 
 TEST_CASE("Known properties with valid values produce no diagnostics", "[fjss][diag]") {
