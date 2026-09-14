@@ -267,8 +267,9 @@ void GameUi::create_world_pipelines(Device& device, const PassResources& resourc
 }
 
 void GameUi::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                           VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push) {
-    renderer_.record_world(cmd, global_set, bindless_set, extent, frame_index, push);
+                           VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push,
+                           const glm::mat4& prev_mvp) {
+    renderer_.record_world(cmd, global_set, bindless_set, extent, frame_index, push, prev_mvp);
 }
 
 void GameUi::resolve_textures(UiNode& node) {

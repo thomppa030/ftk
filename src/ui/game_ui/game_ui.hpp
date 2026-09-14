@@ -88,9 +88,11 @@ public:
     /// Create worldspace pipelines (HDR + scene MSAA). Call after create/create_with_shared_font.
     void create_world_pipelines(Device& device, const PassResources& resources);
 
-    /// Record worldspace draw commands with push constants.
+    /// Record worldspace draw commands with push constants. prev_mvp is last
+    /// frame's mvp for this same widget, for the velocity attachment.
     void record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                      VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push);
+                      VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push,
+                      const glm::mat4& prev_mvp);
 
     void set_resource_manager(ResourceManager* rm);
     void set_project(const class Project* project) { project_ = project; }

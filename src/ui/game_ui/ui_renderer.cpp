@@ -105,9 +105,14 @@ static VkPipeline create_ui_pipeline(VkDevice device, VkPipelineLayout layout,
     VkPipelineColorBlendAttachmentState normal_blend{};
     normal_blend.colorWriteMask = 0;
 
-    // Fourth color attachment (velocity): no writes from UI
+    // Fourth color attachment (velocity): only ever declared for worldspace
+    // pipelines (velocity_format is VK_FORMAT_UNDEFINED for screen-space UI,
+    // which excludes this attachment from the pipeline entirely — see
+    // has_velocity below). The worldspace fragment shaders compute a real
+    // per-pixel velocity now, so this writes unlike the M/R and normal
+    // attachments above, which the UI genuinely has no data for.
     VkPipelineColorBlendAttachmentState vel_blend{};
-    vel_blend.colorWriteMask = 0;
+    vel_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
 
     bool has_mr = (mr_format != VK_FORMAT_UNDEFINED);
     bool has_normal = (normal_format != VK_FORMAT_UNDEFINED);
@@ -283,11 +288,14 @@ void UiRenderer::destroy() {
 
     for (auto& ssbo : quad_ssbos_) ssbo.reset();
     for (auto& ssbo : text_ssbos_) ssbo.reset();
+    for (auto& buf : world_frame_buffers_) buf.reset();
     safe_destroy(pool_, vkDestroyDescriptorPool);
+    safe_destroy(world_pool_, vkDestroyDescriptorPool);
     safe_destroy(world_text_pipeline_, vkDestroyPipeline);
     safe_destroy(world_transparent_pipeline_, vkDestroyPipeline);
     safe_destroy(world_opaque_pipeline_, vkDestroyPipeline);
     safe_destroy(world_layout_, vkDestroyPipelineLayout);
+    safe_destroy(world_set_layout_, vkDestroyDescriptorSetLayout);
     safe_destroy(text_pipeline_, vkDestroyPipeline);
     safe_destroy(opaque_pipeline_, vkDestroyPipeline);
     safe_destroy(pipeline_, vkDestroyPipeline);
@@ -577,8 +585,34 @@ void UiRenderer::record(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescr
 }
 
 void UiRenderer::create_world_pipelines(Device& /*device*/, const PassResources& resources) {
-    // Pipeline layout: set 0 = global, set 1 = bindless, set 2 = UI SSBOs + push constants
-    VkDescriptorSetLayout sets[] = {global_set_layout_, bindless_set_layout_, quad_set_layout_};
+    // Worldspace gets its own set 2 layout instead of sharing quad_set_layout_:
+    // it needs a third binding (the previous-frame mvp UBO, for the velocity
+    // attachment) that the screen-space pipelines have no use for and would
+    // otherwise be forced to declare unused.
+    VkDescriptorSetLayoutBinding bindings[3]{};
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[2].binding = 2;
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo world_layout_ci{};
+    world_layout_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    world_layout_ci.bindingCount = 3;
+    world_layout_ci.pBindings = bindings;
+    if (vkCreateDescriptorSetLayout(device_, &world_layout_ci, nullptr, &world_set_layout_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create worldspace UI set layout");
+    }
+
+    // Pipeline layout: set 0 = global, set 1 = bindless, set 2 = worldspace UI set + push constants
+    VkDescriptorSetLayout sets[] = {global_set_layout_, bindless_set_layout_, world_set_layout_};
 
     VkPushConstantRange push_range{};
     push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
@@ -608,28 +642,93 @@ void UiRenderer::create_world_pipelines(Device& /*device*/, const PassResources&
 
     world_transparent_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_quad_world.vert.spv"),
-        base_path::resolve("shaders/ui_quad.frag.spv"),
+        base_path::resolve("shaders/ui_quad_world.frag.spv"),
         UiPipelineMode::transparent, msaa, mr_fmt, normal_fmt, vel_fmt);
 
     world_opaque_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_quad_world.vert.spv"),
-        base_path::resolve("shaders/ui_quad.frag.spv"),
+        base_path::resolve("shaders/ui_quad_world.frag.spv"),
         UiPipelineMode::opaque, msaa, mr_fmt, normal_fmt, vel_fmt);
 
     world_text_pipeline_ = create_ui_pipeline(device_, world_layout_, color_fmt, depth_fmt,
         base_path::resolve("shaders/ui_text_world.vert.spv"),
-        base_path::resolve("shaders/ui_text.frag.spv"),
+        base_path::resolve("shaders/ui_text_world.frag.spv"),
         UiPipelineMode::transparent, msaa, mr_fmt, normal_fmt, vel_fmt);
+
+    // Descriptor pool for the worldspace set: 2 SSBOs (quads, glyphs, shared
+    // with the screen-space buffers) + 1 UBO (prev_mvp) per frame in flight.
+    VkDescriptorPoolSize pool_sizes[2]{};
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    pool_sizes[0].descriptorCount = MAX_FRAMES_IN_FLIGHT * 2;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_sizes[1].descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+    VkDescriptorPoolCreateInfo world_pool_ci{};
+    world_pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    world_pool_ci.poolSizeCount = 2;
+    world_pool_ci.pPoolSizes = pool_sizes;
+    world_pool_ci.maxSets = MAX_FRAMES_IN_FLIGHT;
+    if (vkCreateDescriptorPool(device_, &world_pool_ci, nullptr, &world_pool_) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to create worldspace UI descriptor pool");
+    }
+
+    for (uint32_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        world_frame_buffers_[i] = std::make_unique<Buffer>(allocator_, sizeof(UiWorldFrameData),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+        VkDescriptorSetAllocateInfo alloc{};
+        alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        alloc.descriptorPool = world_pool_;
+        alloc.descriptorSetCount = 1;
+        alloc.pSetLayouts = &world_set_layout_;
+        if (vkAllocateDescriptorSets(device_, &alloc, &world_sets_[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate worldspace UI descriptor set");
+        }
+
+        VkDescriptorBufferInfo quad_buf{quad_ssbos_[i]->handle(), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo text_buf{text_ssbos_[i]->handle(), 0, VK_WHOLE_SIZE};
+        VkDescriptorBufferInfo frame_buf{world_frame_buffers_[i]->handle(), 0, sizeof(UiWorldFrameData)};
+
+        VkWriteDescriptorSet writes[3]{};
+        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[0].dstSet = world_sets_[i];
+        writes[0].dstBinding = 0;
+        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[0].descriptorCount = 1;
+        writes[0].pBufferInfo = &quad_buf;
+
+        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[1].dstSet = world_sets_[i];
+        writes[1].dstBinding = 1;
+        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[1].descriptorCount = 1;
+        writes[1].pBufferInfo = &text_buf;
+
+        writes[2].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet = world_sets_[i];
+        writes[2].dstBinding = 2;
+        writes[2].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        writes[2].descriptorCount = 1;
+        writes[2].pBufferInfo = &frame_buf;
+
+        vkUpdateDescriptorSets(device_, 3, writes, 0, nullptr);
+    }
 
     FJELL_GFX_DEBUG("Worldspace UI pipelines created ({}x MSAA)", static_cast<uint32_t>(msaa));
 }
 
 void UiRenderer::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                               VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push) {
+                               VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push,
+                               const glm::mat4& prev_mvp) {
     FJELL_PROFILE_SCOPE_N("ui_renderer_record_world");
     uint32_t total_quads = quad_counts_[frame_index];
     bool has_text = text_counts_[frame_index] > 0;
     if (total_quads == 0 && !has_text) return;
+
+    UiWorldFrameData frame_data{prev_mvp};
+    std::memcpy(world_frame_buffers_[frame_index]->mapped(), &frame_data, sizeof(frame_data));
 
     VkViewport vp{};
     vp.width = static_cast<float>(extent.width);
@@ -641,8 +740,10 @@ void UiRenderer::record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, V
     full_scissor.extent = extent;
     vkCmdSetScissor(cmd, 0, 1, &full_scissor);
 
-    // Bind shared descriptor sets on worldspace layout
-    VkDescriptorSet desc_sets[] = {global_set, bindless_set, quad_sets_[frame_index]};
+    // Bind descriptor sets on worldspace layout — its own set 2, not
+    // quad_sets_ (that one has no prev_mvp binding for the screen-space
+    // pipelines that share it).
+    VkDescriptorSet desc_sets[] = {global_set, bindless_set, world_sets_[frame_index]};
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, world_layout_,
                             0, 3, desc_sets, 0, nullptr);
 

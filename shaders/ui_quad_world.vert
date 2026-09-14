@@ -10,8 +10,18 @@ layout(push_constant) uniform WorldUiPush {
     float _pad;
 };
 
+// Set 2, binding 2: this widget's mvp from last frame, for the velocity
+// attachment. Not the push constant: pushing both this frame's and last
+// frame's mvp would put WorldUiPush at 144 bytes, over the 128 guaranteed
+// minimum. A separate small UBO instead — see UiRenderer::create_world_pipelines.
+layout(set = 2, binding = 2) uniform WorldUiFrameData {
+    mat4 prev_mvp;
+};
+
 layout(location = 0) out vec2 frag_uv;
 layout(location = 1) flat out uint frag_quad_index;
+layout(location = 2) out vec4 frag_clip_pos;
+layout(location = 3) out vec4 frag_prev_clip_pos;
 
 void main() {
     uint quad_index = gl_VertexIndex / 6;
@@ -41,5 +51,8 @@ void main() {
     // Small Z offset for quad ordering within the UI panel
     float z = q.z_layer * 0.001;
 
-    gl_Position = mvp * vec4(local, z, 1.0);
+    vec4 local_pos = vec4(local, z, 1.0);
+    gl_Position = mvp * local_pos;
+    frag_clip_pos = gl_Position;
+    frag_prev_clip_pos = prev_mvp * local_pos;
 }

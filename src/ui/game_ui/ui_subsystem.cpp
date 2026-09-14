@@ -291,7 +291,9 @@ void UiSubsystem::tick(const TickContext& ctx) {
         }
     }
 
-    // Rebuild world-space UI records for rendering
+}
+
+void UiSubsystem::update_world_records(const TickContext& ctx) {
     world_records_.clear();
     for (auto& inst : instances_) {
         if (inst.render_mode != UiWidgetComponent::RenderMode::world_space) continue;
@@ -337,7 +339,8 @@ void UiSubsystem::tick(const TickContext& ctx) {
         push.viewport_width = wc->virtual_viewport.x;
         push.viewport_height = wc->virtual_viewport.y;
 
-        world_records_.push_back({inst.game_ui.get(), push});
+        world_records_.push_back({inst.game_ui.get(), push, inst.prev_mvp});
+        inst.prev_mvp = push.mvp;
     }
 }
 

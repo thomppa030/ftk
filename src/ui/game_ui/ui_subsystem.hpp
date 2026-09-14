@@ -37,6 +37,14 @@ public:
     void on_play_start(const TickContext& ctx) override;
     void on_play_stop(const TickContext& ctx) override;
 
+    // Rebuilds world_records_ from each instance's node transform. Split out
+    // of tick() because tick() runs in play_phase_0_, before scripts and
+    // physics have moved anything this frame — Scene::compute_world_matrices
+    // settles world_matrix_ afterward. Called from that point instead, so
+    // world-space UI reads the same transform the mesh it's attached to
+    // renders with this frame, not last frame's.
+    void update_world_records(const TickContext& ctx);
+
     struct WidgetInstance {
         std::unique_ptr<UiWidget> widget;
         const OwnedUiWidgetType* type;
@@ -50,6 +58,12 @@ public:
         std::vector<WidgetInstance> widgets;
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};
         uint64_t tick_counter{0};
+        // World-space only: this widget's mvp from the previous frame, so the
+        // velocity attachment reflects its own motion rather than whatever
+        // was already under its pixels. Identity until the first frame it's
+        // actually recorded, which briefly reads as "didn't move" — a single
+        // frame of no smear rather than a wrong one.
+        glm::mat4 prev_mvp{1.0f};
     };
     [[nodiscard]] std::vector<UiInstance>& instances() { return instances_; }
     [[nodiscard]] const std::vector<UiInstance>& instances() const { return instances_; }
@@ -57,6 +71,7 @@ public:
     struct WorldUiRecord {
         GameUi* game_ui;
         UiWorldPushConstants push;
+        glm::mat4 prev_mvp{1.0f};
     };
     [[nodiscard]] const std::vector<WorldUiRecord>& world_records() const { return world_records_; }
 

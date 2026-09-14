@@ -28,6 +28,15 @@ struct UiWorldPushConstants {
 };
 static_assert(sizeof(UiWorldPushConstants) == 80);
 
+/// Last frame's mvp, for the velocity attachment. Written to a tiny per-frame
+/// buffer rather than folded into UiWorldPushConstants: that would put the
+/// struct at 144 bytes, over Vulkan's guaranteed-minimum 128-byte push
+/// constant range (this engine isn't Linux-only, so it can't assume the
+/// larger limit desktop GPUs happen to offer).
+struct UiWorldFrameData {
+    glm::mat4 prev_mvp;
+};
+
 class UiRenderer {
 public:
     void create(Device& device, VmaAllocator allocator,
@@ -53,9 +62,12 @@ public:
     /// Create worldspace pipelines (HDR format + scene MSAA). Call after create().
     void create_world_pipelines(Device& device, const PassResources& resources);
 
-    /// Record worldspace draw commands with push constants.
+    /// Record worldspace draw commands with push constants. prev_mvp is last
+    /// frame's mvp for this same widget (proj * view * world_transform, all
+    /// from last frame) — used to compute the velocity attachment.
     void record_world(VkCommandBuffer cmd, VkDescriptorSet global_set, VkDescriptorSet bindless_set,
-                      VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push);
+                      VkExtent2D extent, uint32_t frame_index, const UiWorldPushConstants& push,
+                      const glm::mat4& prev_mvp);
 
 private:
     struct GpuUiQuad {
@@ -122,6 +134,13 @@ private:
     VkPipeline world_opaque_pipeline_{VK_NULL_HANDLE};
     VkPipeline world_transparent_pipeline_{VK_NULL_HANDLE};
     VkPipeline world_text_pipeline_{VK_NULL_HANDLE};
+
+    // Worldspace's own set 2 layout/pool (see create_world_pipelines) and its
+    // per-frame prev_mvp UBO for the velocity attachment.
+    VkDescriptorSetLayout world_set_layout_{VK_NULL_HANDLE};
+    VkDescriptorPool world_pool_{VK_NULL_HANDLE};
+    std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> world_sets_{};
+    std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> world_frame_buffers_;
 
     // Double-buffered SSBOs (quads)
     std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> quad_ssbos_;

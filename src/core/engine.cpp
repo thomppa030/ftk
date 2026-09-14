@@ -248,7 +248,7 @@ void Engine::init_ui() {
                                      rec.push.viewport_height,
                                      frame_index, clock_.delta_time(), nullptr);
                 rec.game_ui->record_world(cmd, global_set, bindless_set,
-                                           extent, frame_index, rec.push);
+                                           extent, frame_index, rec.push, rec.prev_mvp);
             }
         });
 }
@@ -1677,6 +1677,16 @@ void Engine::run() {
         }
         for (auto* s : early_always_) s->tick(ctx);
         scene_.compute_world_matrices(&thread_pool_);
+
+        // World-space UI reads node transforms to place its billboards, so it
+        // must rebuild after compute_world_matrices() settles them for this
+        // frame. ui_subsystem_->tick() alone runs in play_phase_0_, before
+        // scripts and physics have moved anything this frame — if this were
+        // built there instead, it would render one frame behind whatever
+        // it's anchored to, most visible as a lag/smear while that node moves.
+        if (play_controller_.playing()) {
+            ui_subsystem_->update_world_records(ctx);
+        }
 
         // Always-tick subsystems (after world matrices)
         for (auto* s : late_always_) s->tick(ctx);

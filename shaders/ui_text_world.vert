@@ -10,9 +10,17 @@ layout(push_constant) uniform WorldUiPush {
     float _pad;
 };
 
+// Set 2, binding 2: this widget's mvp from last frame, for the velocity
+// attachment — see the matching comment in ui_quad_world.vert.
+layout(set = 2, binding = 2) uniform WorldUiFrameData {
+    mat4 prev_mvp;
+};
+
 layout(location = 0) out vec2 frag_atlas_uv;
 layout(location = 1) out vec2 frag_screen_pos;
 layout(location = 2) flat out uint frag_glyph_index;
+layout(location = 3) out vec4 frag_clip_pos;
+layout(location = 4) out vec4 frag_prev_clip_pos;
 
 void main() {
     uint glyph_index = gl_VertexIndex / 6;
@@ -40,5 +48,8 @@ void main() {
     // Scale from pixels to world units
     local /= pixels_per_unit;
 
-    gl_Position = mvp * vec4(local, 0.0, 1.0);
+    vec4 local_pos = vec4(local, 0.0, 1.0);
+    gl_Position = mvp * local_pos;
+    frag_clip_pos = gl_Position;
+    frag_prev_clip_pos = prev_mvp * local_pos;
 }
