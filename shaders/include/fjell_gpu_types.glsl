@@ -31,7 +31,9 @@ struct GpuSpotLight {
 //   base_params[5]         : roughness_factor
 //   base_params[6]         : has_normal_map (0/1)
 //   base_params[7..8]      : uv_scale
-//   base_params[9..11]     : emission_color (RT GI emissive contribution)
+//   base_params[9..11]     : emission factor — scales the emissive texture on
+//                            every path; the emission itself when no texture
+//                            is bound (see has_emissive_texture)
 //   base_params[12..14]    : gi_albedo_override (RT/SDF GI diffuse bounce
 //                            color; only valid when has_gi_albedo_override
 //                            != 0 — otherwise fall back to

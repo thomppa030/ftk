@@ -116,8 +116,10 @@ void main() {
     // Specular antialiasing
     roughness = specular_aa_roughness(N, frag_world_pos, roughness);
 
-    // Emissive
-    vec3 emissive = texture(textures[nonuniformEXT(emissive_idx)], uv).rgb;
+    // Emissive: the texture scaled by the same factor the GI paths read, so
+    // what this surface shows and what it casts agree.
+    vec3 emission_factor = vec3(mat.base_params[9], mat.base_params[10], mat.base_params[11]);
+    vec3 emissive = texture(textures[nonuniformEXT(emissive_idx)], uv).rgb * emission_factor;
 
     // Lighting vectors
     vec3 V = normalize(ubo.camera_position.xyz - frag_world_pos);

@@ -144,6 +144,11 @@ void main() {
     float METALLIC_FACTOR = mat.base_params[4];
     float ROUGHNESS_FACTOR = mat.base_params[5];
     float HAS_NORMAL_MAP = mat.base_params[6];
+    // What the GI paths read as this material's emission; the seed below
+    // applies it so a surface lights the scene the way it looks. Shaders that
+    // add to EMISSION build on that; a shader with no emissive texture starts
+    // from black, exactly as before.
+    vec3 EMISSION_FACTOR = vec3(mat.base_params[9], mat.base_params[10], mat.base_params[11]);
 
     // ── Built-in outputs (PBR defaults) ──
     vec4 base_sample = texture(BASE_COLOR_TEX, UV) * BASE_COLOR_FACTOR * vec4(COLOR, 1.0);
@@ -153,7 +158,7 @@ void main() {
     float METALLIC = mr_sample.b * METALLIC_FACTOR;
     float ROUGHNESS = clamp(mr_sample.g * ROUGHNESS_FACTOR, 0.04, 1.0);
     vec3 NORMAL = frag_world_normal;
-    vec3 EMISSION = texture(EMISSIVE_TEX, UV).rgb;
+    vec3 EMISSION = texture(EMISSIVE_TEX, UV).rgb * EMISSION_FACTOR;
     float AO = 1.0;
 
     // Apply normal map if available

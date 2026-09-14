@@ -118,7 +118,10 @@ struct PbrParams {
     float roughness_factor{1.0f};
     bool has_normal_map{false};
     glm::vec2 uv_scale{1.0f, 1.0f};
-    glm::vec3 emission_color{0.0f};  // RT GI: emissive contribution for probe tracing
+    // Emission factor: scales the emissive texture in shading and GI alike,
+    // and is the emission itself when no texture is bound. Derived from the
+    // shader's hint_emission uniforms, see material_gi_params.hpp.
+    glm::vec3 emission_color{0.0f};
 
     // The material bound an emissive texture. Unbound slots hold the shared
     // black default, which a shader cannot tell apart from a texture that is

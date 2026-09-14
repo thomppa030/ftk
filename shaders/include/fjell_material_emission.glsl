@@ -8,10 +8,13 @@
 // how the sample is used, and only the CPU knows, so it says so through
 // has_emissive_texture:
 //
-//   no texture       -> the emission colour alone
-//   texture bound    -> emission colour * sample, everywhere, so a black
-//                       texel means no emission there rather than "no
-//                       texture, keep the flat colour"
+//   no texture       -> the emission factor alone
+//   texture bound    -> factor * sample, everywhere, so a black texel means
+//                       no emission there rather than "no texture, keep the
+//                       flat colour"
+//
+// This is the same product the spatial template seeds EMISSION with, so a
+// surface casts what it shows.
 //
 // Requires GpuMaterial from fjell_gpu_types.glsl.
 vec3 material_emission(GpuMaterial mat, vec3 emissive_sample) {

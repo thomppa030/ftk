@@ -2,10 +2,11 @@ shader_type spatial;
 
 uniform vec3 tint : hint_color = vec3(1.0, 1.0, 1.0);
 uniform float roughness_override : hint_range(0.0, 1.0, 0.01) = 0.5;
+// hint_emission feeds emission_strength into EMISSION before fragment()
+// runs, scaling the emissive texture, so nothing here has to apply it.
 uniform float emission_strength : hint_range(0.0, 5.0, 0.1), hint_emission = 1.0;
 
 void fragment() {
     ALBEDO *= tint;
     ROUGHNESS = roughness_override;
-    EMISSION *= emission_strength;
 }

@@ -256,6 +256,12 @@ MaterialHandle ResourceManager::create_material(const std::string& name,
     uint32_t mr_idx = bindless_index(metallic_roughness.valid()  ? metallic_roughness  : default_mr_handle_);
     uint32_t em_idx = bindless_index(emissive.valid()            ? emissive            : default_black_handle_);
     params.has_emissive_texture = emissive.valid();
+    // No shader metadata on this path, so the emission factor follows the
+    // same default rule the asset loader applies: the texture shows as
+    // authored when one is bound, nothing emits when none is.
+    params.emission_color = derive_material_gi_params(
+        ShaderMetadata{}, [](const FjslUniform&) { return std::vector<float>{}; },
+        params.has_emissive_texture).emission;
 
     // Build GPU material and register in SSBO
     auto material = std::make_unique<Material>(0, bc_idx, nm_idx, mr_idx, em_idx, params);
@@ -437,7 +443,7 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
         auto gi = derive_material_gi_params(*shader_meta, [&](const FjslUniform& u) {
             auto p_it = asset.params.find(u.name);
             return p_it != asset.params.end() ? p_it->second : u.default_value;
-        });
+        }, params.has_emissive_texture);
         params.emission_color = gi.emission;
         params.gi_albedo_override = gi.gi_albedo_override;
         if (gi.emission_from_names) {

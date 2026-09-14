@@ -86,10 +86,16 @@ std::optional<glm::vec3> albedo_override(const ShaderMetadata& meta,
 } // namespace
 
 MaterialGiParams derive_material_gi_params(const ShaderMetadata& meta,
-                                           const UniformValueReader& read) {
+                                           const UniformValueReader& read,
+                                           bool has_emissive_texture) {
     MaterialGiParams out;
     if (!emission_from_hints(meta, read, out.emission)) {
         out.emission_from_names = emission_from_names(meta, read, out.emission);
+        if (!out.emission_from_names) {
+            // Nothing declared: a bound texture is the emission, shown as
+            // authored; without one the material does not emit.
+            out.emission = glm::vec3{has_emissive_texture ? 1.0F : 0.0F};
+        }
     }
     out.gi_albedo_override = albedo_override(meta, read);
     return out;

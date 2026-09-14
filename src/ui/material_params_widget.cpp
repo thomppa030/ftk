@@ -142,7 +142,7 @@ bool draw_material_params(const ShaderMetadata& meta,
                 values.push_back(bindless.read_param(gpu.param_offset + u.slot + i));
             }
             return values;
-        });
+        }, gpu.has_emissive_texture != 0U);
 
         GpuMaterial updated = bindless.material_at(material.material_id());
         updated.base_params[9] = gi.emission.x;

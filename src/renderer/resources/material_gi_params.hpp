@@ -18,8 +18,14 @@ namespace fjell {
 /// asset loader and the live material inspector, so a value edited in the
 /// editor is what a fresh load of the same values would produce.
 struct MaterialGiParams {
-    /// Product of every hint_emission uniform. Zero when the shader declares
-    /// none, which reads as "does not emit" everywhere it is consumed.
+    /// The material's emission factor. The visible path multiplies the
+    /// emissive texture by it, the GI paths multiply the texture by it when
+    /// one is bound and use it alone otherwise, so both read one value.
+    ///
+    /// Product of every hint_emission uniform when the shader declares any.
+    /// Otherwise one when the material bound an emissive texture, so the
+    /// texture shows at full strength, and zero when it did not, so nothing
+    /// emits.
     glm::vec3 emission{0.0F};
 
     /// The surface colour, when the shader sources ALBEDO from a single
@@ -39,7 +45,10 @@ struct MaterialGiParams {
 /// the value is unavailable and the uniform is skipped.
 using UniformValueReader = std::function<std::vector<float>(const FjslUniform&)>;
 
+/// `has_emissive_texture` is whether the material bound one; it decides what
+/// an untagged shader's factor defaults to.
 [[nodiscard]] MaterialGiParams derive_material_gi_params(const ShaderMetadata& meta,
-                                                          const UniformValueReader& read);
+                                                          const UniformValueReader& read,
+                                                          bool has_emissive_texture);
 
 } // namespace fjell
