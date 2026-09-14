@@ -78,6 +78,15 @@ public:
     void start();
     /// No-op unless playing. In game mode this requests window close.
     void stop();
+
+    /// Materializes nodes spawned since the last flush and gives them their
+    /// play-time state: input contexts, physics bodies, and their scripts'
+    /// instantiate + begin_play. Loops until the queue is empty, since a
+    /// spawned node's begin_play may spawn more. Runs after each tick phase
+    /// and once during start(), between the script and UI subsystems, so a
+    /// widget starting up can find what begin_play just spawned. Only
+    /// meaningful while a session is starting or playing.
+    void flush_spawned();
     void toggle();
 
     /// Destroys the HUD target now, while ImGui and Vulkan are still alive.

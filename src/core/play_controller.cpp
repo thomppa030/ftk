@@ -181,6 +181,35 @@ void PlayController::release_input() {
     }
 }
 
+void PlayController::flush_spawned() {
+    // A hard bound on rounds so a script that spawns from every begin_play
+    // stalls with a warning instead of hanging the start.
+    constexpr int MAX_ROUNDS = 64;
+    for (int round = 0; s_.scene->has_pending_spawns(); ++round) {
+        if (round == MAX_ROUNDS) {
+            FJELL_CORE_WARN("PlayController: spawns still pending after {} flush rounds, "
+                            "a begin_play keeps spawning; leaving the rest for the next tick",
+                            MAX_ROUNDS);
+            return;
+        }
+        auto spawned = s_.scene->flush_spawned();
+        // A spawned node may carry an InputComponent (e.g. a player's camera);
+        // load its contexts before begin_play so scripts can bind/activate input.
+        load_input_contexts();
+        // Bodies before begin_play: a spawned node's script may query physics
+        // or set a velocity in its first frame, and a body that appears a tick
+        // later means the object falls through whatever it spawned on.
+        if (auto* physics = s_.physics->world()) {
+            for (uint32_t id : spawned) {
+                if (auto* node = s_.scene->find(id)) physics->create_body(*node);
+            }
+        }
+        // Give freshly-spawned nodes their script lifecycle (instantiate +
+        // begin_play) — the play-start passes already ran without them.
+        s_.scripts->manager().initialize_spawned(*s_.scene, spawned);
+    }
+}
+
 void PlayController::load_input_contexts() {
     auto* project = s_.project_mgr->active();
     for (const auto& obj : s_.scene->objects()) {
@@ -320,12 +349,14 @@ void PlayController::start() {
         fjell_input_clear_connections();
 
         s_.scripts->notify_play_start(ctx);
-        s_.ui->notify_play_start(ctx);
 
-        // begin_play may have spawned nodes carrying InputComponents (a
-        // server spawning each player and its camera). Their binds already
-        // attached to the actions; loading the contexts enables dispatch.
-        load_input_contexts();
+        // begin_play may have spawned nodes (a server spawning each player
+        // and its camera). They exist only as a pending queue until flushed;
+        // doing it here gives them their input contexts, bodies and scripts,
+        // and lets the UI widgets starting next find them by lookup.
+        flush_spawned();
+
+        s_.ui->notify_play_start(ctx);
     }
 
     session_ = std::make_unique<PlaySession>(std::move(snapshot));
