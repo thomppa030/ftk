@@ -376,9 +376,14 @@ endif()
 # marked for export via FJELL_SDK_EXPORT in the SDK headers.
 set_target_properties(fjell PROPERTIES ENABLE_EXPORTS TRUE)
 
+# The SDK headers are shared with game modules; this tells them they are being
+# compiled into the engine itself (symbol export direction, and which headers
+# would collide with the engine's own types).
+target_compile_definitions(fjell PRIVATE FJELL_ENGINE_BUILD)
+
 if(MSVC)
     target_compile_options(fjell PRIVATE /W4 /WX)
-    target_compile_definitions(fjell PRIVATE _CRT_SECURE_NO_WARNINGS FJELL_ENGINE_BUILD)
+    target_compile_definitions(fjell PRIVATE _CRT_SECURE_NO_WARNINGS)
     # Pass the full path to cl.exe so fjreflect can use it at runtime
     string(REPLACE "\\" "/" _FJELL_CXX_COMPILER "${CMAKE_CXX_COMPILER}")
     target_compile_definitions(fjell PRIVATE "FJELL_CXX_COMPILER=\"${_FJELL_CXX_COMPILER}\"")

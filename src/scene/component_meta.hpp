@@ -53,6 +53,10 @@ struct ComponentMeta {
     std::string script_type_name;
     void* (*script_get)(Node& node){nullptr};
     void* (*script_add)(Node& node){nullptr};
+    // sizeof the engine struct, filled in by the registry. Scripts see these
+    // components through a mirrored struct in their SDK, and a game module
+    // whose mirror has a different size was built against another layout.
+    uint32_t type_size{0};
 
     // Network replication (null = not replicated). net_serialize appends the
     // component's replicated state to `out`; net_deserialize reads it back from

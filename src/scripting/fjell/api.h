@@ -44,6 +44,17 @@ extern "C" {
 // Engine checks this at .so load time and rejects mismatches.
 #define FJELL_API_VERSION 18
 
+// ── Engine component layout check ───────────────────────────────────────
+// The size of an engine component struct as the game module's copy of
+// engine_components.hpp defines it. The module publishes one entry per
+// mirrored struct; the engine compares each against its own definition when
+// loading the module and refuses a stale build by name, rather than reading
+// and writing fields at the wrong offsets.
+typedef struct FjellComponentLayout {
+    const char* type_name;
+    uint32_t size;
+} FjellComponentLayout;
+
 // ── Field types for inspector / serialization reflection ────────────────
 
 typedef enum FjellFieldType {

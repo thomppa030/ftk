@@ -71,6 +71,7 @@ add_executable(fjell-tests
     test_frame_descriptor_cache.cpp
     test_ddgi_clipmap.cpp
     test_character_controller.cpp
+    test_sdk_headers.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE

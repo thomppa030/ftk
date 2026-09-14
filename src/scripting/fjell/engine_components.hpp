@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "fjell/api.h"
+
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -342,6 +344,17 @@ struct SpriteComponent {
 
     /// Whether the normal map has finished loading.
     bool normal_loaded{false};
+};
+
+// Every mirrored struct and its size as this header defines it, published by
+// FJELL_REGISTER() so the engine can check the module was built against the
+// layouts it has. A struct added here must be added to this list.
+inline constexpr FjellComponentLayout ENGINE_COMPONENT_LAYOUTS[] = {
+    {RigidbodyComponent::type_name, sizeof(RigidbodyComponent)},
+    {ColliderComponent::type_name, sizeof(ColliderComponent)},
+    {CharacterComponent::type_name, sizeof(CharacterComponent)},
+    {MeshComponent::type_name, sizeof(MeshComponent)},
+    {SpriteComponent::type_name, sizeof(SpriteComponent)},
 };
 
 } // namespace fjell

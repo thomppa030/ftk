@@ -814,7 +814,8 @@ bool query_offsets(std::vector<ComponentInfo>& components,
         out << "struct FjellUiActionDesc { const char* name; FjellUiActionParam param_type; };\n";
         out << "enum FjellRpcTarget { FJELL_RPC_SERVER=0, FJELL_RPC_CLIENTS, FJELL_RPC_ALL };\n";
         out << "struct FjellRpcDesc { const char* name; FjellRpcTarget target;\n"
-               "    uint32_t payload_size; void (*invoke)(void*, const uint8_t*, uint32_t); };\n\n";
+               "    uint32_t payload_size; void (*invoke)(void*, const uint8_t*, uint32_t); };\n";
+        out << "struct FjellComponentLayout { const char* type_name; uint32_t size; };\n\n";
 
         // Stub engine extern "C" symbols that registration macros reference.
         // Headers only declare classes + fields, no engine method bodies.

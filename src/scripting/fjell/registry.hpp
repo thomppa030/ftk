@@ -7,6 +7,23 @@
 #include "fjell/notify.hpp"
 #include "fjell/api.h"
 
+// The engine includes this header for the registry types below, and it has
+// the real engine components, which the game module's mirrors of them would
+// collide with. The mirrors are only needed for FJELL_REGISTER(), which only
+// a game module expands.
+#ifndef FJELL_ENGINE_BUILD
+#include "fjell/engine_components.hpp"
+
+/// Emits the entry point through which the engine reads the engine component
+/// layouts this module was built against. Part of FJELL_REGISTER(); the
+/// engine's generated register file emits it the same way.
+#define FJELL_DEFINE_ENGINE_COMPONENT_LAYOUTS() \
+    extern "C" FJELL_GAME_EXPORT uint32_t fjell_engine_component_layouts(const FjellComponentLayout** out) { \
+        *out = fjell::ENGINE_COMPONENT_LAYOUTS; \
+        return static_cast<uint32_t>(sizeof(fjell::ENGINE_COMPONENT_LAYOUTS) / sizeof(fjell::ENGINE_COMPONENT_LAYOUTS[0])); \
+    }
+#endif
+
 #include <cstdint>
 
 // ── Type descriptors (C-compatible structs) ─────────────────────────────
@@ -200,9 +217,9 @@ template <class T> struct FjellRpcAccess;
 /// Emits the game module's entry points. Put it exactly once per project, at
 /// file scope in any one `.cpp` — conventionally a small `register.cpp`.
 ///
-/// It publishes the SDK version the module was built against and hands the
-/// engine every type declared with `FJELL_COMPONENT`, `FJELL_UI_WIDGET`, or
-/// `FJELL_NOTIFY`. Individual types do not need listing; the macros collect
+/// It publishes the SDK version and the engine component layouts the module
+/// was built against, and hands the engine every type declared with
+/// `FJELL_COMPONENT`, `FJELL_UI_WIDGET`, or `FJELL_NOTIFY`. Individual types do not need listing; the macros collect
 /// themselves.
 ///
 /// Without it the module loads but registers nothing, and the editor shows no
@@ -215,6 +232,7 @@ template <class T> struct FjellRpcAccess;
 /// @endcode
 #define FJELL_REGISTER() \
     extern "C" FJELL_GAME_EXPORT uint32_t fjell_api_version() { return FJELL_API_VERSION; } \
+    FJELL_DEFINE_ENGINE_COMPONENT_LAYOUTS() \
     extern "C" FJELL_GAME_EXPORT void fjell_register(FjellTypeRegistry* registry) { \
         for (auto* r = fjell_auto_reg_head(); r; r = r->next) r->fn(registry); \
         for (auto* r = fjell_ui_auto_reg_head(); r; r = r->next) r->fn(registry); \

@@ -309,6 +309,7 @@ void ProjectManager::build_scripts(ScriptManager& /*scripts*/, Scene& /*scene*/)
                             }
 
                             reg << "\nextern \"C\" FJELL_GAME_EXPORT uint32_t fjell_api_version() { return FJELL_API_VERSION; }\n";
+                            reg << "FJELL_DEFINE_ENGINE_COMPONENT_LAYOUTS()\n";
                             reg << "extern \"C\" FJELL_GAME_EXPORT void fjell_register(FjellTypeRegistry* registry) {\n";
                             if (!script_types.empty()) {
                                 reg << "    fjell_set_generated_table(fjreflect_generated, "

@@ -1,4 +1,5 @@
 #include "scripting/script_manager.hpp"
+#include "scene/component_registry.hpp"
 #include "scripting/script_globals.hpp"
 #include "core/asset_type_registry.hpp"
 #include "ui/asset_ref_widget.hpp"
@@ -335,6 +336,26 @@ void ScriptManager::build_registry() {
         }
     } else {
         FJELL_CORE_WARN("No fjell_api_version symbol — .so may be outdated");
+    }
+
+    // The version catches deliberate ABI changes; this catches the mirrored
+    // component structs drifting from the engine's, which no one bumps for.
+    using LayoutFn = uint32_t (*)(const FjellComponentLayout**);
+    if (auto* layout_fn = library_.symbol_as<LayoutFn>("fjell_engine_component_layouts")) {
+        const FjellComponentLayout* layouts = nullptr;
+        uint32_t count = layout_fn(&layouts);
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto* meta = ComponentRegistry::instance().find_by_script_name(layouts[i].type_name);
+            if (meta == nullptr) continue;
+            if (meta->type_size != layouts[i].size) {
+                FJELL_CORE_ERROR("Script .so was built against a different {} layout "
+                                 "({} bytes, engine has {}) — recompile scripts",
+                                 layouts[i].type_name, layouts[i].size, meta->type_size);
+                return;
+            }
+        }
+    } else {
+        FJELL_CORE_WARN("No fjell_engine_component_layouts symbol — .so may be outdated");
     }
 
     using RegFn = void (*)(FjellTypeRegistry*);

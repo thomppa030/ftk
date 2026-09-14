@@ -14,6 +14,7 @@ public:
 
     template <typename T>
     void register_component(ComponentMeta meta) {
+        meta.type_size = static_cast<uint32_t>(sizeof(T));
         entries_.push_back({component_type_id<T>(), std::move(meta)});
     }
 
