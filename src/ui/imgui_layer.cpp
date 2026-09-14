@@ -10,15 +10,32 @@
 #include "core/profiler.hpp"
 
 #include <array>
+#include <fstream>
 #include <stdexcept>
 
 namespace fjell {
+
+namespace {
+
+std::vector<uint32_t> read_spirv_words(const std::string& path) {
+  std::ifstream file(path, std::ios::binary | std::ios::ate);
+  if (!file.is_open()) return {};
+  auto size = static_cast<size_t>(file.tellg());
+  std::vector<uint32_t> words(size / sizeof(uint32_t));
+  file.seekg(0);
+  file.read(reinterpret_cast<char*>(words.data()),
+            static_cast<std::streamsize>(words.size() * sizeof(uint32_t)));
+  return words;
+}
+
+} // namespace
 
 ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
                        VkPhysicalDevice physical_device, VkDevice device,
                        uint32_t graphics_family, VkQueue graphics_queue,
                        VkFormat color_format, uint32_t image_count,
-                       const std::string& font_dir)
+                       const std::string& font_dir,
+                       const std::string& shader_dir)
     : device_{device}, font_dir_{font_dir} {
   // Descriptor pool for ImGui
   std::array<VkDescriptorPoolSize, 1> pool_sizes = {{
@@ -65,6 +82,18 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   init_info.PipelineInfoMain.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
   init_info.PipelineInfoMain.PipelineRenderingCreateInfo.pColorAttachmentFormats = &color_format;
   init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+  frag_spv_ = read_spirv_words(shader_dir + "/imgui.frag.spv");
+  if (frag_spv_.empty()) {
+    // The stock stage writes ImGui's sRGB colours as if they were linear,
+    // so every swatch and style colour comes out one gamma too bright.
+    FJELL_CORE_ERROR("ImGui: imgui.frag.spv not found in '{}'; editor colours "
+                     "will render too bright", shader_dir);
+  } else {
+    init_info.CustomShaderFragCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    init_info.CustomShaderFragCreateInfo.codeSize = frag_spv_.size() * sizeof(uint32_t);
+    init_info.CustomShaderFragCreateInfo.pCode = frag_spv_.data();
+  }
 
   ImGui_ImplVulkan_Init(&init_info);
 
