@@ -4,11 +4,9 @@
 #include "core/base_path.hpp"
 #include "core/project.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/material_thumbnail_renderer.hpp"
 
 #include <imgui.h>
-#include <nlohmann/json.hpp>
-
-#include <fstream>
 
 namespace {
 
@@ -74,22 +72,19 @@ static const bool reg_material = [] {
         .draw_preview = [](const std::string& path, ResourceManager& /*rm*/,
                            fjell::IconCache* icons, const fjell::Project* project,
                            float width) {
-            if (!icons || !project || path.empty() || path == "default") return;
+            auto* thumbnails = fjell::MaterialThumbnailRenderer::instance();
+            if (!thumbnails || !project || path.empty() || path == "default") return;
 
-            // Resolve the .fjmat to an absolute path and parse it for base_color texture
             auto abs_mat = fjell::base_path::resolve_asset(path, project);
-            std::ifstream file(abs_mat);
-            if (!file.is_open()) return;
+            if (abs_mat.empty()) return;
 
-            nlohmann::json j;
-            try { j = nlohmann::json::parse(file); } catch (...) { return; }
-
-            if (!j.contains("textures") || !j["textures"].contains("base_color")) return;
-            auto tex_rel = j["textures"]["base_color"].get<std::string>();
-            if (tex_rel.empty()) return;
-
-            auto abs_tex = (project->root() / tex_rel).string();
-            auto thumb = icons->thumbnail(abs_tex);
+            // The sphere render streams in a frame or two after the first
+            // request; the material icon holds the space until then.
+            auto thumb = thumbnails->descriptor(abs_mat);
+            if (!thumb) {
+                thumbnails->request(abs_mat);
+                thumb = icons ? icons->icon("material") : VK_NULL_HANDLE;
+            }
             if (thumb) {
                 ImGui::Image(thumb, {width, width});
             }
