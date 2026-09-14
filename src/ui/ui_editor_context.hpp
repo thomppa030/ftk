@@ -67,6 +67,7 @@ private:
     void draw_preview(float dt);
     void draw_element_tree();
     void draw_inspector();
+    void draw_stylesheet_problems();
     void draw_style_editor(UiNode& node);
     void draw_node_material_editor(UiNode& node);
     void draw_mock_data();

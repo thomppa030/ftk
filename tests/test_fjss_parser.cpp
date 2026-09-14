@@ -497,3 +497,82 @@ TEST_CASE("Every truncated prefix of a real stylesheet terminates", "[fjss]") {
     }
     SUCCEED();
 }
+
+// --- Diagnostics ---
+
+TEST_CASE("Clean stylesheet has no diagnostics", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(R"(
+        /* comment */
+        .a { width: 1; }
+        .b, .c { height: 2; opacity: 0.5 }
+    )");
+    REQUIRE(sheet.diagnostics.empty());
+}
+
+TEST_CASE("Missing '{' is an error at the position it was expected", "[fjss][diag]") {
+    auto sheet = FjssParser::parse("\n\n.a\n  width: 1;\n");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    const auto& d = sheet.diagnostics[0];
+    REQUIRE(d.severity == FjssSeverity::error);
+    REQUIRE(d.message.find("'{'") != std::string::npos);
+    // Reported at the start of the rule that needs fixing, not wherever
+    // the parser eventually gave up.
+    REQUIRE(d.line == 3);
+    REQUIRE(d.column == 1);
+}
+
+TEST_CASE("Declaration without ':' is a warning naming the property", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a {\n    width: 1;\n    colour red;\n    height: 2;\n}");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    const auto& d = sheet.diagnostics[0];
+    REQUIRE(d.severity == FjssSeverity::warning);
+    REQUIRE(d.message.find("colour") != std::string::npos);
+    REQUIRE(d.line == 3);
+    REQUIRE(d.column == 5);
+    // The rest of the rule still applies
+    REQUIRE(sheet.rules[0].properties.at("width") == "1");
+    REQUIRE(sheet.rules[0].properties.at("height") == "2");
+}
+
+TEST_CASE("Empty value is a warning", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { width:; height: 10; }");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("width") != std::string::npos);
+    REQUIRE(sheet.rules[0].properties.count("width") == 0);
+}
+
+TEST_CASE("Unclosed rule is an error pointing at its opening brace", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a {\n    width: 1;\n");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    const auto& d = sheet.diagnostics[0];
+    REQUIRE(d.severity == FjssSeverity::error);
+    REQUIRE(d.line == 1);
+    REQUIRE(d.column == 4);
+}
+
+TEST_CASE("Unclosed comment is an error", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { width: 1; }\n/* never closed");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].severity == FjssSeverity::error);
+    REQUIRE(sheet.diagnostics[0].line == 2);
+}
+
+TEST_CASE("Stray characters between rules are reported once each", "[fjss][diag]") {
+    auto sheet = FjssParser::parse("} .a { width: 1; }");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].column == 1);
+    REQUIRE(sheet.rules.size() == 1);
+}
+
+TEST_CASE("Diagnostics carry the source name", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { colour red; }", "assets/ui/hud.fjss");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].source == "assets/ui/hud.fjss");
+}
+
+TEST_CASE("Line counting is by newline and column is 1-based", "[fjss][diag]") {
+    auto sheet = FjssParser::parse("\n\n\n   garbage;");
+    REQUIRE(sheet.diagnostics.size() >= 1);
+    REQUIRE(sheet.diagnostics[0].line == 4);
+    REQUIRE(sheet.diagnostics[0].column >= 4);
+}

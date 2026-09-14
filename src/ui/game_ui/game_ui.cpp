@@ -81,7 +81,7 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
         std::ifstream fjss_file(fjss_path);
         std::ostringstream fjss_ss;
         fjss_ss << fjss_file.rdbuf();
-        stylesheet_ = FjssParser::parse(fjss_ss.str());
+        stylesheet_ = FjssParser::parse(fjss_ss.str(), fjss_path);
     }
 
     // Resolve widget tags: <health-bar/> → widgets/health_bar.fjui
@@ -113,7 +113,7 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
         std::ifstream fjss_file(fjss_path);
         std::ostringstream fjss_ss;
         fjss_ss << fjss_file.rdbuf();
-        stylesheet_ = FjssParser::parse(fjss_ss.str());
+        stylesheet_ = FjssParser::parse(fjss_ss.str(), fjss_path);
     }
 
     widget_resolver_.resolve(*root_, base_dir, stylesheet_, context_);

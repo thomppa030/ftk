@@ -1,19 +1,20 @@
 #include "ui/game_ui/fjss_parser.hpp"
 #include "core/log.hpp"
 
+#include <algorithm>
 #include <cctype>
 
 namespace fjell {
 
-FjssParser::FjssParser(std::string_view source) : source_{source} {}
+FjssParser::FjssParser(std::string_view source, std::string_view source_name)
+    : source_{source}, source_name_{source_name} {}
 
-Stylesheet FjssParser::parse(std::string_view source) {
-    FjssParser parser{source};
+Stylesheet FjssParser::parse(std::string_view source, std::string_view source_name) {
+    FjssParser parser{source, source_name};
     return parser.parse_stylesheet();
 }
 
 Stylesheet FjssParser::parse_stylesheet() {
-    Stylesheet sheet;
     while (!at_end()) {
         skip_whitespace();
         if (at_end()) break;
@@ -31,18 +32,22 @@ Stylesheet FjssParser::parse_stylesheet() {
         auto rules = parse_rule();
         for (auto& rule : rules) {
             if (!rule.properties.empty()) {
-                sheet.rules.push_back(std::move(rule));
+                sheet_.rules.push_back(std::move(rule));
             }
         }
         if (pos_ == rule_start) {
-            FJELL_CORE_WARN("fjss: unexpected '{}', skipping", peek());
+            diagnose(pos_, FjssSeverity::error,
+                     std::string("unexpected '") + peek() + "'");
             advance();
         }
     }
-    return sheet;
+    log_diagnostics();
+    return std::move(sheet_);
 }
 
 std::vector<StyleRule> FjssParser::parse_rule() {
+    skip_whitespace();
+    size_t selector_start = pos_;
     std::vector<StyleSelector> selectors;
     while (true) {
         selectors.push_back(parse_selector());
@@ -56,10 +61,18 @@ std::vector<StyleRule> FjssParser::parse_rule() {
 
     skip_whitespace();
     if (at_end() || peek() != '{') {
-        FJELL_CORE_WARN("fjss: expected '{{' after selector");
+        // Point at the start of the rule the author needs to fix. When
+        // nothing selector-like was read at all, the offending character
+        // itself is the better clue.
+        if (pos_ == selector_start && !at_end()) {
+            diagnose(pos_, FjssSeverity::error, std::string("unexpected '") + peek() + "'");
+        } else {
+            diagnose(selector_start, FjssSeverity::error, "expected '{' after selector");
+        }
         skip_malformed_rule();
         return {};
     }
+    size_t block_start = pos_;
     advance(); // {
 
     std::unordered_map<std::string, std::string> properties;
@@ -68,6 +81,8 @@ std::vector<StyleRule> FjssParser::parse_rule() {
     skip_whitespace();
     if (!at_end() && peek() == '}') {
         advance(); // }
+    } else {
+        diagnose(block_start, FjssSeverity::error, "rule is never closed, missing '}'");
     }
 
     std::vector<StyleRule> rules;
@@ -126,6 +141,11 @@ StyleSelector FjssParser::parse_selector() {
         }
         case '{':
         case ',':
+        case '}':
+        case ';':
+            // '}' and ';' can never start or continue a selector; leaving
+            // them for the caller turns a stray one into a diagnostic
+            // instead of an ancestor named "}".
             parsing = false;
             break;
         case ' ':
@@ -172,6 +192,7 @@ void FjssParser::parse_declarations(std::unordered_map<std::string, std::string>
         }
 
         // Property name
+        size_t decl_start = pos_;
         std::string name;
         while (!at_end() && peek() != ':' && peek() != '}' && peek() != ';' &&
                !std::isspace(static_cast<unsigned char>(peek()))) {
@@ -179,7 +200,15 @@ void FjssParser::parse_declarations(std::unordered_map<std::string, std::string>
         }
         skip_whitespace();
         if (name.empty() || at_end() || peek() != ':') {
-            // Skip malformed declaration
+            // A bare ';' is harmless; anything else here is a declaration
+            // missing its ':' and gets dropped.
+            if (!name.empty()) {
+                diagnose(decl_start, FjssSeverity::warning,
+                         "expected ':' after '" + name + "'");
+            } else if (!at_end() && peek() != ';') {
+                diagnose(pos_, FjssSeverity::warning,
+                         std::string("unexpected '") + peek() + "' in declaration block");
+            }
             while (!at_end() && peek() != ';' && peek() != '}') advance();
             if (!at_end() && peek() == ';') advance();
             continue;
@@ -197,7 +226,9 @@ void FjssParser::parse_declarations(std::unordered_map<std::string, std::string>
             value.pop_back();
         }
 
-        if (!name.empty() && !value.empty()) {
+        if (value.empty()) {
+            diagnose(decl_start, FjssSeverity::warning, "'" + name + "' has no value");
+        } else {
             props[name] = value;
         }
 
@@ -227,6 +258,7 @@ void FjssParser::skip_malformed_rule() {
 }
 
 void FjssParser::skip_comment() {
+    size_t comment_start = pos_;
     pos_ += 2; // skip /*
     while (pos_ + 1 < source_.size()) {
         if (source_[pos_] == '*' && source_[pos_ + 1] == '/') {
@@ -235,7 +267,38 @@ void FjssParser::skip_comment() {
         }
         pos_++;
     }
+    diagnose(comment_start, FjssSeverity::error, "comment is never closed, missing '*/'");
     pos_ = source_.size();
+}
+
+FjssParser::SourcePosition FjssParser::position_at(size_t offset) const {
+    SourcePosition pos{1, 1};
+    size_t end = std::min(offset, source_.size());
+    for (size_t i = 0; i < end; ++i) {
+        if (source_[i] == '\n') {
+            ++pos.line;
+            pos.column = 1;
+        } else {
+            ++pos.column;
+        }
+    }
+    return pos;
+}
+
+void FjssParser::diagnose(size_t offset, FjssSeverity severity, std::string message) {
+    auto pos = position_at(offset);
+    sheet_.diagnostics.push_back({source_name_, pos.line, pos.column, severity, std::move(message)});
+}
+
+void FjssParser::log_diagnostics() const {
+    for (const auto& d : sheet_.diagnostics) {
+        const auto& name = d.source.empty() ? std::string_view{"<fjss>"} : std::string_view{d.source};
+        if (d.severity == FjssSeverity::error) {
+            FJELL_CORE_ERROR("{}:{}:{}: {}", name, d.line, d.column, d.message);
+        } else {
+            FJELL_CORE_WARN("{}:{}:{}: {}", name, d.line, d.column, d.message);
+        }
+    }
 }
 
 bool FjssParser::at_end() const {

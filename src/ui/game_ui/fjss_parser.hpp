@@ -30,17 +30,40 @@ struct StyleRule {
     std::unordered_map<std::string, std::string> properties;
 };
 
+enum class FjssSeverity : uint8_t {
+    warning, ///< a declaration or rule was dropped, the rest of the sheet applies
+    error,   ///< the sheet's structure is broken from this point on
+};
+
+/// A problem found while parsing, positioned so an editor can point at the
+/// offending text and a log line can name file:line:column.
+struct FjssDiagnostic {
+    std::string source; ///< file the text came from; empty for in-memory text
+    uint32_t line{1};   ///< 1-based
+    uint32_t column{1}; ///< 1-based, in bytes
+    FjssSeverity severity{FjssSeverity::warning};
+    std::string message;
+};
+
 struct Stylesheet {
     std::vector<StyleRule> rules;
+    /// Problems from this sheet and from every widget sheet merged into it.
+    std::vector<FjssDiagnostic> diagnostics;
 };
 
 /// Parser for .fjss (CSS-like) stylesheets.
+///
+/// Malformed input never stops the parse: the offending construct is
+/// skipped, recorded as a diagnostic, and parsing resumes at the next rule.
 class FjssParser {
 public:
-    [[nodiscard]] static Stylesheet parse(std::string_view source);
+    /// source_name is carried on every diagnostic; pass the file path when
+    /// the text was read from disk.
+    [[nodiscard]] static Stylesheet parse(std::string_view source,
+                                          std::string_view source_name = {});
 
 private:
-    explicit FjssParser(std::string_view source);
+    FjssParser(std::string_view source, std::string_view source_name);
 
     Stylesheet parse_stylesheet();
     /// One declaration block may be shared by several comma-separated
@@ -60,8 +83,21 @@ private:
     [[nodiscard]] char peek() const;
     char advance();
 
+    struct SourcePosition {
+        uint32_t line;
+        uint32_t column;
+    };
+    /// Line and column of a byte offset, counted on demand. Diagnostics are
+    /// rare enough that a scan per report beats threading counters through
+    /// every advance().
+    [[nodiscard]] SourcePosition position_at(size_t offset) const;
+    void diagnose(size_t offset, FjssSeverity severity, std::string message);
+    void log_diagnostics() const;
+
     std::string_view source_;
+    std::string source_name_;
     size_t pos_{0};
+    Stylesheet sheet_;
 };
 
 } // namespace fjell

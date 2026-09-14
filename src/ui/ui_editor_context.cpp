@@ -717,8 +717,31 @@ void UiEditorContext::draw_node_tree(UiNode* node) {
 
 // ── Inspector Panel ──────────────────────────────────────────────────────
 
+void UiEditorContext::draw_stylesheet_problems() {
+    if (!preview_ui_) return;
+    const auto& problems = preview_ui_->stylesheet().diagnostics;
+    if (problems.empty()) return;
+
+    ImGui::SeparatorText("Problems");
+    for (const auto& d : problems) {
+        ImVec4 color = d.severity == FjssSeverity::error
+            ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f)
+            : ImVec4(1.0f, 0.8f, 0.3f, 1.0f);
+        auto file = fs::path(d.source).filename().string();
+        ImGui::TextColored(color, "%s:%u:%u", file.c_str(), d.line, d.column);
+        ImGui::SameLine();
+        ImGui::TextWrapped("%s", d.message.c_str());
+    }
+    ImGui::Spacing();
+}
+
 void UiEditorContext::draw_inspector() {
     if (ImGui::Begin(ctx_title("UI Inspector").c_str())) {
+        // Stylesheet problems show up next to the UI they broke, even with
+        // nothing selected — a typo in a hot-reloaded sheet should be the
+        // first thing visible, not something to dig out of the console.
+        draw_stylesheet_problems();
+
         if (!selected_node_) {
             ImGui::TextDisabled("Select an element in the tree or preview");
             ImGui::End();

@@ -128,7 +128,7 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             std::ifstream fjss_file(fjss_path);
             std::ostringstream fjss_ss;
             fjss_ss << fjss_file.rdbuf();
-            auto widget_sheet = FjssParser::parse(fjss_ss.str());
+            auto widget_sheet = FjssParser::parse(fjss_ss.str(), fjss_path);
 
             for (auto& rule : widget_sheet.rules) {
                 rule.selector.parent = scope_class;
@@ -136,6 +136,9 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             stylesheet.rules.insert(stylesheet.rules.end(),
                                     widget_sheet.rules.begin(),
                                     widget_sheet.rules.end());
+            stylesheet.diagnostics.insert(stylesheet.diagnostics.end(),
+                                          widget_sheet.diagnostics.begin(),
+                                          widget_sheet.diagnostics.end());
         }
 
         child.is_widget = true;
