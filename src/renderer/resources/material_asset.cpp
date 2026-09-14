@@ -70,4 +70,45 @@ void save_material_asset(const std::string& path, const MaterialAsset& asset) {
     f << j.dump(4) << "\n";
 }
 
+namespace {
+
+constexpr const char* METALLIC_KEY = "metallic_factor";
+constexpr const char* ROUGHNESS_KEY = "roughness_factor";
+constexpr const char* UV_SCALE_KEY = "uv_scale";
+
+float scalar_or(const MaterialAsset& asset, const char* key, float fallback) {
+    auto it = asset.params.find(key);
+    return it != asset.params.end() && !it->second.empty() ? it->second[0] : fallback;
+}
+
+void set_or_erase(MaterialAsset& asset, const char* key,
+                  std::vector<float> value, const std::vector<float>& default_value) {
+    if (value == default_value) {
+        asset.params.erase(key);
+    } else {
+        asset.params[key] = std::move(value);
+    }
+}
+
+} // namespace
+
+MaterialBaseParams read_base_params(const MaterialAsset& asset) {
+    MaterialBaseParams base;
+    base.metallic_factor = scalar_or(asset, METALLIC_KEY, base.metallic_factor);
+    base.roughness_factor = scalar_or(asset, ROUGHNESS_KEY, base.roughness_factor);
+    auto uv = asset.params.find(UV_SCALE_KEY);
+    if (uv != asset.params.end() && uv->second.size() >= 2) {
+        base.uv_scale = {uv->second[0], uv->second[1]};
+    }
+    return base;
+}
+
+void write_base_params(MaterialAsset& asset, const MaterialBaseParams& base) {
+    const MaterialBaseParams defaults;
+    set_or_erase(asset, METALLIC_KEY, {base.metallic_factor}, {defaults.metallic_factor});
+    set_or_erase(asset, ROUGHNESS_KEY, {base.roughness_factor}, {defaults.roughness_factor});
+    set_or_erase(asset, UV_SCALE_KEY, {base.uv_scale.x, base.uv_scale.y},
+                 {defaults.uv_scale.x, defaults.uv_scale.y});
+}
+
 } // namespace fjell

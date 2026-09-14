@@ -133,6 +133,11 @@ void MaterialEditorContext::save_material() {
             decode_uniform_from_gpu(u, vals);
             asset_.params[u.name] = vals;
         }
+        write_base_params(asset_, {
+            .metallic_factor = gpu.base_params[4],
+            .roughness_factor = gpu.base_params[5],
+            .uv_scale = {gpu.base_params[7], gpu.base_params[8]},
+        });
     }
 
     save_material_asset(fjmat_abs_path_, asset_);

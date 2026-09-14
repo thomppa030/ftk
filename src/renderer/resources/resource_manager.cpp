@@ -380,10 +380,10 @@ Result<MaterialHandle> ResourceManager::load_material_asset(const std::string& p
     // Compared by what actually reached the GPU rather than what the asset
     // named: a texture that failed to load is the black default too.
     params.has_emissive_texture = (em_idx != bindless_index(default_black_handle_));
-    auto uv_it = asset.params.find("uv_scale");
-    if (uv_it != asset.params.end() && uv_it->second.size() >= 2) {
-        params.uv_scale = {uv_it->second[0], uv_it->second[1]};
-    }
+    const MaterialBaseParams base = read_base_params(asset);
+    params.metallic_factor = base.metallic_factor;
+    params.roughness_factor = base.roughness_factor;
+    params.uv_scale = base.uv_scale;
     auto material = std::make_unique<Material>(0, bc_idx, nm_idx, mr_idx, em_idx, params);
     material->set_pipeline_id(pipeline_id);
     material->set_shader_path(asset.shader);

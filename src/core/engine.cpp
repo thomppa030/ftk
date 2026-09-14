@@ -838,9 +838,6 @@ void Engine::save_material_assets() {
         if (pid >= cache->shader_count()) continue;
 
         const auto& meta = cache->metadata(pid);
-        uint32_t param_count = mesh->material->custom_param_count();
-        if (param_count == 0) continue;
-
         const auto& gpu = bindless.material_at(mesh->material->material_id());
 
         // Read current params back from CPU buffer
@@ -866,14 +863,13 @@ void Engine::save_material_assets() {
             asset.params[u.name] = vals;
         }
 
-        // Save uv_scale from base params
-        float uv_x = gpu.base_params[7];
-        float uv_y = gpu.base_params[8];
-        if (uv_x != 1.0f || uv_y != 1.0f) {
-            asset.params["uv_scale"] = {uv_x, uv_y};
-        } else {
-            asset.params.erase("uv_scale");
-        }
+        // The inspector edits the base factors on the GPU row, so that is
+        // where the current values are.
+        write_base_params(asset, {
+            .metallic_factor = gpu.base_params[4],
+            .roughness_factor = gpu.base_params[5],
+            .uv_scale = {gpu.base_params[7], gpu.base_params[8]},
+        });
 
         save_material_asset(mat_path, asset);
     }
