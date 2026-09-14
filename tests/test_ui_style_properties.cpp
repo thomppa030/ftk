@@ -4,6 +4,8 @@
 #include "ui/game_ui/ui_node.hpp"
 #include "core/log.hpp"
 
+#include "ui_length_printer.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
@@ -71,6 +73,9 @@ TEST_CASE("Non-composite members are typed for their kind", "[props]") {
         case UiPropertyKind::number:
             REQUIRE(std::holds_alternative<float UiComputedStyle::*>(desc.member));
             break;
+        case UiPropertyKind::length:
+            REQUIRE(std::holds_alternative<UiLength UiComputedStyle::*>(desc.member));
+            break;
         case UiPropertyKind::color:
             REQUIRE(std::holds_alternative<UiColor UiComputedStyle::*>(desc.member));
             break;
@@ -114,14 +119,14 @@ TEST_CASE("Inherited properties copy across", "[props]") {
     UiComputedStyle parent;
     parent.color = {0.1f, 0.2f, 0.3f, 1.0f};
     parent.font_size = 33.0f;
-    parent.width = 500.0f;
+    parent.width = UiLength::pixels(500.0f);
     UiComputedStyle child;
     for (const auto& desc : ui_style_properties()) {
         if (desc.inherited) ui_style_copy(child, parent, desc);
     }
     REQUIRE(child.font_size == Catch::Approx(33.0f));
     REQUIRE(child.color.g == Catch::Approx(0.2f));
-    REQUIRE(child.width == Catch::Approx(-1.0f)); // not inherited
+    REQUIRE(child.width.is_auto()); // not inherited
 }
 
 TEST_CASE("find returns null for unknown names", "[props]") {

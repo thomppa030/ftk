@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -126,6 +127,10 @@ private:
     /// Reports a property the engine does not know, or a keyword value the
     /// property does not accept.
     void validate_declaration(size_t offset, const std::string& name, const std::string& value);
+    /// Each token must be a number in px or %, or `auto` where the property
+    /// takes it. Other units have no meaning to the layout engine yet.
+    void validate_lengths(size_t offset, const struct UiPropertyDescriptor& desc,
+                          const std::string& value);
 
     void skip_whitespace();
     void skip_comment();

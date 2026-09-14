@@ -2,6 +2,8 @@
 #include "ui/game_ui/fjss_parser.hpp"
 #include "core/log.hpp"
 
+#include "ui_length_printer.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
@@ -37,7 +39,7 @@ TEST_CASE("Tag selector matches", "[style]") {
     auto sheet = FjssParser::parse("div { width: 100; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(100.0f));
+    REQUIRE(root->style.width == UiLength::pixels(100.0f));
 }
 
 TEST_CASE("Tag selector doesn't match wrong tag", "[style]") {
@@ -45,7 +47,7 @@ TEST_CASE("Tag selector doesn't match wrong tag", "[style]") {
     auto sheet = FjssParser::parse("div { width: 100; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(-1.0f)); // default auto
+    REQUIRE(root->style.width.is_auto()); // default auto
 }
 
 TEST_CASE("Class selector matches", "[style]") {
@@ -53,7 +55,7 @@ TEST_CASE("Class selector matches", "[style]") {
     auto sheet = FjssParser::parse(".panel { width: 200; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(200.0f));
+    REQUIRE(root->style.width == UiLength::pixels(200.0f));
 }
 
 TEST_CASE("Class selector doesn't match wrong class", "[style]") {
@@ -61,7 +63,7 @@ TEST_CASE("Class selector doesn't match wrong class", "[style]") {
     auto sheet = FjssParser::parse(".panel { width: 200; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+    REQUIRE(root->style.width.is_auto());
 }
 
 TEST_CASE("ID selector matches", "[style]") {
@@ -79,7 +81,7 @@ TEST_CASE("Descendant selector matches ancestor", "[style]") {
     auto sheet = FjssParser::parse("panel .label { width: 50; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(child->style.width == Catch::Approx(50.0f));
+    REQUIRE(child->style.width == UiLength::pixels(50.0f));
 }
 
 TEST_CASE("Descendant selector doesn't match without ancestor", "[style]") {
@@ -89,7 +91,7 @@ TEST_CASE("Descendant selector doesn't match without ancestor", "[style]") {
     auto sheet = FjssParser::parse("panel .label { width: 50; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(child->style.width == Catch::Approx(-1.0f));
+    REQUIRE(child->style.width.is_auto());
 }
 
 TEST_CASE("Descendant selector matches deep ancestor", "[style]") {
@@ -100,7 +102,7 @@ TEST_CASE("Descendant selector matches deep ancestor", "[style]") {
     auto sheet = FjssParser::parse("panel .label { width: 75; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(deep->style.width == Catch::Approx(75.0f));
+    REQUIRE(deep->style.width == UiLength::pixels(75.0f));
 }
 
 // --- Pseudo-class matching ---
@@ -158,7 +160,7 @@ TEST_CASE("Higher specificity overrides lower", "[style]") {
     )");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(30.0f)); // id wins
+    REQUIRE(root->style.width == UiLength::pixels(30.0f)); // id wins
 }
 
 TEST_CASE("Equal specificity: last rule wins", "[style]") {
@@ -172,7 +174,7 @@ TEST_CASE("Equal specificity: last rule wins", "[style]") {
     resolver.resolve(*root, sheet);
     // Both have specificity 10. Sort is stable for equal specificity,
     // so .b (later in rules) is applied after .a.
-    REQUIRE(root->style.width == Catch::Approx(20.0f));
+    REQUIRE(root->style.width == UiLength::pixels(20.0f));
 }
 
 TEST_CASE("Pseudo-class adds specificity", "[style]") {
@@ -187,7 +189,7 @@ TEST_CASE("Pseudo-class adds specificity", "[style]") {
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
     // .btn:hover(20) > .btn(10), so hover wins regardless of rule order
-    REQUIRE(root->style.width == Catch::Approx(200.0f));
+    REQUIRE(root->style.width == UiLength::pixels(200.0f));
 }
 
 // --- Inheritance ---
@@ -231,7 +233,7 @@ TEST_CASE("Width does NOT inherit", "[style]") {
     auto sheet = FjssParser::parse("div { width: 100; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(child->style.width == Catch::Approx(-1.0f)); // auto, not 100
+    REQUIRE(child->style.width.is_auto()); // auto, not 100
 }
 
 TEST_CASE("Child rule overrides inherited value", "[style]") {
@@ -268,7 +270,7 @@ TEST_CASE("Inline style-* overrides stylesheet", "[style]") {
     auto sheet = FjssParser::parse(".panel { width: 100; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(999.0f));
+    REQUIRE(root->style.width == UiLength::pixels(999.0f));
 }
 
 TEST_CASE("Inline style-* with no stylesheet", "[style]") {
@@ -338,10 +340,10 @@ TEST_CASE("Margin shorthand: 1 value", "[style]") {
     auto sheet = FjssParser::parse("div { margin: 10; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.margin.top == Catch::Approx(10.0f));
-    REQUIRE(root->style.margin.right == Catch::Approx(10.0f));
-    REQUIRE(root->style.margin.bottom == Catch::Approx(10.0f));
-    REQUIRE(root->style.margin.left == Catch::Approx(10.0f));
+    REQUIRE(root->style.margin.top == UiLength::pixels(10.0f));
+    REQUIRE(root->style.margin.right == UiLength::pixels(10.0f));
+    REQUIRE(root->style.margin.bottom == UiLength::pixels(10.0f));
+    REQUIRE(root->style.margin.left == UiLength::pixels(10.0f));
 }
 
 TEST_CASE("Margin shorthand: 2 values (vertical horizontal)", "[style]") {
@@ -349,10 +351,10 @@ TEST_CASE("Margin shorthand: 2 values (vertical horizontal)", "[style]") {
     auto sheet = FjssParser::parse("div { margin: 10 20; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.margin.top == Catch::Approx(10.0f));
-    REQUIRE(root->style.margin.right == Catch::Approx(20.0f));
-    REQUIRE(root->style.margin.bottom == Catch::Approx(10.0f));
-    REQUIRE(root->style.margin.left == Catch::Approx(20.0f));
+    REQUIRE(root->style.margin.top == UiLength::pixels(10.0f));
+    REQUIRE(root->style.margin.right == UiLength::pixels(20.0f));
+    REQUIRE(root->style.margin.bottom == UiLength::pixels(10.0f));
+    REQUIRE(root->style.margin.left == UiLength::pixels(20.0f));
 }
 
 TEST_CASE("Margin shorthand: 4 values", "[style]") {
@@ -360,10 +362,10 @@ TEST_CASE("Margin shorthand: 4 values", "[style]") {
     auto sheet = FjssParser::parse("div { margin: 1 2 3 4; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.margin.top == Catch::Approx(1.0f));
-    REQUIRE(root->style.margin.right == Catch::Approx(2.0f));
-    REQUIRE(root->style.margin.bottom == Catch::Approx(3.0f));
-    REQUIRE(root->style.margin.left == Catch::Approx(4.0f));
+    REQUIRE(root->style.margin.top == UiLength::pixels(1.0f));
+    REQUIRE(root->style.margin.right == UiLength::pixels(2.0f));
+    REQUIRE(root->style.margin.bottom == UiLength::pixels(3.0f));
+    REQUIRE(root->style.margin.left == UiLength::pixels(4.0f));
 }
 
 TEST_CASE("Individual margin sides", "[style]") {
@@ -371,9 +373,9 @@ TEST_CASE("Individual margin sides", "[style]") {
     auto sheet = FjssParser::parse("div { margin-top: 5; margin-left: 15; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.margin.top == Catch::Approx(5.0f));
-    REQUIRE(root->style.margin.left == Catch::Approx(15.0f));
-    REQUIRE(root->style.margin.right == Catch::Approx(0.0f));
+    REQUIRE(root->style.margin.top == UiLength::pixels(5.0f));
+    REQUIRE(root->style.margin.left == UiLength::pixels(15.0f));
+    REQUIRE(root->style.margin.right == UiLength::pixels(0.0f));
 }
 
 TEST_CASE("Border-radius shorthand: 1 value", "[style]") {
@@ -420,8 +422,8 @@ TEST_CASE("Position absolute", "[style]") {
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
     REQUIRE(root->style.position == UiPosition::absolute);
-    REQUIRE(root->style.inset.top == Catch::Approx(10.0f));
-    REQUIRE(root->style.inset.left == Catch::Approx(20.0f));
+    REQUIRE(root->style.inset.top == UiLength::pixels(10.0f));
+    REQUIRE(root->style.inset.left == UiLength::pixels(20.0f));
 }
 
 TEST_CASE("Auto width parses as -1", "[style]") {
@@ -429,7 +431,7 @@ TEST_CASE("Auto width parses as -1", "[style]") {
     auto sheet = FjssParser::parse("div { width: auto; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+    REQUIRE(root->style.width.is_auto());
 }
 
 TEST_CASE("Gap shorthand sets both row and column gap", "[style]") {
@@ -437,8 +439,8 @@ TEST_CASE("Gap shorthand sets both row and column gap", "[style]") {
     auto sheet = FjssParser::parse("div { gap: 8; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.row_gap == Catch::Approx(8.0f));
-    REQUIRE(root->style.column_gap == Catch::Approx(8.0f));
+    REQUIRE(root->style.row_gap == UiLength::pixels(8.0f));
+    REQUIRE(root->style.column_gap == UiLength::pixels(8.0f));
 }
 
 TEST_CASE("Border shorthand parses width and color", "[style]") {
@@ -517,8 +519,8 @@ TEST_CASE("Full cascade: tag + class + id + pseudo + inheritance + inline", "[st
     REQUIRE(root->style.opacity == Catch::Approx(0.9f));
 
     // Slot: class rule sets dimensions + border
-    REQUIRE(slot->style.width == Catch::Approx(48.0f));
-    REQUIRE(slot->style.height == Catch::Approx(48.0f));
+    REQUIRE(slot->style.width == UiLength::pixels(48.0f));
+    REQUIRE(slot->style.height == UiLength::pixels(48.0f));
     REQUIRE(slot->style.border_width == Catch::Approx(2.0f));
 
     // Slot: hover pseudo overrides border-color
@@ -542,7 +544,7 @@ TEST_CASE("Empty stylesheet leaves defaults", "[style]") {
     Stylesheet empty;
     StyleResolver resolver;
     resolver.resolve(*root, empty);
-    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+    REQUIRE(root->style.width.is_auto());
     REQUIRE(root->style.opacity == Catch::Approx(1.0f));
     REQUIRE(root->style.display == UiDisplay::flex);
 }
@@ -552,7 +554,7 @@ TEST_CASE("No matching rules leaves defaults", "[style]") {
     auto sheet = FjssParser::parse(".nonexistent { width: 999; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+    REQUIRE(root->style.width.is_auto());
 }
 
 // --- Stability & ordering edge cases ---
@@ -571,7 +573,7 @@ TEST_CASE("Equal specificity: rule order must be preserved (stable sort)", "[sty
     auto sheet = FjssParser::parse(css);
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(49.0f));
+    REQUIRE(root->style.width == UiLength::pixels(49.0f));
 }
 
 TEST_CASE("Equal specificity with interleaved properties: last per-property wins", "[style][edge]") {
@@ -588,9 +590,9 @@ TEST_CASE("Equal specificity with interleaved properties: last per-property wins
     resolver.resolve(*root, sheet);
 
     // width: second rule (20) should win over first (10)
-    REQUIRE(root->style.width == Catch::Approx(20.0f));
+    REQUIRE(root->style.width == UiLength::pixels(20.0f));
     // height: only first rule sets it
-    REQUIRE(root->style.height == Catch::Approx(100.0f));
+    REQUIRE(root->style.height == UiLength::pixels(100.0f));
     // opacity: only second rule sets it
     REQUIRE(root->style.opacity == Catch::Approx(0.5f));
 }
@@ -605,13 +607,13 @@ TEST_CASE("Tag+class selector requires both to match", "[style][edge]") {
     StyleResolver resolver;
 
     resolver.resolve(*span_panel, sheet);
-    REQUIRE(span_panel->style.width == Catch::Approx(-1.0f)); // no match
+    REQUIRE(span_panel->style.width.is_auto()); // no match
 
     resolver.resolve(*div_panel, sheet);
-    REQUIRE(div_panel->style.width == Catch::Approx(42.0f)); // match
+    REQUIRE(div_panel->style.width == UiLength::pixels(42.0f)); // match
 
     resolver.resolve(*div_only, sheet);
-    REQUIRE(div_only->style.width == Catch::Approx(-1.0f)); // no match (no class)
+    REQUIRE(div_only->style.width.is_auto()); // no match (no class)
 }
 
 TEST_CASE("Bare ancestor name is a tag, not a class or id", "[style][selector]") {
@@ -625,8 +627,8 @@ TEST_CASE("Bare ancestor name is a tag, not a class or id", "[style][selector]")
     StyleResolver resolver;
     resolver.resolve(*by_class, sheet);
     resolver.resolve(*by_id, sheet);
-    REQUIRE(c1->style.width == Catch::Approx(-1.0f));
-    REQUIRE(c2->style.width == Catch::Approx(-1.0f));
+    REQUIRE(c1->style.width.is_auto());
+    REQUIRE(c2->style.width.is_auto());
 }
 
 TEST_CASE("Class and id ancestors match their own kind", "[style][selector]") {
@@ -635,11 +637,11 @@ TEST_CASE("Class and id ancestors match their own kind", "[style][selector]") {
     StyleResolver resolver;
 
     resolver.resolve(*root, FjssParser::parse(".panel .label { width: 1; }"));
-    REQUIRE(child->style.width == Catch::Approx(1.0f));
+    REQUIRE(child->style.width == UiLength::pixels(1.0f));
     resolver.resolve(*root, FjssParser::parse("#hud .label { width: 2; }"));
-    REQUIRE(child->style.width == Catch::Approx(2.0f));
+    REQUIRE(child->style.width == UiLength::pixels(2.0f));
     resolver.resolve(*root, FjssParser::parse(".other .label { width: 3; }"));
-    REQUIRE(child->style.width == Catch::Approx(-1.0f));
+    REQUIRE(child->style.width.is_auto());
 }
 
 TEST_CASE("Multi-class compound needs every class and outranks a single one", "[style][selector]") {
@@ -653,8 +655,8 @@ TEST_CASE("Multi-class compound needs every class and outranks a single one", "[
     resolver.resolve(*both, sheet);
     resolver.resolve(*one, sheet);
     // Two classes beat one even though the single-class rule comes later
-    REQUIRE(both->style.width == Catch::Approx(1.0f));
-    REQUIRE(one->style.width == Catch::Approx(2.0f));
+    REQUIRE(both->style.width == UiLength::pixels(1.0f));
+    REQUIRE(one->style.width == UiLength::pixels(2.0f));
 }
 
 TEST_CASE("Child combinator matches only the direct parent", "[style][selector]") {
@@ -666,8 +668,8 @@ TEST_CASE("Child combinator matches only the direct parent", "[style][selector]"
     auto sheet = FjssParser::parse(".a > .b { width: 5; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(direct->style.width == Catch::Approx(5.0f));
-    REQUIRE(grand->style.width == Catch::Approx(-1.0f));
+    REQUIRE(direct->style.width == UiLength::pixels(5.0f));
+    REQUIRE(grand->style.width.is_auto());
 }
 
 TEST_CASE("Every step of a deep chain must be present", "[style][selector]") {
@@ -679,8 +681,8 @@ TEST_CASE("Every step of a deep chain must be present", "[style][selector]") {
     auto sheet = FjssParser::parse(".a .b .c { width: 9; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(c_under_b->style.width == Catch::Approx(9.0f));
-    REQUIRE(c_under_a->style.width == Catch::Approx(-1.0f));
+    REQUIRE(c_under_b->style.width == UiLength::pixels(9.0f));
+    REQUIRE(c_under_a->style.width.is_auto());
 }
 
 TEST_CASE("Mixed combinators backtrack past the nearest candidate", "[style][selector]") {
@@ -694,7 +696,7 @@ TEST_CASE("Mixed combinators backtrack past the nearest candidate", "[style][sel
     auto sheet = FjssParser::parse(".a > .b .c { width: 4; }");
     StyleResolver resolver;
     resolver.resolve(*a, sheet);
-    REQUIRE(c->style.width == Catch::Approx(4.0f));
+    REQUIRE(c->style.width == UiLength::pixels(4.0f));
 }
 
 TEST_CASE("Calling resolve resets and reapplies from scratch", "[style][edge]") {
@@ -705,13 +707,13 @@ TEST_CASE("Calling resolve resets and reapplies from scratch", "[style][edge]") 
 
     StyleResolver resolver;
     resolver.resolve(*root, sheet1);
-    REQUIRE(root->style.width == Catch::Approx(100.0f));
-    REQUIRE(root->style.height == Catch::Approx(-1.0f));
+    REQUIRE(root->style.width == UiLength::pixels(100.0f));
+    REQUIRE(root->style.height.is_auto());
 
     resolver.resolve(*root, sheet2);
     // width from first resolve is reset (styles start fresh each resolve)
-    REQUIRE(root->style.width == Catch::Approx(-1.0f));
-    REQUIRE(root->style.height == Catch::Approx(200.0f));
+    REQUIRE(root->style.width.is_auto());
+    REQUIRE(root->style.height == UiLength::pixels(200.0f));
 }
 
 TEST_CASE("resolve_subtree resets non-inherited properties", "[style][edge]") {
@@ -720,12 +722,12 @@ TEST_CASE("resolve_subtree resets non-inherited properties", "[style][edge]") {
     auto sheet = FjssParser::parse(".box { width: 100; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.width == Catch::Approx(100.0f));
+    REQUIRE(root->style.width == UiLength::pixels(100.0f));
 
     // Re-resolve with empty sheet — should reset width to default
     Stylesheet empty;
     resolver.resolve_subtree(*root, empty);
-    REQUIRE(root->style.width == Catch::Approx(-1.0f));
+    REQUIRE(root->style.width.is_auto());
 }
 
 TEST_CASE("Hover rule doesn't leak into non-hovered sibling", "[style][edge]") {
@@ -776,8 +778,8 @@ TEST_CASE("Multiple classes: rules for each class both apply", "[style][edge]") 
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
 
-    REQUIRE(root->style.width == Catch::Approx(200.0f));
-    REQUIRE(root->style.height == Catch::Approx(300.0f));
+    REQUIRE(root->style.width == UiLength::pixels(200.0f));
+    REQUIRE(root->style.height == UiLength::pixels(300.0f));
 }
 
 TEST_CASE("Multiple classes: conflicting rules, last class rule wins", "[style][edge]") {
@@ -928,10 +930,10 @@ TEST_CASE("Padding shorthand: 3 values (top, horizontal, bottom)", "[style][edge
     auto sheet = FjssParser::parse("div { padding: 10 20 30; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.padding.top == Catch::Approx(10.0f));
-    REQUIRE(root->style.padding.right == Catch::Approx(20.0f));
-    REQUIRE(root->style.padding.bottom == Catch::Approx(30.0f));
-    REQUIRE(root->style.padding.left == Catch::Approx(20.0f)); // same as right
+    REQUIRE(root->style.padding.top == UiLength::pixels(10.0f));
+    REQUIRE(root->style.padding.right == UiLength::pixels(20.0f));
+    REQUIRE(root->style.padding.bottom == UiLength::pixels(30.0f));
+    REQUIRE(root->style.padding.left == UiLength::pixels(20.0f)); // same as right
 }
 
 // --- Overflow / flex properties ---
@@ -982,10 +984,10 @@ TEST_CASE("Min/max width and height", "[style][edge]") {
     auto sheet = FjssParser::parse("div { min-width: 50; max-width: 300; min-height: 20; max-height: 400; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.min_width == Catch::Approx(50.0f));
-    REQUIRE(root->style.max_width == Catch::Approx(300.0f));
-    REQUIRE(root->style.min_height == Catch::Approx(20.0f));
-    REQUIRE(root->style.max_height == Catch::Approx(400.0f));
+    REQUIRE(root->style.min_width == UiLength::pixels(50.0f));
+    REQUIRE(root->style.max_width == UiLength::pixels(300.0f));
+    REQUIRE(root->style.min_height == UiLength::pixels(20.0f));
+    REQUIRE(root->style.max_height == UiLength::pixels(400.0f));
 }
 
 // --- Selector: combined hovered + active ---
@@ -1018,16 +1020,16 @@ TEST_CASE("Selector with tag + class + id all required", "[style][edge]") {
 
     StyleResolver resolver;
     resolver.resolve(*matching, sheet);
-    REQUIRE(matching->style.width == Catch::Approx(42.0f));
+    REQUIRE(matching->style.width == UiLength::pixels(42.0f));
 
     resolver.resolve(*wrong_tag, sheet);
-    REQUIRE(wrong_tag->style.width == Catch::Approx(-1.0f));
+    REQUIRE(wrong_tag->style.width.is_auto());
 
     resolver.resolve(*wrong_class, sheet);
-    REQUIRE(wrong_class->style.width == Catch::Approx(-1.0f));
+    REQUIRE(wrong_class->style.width.is_auto());
 
     resolver.resolve(*wrong_id, sheet);
-    REQUIRE(wrong_id->style.width == Catch::Approx(-1.0f));
+    REQUIRE(wrong_id->style.width.is_auto());
 }
 
 TEST_CASE("Many rules resolved correctly", "[style]") {
@@ -1042,8 +1044,8 @@ TEST_CASE("Many rules resolved correctly", "[style]") {
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
 
-    REQUIRE(root->style.width == Catch::Approx(10.0f));
-    REQUIRE(root->style.height == Catch::Approx(20.0f));
+    REQUIRE(root->style.width == UiLength::pixels(10.0f));
+    REQUIRE(root->style.height == UiLength::pixels(20.0f));
     REQUIRE(root->style.opacity == Catch::Approx(0.5f));
 }
 
@@ -1054,8 +1056,8 @@ TEST_CASE("Longhand after shorthand overrides one edge", "[style][order]") {
     auto sheet = FjssParser::parse(".a { margin: 10; margin-left: 20; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.margin.left == Catch::Approx(20.0f));
-    REQUIRE(root->style.margin.top == Catch::Approx(10.0f));
+    REQUIRE(root->style.margin.left == UiLength::pixels(20.0f));
+    REQUIRE(root->style.margin.top == UiLength::pixels(10.0f));
 }
 
 TEST_CASE("Shorthand after longhand resets the edge", "[style][order]") {
@@ -1063,7 +1065,7 @@ TEST_CASE("Shorthand after longhand resets the edge", "[style][order]") {
     auto sheet = FjssParser::parse(".a { margin-left: 20; margin: 10; }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
-    REQUIRE(root->style.margin.left == Catch::Approx(10.0f));
+    REQUIRE(root->style.margin.left == UiLength::pixels(10.0f));
 }
 
 TEST_CASE("Border shorthand and border-color apply in authored order", "[style][order]") {
@@ -1089,4 +1091,50 @@ TEST_CASE("resolve_subtree re-resolves descendants so inherited values follow", 
     // The text has no rule of its own; its color is inherited and must
     // track the parent's hover state, not the style from the last full resolve.
     REQUIRE(child->style.color.r == Catch::Approx(1.0f));
+}
+
+// --- Units ---
+
+TEST_CASE("Percent, px and auto parse into lengths", "[style][units]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { width: 50%; height: 24px; min-width: 10; margin: auto 4 2% 0; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == UiLength::percent(50.0f));
+    REQUIRE(root->style.height == UiLength::pixels(24.0f));
+    REQUIRE(root->style.min_width == UiLength::pixels(10.0f));
+    REQUIRE(root->style.max_height.is_auto());
+    REQUIRE(root->style.margin.top.is_auto());
+    REQUIRE(root->style.margin.right == UiLength::pixels(4.0f));
+    REQUIRE(root->style.margin.bottom == UiLength::percent(2.0f));
+    REQUIRE(root->style.margin.left == UiLength::pixels(0.0f));
+}
+
+TEST_CASE("auto on a property without auto leaves it unset", "[style][units]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { min-width: 10; min-width: auto; padding: auto; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.min_width == UiLength::pixels(10.0f));
+    REQUIRE(root->style.padding.top == UiLength::pixels(0.0f));
+}
+
+TEST_CASE("top: 0 is a real inset, unset stays auto", "[style][units]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { position: absolute; top: 0; left: 8; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.inset.top == UiLength::pixels(0.0f));
+    REQUIRE(root->style.inset.left == UiLength::pixels(8.0f));
+    REQUIRE(root->style.inset.right.is_auto());
+    REQUIRE(root->style.inset.bottom.is_auto());
+}
+
+TEST_CASE("gap accepts a percentage", "[style][units]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { gap: 5%; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.row_gap == UiLength::percent(5.0f));
+    REQUIRE(root->style.column_gap == UiLength::percent(5.0f));
 }

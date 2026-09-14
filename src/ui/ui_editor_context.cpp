@@ -586,8 +586,8 @@ void UiEditorContext::draw_node_preview(UiNode* node, ImDrawList* draw_list,
             UiNode* layout_node = node->parent ? node->parent : node;
             auto& lr = layout_node->layout_rect;
             ImVec2 text_pos = {
-                origin.x + (lr.x + layout_node->style.padding.left) * scale,
-                origin.y + (lr.y + layout_node->style.padding.top) * scale
+                origin.x + (lr.x + layout_node->layout_padding.left) * scale,
+                origin.y + (lr.y + layout_node->layout_padding.top) * scale
             };
             draw_list->AddText(nullptr, font_size, text_pos, text_col,
                                node->text_content.c_str());
@@ -599,7 +599,7 @@ void UiEditorContext::draw_node_preview(UiNode* node, ImDrawList* draw_list,
         draw_list->AddRect(p0, p1, IM_COL32(100, 180, 255, 200), 0, 0, 2.0f);
 
         // Margin overlay (orange)
-        auto& m = node->style.margin;
+        auto& m = node->layout_margin;
         if (m.top > 0 || m.right > 0 || m.bottom > 0 || m.left > 0) {
             ImVec2 mp0 = {p0.x - m.left * scale, p0.y - m.top * scale};
             ImVec2 mp1 = {p1.x + m.right * scale, p1.y + m.bottom * scale};
@@ -607,7 +607,7 @@ void UiEditorContext::draw_node_preview(UiNode* node, ImDrawList* draw_list,
         }
 
         // Padding overlay (green)
-        auto& pd = node->style.padding;
+        auto& pd = node->layout_padding;
         if (pd.top > 0 || pd.right > 0 || pd.bottom > 0 || pd.left > 0) {
             ImVec2 pp0 = {p0.x + pd.left * scale, p0.y + pd.top * scale};
             ImVec2 pp1 = {p1.x - pd.right * scale, p1.y - pd.bottom * scale};
@@ -870,9 +870,9 @@ void UiEditorContext::draw_inspector() {
             ImGui::Text("Position: %.0f, %.0f", r.x, r.y);
             ImGui::Text("Size: %.0f x %.0f", r.w, r.h);
 
-            auto& m = node->style.margin;
+            auto& m = node->layout_margin;
             ImGui::Text("Margin: %.0f %.0f %.0f %.0f", m.top, m.right, m.bottom, m.left);
-            auto& p = node->style.padding;
+            auto& p = node->layout_padding;
             ImGui::Text("Padding: %.0f %.0f %.0f %.0f", p.top, p.right, p.bottom, p.left);
         }
 
@@ -1090,26 +1090,26 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
     }
 
     if (ImGui::TreeNodeEx("Dimensions", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_float(node, "width", "width", s.width, 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "height", "height", s.height, 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "min-width", "min-width", s.min_width, 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "min-height", "min-height", s.min_height, 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "max-width", "max-width", s.max_width, 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "max-height", "max-height", s.max_height, 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "width", "width", s.width.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "height", "height", s.height.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "min-width", "min-width", s.min_width.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "min-height", "min-height", s.min_height.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "max-width", "max-width", s.max_width.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
+        style_edit_float(node, "max-height", "max-height", s.max_height.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
         ImGui::TreePop();
     }
 
     if (ImGui::TreeNodeEx("Spacing", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_float(node, "margin-top", "margin-top", s.margin.top, 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "margin-right", "margin-right", s.margin.right, 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "margin-bottom", "margin-bottom", s.margin.bottom, 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "margin-left", "margin-left", s.margin.left, 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "padding-top", "padding-top", s.padding.top, 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "padding-right", "padding-right", s.padding.right, 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "padding-bottom", "padding-bottom", s.padding.bottom, 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "padding-left", "padding-left", s.padding.left, 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "row-gap", "row-gap", s.row_gap, 1.0f, 0.0f, 256.0f);
-        style_edit_float(node, "column-gap", "column-gap", s.column_gap, 1.0f, 0.0f, 256.0f);
+        style_edit_float(node, "margin-top", "margin-top", s.margin.top.px_or(0.0f), 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "margin-right", "margin-right", s.margin.right.px_or(0.0f), 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "margin-bottom", "margin-bottom", s.margin.bottom.px_or(0.0f), 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "margin-left", "margin-left", s.margin.left.px_or(0.0f), 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "padding-top", "padding-top", s.padding.top.px_or(0.0f), 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "padding-right", "padding-right", s.padding.right.px_or(0.0f), 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "padding-bottom", "padding-bottom", s.padding.bottom.px_or(0.0f), 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "padding-left", "padding-left", s.padding.left.px_or(0.0f), 1.0f, 0.0f, 512.0f);
+        style_edit_float(node, "row-gap", "row-gap", s.row_gap.px_or(0.0f), 1.0f, 0.0f, 256.0f);
+        style_edit_float(node, "column-gap", "column-gap", s.column_gap.px_or(0.0f), 1.0f, 0.0f, 256.0f);
         ImGui::TreePop();
     }
 
@@ -1551,7 +1551,7 @@ void UiEditorContext::draw_layout_overlay(UiNode* node, ImDrawList* draw_list,
     ImVec2 p1 = {p0.x + r.w * scale, p0.y + r.h * scale};
 
     // Margin area (orange, semi-transparent fill)
-    auto& m = node->style.margin;
+    auto& m = node->layout_margin;
     if (m.top > 0 || m.right > 0 || m.bottom > 0 || m.left > 0) {
         ImVec2 mp0 = {p0.x - m.left * scale, p0.y - m.top * scale};
         ImVec2 mp1 = {p1.x + m.right * scale, p1.y + m.bottom * scale};
@@ -1566,7 +1566,7 @@ void UiEditorContext::draw_layout_overlay(UiNode* node, ImDrawList* draw_list,
     }
 
     // Padding area (green, semi-transparent fill)
-    auto& pd = node->style.padding;
+    auto& pd = node->layout_padding;
     if (pd.top > 0 || pd.right > 0 || pd.bottom > 0 || pd.left > 0) {
         ImVec2 pp0 = {p0.x + pd.left * scale, p0.y + pd.top * scale};
         ImVec2 pp1 = {p1.x - pd.right * scale, p1.y - pd.bottom * scale};

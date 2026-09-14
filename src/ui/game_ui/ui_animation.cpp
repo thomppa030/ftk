@@ -104,6 +104,14 @@ void UiAnimation::update_node(UiNode& node, float dt, bool& any_active) {
 
         // Detect changed channels and start transitions
         for (const auto& channel : channels_for(spec)) {
+            // A length that changed unit (or became auto) has nothing to
+            // interpolate through: it snaps, and any transition still
+            // running on that channel ends where it is.
+            if (!ui_style_channel_interpolable(state.prev_style, node.style, *channel.property)) {
+                std::erase_if(state.transitions,
+                              [&](const ActiveTransition& t) { return t.channel == channel; });
+                continue;
+            }
             float cur = ui_style_read_channel(node.style, *channel.property, channel.component);
             float prev = ui_style_read_channel(state.prev_style, *channel.property, channel.component);
 

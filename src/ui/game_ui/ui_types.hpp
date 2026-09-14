@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ui/game_ui/ui_length.hpp"
+
 #include <cstdint>
 #include <string>
 
@@ -90,7 +92,18 @@ struct UiRect {
     float h{0.0f};
 };
 
+/// Four authored lengths, one per side: margin, padding, inset.
 struct UiEdges {
+    UiLength top{};
+    UiLength right{};
+    UiLength bottom{};
+    UiLength left{};
+
+    static constexpr UiEdges all(UiLength length) { return {length, length, length, length}; }
+};
+
+/// Four sides in pixels as layout resolved them, percentages included.
+struct UiPixelEdges {
     float top{0.0f};
     float right{0.0f};
     float bottom{0.0f};

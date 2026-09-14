@@ -14,6 +14,7 @@ namespace fjell {
 /// interpolates it.
 enum class UiPropertyKind : uint8_t {
     number,    ///< a float member: pixels or a unitless factor
+    length,    ///< a UiLength member: pixels, a percentage or auto
     color,     ///< a UiColor member
     edges,     ///< a UiEdges member set as a whole (`margin: 1 2 3 4`)
     edge,      ///< one side of a UiEdges member (`margin-top`)
@@ -24,13 +25,14 @@ enum class UiPropertyKind : uint8_t {
 
 enum class UiEdgeSide : uint8_t { top, right, bottom, left };
 
-[[nodiscard]] float& ui_edge(UiEdges& edges, UiEdgeSide side);
-[[nodiscard]] const float& ui_edge(const UiEdges& edges, UiEdgeSide side);
+[[nodiscard]] UiLength& ui_edge(UiEdges& edges, UiEdgeSide side);
+[[nodiscard]] const UiLength& ui_edge(const UiEdges& edges, UiEdgeSide side);
 
 /// The UiComputedStyle member a property writes. monostate for composites
 /// and keywords, which reach their members through their own functions.
 using UiStyleMember = std::variant<std::monostate,
                                    float UiComputedStyle::*,
+                                   UiLength UiComputedStyle::*,
                                    UiColor UiComputedStyle::*,
                                    UiEdges UiComputedStyle::*,
                                    UiCorners UiComputedStyle::*>;
@@ -54,6 +56,9 @@ struct UiPropertyDescriptor {
 
     bool animatable{false}; ///< a `transition:` may interpolate it
     bool inherited{false};  ///< passes from parent to child when not set
+    /// For lengths: `auto` is an accepted value. Width, height, margin and
+    /// the insets take it; the bounds, padding and gaps do not.
+    bool auto_allowed{false};
 };
 
 /// Every property the cascade understands, in a stable order suitable for
@@ -71,6 +76,13 @@ struct UiPropertyDescriptor {
                                           const UiPropertyDescriptor& desc, uint8_t channel);
 void ui_style_write_channel(UiComputedStyle& style, const UiPropertyDescriptor& desc,
                             uint8_t channel, float value);
+
+/// Whether a transition can interpolate the property between these two
+/// styles. Lengths of different units, or auto on either side, have no
+/// meaningful in-between and snap to the new value instead.
+[[nodiscard]] bool ui_style_channel_interpolable(const UiComputedStyle& from,
+                                                 const UiComputedStyle& to,
+                                                 const UiPropertyDescriptor& desc);
 
 /// Copies the property's value from `from` into `into` — inheritance.
 void ui_style_copy(UiComputedStyle& into, const UiComputedStyle& from,

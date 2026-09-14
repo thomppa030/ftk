@@ -15,6 +15,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_resolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_layout.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC
@@ -26,6 +27,7 @@ target_link_libraries(fjell-testable PUBLIC
     nlohmann_json::nlohmann_json
     glm::glm
     Vulkan::Headers
+    yogacore
 )
 
 if(MSVC)
@@ -46,6 +48,7 @@ add_executable(fjell-tests
     test_style_resolver.cpp
     test_ui_style_properties.cpp
     test_widget_resolver.cpp
+    test_ui_layout.cpp
     test_data_bind.cpp
     test_ui_animation.cpp
     test_spline.cpp

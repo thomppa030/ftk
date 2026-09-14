@@ -269,30 +269,31 @@ TEST_CASE("Node without transition spec: no interpolation", "[anim]") {
 TEST_CASE("transition: width interpolates the layout width", "[anim]") {
     auto root = make_node("div");
     root->style.transition = "width 1.0s linear";
-    root->style.width = 100.0f;
+    root->style.width = UiLength::pixels(100.0f);
 
     UiAnimation anim;
     anim.update(*root, 0.0f);
 
-    root->style.width = 200.0f;
+    root->style.width = UiLength::pixels(200.0f);
     anim.update(*root, 0.0f);
     REQUIRE(anim.update(*root, 0.5f));
-    REQUIRE(root->style.width == Catch::Approx(150.0f));
+    REQUIRE(root->style.width.value == Catch::Approx(150.0f));
 }
 
 TEST_CASE("transition: margin covers every side", "[anim]") {
     auto root = make_node("div");
     root->style.transition = "margin 1.0s linear";
-    root->style.margin = {0.0f, 0.0f, 0.0f, 0.0f};
+    root->style.margin = UiEdges::all(UiLength::pixels(0.0f));
 
     UiAnimation anim;
     anim.update(*root, 0.0f);
 
-    root->style.margin = {10.0f, 20.0f, 30.0f, 40.0f};
+    root->style.margin = {UiLength::pixels(10.0f), UiLength::pixels(20.0f),
+                          UiLength::pixels(30.0f), UiLength::pixels(40.0f)};
     anim.update(*root, 0.0f);
     anim.update(*root, 0.5f);
-    REQUIRE(root->style.margin.top == Catch::Approx(5.0f));
-    REQUIRE(root->style.margin.left == Catch::Approx(20.0f));
+    REQUIRE(root->style.margin.top.value == Catch::Approx(5.0f));
+    REQUIRE(root->style.margin.left.value == Catch::Approx(20.0f));
 }
 
 TEST_CASE("transition: border-radius interpolates all four corners", "[anim]") {
@@ -345,4 +346,17 @@ TEST_CASE("Retargeting mid-flight continues from the displayed value", "[anim]")
     anim.update(*root, 0.0f);
     anim.update(*root, 0.5f);
     REQUIRE(root->style.opacity == Catch::Approx(0.25f));
+}
+
+TEST_CASE("A length that changes unit snaps instead of interpolating", "[anim]") {
+    auto root = make_node("div");
+    root->style.transition = "width 1.0s linear";
+    root->style.width = UiLength::pixels(100.0f);
+    UiAnimation anim;
+    anim.update(*root, 0.0f);
+
+    root->style.width = UiLength::percent(50.0f);
+    anim.update(*root, 0.0f);
+    REQUIRE_FALSE(anim.update(*root, 0.5f));
+    REQUIRE(root->style.width == UiLength::percent(50.0f));
 }

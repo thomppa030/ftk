@@ -26,6 +26,11 @@ struct UiNode {
 
     UiComputedStyle style{};
     UiRect layout_rect{};
+    // Margin and padding in pixels as layout resolved them. Anything that
+    // draws or measures reads these; the style holds authored lengths that
+    // may be percentages.
+    UiPixelEdges layout_margin{};
+    UiPixelEdges layout_padding{};
 
     // Yoga node (owned by UiLayout)
     YGNode* yg_node{nullptr};

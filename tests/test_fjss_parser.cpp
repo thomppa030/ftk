@@ -831,3 +831,30 @@ TEST_CASE("Known properties with valid values produce no diagnostics", "[fjss][d
     )");
     REQUIRE(sheet.diagnostics.empty());
 }
+
+// --- Length validation ---
+
+TEST_CASE("Unsupported units are reported", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { width: 1.5em; height: 100vw; margin: 4 2rem; }");
+    REQUIRE(sheet.diagnostics.size() == 3);
+    REQUIRE(sheet.diagnostics[0].message.find("em") != std::string::npos);
+    REQUIRE(sheet.diagnostics[1].message.find("vw") != std::string::npos);
+    REQUIRE(sheet.diagnostics[2].message.find("rem") != std::string::npos);
+}
+
+TEST_CASE("calc() and words are reported as not a length", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { width: calc(100% - 10); height: inherit; }");
+    REQUIRE(sheet.diagnostics.size() == 2);
+    REQUIRE(sheet.diagnostics[0].message.find("not a length") != std::string::npos);
+}
+
+TEST_CASE("auto is reported where the property has no auto", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { min-width: auto; padding: auto; gap: auto; width: auto; margin: auto; }");
+    REQUIRE(sheet.diagnostics.size() == 3);
+    REQUIRE(sheet.diagnostics[0].message.find("min-width") != std::string::npos);
+}
+
+TEST_CASE("px and % pass validation", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { width: 50%; height: 24px; padding: 1 2% 3px 4; top: -5; }");
+    REQUIRE(sheet.diagnostics.empty());
+}

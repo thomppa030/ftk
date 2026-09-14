@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <sstream>
 #include <utility>
 
 namespace fjell {
@@ -387,7 +388,22 @@ void FjssParser::validate_declaration(size_t offset, const std::string& name,
         }
         return;
     }
-    if (desc->kind != UiPropertyKind::keyword) return;
+    switch (desc->kind) {
+    case UiPropertyKind::length:
+    case UiPropertyKind::edges:
+    case UiPropertyKind::edge:
+        validate_lengths(offset, *desc, value);
+        return;
+    case UiPropertyKind::composite:
+        if (name == "gap") validate_lengths(offset, *desc, value);
+        return;
+    case UiPropertyKind::keyword:
+        break;
+    case UiPropertyKind::number:
+    case UiPropertyKind::color:
+    case UiPropertyKind::corners:
+        return;
+    }
 
     for (auto keyword : desc->keywords) {
         if (keyword == value) return;
@@ -399,6 +415,41 @@ void FjssParser::validate_declaration(size_t offset, const std::string& name,
     }
     diagnose(offset, FjssSeverity::warning,
              "'" + value + "' is not a value for '" + name + "', expected one of: " + expected);
+}
+
+void FjssParser::validate_lengths(size_t offset, const UiPropertyDescriptor& desc,
+                                  const std::string& value) {
+    // A function such as calc() is one value, not a list of lengths.
+    if (value.find('(') != std::string::npos) {
+        diagnose(offset, FjssSeverity::warning,
+                 "'" + value + "' is not a length for '" + std::string(desc.name) + "'");
+        return;
+    }
+    std::istringstream tokens(value);
+    std::string token;
+    while (tokens >> token) {
+        if (token == "auto") {
+            if (!desc.auto_allowed) {
+                diagnose(offset, FjssSeverity::warning,
+                         "'auto' is not a value for '" + std::string(desc.name) + "'");
+            }
+            continue;
+        }
+        // A number, optionally followed by px or %
+        size_t i = 0;
+        if (i < token.size() && (token[i] == '-' || token[i] == '+')) ++i;
+        size_t digits_start = i;
+        while (i < token.size() && (std::isdigit(static_cast<unsigned char>(token[i])) || token[i] == '.')) ++i;
+        std::string_view unit{token.data() + i, token.size() - i};
+        if (i == digits_start) {
+            diagnose(offset, FjssSeverity::warning,
+                     "'" + token + "' is not a length for '" + std::string(desc.name) + "'");
+        } else if (!unit.empty() && unit != "px" && unit != "%") {
+            diagnose(offset, FjssSeverity::warning,
+                     "unit '" + std::string(unit) + "' is not supported for '" +
+                     std::string(desc.name) + "', use px or %");
+        }
+    }
 }
 
 void FjssParser::skip_block() {

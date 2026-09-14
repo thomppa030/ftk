@@ -5,6 +5,56 @@
 
 namespace fjell {
 
+namespace {
+
+/// Yoga has a separate entry point per unit, so every length goes through
+/// the same three-way dispatch. Properties Yoga has no auto variant for
+/// pass nullptr and stay at Yoga's default when the length is auto.
+struct LengthSetters {
+    void (*px)(YGNodeRef, float);
+    void (*percent)(YGNodeRef, float);
+    void (*automatic)(YGNodeRef);
+};
+
+void apply_length(YGNodeRef yg, UiLength length, LengthSetters set) {
+    switch (length.unit) {
+    case UiUnit::px: set.px(yg, length.value); break;
+    case UiUnit::percent: set.percent(yg, length.value); break;
+    case UiUnit::auto_: if (set.automatic) set.automatic(yg); break;
+    }
+}
+
+struct EdgeSetters {
+    void (*px)(YGNodeRef, YGEdge, float);
+    void (*percent)(YGNodeRef, YGEdge, float);
+    void (*automatic)(YGNodeRef, YGEdge);
+};
+
+void apply_edge(YGNodeRef yg, YGEdge edge, UiLength length, EdgeSetters set) {
+    switch (length.unit) {
+    case UiUnit::px: set.px(yg, edge, length.value); break;
+    case UiUnit::percent: set.percent(yg, edge, length.value); break;
+    case UiUnit::auto_: if (set.automatic) set.automatic(yg, edge); break;
+    }
+}
+
+void apply_edges(YGNodeRef yg, const UiEdges& edges, EdgeSetters set) {
+    apply_edge(yg, YGEdgeTop, edges.top, set);
+    apply_edge(yg, YGEdgeRight, edges.right, set);
+    apply_edge(yg, YGEdgeBottom, edges.bottom, set);
+    apply_edge(yg, YGEdgeLeft, edges.left, set);
+}
+
+void apply_gap(YGNodeRef yg, YGGutter gutter, UiLength length) {
+    switch (length.unit) {
+    case UiUnit::px: YGNodeStyleSetGap(yg, gutter, length.value); break;
+    case UiUnit::percent: YGNodeStyleSetGapPercent(yg, gutter, length.value); break;
+    case UiUnit::auto_: break;
+    }
+}
+
+} // namespace
+
 UiLayout::UiLayout() {
     config_ = YGConfigNew();
     YGConfigSetPointScaleFactor(config_, 1.0f);
@@ -138,40 +188,38 @@ void UiLayout::apply_style(YGNode* yg, const UiComputedStyle& style) {
     YGNodeStyleSetFlexGrow(yg, style.flex_grow);
     YGNodeStyleSetFlexShrink(yg, style.flex_shrink);
 
-    // Dimensions
-    if (style.width >= 0) YGNodeStyleSetWidth(yg, style.width);
-    if (style.height >= 0) YGNodeStyleSetHeight(yg, style.height);
-    if (style.min_width >= 0) YGNodeStyleSetMinWidth(yg, style.min_width);
-    if (style.min_height >= 0) YGNodeStyleSetMinHeight(yg, style.min_height);
-    if (style.max_width >= 0) YGNodeStyleSetMaxWidth(yg, style.max_width);
-    if (style.max_height >= 0) YGNodeStyleSetMaxHeight(yg, style.max_height);
+    // Dimensions. The min/max bounds have no auto in Yoga; auto there means
+    // the bound is simply not applied.
+    apply_length(yg, style.width,
+                 {YGNodeStyleSetWidth, YGNodeStyleSetWidthPercent, YGNodeStyleSetWidthAuto});
+    apply_length(yg, style.height,
+                 {YGNodeStyleSetHeight, YGNodeStyleSetHeightPercent, YGNodeStyleSetHeightAuto});
+    apply_length(yg, style.min_width,
+                 {YGNodeStyleSetMinWidth, YGNodeStyleSetMinWidthPercent, nullptr});
+    apply_length(yg, style.min_height,
+                 {YGNodeStyleSetMinHeight, YGNodeStyleSetMinHeightPercent, nullptr});
+    apply_length(yg, style.max_width,
+                 {YGNodeStyleSetMaxWidth, YGNodeStyleSetMaxWidthPercent, nullptr});
+    apply_length(yg, style.max_height,
+                 {YGNodeStyleSetMaxHeight, YGNodeStyleSetMaxHeightPercent, nullptr});
 
-    // Margin
-    YGNodeStyleSetMargin(yg, YGEdgeTop, style.margin.top);
-    YGNodeStyleSetMargin(yg, YGEdgeRight, style.margin.right);
-    YGNodeStyleSetMargin(yg, YGEdgeBottom, style.margin.bottom);
-    YGNodeStyleSetMargin(yg, YGEdgeLeft, style.margin.left);
-
-    // Padding
-    YGNodeStyleSetPadding(yg, YGEdgeTop, style.padding.top);
-    YGNodeStyleSetPadding(yg, YGEdgeRight, style.padding.right);
-    YGNodeStyleSetPadding(yg, YGEdgeBottom, style.padding.bottom);
-    YGNodeStyleSetPadding(yg, YGEdgeLeft, style.padding.left);
+    apply_edges(yg, style.margin,
+                {YGNodeStyleSetMargin, YGNodeStyleSetMarginPercent, YGNodeStyleSetMarginAuto});
+    apply_edges(yg, style.padding,
+                {YGNodeStyleSetPadding, YGNodeStyleSetPaddingPercent, nullptr});
 
     // Border (Yoga uses border for layout spacing, we also draw it visually)
     if (style.border_width > 0) {
         YGNodeStyleSetBorder(yg, YGEdgeAll, style.border_width);
     }
 
-    // Position insets (for absolute positioning)
-    if (style.inset.top != 0) YGNodeStyleSetPosition(yg, YGEdgeTop, style.inset.top);
-    if (style.inset.right != 0) YGNodeStyleSetPosition(yg, YGEdgeRight, style.inset.right);
-    if (style.inset.bottom != 0) YGNodeStyleSetPosition(yg, YGEdgeBottom, style.inset.bottom);
-    if (style.inset.left != 0) YGNodeStyleSetPosition(yg, YGEdgeLeft, style.inset.left);
+    // Position insets: an auto edge is left unpositioned, so `top: 0` pins
+    // to the top like any other value.
+    apply_edges(yg, style.inset,
+                {YGNodeStyleSetPosition, YGNodeStyleSetPositionPercent, YGNodeStyleSetPositionAuto});
 
-    // Gap
-    if (style.row_gap > 0) YGNodeStyleSetGap(yg, YGGutterRow, style.row_gap);
-    if (style.column_gap > 0) YGNodeStyleSetGap(yg, YGGutterColumn, style.column_gap);
+    apply_gap(yg, YGGutterRow, style.row_gap);
+    apply_gap(yg, YGGutterColumn, style.column_gap);
 }
 
 void UiLayout::read_layout(UiNode& node, float offset_x, float offset_y) {
@@ -183,6 +231,14 @@ void UiLayout::read_layout(UiNode& node, float offset_x, float offset_y) {
     float h = YGNodeLayoutGetHeight(node.yg_node);
 
     node.layout_rect = {x, y, w, h};
+    node.layout_margin = {YGNodeLayoutGetMargin(node.yg_node, YGEdgeTop),
+                          YGNodeLayoutGetMargin(node.yg_node, YGEdgeRight),
+                          YGNodeLayoutGetMargin(node.yg_node, YGEdgeBottom),
+                          YGNodeLayoutGetMargin(node.yg_node, YGEdgeLeft)};
+    node.layout_padding = {YGNodeLayoutGetPadding(node.yg_node, YGEdgeTop),
+                           YGNodeLayoutGetPadding(node.yg_node, YGEdgeRight),
+                           YGNodeLayoutGetPadding(node.yg_node, YGEdgeBottom),
+                           YGNodeLayoutGetPadding(node.yg_node, YGEdgeLeft)};
 
     // Apply scroll offset for overflow:scroll containers
     float child_offset_y = y;

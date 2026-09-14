@@ -4,6 +4,8 @@
 #include "ui/game_ui/ui_context.hpp"
 #include "core/log.hpp"
 
+#include "ui_length_printer.hpp"
+
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
@@ -93,14 +95,14 @@ TEST_CASE("Widget rules apply inside the widget and nowhere else", "[widget]") {
     StyleResolver styles;
     styles.resolve(*root, sheet);
 
-    REQUIRE(inner_row->style.width == Catch::Approx(10.0f));
+    REQUIRE(inner_row->style.width == UiLength::pixels(10.0f));
     // The widget's own ancestor selector survives scoping
-    REQUIRE(inner_label->style.width == Catch::Approx(20.0f));
+    REQUIRE(inner_label->style.width == UiLength::pixels(20.0f));
     // ...and the sheet can style its own instance node by tag
-    REQUIRE(widget->style.width == Catch::Approx(30.0f));
+    REQUIRE(widget->style.width == UiLength::pixels(30.0f));
     // Nothing leaks into the host UI
-    REQUIRE(host_row->style.width == Catch::Approx(-1.0f));
-    REQUIRE(host_label->style.width == Catch::Approx(-1.0f));
+    REQUIRE(host_row->style.width.is_auto());
+    REQUIRE(host_label->style.width.is_auto());
 }
 
 TEST_CASE("Two instances get separate scopes", "[widget]") {
@@ -122,8 +124,8 @@ TEST_CASE("Two instances get separate scopes", "[widget]") {
 
     StyleResolver styles;
     styles.resolve(*root, sheet);
-    REQUIRE(find_by_class(first, "row")->style.width == Catch::Approx(10.0f));
-    REQUIRE(find_by_class(second, "row")->style.width == Catch::Approx(10.0f));
+    REQUIRE(find_by_class(first, "row")->style.width == UiLength::pixels(10.0f));
+    REQUIRE(find_by_class(second, "row")->style.width == UiLength::pixels(10.0f));
 }
 
 TEST_CASE("Resolver reports every widget file it read", "[widget]") {

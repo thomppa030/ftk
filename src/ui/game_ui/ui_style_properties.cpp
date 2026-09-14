@@ -4,7 +4,7 @@
 
 namespace fjell {
 
-float& ui_edge(UiEdges& edges, UiEdgeSide side) {
+UiLength& ui_edge(UiEdges& edges, UiEdgeSide side) {
     switch (side) {
     case UiEdgeSide::top: return edges.top;
     case UiEdgeSide::right: return edges.right;
@@ -14,7 +14,7 @@ float& ui_edge(UiEdges& edges, UiEdgeSide side) {
     return edges.top;
 }
 
-const float& ui_edge(const UiEdges& edges, UiEdgeSide side) {
+const UiLength& ui_edge(const UiEdges& edges, UiEdgeSide side) {
     switch (side) {
     case UiEdgeSide::top: return edges.top;
     case UiEdgeSide::right: return edges.right;
@@ -76,12 +76,21 @@ constexpr UiPropertyDescriptor color(std::string_view name, UiColor Style::* mem
             .animatable = true, .inherited = inherited};
 }
 
-constexpr UiPropertyDescriptor edges(std::string_view name, UiEdges Style::* member) {
-    return {.name = name, .kind = Kind::edges, .member = member};
+constexpr UiPropertyDescriptor length(std::string_view name, UiLength Style::* member,
+                                      bool auto_allowed) {
+    return {.name = name, .kind = Kind::length, .member = member,
+            .animatable = true, .auto_allowed = auto_allowed};
 }
 
-constexpr UiPropertyDescriptor edge(std::string_view name, UiEdges Style::* member, Side side) {
-    return {.name = name, .kind = Kind::edge, .member = member, .side = side, .animatable = true};
+constexpr UiPropertyDescriptor edges(std::string_view name, UiEdges Style::* member,
+                                     bool auto_allowed) {
+    return {.name = name, .kind = Kind::edges, .member = member, .auto_allowed = auto_allowed};
+}
+
+constexpr UiPropertyDescriptor edge(std::string_view name, UiEdges Style::* member, Side side,
+                                    bool auto_allowed) {
+    return {.name = name, .kind = Kind::edge, .member = member, .side = side,
+            .animatable = true, .auto_allowed = auto_allowed};
 }
 
 constexpr UiPropertyDescriptor composite(std::string_view name) {
@@ -110,31 +119,31 @@ const UiPropertyDescriptor PROPERTIES[] = {
     number("flex-shrink", &Style::flex_shrink),
 
     // Dimensions
-    number("width", &Style::width),
-    number("height", &Style::height),
-    number("min-width", &Style::min_width),
-    number("min-height", &Style::min_height),
-    number("max-width", &Style::max_width),
-    number("max-height", &Style::max_height),
+    length("width", &Style::width, true),
+    length("height", &Style::height, true),
+    length("min-width", &Style::min_width, false),
+    length("min-height", &Style::min_height, false),
+    length("max-width", &Style::max_width, false),
+    length("max-height", &Style::max_height, false),
 
     // Spacing
-    edges("margin", &Style::margin),
-    edge("margin-top", &Style::margin, Side::top),
-    edge("margin-right", &Style::margin, Side::right),
-    edge("margin-bottom", &Style::margin, Side::bottom),
-    edge("margin-left", &Style::margin, Side::left),
-    edges("padding", &Style::padding),
-    edge("padding-top", &Style::padding, Side::top),
-    edge("padding-right", &Style::padding, Side::right),
-    edge("padding-bottom", &Style::padding, Side::bottom),
-    edge("padding-left", &Style::padding, Side::left),
-    edge("top", &Style::inset, Side::top),
-    edge("right", &Style::inset, Side::right),
-    edge("bottom", &Style::inset, Side::bottom),
-    edge("left", &Style::inset, Side::left),
+    edges("margin", &Style::margin, true),
+    edge("margin-top", &Style::margin, Side::top, true),
+    edge("margin-right", &Style::margin, Side::right, true),
+    edge("margin-bottom", &Style::margin, Side::bottom, true),
+    edge("margin-left", &Style::margin, Side::left, true),
+    edges("padding", &Style::padding, false),
+    edge("padding-top", &Style::padding, Side::top, false),
+    edge("padding-right", &Style::padding, Side::right, false),
+    edge("padding-bottom", &Style::padding, Side::bottom, false),
+    edge("padding-left", &Style::padding, Side::left, false),
+    edge("top", &Style::inset, Side::top, true),
+    edge("right", &Style::inset, Side::right, true),
+    edge("bottom", &Style::inset, Side::bottom, true),
+    edge("left", &Style::inset, Side::left, true),
     composite("gap"),
-    number("row-gap", &Style::row_gap),
-    number("column-gap", &Style::column_gap),
+    length("row-gap", &Style::row_gap, false),
+    length("column-gap", &Style::column_gap, false),
 
     // Visual
     composite("background"),
@@ -182,8 +191,10 @@ auto& channel_ref(StyleRef& style, const UiPropertyDescriptor& desc, uint8_t cha
     switch (desc.kind) {
     case Kind::number:
         return style.*std::get<float Style::*>(desc.member);
+    case Kind::length:
+        return (style.*std::get<UiLength Style::*>(desc.member)).value;
     case Kind::edge:
-        return ui_edge(style.*std::get<UiEdges Style::*>(desc.member), desc.side);
+        return ui_edge(style.*std::get<UiEdges Style::*>(desc.member), desc.side).value;
     case Kind::color:
         return color_channel(style.*std::get<UiColor Style::*>(desc.member), channel);
     case Kind::corners:
@@ -213,6 +224,7 @@ uint8_t ui_style_channel_count(const UiPropertyDescriptor& desc) {
     if (!desc.animatable) return 0;
     switch (desc.kind) {
     case Kind::number:
+    case Kind::length:
     case Kind::edge:
         return 1;
     case Kind::color:
@@ -236,6 +248,29 @@ void ui_style_write_channel(UiComputedStyle& style, const UiPropertyDescriptor& 
     channel_ref(style, desc, channel) = value;
 }
 
+bool ui_style_channel_interpolable(const UiComputedStyle& from, const UiComputedStyle& to,
+                                   const UiPropertyDescriptor& desc) {
+    auto same_unit = [](UiLength a, UiLength b) { return a.unit == b.unit && !a.is_auto(); };
+    switch (desc.kind) {
+    case Kind::length: {
+        auto member = std::get<UiLength Style::*>(desc.member);
+        return same_unit(from.*member, to.*member);
+    }
+    case Kind::edge: {
+        auto member = std::get<UiEdges Style::*>(desc.member);
+        return same_unit(ui_edge(from.*member, desc.side), ui_edge(to.*member, desc.side));
+    }
+    case Kind::number:
+    case Kind::color:
+    case Kind::edges:
+    case Kind::corners:
+    case Kind::keyword:
+    case Kind::composite:
+        return true;
+    }
+    return true;
+}
+
 void ui_style_copy(UiComputedStyle& into, const UiComputedStyle& from,
                    const UiPropertyDescriptor& desc) {
     switch (desc.kind) {
@@ -245,6 +280,7 @@ void ui_style_copy(UiComputedStyle& into, const UiComputedStyle& from,
     case Kind::composite:
         return;
     case Kind::number:
+    case Kind::length:
     case Kind::color:
     case Kind::edges:
     case Kind::edge:

@@ -124,16 +124,29 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
     case UiPropertyKind::number:
         style.*std::get<float UiComputedStyle::*>(desc->member) = parse_px(value);
         return;
+    case UiPropertyKind::length: {
+        auto length = parse_length(value);
+        if (length.is_auto() && !desc->auto_allowed) return; // reported at parse time
+        style.*std::get<UiLength UiComputedStyle::*>(desc->member) = length;
+        return;
+    }
     case UiPropertyKind::color:
         style.*std::get<UiColor UiComputedStyle::*>(desc->member) = parse_color(value);
         return;
-    case UiPropertyKind::edges:
-        style.*std::get<UiEdges UiComputedStyle::*>(desc->member) = parse_edges(value);
+    case UiPropertyKind::edges: {
+        auto edges = parse_edges(value);
+        bool any_auto = edges.top.is_auto() || edges.right.is_auto() ||
+                        edges.bottom.is_auto() || edges.left.is_auto();
+        if (any_auto && !desc->auto_allowed) return; // reported at parse time
+        style.*std::get<UiEdges UiComputedStyle::*>(desc->member) = edges;
         return;
-    case UiPropertyKind::edge:
-        ui_edge(style.*std::get<UiEdges UiComputedStyle::*>(desc->member), desc->side) =
-            parse_px(value);
+    }
+    case UiPropertyKind::edge: {
+        auto length = parse_length(value);
+        if (length.is_auto() && !desc->auto_allowed) return;
+        ui_edge(style.*std::get<UiEdges UiComputedStyle::*>(desc->member), desc->side) = length;
         return;
+    }
     case UiPropertyKind::corners:
         style.*std::get<UiCorners UiComputedStyle::*>(desc->member) = parse_corners(value);
         return;
@@ -154,7 +167,9 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
 void StyleResolver::apply_composite(UiComputedStyle& style, const UiPropertyDescriptor& desc,
                                     const std::string& value) {
     if (desc.name == "gap") {
-        style.row_gap = style.column_gap = parse_px(value);
+        auto length = parse_length(value);
+        if (length.is_auto()) return;
+        style.row_gap = style.column_gap = length;
         return;
     }
 
@@ -326,18 +341,24 @@ UiColor StyleResolver::parse_color(const std::string& value) {
 }
 
 float StyleResolver::parse_px(const std::string& value) {
-    if (value == "auto") return -1.0f;
     float result = 0.0f;
     std::from_chars(value.data(), value.data() + value.size(), result);
     return result;
 }
 
+UiLength StyleResolver::parse_length(const std::string& value) {
+    if (value == "auto") return UiLength::automatic();
+    float number = parse_px(value);
+    if (value.ends_with('%')) return UiLength::percent(number);
+    return UiLength::pixels(number);
+}
+
 UiEdges StyleResolver::parse_edges(const std::string& value) {
-    std::vector<float> values;
+    std::vector<UiLength> values;
     std::istringstream iss(value);
     std::string token;
     while (iss >> token) {
-        values.push_back(parse_px(token));
+        values.push_back(parse_length(token));
     }
 
     UiEdges edges{};

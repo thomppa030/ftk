@@ -18,22 +18,26 @@ struct UiComputedStyle {
     float flex_grow{0.0f};
     float flex_shrink{1.0f};
 
-    // Dimensions (-1 = auto)
-    float width{-1.0f};
-    float height{-1.0f};
-    float min_width{-1.0f};
-    float min_height{-1.0f};
-    float max_width{-1.0f};
-    float max_height{-1.0f};
+    // Dimensions. auto on width/height means content-sized; on the min/max
+    // bounds it means the bound is not applied — the layout engine's own
+    // default rather than an authorable keyword.
+    UiLength width{UiLength::automatic()};
+    UiLength height{UiLength::automatic()};
+    UiLength min_width{UiLength::automatic()};
+    UiLength min_height{UiLength::automatic()};
+    UiLength max_width{UiLength::automatic()};
+    UiLength max_height{UiLength::automatic()};
 
     // Spacing
     UiEdges margin{};
     UiEdges padding{};
-    UiEdges inset{}; // top/right/bottom/left for position:absolute
+    // Insets start out auto — "not positioned along this edge" — so an
+    // authored `top: 0` is a real offset, not the same as never setting it.
+    UiEdges inset{UiEdges::all(UiLength::automatic())};
 
     // Gap
-    float row_gap{0.0f};
-    float column_gap{0.0f};
+    UiLength row_gap{};
+    UiLength column_gap{};
 
     // Visual
     UiColor background_color{0.0f, 0.0f, 0.0f, 0.0f};

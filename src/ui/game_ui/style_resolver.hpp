@@ -25,7 +25,10 @@ public:
     /// UI editor's style inspector reading/writing individual property
     /// values without running a full resolve).
     static UiColor parse_color(const std::string& value);
+    /// A bare number, with any trailing unit text ignored.
     static float parse_px(const std::string& value);
+    /// `auto`, a percentage (`50%`) or pixels (`16`, `16px`).
+    static UiLength parse_length(const std::string& value);
 
 private:
     void resolve_node(UiNode& node, const Stylesheet& sheet,
