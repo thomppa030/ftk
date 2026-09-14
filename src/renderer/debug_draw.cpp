@@ -299,14 +299,15 @@ void DebugDraw::update(const Scene& scene, uint32_t frame_index, uint32_t select
         const auto* spatial = obj->as_spatial();
         if (!spatial) continue;
 
+        auto capsule = scaled_capsule(*cc, spatial->transform.scale);
         uint32_t first = static_cast<uint32_t>(vertices_.size());
-        generate_capsule(cc->capsule_radius, cc->capsule_height);
+        generate_capsule(capsule.radius, capsule.height);
 
         uint32_t count = static_cast<uint32_t>(vertices_.size()) - first;
         if (count == 0) continue;
 
         glm::mat4 model = glm::translate(glm::mat4(1.0f),
-                                         spatial->transform.position + cc->capsule_center());
+                                         spatial->transform.position + capsule.center);
         draw_commands_.push_back({model, first, count, {0.0f, 0.9f, 0.9f, 1.0f}});
     }
 

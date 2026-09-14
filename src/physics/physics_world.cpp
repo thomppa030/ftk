@@ -358,8 +358,26 @@ private:
 
 // ── Impl ────────────────────────────────────────────────────────────────
 
+// Jolt fixes the supporting volume at construction, but it depends on the
+// capsule, and the capsule changes when a character crouches or is rescaled.
+// The member is protected rather than private, so this is the one place the
+// engine reaches into a Jolt object.
+class FjellCharacter final : public JPH::CharacterVirtual {
+public:
+    using JPH::CharacterVirtual::CharacterVirtual;
+    void set_supporting_volume(const JPH::Plane& plane) { mSupportingVolume = plane; }
+};
+
+// Only contacts on the lower hemisphere count as ground. Without this the
+// capsule's side does too, and a character hanging off a ledge by its waist
+// reads as standing on it.
+static JPH::Plane supporting_volume_for(const CharacterCapsule& capsule) {
+    float bottom_cap_center = capsule.center.y - capsule.height * 0.5f;
+    return JPH::Plane(JPH::Vec3::sAxisY(), -bottom_cap_center);
+}
+
 struct CharacterEntry {
-    JPH::Ref<JPH::CharacterVirtual> character;
+    JPH::Ref<FjellCharacter> character;
     uint32_t object_id;
     // The layer the character's filter maps to; both its capsule and the
     // sweep that moves it collide as this.
@@ -371,6 +389,17 @@ struct CharacterEntry {
         bool sensor;
     };
     std::vector<Contact> contacts;
+    // The authored values the character was built from, so a change made in
+    // the inspector or by a script — a crouch, a rescale, a channel switch —
+    // is noticed and applied at the next step.
+    struct Built {
+        CharacterCapsule capsule;
+        glm::vec3 scale;
+        float max_slope_angle;
+        float mass;
+        CollisionFilter filter;
+    };
+    Built built;
     // World position last agreed between the node and the character. The node
     // sitting anywhere else at the next step means something outside physics
     // moved it — a teleport, a parent, the network — and the character follows.
@@ -739,12 +768,13 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
     // Character controller — handled in Step 5 section below
     auto* char_comp = node.components.get<CharacterComponent>();
     if (char_comp) {
-        float r = clamp_positive(char_comp->capsule_radius);
-        float half_h = clamp_positive(char_comp->capsule_height * 0.5f);
+        auto capsule = scaled_capsule(*char_comp, spatial->transform.scale);
+        capsule.radius = clamp_positive(capsule.radius);
+        capsule.height = clamp_positive(capsule.height);
 
         JPH::CharacterVirtualSettings settings;
-        settings.mShape = new JPH::CapsuleShape(half_h, r);
-        settings.mShapeOffset = to_jolt(char_comp->capsule_center());
+        settings.mShape = new JPH::CapsuleShape(capsule.height * 0.5f, capsule.radius);
+        settings.mShapeOffset = to_jolt(capsule.center);
         settings.mMaxSlopeAngle = JPH::DegreesToRadians(char_comp->max_slope_angle);
         settings.mMass = std::max(char_comp->mass, 1.0f);
         // Pushing a dynamic body is bounded by roughly the character's own
@@ -752,30 +782,29 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
         // stopped by it. Unbounded, the default is a fixed 100 N for everyone.
         settings.mMaxStrength = settings.mMass * impl_->physics_system->GetGravity().Length();
         settings.mUp = JPH::Vec3(0, 1, 0);
-        // Only contacts on the lower hemisphere count as ground. Without this
-        // the capsule's side does too, and a character hanging off a ledge by
-        // its waist reads as standing on it.
-        float bottom_cap_center = char_comp->capsule_center().y - half_h;
-        settings.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -bottom_cap_center);
+        settings.mSupportingVolume = supporting_volume_for(capsule);
         // Mesh colliders have internal edges between their triangles; without
         // this the capsule catches on them while crossing a flat floor.
         settings.mEnhancedInternalEdgeRemoval = true;
         JPH::ObjectLayer layer = impl_->filter_table.layer_for(char_comp->filter, true);
-        settings.mInnerBodyShape = new JPH::CapsuleShape(half_h, r);
+        settings.mInnerBodyShape = new JPH::CapsuleShape(capsule.height * 0.5f, capsule.radius);
         settings.mInnerBodyLayer = layer;
 
         glm::vec3 world_position;
         glm::quat world_rotation;
         world_placement(scene, *spatial, world_position, world_rotation);
 
-        auto character = new JPH::CharacterVirtual(
+        auto character = new FjellCharacter(
             &settings,
             to_jolt(world_position),
             to_jolt_quat(world_rotation),
             0, // user data
             impl_->physics_system.get());
 
-        impl_->characters.push_back({character, node.id, layer, {}, world_position});
+        CharacterEntry::Built built{capsule, spatial->transform.scale,
+                                    char_comp->max_slope_angle, char_comp->mass,
+                                    char_comp->filter};
+        impl_->characters.push_back({character, node.id, layer, {}, built, world_position});
 
         // The inner body is what rays and other bodies find; contacts against
         // it resolve to this node, and its events come from the character.
@@ -989,6 +1018,85 @@ void PhysicsWorld::create_bodies(Scene& scene) {
 
 // ── Step ────────────────────────────────────────────────────────────────
 
+// Brings the character in line with its component after an authored value
+// changed. A new capsule is refused when it would push into geometry — the
+// crouched character under a table cannot stand up — and the component is
+// then set back to the capsule it actually has, so gameplay reading it sees
+// the truth rather than its own request.
+void PhysicsWorld::apply_character_changes(CharacterEntry& entry, CharacterComponent& cc,
+                                           const Node3D& node) {
+    auto& built = entry.built;
+    auto& character = *entry.character;
+    constexpr float EPS = 1e-5f;
+    auto same = [](float a, float b) { return std::abs(a - b) <= EPS; };
+    auto same3 = [&](const glm::vec3& a, const glm::vec3& b) {
+        return glm::all(glm::epsilonEqual(a, b, EPS));
+    };
+
+    auto wanted = scaled_capsule(cc, node.transform.scale);
+    wanted.radius = clamp_positive(wanted.radius);
+    wanted.height = clamp_positive(wanted.height);
+
+    bool size_changed = !same(wanted.radius, built.capsule.radius) ||
+                        !same(wanted.height, built.capsule.height);
+    bool center_changed = !same3(wanted.center, built.capsule.center);
+    if (size_changed || center_changed) {
+        // The center moves first so the feet stay where they are: a taller
+        // capsule tested at the crouched center would dip into the floor and
+        // be refused for the wrong reason.
+        character.SetShapeOffset(to_jolt(wanted.center));
+        if (size_changed) {
+            JPH::RefConst<JPH::Shape> shape =
+                new JPH::CapsuleShape(wanted.height * 0.5f, wanted.radius);
+            float max_penetration =
+                1.5f * impl_->physics_system->GetPhysicsSettings().mPenetrationSlop;
+            bool fits = character.SetShape(
+                shape, max_penetration,
+                impl_->physics_system->GetDefaultBroadPhaseLayerFilter(entry.layer),
+                impl_->physics_system->GetDefaultLayerFilter(entry.layer),
+                {}, {}, *impl_->temp_allocator);
+            if (fits) {
+                character.SetInnerBodyShape(shape);
+                built.capsule.radius = wanted.radius;
+                built.capsule.height = wanted.height;
+            } else {
+                // Undo the scale so the authored fields read back in their
+                // own units, the same way they were written.
+                float sxz = std::max(node.transform.scale.x, node.transform.scale.z);
+                cc.capsule_radius = sxz > 0.0f ? built.capsule.radius / sxz : built.capsule.radius;
+                cc.capsule_height = node.transform.scale.y > 0.0f
+                    ? built.capsule.height / node.transform.scale.y : built.capsule.height;
+                wanted = scaled_capsule(cc, node.transform.scale);
+                character.SetShapeOffset(to_jolt(wanted.center));
+            }
+        }
+        character.set_supporting_volume(supporting_volume_for(wanted));
+        built.capsule.center = wanted.center;
+    }
+    built.scale = node.transform.scale;
+
+    if (!same(cc.max_slope_angle, built.max_slope_angle)) {
+        character.SetMaxSlopeAngle(JPH::DegreesToRadians(cc.max_slope_angle));
+        built.max_slope_angle = cc.max_slope_angle;
+    }
+    if (!same(cc.mass, built.mass)) {
+        float mass = std::max(cc.mass, 1.0f);
+        character.SetMass(mass);
+        character.SetMaxStrength(mass * impl_->physics_system->GetGravity().Length());
+        built.mass = cc.mass;
+    }
+    if (cc.filter.channel != built.filter.channel ||
+        cc.filter.block_mask != built.filter.block_mask ||
+        cc.filter.overlap_mask != built.filter.overlap_mask) {
+        entry.layer = impl_->filter_table.layer_for(cc.filter, true);
+        auto inner_id = character.GetInnerBodyID();
+        if (!inner_id.IsInvalid()) {
+            impl_->physics_system->GetBodyInterface().SetObjectLayer(inner_id, entry.layer);
+        }
+        built.filter = cc.filter;
+    }
+}
+
 void PhysicsWorld::step(float dt, Scene& scene) {
     FJELL_PROFILE_SCOPE_N("physics_step");
     if (dt <= 0.0f) return;
@@ -1101,6 +1209,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
             entry.character->SetPosition(to_jolt(world_position));
             entry.synced_position = world_position;
         }
+
+        apply_character_changes(entry, *cc, *node);
 
         if (!cc->simulate) {
             // Nothing is swept, so nothing is touched; whatever it was

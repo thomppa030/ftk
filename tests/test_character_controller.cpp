@@ -382,3 +382,64 @@ TEST_CASE("Two characters bumping into each other report it once each way", "[ch
     REQUIRE(EventLog::count(log.collision_enter, walker, blocker) == 1);
     REQUIRE(EventLog::count(log.collision_enter, blocker, walker) == 1);
 }
+
+TEST_CASE("A character crouches under a low ceiling and cannot stand up beneath it", "[character]") {
+    CharacterWorld w;
+    w.add_floor();
+    // A slab whose underside is 1.5 m up: the 2.0 m standing capsule is
+    // blocked, a 1.2 m crouched one walks under.
+    w.add_box({3.0f, 1.75f, 0.0f}, {0.5f, 0.25f, 5.0f});
+    auto id = w.add_character({0.0f, 2.0f, 0.0f});
+    w.start();
+    REQUIRE(w.settle(id));
+
+    auto walk = [&](int frames, float until_x) {
+        for (int i = 0; i < frames && w.node(id).transform.position.x < until_x; ++i) {
+            w.character(id).velocity.x = 2.0f;
+            w.character(id).velocity.z = 0.0f;
+            w.step(1);
+        }
+    };
+
+    walk(120, 10.0f);
+    REQUIRE(w.node(id).transform.position.x < 2.5f - RADIUS + 0.1f);
+
+    w.character(id).capsule_height = 0.6f;
+    walk(60, 3.0f);
+    REQUIRE(w.node(id).transform.position.x == Approx(3.0f).margin(0.15f));
+
+    // Under the slab: standing up is refused and the component says so.
+    w.character(id).capsule_height = HEIGHT;
+    w.step(1);
+    REQUIRE(w.character(id).capsule_height == Approx(0.6f));
+
+    walk(120, 6.0f);
+    w.character(id).capsule_height = HEIGHT;
+    w.step(1);
+    REQUIRE(w.character(id).capsule_height == Approx(HEIGHT));
+
+    RaycastHit hit;
+    REQUIRE(w.physics.raycast({w.node(id).transform.position.x, 1.8f, -5.0f},
+                              {0.0f, 0.0f, 1.0f}, 10.0f, hit));
+    REQUIRE(hit.object_id == id);
+}
+
+TEST_CASE("A scaled character node has a scaled capsule", "[character]") {
+    CharacterWorld w;
+    w.add_floor();
+    auto id = w.add_character({0.0f, 2.0f, 0.0f});
+    w.node(id).transform.scale = {2.0f, 2.0f, 2.0f};
+    w.start();
+    REQUIRE(w.settle(id));
+    REQUIRE(w.node(id).transform.position.y == Approx(0.0f).margin(0.05f));
+
+    // Standing height is doubled to 4 m, so a ray at 3 m still finds it.
+    RaycastHit hit;
+    REQUIRE(w.physics.raycast({0.0f, 3.0f, -5.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, hit));
+    REQUIRE(hit.object_id == id);
+
+    // Rescaling during play takes effect at the next step.
+    w.node(id).transform.scale = {1.0f, 1.0f, 1.0f};
+    w.step(1);
+    REQUIRE_FALSE(w.physics.raycast({0.0f, 3.0f, -5.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, hit));
+}

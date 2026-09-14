@@ -11,6 +11,7 @@ namespace fjell {
 
 class Model;
 struct Node;
+struct Node3D;
 class Scene;
 
 class PhysicsWorld {
@@ -107,6 +108,8 @@ public:
 
 private:
     void create_bone_bodies(Node& node, const class Skeleton& skeleton);
+    void apply_character_changes(struct CharacterEntry& entry, CharacterComponent& character,
+                                 const Node3D& node);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

@@ -99,6 +99,26 @@ struct CharacterComponent : NodeComponent {
     }
 };
 
+// The capsule a character collides as once the node's scale is applied, the
+// same way a capsule collider scales: height with y, radius with the wider of
+// x and z. Everything that builds or draws the capsule goes through this so
+// the two cannot disagree.
+struct CharacterCapsule {
+    float radius;
+    float height;
+    glm::vec3 center;
+};
+
+[[nodiscard]] inline CharacterCapsule scaled_capsule(const CharacterComponent& character,
+                                                     const glm::vec3& scale) {
+    CharacterCapsule capsule;
+    capsule.radius = character.capsule_radius * std::max(scale.x, scale.z);
+    capsule.height = character.capsule_height * scale.y;
+    capsule.center = character.shape_offset * scale;
+    if (character.feet_at_origin) capsule.center.y += capsule.height * 0.5f + capsule.radius;
+    return capsule;
+}
+
 struct CollisionEvent {
     uint32_t other_id{0};
     glm::vec3 contact_point{0.0f};
