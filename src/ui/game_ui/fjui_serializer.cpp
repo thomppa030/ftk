@@ -21,6 +21,19 @@ bool is_writable_attribute(const std::string& key) {
     return key != "id" && key != "class";
 }
 
+/// Every slot-projected node beneath a widget instance, in document
+/// order, without descending into one: its own children are authored
+/// content that write_node handles.
+void collect_slot_projected(const UiNode& node, std::vector<const UiNode*>& out) {
+    for (const auto& child : node.children) {
+        if (child->is_slot_projected) {
+            out.push_back(child.get());
+        } else {
+            collect_slot_projected(*child, out);
+        }
+    }
+}
+
 } // namespace
 
 std::string FjuiSerializer::escape_attribute_value(const std::string& value) {
@@ -60,16 +73,38 @@ void FjuiSerializer::write_attributes(const UiNode& node, std::string& out) {
     // of node.attributes, which on a resolved widget node reflects the
     // clone's own (already-consumed) copy.
     if (node.is_widget) {
+        // Props and events are the authored form of "prop=value" and
+        // "on:event=action". Directives the resolver leaves on the instance
+        // node itself — visibility, dynamic classes, inline styles — are
+        // authored at this call site as well. All of them are written in
+        // one name-sorted list, exactly as an unresolved tag would be, so
+        // a file reads the same whether or not its widgets were resolved
+        // when it was saved.
+        std::vector<std::pair<std::string, std::string>> authored;
         for (const auto& [inner, outer_expr] : node.prop_map) {
-            out += " " + inner + "=\"" + escape_attribute_value(outer_expr) + "\"";
+            authored.emplace_back(inner, outer_expr);
         }
         for (const auto& [event, action] : node.event_map) {
-            out += " on:" + event + "=\"" + escape_attribute_value(action) + "\"";
+            authored.emplace_back("on:" + event, action);
+        }
+        for (const auto& [key, value] : node.attributes) {
+            if (key == "if" || key.starts_with("class:") || key.starts_with("style-")) {
+                authored.emplace_back(key, value);
+            }
+        }
+        std::sort(authored.begin(), authored.end());
+        for (const auto& [key, value] : authored) {
+            out += " " + key + "=\"" + escape_attribute_value(value) + "\"";
         }
         return;
     }
 
-    for (const auto& [key, value] : node.attributes) {
+    // Attributes live in an unordered map; sorted by name they come out the
+    // same way every save, so a diff shows edits rather than reshuffles.
+    std::vector<std::pair<std::string, std::string>> attributes(node.attributes.begin(),
+                                                                node.attributes.end());
+    std::sort(attributes.begin(), attributes.end());
+    for (const auto& [key, value] : attributes) {
         if (!is_writable_attribute(key)) continue;
         // Boolean attributes were parsed from bare "name" (no "="),
         // stored as attributes[name] = "true" — write them back bare so
@@ -108,16 +143,20 @@ void FjuiSerializer::write_node(const UiNode& node, std::string& out, int indent
     out += '<' + tag;
     write_attributes(node, out);
 
-    // Slot-projected children are the only children of a widget node
-    // that are actually authored at this call site — everything else
-    // under a widget node is the widget's own resolved markup. For a
-    // plain node, every child is authored except foreach-generated
-    // clones (write_node already skips those; the template itself is
-    // kept since it's the authored source of the foreach).
+    // Slot-projected nodes are the only content under a widget node that
+    // was authored at this call site — everything else is the widget's own
+    // resolved markup. They sit wherever the widget's <slot/> was, at any
+    // depth, so the subtree is searched for them. For a plain node, every
+    // child is authored except foreach-generated clones (write_node
+    // already skips those; the template itself is kept since it's the
+    // authored source of the foreach).
     std::vector<const UiNode*> authored_children;
-    for (const auto& child : node.children) {
-        if (node.is_widget && !child->is_slot_projected) continue;
-        authored_children.push_back(child.get());
+    if (node.is_widget) {
+        collect_slot_projected(node, authored_children);
+    } else {
+        for (const auto& child : node.children) {
+            authored_children.push_back(child.get());
+        }
     }
 
     if (authored_children.empty()) {
@@ -170,8 +209,29 @@ std::string FjssSerializer::write_selector(const StyleSelector& sel) {
 
 std::string FjssSerializer::serialize(const Stylesheet& sheet) {
     std::string out;
-
     for (const auto& rule : sheet.rules) {
+        write_rule(rule, out);
+    }
+    return finish(std::move(out));
+}
+
+std::string FjssSerializer::serialize(const Stylesheet& sheet, std::string_view source) {
+    std::string out;
+    for (const auto& rule : sheet.rules) {
+        if (rule.source == source) write_rule(rule, out);
+    }
+    return finish(std::move(out));
+}
+
+std::string FjssSerializer::finish(std::string out) {
+    // Trim the trailing blank line left by the last rule's "}\n\n".
+    while (!out.empty() && out.back() == '\n') out.pop_back();
+    if (!out.empty()) out += '\n';
+    return out;
+}
+
+void FjssSerializer::write_rule(const StyleRule& rule, std::string& out) {
+    {
         out += write_selector(rule.selector);
         out += " {\n";
 
@@ -183,12 +243,6 @@ std::string FjssSerializer::serialize(const Stylesheet& sheet) {
 
         out += "}\n\n";
     }
-
-    // Trim the trailing blank line left by the last rule's "}\n\n".
-    while (!out.empty() && out.back() == '\n') out.pop_back();
-    if (!out.empty()) out += '\n';
-
-    return out;
 }
 
 } // namespace fjell

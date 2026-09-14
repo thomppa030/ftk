@@ -1,0 +1,127 @@
+#include "ui/game_ui/fjui_serializer.hpp"
+#include "ui/game_ui/fjui_parser.hpp"
+#include "ui/game_ui/widget_asset.hpp"
+#include "ui/game_ui/widget_resolver.hpp"
+#include "ui/game_ui/ui_context.hpp"
+#include "core/log.hpp"
+
+#include <catch2/catch_test_macros.hpp>
+
+#include <filesystem>
+#include <fstream>
+#include <unistd.h>
+
+using namespace fjell;
+namespace fs = std::filesystem;
+
+static struct LogInit {
+    LogInit() { if (!log::core()) log::init(); }
+} s_log_init;
+
+// Writes the tree, reads it back and writes again: the second text must
+// equal the first, or the writer loses something the parser reads.
+static std::pair<std::string, std::string> round_trip(const char* markup) {
+    auto first = FjuiParser::parse(markup);
+    REQUIRE(first);
+    auto text = FjuiSerializer::serialize(*first);
+    auto second = FjuiParser::parse(text);
+    REQUIRE(second);
+    return {text, FjuiSerializer::serialize(*second)};
+}
+
+TEST_CASE("Plain markup survives a round trip", "[fjui-serialize]") {
+    auto [text, again] = round_trip(R"(
+        <panel id="hud" class="overlay">
+            <text class="label">HP: {player.health}</text>
+            <div class="slot" on:click="use_item" class:active="selected==1"/>
+            <div class="info" if="show_debug">
+                <text>FPS: {fps}</text>
+            </div>
+            <bar class="hp" value="{hp}" max="{max_hp}"/>
+            <div style-width="50%" disabled/>
+        </panel>
+    )");
+    REQUIRE(text == again);
+    REQUIRE(text.find("id=\"hud\"") != std::string::npos);
+    REQUIRE(text.find("class:active=\"selected==1\"") != std::string::npos);
+    REQUIRE(text.find("if=\"show_debug\"") != std::string::npos);
+    REQUIRE(text.find("HP: {player.health}") != std::string::npos);
+    REQUIRE(text.find(" disabled") != std::string::npos);
+}
+
+TEST_CASE("Quotes inside attribute values are escaped and read back", "[fjui-serialize]") {
+    auto [text, again] = round_trip(R"(<div title="say &quot;hi&quot;"/>)");
+    REQUIRE(text == again);
+}
+
+// A project directory with one widget, so resolved instances can be
+// written back as their original tags.
+struct WidgetDir {
+    fs::path base;
+    WidgetDir() {
+        base = fs::temp_directory_path() / ("fjell_serialize_test_" + std::to_string(::getpid()));
+        fs::create_directories(base / "widgets");
+        std::ofstream(base / "widgets/item_slot.fjwidget") <<
+            "<widget style=\"slot.fjss\">\n"
+            "    <prop name=\"index\" type=\"string\"/>\n"
+            "    <div class=\"item\"><slot/></div>\n"
+            "</widget>\n";
+    }
+    ~WidgetDir() { fs::remove_all(base); }
+};
+
+TEST_CASE("Resolved widget instances collapse back to their tags", "[fjui-serialize]") {
+    WidgetDir dir;
+    const char* markup =
+        "<panel>\n"
+        "    <item-slot index=\"1\" on:activate=\"select(1)\" if=\"show\" class:active=\"sel==1\">\n"
+        "        <div class=\"icon\"/>\n"
+        "    </item-slot>\n"
+        "</panel>\n";
+    auto root = FjuiParser::parse(markup);
+    REQUIRE(root);
+    Stylesheet sheet;
+    UiContext context;
+    WidgetResolver resolver;
+    resolver.resolve(*root, dir.base.string(), sheet, context);
+    REQUIRE(root->children[0]->is_widget);
+
+    auto text = FjuiSerializer::serialize(*root);
+    // The widget's own markup (<div class="slot">) is not written; the
+    // authored tag, its props, events, directives and slot content are.
+    REQUIRE(text.find("<item-slot") != std::string::npos);
+    REQUIRE(text.find("class=\"item\"") == std::string::npos);
+    REQUIRE(text.find("index=\"1\"") != std::string::npos);
+    REQUIRE(text.find("on:activate=\"select(1)\"") != std::string::npos);
+    REQUIRE(text.find("if=\"show\"") != std::string::npos);
+    REQUIRE(text.find("class:active=\"sel==1\"") != std::string::npos);
+    REQUIRE(text.find("class=\"icon\"") != std::string::npos);
+    // Scope classes are runtime bookkeeping, never authored
+    REQUIRE(text.find("__w_") == std::string::npos);
+
+    auto again = FjuiParser::parse(text);
+    REQUIRE(again);
+    REQUIRE(FjuiSerializer::serialize(*again) == text);
+}
+
+TEST_CASE("A widget file is written with header, props and markup", "[fjui-serialize]") {
+    WidgetDir dir;
+    auto path = (dir.base / "widgets/out.fjwidget").string();
+    WidgetAsset asset;
+    asset.class_name = "hud_controller";
+    asset.fjss_path = "out.fjss";
+    asset.props.push_back({"fps", "string", "60"});
+    auto markup = FjuiParser::parse("<panel id=\"root\"><text class=\"fps\">FPS: {fps}</text></panel>");
+    REQUIRE(markup);
+
+    REQUIRE(save_widget_asset(path, asset, markup.get()));
+    auto loaded = load_widget_asset(path);
+    REQUIRE(loaded);
+    REQUIRE(loaded->class_name == "hud_controller");
+    REQUIRE(loaded->fjss_path == "out.fjss");
+    REQUIRE(loaded->props.size() == 1);
+    REQUIRE(loaded->props[0].default_value == "60");
+    REQUIRE(loaded->markup_root);
+    REQUIRE(loaded->markup_root->id == "root");
+    REQUIRE(FjuiSerializer::serialize(*loaded->markup_root) == FjuiSerializer::serialize(*markup));
+}

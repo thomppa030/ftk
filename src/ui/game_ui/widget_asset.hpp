@@ -32,6 +32,12 @@ struct WidgetAsset {
 };
 
 [[nodiscard]] Result<WidgetAsset> load_widget_asset(const std::string& path);
-[[nodiscard]] Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset);
+
+/// Writes the widget header, its <prop> declarations and its markup. The
+/// markup is passed separately because the tree being saved is usually the
+/// live one, with widgets resolved and editor-assigned ids, which the
+/// serializer collapses back to authored form.
+[[nodiscard]] Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
+                                         const UiNode* markup);
 
 } // namespace fjell

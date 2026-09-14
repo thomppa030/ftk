@@ -1,5 +1,6 @@
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/fjui_parser.hpp"
+#include "ui/game_ui/fjui_serializer.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "core/log.hpp"
 
@@ -146,7 +147,8 @@ Result<WidgetAsset> load_widget_asset(const std::string& path) {
     return asset;
 }
 
-Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset) {
+Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset,
+                           const UiNode* markup) {
     std::ofstream file(path);
     if (!file.is_open()) {
         return make_error("Failed to save widget asset: " + path);
@@ -169,8 +171,17 @@ Result<> save_widget_asset(const std::string& path, const WidgetAsset& asset) {
         file << "/>\n";
     }
 
-    // Note: we don't serialize the markup tree back — save is for metadata only.
-    // The user edits the .fjwidget file directly.
+    if (markup) {
+        if (!asset.props.empty()) file << "\n";
+        // The body is written at its own top level, then indented into the
+        // <widget> element line by line.
+        std::istringstream body(FjuiSerializer::serialize(*markup));
+        std::string line;
+        while (std::getline(body, line)) {
+            if (!line.empty()) file << "    " << line;
+            file << "\n";
+        }
+    }
 
     file << "</widget>\n";
     return {};

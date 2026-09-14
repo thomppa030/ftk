@@ -46,10 +46,17 @@ private:
 /// rule list back into text.
 class FjssSerializer {
 public:
+    /// Every rule in the sheet, whatever file it came from.
     [[nodiscard]] static std::string serialize(const Stylesheet& sheet);
+    /// Only the rules that belong to `source` — what saving that file
+    /// writes, leaving the widget sheets merged into the same Stylesheet
+    /// to their own files.
+    [[nodiscard]] static std::string serialize(const Stylesheet& sheet, std::string_view source);
 
 private:
     static std::string write_selector(const StyleSelector& sel);
+    static void write_rule(const StyleRule& rule, std::string& out);
+    static std::string finish(std::string out);
 };
 
 } // namespace fjell

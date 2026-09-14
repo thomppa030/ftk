@@ -16,6 +16,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_layout.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/thread_pool.cpp
     ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
     ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
@@ -65,6 +66,8 @@ add_executable(fjell-tests
     test_ui_style_properties.cpp
     test_widget_resolver.cpp
     test_ui_layout.cpp
+    test_fjss_serializer.cpp
+    test_fjui_serializer.cpp
     test_data_bind.cpp
     test_ui_animation.cpp
     test_spline.cpp

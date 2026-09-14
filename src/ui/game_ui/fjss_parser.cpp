@@ -151,7 +151,7 @@ std::vector<StyleRule> FjssParser::parse_rule() {
     std::vector<StyleRule> rules;
     rules.reserve(selectors.size());
     for (auto& selector : selectors) {
-        rules.push_back({std::move(selector), declarations});
+        rules.push_back({std::move(selector), declarations, source_name_});
     }
     return rules;
 }

@@ -67,6 +67,11 @@ struct StyleDeclaration {
 struct StyleRule {
     StyleSelector selector;
     std::vector<StyleDeclaration> declarations;
+    /// The file the rule was read from, or that an editor-made rule will be
+    /// written to. A loaded sheet holds rules from several files — the root
+    /// sheet and every widget sheet merged into it — so a save has to know
+    /// which rules belong to the file being written.
+    std::string source;
 
     /// The declaration that wins for `name` within this rule — the last one
     /// written, as in CSS — or nullptr when the rule does not set it.
