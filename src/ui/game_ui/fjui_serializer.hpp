@@ -3,7 +3,9 @@
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/ui_node.hpp"
 
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace fjell {
 
@@ -56,6 +58,9 @@ public:
 private:
     static std::string write_selector(const StyleSelector& sel);
     static void write_rule(const StyleRule& rule, std::string& out);
+    /// The @import lines of `source`, or of every file when source is empty.
+    static void write_imports(const Stylesheet& sheet, std::optional<std::string_view> source,
+                              std::string& out);
     static std::string finish(std::string out);
 };
 

@@ -5,6 +5,7 @@ add_executable(fjlint
     main.cpp
     log_stub.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_parser.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjss_loader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/fjui_serializer.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp

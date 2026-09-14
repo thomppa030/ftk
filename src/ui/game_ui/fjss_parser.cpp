@@ -93,7 +93,7 @@ Stylesheet FjssParser::parse_stylesheet() {
         }
 
         if (peek() == '@') {
-            skip_at_rule();
+            parse_at_rule();
             continue;
         }
 
@@ -489,12 +489,50 @@ void FjssParser::skip_block() {
     }
 }
 
-void FjssParser::skip_at_rule() {
+void FjssParser::parse_import(size_t start) {
+    skip_whitespace();
+    // `@import "file";` or `@import url("file");`
+    bool in_url = false;
+    if (source_.substr(pos_).starts_with("url(")) {
+        pos_ += 4;
+        in_url = true;
+        skip_whitespace();
+    }
+    if (at_end() || (peek() != '"' && peek() != '\'')) {
+        diagnose(start, FjssSeverity::error, "expected a quoted file name after @import");
+        skip_malformed_rule();
+        return;
+    }
+    char quote = advance();
+    std::string path;
+    while (!at_end() && peek() != quote && peek() != '\n') path += advance();
+    if (at_end() || peek() != quote) {
+        diagnose(start, FjssSeverity::error, "@import file name is not closed");
+        skip_malformed_rule();
+        return;
+    }
+    advance(); // closing quote
+    skip_whitespace();
+    if (in_url && !at_end() && peek() == ')') {
+        advance();
+        skip_whitespace();
+    }
+    if (!at_end() && peek() == ';') advance();
+
+    auto position = position_at(start);
+    sheet_.imports.push_back({path, source_name_, sheet_.rules.size(), position.line, position.column});
+}
+
+void FjssParser::parse_at_rule() {
     size_t start = pos_;
     advance(); // @
     std::string name;
     while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '-')) {
         name += advance();
+    }
+    if (name == "import") {
+        parse_import(start);
+        return;
     }
     diagnose(start, FjssSeverity::warning, "'@" + name + "' is not supported, ignored");
 

@@ -196,6 +196,7 @@ std::string FjssSerializer::write_selector(const StyleSelector& sel) {
 
 std::string FjssSerializer::serialize(const Stylesheet& sheet) {
     std::string out;
+    write_imports(sheet, std::nullopt, out);
     for (const auto& rule : sheet.rules) {
         write_rule(rule, out);
     }
@@ -204,10 +205,24 @@ std::string FjssSerializer::serialize(const Stylesheet& sheet) {
 
 std::string FjssSerializer::serialize(const Stylesheet& sheet, std::string_view source) {
     std::string out;
+    write_imports(sheet, source, out);
     for (const auto& rule : sheet.rules) {
         if (rule.source == source) write_rule(rule, out);
     }
     return finish(std::move(out));
+}
+
+void FjssSerializer::write_imports(const Stylesheet& sheet, std::optional<std::string_view> source,
+                                   std::string& out) {
+    // Imports come first, as CSS requires; where they sat among the rules
+    // is not kept, which only matters for a sheet that imported mid-file.
+    bool any = false;
+    for (const auto& import : sheet.imports) {
+        if (source && import.source != *source) continue;
+        out += "@import \"" + import.path + "\";\n";
+        any = true;
+    }
+    if (any) out += "\n";
 }
 
 std::string FjssSerializer::finish(std::string out) {

@@ -28,6 +28,7 @@
 // with a filetype rule mapping *.fjss to "fjss". Vim's own :make works with
 // `set makeprg=fjlint\ %` and the default errorformat.
 
+#include "ui/game_ui/fjss_loader.hpp"
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/widget_asset.hpp"
@@ -59,21 +60,21 @@ struct Tally {
 };
 
 void check_stylesheet_text(const std::string& text, const std::string& name, Tally& tally) {
-    // The parser logs each diagnostic as it finishes; the log sink counts.
-    (void)FjssParser::parse(text, name);
+    // The parser and the loader log each diagnostic; the log sink counts.
+    auto sheet = FjssParser::parse(text, name);
+    resolve_imports(sheet, fs::path(name).parent_path().string());
     ++tally.files;
 }
 
 void check_stylesheet(const fs::path& path, Tally& tally) {
-    std::ifstream file(path);
-    if (!file) {
+    if (!fs::exists(path)) {
         std::fprintf(stderr, "%s: cannot read\n", path.string().c_str());
         ++tally.problems;
         return;
     }
-    std::ostringstream text;
-    text << file.rdbuf();
-    check_stylesheet_text(text.str(), path.string(), tally);
+    // Imports are followed and their problems reported at the @import line
+    auto sheet = load_stylesheet(path.string());
+    tally.files += static_cast<int>(sheet.files.size());
 }
 
 void check_widget(const fs::path& path, Tally& tally) {

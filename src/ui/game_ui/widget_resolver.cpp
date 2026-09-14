@@ -1,4 +1,5 @@
 #include "ui/game_ui/widget_resolver.hpp"
+#include "ui/game_ui/fjss_loader.hpp"
 #include "ui/game_ui/fjui_parser.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
@@ -121,14 +122,13 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
         auto scope_class = "__w_" + filename + "_" + std::to_string(scope_counter_++);
 
         if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
-            if (std::find(dependencies_.begin(), dependencies_.end(), fjss_path) ==
-                dependencies_.end()) {
-                dependencies_.push_back(fjss_path);
+            auto widget_sheet = load_stylesheet(fjss_path);
+            for (const auto& file : widget_sheet.files) {
+                if (std::find(dependencies_.begin(), dependencies_.end(), file) ==
+                    dependencies_.end()) {
+                    dependencies_.push_back(file);
+                }
             }
-            std::ifstream fjss_file(fjss_path);
-            std::ostringstream fjss_ss;
-            fjss_ss << fjss_file.rdbuf();
-            auto widget_sheet = FjssParser::parse(fjss_ss.str(), fjss_path);
 
             // Every rule is confined to this instance by the scope class on
             // its instance node. Prepending keeps whatever ancestors the

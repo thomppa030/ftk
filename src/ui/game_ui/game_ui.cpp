@@ -1,4 +1,5 @@
 #include "ui/game_ui/game_ui.hpp"
+#include "ui/game_ui/fjss_loader.hpp"
 #include "ui/game_ui/fjui_parser.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "renderer/bindless.hpp"
@@ -82,10 +83,7 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     stylesheet_ = {};
     stylesheet_path_ = fjss_path;
     if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
-        std::ifstream fjss_file(fjss_path);
-        std::ostringstream fjss_ss;
-        fjss_ss << fjss_file.rdbuf();
-        stylesheet_ = FjssParser::parse(fjss_ss.str(), fjss_path);
+        stylesheet_ = load_stylesheet(fjss_path);
     }
 
     // Resolve widget tags: <health-bar/> → widgets/health_bar.fjui
@@ -116,10 +114,7 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
     stylesheet_ = {};
     stylesheet_path_ = fjss_path;
     if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
-        std::ifstream fjss_file(fjss_path);
-        std::ostringstream fjss_ss;
-        fjss_ss << fjss_file.rdbuf();
-        stylesheet_ = FjssParser::parse(fjss_ss.str(), fjss_path);
+        stylesheet_ = load_stylesheet(fjss_path);
     }
 
     widget_resolver_.resolve(*root_, base_dir, stylesheet_, context_);
@@ -149,6 +144,10 @@ void GameUi::discard_tree_state() {
 void GameUi::watch_sources(const std::string& markup_path, const std::string& fjss_path) {
 #ifndef NDEBUG
     std::vector<std::string> paths{markup_path, fjss_path};
+    // Imported sheets and widget files: every file the tree was built from.
+    for (const auto& file : stylesheet_.files) {
+        if (std::find(paths.begin(), paths.end(), file) == paths.end()) paths.push_back(file);
+    }
     const auto& widget_files = widget_resolver_.dependencies();
     paths.insert(paths.end(), widget_files.begin(), widget_files.end());
     watcher_ = std::make_unique<UiWatcher>(paths, [this] { reload_requested_ = true; });

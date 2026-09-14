@@ -600,14 +600,26 @@ TEST_CASE("Line counting is by newline and column is 1-based", "[fjss][diag]") {
 
 // --- Unsupported syntax is reported, never silently mis-parsed ---
 
-TEST_CASE("@import is skipped with a diagnostic and the next rule parses", "[fjss][unsupported]") {
-    auto sheet = FjssParser::parse("@import \"base.fjss\";\n.a { width: 1; }");
-    REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"a"});
-    REQUIRE(sheet.rules[0].selector.ancestors.empty());
+TEST_CASE("@import is recorded with its position among the rules", "[fjss][import]") {
+    auto sheet = FjssParser::parse("@import \"base.fjss\";\n.a { width: 1; }\n@import url('more.fjss');\n.b { width: 2; }", "hud.fjss");
+    REQUIRE(sheet.diagnostics.empty());
+    REQUIRE(sheet.rules.size() == 2);
+    REQUIRE(sheet.imports.size() == 2);
+    REQUIRE(sheet.imports[0].path == "base.fjss");
+    REQUIRE(sheet.imports[0].rule_index == 0);
+    REQUIRE(sheet.imports[0].line == 1);
+    REQUIRE(sheet.imports[0].source == "hud.fjss");
+    REQUIRE(sheet.imports[1].path == "more.fjss");
+    REQUIRE(sheet.imports[1].rule_index == 1);
+    REQUIRE(sheet.imports[1].line == 3);
+}
+
+TEST_CASE("@import without a quoted name is an error and the next rule parses", "[fjss][import]") {
+    auto sheet = FjssParser::parse("@import base.fjss;\n.a { width: 1; }");
+    REQUIRE(sheet.imports.empty());
     REQUIRE(sheet.diagnostics.size() == 1);
-    REQUIRE(sheet.diagnostics[0].message.find("@import") != std::string::npos);
-    REQUIRE(sheet.diagnostics[0].line == 1);
+    REQUIRE(sheet.diagnostics[0].severity == FjssSeverity::error);
+    REQUIRE(sheet.rules.size() == 1);
 }
 
 TEST_CASE("@media block is skipped whole, including nested rules", "[fjss][unsupported]") {

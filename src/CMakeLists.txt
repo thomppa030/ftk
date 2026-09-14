@@ -65,6 +65,7 @@ add_executable(fjell
     renderer/gpu/upload_context.cpp
     renderer/gpu/growable_buffer.cpp
     renderer/gpu/image.cpp
+    renderer/gpu/image_readback.cpp
     renderer/indirect_batch.cpp
     renderer/instance_provider.cpp
     renderer/resources/fjsl_parser.cpp
@@ -283,6 +284,7 @@ add_executable(fjell
     ui/game_ui/fjss_parser.cpp
     ui/game_ui/fjui_serializer.cpp
     ui/game_ui/style_resolver.cpp
+    ui/game_ui/fjss_loader.cpp
     ui/game_ui/ui_style_properties.cpp
     ui/game_ui/ui_layout.cpp
     ui/game_ui/ui_renderer.cpp

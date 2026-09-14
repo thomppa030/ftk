@@ -101,10 +101,24 @@ struct FjssDiagnostic {
     std::string message;
 };
 
+/// One `@import "file";`, kept so the importing file can be written back
+/// with the line in it, and so a loader knows where to splice the rules.
+struct StyleImport {
+    std::string path;   ///< as written, relative to the importing file
+    std::string source; ///< the file the @import line is in
+    size_t rule_index;  ///< rules parsed before it: where its rules belong
+    uint32_t line{1};
+    uint32_t column{1};
+};
+
 struct Stylesheet {
     std::vector<StyleRule> rules;
+    std::vector<StyleImport> imports;
     /// Problems from this sheet and from every widget sheet merged into it.
     std::vector<FjssDiagnostic> diagnostics;
+    /// Every file the rules were read from, the root first, then imports in
+    /// the order they were resolved. What a loader watches for changes.
+    std::vector<std::string> files;
 };
 
 /// Parser for .fjss (CSS-like) stylesheets.
@@ -148,10 +162,10 @@ private:
     void skip_malformed_rule();
     /// Consumes a `{ ... }` block including nested ones, starting at the `{`.
     void skip_block();
-    /// At-rules (`@import`, `@media`, `@keyframes`, ...) are not supported.
-    /// The whole construct is consumed and reported so the rules after it
-    /// still parse.
-    void skip_at_rule();
+    /// `@import` is recorded; other at-rules (`@media`, `@keyframes`, ...)
+    /// are consumed whole and reported so the rules after them still parse.
+    void parse_at_rule();
+    void parse_import(size_t start);
     [[nodiscard]] bool at_end() const;
     [[nodiscard]] char peek() const;
     char advance();
