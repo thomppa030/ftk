@@ -48,7 +48,7 @@ nlohmann::json Scene::to_json(const Project* project) const {
         for (const auto& pl : point_lights_) {
             j["point_lights"].push_back({
                 {"position", {pl.position.x, pl.position.y, pl.position.z}},
-                {"color", {pl.color.x, pl.color.y, pl.color.z}},
+                {"color", color_to_json(pl.color)},
                 {"intensity", pl.intensity},
                 {"radius", pl.radius}
             });
@@ -62,7 +62,7 @@ nlohmann::json Scene::to_json(const Project* project) const {
             j["spot_lights"].push_back({
                 {"position", {sl.position.x, sl.position.y, sl.position.z}},
                 {"direction", {sl.direction.x, sl.direction.y, sl.direction.z}},
-                {"color", {sl.color.x, sl.color.y, sl.color.z}},
+                {"color", color_to_json(sl.color)},
                 {"intensity", sl.intensity},
                 {"radius", sl.radius},
                 {"inner_angle", sl.inner_angle},
@@ -133,7 +133,7 @@ Scene Scene::from_json(const nlohmann::json& j, ResourceManager& resources,
             }
             if (jpl.contains("color")) {
                 auto& c = jpl["color"];
-                pl.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                pl.color = color_from_json(c);
             }
             pl.intensity = jpl.value("intensity", 1.0f);
             pl.radius = jpl.value("radius", 10.0f);
@@ -154,7 +154,7 @@ Scene Scene::from_json(const nlohmann::json& j, ResourceManager& resources,
             }
             if (jsl.contains("color")) {
                 auto& c = jsl["color"];
-                sl.color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                sl.color = color_from_json(c);
             }
             sl.intensity = jsl.value("intensity", 1.0f);
             sl.radius = jsl.value("radius", 10.0f);

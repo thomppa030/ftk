@@ -5,6 +5,10 @@
 namespace fjell {
 
 // ── Light nodes ─────────────────────────────────────────────────────────
+// Every colour below is linear light, ready for the renderer to multiply.
+// The scene file and the inspector hold sRGB and convert on the way in and
+// out (node_serializer.cpp, color_edit_linear), so a default written here
+// is the value the shaders see.
 
 enum class LightType : uint8_t { Directional, Point, Spot };
 

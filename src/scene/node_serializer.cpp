@@ -16,12 +16,23 @@
 #include "renderer/resources/texture.hpp"
 #include "scripting/fjell/component.hpp"
 #include "core/base_path.hpp"
+#include "core/math/color_space.hpp"
 #include "core/project.hpp"
 #include "core/log.hpp"
 
 #include <nlohmann/json.hpp>
 
 namespace fjell {
+
+nlohmann::json color_to_json(glm::vec3 linear) {
+    const glm::vec3 c = color_space::linear_to_srgb(linear);
+    return {c.x, c.y, c.z};
+}
+
+glm::vec3 color_from_json(const nlohmann::json& srgb) {
+    return color_space::srgb_to_linear(
+        glm::vec3{srgb[0].get<float>(), srgb[1].get<float>(), srgb[2].get<float>()});
+}
 
 // ── Serialize ────────────────────────────────────────────────────────────
 
@@ -98,15 +109,15 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
         j["node_type"] = "directional_light";
         j["light"] = {
             {"direction", {dl->direction.x, dl->direction.y, dl->direction.z}},
-            {"color", {dl->color.x, dl->color.y, dl->color.z}},
+            {"color", color_to_json(dl->color)},
             {"intensity", dl->intensity},
-            {"ambient_color", {dl->ambient_color.x, dl->ambient_color.y, dl->ambient_color.z}},
+            {"ambient_color", color_to_json(dl->ambient_color)},
             {"ambient_intensity", dl->ambient_intensity}
         };
     } else if (auto* pl = dynamic_cast<const PointLightNode*>(&node)) {
         j["node_type"] = "point_light";
         j["light"] = {
-            {"color", {pl->color.x, pl->color.y, pl->color.z}},
+            {"color", color_to_json(pl->color)},
             {"intensity", pl->intensity},
             {"radius", pl->radius},
             {"vol_scatter_intensity", pl->vol_scatter_intensity},
@@ -117,7 +128,7 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
         j["node_type"] = "spot_light";
         j["light"] = {
             {"direction", {sl->direction.x, sl->direction.y, sl->direction.z}},
-            {"color", {sl->color.x, sl->color.y, sl->color.z}},
+            {"color", color_to_json(sl->color)},
             {"intensity", sl->intensity},
             {"radius", sl->radius},
             {"inner_angle", sl->inner_angle},
@@ -135,7 +146,7 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
             {"anisotropy", vf->anisotropy},
             {"max_distance", vf->max_distance},
             {"temporal_blend", vf->temporal_blend},
-            {"color", {vf->fog_color.r, vf->fog_color.g, vf->fog_color.b}},
+            {"color", color_to_json(vf->fog_color)},
             {"shafts_enabled", vf->shafts_enabled},
             {"shaft_intensity", vf->shaft_intensity},
             {"shaft_density_mult", vf->shaft_density_mult},
@@ -150,8 +161,8 @@ nlohmann::json serialize_node(const Node& node, const Project* project) {
     } else if (auto* env = dynamic_cast<const WorldEnvironmentNode*>(&node)) {
         j["node_type"] = "world_environment";
         j["sky"] = {
-            {"sky_top_color", {env->sky_top_color.x, env->sky_top_color.y, env->sky_top_color.z}},
-            {"sky_bottom_color", {env->sky_bottom_color.x, env->sky_bottom_color.y, env->sky_bottom_color.z}},
+            {"sky_top_color", color_to_json(env->sky_top_color)},
+            {"sky_bottom_color", color_to_json(env->sky_bottom_color)},
             {"ibl_intensity", env->ibl_intensity},
             {"contact_shadows_enabled", env->contact_shadows_enabled},
             {"contact_shadow_distance", env->contact_shadow_distance},
@@ -292,12 +303,12 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 }
                 if (jl.contains("color")) {
                     auto& c = jl["color"];
-                    dl->color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    dl->color = color_from_json(c);
                 }
                 dl->intensity = jl.value("intensity", 1.5f);
                 if (jl.contains("ambient_color")) {
                     auto& c = jl["ambient_color"];
-                    dl->ambient_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    dl->ambient_color = color_from_json(c);
                 }
                 dl->ambient_intensity = jl.value("ambient_intensity", 1.0f);
             }
@@ -308,7 +319,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 auto& jl = j["light"];
                 if (jl.contains("color")) {
                     auto& c = jl["color"];
-                    pl->color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    pl->color = color_from_json(c);
                 }
                 pl->intensity = jl.value("intensity", 1.0f);
                 pl->radius = jl.value("radius", 10.0f);
@@ -327,7 +338,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 }
                 if (jl.contains("color")) {
                     auto& c = jl["color"];
-                    sl->color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    sl->color = color_from_json(c);
                 }
                 sl->intensity = jl.value("intensity", 1.0f);
                 sl->radius = jl.value("radius", 10.0f);
@@ -350,7 +361,7 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 vf->temporal_blend = jf.value("temporal_blend", 0.9f);
                 if (jf.contains("color")) {
                     auto& c = jf["color"];
-                    vf->fog_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    vf->fog_color = color_from_json(c);
                 }
                 vf->shafts_enabled = jf.value("shafts_enabled", true);
                 vf->shaft_intensity = jf.value("shaft_intensity", 1.0f);
@@ -370,11 +381,11 @@ std::unique_ptr<Node> deserialize_node(const nlohmann::json& j,
                 auto& js = j["sky"];
                 if (js.contains("sky_top_color")) {
                     auto& c = js["sky_top_color"];
-                    env->sky_top_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    env->sky_top_color = color_from_json(c);
                 }
                 if (js.contains("sky_bottom_color")) {
                     auto& c = js["sky_bottom_color"];
-                    env->sky_bottom_color = {c[0].get<float>(), c[1].get<float>(), c[2].get<float>()};
+                    env->sky_bottom_color = color_from_json(c);
                 }
                 env->ibl_intensity = js.value("ibl_intensity", 1.0f);
                 env->contact_shadows_enabled = js.value("contact_shadows_enabled", true);

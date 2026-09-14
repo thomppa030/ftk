@@ -260,13 +260,13 @@ void PropertiesPanel::draw() {
                         ImGui::DragFloat3("##LightDir", &dl->direction.x, 0.01f, -1.0f, 1.0f);
                     });
                     prop_row("Color", [&] {
-                        ImGui::ColorEdit3("##LightColor", &dl->color.x);
+                        color_edit_linear("##LightColor", dl->color);
                     });
                     prop_row("Intensity", [&] {
                         ImGui::DragFloat("##LightIntensity", &dl->intensity, 0.05f, 0.0f, 10.0f);
                     });
                     prop_row("Ambient", [&] {
-                        ImGui::ColorEdit3("##AmbientColor", &dl->ambient_color.x);
+                        color_edit_linear("##AmbientColor", dl->ambient_color);
                     });
                     prop_row("Ambient Int.", [&] {
                         ImGui::DragFloat("##AmbientIntensity", &dl->ambient_intensity, 0.05f, 0.0f, 2.0f);
@@ -277,7 +277,7 @@ void PropertiesPanel::draw() {
                 section_header("POINT LIGHT", ICON_LC_LIGHTBULB);
                 if (auto t = PropertyTable("##ptlight")) {
                     prop_row("Color", [&] {
-                        ImGui::ColorEdit3("##PLColor", &pl->color.x);
+                        color_edit_linear("##PLColor", pl->color);
                     });
                     prop_row("Intensity", [&] {
                         ImGui::DragFloat("##PLIntensity", &pl->intensity, 0.1f, 0.0f, 100.0f);
@@ -305,7 +305,7 @@ void PropertiesPanel::draw() {
                         ImGui::DragFloat3("##SLDir", &sl->direction.x, 0.01f, -1.0f, 1.0f);
                     });
                     prop_row("Color", [&] {
-                        ImGui::ColorEdit3("##SLColor", &sl->color.x);
+                        color_edit_linear("##SLColor", sl->color);
                     });
                     prop_row("Intensity", [&] {
                         ImGui::DragFloat("##SLIntensity", &sl->intensity, 0.1f, 0.0f, 100.0f);
@@ -355,7 +355,7 @@ void PropertiesPanel::draw() {
                         ImGui::SliderFloat("##FogTemporal", &vf->temporal_blend, 0.0f, 0.99f);
                     });
                     prop_row("Color", [&] {
-                        ImGui::ColorEdit3("##FogColor", &vf->fog_color.r);
+                        color_edit_linear("##FogColor", vf->fog_color);
                     });
                 }
                 ImGui::Checkbox("Sun Shafts##FogShafts", &vf->shafts_enabled);
@@ -412,10 +412,10 @@ void PropertiesPanel::draw() {
                 ImGui::BeginDisabled(!gradient_mode);
                 if (auto t = PropertyTable("##env_sky")) {
                     prop_row("Sky Top", [&] {
-                        ImGui::ColorEdit3("##SkyTop", &env->sky_top_color.x);
+                        color_edit_linear("##SkyTop", env->sky_top_color);
                     });
                     prop_row("Sky Bottom", [&] {
-                        ImGui::ColorEdit3("##SkyBottom", &env->sky_bottom_color.x);
+                        color_edit_linear("##SkyBottom", env->sky_bottom_color);
                     });
                 }
                 ImGui::EndDisabled();

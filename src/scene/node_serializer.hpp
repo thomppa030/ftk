@@ -1,5 +1,7 @@
 #pragma once
 
+#include <glm/glm.hpp>
+
 #include <memory>
 #include <nlohmann/json_fwd.hpp>
 
@@ -24,5 +26,11 @@ class Project;
     const nlohmann::json& j,
     ResourceManager& resources,
     const Project* project = nullptr);
+
+/// Scene files hold colours as sRGB, the way the inspector shows them; nodes
+/// hold linear light, the way the renderer multiplies it. Every colour that
+/// crosses between the two goes through this pair.
+[[nodiscard]] nlohmann::json color_to_json(glm::vec3 linear);
+[[nodiscard]] glm::vec3 color_from_json(const nlohmann::json& srgb);
 
 } // namespace fjell

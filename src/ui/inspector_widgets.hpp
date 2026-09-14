@@ -1,7 +1,9 @@
 #pragma once
 
+#include "core/math/color_space.hpp"
 #include "ui/theme.hpp"
 
+#include <glm/glm.hpp>
 #include <imgui.h>
 #include <imgui_internal.h>
 
@@ -10,6 +12,16 @@
 #include <utility>
 
 namespace fjell {
+
+/// Colour picker for a value the renderer multiplies as linear light. The
+/// swatch and the numbers are sRGB, the same as the scene file, so what is
+/// picked is what the light or sky looks like. Returns true on edit.
+inline bool color_edit_linear(const char* id, glm::vec3& linear) {
+    glm::vec3 srgb = color_space::linear_to_srgb(linear);
+    if (!ImGui::ColorEdit3(id, &srgb.x)) return false;
+    linear = color_space::srgb_to_linear(srgb);
+    return true;
+}
 
 /// A small-caps dimmed section heading with a 1px separator above. Use
 /// instead of `ImGui::TextColored(palette_purple, "Transform")`. Renders:
