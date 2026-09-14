@@ -8,6 +8,7 @@
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace fjell {
 
@@ -228,33 +229,6 @@ struct CharacterComponent {
     }
 };
 
-    /// Capsule height between cap centers; total standing height is this plus
-    /// twice the radius.
-    float capsule_height{1.4f};
-
-    /// Steepest slope in degrees the character can walk up. Steeper ground
-    /// reports `OnSteepGround` and slides.
-    float max_slope_angle{50.0f};
-
-    /// Mass in kilograms, used when pushing dynamic bodies.
-    float mass{80.0f};
-
-    /// Whether the character is grounded. Read-only output, refreshed each
-    /// frame — check it before allowing a jump.
-    CharacterGroundState ground_state{CharacterGroundState::InAir};
-
-    /// Surface normal underfoot; `(0,1,0)` when airborne. Read-only output,
-    /// useful for aligning to slopes.
-    glm::vec3 ground_normal{0.0f, 1.0f, 0.0f};
-
-    /// Velocity of the surface underfoot, for moving platforms. Read-only output.
-    glm::vec3 ground_velocity{0.0f};
-
-    /// Current velocity in world units per second. Assign to move the
-    /// character — this is the movement input, not just a readout.
-    glm::vec3 linear_velocity{0.0f};
-};
-
 // ── Rendering ────────────────────────────────────────────────────────────
 
 /// Makes a node render a 3D model. To change shader parameters at runtime,
@@ -277,6 +251,13 @@ struct MeshComponent {
 
     /// Path of the assigned `.fjmat`, as shown in the inspector.
     std::string material_name;
+
+    /// Engine-owned per-mesh material override, if one has been created.
+    /// Opaque to game code; go through `MaterialAPI` to change parameters.
+    void* instance{nullptr};
+
+    /// Engine-owned material per submesh slot. Opaque to game code.
+    std::vector<void*> slot_materials;
 };
 
 // ── Sprites ─────────────────────────────────────────────────────────────
@@ -293,9 +274,9 @@ struct SpriteComponent {
     /// flash or team-color a sprite.
     glm::vec4 tint{1.0f, 1.0f, 1.0f, 1.0f};
 
-    /// Sub-rectangle of the texture to draw, as normalized `(u, v, width,
-    /// height)`. Defaults to the whole image; a SpriteAnimComponent drives
-    /// this for sheet animation.
+    /// Sub-rectangle of the texture to draw, as normalized `(u_min, v_min,
+    /// u_max, v_max)`. Defaults to the whole image; a SpriteAnimComponent
+    /// drives this for sheet animation.
     glm::vec4 uv_rect{0.0f, 0.0f, 1.0f, 1.0f};
 
     /// Overall alpha, 0 transparent to 1 opaque. Multiplies with `tint.a`.
@@ -304,29 +285,50 @@ struct SpriteComponent {
     /// Draw only in the editor viewport, never in play. For gizmos and markers.
     bool editor_only{false};
 
-    /// Mirror horizontally — the usual way to face a character left or right.
+    /// Mirror horizontally. Cheaper than authoring a flipped texture for
+    /// left/right facing.
     bool flip_h{false};
 
-    /// Lie flat on the XZ plane instead of standing upright facing the camera.
+    /// Lie flat in the node's XY plane instead of facing the camera. For
+    /// floor decals and top-down games.
     bool flat{false};
 
     /// Use nearest-neighbour filtering, keeping hard pixel edges instead of
-    /// blurring. Set this for pixel art.
+    /// blurring between texels.
     bool pixel_art{false};
 
-    /// Texture pixels per world unit, controlling on-screen size. 0 uses the
-    /// project default.
+    /// Texture pixels per world unit, so the sprite sizes itself from the
+    /// texture. Zero means the node's scale sets the size.
     float pixels_per_unit{0.0f};
 
-    /// Coarse draw order. Higher layers draw over lower ones regardless of
-    /// depth — background, characters, foreground.
+    /// Explicit draw layer; lower draws behind. Sprites in different layers
+    /// never interleave regardless of depth.
     int32_t sort_layer{0};
 
     /// Draw order within the same `sort_layer`; higher draws on top.
     int32_t sort_order{0};
 
+    /// Take scene lighting instead of drawing unlit.
+    bool lit{false};
+
+    /// Optional normal map for a lit sprite; empty derives normals from the
+    /// quad plane.
+    std::string normal_path;
+
+    /// Surface roughness for a lit sprite, 0 mirror to 1 matte.
+    float roughness{1.0f};
+
+    /// Metalness for a lit sprite, 0 dielectric to 1 metal.
+    float metallic{0.0f};
+
+    /// Emission strength, a multiplier on `tint` that also drives bloom.
+    float emission{0.0f};
+
     /// Engine-owned bindless texture index, assigned once the texture loads.
     uint32_t texture_index{0};
+
+    /// Engine-owned bindless index of the normal map, once it loads.
+    uint32_t normal_index{0};
 
     /// Source texture width in pixels. Valid once `texture_loaded` is true.
     uint32_t tex_width{0};
@@ -337,6 +339,9 @@ struct SpriteComponent {
     /// Whether the texture has finished loading. The size fields are 0 until
     /// it does.
     bool texture_loaded{false};
+
+    /// Whether the normal map has finished loading.
+    bool normal_loaded{false};
 };
 
 } // namespace fjell
