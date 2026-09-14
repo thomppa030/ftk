@@ -424,11 +424,12 @@ public:
     /// Max ray distance used in RT trace push constants.
     static constexpr float MAX_TRACE_DIST = 40.0f;
 
-private:
     /// Probe grid bounds expanded by max trace distance — objects outside
-    /// this volume can never be hit by DDGI rays.
+    /// this volume can never be hit by DDGI rays, so it is also the volume
+    /// the gather keeps off-screen geometry for.
     [[nodiscard]] AABB trace_reach_bounds() const;
 
+private:
     void update_constants(Images& imgs, const FrameContext& ctx);
 
     Device* device_{nullptr};

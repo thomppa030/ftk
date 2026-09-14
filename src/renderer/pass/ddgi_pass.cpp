@@ -9,6 +9,7 @@
 #include "renderer/post_process_resources.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/render_queue.hpp"
+#include "renderer/render_stats.hpp"
 #include "renderer/systems/particle_system.hpp"
 #include "renderer/gpu/vma_image.hpp"
 #include "renderer/indirect_batch.hpp"
@@ -1116,8 +1117,8 @@ void DdgiPass::prepare_accel_structures(const FrameContext& ctx) {
 
     AABB bounds = trace_reach_bounds();
 
-    // Culled emitters need a BLAS as much as visible geometry: the TLAS
-    // build skips any model without one, so an emitter that has been off
+    // Off-screen geometry needs a BLAS as much as visible geometry: the TLAS
+    // build skips any model without one, so an object that has been off
     // screen since load would otherwise never make it in.
     auto ensure = [&](const DrawCommand& dc) {
         if (!dc.model) return;
@@ -1553,8 +1554,8 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             // Everything whose instance count is known on the CPU goes in one
             // list; build_tlas applies the same transform validation to all of
             // it and reserves the particle region after.
-            // Visible draws plus the emissive ones the camera culled: those
-            // are off screen but still light what is on it.
+            // Visible draws plus the opaque ones the camera culled: those
+            // are off screen but still light, and shadow, what is on it.
             const auto& gi_only = ctx.queue->gi_only_commands();
             std::vector<AccelStructureManager::RtInstance> host_instances;
             host_instances.reserve(cmds.size() + gi_only.size() + 1);
@@ -1615,6 +1616,9 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             if (!host_instances.empty() || !particle_infos.empty()) {
                 accel_manager_->build_tlas(ctx.cmd, ctx.frame_index, host_instances,
                                            particle_infos);
+            }
+            if (ctx.render_stats != nullptr) {
+                ctx.render_stats->tlas_instances += static_cast<uint32_t>(host_instances.size());
             }
         }
     }

@@ -61,10 +61,11 @@ public:
     [[nodiscard]] const std::vector<DrawCommand>& commands() const { return opaque_; }
     [[nodiscard]] const std::vector<DrawCommand>& transparent_commands() const { return transparent_; }
 
-    /// Draws the camera cannot see that still have to exist for GI: emissive
-    /// geometry that rays from on-screen probes and reflections may hit.
-    /// Disjoint from commands() — a draw is in one list or the other — so
-    /// consumers building a TLAS take both without deduplicating.
+    /// Draws the camera cannot see that still have to exist for GI: opaque
+    /// geometry within ray reach, whether it lights the scene from off
+    /// screen or blocks that light. Disjoint from commands() — a draw is in
+    /// one list or the other — so consumers building a TLAS take both
+    /// without deduplicating.
     void push_gi_only(const DrawCommand& cmd) { gi_only_.push_back(cmd); }
     [[nodiscard]] const std::vector<DrawCommand>& gi_only_commands() const { return gi_only_; }
 

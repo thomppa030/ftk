@@ -1,5 +1,6 @@
 #pragma once
 
+#include "renderer/frustum.hpp"
 #include "renderer/gpu/draw_data_descriptor.hpp"
 #include "renderer/indirect_batch.hpp"
 #include "renderer/pass/render_pass.hpp"
@@ -9,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace fjell {
@@ -19,8 +21,6 @@ class Scene;
 class ShadowPass;
 class ThreadPool;
 struct RenderStats;
-
-class BindlessTextures;
 
 /// Input parameters for SceneGatherer::gather().
 struct GatherInput {
@@ -33,9 +33,11 @@ struct GatherInput {
     ThreadPool* pool{nullptr};
     RenderStats* stats{nullptr};
     AnimationSystem* animation_system{nullptr};
-    /// Lets the cull keep emissive geometry the camera rejects, so it stays
-    /// in the GI acceleration structure. Null skips that.
-    const BindlessTextures* bindless{nullptr};
+    /// The volume GI rays can reach. Opaque geometry inside it that the
+    /// camera rejects is kept on the GI-only list so it stays in the
+    /// acceleration structure. Empty when no ray-traced GI runs, and then
+    /// nothing is kept.
+    std::optional<AABB> gi_reach;
 };
 
 /// Extracts renderable data from the scene: frustum culling, draw command

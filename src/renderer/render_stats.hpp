@@ -20,6 +20,11 @@ struct RenderStats {
     uint32_t lod2_draws{0};
     uint32_t distance_culled{0};
 
+    // Ray-traced GI: culled draws kept for the acceleration structure, and
+    // instances in the structures built this frame.
+    uint32_t gi_only_draws{0};
+    uint32_t tlas_instances{0};
+
     void reset() {
         draw_calls = 0;
         triangle_count = 0;
@@ -33,6 +38,8 @@ struct RenderStats {
         lod1_draws = 0;
         lod2_draws = 0;
         distance_culled = 0;
+        gi_only_draws = 0;
+        tlas_instances = 0;
     }
 };
 

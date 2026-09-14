@@ -116,6 +116,10 @@ void StatsPanel::draw_rendering_section() {
                        stats.lod0_draws, stats.lod1_draws,
                        stats.lod2_draws, stats.distance_culled);
         }
+        if (stats.tlas_instances > 0) {
+            metric_row("TLAS", "%u instances, %u off screen",
+                       stats.tlas_instances, stats.gi_only_draws);
+        }
         ImGui::EndTable();
     }
 }

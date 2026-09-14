@@ -1,6 +1,5 @@
 #include "renderer/scene_gatherer.hpp"
 #include "renderer/frustum.hpp"
-#include "renderer/bindless.hpp"
 #include "renderer/gpu_context.hpp"
 #include "renderer/instance_provider.hpp"
 #include "renderer/resources/material.hpp"
@@ -47,18 +46,14 @@ void SceneGatherer::gather(const GatherInput& input) {
         render_queue_.reserve(input.scene->objects().size());
         Frustum camera_frustum = Frustum::from_vp_matrix(projection_matrix_ * view_matrix_);
 
-        // Whether a material lights the scene, from the same record the GI
-        // paths read. An emitter the camera cannot see still has to be in
-        // the acceleration structure: rays leave from on-screen probes and
-        // reflecting surfaces but hit wherever the geometry is, exactly as
-        // off-screen casters still have to be in the shadow cascades. Only
-        // the draw's resolved material is consulted, which is also all the
-        // TLAS records per instance.
-        auto emits = [bindless = input.bindless](uint32_t material_id) {
-            if (bindless == nullptr || material_id >= bindless->material_count()) return false;
-            const auto& mat = bindless->material_at(material_id);
-            return mat.has_emissive_texture != 0U
-                || mat.base_params[9] > 0.0F || mat.base_params[10] > 0.0F || mat.base_params[11] > 0.0F;
+        // Opaque geometry the camera cannot see still has to be in the GI
+        // acceleration structure when rays can reach it: they leave from
+        // on-screen probes and reflecting surfaces but hit wherever the
+        // geometry is, exactly as off-screen casters still have to be in
+        // the shadow cascades. That covers both what lights the scene from
+        // off screen and what blocks that light.
+        auto keep_for_gi = [&input](const DrawCommand& dc) {
+            return !dc.transparent && input.gi_reach && input.gi_reach->intersects(dc.world_aabb);
         };
 
         // Build per-cascade shadow caster frustums from light matrices.
@@ -120,7 +115,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                                 }
                             }
                             if (!camera_frustum.intersects(dc.world_aabb)) {
-                                if (!dc.transparent && emits(dc.push.material_id)) gi_cmds.push_back(dc);
+                                if (keep_for_gi(dc)) gi_cmds.push_back(dc);
                                 local_culled_[chunk_id]++;
                                 claimed = true;
                                 break;
@@ -167,7 +162,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                             }
                         }
                         if (!camera_frustum.intersects(dc.world_aabb)) {
-                            if (!dc.transparent && emits(dc.push.material_id)) gi_cmds.push_back(dc);
+                            if (keep_for_gi(dc)) gi_cmds.push_back(dc);
                             local_culled_[chunk_id]++;
                             continue;
                         }
@@ -216,7 +211,7 @@ void SceneGatherer::gather(const GatherInput& input) {
                     }
 
                     if (!camera_frustum.intersects(dc.world_aabb)) {
-                        if (!dc.transparent && emits(dc.push.material_id)) gi_cmds.push_back(dc);
+                        if (keep_for_gi(dc)) gi_cmds.push_back(dc);
                         local_culled_[chunk_id]++;
                         continue;
                     }
@@ -267,6 +262,7 @@ void SceneGatherer::gather(const GatherInput& input) {
             for (const auto& dc : local_commands_[i]) {
                 render_queue_.push(dc);
             }
+            input.stats->gi_only_draws += static_cast<uint32_t>(local_gi_commands_[i].size());
             for (const auto& dc : local_gi_commands_[i]) {
                 render_queue_.push_gi_only(dc);
             }

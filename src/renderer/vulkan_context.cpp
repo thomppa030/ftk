@@ -434,7 +434,9 @@ void VulkanContext::render_scene_to(VkCommandBuffer cmd, OffscreenPass& target,
         gi.pool = &pool;
         gi.stats = &gpu_.render_stats();
         gi.animation_system = animation_system_;
-        gi.bindless = &gpu_.bindless_textures();
+        if (ddgi_pass().backend() == DdgiBackend::ray_traced) {
+            gi.gi_reach = ddgi_pass().trace_reach_bounds();
+        }
         gatherer_.gather(gi);
     }
 
