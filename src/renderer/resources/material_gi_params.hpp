@@ -33,11 +33,6 @@ struct MaterialGiParams {
     /// the trace shaders bounce base_color_factor, which such shaders leave
     /// at its white default.
     std::optional<glm::vec3> gi_albedo_override;
-
-    /// Emission came from matching uniform names rather than a hint_emission
-    /// tag. Kept so callers can point at shaders still relying on it; the
-    /// name match exists only to keep existing materials working.
-    bool emission_from_names{false};
 };
 
 /// Current floats for a non-sampler uniform: what the material stores for

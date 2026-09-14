@@ -40,7 +40,6 @@ TEST_CASE("Tagged colour and strength multiply into emission", "[material_gi]") 
     )");
     auto gi = derive_material_gi_params(meta, values({}), false);
     require_vec3(gi.emission, 4.0f, 2.0f, 1.0f);
-    REQUIRE_FALSE(gi.emission_from_names);
 }
 
 TEST_CASE("Material values override shader defaults in the derivation", "[material_gi]") {
@@ -65,7 +64,6 @@ TEST_CASE("Untagged shader without an emissive texture emits nothing", "[materia
     )");
     auto gi = derive_material_gi_params(meta, values({}), false);
     require_vec3(gi.emission, 0.0f, 0.0f, 0.0f);
-    REQUIRE_FALSE(gi.emission_from_names);
 }
 
 TEST_CASE("Untagged shader with an emissive texture shows it at full strength", "[material_gi]") {
@@ -74,7 +72,6 @@ TEST_CASE("Untagged shader with an emissive texture shows it at full strength", 
     auto meta = parse_fjsl("shader_type spatial;\nvoid fragment() {}");
     auto gi = derive_material_gi_params(meta, values({}), true);
     require_vec3(gi.emission, 1.0f, 1.0f, 1.0f);
-    REQUIRE_FALSE(gi.emission_from_names);
 }
 
 TEST_CASE("A tagged factor applies to a bound texture rather than defaulting", "[material_gi]") {
@@ -87,7 +84,7 @@ TEST_CASE("A tagged factor applies to a bound texture rather than defaulting", "
     require_vec3(gi.emission, 2.5f, 2.5f, 2.5f);
 }
 
-TEST_CASE("Legacy emission_* names still emit, and are reported", "[material_gi]") {
+TEST_CASE("Uniform names alone do not make a shader emit", "[material_gi]") {
     auto meta = parse_fjsl(R"(
         shader_type spatial;
         uniform vec3 emission_color : hint_color = vec3(1.0, 0.7, 0.2);
@@ -95,11 +92,10 @@ TEST_CASE("Legacy emission_* names still emit, and are reported", "[material_gi]
         void fragment() {}
     )");
     auto gi = derive_material_gi_params(meta, values({}), false);
-    require_vec3(gi.emission, 5.0f, 3.5f, 1.0f);
-    REQUIRE(gi.emission_from_names);
+    require_vec3(gi.emission, 0.0f, 0.0f, 0.0f);
 }
 
-TEST_CASE("A hint_emission tag takes precedence over legacy names", "[material_gi]") {
+TEST_CASE("Untagged uniforms next to a tagged one are ignored", "[material_gi]") {
     auto meta = parse_fjsl(R"(
         shader_type spatial;
         uniform vec3 emission_color : hint_color = vec3(9.0);
@@ -108,7 +104,6 @@ TEST_CASE("A hint_emission tag takes precedence over legacy names", "[material_g
     )");
     auto gi = derive_material_gi_params(meta, values({}), false);
     require_vec3(gi.emission, 1.0f, 2.0f, 3.0f);
-    REQUIRE_FALSE(gi.emission_from_names);
 }
 
 TEST_CASE("A uniform the reader cannot supply is skipped", "[material_gi]") {

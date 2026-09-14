@@ -34,36 +34,6 @@ bool emission_from_hints(const ShaderMetadata& meta, const UniformValueReader& r
     return any;
 }
 
-// Pre-hint materials named their uniforms emission_color / emission_strength
-// (or glow_*) and were recognised by that name alone. Still honoured so they
-// keep emitting, but a rename silently changes lighting, which hint_emission
-// exists to prevent.
-bool emission_from_names(const ShaderMetadata& meta, const UniformValueReader& read,
-                         glm::vec3& out) {
-    float strength = 0.0F;
-    std::optional<glm::vec3> colour;
-    for (const auto& u : meta.uniforms) {
-        if (u.type == UniformType::Sampler2D) continue;
-        if (u.name == "emission_strength" || u.name == "glow_strength") {
-            auto values = read(u);
-            if (!values.empty()) strength = values[0];
-        } else if (u.name == "glow_color" || u.name == "emission_color") {
-            colour = vec3_of(read(u));
-        }
-    }
-
-    if (colour && strength > 0.0F) {
-        out = *colour * strength;
-    } else if (colour) {
-        out = *colour;
-    } else if (strength > 0.0F) {
-        out = glm::vec3{strength};
-    } else {
-        return false;
-    }
-    return true;
-}
-
 // Unambiguous only when the shader has exactly one hint_color vector: that
 // is "the" surface colour by construction of the hint. Zero or several leave
 // the trace shaders on the base colour, since there is no way to tell which
@@ -90,12 +60,9 @@ MaterialGiParams derive_material_gi_params(const ShaderMetadata& meta,
                                            bool has_emissive_texture) {
     MaterialGiParams out;
     if (!emission_from_hints(meta, read, out.emission)) {
-        out.emission_from_names = emission_from_names(meta, read, out.emission);
-        if (!out.emission_from_names) {
-            // Nothing declared: a bound texture is the emission, shown as
-            // authored; without one the material does not emit.
-            out.emission = glm::vec3{has_emissive_texture ? 1.0F : 0.0F};
-        }
+        // Nothing declared: a bound texture is the emission, shown as
+        // authored; without one the material does not emit.
+        out.emission = glm::vec3{has_emissive_texture ? 1.0F : 0.0F};
     }
     out.gi_albedo_override = albedo_override(meta, read);
     return out;
