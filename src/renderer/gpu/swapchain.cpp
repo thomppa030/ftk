@@ -147,8 +147,8 @@ void Swapchain::create_swapchain() {
     format_ = format.format;
     extent_ = extent;
 
-    FJELL_GFX_DEBUG("Swapchain created: {}x{}, {} images",
-                    extent.width, extent.height, images_.size());
+    // FJELL_GFX_DEBUG("Swapchain created: {}x{}, {} images",
+    //                 extent.width, extent.height, images_.size());
 }
 
 void Swapchain::create_image_views() {

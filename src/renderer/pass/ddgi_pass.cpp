@@ -1254,7 +1254,7 @@ void DdgiPass::record_into(const FrameContext& ctx, Images& imgs) {
             frame_counter_++;
             return;
         }
-        FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
+        // FJELL_GFX_DEBUG("DDGI: Writing descriptors (first init)");
     }
     if (imgs.images_need_init && sdf_view != VK_NULL_HANDLE && sky_cubemap_view != VK_NULL_HANDLE) {
         write_trace_descriptors(vk_device_, imgs.trace_set, imgs,
