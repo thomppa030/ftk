@@ -554,6 +554,9 @@ target_include_directories(fjell-hub SYSTEM PRIVATE
     ${imgui_SOURCE_DIR}/backends
     ${imguizmo_SOURCE_DIR}/src
 )
+# The hub draws its ImGui through the same sRGB-decoding fragment stage.
+add_dependencies(fjell-hub fjell_shaders)
+
 target_link_libraries(fjell-hub PRIVATE
     fjell-platform
     glfw

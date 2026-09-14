@@ -1,6 +1,5 @@
 #pragma once
 
-#include "core/math/color_space.hpp"
 #include "ui/icons_lc.hpp"
 
 #include <imgui.h>
@@ -10,11 +9,11 @@
 
 namespace fjell::theme {
 
-// Style colours are authored as sRGB; ImGui draws into the sRGB swapchain,
-// which encodes on write, so it has to be handed linear values.
+// Every ImGui colour is sRGB, the way ImGui itself assumes; the ImGui
+// fragment stage (shaders/imgui.frag) decodes it for the sRGB swapchain.
+// This only names the convention at the call site.
 inline ImVec4 srgb(float r, float g, float b, float a = 1.0f) {
-    using color_space::srgb_to_linear;
-    return {srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a};
+    return {r, g, b, a};
 }
 
 // ── Fjell palette (sRGB values) ─────────────────────────────────────────
