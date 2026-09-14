@@ -1,4 +1,5 @@
 #include "ui/game_ui/fjss_parser.hpp"
+#include "ui/game_ui/ui_style_properties.hpp"
 #include "core/log.hpp"
 
 #include <algorithm>
@@ -342,6 +343,10 @@ void FjssParser::parse_declarations(std::vector<StyleDeclaration>& declarations)
         if (value.empty()) {
             diagnose(decl_start, FjssSeverity::warning, "'" + name + "' has no value");
         } else {
+            // The declaration is kept either way so the sheet round-trips
+            // as written; the cascade ignores what it does not know, and
+            // the report tells the author why nothing happened.
+            validate_declaration(decl_start, name, value);
             declarations.push_back({name, value, important});
         }
 
@@ -368,6 +373,32 @@ void FjssParser::skip_malformed_rule() {
             return;
         }
     }
+}
+
+void FjssParser::validate_declaration(size_t offset, const std::string& name,
+                                      const std::string& value) {
+    const auto* desc = find_ui_style_property(name);
+    if (!desc) {
+        if (name.starts_with("--")) {
+            diagnose(offset, FjssSeverity::warning,
+                     "custom properties are not supported, '" + name + "' has no effect");
+        } else {
+            diagnose(offset, FjssSeverity::warning, "unknown property '" + name + "'");
+        }
+        return;
+    }
+    if (desc->kind != UiPropertyKind::keyword) return;
+
+    for (auto keyword : desc->keywords) {
+        if (keyword == value) return;
+    }
+    std::string expected;
+    for (auto keyword : desc->keywords) {
+        if (!expected.empty()) expected += ", ";
+        expected += keyword;
+    }
+    diagnose(offset, FjssSeverity::warning,
+             "'" + value + "' is not a value for '" + name + "', expected one of: " + expected);
 }
 
 void FjssParser::skip_block() {

@@ -123,6 +123,9 @@ private:
     /// to `compound`. Always consumes at least one character.
     void parse_compound_part(StyleCompound& compound);
     void parse_declarations(std::vector<StyleDeclaration>& declarations);
+    /// Reports a property the engine does not know, or a keyword value the
+    /// property does not accept.
+    void validate_declaration(size_t offset, const std::string& name, const std::string& value);
 
     void skip_whitespace();
     void skip_comment();

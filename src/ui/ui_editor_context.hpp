@@ -87,8 +87,7 @@ private:
     // `resolved_index` is the current enum value already cast to int by
     // the caller; `names[resolved_index]` must be the CSS value FjssParser
     // expects to read back (see StyleResolver::apply_property).
-    void style_edit_enum(UiNode& node, const char* property, const char* label,
-                         int resolved_index, std::initializer_list<const char*> names);
+    void style_edit_keyword(UiNode& node, const char* property);
 
     // Live value for a drag/color gesture in progress, keyed by ImGui ID.
     // A DragFloat/ColorEdit's displayed value must come from this buffer

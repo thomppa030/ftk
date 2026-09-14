@@ -796,3 +796,38 @@ TEST_CASE("Stray characters inside a selector are rejected, not swallowed", "[fj
     REQUIRE(selector_text(sheet.rules[0].selector) == ".c");
     REQUIRE(sheet.diagnostics.size() == 1);
 }
+
+// --- Property validation ---
+
+TEST_CASE("Unknown property is reported and kept", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a {\n    colour: red;\n    width: 1;\n}");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("colour") != std::string::npos);
+    REQUIRE(sheet.diagnostics[0].line == 2);
+    // The declaration stays so the sheet round-trips as written
+    REQUIRE(sheet.rules[0].declarations.size() == 2);
+}
+
+TEST_CASE("Wrong keyword value is reported with the accepted ones", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { display: block; }");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    const auto& msg = sheet.diagnostics[0].message;
+    REQUIRE(msg.find("block") != std::string::npos);
+    REQUIRE(msg.find("flex") != std::string::npos);
+    REQUIRE(msg.find("none") != std::string::npos);
+}
+
+TEST_CASE("Custom properties are reported as unsupported", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(":root { --accent: #ff0000; }");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("--accent") != std::string::npos);
+}
+
+TEST_CASE("Known properties with valid values produce no diagnostics", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(R"(
+        .a { width: 10; margin: 1 2; padding-left: 3; gap: 4; color: #fff;
+             background: linear-gradient(90deg, #000, #fff); border: 1 solid #333;
+             box-shadow: 0 2 4 0 #00000080; transition: all 0.2s; align-items: center; }
+    )");
+    REQUIRE(sheet.diagnostics.empty());
+}

@@ -2,6 +2,7 @@
 
 #include "ui/game_ui/fjss_parser.hpp"
 #include "ui/game_ui/ui_node.hpp"
+#include "ui/game_ui/ui_style_properties.hpp"
 
 namespace fjell {
 
@@ -42,6 +43,10 @@ private:
                                               const std::vector<StyleAncestorStep>& steps,
                                               size_t remaining);
     void apply_property(UiComputedStyle& style, const std::string& name, const std::string& value);
+    /// The few properties whose syntax is their own: `gap`, `background`,
+    /// `border`, `box-shadow`, `transition`.
+    void apply_composite(UiComputedStyle& style, const UiPropertyDescriptor& desc,
+                         const std::string& value);
     static UiEdges parse_edges(const std::string& value);
     static UiCorners parse_corners(const std::string& value);
 

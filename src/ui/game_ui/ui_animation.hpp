@@ -10,6 +10,16 @@
 namespace fjell {
 
 struct UiNode;
+struct UiPropertyDescriptor;
+
+/// One scalar of one property: the property itself for a number, a
+/// component (r, g, b, a or the four corners) for a multi-channel one.
+struct UiStyleChannel {
+    const UiPropertyDescriptor* property{nullptr};
+    uint8_t component{0};
+
+    friend bool operator==(const UiStyleChannel&, const UiStyleChannel&) = default;
+};
 
 enum class UiEasing : uint8_t {
     linear,
@@ -33,12 +43,10 @@ public:
 
 private:
     struct ActiveTransition {
-        std::string property;
+        UiStyleChannel channel;
         float duration{0.3f};
         UiEasing easing{UiEasing::ease_in_out};
         float elapsed{0.0f};
-
-        // From/to values (stored as floats; color stored as 4 separate transitions)
         float from{0.0f};
         float to{0.0f};
     };

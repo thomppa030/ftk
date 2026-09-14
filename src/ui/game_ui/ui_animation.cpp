@@ -1,6 +1,7 @@
 #include "ui/game_ui/ui_animation.hpp"
 #include "ui/game_ui/ui_node.hpp"
 #include "ui/game_ui/ui_style.hpp"
+#include "ui/game_ui/ui_style_properties.hpp"
 #include "core/profiler.hpp"
 
 #include <algorithm>
@@ -61,52 +62,23 @@ static TransitionSpec parse_transition(const std::string& value) {
     return spec;
 }
 
-static float get_style_float(const UiComputedStyle& s, const std::string& prop) {
-    if (prop == "opacity") return s.opacity;
-    if (prop == "border-width") return s.border_width;
-    if (prop == "background-color-r") return s.background_color.r;
-    if (prop == "background-color-g") return s.background_color.g;
-    if (prop == "background-color-b") return s.background_color.b;
-    if (prop == "background-color-a") return s.background_color.a;
-    if (prop == "border-color-r") return s.border_color.r;
-    if (prop == "border-color-g") return s.border_color.g;
-    if (prop == "border-color-b") return s.border_color.b;
-    if (prop == "border-color-a") return s.border_color.a;
-    if (prop == "color-r") return s.color.r;
-    if (prop == "color-g") return s.color.g;
-    if (prop == "color-b") return s.color.b;
-    if (prop == "color-a") return s.color.a;
-    return 0.0f;
-}
-
-static void set_style_float(UiComputedStyle& s, const std::string& prop, float v) {
-    if (prop == "opacity") { s.opacity = v; return; }
-    if (prop == "border-width") { s.border_width = v; return; }
-    if (prop == "background-color-r") { s.background_color.r = v; return; }
-    if (prop == "background-color-g") { s.background_color.g = v; return; }
-    if (prop == "background-color-b") { s.background_color.b = v; return; }
-    if (prop == "background-color-a") { s.background_color.a = v; return; }
-    if (prop == "border-color-r") { s.border_color.r = v; return; }
-    if (prop == "border-color-g") { s.border_color.g = v; return; }
-    if (prop == "border-color-b") { s.border_color.b = v; return; }
-    if (prop == "border-color-a") { s.border_color.a = v; return; }
-    if (prop == "color-r") { s.color.r = v; return; }
-    if (prop == "color-g") { s.color.g = v; return; }
-    if (prop == "color-b") { s.color.b = v; return; }
-    if (prop == "color-a") { s.color.a = v; return; }
-}
-
-// Properties that can be transitioned (expanded for colors)
-static const std::vector<std::string>& animatable_props() {
-    static const std::vector<std::string> props = {
-        "opacity", "border-width",
-        "background-color-r", "background-color-g",
-        "background-color-b", "background-color-a",
-        "border-color-r", "border-color-g",
-        "border-color-b", "border-color-a",
-        "color-r", "color-g", "color-b", "color-a",
-    };
-    return props;
+// Every scalar a transition spec selects. "all" takes every animatable
+// property; a name takes that property and its longhands, so
+// "transition: margin" moves all four sides.
+static std::vector<UiStyleChannel> channels_for(const TransitionSpec& spec) {
+    std::vector<UiStyleChannel> channels;
+    for (const auto& desc : ui_style_properties()) {
+        bool selected = spec.property == "all" || desc.name == spec.property ||
+                        (desc.name.size() > spec.property.size() &&
+                         desc.name.starts_with(spec.property) &&
+                         desc.name[spec.property.size()] == '-');
+        if (!selected) continue;
+        uint8_t count = ui_style_channel_count(desc);
+        for (uint8_t c = 0; c < count; ++c) {
+            channels.push_back({&desc, c});
+        }
+    }
+    return channels;
 }
 
 void UiAnimation::forget_tree() {
@@ -130,21 +102,18 @@ void UiAnimation::update_node(UiNode& node, float dt, bool& any_active) {
         bool first = !state.initialized;
         if (!state.initialized) state.initialized = true;
 
-        const auto& props = (spec.property == "all") ? animatable_props()
-                            : std::vector<std::string>{spec.property};
-
-        // Detect changed properties and start transitions
-        for (const auto& prop : props) {
-            float cur = get_style_float(node.style, prop);
-            float prev = get_style_float(state.prev_style, prop);
+        // Detect changed channels and start transitions
+        for (const auto& channel : channels_for(spec)) {
+            float cur = ui_style_read_channel(node.style, *channel.property, channel.component);
+            float prev = ui_style_read_channel(state.prev_style, *channel.property, channel.component);
 
             if (!first && std::abs(cur - prev) > 0.001f) {
-                // Check if already transitioning this property
+                // Check if already transitioning this channel
                 bool found = false;
                 for (auto& t : state.transitions) {
-                    if (t.property == prop) {
+                    if (t.channel == channel) {
                         // Retarget: start from current interpolated value
-                        t.from = get_style_float(node.style, prop);
+                        t.from = cur;
                         t.to = cur;
                         t.elapsed = 0.0f;
                         t.duration = spec.duration;
@@ -155,7 +124,7 @@ void UiAnimation::update_node(UiNode& node, float dt, bool& any_active) {
                 }
                 if (!found) {
                     ActiveTransition t;
-                    t.property = prop;
+                    t.channel = channel;
                     t.from = prev;
                     t.to = cur;
                     t.duration = spec.duration;
@@ -171,12 +140,12 @@ void UiAnimation::update_node(UiNode& node, float dt, bool& any_active) {
             float progress = it->elapsed / it->duration;
 
             if (progress >= 1.0f) {
-                set_style_float(node.style, it->property, it->to);
+                ui_style_write_channel(node.style, *it->channel.property, it->channel.component, it->to);
                 it = state.transitions.erase(it);
             } else {
                 float t = apply_easing(progress, it->easing);
                 float val = it->from + (it->to - it->from) * t;
-                set_style_float(node.style, it->property, val);
+                ui_style_write_channel(node.style, *it->channel.property, it->channel.component, val);
                 any_active = true;
                 ++it;
             }

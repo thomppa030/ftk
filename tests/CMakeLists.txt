@@ -9,6 +9,7 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/fjsl_parser.cpp
     ${CMAKE_SOURCE_DIR}/src/renderer/resources/material_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/style_resolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_style_properties.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_data_bind.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_animation.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp
@@ -43,6 +44,7 @@ add_executable(fjell-tests
     test_fjss_parser.cpp
     test_fjsl_parser.cpp
     test_style_resolver.cpp
+    test_ui_style_properties.cpp
     test_widget_resolver.cpp
     test_data_bind.cpp
     test_ui_animation.cpp

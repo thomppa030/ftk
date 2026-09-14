@@ -1,4 +1,5 @@
 #include "ui/game_ui/style_resolver.hpp"
+#include "ui/game_ui/ui_style_properties.hpp"
 #include "core/profiler.hpp"
 
 #include <algorithm>
@@ -68,12 +69,9 @@ void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
 }
 
 void StyleResolver::inherit_properties(UiComputedStyle& style, const UiComputedStyle& parent) {
-    // CSS inherited properties: color, font-size, line-height, opacity
-    style.color = parent.color;
-    style.font_size = parent.font_size;
-    style.line_height = parent.line_height;
-    // Opacity compounds: child opacity is relative to parent
-    style.opacity = parent.opacity;
+    for (const auto& desc : ui_style_properties()) {
+        if (desc.inherited) ui_style_copy(style, parent, desc);
+    }
 }
 
 bool StyleResolver::compound_matches(const UiNode& node, const StyleCompound& c) {
@@ -118,116 +116,50 @@ bool StyleResolver::selector_matches(const UiNode& node, const StyleSelector& se
 
 void StyleResolver::apply_property(UiComputedStyle& style, const std::string& name,
                                    const std::string& value) {
-    // Display
-    if (name == "display") {
-        if (value == "flex") style.display = UiDisplay::flex;
-        else if (value == "none") style.display = UiDisplay::none;
+    const auto* desc = find_ui_style_property(name);
+    // Unknown names were reported when the sheet was parsed.
+    if (!desc) return;
+
+    switch (desc->kind) {
+    case UiPropertyKind::number:
+        style.*std::get<float UiComputedStyle::*>(desc->member) = parse_px(value);
+        return;
+    case UiPropertyKind::color:
+        style.*std::get<UiColor UiComputedStyle::*>(desc->member) = parse_color(value);
+        return;
+    case UiPropertyKind::edges:
+        style.*std::get<UiEdges UiComputedStyle::*>(desc->member) = parse_edges(value);
+        return;
+    case UiPropertyKind::edge:
+        ui_edge(style.*std::get<UiEdges UiComputedStyle::*>(desc->member), desc->side) =
+            parse_px(value);
+        return;
+    case UiPropertyKind::corners:
+        style.*std::get<UiCorners UiComputedStyle::*>(desc->member) = parse_corners(value);
+        return;
+    case UiPropertyKind::keyword:
+        for (size_t i = 0; i < desc->keywords.size(); ++i) {
+            if (desc->keywords[i] == value) {
+                desc->set_keyword(style, static_cast<uint8_t>(i));
+                return;
+            }
+        }
+        return; // a misspelt keyword was reported at parse time
+    case UiPropertyKind::composite:
+        apply_composite(style, *desc, value);
         return;
     }
+}
 
-    // Flex direction
-    if (name == "flex-direction") {
-        if (value == "row") style.flex_direction = UiFlexDirection::row;
-        else if (value == "column") style.flex_direction = UiFlexDirection::column;
-        else if (value == "row-reverse") style.flex_direction = UiFlexDirection::row_reverse;
-        else if (value == "column-reverse") style.flex_direction = UiFlexDirection::column_reverse;
+void StyleResolver::apply_composite(UiComputedStyle& style, const UiPropertyDescriptor& desc,
+                                    const std::string& value) {
+    if (desc.name == "gap") {
+        style.row_gap = style.column_gap = parse_px(value);
         return;
     }
-
-    // Justify content
-    if (name == "justify-content") {
-        if (value == "flex-start") style.justify_content = UiJustify::flex_start;
-        else if (value == "flex-end") style.justify_content = UiJustify::flex_end;
-        else if (value == "center") style.justify_content = UiJustify::center;
-        else if (value == "space-between") style.justify_content = UiJustify::space_between;
-        else if (value == "space-around") style.justify_content = UiJustify::space_around;
-        else if (value == "space-evenly") style.justify_content = UiJustify::space_evenly;
-        return;
-    }
-
-    // Align items
-    if (name == "align-items") {
-        if (value == "flex-start") style.align_items = UiAlign::flex_start;
-        else if (value == "flex-end") style.align_items = UiAlign::flex_end;
-        else if (value == "center") style.align_items = UiAlign::center;
-        else if (value == "stretch") style.align_items = UiAlign::stretch;
-        else if (value == "baseline") style.align_items = UiAlign::baseline;
-        return;
-    }
-
-    // Align self
-    if (name == "align-self") {
-        if (value == "auto") style.align_self = UiAlign::auto_;
-        else if (value == "flex-start") style.align_self = UiAlign::flex_start;
-        else if (value == "flex-end") style.align_self = UiAlign::flex_end;
-        else if (value == "center") style.align_self = UiAlign::center;
-        else if (value == "stretch") style.align_self = UiAlign::stretch;
-        return;
-    }
-
-    // Flex wrap
-    if (name == "flex-wrap") {
-        if (value == "nowrap") style.flex_wrap = UiFlexWrap::no_wrap;
-        else if (value == "wrap") style.flex_wrap = UiFlexWrap::wrap;
-        else if (value == "wrap-reverse") style.flex_wrap = UiFlexWrap::wrap_reverse;
-        return;
-    }
-
-    // Position
-    if (name == "position") {
-        if (value == "relative") style.position = UiPosition::relative;
-        else if (value == "absolute") style.position = UiPosition::absolute;
-        return;
-    }
-
-    // Overflow
-    if (name == "overflow") {
-        if (value == "visible") style.overflow = UiOverflow::visible;
-        else if (value == "hidden") style.overflow = UiOverflow::hidden;
-        else if (value == "scroll") style.overflow = UiOverflow::scroll;
-        return;
-    }
-
-    // Flex grow / shrink
-    if (name == "flex-grow") { style.flex_grow = parse_px(value); return; }
-    if (name == "flex-shrink") { style.flex_shrink = parse_px(value); return; }
-
-    // Dimensions
-    if (name == "width") { style.width = parse_px(value); return; }
-    if (name == "height") { style.height = parse_px(value); return; }
-    if (name == "min-width") { style.min_width = parse_px(value); return; }
-    if (name == "min-height") { style.min_height = parse_px(value); return; }
-    if (name == "max-width") { style.max_width = parse_px(value); return; }
-    if (name == "max-height") { style.max_height = parse_px(value); return; }
-
-    // Margin (shorthand)
-    if (name == "margin") { style.margin = parse_edges(value); return; }
-    if (name == "margin-top") { style.margin.top = parse_px(value); return; }
-    if (name == "margin-right") { style.margin.right = parse_px(value); return; }
-    if (name == "margin-bottom") { style.margin.bottom = parse_px(value); return; }
-    if (name == "margin-left") { style.margin.left = parse_px(value); return; }
-
-    // Padding (shorthand)
-    if (name == "padding") { style.padding = parse_edges(value); return; }
-    if (name == "padding-top") { style.padding.top = parse_px(value); return; }
-    if (name == "padding-right") { style.padding.right = parse_px(value); return; }
-    if (name == "padding-bottom") { style.padding.bottom = parse_px(value); return; }
-    if (name == "padding-left") { style.padding.left = parse_px(value); return; }
-
-    // Position insets
-    if (name == "top") { style.inset.top = parse_px(value); return; }
-    if (name == "right") { style.inset.right = parse_px(value); return; }
-    if (name == "bottom") { style.inset.bottom = parse_px(value); return; }
-    if (name == "left") { style.inset.left = parse_px(value); return; }
-
-    // Gap
-    if (name == "gap") { style.row_gap = style.column_gap = parse_px(value); return; }
-    if (name == "row-gap") { style.row_gap = parse_px(value); return; }
-    if (name == "column-gap") { style.column_gap = parse_px(value); return; }
 
     // Background: gradient or solid color
-    if (name == "background-color" || name == "background") {
-        // Check for linear-gradient first
+    if (desc.name == "background") {
         if (value.find("linear-gradient(") == 0) {
             auto inner = value.substr(16, value.size() - 17);
             std::vector<std::string> parts;
@@ -275,7 +207,7 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
     }
 
     // Border shorthand: "2px solid #333" or "1 #666"
-    if (name == "border") {
+    if (desc.name == "border") {
         std::istringstream iss(value);
         std::string token;
         while (iss >> token) {
@@ -291,25 +223,15 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
         return;
     }
 
-    // Border individual
-    if (name == "border-color") { style.border_color = parse_color(value); return; }
-    if (name == "border-width") { style.border_width = parse_px(value); return; }
-    if (name == "border-radius") { style.border_radius = parse_corners(value); return; }
-
-    // Opacity
-    if (name == "opacity") { style.opacity = parse_px(value); return; }
-
-    // Text
-    if (name == "color") { style.color = parse_color(value); return; }
-    if (name == "font-size") { style.font_size = parse_px(value); return; }
-    if (name == "line-height") { style.line_height = parse_px(value); return; }
-
     // Transition: stored for UiAnimation to process
-    if (name == "transition") { style.transition = value; return; }
+    if (desc.name == "transition") {
+        style.transition = value;
+        return;
+    }
 
     // Box shadow: "offset_x offset_y blur spread #color"
     // e.g. "0 4 8 0 rgba(0, 0, 0, 0.3)" or "2 2 6 #00000080"
-    if (name == "box-shadow") {
+    if (desc.name == "box-shadow") {
         if (value == "none") { style.box_shadow = {}; return; }
         std::istringstream iss(value);
         std::string token;
@@ -344,7 +266,6 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
         }
         return;
     }
-
 }
 
 UiColor StyleResolver::parse_color(const std::string& value) {

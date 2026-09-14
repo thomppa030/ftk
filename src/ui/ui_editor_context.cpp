@@ -3,6 +3,7 @@
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
 #include "ui/game_ui/ui_style_commands.hpp"
+#include "ui/game_ui/ui_style_properties.hpp"
 #include "ui/game_ui/widget_asset.hpp"
 #include "ui/game_ui/ui_context.hpp"
 #include "ui/material_params_widget.hpp"
@@ -1041,10 +1042,16 @@ void UiEditorContext::style_edit_color(UiNode& node, const char* property, const
     }
 }
 
-void UiEditorContext::style_edit_enum(UiNode& node, const char* property, const char* label,
-                                      int resolved_index, std::initializer_list<const char*> names) {
-    std::vector<const char*> items(names);
-    int index = resolved_index;
+void UiEditorContext::style_edit_keyword(UiNode& node, const char* property) {
+    const auto* desc = find_ui_style_property(property);
+    if (!desc || desc->kind != UiPropertyKind::keyword) return;
+
+    // The keyword table's entries are string literals, so data() is a
+    // null-terminated string ImGui can list directly.
+    std::vector<const char*> items;
+    for (auto keyword : desc->keywords) items.push_back(keyword.data());
+
+    int index = desc->get_keyword(node.style);
     auto explicit_str = style_prop_string(node, property, {});
     if (!explicit_str.empty()) {
         for (size_t i = 0; i < items.size(); ++i) {
@@ -1053,7 +1060,7 @@ void UiEditorContext::style_edit_enum(UiNode& node, const char* property, const 
     }
 
     int edited = index;
-    ImGui::Combo(label, &edited, items.data(), static_cast<int>(items.size()));
+    ImGui::Combo(property, &edited, items.data(), static_cast<int>(items.size()));
 
     if (edited != index) {
         // Same empty-means-unset convention as style_edit_float/color:
@@ -1069,22 +1076,14 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
     auto& s = node.style;
 
     if (ImGui::TreeNodeEx("Layout", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_enum(node, "display", "display",
-                        static_cast<int>(s.display), {"flex", "none"});
-        style_edit_enum(node, "flex-direction", "flex-direction",
-                        static_cast<int>(s.flex_direction),
-                        {"row", "column", "row-reverse", "column-reverse"});
-        style_edit_enum(node, "justify-content", "justify-content",
-                        static_cast<int>(s.justify_content),
-                        {"flex-start", "flex-end", "center",
-                         "space-between", "space-around", "space-evenly"});
-        style_edit_enum(node, "align-items", "align-items",
-                        static_cast<int>(s.align_items),
-                        {"auto", "flex-start", "flex-end", "center", "stretch", "baseline"});
-        style_edit_enum(node, "position", "position",
-                        static_cast<int>(s.position), {"relative", "absolute"});
-        style_edit_enum(node, "overflow", "overflow",
-                        static_cast<int>(s.overflow), {"visible", "hidden", "scroll"});
+        style_edit_keyword(node, "display");
+        style_edit_keyword(node, "flex-direction");
+        style_edit_keyword(node, "justify-content");
+        style_edit_keyword(node, "align-items");
+        style_edit_keyword(node, "align-self");
+        style_edit_keyword(node, "flex-wrap");
+        style_edit_keyword(node, "position");
+        style_edit_keyword(node, "overflow");
         style_edit_float(node, "flex-grow", "flex-grow", s.flex_grow, 0.1f, 0.0f, 100.0f);
         style_edit_float(node, "flex-shrink", "flex-shrink", s.flex_shrink, 0.1f, 0.0f, 100.0f);
         ImGui::TreePop();

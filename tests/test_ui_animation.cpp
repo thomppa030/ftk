@@ -263,3 +263,48 @@ TEST_CASE("Node without transition spec: no interpolation", "[anim]") {
     anim.update(*root, 0.016f);
     REQUIRE(root->style.opacity == Catch::Approx(0.0f));
 }
+
+// --- Any animatable property ---
+
+TEST_CASE("transition: width interpolates the layout width", "[anim]") {
+    auto root = make_node("div");
+    root->style.transition = "width 1.0s linear";
+    root->style.width = 100.0f;
+
+    UiAnimation anim;
+    anim.update(*root, 0.0f);
+
+    root->style.width = 200.0f;
+    anim.update(*root, 0.0f);
+    REQUIRE(anim.update(*root, 0.5f));
+    REQUIRE(root->style.width == Catch::Approx(150.0f));
+}
+
+TEST_CASE("transition: margin covers every side", "[anim]") {
+    auto root = make_node("div");
+    root->style.transition = "margin 1.0s linear";
+    root->style.margin = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    UiAnimation anim;
+    anim.update(*root, 0.0f);
+
+    root->style.margin = {10.0f, 20.0f, 30.0f, 40.0f};
+    anim.update(*root, 0.0f);
+    anim.update(*root, 0.5f);
+    REQUIRE(root->style.margin.top == Catch::Approx(5.0f));
+    REQUIRE(root->style.margin.left == Catch::Approx(20.0f));
+}
+
+TEST_CASE("transition: border-radius interpolates all four corners", "[anim]") {
+    auto root = make_node("div");
+    root->style.transition = "border-radius 1.0s linear";
+    root->style.border_radius = {0.0f, 0.0f, 0.0f, 0.0f};
+
+    UiAnimation anim;
+    anim.update(*root, 0.0f);
+
+    root->style.border_radius = {8.0f, 8.0f, 8.0f, 8.0f};
+    anim.update(*root, 0.0f);
+    anim.update(*root, 0.25f);
+    REQUIRE(root->style.border_radius.bottom_left == Catch::Approx(2.0f));
+}
