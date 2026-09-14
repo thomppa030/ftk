@@ -7,17 +7,12 @@
 // already arrive linear: sRGB-format images decode on sample and the
 // engine's render targets hold linear light, so they pass straight through.
 
+#include "fjell_color_space.glsl"
+
 layout(location = 0) out vec4 fColor;
 layout(set = 0, binding = 0) uniform sampler2D sTexture;
 layout(location = 0) in struct { vec4 Color; vec2 UV; } In;
 
-vec3 srgb_to_linear(vec3 c) {
-    return mix(c / 12.92,
-               pow((c + 0.055) / 1.055, vec3(2.4)),
-               greaterThan(c, vec3(0.04045)));
-}
-
 void main() {
-    vec4 color = vec4(srgb_to_linear(In.Color.rgb), In.Color.a);
-    fColor = color * texture(sTexture, In.UV.st);
+    fColor = srgb_to_linear(In.Color) * texture(sTexture, In.UV.st);
 }
