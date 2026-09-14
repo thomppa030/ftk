@@ -294,30 +294,55 @@ void Input::update() {
 }
 
 FJELL_SDK_EXPORT bool Input::is_key_pressed(int key) const {
-    if (key < 0 || key >= MAX_KEYS) return false;
-    return keys_[key] == KeyState::Pressed;
+    if (!game_focus_) return false;
+    return raw_key_pressed(key);
 }
 
 bool Input::is_key_held(int key) const {
-    if (key < 0 || key >= MAX_KEYS) return false;
-    auto state = keys_[key];
-    return state == KeyState::Held || state == KeyState::Pressed;
+    if (!game_focus_) return false;
+    return raw_key_held(key);
 }
 
 bool Input::is_key_released(int key) const {
+    if (!game_focus_) return false;
     if (key < 0 || key >= MAX_KEYS) return false;
     return keys_[key] == KeyState::Released;
 }
 
 bool Input::is_mouse_button_pressed(int button) const {
+    if (!game_focus_) return false;
     if (button < 0 || button >= MAX_BUTTONS) return false;
     return mouse_buttons_[button] == KeyState::Pressed;
 }
 
 bool Input::is_mouse_button_held(int button) const {
+    if (!game_focus_) return false;
+    return raw_mouse_button_held(button);
+}
+
+bool Input::raw_key_pressed(int key) const {
+    if (key < 0 || key >= MAX_KEYS) return false;
+    return keys_[key] == KeyState::Pressed;
+}
+
+bool Input::raw_key_held(int key) const {
+    if (key < 0 || key >= MAX_KEYS) return false;
+    auto state = keys_[key];
+    return state == KeyState::Held || state == KeyState::Pressed;
+}
+
+bool Input::raw_mouse_button_held(int button) const {
     if (button < 0 || button >= MAX_BUTTONS) return false;
     auto state = mouse_buttons_[button];
     return state == KeyState::Held || state == KeyState::Pressed;
+}
+
+glm::dvec2 Input::mouse_delta() const {
+    return game_focus_ ? mouse_delta_ : glm::dvec2{0.0};
+}
+
+glm::dvec2 Input::scroll_delta() const {
+    return game_focus_ ? scroll_delta_ : glm::dvec2{0.0};
 }
 
 void Input::set_cursor_captured(GLFWwindow* window, bool captured) {
@@ -382,16 +407,19 @@ void Input::scroll_callback(GLFWwindow* window, double xoffset, double yoffset) 
 }
 
 bool Input::pad_button_held(int button) const {
+    if (!game_focus_) return false;
     if (button < 0 || button >= MAX_PAD_BUTTONS) return false;
     return pad_buttons_[button] != 0;
 }
 
 bool Input::pad_button_pressed(int button) const {
+    if (!game_focus_) return false;
     if (button < 0 || button >= MAX_PAD_BUTTONS) return false;
     return pad_buttons_[button] != 0 && pad_buttons_prev_[button] == 0;
 }
 
 float Input::pad_axis(int axis) const {
+    if (!game_focus_) return 0.0f;
     if (axis < 0 || axis >= MAX_PAD_AXES) return 0.0f;
     return pad_axes_[axis];
 }

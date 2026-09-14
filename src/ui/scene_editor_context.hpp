@@ -117,6 +117,7 @@ private:
     void snap_selection_to_floor();
     void draw_picking(ViewportPanel& vp);
     void draw_gizmo(ViewportPanel& vp);
+    void check_viewport_recapture_click();
     void draw_play_toolbar();
     void draw_spline_visuals();
 

@@ -113,6 +113,28 @@ public:
     [[nodiscard]] PlayPresentation presentation() const;
     void toggle_presentation();
 
+    /// Whether the running game currently has input focus. Fullscreen is
+    /// always focused — there's no editor chrome competing for input.
+    /// Docked starts focused too, the moment play starts (see start()) —
+    /// picking and the gizmo are fully disabled for as long as this is true
+    /// (see SceneEditorContext::draw()), so there is nothing left in the
+    /// editor for a click meant for the game to land on instead. Feeds
+    /// Input::set_game_focus() once per frame from begin_frame(), so
+    /// nothing else needs to check it directly.
+    [[nodiscard]] bool input_focused() const;
+
+    /// Called when the player clicks the docked viewport's image after
+    /// releasing focus with Shift+Esc — see SceneEditorContext::draw_play_toolbar.
+    /// No-op in fullscreen, which is always focused already.
+    void capture_input();
+
+    /// Called on Shift+Esc while docked play has focus — hands input back
+    /// to the editor (re-enabling picking and the gizmo) without stopping
+    /// play. A second Shift+Esc (now that nothing has focus to give up)
+    /// falls through to stop(), matching the plan's "release, then stop"
+    /// shortcut design.
+    void release_input();
+
     /// Called once per frame from Engine::run, before the play phases tick.
     /// Turns a pending step() into exactly one unpaused frame.
     void begin_frame();
@@ -179,6 +201,12 @@ private:
     // Set by step(), consumed by begin_frame(): resume this frame, then
     // re-pause at the start of the next one.
     bool stepping_{false};
+
+    // Docked-only: true unless the player has released focus with Shift+Esc
+    // and not yet clicked the viewport to take it back. Starts true on
+    // start() — see the comment on input_focused(). Meaningless in
+    // fullscreen — input_focused() short-circuits to true there regardless.
+    bool captured_{true};
 
     // Screen-space HUD, composited over the scene image by whichever
     // presentation is active. Created lazily by apply_pending_hud_resize()

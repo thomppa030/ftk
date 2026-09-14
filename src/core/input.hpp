@@ -28,6 +28,13 @@ public:
 
     [[nodiscard]] GLFWwindow* window() const { return window_; }
 
+    /// These read idle/zero while docked play mode has focus and the game
+    /// hasn't been given it (see set_game_focus) — a player's script and the
+    /// editor's own camera/gizmo code share this same Input, and without the
+    /// gate a click meant to move the player also orbits the viewport camera
+    /// and vice versa. Editor code that must keep working regardless of
+    /// focus (the viewport's own camera controls, its navigation-mode check)
+    /// reads through the raw_* variants below instead.
     [[nodiscard]] FJELL_SDK_EXPORT bool is_key_pressed(int key) const;
     [[nodiscard]] bool is_key_held(int key) const;
     [[nodiscard]] bool is_key_released(int key) const;
@@ -36,8 +43,24 @@ public:
     [[nodiscard]] bool is_mouse_button_held(int button) const;
 
     [[nodiscard]] glm::dvec2 mouse_position() const { return mouse_pos_; }
-    [[nodiscard]] glm::dvec2 mouse_delta() const { return mouse_delta_; }
-    [[nodiscard]] glm::dvec2 scroll_delta() const { return scroll_delta_; }
+    [[nodiscard]] glm::dvec2 mouse_delta() const;
+    [[nodiscard]] glm::dvec2 scroll_delta() const;
+
+    /// Bypasses the game-focus gate above. For editor input consumers only
+    /// (the viewport's fly camera, its own navigation-mode check) — never
+    /// use these for anything the player's game itself should react to.
+    [[nodiscard]] bool raw_key_pressed(int key) const;
+    [[nodiscard]] bool raw_key_held(int key) const;
+    [[nodiscard]] bool raw_mouse_button_held(int button) const;
+    [[nodiscard]] glm::dvec2 raw_mouse_delta() const { return mouse_delta_; }
+    [[nodiscard]] glm::dvec2 raw_scroll_delta() const { return scroll_delta_; }
+
+    /// Whether the running game currently owns keyboard/mouse/pad input, as
+    /// opposed to the editor around it (docked play only — fullscreen is
+    /// always focused). Set once per frame by PlayController; query methods
+    /// above read it, so nothing else needs to check it directly.
+    void set_game_focus(bool focused) { game_focus_ = focused; }
+    [[nodiscard]] bool game_focus() const { return game_focus_; }
 
     void set_cursor_captured(GLFWwindow* window, bool captured);
     [[nodiscard]] bool is_cursor_captured() const { return cursor_captured_; }
@@ -108,6 +131,11 @@ private:
     GLFWwindow* window_{nullptr};
     bool first_mouse_{true};
     bool cursor_captured_{false};
+
+    // true outside docked play (fullscreen play, or not playing at all) so
+    // every other caller keeps working unchanged; PlayController is the only
+    // writer once docked play makes the distinction meaningful.
+    bool game_focus_{true};
 
     static void key_callback(GLFWwindow* window, int key, int scancode,
                              int action, int mods);

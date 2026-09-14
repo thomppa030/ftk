@@ -129,12 +129,35 @@ void PlayController::toggle_presentation() {
 }
 
 void PlayController::begin_frame() {
+    // Push this frame's focus state before anything reads through Input's
+    // gated query methods — ImGui's own NewFrame (and therefore every
+    // editor widget/shortcut check) runs later in Engine::run, so setting
+    // it here guarantees it is never one frame stale for either side.
+    s_.input->set_game_focus(input_focused());
+
     if (!stepping_) return;
     stepping_ = false;
     // The frame this unlocked is about to tick; re-pause so the next one
     // doesn't advance too, without ever broadcasting resume/pause for what
     // is really a single-frame nudge.
     s_.clock->set_paused(true);
+}
+
+bool PlayController::input_focused() const {
+    if (!playing()) return false;
+    return presentation() == PlayPresentation::fullscreen || captured_;
+}
+
+void PlayController::capture_input() {
+    if (!playing() || presentation() == PlayPresentation::fullscreen) return;
+    captured_ = true;
+}
+
+void PlayController::release_input() {
+    captured_ = false;
+    if (s_.input->is_cursor_captured()) {
+        s_.input->set_cursor_captured(s_.window->handle(), false);
+    }
 }
 
 void PlayController::load_input_contexts() {
@@ -219,6 +242,13 @@ VkDescriptorSet PlayController::hud_texture() {
 
 void PlayController::start() {
     if (state_ != PlayState::stopped) return;
+
+    // Docked play starts focused immediately — see input_focused(); the
+    // member's own default already covers this, this just guards against a
+    // stray Shift+Esc from a previous session somehow surviving to here.
+    // Meaningless in fullscreen, where input_focused() short-circuits to
+    // true regardless.
+    captured_ = true;
 
     std::optional<PlaySnapshot> snapshot;
     if (game_mode_) {

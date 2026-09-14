@@ -1571,27 +1571,46 @@ void Engine::flush_pending() {
 }
 
 void Engine::handle_play_shortcuts() {
-    // Only the scene context hosts play. Read after ImGui's NewFrame so the
-    // key state is this frame's, in both the editor and the play overlay.
+    // Only the scene context hosts play.
     if (&active_context() != scene_context_) return;
-    if (ImGui::IsAnyItemActive()) return;
 
-    const auto& io = ImGui::GetIO();
-    if (io.KeyCtrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_P)) {
-        play_controller_.toggle_pause();
-        return;
+    // Read through raw_* / input_, not ImGui's IsKeyPressed/io.Key*: once the
+    // game has input focus (see PlayController::input_focused), ImGui runs
+    // with ImGuiConfigFlags_NoKeyboard set and clears its own key state every
+    // frame (see draw_ui) — these shortcuts have to keep working regardless,
+    // so they read the same unfiltered source the viewport camera does.
+    bool ctrl = input_.raw_key_held(GLFW_KEY_LEFT_CONTROL) || input_.raw_key_held(GLFW_KEY_RIGHT_CONTROL);
+    bool shift = input_.raw_key_held(GLFW_KEY_LEFT_SHIFT) || input_.raw_key_held(GLFW_KEY_RIGHT_SHIFT);
+    bool alt = input_.raw_key_held(GLFW_KEY_LEFT_ALT) || input_.raw_key_held(GLFW_KEY_RIGHT_ALT);
+
+    if (!ImGui::IsAnyItemActive()) {
+        if (ctrl && shift && input_.raw_key_pressed(GLFW_KEY_P)) {
+            play_controller_.toggle_pause();
+            return;
+        }
+        if (ctrl && alt && input_.raw_key_pressed(GLFW_KEY_P)) {
+            play_controller_.step();
+            return;
+        }
+        if (ctrl && input_.raw_key_pressed(GLFW_KEY_P)) {
+            play_controller_.toggle();
+        }
     }
-    if (io.KeyCtrl && io.KeyAlt && ImGui::IsKeyPressed(ImGuiKey_P)) {
-        play_controller_.step();
-        return;
+
+    // Shift+Esc: release focus back to the editor first if the game
+    // currently has it, stop only on a second press once there is nothing
+    // left to release — matches the toolbar/overlay's own "Shift+Esc to
+    // release" / "Shift+Esc to stop" messaging.
+    if (shift && input_.raw_key_pressed(GLFW_KEY_ESCAPE)) {
+        if (play_controller_.input_focused() &&
+            play_controller_.presentation() == PlayPresentation::docked) {
+            play_controller_.release_input();
+        } else {
+            play_controller_.stop();
+        }
     }
-    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_P)) {
-        play_controller_.toggle();
-    }
-    if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
-        play_controller_.stop();
-    }
-    if (ImGui::IsKeyPressed(ImGuiKey_F11)) {
+
+    if (input_.raw_key_pressed(GLFW_KEY_F11)) {
         play_controller_.toggle_presentation();
     }
 }
@@ -1744,6 +1763,21 @@ void Engine::run() {
         // resize is about to destroy later in this same frame — see
         // PlayController::apply_pending_hud_resize.
         play_controller_.apply_pending_hud_resize();
+
+        // While the game has input focus, ImGui must not also react to the
+        // keyboard — a WASD move shouldn't nudge a still-open properties
+        // field, and Tab/arrow-key navigation shouldn't steal focus back.
+        // Global shortcuts that still have to work regardless (Shift+Esc,
+        // Ctrl+P, F11, ...) read raw_* input directly in
+        // handle_play_shortcuts() rather than through ImGui, since this
+        // flag makes ImGui's own key state (io.KeyCtrl, IsKeyPressed, ...)
+        // read as if nothing were held for as long as it's set.
+        ImGuiIO& io = ImGui::GetIO();
+        if (play_controller_.input_focused()) {
+            io.ConfigFlags |= ImGuiConfigFlags_NoKeyboard;
+        } else {
+            io.ConfigFlags &= ~ImGuiConfigFlags_NoKeyboard;
+        }
 
         imgui_layer_->begin_frame();
         handle_play_shortcuts();

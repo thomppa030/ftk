@@ -185,12 +185,24 @@ void SceneEditorContext::draw(float dt) {
         }
     }
 
-    // Picking and gizmo on the active viewport
+    // The click that gives the game back input focus (after Shift+Esc) has
+    // to be consumed here, before picking/gizmo below get a look at it —
+    // draw_play_toolbar() runs later in this same function and would
+    // otherwise detect that same click one frame too late, after picking
+    // already treated it as a selection attempt.
+    check_viewport_recapture_click();
+
+    // Picking and gizmo on the active viewport — suppressed while the game
+    // has input focus (play started, or the player just clicked back into
+    // the viewport above) so a click meant for the game can never also
+    // select a node and drop a gizmo on it. Shift+Esc hands both back along
+    // with everything else editor input reaches.
     auto* vp = viewport_manager_.active_panel();
-    if (vp && vp->hovered) {
+    bool editor_owns_viewport_input = !deps_.play->input_focused();
+    if (vp && vp->hovered && editor_owns_viewport_input) {
         draw_picking(*vp);
     }
-    if (vp) {
+    if (vp && editor_owns_viewport_input) {
         draw_gizmo(*vp);
     }
 
@@ -224,6 +236,27 @@ void SceneEditorContext::draw(float dt) {
 
     draw_shared_panels(dt);
     net_panel_.draw(dt, ctx_title("Network").c_str());
+}
+
+void SceneEditorContext::check_viewport_recapture_click() {
+    if (!deps_.play->playing() || deps_.play->input_focused()) return;
+
+    auto* vp = viewport_manager_.active_panel();
+    if (!vp || !vp->hovered) return;
+
+    // vp->hovered was computed inside viewport_manager_.draw()'s own
+    // Begin/End earlier this frame and is still valid to read here;
+    // IsMouseClicked reads the raw mouse state and needs no window scope,
+    // so this works even though we are not inside that window right now.
+    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left)) return;
+
+    auto mouse = ImGui::GetMousePos();
+    if (mouse.x < vp->img_pos.x || mouse.x >= vp->img_pos.x + vp->img_size.x ||
+        mouse.y < vp->img_pos.y || mouse.y >= vp->img_pos.y + vp->img_size.y) {
+        return;
+    }
+
+    deps_.play->capture_input();
 }
 
 void SceneEditorContext::draw_picking(ViewportPanel& vp) {
@@ -727,6 +760,19 @@ void SceneEditorContext::draw_play_toolbar() {
             ImGui::SetCursorScreenPos({vp->img_pos.x, vp->img_pos.y});
             ImGui::Image(hud_tex, {vp->img_size.x, vp->img_size.y});
         }
+
+        // The click that re-captures focus after a Shift+Esc release is
+        // detected earlier in draw(), by check_viewport_recapture_click() —
+        // before this function runs, so picking/gizmo see the new focus
+        // state on the same frame as the click that caused it.
+
+        // Status hint, bottom-left of the image — out of the play controls'
+        // way (top-center) and the net selector's (top-left).
+        const char* hint = deps_.play->input_focused()
+            ? "Shift+Esc to release input"
+            : "Click to give the game input focus";
+        ImGui::SetCursorScreenPos({vp->img_pos.x + pad, vp->img_pos.y + vp->img_size.y - ImGui::GetTextLineHeight() - pad});
+        ImGui::TextColored({1.0f, 1.0f, 1.0f, 0.6f}, "%s", hint);
     }
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -904,7 +950,7 @@ void SceneEditorContext::setup_dockspace(ImGuiID main_area) {
 bool SceneEditorContext::handle_shortcuts() {
     if (ImGui::IsAnyItemActive()) return false;
 
-    bool navigating = deps_.input->is_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
+    bool navigating = deps_.input->raw_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
     if (navigating) return false;
 
     // Gizmo mode shortcuts

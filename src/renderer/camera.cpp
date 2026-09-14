@@ -39,24 +39,29 @@ void Camera::update_focus(float dt) {
 }
 
 void Camera::update(const Input& input, float dt) {
-    auto mouse_d = input.mouse_delta();
-    auto scroll_d = input.scroll_delta();
+    // This is the editor's own viewport camera, not something the running
+    // game should ever gain or lose control of by the same focus gate that
+    // silences is_key_held() et al. for the player's input — every query
+    // here goes through the raw_* / *_delta variants so it keeps working
+    // regardless of whether docked play currently has focus.
+    auto mouse_d = input.raw_mouse_delta();
+    auto scroll_d = input.raw_scroll_delta();
 
     // Don't process camera input when modifiers are held (Ctrl+S, etc.)
-    bool ctrl_held = input.is_key_held(GLFW_KEY_LEFT_CONTROL) ||
-                     input.is_key_held(GLFW_KEY_RIGHT_CONTROL);
-    bool alt_held = input.is_key_held(GLFW_KEY_LEFT_ALT) ||
-                    input.is_key_held(GLFW_KEY_RIGHT_ALT);
+    bool ctrl_held = input.raw_key_held(GLFW_KEY_LEFT_CONTROL) ||
+                     input.raw_key_held(GLFW_KEY_RIGHT_CONTROL);
+    bool alt_held = input.raw_key_held(GLFW_KEY_LEFT_ALT) ||
+                    input.raw_key_held(GLFW_KEY_RIGHT_ALT);
     if (ctrl_held || alt_held) {
         update_focus(dt);
         update_position();
         return;
     }
 
-    bool rmb_held = input.is_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
-    bool mmb_held = input.is_mouse_button_held(GLFW_MOUSE_BUTTON_MIDDLE);
-    bool shift_held = input.is_key_held(GLFW_KEY_LEFT_SHIFT) ||
-                      input.is_key_held(GLFW_KEY_RIGHT_SHIFT);
+    bool rmb_held = input.raw_mouse_button_held(GLFW_MOUSE_BUTTON_RIGHT);
+    bool mmb_held = input.raw_mouse_button_held(GLFW_MOUSE_BUTTON_MIDDLE);
+    bool shift_held = input.raw_key_held(GLFW_KEY_LEFT_SHIFT) ||
+                      input.raw_key_held(GLFW_KEY_RIGHT_SHIFT);
 
     // Cancel focus animation on any camera input
     if (rmb_held || mmb_held || scroll_d.y != 0.0) {
@@ -72,12 +77,12 @@ void Camera::update(const Input& input, float dt) {
         float speed = move_speed_ * dt * (distance_ * 0.5f + 1.0f);
         if (shift_held) speed *= 3.0f;
 
-        if (input.is_key_held(GLFW_KEY_W)) target_ += forward * speed;
-        if (input.is_key_held(GLFW_KEY_S)) target_ -= forward * speed;
-        if (input.is_key_held(GLFW_KEY_A)) target_ -= right * speed;
-        if (input.is_key_held(GLFW_KEY_D)) target_ += right * speed;
-        if (input.is_key_held(GLFW_KEY_Q)) target_.y -= speed;
-        if (input.is_key_held(GLFW_KEY_E)) target_.y += speed;
+        if (input.raw_key_held(GLFW_KEY_W)) target_ += forward * speed;
+        if (input.raw_key_held(GLFW_KEY_S)) target_ -= forward * speed;
+        if (input.raw_key_held(GLFW_KEY_A)) target_ -= right * speed;
+        if (input.raw_key_held(GLFW_KEY_D)) target_ += right * speed;
+        if (input.raw_key_held(GLFW_KEY_Q)) target_.y -= speed;
+        if (input.raw_key_held(GLFW_KEY_E)) target_.y += speed;
 
         // Orbit with RMB drag
         yaw_ += static_cast<float>(mouse_d.x) * orbit_sensitivity_;
