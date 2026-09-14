@@ -1,4 +1,5 @@
 #include "renderer/systems/vfx_module.hpp"
+#include "core/math/color_space.hpp"
 #include "ui/imgui_curve_editor.hpp"
 
 #include <imgui.h>
@@ -30,8 +31,17 @@ static void write_vec3(uint8_t* buffer, uint32_t offset, const glm::vec3& v) {
     std::memcpy(buffer + offset, &v, 12);
 }
 
-static void write_vec4(uint8_t* buffer, uint32_t offset, const glm::vec4& v) {
-    std::memcpy(buffer + offset, &v, 16);
+// A colour field is authored in sRGB — in the asset, the inspector, and any
+// expression feeding the pin — and the simulation multiplies linear light,
+// so the conversion happens here, on the way into the module buffer.
+static void write_color(uint8_t* buffer, uint32_t offset, const glm::vec3& srgb) {
+    const glm::vec3 v = color_space::srgb_to_linear(srgb);
+    std::memcpy(buffer + offset, &v, sizeof(v));
+}
+
+static void write_color(uint8_t* buffer, uint32_t offset, const glm::vec4& srgb) {
+    const glm::vec4 v = color_space::srgb_to_linear(srgb);
+    std::memcpy(buffer + offset, &v, sizeof(v));
 }
 
 // ─── Factory ─────────────────────────────────────────────────────────────
@@ -395,7 +405,7 @@ void InitialVelocityModule::from_json(const nlohmann::json& j) {
 
 uint32_t InitialColorModule::write_gpu_data(uint8_t* buffer) const {
     uint32_t total = write_header(buffer, type(), 4);
-    write_vec4(buffer, 8, color);
+    write_color(buffer, 8, color);
     return total;
 }
 
@@ -571,8 +581,8 @@ void OrbitalModule::from_json(const nlohmann::json& j) {
 
 uint32_t ColorOverLifeModule::write_gpu_data(uint8_t* buffer) const {
     uint32_t total = write_header(buffer, type(), 8);
-    write_vec4(buffer, 8, color_start);
-    write_vec4(buffer, 24, color_end);
+    write_color(buffer, 8, color_start);
+    write_color(buffer, 24, color_end);
     return total;
 }
 
@@ -1101,15 +1111,15 @@ uint32_t CurveColorOverLifeModule::write_gpu_data(uint8_t* buffer) const {
     write_uint(buffer, 12, 0); // pad
     uint32_t off = 16;
     float lut[kCurveLutSamples];
-    curve_r.bake(lut, kCurveLutSamples);
-    for (uint32_t i = 0; i < kCurveLutSamples; ++i) write_float(buffer, off + i * 4, lut[i]);
-    off += kCurveLutSamples * 4;
-    curve_g.bake(lut, kCurveLutSamples);
-    for (uint32_t i = 0; i < kCurveLutSamples; ++i) write_float(buffer, off + i * 4, lut[i]);
-    off += kCurveLutSamples * 4;
-    curve_b.bake(lut, kCurveLutSamples);
-    for (uint32_t i = 0; i < kCurveLutSamples; ++i) write_float(buffer, off + i * 4, lut[i]);
-    off += kCurveLutSamples * 4;
+    // The curves are authored in sRGB and sampled there, so a bake is the
+    // designer's ramp; each sample then converts like any other colour.
+    for (const Curve* channel : {&curve_r, &curve_g, &curve_b}) {
+        channel->bake(lut, kCurveLutSamples);
+        for (uint32_t i = 0; i < kCurveLutSamples; ++i) {
+            write_float(buffer, off + i * 4, color_space::srgb_to_linear(lut[i]));
+        }
+        off += kCurveLutSamples * 4;
+    }
     curve_a.bake(lut, kCurveLutSamples);
     for (uint32_t i = 0; i < kCurveLutSamples; ++i) write_float(buffer, off + i * 4, lut[i]);
     return total;
@@ -1352,7 +1362,7 @@ std::vector<PinDescriptor> EmissiveModule::pin_descriptors() {
 uint32_t EmissiveModule::write_gpu_data(uint8_t* buffer) const {
     // header(2) + color(3) + intensity(1) + pad(2) = 8 words (4-word aligned)
     uint32_t total = write_header(buffer, type(), 6);
-    write_vec3(buffer, 8, color);
+    write_color(buffer, 8, color);
     write_float(buffer, 20, intensity);
     return total; // 24 bytes
 }
