@@ -7,6 +7,10 @@
 
 #include <glm/gtc/quaternion.hpp>
 
+#include <algorithm>
+#include <utility>
+#include <vector>
+
 using namespace fjell;
 using Catch::Approx;
 
@@ -297,4 +301,84 @@ TEST_CASE("A character's own filter can ignore a channel", "[character]") {
         w.step(1);
     }
     REQUIRE(w.node(id).transform.position.x == Approx(6.0f).margin(0.1f));
+}
+
+namespace {
+
+// Events of one kind collected over a walk, as (receiver, other) pairs.
+struct EventLog {
+    std::vector<std::pair<uint32_t, uint32_t>> collision_enter, collision_exit,
+                                               trigger_enter, trigger_exit;
+    void collect(const PhysicsWorld& physics) {
+        for (const auto& [id, e] : physics.collision_enter_events()) collision_enter.emplace_back(id, e.other_id);
+        for (const auto& [id, e] : physics.collision_exit_events()) collision_exit.emplace_back(id, e.other_id);
+        for (const auto& [id, e] : physics.trigger_enter_events()) trigger_enter.emplace_back(id, e.other_id);
+        for (const auto& [id, e] : physics.trigger_exit_events()) trigger_exit.emplace_back(id, e.other_id);
+    }
+    static int count(const std::vector<std::pair<uint32_t, uint32_t>>& v, uint32_t a, uint32_t b) {
+        return static_cast<int>(std::count(v.begin(), v.end(), std::make_pair(a, b)));
+    }
+};
+
+} // namespace
+
+TEST_CASE("Walking into a wall reports the collision to both sides once", "[character]") {
+    CharacterWorld w;
+    w.add_floor();
+    auto wall = w.add_box({3.0f, 1.0f, 0.0f}, {0.25f, 1.0f, 5.0f});
+    auto id = w.add_character({0.0f, 2.0f, 0.0f});
+    w.start();
+    REQUIRE(w.settle(id));
+
+    EventLog log;
+    for (int i = 0; i < 180; ++i) {
+        w.character(id).velocity.x = 2.0f;
+        w.character(id).velocity.z = 0.0f;
+        w.step(1);
+        log.collect(w.physics);
+    }
+    REQUIRE(EventLog::count(log.collision_enter, id, wall) == 1);
+    REQUIRE(EventLog::count(log.collision_enter, wall, id) == 1);
+}
+
+TEST_CASE("Walking through a trigger reports enter and exit", "[character]") {
+    CharacterWorld w;
+    w.add_floor();
+    auto trigger = w.add_box({3.0f, 1.0f, 0.0f}, {0.5f, 1.0f, 1.0f}, {1.0f, 0.0f, 0.0f, 0.0f}, true);
+    auto id = w.add_character({0.0f, 2.0f, 0.0f});
+    w.start();
+    REQUIRE(w.settle(id));
+
+    EventLog log;
+    for (int i = 0; i < 180; ++i) {
+        w.character(id).velocity.x = 2.0f;
+        w.character(id).velocity.z = 0.0f;
+        w.step(1);
+        log.collect(w.physics);
+    }
+    REQUIRE(w.node(id).transform.position.x > 4.0f);
+    REQUIRE(EventLog::count(log.trigger_enter, trigger, id) == 1);
+    REQUIRE(EventLog::count(log.trigger_enter, id, trigger) == 1);
+    REQUIRE(EventLog::count(log.trigger_exit, trigger, id) == 1);
+    REQUIRE(EventLog::count(log.trigger_exit, id, trigger) == 1);
+    REQUIRE(log.collision_enter.empty());
+}
+
+TEST_CASE("Two characters bumping into each other report it once each way", "[character]") {
+    CharacterWorld w;
+    w.add_floor();
+    auto walker = w.add_character({0.0f, 2.0f, 0.0f});
+    auto blocker = w.add_character({2.0f, 2.0f, 0.0f});
+    w.start();
+    REQUIRE(w.settle(walker));
+
+    EventLog log;
+    for (int i = 0; i < 120; ++i) {
+        w.character(walker).velocity.x = 2.0f;
+        w.character(walker).velocity.z = 0.0f;
+        w.step(1);
+        log.collect(w.physics);
+    }
+    REQUIRE(EventLog::count(log.collision_enter, walker, blocker) == 1);
+    REQUIRE(EventLog::count(log.collision_enter, blocker, walker) == 1);
 }

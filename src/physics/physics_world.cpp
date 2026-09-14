@@ -242,6 +242,12 @@ public:
     // Back-pointer for resolving body → object ID
     std::unordered_map<uint32_t, uint32_t>* body_to_object{nullptr};
 
+    // Bodies that stand in for a character. Their contacts are not reported
+    // from here: a character sweeps its own shape and knows every contact it
+    // made, sensors and other characters included, and reports from that
+    // list. Reporting the body's pairs as well would double every event.
+    std::unordered_set<uint32_t> character_bodies;
+
     // Events collected this frame (swapped out at clear())
     std::vector<std::pair<uint32_t, CollisionEvent>> collision_enter_events;
     std::vector<std::pair<uint32_t, CollisionEvent>> collision_exit_events;
@@ -270,6 +276,7 @@ public:
 
         uint32_t key1 = body1.GetID().GetIndexAndSequenceNumber();
         uint32_t key2 = body2.GetID().GetIndexAndSequenceNumber();
+        if (character_bodies.contains(key1) || character_bodies.contains(key2)) return;
 
         auto it1 = body_to_object->find(key1);
         auto it2 = body_to_object->find(key2);
@@ -357,6 +364,13 @@ struct CharacterEntry {
     // The layer the character's filter maps to; both its capsule and the
     // sweep that moves it collide as this.
     JPH::ObjectLayer layer;
+    // What the character was touching after its last update, so the next
+    // update can tell a new contact from one that ended.
+    struct Contact {
+        uint32_t other_id;
+        bool sensor;
+    };
+    std::vector<Contact> contacts;
     // World position last agreed between the node and the character. The node
     // sitting anywhere else at the next step means something outside physics
     // moved it — a teleport, a parent, the network — and the character follows.
@@ -761,12 +775,14 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
             0, // user data
             impl_->physics_system.get());
 
-        impl_->characters.push_back({character, node.id, layer, world_position});
+        impl_->characters.push_back({character, node.id, layer, {}, world_position});
 
-        // Register inner body for contact resolution
+        // The inner body is what rays and other bodies find; contacts against
+        // it resolve to this node, and its events come from the character.
         auto inner_id = character->GetInnerBodyID();
         if (!inner_id.IsInvalid()) {
             impl_->body_to_object[inner_id.GetIndexAndSequenceNumber()] = node.id;
+            impl_->contact_listener.character_bodies.insert(inner_id.GetIndexAndSequenceNumber());
         }
         return;
     }
@@ -1051,6 +1067,22 @@ void PhysicsWorld::step(float dt, Scene& scene) {
 
     // Update character controllers before physics step
     JPH::Vec3 gravity = impl_->physics_system->GetGravity();
+    // Two characters touching each other are both aware of it, so a pair is
+    // reported once per step no matter which side found it.
+    std::unordered_set<uint64_t> reported_pairs;
+    auto report_character_contact = [&](bool enter, bool sensor, uint32_t self, uint32_t other,
+                                        const glm::vec3& point, const glm::vec3& normal) {
+        uint64_t pair = (static_cast<uint64_t>(std::min(self, other)) << 32) |
+                        std::max(self, other);
+        if (!reported_pairs.insert(pair).second) return;
+        auto& listener = impl_->contact_listener;
+        auto& events = sensor ? (enter ? listener.trigger_enter_events : listener.trigger_exit_events)
+                              : (enter ? listener.collision_enter_events : listener.collision_exit_events);
+        // Normals point from the receiving node toward the other, as the body
+        // listener reports them.
+        events.push_back({self, {other, point, normal}});
+        events.push_back({other, {self, point, -normal}});
+    };
     for (auto& entry : impl_->characters) {
         auto* node = scene.find_spatial(entry.object_id);
         if (!node) continue;
@@ -1070,7 +1102,16 @@ void PhysicsWorld::step(float dt, Scene& scene) {
             entry.synced_position = world_position;
         }
 
-        if (!cc->simulate) continue;
+        if (!cc->simulate) {
+            // Nothing is swept, so nothing is touched; whatever it was
+            // touching has ended as far as gameplay is concerned.
+            for (const auto& old : entry.contacts) {
+                report_character_contact(false, old.sensor, entry.object_id, old.other_id,
+                                         world_position, glm::vec3{0.0f});
+            }
+            entry.contacts.clear();
+            continue;
+        }
 
         glm::vec3 vel = cc->velocity;
         if (cc->ground_state == CharacterGroundState::OnGround) {
@@ -1098,6 +1139,44 @@ void PhysicsWorld::step(float dt, Scene& scene) {
             {},
             {},
             *impl_->temp_allocator);
+
+        // What the sweep touched this step. A solid contact is one the solver
+        // pushed against; a sensor never pushes, so it counts once the shape
+        // is inside it rather than merely approaching. Several contacts with
+        // one body — a floor's triangles — are one contact with that node.
+        std::vector<CharacterEntry::Contact> touched;
+        for (const auto& contact : entry.character->GetActiveContacts()) {
+            if (contact.mBodyB.IsInvalid()) continue;
+            bool touching = contact.mIsSensorB ? contact.mDistance < 1e-3f
+                                               : contact.mHadCollision;
+            if (!touching) continue;
+            auto other = impl_->body_to_object.find(contact.mBodyB.GetIndexAndSequenceNumber());
+            if (other == impl_->body_to_object.end()) continue;
+            if (other->second == entry.object_id) continue;
+
+            bool known = std::any_of(touched.begin(), touched.end(), [&](const auto& t) {
+                return t.other_id == other->second;
+            });
+            if (known) continue;
+            touched.push_back({other->second, contact.mIsSensorB});
+
+            bool was_touching = std::any_of(entry.contacts.begin(), entry.contacts.end(),
+                                            [&](const auto& t) { return t.other_id == other->second; });
+            if (!was_touching) {
+                report_character_contact(true, contact.mIsSensorB, entry.object_id, other->second,
+                                         to_glm(JPH::Vec3(contact.mPosition)),
+                                         -to_glm(contact.mContactNormal));
+            }
+        }
+        for (const auto& old : entry.contacts) {
+            bool still = std::any_of(touched.begin(), touched.end(),
+                                     [&](const auto& t) { return t.other_id == old.other_id; });
+            if (!still) {
+                report_character_contact(false, old.sensor, entry.object_id, old.other_id,
+                                         to_glm(entry.character->GetPosition()), glm::vec3{0.0f});
+            }
+        }
+        entry.contacts = std::move(touched);
     }
 
     // Step physics
@@ -1187,6 +1266,7 @@ void PhysicsWorld::destroy_body(uint32_t object_id) {
         auto inner_id = character->character->GetInnerBodyID();
         if (!inner_id.IsInvalid()) {
             impl_->body_to_object.erase(inner_id.GetIndexAndSequenceNumber());
+            impl_->contact_listener.character_bodies.erase(inner_id.GetIndexAndSequenceNumber());
         }
         impl_->characters.erase(character);
         return;
