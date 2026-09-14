@@ -209,6 +209,7 @@ add_executable(fjell
     physics/collision_shape.cpp
     physics/physics_world.cpp
     scene/scene.cpp
+    scene/scene_io.cpp
     scene/node_serializer.cpp
     scene/spline_editable.cpp
     scene/preset.cpp
