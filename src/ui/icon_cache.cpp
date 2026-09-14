@@ -164,7 +164,9 @@ IconCache::IconEntry IconCache::upload_rgba(const uint8_t* pixels, int w, int h)
     img_info.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
     img_info.mipLevels = 1;
     img_info.arrayLayers = 1;
-    img_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    // PNG pixels are sRGB; sampling through an sRGB format hands ImGui
+    // linear light, which the swapchain encodes back to the authored colour.
+    img_info.format = VK_FORMAT_R8G8B8A8_SRGB;
     img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     img_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -244,7 +246,7 @@ IconCache::IconEntry IconCache::upload_rgba(const uint8_t* pixels, int w, int h)
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = entry.image;
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
     view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vk_check(vkCreateImageView(device_, &view_info, nullptr, &entry.view),
              "create image view");
@@ -501,7 +503,7 @@ void IconCache::poll_thumbnails() {
             view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             view_info.image = e.image;
             view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+            view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
             view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
             vk_check(vkCreateImageView(device_, &view_info, nullptr, &e.view),
                      "create batch image view");
@@ -605,7 +607,7 @@ void IconCache::poll_thumbnails() {
                            static_cast<uint32_t>(infos[i].height), 1};
         img_info.mipLevels = 1;
         img_info.arrayLayers = 1;
-        img_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        img_info.format = VK_FORMAT_R8G8B8A8_SRGB;
         img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
         img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         img_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
