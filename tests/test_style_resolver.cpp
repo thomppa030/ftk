@@ -458,9 +458,9 @@ TEST_CASE("Transition property is stored as string", "[style]") {
     REQUIRE(root->style.transition == "all 0.3s ease-in-out");
 }
 
-// --- resolve_single ---
+// --- resolve_subtree ---
 
-TEST_CASE("resolve_single re-applies rules with updated state", "[style]") {
+TEST_CASE("resolve_subtree re-applies rules with updated state", "[style]") {
     auto root = make_node("div", "", {"btn"});
     auto sheet = FjssParser::parse(R"(
         .btn { opacity: 1; }
@@ -473,16 +473,16 @@ TEST_CASE("resolve_single re-applies rules with updated state", "[style]") {
 
     // Simulate hover
     root->interaction_state = 1;
-    resolver.resolve_single(*root, sheet);
+    resolver.resolve_subtree(*root, sheet);
     REQUIRE(root->style.opacity == Catch::Approx(0.8f));
 
     // Simulate unhover
     root->interaction_state = 0;
-    resolver.resolve_single(*root, sheet);
+    resolver.resolve_subtree(*root, sheet);
     REQUIRE(root->style.opacity == Catch::Approx(1.0f));
 }
 
-TEST_CASE("resolve_single inherits from parent", "[style]") {
+TEST_CASE("resolve_subtree inherits from parent", "[style]") {
     auto root = make_node("div");
     auto* child = add_child(*root, make_node("span"));
 
@@ -491,7 +491,7 @@ TEST_CASE("resolve_single inherits from parent", "[style]") {
     resolver.resolve(*root, sheet);
 
     // Re-resolve child — should still inherit font-size
-    resolver.resolve_single(*child, sheet);
+    resolver.resolve_subtree(*child, sheet);
     REQUIRE(child->style.font_size == Catch::Approx(24.0f));
 }
 
@@ -654,7 +654,7 @@ TEST_CASE("Calling resolve resets and reapplies from scratch", "[style][edge]") 
     REQUIRE(root->style.height == Catch::Approx(200.0f));
 }
 
-TEST_CASE("resolve_single resets non-inherited properties", "[style][edge]") {
+TEST_CASE("resolve_subtree resets non-inherited properties", "[style][edge]") {
     auto root = make_node("div", "", {"box"});
 
     auto sheet = FjssParser::parse(".box { width: 100; }");
@@ -664,7 +664,7 @@ TEST_CASE("resolve_single resets non-inherited properties", "[style][edge]") {
 
     // Re-resolve with empty sheet — should reset width to default
     Stylesheet empty;
-    resolver.resolve_single(*root, empty);
+    resolver.resolve_subtree(*root, empty);
     REQUIRE(root->style.width == Catch::Approx(-1.0f));
 }
 
@@ -701,7 +701,7 @@ TEST_CASE("Inherited property overridden by child, then child re-resolved", "[st
     REQUIRE(child->style.color.g == Catch::Approx(1.0f));
 
     // Re-resolve child with same sheet — should still be green, not red
-    resolver.resolve_single(*child, sheet);
+    resolver.resolve_subtree(*child, sheet);
     REQUIRE(child->style.color.g == Catch::Approx(1.0f));
     REQUIRE(child->style.color.r == Catch::Approx(0.0f));
 }
@@ -1013,4 +1013,20 @@ TEST_CASE("Border shorthand and border-color apply in authored order", "[style][
     resolver.resolve(*root, sheet);
     REQUIRE(root->style.border_color.b == Catch::Approx(1.0f));
     REQUIRE(root->style.border_color.r == Catch::Approx(0.0f));
+}
+
+TEST_CASE("resolve_subtree re-resolves descendants so inherited values follow", "[style]") {
+    auto root = make_node("div", "", {"card"});
+    auto* child = add_child(*root, make_node("text"));
+    auto sheet = FjssParser::parse(".card { color: #000000; } .card:hover { color: #ff0000; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(child->style.color.r == Catch::Approx(0.0f));
+
+    root->interaction_state |= 1; // hovered
+    resolver.resolve_subtree(*root, sheet);
+    REQUIRE(root->style.color.r == Catch::Approx(1.0f));
+    // The text has no rule of its own; its color is inherited and must
+    // track the parent's hover state, not the style from the last full resolve.
+    REQUIRE(child->style.color.r == Catch::Approx(1.0f));
 }

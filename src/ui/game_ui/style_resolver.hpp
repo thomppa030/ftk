@@ -10,9 +10,11 @@ public:
     /// Apply stylesheet rules to a UI node tree, computing styles per node.
     void resolve(UiNode& root, const Stylesheet& sheet);
 
-    /// Re-resolve a single node (e.g. when interaction state changes).
-    /// Resets non-inherited properties and re-applies matching rules.
-    void resolve_single(UiNode& node, const Stylesheet& sheet);
+    /// Re-resolve a node and everything below it, e.g. when its interaction
+    /// state changes. Descendants are included because inherited values
+    /// (color, font-size, opacity) flow down from the node's new style:
+    /// a ".card:hover { color: red }" must recolor the text inside the card.
+    void resolve_subtree(UiNode& node, const Stylesheet& sheet);
 
     /// Store the active stylesheet for targeted re-resolves.
     void set_stylesheet(const Stylesheet& sheet) { active_sheet_ = &sheet; }

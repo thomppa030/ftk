@@ -14,8 +14,8 @@ void StyleResolver::resolve(UiNode& root, const Stylesheet& sheet) {
     resolve_node(root, sheet, nullptr);
 }
 
-void StyleResolver::resolve_single(UiNode& node, const Stylesheet& sheet) {
-    apply_cascade(node, sheet, node.parent ? &node.parent->style : nullptr);
+void StyleResolver::resolve_subtree(UiNode& node, const Stylesheet& sheet) {
+    resolve_node(node, sheet, node.parent ? &node.parent->style : nullptr);
 }
 
 void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,

@@ -210,7 +210,7 @@ void GameUi::update(float viewport_width, float viewport_height,
             needs_redraw_ = true;
             layout_dirty_ = true;
             for (auto* node : ui_input_.dirty_nodes()) {
-                style_resolver_.resolve_single(*node, stylesheet_);
+                style_resolver_.resolve_subtree(*node, stylesheet_);
             }
         }
     }
