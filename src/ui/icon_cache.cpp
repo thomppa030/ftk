@@ -412,6 +412,11 @@ void IconCache::clear_thumbnails() {
     thumbnails_.clear();
 }
 
+void IconCache::retire(IconEntry entry) {
+    if (entry.image == VK_NULL_HANDLE && entry.descriptor == VK_NULL_HANDLE) return;
+    retired_thumbnails_.push_back(entry);
+}
+
 void IconCache::destroy_retired_thumbnails() {
     if (retired_thumbnails_.empty()) return;
     vkDeviceWaitIdle(device_);

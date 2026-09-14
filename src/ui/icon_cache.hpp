@@ -92,6 +92,11 @@ public:
     /// Reusable for icons, thumbnails, material previews, etc.
     IconEntry upload_rgba(const uint8_t* pixels, int w, int h);
 
+    /// Hand an entry from upload_rgba() back for destruction at the next
+    /// frame boundary, with the same lifetime rule as clear_thumbnails():
+    /// its descriptor may still sit in this frame's draw list.
+    void retire(IconEntry entry);
+
     /// Global instance — set once at engine init, used by all panels.
     [[nodiscard]] static IconCache* instance() { return s_instance; }
     static void set_instance(IconCache* cache) { s_instance = cache; }
