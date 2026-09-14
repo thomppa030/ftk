@@ -2,6 +2,7 @@
 
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
+#include "renderer/renderer_constants.hpp"
 #include "renderer/render_settings.hpp"
 
 #include <glm/glm.hpp>
@@ -39,9 +40,14 @@ public:
         VkExtent2D out_extent{};
         VkImageLayout out_layout{VK_IMAGE_LAYOUT_UNDEFINED};
 
-        std::unique_ptr<Buffer> reflection_ubo;
+        // One uniform buffer and one trace set per frame in flight. The UBO
+        // is host-written every frame and the set binds the slot's TLAS and
+        // per-instance table through update-after-bind, so a frame still
+        // pending on the GPU must not share either with the frame being
+        // recorded.
+        std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> reflection_ubo;
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
-        VkDescriptorSet trace_set{VK_NULL_HANDLE};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> trace_set{};
         bool first_use{true};
 
         void create(VkDevice device, VmaAllocator allocator,

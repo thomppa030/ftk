@@ -3,6 +3,7 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/gpu/buffer.hpp"
 
+#include "renderer/renderer_constants.hpp"
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.h>
@@ -76,17 +77,26 @@ public:
         VkImageView indirect_view{VK_NULL_HANDLE};
         VkExtent2D indirect_extent{};
 
-        // Constants UBO
-        std::unique_ptr<Buffer> constants_ubo;
+        // Constants UBO, one per frame in flight. It is host-written every
+        // frame, and a frame's trace and resolve may still be pending on the
+        // GPU while the CPU records the next one, so they must not share it.
+        std::array<std::unique_ptr<Buffer>, MAX_FRAMES_IN_FLIGHT> constants_ubo;
 
         // Probe dimensions
         glm::uvec2 probe_count{};
         uint32_t rays_per_probe{16};
 
-        // Descriptor pool + sets
+        // Descriptor pool + sets. The trace and resolve sets hold resources
+        // that belong to one frame slot — the constants UBO, the TLAS, the
+        // per-instance table — and are rewritten every frame. They are
+        // update-after-bind, so rewriting a set that a pending frame still
+        // has bound would hand that frame this frame's slot: a TLAS built
+        // three frames ago against an instance table just overwritten with
+        // a different layout. One set per slot keeps each frame on its own.
+        // The upsample set binds only per-viewport images and stays single.
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
-        VkDescriptorSet trace_set{VK_NULL_HANDLE};
-        VkDescriptorSet resolve_set{VK_NULL_HANDLE};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> trace_set{};
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> resolve_set{};
         VkDescriptorSet upsample_set{VK_NULL_HANDLE};
 
         bool first_frame{true};

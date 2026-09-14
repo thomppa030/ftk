@@ -314,39 +314,46 @@ void RtReflectionPass::Images::create(VkDevice device, VmaAllocator allocator,
         throw std::runtime_error("Failed to create RT reflection output view");
     }
 
-    // Reflection UBO (sun light) — host-mapped, written each frame.
-    reflection_ubo = std::make_unique<Buffer>(
-        allocator, sizeof(ReflectionUbo),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_AUTO,
-        VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-    reflection_ubo->map();
+    // Reflection UBO (sun light) — host-mapped, written each frame, one per
+    // frame slot.
+    for (auto& ubo : reflection_ubo) {
+        ubo = std::make_unique<Buffer>(
+            allocator, sizeof(ReflectionUbo),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VMA_MEMORY_USAGE_AUTO,
+            VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+        ubo->map();
+    }
 
     // Descriptor pool + set.
+    // Sizes are per set; one set per frame slot.
+    constexpr uint32_t SLOTS = MAX_FRAMES_IN_FLIGHT;
     std::array<VkDescriptorPoolSize, 5> pool_sizes{};
-    pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,             2}; // DDGI UBO + reflection UBO
-    pool_sizes[1] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, 1};
-    pool_sizes[2] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,     7}; // depth, normal, mr, sky, irr, vis, probe_off
-    pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,              1}; // reflection_out
-    pool_sizes[4] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,             4}; // vertex, index, instance, probe_status
+    pool_sizes[0] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,             2 * SLOTS}; // DDGI UBO + reflection UBO
+    pool_sizes[1] = {VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, SLOTS};
+    pool_sizes[2] = {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,     7 * SLOTS}; // depth, normal, mr, sky, irr, vis, probe_off
+    pool_sizes[3] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,              SLOTS};     // reflection_out
+    pool_sizes[4] = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,             4 * SLOTS}; // vertex, index, instance, probe_status
 
     VkDescriptorPoolCreateInfo pool_ci{};
     pool_ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_ci.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-    pool_ci.maxSets = 1;
+    pool_ci.maxSets = SLOTS;
     pool_ci.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
     pool_ci.pPoolSizes = pool_sizes.data();
     if (vkCreateDescriptorPool(device, &pool_ci, nullptr, &desc_pool) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create RT reflection descriptor pool");
     }
 
+    std::array<VkDescriptorSetLayout, SLOTS> layouts{};
+    layouts.fill(set_layout);
     VkDescriptorSetAllocateInfo set_alloc{};
     set_alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
     set_alloc.descriptorPool = desc_pool;
-    set_alloc.descriptorSetCount = 1;
-    set_alloc.pSetLayouts = &set_layout;
-    if (vkAllocateDescriptorSets(device, &set_alloc, &trace_set) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate RT reflection descriptor set");
+    set_alloc.descriptorSetCount = SLOTS;
+    set_alloc.pSetLayouts = layouts.data();
+    if (vkAllocateDescriptorSets(device, &set_alloc, trace_set.data()) != VK_SUCCESS) {
+        throw std::runtime_error("Failed to allocate RT reflection descriptor sets");
     }
 }
 
@@ -354,9 +361,9 @@ void RtReflectionPass::Images::destroy(VkDevice device, VmaAllocator allocator) 
     if (desc_pool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(device, desc_pool, nullptr);
         desc_pool = VK_NULL_HANDLE;
-        trace_set = VK_NULL_HANDLE;
+        trace_set.fill(VK_NULL_HANDLE);
     }
-    reflection_ubo.reset();
+    for (auto& ubo : reflection_ubo) ubo.reset();
     if (out_view != VK_NULL_HANDLE) {
         vkDestroyImageView(device, out_view, nullptr);
         out_view = VK_NULL_HANDLE;
@@ -508,7 +515,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         ReflectionUbo u{};
         u.sun_dir_intensity = glm::vec4(glm::normalize(-sun_direction_), sun_intensity_);
         u.sun_color = glm::vec4(sun_color_, 0.0F);
-        std::memcpy(imgs->reflection_ubo->mapped(), &u, sizeof(u));
+        std::memcpy(imgs->reflection_ubo[ctx.frame_index]->mapped(), &u, sizeof(u));
     }
 
     auto cmd = ctx.cmd;
@@ -547,14 +554,15 @@ void RtReflectionPass::record(const FrameContext& ctx) {
     // ── Update descriptor set ──
     // First-use writes: static bindings (vertex/index SSBOs, output, UBOs).
     if (imgs->first_use) {
+        for (uint32_t s = 0; s < MAX_FRAMES_IN_FLIGHT; ++s) {
         std::array<VkWriteDescriptorSet, 3> static_writes{};
         for (auto& w : static_writes) {
             w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            w.dstSet = imgs->trace_set;
+            w.dstSet = imgs->trace_set[s];
             w.descriptorCount = 1;
         }
 
-        VkDescriptorBufferInfo refl_ubo_info{imgs->reflection_ubo->handle(), 0, sizeof(ReflectionUbo)};
+        VkDescriptorBufferInfo refl_ubo_info{imgs->reflection_ubo[s]->handle(), 0, sizeof(ReflectionUbo)};
         static_writes[0].dstBinding = 14;
         static_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         static_writes[0].pBufferInfo = &refl_ubo_info;
@@ -571,6 +579,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
         vkUpdateDescriptorSets(vk_device_, static_cast<uint32_t>(static_writes.size()),
                                static_writes.data(), 0, nullptr);
+        }
         imgs->first_use = false;
     }
 
@@ -615,7 +624,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
         std::array<VkWriteDescriptorSet, 12> w{};
         for (auto& wi : w) {
             wi.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            wi.dstSet = imgs->trace_set;
+            wi.dstSet = imgs->trace_set[ctx.frame_index];
             wi.descriptorCount = 1;
         }
         w[0].dstBinding = 0;  w[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;             w[0].pBufferInfo = &ddgi_ubo_info;
@@ -636,7 +645,7 @@ void RtReflectionPass::record(const FrameContext& ctx) {
 
     // ── Bind + dispatch ──
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR, rt_pipeline_);
-    std::array<VkDescriptorSet, 2> sets = {imgs->trace_set, ctx.bindless_set};
+    std::array<VkDescriptorSet, 2> sets = {imgs->trace_set[ctx.frame_index], ctx.bindless_set};
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
                             rt_pipeline_layout_, 0,
                             static_cast<uint32_t>(sets.size()), sets.data(),

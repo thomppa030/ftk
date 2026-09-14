@@ -3,6 +3,7 @@
 #include "renderer/pass/render_pass.hpp"
 #include "renderer/frustum.hpp"
 #include "renderer/gpu/buffer.hpp"
+#include "renderer/renderer_constants.hpp"
 
 #include <glm/glm.hpp>
 #include <vk_mem_alloc.h>
@@ -314,10 +315,15 @@ public:
         [[nodiscard]] VkDescriptorSet indirect_imgui_texture(VkSampler sampler);
         [[nodiscard]] VkDescriptorSet irradiance_imgui_texture(VkSampler sampler);
 
-        // Descriptor sets — written by DdgiPass after Images::create()
+        // Descriptor sets — written by DdgiPass after Images::create().
+        // The RT trace set binds the frame slot's TLAS and per-instance table
+        // and is update-after-bind, so it exists once per frame in flight:
+        // rewriting one shared set would hand a still-pending frame this
+        // frame's slot, a TLAS built three frames ago against an instance
+        // table just overwritten with a different layout.
         VkDescriptorPool desc_pool{VK_NULL_HANDLE};
         VkDescriptorSet trace_set{VK_NULL_HANDLE};     // SDF trace
-        VkDescriptorSet rt_trace_set{VK_NULL_HANDLE};  // RT trace
+        std::array<VkDescriptorSet, MAX_FRAMES_IN_FLIGHT> rt_trace_set{};  // RT trace, per slot
         VkDescriptorSet update_set{VK_NULL_HANDLE};
         VkDescriptorSet sample_set{VK_NULL_HANDLE};
 
