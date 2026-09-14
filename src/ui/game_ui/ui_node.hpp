@@ -47,6 +47,11 @@ struct UiNode {
     // Original text with {key} placeholders (before resolution)
     std::string text_template;
 
+    // style-* attributes with their {key} placeholders resolved, keyed by
+    // property name ("width", "--fill"). The authored templates stay in
+    // `attributes` for writing back; the cascade reads these.
+    std::unordered_map<std::string, std::string> inline_styles;
+
     // Scroll offset for overflow:scroll containers
     float scroll_offset_y{0.0f};
 

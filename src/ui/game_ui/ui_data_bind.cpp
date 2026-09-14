@@ -96,6 +96,18 @@ void UiDataBind::resolve_node(UiNode& node, UiContext& context, DataBindResult& 
         }
     }
 
+    // Resolve {key} templates in style-* attributes. A changed value means a
+    // re-resolve of the cascade, which the layout_changed flag triggers.
+    for (const auto& [attr, tmpl] : node.attributes) {
+        if (!attr.starts_with("style-")) continue;
+        auto resolved = resolve_template(tmpl, ctx);
+        auto& current = node.inline_styles[attr.substr(6)];
+        if (current != resolved) {
+            current = std::move(resolved);
+            result.layout_changed = true;
+        }
+    }
+
     // Resolve {key} templates in text content — text only, no layout change
     if (node.type == UiNodeType::text && !node.text_template.empty()) {
         auto resolved = resolve_template(node.text_template, ctx);

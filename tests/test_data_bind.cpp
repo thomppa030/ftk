@@ -1011,3 +1011,36 @@ TEST_CASE("forget_tree makes the next resolve run for an unchanged context", "[b
     bind.resolve(*second, ctx);
     REQUIRE(second->text_content == "1");
 }
+
+TEST_CASE("style-* attributes resolve their {key} templates into inline styles", "[bind]") {
+    UiContext ctx;
+    ctx.set("from", "#000000");
+    ctx.set("to", "#ffffff");
+    ctx.set("tint", "#00ff00");
+    auto root = std::make_unique<UiNode>();
+    root->type = UiNodeType::element;
+    root->tag = "div";
+    root->attributes["style-background"] = "linear-gradient(90deg, {from}, {to})";
+    root->attributes["style---fill"] = "{tint}";
+    root->attributes["style-width"] = "120";
+
+    UiDataBind bind;
+    auto first = bind.resolve(*root, ctx);
+    REQUIRE(first.layout_changed);
+    REQUIRE(root->inline_styles.at("background") == "linear-gradient(90deg, #000000, #ffffff)");
+    REQUIRE(root->inline_styles.at("--fill") == "#00ff00");
+    REQUIRE(root->inline_styles.at("width") == "120");
+    // The authored template is untouched, so it can be written back
+    REQUIRE(root->attributes.at("style-background") == "linear-gradient(90deg, {from}, {to})");
+
+    // A changed key changes the style and asks for a re-resolve
+    ctx.set("to", "#ff0000");
+    auto second = bind.resolve(*root, ctx);
+    REQUIRE(second.layout_changed);
+    REQUIRE(root->inline_styles.at("background") == "linear-gradient(90deg, #000000, #ff0000)");
+
+    // Nothing changed: no relayout requested
+    ctx.set("unrelated", "1");
+    auto third = bind.resolve(*root, ctx);
+    REQUIRE_FALSE(third.layout_changed);
+}

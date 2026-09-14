@@ -51,10 +51,8 @@ std::unordered_map<std::string, StyleOrigin> StyleResolver::explain(const UiNode
             origins[decl.name] = {match.rule, &decl, false};
         }
     }
-    for (const auto& [name, value] : node.attributes) {
-        if (name.find("style-") == 0) {
-            origins[name.substr(6)] = {nullptr, nullptr, true};
-        }
+    for (const auto& [property, value] : node.inline_styles) {
+        origins[property] = {nullptr, nullptr, true};
     }
     return origins;
 }
@@ -95,8 +93,8 @@ void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
             if (decl.name.starts_with("--")) node.style.set_custom_property(decl.name, decl.value);
         }
     }
-    for (const auto& [name, value] : node.attributes) {
-        if (name.starts_with("style---")) node.style.set_custom_property(name.substr(6), value);
+    for (const auto& [property, value] : node.inline_styles) {
+        if (property.starts_with("--")) node.style.set_custom_property(property, value);
     }
 
     auto apply = [&](const std::string& name, const std::string& value) {
@@ -117,12 +115,9 @@ void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
         }
     }
 
-    // Inline style attributes (style-*)
-    for (const auto& [name, value] : node.attributes) {
-        if (name == "id" || name == "class" || name == "style") continue;
-        if (name.find("style-") == 0) {
-            apply(name.substr(6), value);
-        }
+    // Inline styles, from style-* attributes with their templates resolved
+    for (const auto& [property, value] : node.inline_styles) {
+        apply(property, value);
     }
 
     // The root's computed size is what rem means for everything below it.

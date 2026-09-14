@@ -265,7 +265,7 @@ TEST_CASE("Inheritance chains through multiple levels", "[style]") {
 
 TEST_CASE("Inline style-* overrides stylesheet", "[style]") {
     auto root = make_node("div", "", {"panel"});
-    root->attributes["style-width"] = "999";
+    root->inline_styles["width"] = "999";
 
     auto sheet = FjssParser::parse(".panel { width: 100; }");
     StyleResolver resolver;
@@ -275,7 +275,7 @@ TEST_CASE("Inline style-* overrides stylesheet", "[style]") {
 
 TEST_CASE("Inline style-* with no stylesheet", "[style]") {
     auto root = make_node("div");
-    root->attributes["style-opacity"] = "0.3";
+    root->inline_styles["opacity"] = "0.3";
 
     Stylesheet empty;
     StyleResolver resolver;
@@ -503,7 +503,7 @@ TEST_CASE("Full cascade: tag + class + id + pseudo + inheritance + inline", "[st
     auto root = make_node("panel", "hud");
     auto* slot = add_child(*root, make_node("div", "", {"slot"}));
     slot->interaction_state = 1; // hovered
-    slot->attributes["style-border-radius"] = "12";
+    slot->inline_styles["border-radius"] = "12";
 
     auto sheet = FjssParser::parse(R"(
         panel { color: #ffffff; font-size: 14; }
@@ -1240,7 +1240,7 @@ TEST_CASE("explain names the winning rule per property", "[style][explain]") {
 
 TEST_CASE("explain reports inline style attributes over any rule", "[style][explain]") {
     auto root = make_node("div", "", {"a"});
-    root->attributes["style-width"] = "42";
+    root->inline_styles["width"] = "42";
     auto sheet = FjssParser::parse(".a { width: 10; }");
     auto origins = StyleResolver::explain(*root, sheet);
     REQUIRE(origins.at("width").inline_style);
@@ -1331,7 +1331,7 @@ TEST_CASE("Custom properties declared in any order are visible to var()", "[styl
 
 TEST_CASE("An inline style---name attribute sets a custom property on the node", "[style][vars]") {
     auto root = make_node("div", "", {"fill"});
-    root->attributes["style---tint"] = "#00ff00";
+    root->inline_styles["--tint"] = "#00ff00";
     auto sheet = FjssParser::parse(".fill { background-color: var(--tint); }");
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
