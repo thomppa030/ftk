@@ -24,33 +24,58 @@ Stylesheet FjssParser::parse_stylesheet() {
             continue;
         }
 
-        auto rule = parse_rule();
-        if (!rule.properties.empty()) {
-            sheet.rules.push_back(std::move(rule));
+        // Every iteration must consume input. A rule that fails to parse
+        // recovers on its own, but this guard makes the loop's termination
+        // independent of any single recovery path being complete.
+        size_t rule_start = pos_;
+        auto rules = parse_rule();
+        for (auto& rule : rules) {
+            if (!rule.properties.empty()) {
+                sheet.rules.push_back(std::move(rule));
+            }
+        }
+        if (pos_ == rule_start) {
+            FJELL_CORE_WARN("fjss: unexpected '{}', skipping", peek());
+            advance();
         }
     }
     return sheet;
 }
 
-StyleRule FjssParser::parse_rule() {
-    StyleRule rule;
-    rule.selector = parse_selector();
+std::vector<StyleRule> FjssParser::parse_rule() {
+    std::vector<StyleSelector> selectors;
+    while (true) {
+        selectors.push_back(parse_selector());
+        skip_whitespace();
+        if (!at_end() && peek() == ',') {
+            advance(); // ,
+            continue;
+        }
+        break;
+    }
 
     skip_whitespace();
     if (at_end() || peek() != '{') {
         FJELL_CORE_WARN("fjss: expected '{{' after selector");
-        return rule;
+        skip_malformed_rule();
+        return {};
     }
     advance(); // {
 
-    parse_declarations(rule.properties);
+    std::unordered_map<std::string, std::string> properties;
+    parse_declarations(properties);
 
     skip_whitespace();
     if (!at_end() && peek() == '}') {
         advance(); // }
     }
 
-    return rule;
+    std::vector<StyleRule> rules;
+    rules.reserve(selectors.size());
+    for (auto& selector : selectors) {
+        rules.push_back({std::move(selector), properties});
+    }
+    return rules;
 }
 
 StyleSelector FjssParser::parse_selector() {
@@ -183,6 +208,21 @@ void FjssParser::parse_declarations(std::unordered_map<std::string, std::string>
 void FjssParser::skip_whitespace() {
     while (!at_end() && std::isspace(static_cast<unsigned char>(peek()))) {
         advance();
+    }
+}
+
+void FjssParser::skip_malformed_rule() {
+    int depth = 0;
+    while (!at_end()) {
+        char c = advance();
+        if (c == '{') {
+            ++depth;
+        } else if (c == '}') {
+            if (depth <= 1) return;
+            --depth;
+        } else if (c == ';' && depth == 0) {
+            return;
+        }
     }
 }
 

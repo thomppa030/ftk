@@ -394,3 +394,106 @@ TEST_CASE("Real-world stylesheet", "[fjss]") {
     REQUIRE(sheet.rules[2].selector.pseudo == "active");
     REQUIRE(sheet.rules[3].selector.class_ == "active");
 }
+
+// --- Selector groups ---
+
+TEST_CASE("Selector group yields one rule per selector", "[fjss]") {
+    auto sheet = FjssParser::parse(".a, .b { width: 1; }");
+    REQUIRE(sheet.rules.size() == 2);
+    REQUIRE(sheet.rules[0].selector.class_ == "a");
+    REQUIRE(sheet.rules[1].selector.class_ == "b");
+    REQUIRE(sheet.rules[0].properties.at("width") == "1");
+    REQUIRE(sheet.rules[1].properties.at("width") == "1");
+}
+
+TEST_CASE("Selector group with three members and mixed kinds", "[fjss]") {
+    auto sheet = FjssParser::parse("div, #hud, .slot:hover { opacity: 0.5; }");
+    REQUIRE(sheet.rules.size() == 3);
+    REQUIRE(sheet.rules[0].selector.tag == "div");
+    REQUIRE(sheet.rules[1].selector.id == "hud");
+    REQUIRE(sheet.rules[2].selector.class_ == "slot");
+    REQUIRE(sheet.rules[2].selector.pseudo == "hover");
+    for (const auto& rule : sheet.rules) {
+        REQUIRE(rule.properties.at("opacity") == "0.5");
+    }
+}
+
+TEST_CASE("Selector group without spaces around commas", "[fjss]") {
+    auto sheet = FjssParser::parse(".a,.b,.c{width:1}");
+    REQUIRE(sheet.rules.size() == 3);
+    REQUIRE(sheet.rules[2].selector.class_ == "c");
+}
+
+TEST_CASE("Selector group with descendant member", "[fjss]") {
+    auto sheet = FjssParser::parse("panel .label, .title { width: 1; }");
+    REQUIRE(sheet.rules.size() == 2);
+    REQUIRE(sheet.rules[0].selector.parent == "panel");
+    REQUIRE(sheet.rules[0].selector.class_ == "label");
+    REQUIRE(sheet.rules[1].selector.class_ == "title");
+    REQUIRE(sheet.rules[1].selector.parent.empty());
+}
+
+TEST_CASE("Selector group followed by another rule", "[fjss]") {
+    auto sheet = FjssParser::parse(".a, .b { width: 1; } .c { height: 2; }");
+    REQUIRE(sheet.rules.size() == 3);
+    REQUIRE(sheet.rules[2].selector.class_ == "c");
+    REQUIRE(sheet.rules[2].properties.at("height") == "2");
+}
+
+TEST_CASE("Selector group with empty body is dropped entirely", "[fjss]") {
+    auto sheet = FjssParser::parse(".a, .b { } .c { width: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "c");
+}
+
+// --- Termination on malformed input ---
+// None of these have a "right" answer beyond returning. A parser that
+// loops forever on a typo hard-locks the engine mid hot-reload.
+
+TEST_CASE("Selector group at end of input terminates", "[fjss]") {
+    auto sheet = FjssParser::parse(".a, .b");
+    REQUIRE(sheet.rules.empty());
+}
+
+TEST_CASE("Dangling comma terminates", "[fjss]") {
+    auto sheet = FjssParser::parse(".a, { width: 1; }");
+    REQUIRE(sheet.rules.size() <= 2);
+}
+
+TEST_CASE("Only commas terminates", "[fjss]") {
+    auto sheet = FjssParser::parse(",,,");
+    REQUIRE(sheet.rules.empty());
+}
+
+TEST_CASE("Selector without block is skipped and the next rule parses", "[fjss]") {
+    auto sheet = FjssParser::parse("garbage; .a { width: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "a");
+}
+
+TEST_CASE("Stray closing brace is skipped", "[fjss]") {
+    auto sheet = FjssParser::parse("} .a { width: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "a");
+}
+
+TEST_CASE("Nested braces without a selector are skipped as one construct", "[fjss]") {
+    auto sheet = FjssParser::parse("@media (x) { .a { width: 1; } } .b { height: 2; }");
+    REQUIRE(sheet.rules.size() >= 1);
+    REQUIRE(sheet.rules.back().selector.class_ == "b");
+}
+
+TEST_CASE("Every truncated prefix of a real stylesheet terminates", "[fjss]") {
+    const std::string css = R"(
+        /* HUD */
+        #hud, .overlay { flex-direction: column; padding: 16; }
+        .slot { width: 48; height: 48; transition: all 0.15s ease-in-out; }
+        .slot:hover, .slot:active { border-color: #888; }
+        panel .label { color: #ccc; }
+        .fill { background: linear-gradient(90deg, #22aa22, #66dd44); }
+    )";
+    for (size_t len = 0; len <= css.size(); ++len) {
+        (void)FjssParser::parse(css.substr(0, len));
+    }
+    SUCCEED();
+}

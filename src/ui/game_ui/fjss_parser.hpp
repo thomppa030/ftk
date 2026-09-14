@@ -43,12 +43,19 @@ private:
     explicit FjssParser(std::string_view source);
 
     Stylesheet parse_stylesheet();
-    StyleRule parse_rule();
+    /// One declaration block may be shared by several comma-separated
+    /// selectors (`.a, .b { ... }`), so a single source rule can yield
+    /// several StyleRules.
+    std::vector<StyleRule> parse_rule();
     StyleSelector parse_selector();
     void parse_declarations(std::unordered_map<std::string, std::string>& props);
 
     void skip_whitespace();
     void skip_comment();
+    /// Error recovery: consume through the end of the current construct
+    /// (past the next `;` or a balanced `}`) so the parser can carry on
+    /// with the following rule instead of stalling on the bad one.
+    void skip_malformed_rule();
     [[nodiscard]] bool at_end() const;
     [[nodiscard]] char peek() const;
     char advance();
