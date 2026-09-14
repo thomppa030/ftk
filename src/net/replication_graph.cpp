@@ -8,6 +8,7 @@
 #include "scene/scene.hpp"
 #include "scene/node.hpp"
 #include "scene/component_registry.hpp"
+#include "physics/physics_types.hpp"
 #include "scripting/script_manager.hpp"
 
 #include <algorithm>
@@ -358,6 +359,11 @@ void ReplicationGraph::apply_state_update(Scene& scene, ScriptManager& scripts,
                 // the server (each client's player), so motion looks identical in
                 // every window. interpolate_remotes drives the actual transform.
                 prediction.push_sample(net_id, position, rotation);
+                // The peer that owns this character simulates it; here it only
+                // has to be where the snapshots say, with its capsule along.
+                if (auto* character = node->components.get<CharacterComponent>()) {
+                    character->simulate = false;
+                }
             }
         }
 

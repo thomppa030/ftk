@@ -70,6 +70,11 @@ struct CharacterComponent : NodeComponent {
     float step_up{0.4f};
     float step_down{0.5f};
 
+    // Off, physics leaves the node where something else put it and only keeps
+    // the capsule there so rays and bodies still find the character. That is
+    // what a networked character driven by another peer needs. Runtime only.
+    bool simulate{true};
+
     // The velocity to move with, written by gameplay before the step, and the
     // velocity the solver ended up with, written back after it. Horizontal
     // components persist until rewritten; vertical is gravity's unless a

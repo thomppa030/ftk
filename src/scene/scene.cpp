@@ -423,6 +423,34 @@ void Scene::compute_world_matrices(ThreadPool* pool) {
     }
 }
 
+glm::mat4 Scene::current_world_matrix(const Node3D& node) const {
+    glm::mat4 world = node.transform.matrix();
+    int32_t parent_id = node.parent_id;
+    while (parent_id >= 0) {
+        const auto* parent = find(static_cast<uint32_t>(parent_id));
+        if (parent == nullptr) break;
+        if (const auto* spatial = parent->as_spatial()) {
+            world = spatial->transform.matrix() * world;
+        }
+        parent_id = parent->parent_id;
+    }
+    return world;
+}
+
+void Scene::set_world_position(Node3D& node, const glm::vec3& world_position) const {
+    glm::mat4 parent_world{1.0f};
+    int32_t parent_id = node.parent_id;
+    while (parent_id >= 0) {
+        const auto* parent = find(static_cast<uint32_t>(parent_id));
+        if (parent == nullptr) break;
+        if (const auto* spatial = parent->as_spatial()) {
+            parent_world = spatial->transform.matrix() * parent_world;
+        }
+        parent_id = parent->parent_id;
+    }
+    node.transform.position = glm::vec3{glm::inverse(parent_world) * glm::vec4{world_position, 1.0f}};
+}
+
 void Scene::reparent(uint32_t child_id, int32_t new_parent_id) {
     auto* child = find(child_id);
     if (!child) return;

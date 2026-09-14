@@ -201,7 +201,7 @@ void PlayController::flush_spawned() {
         // later means the object falls through whatever it spawned on.
         if (auto* physics = s_.physics->world()) {
             for (uint32_t id : spawned) {
-                if (auto* node = s_.scene->find(id)) physics->create_body(*node);
+                if (auto* node = s_.scene->find(id)) physics->create_body(*s_.scene, *node);
             }
         }
         // Give freshly-spawned nodes their script lifecycle (instantiate +

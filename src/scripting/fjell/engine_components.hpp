@@ -192,6 +192,12 @@ struct CharacterComponent {
     /// following it and goes airborne. Keeps it on the floor down stairs.
     float step_down{0.5f};
 
+    /// Whether physics moves this character. Off, the node stays where
+    /// gameplay or the network puts it and the capsule follows it, so it is
+    /// still hit by rays and bodies. The net layer turns this off for
+    /// characters driven by another peer.
+    bool simulate{true};
+
     /// The velocity to move with, in world units per second. Write it before
     /// the physics step; the solver writes back what it actually did.
     /// Horizontal components persist until rewritten, so set them every tick,

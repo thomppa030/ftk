@@ -355,6 +355,10 @@ private:
 struct CharacterEntry {
     JPH::Ref<JPH::CharacterVirtual> character;
     uint32_t object_id;
+    // World position last agreed between the node and the character. The node
+    // sitting anywhere else at the next step means something outside physics
+    // moved it — a teleport, a parent, the network — and the character follows.
+    glm::vec3 synced_position{0.0f};
 };
 
 
@@ -695,7 +699,19 @@ void PhysicsWorld::create_bone_bodies(Node& node, const Skeleton& skeleton) {
 // play-start loop so a node spawned mid-play gets the same treatment as one
 // that was there from the beginning — the alternative is objects that look
 // solid and fall through the world.
-void PhysicsWorld::create_body(Node& node) {
+// A node's world placement from its current local transforms, split into
+// what a body needs. Scale is dropped from the rotation; shapes bake it.
+static void world_placement(const Scene& scene, const Node3D& node,
+                            glm::vec3& out_position, glm::quat& out_rotation) {
+    glm::mat4 world = scene.current_world_matrix(node);
+    out_position = glm::vec3{world[3]};
+    glm::mat3 basis{glm::normalize(glm::vec3{world[0]}),
+                    glm::normalize(glm::vec3{world[1]}),
+                    glm::normalize(glm::vec3{world[2]})};
+    out_rotation = glm::quat_cast(basis);
+}
+
+void PhysicsWorld::create_body(Scene& scene, Node& node) {
     auto& bi = impl_->physics_system->GetBodyInterface();
 
     // A node that already has one is being rebuilt rather than added.
@@ -731,14 +747,18 @@ void PhysicsWorld::create_body(Node& node) {
         settings.mInnerBodyShape = new JPH::CapsuleShape(half_h, r);
         settings.mInnerBodyLayer = layers::MOVING;
 
+        glm::vec3 world_position;
+        glm::quat world_rotation;
+        world_placement(scene, *spatial, world_position, world_rotation);
+
         auto character = new JPH::CharacterVirtual(
             &settings,
-            to_jolt(spatial->transform.position),
-            to_jolt_quat(spatial->transform.rotation),
+            to_jolt(world_position),
+            to_jolt_quat(world_rotation),
             0, // user data
             impl_->physics_system.get());
 
-        impl_->characters.push_back({character, node.id});
+        impl_->characters.push_back({character, node.id, world_position});
 
         // Register inner body for contact resolution
         auto inner_id = character->GetInnerBodyID();
@@ -941,7 +961,7 @@ void PhysicsWorld::create_body(Node& node) {
 
 void PhysicsWorld::create_bodies(Scene& scene) {
     for (auto& obj : scene.objects()) {
-        create_body(*obj);
+        create_body(scene, *obj);
     }
 
     FJELL_CORE_INFO("Physics: created {} bodies, {} characters",
@@ -974,7 +994,7 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         // a rescaled object should keep moving, not stop dead.
         auto velocity = get_linear_velocity(obj->id);
         auto angular = get_angular_velocity(obj->id);
-        create_body(*obj);
+        create_body(scene, *obj);
         set_linear_velocity(obj->id, velocity);
         set_angular_velocity(obj->id, angular);
     }
@@ -1034,6 +1054,21 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         auto* cc = node->components.get<CharacterComponent>();
         if (!cc) continue;
 
+        // The node is the authority on where the character is between steps.
+        // Rotation always follows it; position only when it was moved from
+        // outside, so the solver's own sub-step placement is not overwritten
+        // by the rounded copy written back last step.
+        glm::vec3 world_position;
+        glm::quat world_rotation;
+        world_placement(scene, *node, world_position, world_rotation);
+        entry.character->SetRotation(to_jolt_quat(world_rotation));
+        if (glm::distance(world_position, entry.synced_position) > 1e-4f) {
+            entry.character->SetPosition(to_jolt(world_position));
+            entry.synced_position = world_position;
+        }
+
+        if (!cc->simulate) continue;
+
         glm::vec3 vel = cc->velocity;
         if (cc->ground_state == CharacterGroundState::OnGround) {
             // Standing on something: vertical velocity is at least whatever the
@@ -1091,8 +1126,11 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         if (!node) continue;
         auto* cc = node->components.get<CharacterComponent>();
         if (!cc) continue;
+        if (!cc->simulate) continue;
 
-        node->transform.position = to_glm(entry.character->GetPosition());
+        glm::vec3 world_position = to_glm(entry.character->GetPosition());
+        scene.set_world_position(*node, world_position);
+        entry.synced_position = world_position;
 
         cc->velocity = to_glm(entry.character->GetLinearVelocity());
         cc->ground_velocity = to_glm(entry.character->GetGroundVelocity());

@@ -37,6 +37,7 @@ static const bool registered = [] {
             static const char* ground_labels[] = {"On Ground", "On Steep Ground", "Not Supported", "In Air"};
             ImGui::TextDisabled("Ground: %s", ground_labels[static_cast<int>(cc->ground_state)]);
             ImGui::TextDisabled("Velocity: %.2f %.2f %.2f", cc->velocity.x, cc->velocity.y, cc->velocity.z);
+            if (!cc->simulate) ImGui::TextDisabled("Not simulated: driven from outside physics");
             return changed;
         },
 

@@ -220,3 +220,36 @@ TEST_CASE("A position written to the node from outside is honored", "[character]
     w.step(1);
     REQUIRE(w.node(id).transform.position.x == Approx(3.0f).margin(0.05f));
 }
+
+TEST_CASE("A parent moved by gameplay carries its character along", "[character]") {
+    CharacterWorld w;
+    w.add_floor();
+    Transform parent_t;
+    auto parent = w.scene.add_empty(parent_t, "parent");
+    auto id = w.add_character({0.0f, 2.0f, 0.0f}, static_cast<int32_t>(parent));
+    w.start();
+    REQUIRE(w.settle(id));
+
+    w.node(parent).transform.position.x = 2.0f;
+    w.step(1);
+    REQUIRE(w.world_position(id).x == Approx(2.0f).margin(0.05f));
+    REQUIRE(w.character(id).ground_state == CharacterGroundState::OnGround);
+}
+
+TEST_CASE("A character that is not simulated stays put and is still hit by rays", "[character]") {
+    CharacterWorld w;
+    w.add_floor();
+    auto id = w.add_character({0.0f, 2.0f, 0.0f});
+    w.start();
+    w.character(id).simulate = false;
+
+    // Something else — the network, say — decides where it is.
+    w.node(id).transform.position = {3.0f, 0.5f, 0.0f};
+    w.step(60);
+    REQUIRE(w.node(id).transform.position.y == Approx(0.5f).margin(1e-4f));
+
+    RaycastHit hit;
+    bool found = w.physics.raycast({3.0f, 1.5f, -5.0f}, {0.0f, 0.0f, 1.0f}, 10.0f, hit);
+    REQUIRE(found);
+    REQUIRE(hit.object_id == id);
+}

@@ -28,8 +28,9 @@ public:
     void create_bodies(Scene& scene);
 
     /// Creates the body for one node, replacing any it already has. Safe to
-    /// call on a node that should not have one — it simply makes none.
-    void create_body(Node& node);
+    /// call on a node that should not have one — it simply makes none. The
+    /// scene is needed because a node's placement depends on its parents.
+    void create_body(Scene& scene, Node& node);
 
     /// Destroys a node's body. A no-op when it has none.
     void destroy_body(uint32_t object_id);

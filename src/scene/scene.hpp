@@ -39,6 +39,17 @@ public:
     void compute_world_matrices(class ThreadPool* pool = nullptr);
     void reparent(uint32_t child_id, int32_t new_parent_id);
 
+    /// The node's world matrix from its and its ancestors' current local
+    /// transforms. `world_matrix_` is what the last compute_world_matrices()
+    /// pass produced and is one frame stale for anything moved since; this is
+    /// for the few systems that place a node mid-frame and need its parent's
+    /// position as of now.
+    [[nodiscard]] glm::mat4 current_world_matrix(const Node3D& node) const;
+
+    /// Sets the node's local position so that it sits at `world_position`
+    /// under its current parent chain.
+    void set_world_position(Node3D& node, const glm::vec3& world_position) const;
+
     [[nodiscard]] Node* find(uint32_t id);
     [[nodiscard]] const Node* find(uint32_t id) const;
     [[nodiscard]] Node3D* find_spatial(uint32_t id) {
