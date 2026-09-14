@@ -1574,6 +1574,9 @@ void Engine::handle_play_shortcuts() {
     if (io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
         play_controller_.stop();
     }
+    if (ImGui::IsKeyPressed(ImGuiKey_F11)) {
+        play_controller_.toggle_presentation();
+    }
 }
 
 void Engine::set_scene_override(const std::string& scene_name) {
@@ -1727,7 +1730,8 @@ void Engine::run() {
 
         imgui_layer_->begin_frame();
         handle_play_shortcuts();
-        if (play_controller_.playing()) {
+        if (play_controller_.playing() &&
+            play_controller_.presentation() == PlayPresentation::fullscreen) {
             active_context().draw_play_overlay();
         } else {
             draw_ui();

@@ -68,6 +68,9 @@ std::optional<Project> Project::open(const std::filesystem::path& root) {
             config.network.tick_rate   = n.value("tick_rate", 30U);
             config.network.port        = static_cast<uint16_t>(n.value("port", 7777U));
         }
+        if (j.contains("play")) {
+            config.play.fullscreen = j["play"].value("fullscreen", false);
+        }
 
         FJELL_CORE_INFO("Project opened: {} ({})", config.name, root.string());
         auto project = Project(root, config);
@@ -155,6 +158,10 @@ void Project::save() const {
         {"max_players", config_.network.max_players},
         {"tick_rate", config_.network.tick_rate},
         {"port", config_.network.port},
+    };
+
+    j["play"] = {
+        {"fullscreen", config_.play.fullscreen},
     };
 
     std::ofstream file(path);

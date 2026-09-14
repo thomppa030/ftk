@@ -31,6 +31,7 @@ class VulkanContext;
 class Window;
 
 enum class PlayState : uint8_t { stopped, playing };
+enum class PlayPresentation : uint8_t { docked, fullscreen };
 
 /// Everything a play session needs to start, run and stop. Engine owns all
 /// of these and fills the struct once; the controller only borrows them.
@@ -94,6 +95,15 @@ public:
 
     void set_time_scale(float scale);
     [[nodiscard]] float time_scale() const;
+
+    /// Docked (default) draws the scene inside the editor's viewport panel,
+    /// with every other panel still live around it. Fullscreen takes over the
+    /// whole window, the same view game mode and `--play` already use.
+    /// Game mode ignores this — it is always fullscreen, there being no
+    /// editor to dock into. Persisted per project (ProjectConfig::PlayConfig)
+    /// so the choice survives a restart.
+    [[nodiscard]] PlayPresentation presentation() const;
+    void toggle_presentation();
 
     /// Called once per frame from Engine::run, before the play phases tick.
     /// Turns a pending step() into exactly one unpaused frame.

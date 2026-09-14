@@ -110,6 +110,24 @@ float PlayController::time_scale() const {
     return s_.clock->time_scale();
 }
 
+PlayPresentation PlayController::presentation() const {
+    // Game mode has no editor to dock into — it's always fullscreen,
+    // regardless of what the project happens to have saved.
+    if (game_mode_) return PlayPresentation::fullscreen;
+    auto* project = s_.project_mgr->active();
+    if (!project) return PlayPresentation::docked;
+    return project->config().play.fullscreen
+        ? PlayPresentation::fullscreen : PlayPresentation::docked;
+}
+
+void PlayController::toggle_presentation() {
+    if (game_mode_) return;
+    auto* project = s_.project_mgr->active();
+    if (!project) return;
+    project->config().play.fullscreen = !project->config().play.fullscreen;
+    project->save();
+}
+
 void PlayController::begin_frame() {
     if (!stepping_) return;
     stepping_ = false;

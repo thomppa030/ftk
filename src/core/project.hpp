@@ -38,6 +38,13 @@ struct ProjectConfig {
         uint32_t tick_rate{30};  // state-update send rate, Hz
         uint16_t port{7777};
     } network;
+
+    struct PlayConfig {
+        // Whether F11 (during play) leaves the docked viewport for a
+        // fullscreen play view. Persisted per project so the preference
+        // survives a restart the same way the dockspace layout choice does.
+        bool fullscreen{false};
+    } play;
 };
 
 class Project {
