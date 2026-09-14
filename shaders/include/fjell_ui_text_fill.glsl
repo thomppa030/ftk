@@ -1,6 +1,8 @@
 #ifndef FJELL_UI_TEXT_FILL_GLSL
 #define FJELL_UI_TEXT_FILL_GLSL
 
+#include "fjell_color_space.glsl"
+
 // Shared MSDF text fill logic for ui_text.frag and ui_text_world.frag — one
 // copy for the same reason fjell_ui_quad_fill.glsl exists (see its own note).
 //
@@ -47,7 +49,8 @@ vec4 fjell_ui_text_fill(vec2 atlas_uv, vec2 screen_pos, uint glyph_index) {
 
     if (alpha < 0.005) discard;
 
-    return vec4(g.color.rgb, g.color.a * alpha * opacity);
+    // The glyph colour is the stylesheet's sRGB value; the target is linear.
+    return vec4(srgb_to_linear(g.color.rgb), g.color.a * alpha * opacity);
 }
 
 #endif // FJELL_UI_TEXT_FILL_GLSL

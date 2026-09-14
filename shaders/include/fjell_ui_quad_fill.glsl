@@ -11,6 +11,13 @@
 //   set 1 binding 2: CustomParamBuffer { float custom_params[]; }
 //   a GlobalUbo `ubo` (for ubo.time, the caustic animation clock)
 // and must have included fjell_ui_common.glsl (UiQuad, quads[]) already.
+//
+// Every colour on a UiQuad is the stylesheet's sRGB value. A gradient is
+// interpolated in that space, the way a stylesheet author expects, and the
+// result is decoded to linear light before it meets a texture sample or the
+// linear target. Coverage (border and edge anti-aliasing) blends linear.
+
+#include "fjell_color_space.glsl"
 
 float fjell_ui_sdf_rounded_rect(vec2 p, vec2 half_size, vec4 radii) {
     float r;
@@ -53,7 +60,7 @@ vec4 fjell_ui_quad_fill(vec2 frag_uv, uint frag_quad_index) {
         float blur = max(q.shadow_params.x, 0.001);
         // Gaussian approximation: use smoothstep over blur radius
         float shadow_alpha = 1.0 - smoothstep(-blur, blur * 0.5, dist);
-        vec4 shadow_color = vec4(q.color.rgb, q.color.a * shadow_alpha * opacity);
+        vec4 shadow_color = vec4(srgb_to_linear(q.color.rgb), q.color.a * shadow_alpha * opacity);
         if (shadow_color.a < 0.001) discard;
         return shadow_color;
     }
@@ -70,7 +77,7 @@ vec4 fjell_ui_quad_fill(vec2 frag_uv, uint frag_quad_index) {
                                        mat.base_params[2], mat.base_params[3]);
         // If base_color_factor is zero (unset), treat as white
         if (base_color_factor == vec4(0.0)) base_color_factor = vec4(1.0);
-        fill_color = q.color * tex_sample * base_color_factor;
+        fill_color = srgb_to_linear(q.color) * tex_sample * base_color_factor;
 
         // Animated caustic overlay from custom params.
         // param[0] = caustic_speed, param[1] = caustic_intensity, param[2] = caustic_scale
@@ -112,16 +119,16 @@ vec4 fjell_ui_quad_fill(vec2 frag_uv, uint frag_quad_index) {
     } else if (flags > 2.5) {
         // Raw texture mode (flags == 3): sample bindless texture, multiply with fill color
         vec4 tex_sample = texture(textures[nonuniformEXT(q.texture_id)], frag_uv);
-        fill_color = q.color * tex_sample;
+        fill_color = srgb_to_linear(q.color) * tex_sample;
     } else if (flags > 0.5) {
         // Gradient mode: interpolate between color (from) and gradient_to (to)
         float angle_rad = radians(gradient_angle);
         vec2 dir = vec2(sin(angle_rad), cos(angle_rad));
         float t = dot(frag_uv - 0.5, dir) + 0.5;
         t = clamp(t, 0.0, 1.0);
-        fill_color = mix(q.color, q.gradient_to, t);
+        fill_color = srgb_to_linear(mix(q.color, q.gradient_to, t));
     } else {
-        fill_color = q.color;
+        fill_color = srgb_to_linear(q.color);
     }
 
     // Border
@@ -130,7 +137,7 @@ vec4 fjell_ui_quad_fill(vec2 frag_uv, uint frag_quad_index) {
         float inner_dist = fjell_ui_sdf_rounded_rect(local_pos, inner_half,
                                              max(q.corners - border_width, vec4(0.0)));
         float inner_alpha = 1.0 - smoothstep(-aa, aa, inner_dist);
-        fill_color = mix(q.border_color, fill_color, inner_alpha);
+        fill_color = mix(srgb_to_linear(q.border_color), fill_color, inner_alpha);
     }
 
     fill_color.a *= outer_alpha * opacity;
