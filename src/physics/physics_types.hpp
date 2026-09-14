@@ -70,6 +70,11 @@ struct CharacterComponent : NodeComponent {
     float step_up{0.4f};
     float step_down{0.5f};
 
+    // What the character is to collision and what it collides with. The
+    // capsule and the sweep that moves it both honour this, so a collider
+    // that ignores pawns is walked straight through.
+    CollisionFilter filter{default_filter_for(CollisionChannel::pawn)};
+
     // Off, physics leaves the node where something else put it and only keeps
     // the capsule there so rays and bodies still find the character. That is
     // what a networked character driven by another peer needs. Runtime only.

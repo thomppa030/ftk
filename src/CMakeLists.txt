@@ -205,6 +205,7 @@ add_executable(fjell
     physics/character_component_meta.cpp
     physics/physics_types.cpp
     physics/collision_channel.cpp
+    physics/collision_filter_ui.cpp
     physics/collision_build.cpp
     physics/collision_shape.cpp
     physics/physics_world.cpp

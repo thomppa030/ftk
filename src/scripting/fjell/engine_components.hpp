@@ -192,6 +192,10 @@ struct CharacterComponent {
     /// following it and goes airborne. Keeps it on the floor down stairs.
     float step_down{0.5f};
 
+    /// Channel membership and what this character blocks or overlaps. New
+    /// characters are on the Pawn channel.
+    CollisionFilter filter{};
+
     /// Whether physics moves this character. Off, the node stays where
     /// gameplay or the network puts it and the capsule follows it, so it is
     /// still hit by rays and bodies. The net layer turns this off for

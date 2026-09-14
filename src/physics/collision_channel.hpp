@@ -7,6 +7,7 @@
 // something that is purely gameplay semantics.
 
 #include <cstdint>
+#include <string_view>
 
 namespace fjell {
 
@@ -25,6 +26,12 @@ enum class CollisionChannel : uint8_t {
 static constexpr uint32_t COLLISION_CHANNEL_COUNT = 5;
 
 [[nodiscard]] const char* collision_channel_name(CollisionChannel channel);
+
+// The inverse of collision_channel_name, for data that stores channels by
+// name so that adding or reordering channels cannot silently repoint it.
+// False when the name is unknown, leaving `out` at whatever default the
+// caller put there — which is why the result may be ignored.
+bool collision_channel_from_name(std::string_view name, CollisionChannel& out);
 
 // How a collider reacts to another channel. Two masks express the whole table:
 // Block is "in block_mask", Overlap is "in overlap_mask", Ignore is neither.

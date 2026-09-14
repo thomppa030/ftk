@@ -253,3 +253,48 @@ TEST_CASE("A character that is not simulated stays put and is still hit by rays"
     REQUIRE(found);
     REQUIRE(hit.object_id == id);
 }
+
+TEST_CASE("A wall blocks a character unless its filter ignores pawns", "[character]") {
+    auto walk_at_wall = [](bool wall_ignores_pawns) {
+        CharacterWorld w;
+        w.add_floor();
+        auto wall = w.add_box({3.0f, 1.0f, 0.0f}, {0.25f, 1.0f, 5.0f});
+        if (wall_ignores_pawns) {
+            auto& filter = w.node(wall).components.get<ColliderComponent>()->filter;
+            filter.set_response(CollisionChannel::pawn, CollisionResponse::ignore);
+        }
+        auto id = w.add_character({0.0f, 2.0f, 0.0f});
+        w.start();
+        REQUIRE(w.settle(id));
+
+        for (int i = 0; i < 180; ++i) {
+            w.character(id).velocity.x = 2.0f;
+            w.character(id).velocity.z = 0.0f;
+            w.step(1);
+        }
+        return w.node(id).transform.position.x;
+    };
+
+    // Stopped at the wall's near face, capsule radius away from it.
+    REQUIRE(walk_at_wall(false) == Approx(3.0f - 0.25f - RADIUS).margin(0.1f));
+    // Six metres at two metres per second: straight through.
+    REQUIRE(walk_at_wall(true) == Approx(6.0f).margin(0.1f));
+}
+
+TEST_CASE("A character's own filter can ignore a channel", "[character]") {
+    CharacterWorld w;
+    w.add_floor();
+    auto wall = w.add_box({3.0f, 1.0f, 0.0f}, {0.25f, 1.0f, 5.0f});
+    w.node(wall).components.get<ColliderComponent>()->filter.channel = CollisionChannel::world_dynamic;
+    auto id = w.add_character({0.0f, 2.0f, 0.0f});
+    w.character(id).filter.set_response(CollisionChannel::world_dynamic, CollisionResponse::ignore);
+    w.start();
+    REQUIRE(w.settle(id));
+
+    for (int i = 0; i < 180; ++i) {
+        w.character(id).velocity.x = 2.0f;
+        w.character(id).velocity.z = 0.0f;
+        w.step(1);
+    }
+    REQUIRE(w.node(id).transform.position.x == Approx(6.0f).margin(0.1f));
+}

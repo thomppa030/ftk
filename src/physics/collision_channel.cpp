@@ -13,6 +13,17 @@ const char* collision_channel_name(CollisionChannel channel) {
     return "Unknown";
 }
 
+bool collision_channel_from_name(std::string_view name, CollisionChannel& out) {
+    for (uint32_t i = 0; i < COLLISION_CHANNEL_COUNT; ++i) {
+        auto candidate = static_cast<CollisionChannel>(i);
+        if (name == collision_channel_name(candidate)) {
+            out = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
 void CollisionFilter::set_response(CollisionChannel other, CollisionResponse response) {
     const uint32_t bit = 1U << static_cast<uint32_t>(other);
     block_mask &= ~bit;

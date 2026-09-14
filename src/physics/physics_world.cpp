@@ -96,8 +96,7 @@ static constexpr JPH::uint NUM_LAYERS = 3;
 class FilterTable {
 public:
     // Layers 0-2 keep their meaning for bodies with no filter of their own
-    // (terrain, character inner bodies), so the broadphase mapping below stays
-    // valid for them.
+    // (terrain), so the broadphase mapping below stays valid for them.
     // Whether a body moves is a property of the body, not of its channel: a
     // dynamic prop and the level geometry it lands on can share a channel and
     // still need different broadphase treatment. Layers key on both so the
@@ -355,6 +354,9 @@ private:
 struct CharacterEntry {
     JPH::Ref<JPH::CharacterVirtual> character;
     uint32_t object_id;
+    // The layer the character's filter maps to; both its capsule and the
+    // sweep that moves it collide as this.
+    JPH::ObjectLayer layer;
     // World position last agreed between the node and the character. The node
     // sitting anywhere else at the next step means something outside physics
     // moved it — a teleport, a parent, the network — and the character follows.
@@ -744,8 +746,9 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
         // Mesh colliders have internal edges between their triangles; without
         // this the capsule catches on them while crossing a flat floor.
         settings.mEnhancedInternalEdgeRemoval = true;
+        JPH::ObjectLayer layer = impl_->filter_table.layer_for(char_comp->filter, true);
         settings.mInnerBodyShape = new JPH::CapsuleShape(half_h, r);
-        settings.mInnerBodyLayer = layers::MOVING;
+        settings.mInnerBodyLayer = layer;
 
         glm::vec3 world_position;
         glm::quat world_rotation;
@@ -758,7 +761,7 @@ void PhysicsWorld::create_body(Scene& scene, Node& node) {
             0, // user data
             impl_->physics_system.get());
 
-        impl_->characters.push_back({character, node.id, world_position});
+        impl_->characters.push_back({character, node.id, layer, world_position});
 
         // Register inner body for contact resolution
         auto inner_id = character->GetInnerBodyID();
@@ -1090,8 +1093,8 @@ void PhysicsWorld::step(float dt, Scene& scene) {
         update_settings.mWalkStairsStepUp = JPH::Vec3(0.0f, std::max(cc->step_up, 0.0f), 0.0f);
         update_settings.mStickToFloorStepDown = JPH::Vec3(0.0f, -std::max(cc->step_down, 0.0f), 0.0f);
         entry.character->ExtendedUpdate(dt, gravity, update_settings,
-            impl_->physics_system->GetDefaultBroadPhaseLayerFilter(layers::MOVING),
-            impl_->physics_system->GetDefaultLayerFilter(layers::MOVING),
+            impl_->physics_system->GetDefaultBroadPhaseLayerFilter(entry.layer),
+            impl_->physics_system->GetDefaultLayerFilter(entry.layer),
             {},
             {},
             *impl_->temp_allocator);

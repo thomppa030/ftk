@@ -1,5 +1,6 @@
 #include "scene/component_registry.hpp"
 #include "physics/physics_types.hpp"
+#include "physics/collision_filter_ui.hpp"
 #include "scene/node.hpp"
 
 #include <imgui.h>
@@ -34,6 +35,8 @@ static const bool registered = [] {
             if (ImGui::DragFloat("##CharStepUp", &cc->step_up, 0.01f, 0.0f, 5.0f)) changed = true;
             ImGui::Text("Step Down"); ImGui::SetNextItemWidth(-1);
             if (ImGui::DragFloat("##CharStepDown", &cc->step_down, 0.01f, 0.0f, 5.0f)) changed = true;
+            if (draw_collision_filter(cc->filter)) changed = true;
+            ImGui::SeparatorText("State");
             static const char* ground_labels[] = {"On Ground", "On Steep Ground", "Not Supported", "In Air"};
             ImGui::TextDisabled("Ground: %s", ground_labels[static_cast<int>(cc->ground_state)]);
             ImGui::TextDisabled("Velocity: %.2f %.2f %.2f", cc->velocity.x, cc->velocity.y, cc->velocity.z);
@@ -56,6 +59,9 @@ static const bool registered = [] {
             out["shape_offset"] = {cc->shape_offset.x, cc->shape_offset.y, cc->shape_offset.z};
             out["step_up"] = cc->step_up;
             out["step_down"] = cc->step_down;
+            out["channel"] = collision_channel_name(cc->filter.channel);
+            out["block_mask"] = cc->filter.block_mask;
+            out["overlap_mask"] = cc->filter.overlap_mask;
         },
 
         .deserialize = [](Node& node, const nlohmann::json& j, ResourceManager& /*res*/, const Project* /*proj*/) {
@@ -71,6 +77,13 @@ static const bool registered = [] {
             }
             cc.step_up = j.value("step_up", 0.4f);
             cc.step_down = j.value("step_down", 0.5f);
+            // Stored by name, like a collider's. A character saved before it
+            // had a filter keeps the pawn defaults.
+            cc.filter.channel = CollisionChannel::pawn;
+            collision_channel_from_name(j.value("channel", std::string{}), cc.filter.channel);
+            auto defaults = default_filter_for(cc.filter.channel);
+            cc.filter.block_mask = j.value("block_mask", defaults.block_mask);
+            cc.filter.overlap_mask = j.value("overlap_mask", defaults.overlap_mask);
         },
 
         .script_type_name = "CharacterComponent",
