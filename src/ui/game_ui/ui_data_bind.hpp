@@ -24,6 +24,11 @@ public:
     /// Resolve all bindings in the tree.
     DataBindResult resolve(UiNode& root, UiContext& context);
 
+    /// The tree was replaced: whatever was resolved belonged to the old one.
+    /// The next resolve() runs in full even if the context has not changed,
+    /// so a freshly loaded tree gets its props and placeholders filled in.
+    void forget_tree();
+
     /// Resolve {key} placeholders in a template string against a context.
     static std::string resolve_template(const std::string& tmpl, const UiContext& context);
 

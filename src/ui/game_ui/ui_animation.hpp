@@ -27,6 +27,10 @@ public:
     /// Returns true if any transitions are active (need re-render).
     bool update(UiNode& root, float dt);
 
+    /// The tree was replaced: per-node state is keyed by node address, and
+    /// a new tree may reuse the old addresses for unrelated nodes.
+    void forget_tree();
+
 private:
     struct ActiveTransition {
         std::string property;

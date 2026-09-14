@@ -986,3 +986,28 @@ TEST_CASE("foreach honours if directives inside the template", "[databind]") {
     REQUIRE(root->children[1]->children[0]->hidden_by_if == false);
     REQUIRE(root->children[2]->children[0]->hidden_by_if == true);
 }
+
+TEST_CASE("forget_tree makes the next resolve run for an unchanged context", "[bind]") {
+    UiContext ctx;
+    ctx.set("k", "1");
+    UiDataBind bind;
+
+    auto first = std::make_unique<UiNode>();
+    first->type = UiNodeType::text;
+    first->text_template = "{k}";
+    bind.resolve(*first, ctx);
+    REQUIRE(first->text_content == "1");
+
+    // A replacement tree loaded against the same, untouched context: without
+    // being told, the binder would consider it already resolved and leave
+    // the placeholder in place.
+    auto second = std::make_unique<UiNode>();
+    second->type = UiNodeType::text;
+    second->text_template = "{k}";
+    bind.resolve(*second, ctx);
+    REQUIRE(second->text_content.empty());
+
+    bind.forget_tree();
+    bind.resolve(*second, ctx);
+    REQUIRE(second->text_content == "1");
+}

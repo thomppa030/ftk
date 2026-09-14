@@ -26,6 +26,10 @@ public:
     /// Nodes whose interaction state changed this frame (need style re-resolve).
     [[nodiscard]] const std::vector<UiNode*>& dirty_nodes() const { return dirty_nodes_; }
 
+    /// The tree was replaced: the hovered, active and focused nodes no
+    /// longer exist. Drops them without touching the freed memory.
+    void forget_tree();
+
 private:
     UiNode* hit_test(UiNode& node, float x, float y);
     static void dispatch_action(const std::string& expr, UiNode& node, UiContext& context);

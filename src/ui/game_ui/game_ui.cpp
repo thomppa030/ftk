@@ -70,11 +70,13 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     std::ostringstream fjui_ss;
     fjui_ss << fjui_file.rdbuf();
 
-    root_ = FjuiParser::parse(fjui_ss.str());
-    if (!root_) {
+    auto parsed = FjuiParser::parse(fjui_ss.str());
+    if (!parsed) {
         FJELL_CORE_ERROR("GameUi: failed to parse {}", fjui_path);
         return;
     }
+    discard_tree_state();
+    root_ = std::move(parsed);
 
     stylesheet_ = {};
     if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
@@ -105,8 +107,9 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
 
 void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjss_path,
                              const std::string& base_dir, const std::string& markup_path) {
+    if (!root) return;
+    discard_tree_state();
     root_ = std::move(root);
-    if (!root_) return;
 
     stylesheet_ = {};
     if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
@@ -119,10 +122,9 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
     widget_resolver_.resolve(*root_, base_dir, stylesheet_, context_);
     init_text_templates(*root_);
 
-    // Run an initial data_bind pass to sync prop_map values into scoped contexts
-    // before resolve_textures (material attributes may reference {prop} bindings).
-    // Bump generation to ensure the first resolve isn't skipped.
-    context_.set("__init", "1");
+    // Run an initial data_bind pass to sync prop_map values into scoped
+    // contexts before resolve_textures (material attributes may reference
+    // {prop} bindings) and before any controller's begin_play reads them.
     data_bind_.resolve(*root_, context_);
 
     if (resource_manager_) {
@@ -133,6 +135,12 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
     watch_sources(markup_path, fjss_path);
 
     FJELL_CORE_INFO("GameUi: loaded from tree ({} style rules)", stylesheet_.rules.size());
+}
+
+void GameUi::discard_tree_state() {
+    data_bind_.forget_tree();
+    ui_input_.forget_tree();
+    animation_.forget_tree();
 }
 
 void GameUi::watch_sources(const std::string& markup_path, const std::string& fjss_path) {

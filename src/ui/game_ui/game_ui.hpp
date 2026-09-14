@@ -124,6 +124,9 @@ private:
     void resolve_textures(UiNode& node);
     // Debug builds watch every file the loaded tree came from.
     void watch_sources(const std::string& markup_path, const std::string& fjss_path);
+    // Every per-tree subsystem drops what it remembers about the old tree
+    // before root_ is replaced.
+    void discard_tree_state();
 
     std::unique_ptr<UiNode> root_;
     Stylesheet stylesheet_;

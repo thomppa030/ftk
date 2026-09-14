@@ -16,6 +16,11 @@ static std::optional<std::string> extract_single_key(const std::string& s) {
     return s.substr(1, s.size() - 2);
 }
 
+void UiDataBind::forget_tree() {
+    has_resolved_ = false;
+    last_generation_ = 0;
+}
+
 DataBindResult UiDataBind::resolve(UiNode& root, UiContext& context) {
     FJELL_PROFILE_SCOPE_N("ui_data_bind_resolve");
     uint64_t gen = context.generation();

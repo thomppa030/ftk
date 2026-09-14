@@ -109,6 +109,10 @@ static const std::vector<std::string>& animatable_props() {
     return props;
 }
 
+void UiAnimation::forget_tree() {
+    states_.clear();
+}
+
 bool UiAnimation::update(UiNode& root, float dt) {
     FJELL_PROFILE_SCOPE_N("ui_animation_update");
     bool any_active = false;

@@ -8,6 +8,13 @@
 
 namespace fjell {
 
+void UiInput::forget_tree() {
+    hovered_node_ = nullptr;
+    active_node_ = nullptr;
+    focused_node_ = nullptr;
+    dirty_nodes_.clear();
+}
+
 bool UiInput::process(UiNode& root, const Input& input, UiContext& context,
                       float viewport_width, float viewport_height,
                       glm::vec2 viewport_offset) {
