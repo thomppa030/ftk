@@ -16,6 +16,10 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_asset.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_resolver.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_layout.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/thread_pool.cpp
+    ${CMAKE_SOURCE_DIR}/src/scene/scene.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/collision_shape.cpp
+    ${CMAKE_SOURCE_DIR}/src/physics/physics_world.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC
@@ -28,7 +32,19 @@ target_link_libraries(fjell-testable PUBLIC
     glm::glm
     Vulkan::Headers
     yogacore
+    Jolt
 )
+
+# physics_world.cpp reaches the renderer's component and asset headers for
+# mesh, terrain, and skeletal collision. Only the headers are needed here —
+# the test never loads an asset — so their include paths come in as system
+# directories, the way the engine target treats them.
+foreach(dep Jolt GPUOpen::VulkanMemoryAllocator ozz_base ozz_animation)
+    get_target_property(dirs ${dep} INTERFACE_INCLUDE_DIRECTORIES)
+    if(dirs)
+        target_include_directories(fjell-testable SYSTEM PRIVATE ${dirs})
+    endif()
+endforeach()
 
 if(MSVC)
     target_compile_options(fjell-testable PRIVATE /W4 /WX)
@@ -54,6 +70,7 @@ add_executable(fjell-tests
     test_spline.cpp
     test_frame_descriptor_cache.cpp
     test_ddgi_clipmap.cpp
+    test_character_controller.cpp
 )
 
 target_link_libraries(fjell-tests PRIVATE
