@@ -60,6 +60,7 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
         UiInstance inst;
         inst.node_id = obj->id;
         inst.widget_path = widget_resolved;
+        inst.style_classes = wc->style_classes;
         inst.render_mode = wc->render_mode;
         inst.game_ui = std::make_unique<GameUi>();
         if (inst.render_mode == UiWidgetComponent::RenderMode::world_space) {
@@ -77,8 +78,11 @@ void UiSubsystem::on_play_start(const TickContext& ctx) {
 
         apply_widget(inst, *widget_result);
 
-        FJELL_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets)",
-                        wc->widget_path, obj->id, inst.widgets.size());
+        std::string classes;
+        for (const auto& cls : inst.style_classes) classes += " ." + cls;
+        FJELL_CORE_INFO("UiSubsystem: loaded widget '{}' for node {} ({} sub-widgets{}{})",
+                        wc->widget_path, obj->id, inst.widgets.size(),
+                        classes.empty() ? "" : ", classes:", classes);
 
         instances_.push_back(std::move(inst));
     }
@@ -107,6 +111,15 @@ void UiSubsystem::apply_widget(UiInstance& inst, const WidgetAsset& widget_asset
     auto tree_clone = UiDataBind::clone_node(*widget_asset.markup_root, nullptr);
     inst.game_ui->load_from_tree(std::move(tree_clone), fjss_path, widget_dir.string(),
                                  inst.widget_path);
+
+    // Per-instance classes land on the root node, so one placement can pick
+    // a variant the widget's own sheet defines (".compact", ".enemy")
+    // without needing a separate .fjwidget per look.
+    if (auto* root = inst.game_ui->root()) {
+        for (const auto& cls : inst.style_classes) {
+            if (!root->has_class(cls)) root->classes.push_back(cls);
+        }
+    }
 
     // Apply <prop> defaults from the .fjwidget to the root context. Child
     // widgets get this via widget_resolver; the root widget's context is

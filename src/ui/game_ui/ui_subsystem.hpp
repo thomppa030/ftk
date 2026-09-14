@@ -56,6 +56,9 @@ public:
     struct UiInstance {
         uint32_t node_id;
         std::string widget_path; // absolute .fjwidget path the instance is built from
+        // Classes the placing component adds to the root node, applied on
+        // every load so a reload keeps the placement's chosen variant.
+        std::vector<std::string> style_classes;
         std::unique_ptr<GameUi> game_ui;
         std::vector<WidgetInstance> widgets;
         UiWidgetComponent::RenderMode render_mode{UiWidgetComponent::RenderMode::screen_space};

@@ -7,6 +7,9 @@
 #include <imgui.h>
 #include <nlohmann/json.hpp>
 
+#include <cstdio>
+#include <string>
+
 namespace fjell {
 
 static const bool registered = [] {
@@ -23,6 +26,43 @@ static const bool registered = [] {
             int mode = static_cast<int>(wc->render_mode);
             const char* modes[] = {"Screen Space", "World Space"};
             if (ImGui::Combo("Render Mode", &mode, modes, 2)) { wc->render_mode = static_cast<UiWidgetComponent::RenderMode>(mode); changed = true; }
+
+            // Space-separated, the way a class="..." attribute reads. The
+            // buffer is refilled from the component whenever the field is
+            // not being typed into, so undo and external edits show up. The
+            // component is updated on every keystroke rather than on
+            // commit: a value typed right before pressing Play must already
+            // be there when play starts. The raw text, spaces and all, stays
+            // in the buffer for as long as the field is active.
+            static char class_buf[256];
+            static const void* class_buf_owner = nullptr;
+            bool refill = class_buf_owner != ptr || !ImGui::IsAnyItemActive();
+            if (refill) {
+                std::string joined;
+                for (const auto& cls : wc->style_classes) {
+                    if (!joined.empty()) joined += ' ';
+                    joined += cls;
+                }
+                std::snprintf(class_buf, sizeof(class_buf), "%s", joined.c_str());
+                class_buf_owner = ptr;
+            }
+            if (ImGui::InputText("Style Classes", class_buf, sizeof(class_buf))) {
+                wc->style_classes.clear();
+                std::string token;
+                for (const char* c = class_buf;; ++c) {
+                    if (*c == ' ' || *c == '\0') {
+                        if (!token.empty()) wc->style_classes.push_back(token);
+                        token.clear();
+                        if (*c == '\0') break;
+                    } else {
+                        token += *c;
+                    }
+                }
+                changed = true;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Classes added to the widget's root node for this placement");
+            }
             if (wc->render_mode == UiWidgetComponent::RenderMode::world_space) {
                 if (ImGui::DragFloat("Pixels/Unit", &wc->pixels_per_unit, 1.0f, 1.0f, 1000.0f)) changed = true;
                 if (ImGui::Checkbox("Billboard", &wc->billboard)) changed = true;
