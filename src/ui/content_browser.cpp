@@ -1292,7 +1292,8 @@ void ContentBrowser::load_preview_texture() {
     img_info.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
     img_info.mipLevels = 1;
     img_info.arrayLayers = 1;
-    img_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    // Decoded PNG pixels are sRGB, see IconCache for why the format is too.
+    img_info.format = VK_FORMAT_R8G8B8A8_SRGB;
     img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     img_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
@@ -1378,7 +1379,7 @@ void ContentBrowser::load_preview_texture() {
     view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     view_info.image = preview_image_;
     view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
     view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     vk_check(vkCreateImageView(device, &view_info, nullptr, &preview_view_),
              "create preview image view");
