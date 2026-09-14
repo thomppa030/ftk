@@ -1138,3 +1138,15 @@ TEST_CASE("gap accepts a percentage", "[style][units]") {
     REQUIRE(root->style.row_gap == UiLength::percent(5.0f));
     REQUIRE(root->style.column_gap == UiLength::percent(5.0f));
 }
+
+TEST_CASE("Lengths round-trip through to_css and parse_length", "[style][units]") {
+    for (UiLength length : {UiLength::pixels(16.0f), UiLength::pixels(0.5f), UiLength::pixels(-3.0f),
+                            UiLength::percent(50.0f), UiLength::percent(12.5f), UiLength::automatic()}) {
+        INFO(to_css(length));
+        REQUIRE(StyleResolver::parse_length(to_css(length)) == length);
+    }
+    // Pixels are written the way the sheets are authored: a bare number.
+    REQUIRE(to_css(UiLength::pixels(240.0f)) == "240");
+    REQUIRE(to_css(UiLength::percent(50.0f)) == "50%");
+    REQUIRE(to_css(UiLength::automatic()) == "auto");
+}

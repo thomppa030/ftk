@@ -1,8 +1,18 @@
 #include "ui/game_ui/ui_style_properties.hpp"
 
+#include <cstdio>
 #include <type_traits>
 
 namespace fjell {
+
+std::string to_css(UiLength length) {
+    if (length.is_auto()) return "auto";
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(length.value));
+    std::string out = buf;
+    if (length.is_percent()) out += '%';
+    return out;
+}
 
 UiLength& ui_edge(UiEdges& edges, UiEdgeSide side) {
     switch (side) {

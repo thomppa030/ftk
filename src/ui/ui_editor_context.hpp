@@ -84,6 +84,10 @@ private:
                           float max = 0.0f);
     void style_edit_color(UiNode& node, const char* property, const char* label,
                           const UiColor& resolved_value);
+    // A length with its unit: drag the number, right-click to switch
+    // between px, % and auto (where the property accepts it).
+    void style_edit_length(UiNode& node, const char* property, UiLength resolved_value,
+                           float speed, float max);
     // `resolved_index` is the current enum value already cast to int by
     // the caller; `names[resolved_index]` must be the CSS value FjssParser
     // expects to read back (see StyleResolver::apply_property).

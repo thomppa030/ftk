@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace fjell {
 
@@ -36,5 +37,9 @@ struct UiLength {
 
     friend constexpr bool operator==(const UiLength&, const UiLength&) = default;
 };
+
+/// The length as it is written in a stylesheet: `auto`, `50%`, or a bare
+/// number for pixels, which is how the sheets are authored.
+[[nodiscard]] std::string to_css(UiLength length);
 
 } // namespace fjell

@@ -1008,6 +1008,80 @@ void UiEditorContext::style_edit_float(UiNode& node, const char* property, const
     }
 }
 
+void UiEditorContext::style_edit_length(UiNode& node, const char* property,
+                                        UiLength resolved_value, float speed, float max) {
+    const auto* desc = find_ui_style_property(property);
+    if (!desc) return;
+
+    // Same empty-means-unset convention as style_edit_float: the explicit
+    // string is what undo restores to.
+    auto explicit_str = style_prop_string(node, property, {});
+    UiLength source = explicit_str.empty() ? resolved_value
+                                           : StyleResolver::parse_length(explicit_str);
+
+    auto commit = [&](UiLength length) {
+        command_history().execute(std::make_unique<SetStylePropertyCommand>(
+            *preview_ui_, node, property, explicit_str, to_css(length),
+            std::string("Set ") + property));
+    };
+
+    ImGui::PushID(property);
+    if (source.is_auto()) {
+        // No number to drag; the button reads as the value itself and a
+        // click starts a pixel value from whatever layout resolved.
+        if (ImGui::Button("auto", ImVec2(ImGui::CalcItemWidth(), 0.0f))) {
+            commit(UiLength::pixels(0.0f));
+        }
+        ImGui::SameLine();
+        ImGui::TextUnformatted(property);
+    } else {
+        ImGuiID id = ImGui::GetID(property);
+        auto it = active_float_edits_.find(id);
+        bool dragging = it != active_float_edits_.end();
+        float edited = dragging ? it->second : source.value;
+
+        const char* format = source.is_percent() ? "%.1f %%" : "%.1f px";
+        float min = 0.0f;
+        float limit = source.is_percent() ? 100.0f : max;
+        // Insets and margins may be negative; percentages of them too.
+        if (desc->auto_allowed) min = -limit;
+        ImGui::DragFloat(property, &edited, speed, min, limit, format);
+
+        if (ImGui::IsItemActive()) {
+            active_float_edits_[id] = edited;
+        } else if (dragging) {
+            active_float_edits_.erase(it);
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && edited != source.value) {
+            commit({edited, source.unit});
+        }
+    }
+
+    // Unit switch on the item just drawn, whichever it was.
+    if (ImGui::BeginPopupContextItem("unit")) {
+        float value = source.is_auto() ? 0.0f : source.value;
+        if (ImGui::MenuItem("px", nullptr, source.unit == UiUnit::px)) {
+            commit(UiLength::pixels(value));
+        }
+        if (ImGui::MenuItem("%", nullptr, source.is_percent())) {
+            commit(UiLength::percent(value));
+        }
+        if (desc->auto_allowed && ImGui::MenuItem("auto", nullptr, source.is_auto())) {
+            commit(UiLength::automatic());
+        }
+        if (!explicit_str.empty()) {
+            ImGui::Separator();
+            if (ImGui::MenuItem("Unset")) {
+                command_history().execute(std::make_unique<SetStylePropertyCommand>(
+                    *preview_ui_, node, property, explicit_str, std::string{},
+                    std::string("Unset ") + property));
+            }
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopID();
+}
+
 void UiEditorContext::style_edit_color(UiNode& node, const char* property, const char* label,
                                        const UiColor& resolved_value) {
     auto explicit_str = style_prop_string(node, property, {});
@@ -1090,26 +1164,26 @@ void UiEditorContext::draw_style_editor(UiNode& node) {
     }
 
     if (ImGui::TreeNodeEx("Dimensions", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_float(node, "width", "width", s.width.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "height", "height", s.height.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "min-width", "min-width", s.min_width.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "min-height", "min-height", s.min_height.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "max-width", "max-width", s.max_width.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
-        style_edit_float(node, "max-height", "max-height", s.max_height.px_or(-1.0f), 1.0f, -1.0f, 4096.0f);
+        style_edit_length(node, "width", s.width, 1.0f, 4096.0f);
+        style_edit_length(node, "height", s.height, 1.0f, 4096.0f);
+        style_edit_length(node, "min-width", s.min_width, 1.0f, 4096.0f);
+        style_edit_length(node, "min-height", s.min_height, 1.0f, 4096.0f);
+        style_edit_length(node, "max-width", s.max_width, 1.0f, 4096.0f);
+        style_edit_length(node, "max-height", s.max_height, 1.0f, 4096.0f);
         ImGui::TreePop();
     }
 
     if (ImGui::TreeNodeEx("Spacing", ImGuiTreeNodeFlags_DefaultOpen)) {
-        style_edit_float(node, "margin-top", "margin-top", s.margin.top.px_or(0.0f), 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "margin-right", "margin-right", s.margin.right.px_or(0.0f), 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "margin-bottom", "margin-bottom", s.margin.bottom.px_or(0.0f), 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "margin-left", "margin-left", s.margin.left.px_or(0.0f), 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "padding-top", "padding-top", s.padding.top.px_or(0.0f), 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "padding-right", "padding-right", s.padding.right.px_or(0.0f), 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "padding-bottom", "padding-bottom", s.padding.bottom.px_or(0.0f), 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "padding-left", "padding-left", s.padding.left.px_or(0.0f), 1.0f, 0.0f, 512.0f);
-        style_edit_float(node, "row-gap", "row-gap", s.row_gap.px_or(0.0f), 1.0f, 0.0f, 256.0f);
-        style_edit_float(node, "column-gap", "column-gap", s.column_gap.px_or(0.0f), 1.0f, 0.0f, 256.0f);
+        style_edit_length(node, "margin-top", s.margin.top, 1.0f, 512.0f);
+        style_edit_length(node, "margin-right", s.margin.right, 1.0f, 512.0f);
+        style_edit_length(node, "margin-bottom", s.margin.bottom, 1.0f, 512.0f);
+        style_edit_length(node, "margin-left", s.margin.left, 1.0f, 512.0f);
+        style_edit_length(node, "padding-top", s.padding.top, 1.0f, 512.0f);
+        style_edit_length(node, "padding-right", s.padding.right, 1.0f, 512.0f);
+        style_edit_length(node, "padding-bottom", s.padding.bottom, 1.0f, 512.0f);
+        style_edit_length(node, "padding-left", s.padding.left, 1.0f, 512.0f);
+        style_edit_length(node, "row-gap", s.row_gap, 1.0f, 256.0f);
+        style_edit_length(node, "column-gap", s.column_gap, 1.0f, 256.0f);
         ImGui::TreePop();
     }
 
