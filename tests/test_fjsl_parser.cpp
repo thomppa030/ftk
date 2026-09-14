@@ -4,6 +4,12 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/catch_approx.hpp>
 
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+
 using namespace fjell;
 
 static struct LogInit {
@@ -577,4 +583,81 @@ TEST_CASE("Default render state is lit with back-face culling", "[fjsl]") {
     REQUIRE_FALSE(meta.render_state.cull_front);
     REQUIRE_FALSE(meta.render_state.depth_write_disabled);
     REQUIRE(meta.render_state.blend == BlendMode::Alpha);
+}
+
+// --- Every spatial shader compiles through the template ---
+//
+// The engine compiles .fjsl lazily, so a template change is only exercised
+// by whichever materials a scene happens to use. This runs the whole shader
+// library through the same generate + glslc path so nothing waits to break
+// until someone assigns it.
+
+namespace {
+
+std::filesystem::path find_shader_dir() {
+    // Both the source tree and the build tree carry shaders/include/; walk
+    // up from wherever the test runs until one appears.
+    for (auto dir : {std::filesystem::current_path(),
+                     std::filesystem::read_symlink("/proc/self/exe").parent_path()}) {
+        for (int i = 0; i < 6; ++i) {
+            if (std::filesystem::exists(dir / "shaders" / "include" / "fjell_spatial_template.glsl")) {
+                return dir / "shaders";
+            }
+            if (!dir.has_parent_path() || dir.parent_path() == dir) break;
+            dir = dir.parent_path();
+        }
+    }
+    return {};
+}
+
+std::string read_text(const std::filesystem::path& path) {
+    std::ifstream f(path);
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
+
+// Runs a command and returns its exit status plus captured output.
+std::pair<int, std::string> run(const std::string& cmd) {
+    std::string output;
+    FILE* pipe = popen((cmd + " 2>&1").c_str(), "r");
+    if (pipe == nullptr) return {-1, "popen failed"};
+    char buf[512];
+    while (fgets(buf, sizeof(buf), pipe) != nullptr) output += buf;
+    return {pclose(pipe), output};
+}
+
+} // namespace
+
+TEST_CASE("Every spatial .fjsl generates GLSL that glslc accepts", "[fjsl][glslc]") {
+    if (run("glslc --version").first != 0) SKIP("glslc not available");
+
+    auto shader_dir = find_shader_dir();
+    REQUIRE_FALSE(shader_dir.empty());
+    auto tmpl = read_text(shader_dir / "include" / "fjell_spatial_template.glsl");
+    REQUIRE_FALSE(tmpl.empty());
+
+    auto out_dir = std::filesystem::temp_directory_path() / "fjell-fjsl-compile-test";
+    std::filesystem::create_directories(out_dir);
+
+    int checked = 0;
+    for (const auto& entry : std::filesystem::directory_iterator(shader_dir)) {
+        if (entry.path().extension() != ".fjsl") continue;
+        auto name = entry.path().stem().string();
+        INFO("shader: " << name);
+
+        auto meta = parse_fjsl(read_text(entry.path()));
+        if (meta.shader_type != "spatial") continue;  // sky shaders use their own template
+
+        auto frag = out_dir / (name + ".frag");
+        std::ofstream(frag) << generate_fragment_shader(meta, tmpl);
+
+        auto [status, output] = run("glslc --target-env=vulkan1.3 -I "
+                                    + (shader_dir / "include").string() + " "
+                                    + frag.string() + " -o /dev/null");
+        INFO(output);
+        REQUIRE(status == 0);
+        ++checked;
+    }
+    REQUIRE(checked > 0);
 }
