@@ -557,6 +557,7 @@ target_include_directories(fjell-hub SYSTEM PRIVATE
 target_link_libraries(fjell-hub PRIVATE
     fjell-platform
     glfw
+    glm::glm
     GPUOpen::VulkanMemoryAllocator
     nlohmann_json::nlohmann_json
     spdlog::spdlog

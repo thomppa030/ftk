@@ -64,6 +64,7 @@ add_executable(fjell-tests
     test_fjss_parser.cpp
     test_fjsl_parser.cpp
     test_material_gi_params.cpp
+    test_color_space.cpp
     test_style_resolver.cpp
     test_ui_style_properties.cpp
     test_widget_resolver.cpp

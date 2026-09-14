@@ -1,24 +1,19 @@
 #pragma once
 
+#include "core/math/color_space.hpp"
 #include "ui/icons_lc.hpp"
 
 #include <imgui.h>
 
-#include <cmath>
 #include <filesystem>
 #include <string>
 
 namespace fjell::theme {
 
-// sRGB → linear conversion for Vulkan sRGB framebuffer.
-// Style colors are specified as sRGB values; the sRGB framebuffer
-// applies gamma encoding, so we pass linear values.
-inline float srgb_to_linear(float s) {
-    return s <= 0.04045f ? s / 12.92f
-                         : std::pow((s + 0.055f) / 1.055f, 2.4f);
-}
-
+// Style colours are authored as sRGB; ImGui draws into the sRGB swapchain,
+// which encodes on write, so it has to be handed linear values.
 inline ImVec4 srgb(float r, float g, float b, float a = 1.0f) {
+    using color_space::srgb_to_linear;
     return {srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a};
 }
 
