@@ -28,7 +28,9 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cmath>
 #include <filesystem>
+#include <iterator>
 #include <fstream>
 
 namespace fjell {
@@ -427,11 +429,35 @@ void UiEditorContext::draw_preview(float dt) {
             }
             ImGui::SameLine();
         }
-        if (ImGui::SmallButton("800x600")) { preview_width_ = 800; preview_height_ = 600; }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("1280x720")) { preview_width_ = 1280; preview_height_ = 720; }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("1920x1080")) { preview_width_ = 1920; preview_height_ = 1080; }
+        // Aspect presets keep the height and derive the width: with design
+        // scaling the aspect is what changes how a HUD holds up, and a
+        // portrait or ultrawide window is one click away.
+        struct AspectPreset {
+            const char* label;
+            float ratio;
+        };
+        static constexpr AspectPreset ASPECTS[] = {
+            {"16:9", 16.0f / 9.0f}, {"16:10", 16.0f / 10.0f}, {"21:9", 21.0f / 9.0f},
+            {"32:9", 32.0f / 9.0f}, {"4:3", 4.0f / 3.0f}, {"3:2", 3.0f / 2.0f},
+            {"9:16 portrait", 9.0f / 16.0f},
+        };
+        int current_aspect = -1;
+        for (int i = 0; i < static_cast<int>(std::size(ASPECTS)); ++i) {
+            if (std::abs(preview_width_ / preview_height_ - ASPECTS[i].ratio) < 0.01f) {
+                current_aspect = i;
+            }
+        }
+        ImGui::SetNextItemWidth(110);
+        const char* aspect_label = current_aspect >= 0 ? ASPECTS[current_aspect].label : "custom";
+        if (ImGui::BeginCombo("##aspect", aspect_label)) {
+            for (int i = 0; i < static_cast<int>(std::size(ASPECTS)); ++i) {
+                if (ImGui::Selectable(ASPECTS[i].label, i == current_aspect)) {
+                    preview_width_ = std::round(preview_height_ * ASPECTS[i].ratio);
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Aspect ratio at the current height");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(60);
         ImGui::DragFloat("##pw", &preview_width_, 1.0f, 100.0f, 3840.0f, "%.0f");
