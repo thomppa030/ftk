@@ -643,10 +643,10 @@ SceneEditorContext::PlayControlsRect SceneEditorContext::draw_play_controls(
     const bool playing = deps_.play->playing();
     const bool paused = deps_.play->paused();
 
-    // Play/stop always shows; pause, step and the time-scale row only make
-    // sense once playing — showing them disabled while stopped would invite
-    // clicking a control that can't do anything yet.
-    const int button_count = playing ? 3 : 1;
+    // Play/stop always shows; pause, step, eject and the time-scale row
+    // only make sense once playing — showing them disabled while stopped
+    // would invite clicking a control that can't do anything yet.
+    const int button_count = playing ? 4 : 1;
     const float scale_row_h = playing ? ImGui::GetFrameHeight() + pad : 0.0f;
     float box_w = pad * 2.0f + static_cast<float>(button_count) * icon_size
                 + static_cast<float>(button_count - 1) * inner_spacing;
@@ -696,6 +696,42 @@ SceneEditorContext::PlayControlsRect SceneEditorContext::draw_play_controls(
         return clicked;
     };
 
+    // Same slot layout as icon_button above, but for a Lucide font glyph
+    // instead of an IconCache PNG — there is no PNG for camera eject/possess.
+    auto glyph_button = [&](int slot, const char* glyph, bool active,
+                            const ImVec4& idle_tint, const ImVec4& active_tint,
+                            const char* tooltip) -> bool {
+        float x = icons_x0 + static_cast<float>(slot) * (icon_size + inner_spacing);
+        ImGui::SetCursorScreenPos({x, box_y + pad});
+        ImGui::PushID(slot + 100);
+        bool clicked = ImGui::InvisibleButton("##toolbar_glyph", {icon_size, icon_size});
+        bool hovered = ImGui::IsItemHovered();
+        ImGui::PopID();
+
+        ImVec4 tint = active ? active_tint : idle_tint;
+        if (hovered) {
+            tint.x = std::min(tint.x + 0.2f, 1.0f);
+            tint.y = std::min(tint.y + 0.2f, 1.0f);
+            tint.z = std::min(tint.z + 0.2f, 1.0f);
+        }
+
+        // The Lucide glyphs are packed into the atlas at a fixed 14px (see
+        // theme::load_font) — everywhere else they sit inline with body
+        // text at that native size, but play/pause/step here are PNG
+        // images stretched to fill icon_size, so drawing this one at its
+        // packed size would leave it looking tiny next to them. Draw it
+        // explicitly at icon_size instead, same as an image would fill it;
+        // softer than a glyph purpose-packed at that size, but matches
+        // their visual weight rather than getting lost next to them.
+        ImFont* font = ImGui::GetFont();
+        auto text_size = font->CalcTextSizeA(icon_size, 1e9f, 0.0f, glyph);
+        ImVec2 text_pos{x + (icon_size - text_size.x) * 0.5f,
+                        box_y + pad + (icon_size - text_size.y) * 0.5f};
+        dl->AddText(font, icon_size, text_pos, ImGui::ColorConvertFloat4ToU32(tint), glyph);
+        if (hovered && tooltip) ImGui::SetTooltip("%s", tooltip);
+        return clicked;
+    };
+
     if (icon_button(0, playing ? "stop" : "play", playing,
                     {0.4f, 1.0f, 0.5f, 1.0f}, {1.0f, 0.4f, 0.4f, 1.0f},
                     playing ? "Stop (Ctrl+P)" : "Play (Ctrl+P)")) {
@@ -712,6 +748,13 @@ SceneEditorContext::PlayControlsRect SceneEditorContext::draw_play_controls(
                         {0.85f, 0.85f, 0.85f, 1.0f}, {0.85f, 0.85f, 0.85f, 1.0f},
                         "Step one frame (Ctrl+Alt+P)")) {
             deps_.play->step();
+        }
+
+        bool ejected = deps_.play->ejected();
+        if (glyph_button(3, ejected ? ICON_LC_CHEVRON_DOWN : ICON_LC_CHEVRON_UP, ejected,
+                         {0.85f, 0.85f, 0.85f, 1.0f}, {0.4f, 0.75f, 1.0f, 1.0f},
+                         ejected ? "Possess camera (F10)" : "Eject camera (F10)")) {
+            deps_.play->toggle_eject();
         }
 
         // Time-scale row: a narrow drag field centered under the icons.

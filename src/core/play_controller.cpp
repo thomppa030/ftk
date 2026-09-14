@@ -114,6 +114,7 @@ PlayPresentation PlayController::presentation() const {
     // Game mode has no editor to dock into — it's always fullscreen,
     // regardless of what the project happens to have saved.
     if (game_mode_) return PlayPresentation::fullscreen;
+    if (docked_override_) return PlayPresentation::docked;
     auto* project = s_.project_mgr->active();
     if (!project) return PlayPresentation::docked;
     return project->config().play.fullscreen
@@ -122,10 +123,30 @@ PlayPresentation PlayController::presentation() const {
 
 void PlayController::toggle_presentation() {
     if (game_mode_) return;
+    docked_override_ = false;
     auto* project = s_.project_mgr->active();
     if (!project) return;
     project->config().play.fullscreen = !project->config().play.fullscreen;
     project->save();
+}
+
+void PlayController::toggle_eject() {
+    if (!ejected_ && presentation() == PlayPresentation::fullscreen) {
+        docked_override_ = true;
+    }
+    ejected_ = !ejected_;
+    if (ejected_) {
+        release_input();
+    } else {
+        // Possessing hands input back to the game — without this,
+        // re-possessing only looked like it worked when the eject/possess
+        // button itself sat inside the viewport image rect, which
+        // check_viewport_recapture_click() treats as the player clicking
+        // back in; toggling from the keyboard (or anywhere else the
+        // button isn't) left the game correctly unfocused per that same
+        // logic, with nothing left to click to recapture it.
+        captured_ = true;
+    }
 }
 
 void PlayController::begin_frame() {
@@ -249,6 +270,8 @@ void PlayController::start() {
     // Meaningless in fullscreen, where input_focused() short-circuits to
     // true regardless.
     captured_ = true;
+    ejected_ = false;
+    docked_override_ = false;
 
     std::optional<PlaySnapshot> snapshot;
     if (game_mode_) {

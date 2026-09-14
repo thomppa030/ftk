@@ -1613,6 +1613,17 @@ void Engine::handle_play_shortcuts() {
     if (input_.raw_key_pressed(GLFW_KEY_F11)) {
         play_controller_.toggle_presentation();
     }
+
+    // F10 works from fullscreen too — toggle_eject() drops to docked first
+    // (without touching the project's saved presentation preference) since
+    // flying free needs an actual viewport panel to render into and editor
+    // chrome around it, neither of which fullscreen has. F8 never reached
+    // Input at all on the dev machine (likely a driver/firmware binding
+    // outside the engine's control), and F9 already opens the screenshot
+    // capture popup (see draw_ui) — F10 is otherwise unclaimed.
+    if (play_controller_.playing() && input_.raw_key_pressed(GLFW_KEY_F10)) {
+        play_controller_.toggle_eject();
+    }
 }
 
 void Engine::set_scene_override(const std::string& scene_name) {
@@ -1798,13 +1809,21 @@ void Engine::run() {
 
         // In play mode, override the active viewport's camera with the scene
         // CameraNode, and drop the editor-only passes (grid, collider debug)
-        // that have no business in the running game.
+        // that have no business in the running game. Skipped while ejected
+        // (F8): the game keeps simulating with its own camera regardless —
+        // UiSubsystem::set_camera and screen debug text below still read it
+        // — only the rendered view comes from the viewport's own fly camera
+        // instead, same as editing. The game's own render graph stays
+        // active either way; ejecting flies free through the running game,
+        // not back into an editor preview of it.
         if (play_controller_.playing() && !requests.empty()) {
-            if (auto* cam_node = camera_subsystem_->active_camera(scene_)) {
-                float aspect = scene_context_->viewport_manager().active_aspect();
-                requests[0].view = cam_node->view_matrix();
-                requests[0].projection = cam_node->projection_matrix(aspect);
-                requests[0].camera_position = cam_node->position();
+            if (!play_controller_.ejected()) {
+                if (auto* cam_node = camera_subsystem_->active_camera(scene_)) {
+                    float aspect = scene_context_->viewport_manager().active_aspect();
+                    requests[0].view = cam_node->view_matrix();
+                    requests[0].projection = cam_node->projection_matrix(aspect);
+                    requests[0].camera_position = cam_node->position();
+                }
             }
             requests[0].viewport_graph =
                 vulkan_context_->get_or_load_graph("assets/render_graphs/play.fjgraph");

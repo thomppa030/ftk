@@ -135,6 +135,25 @@ public:
     /// shortcut design.
     void release_input();
 
+    /// F10 toggle. Ejected: the viewport shows and flies with its own
+    /// camera, same as editing, while the game keeps simulating with its
+    /// own camera regardless (UiSubsystem::set_camera, screen debug text —
+    /// they describe the game, not whatever view happens to be on screen).
+    /// Possessed (the default) shows the game's own CameraNode and the
+    /// viewport camera does nothing useful, same as before eject existed.
+    /// Reset to possessed on stop() so the next play session always starts
+    /// there regardless of how the last one ended.
+    [[nodiscard]] bool ejected() const { return ejected_; }
+
+    /// Ejecting drops fullscreen to docked first if needed — flying free
+    /// only makes sense with an actual viewport panel to show it in and
+    /// editor chrome around it, neither of which fullscreen has — then
+    /// releases input focus the same way Shift+Esc does, so WASD drives
+    /// the fly camera instead of also still reaching the player through a
+    /// game that never gave up focus. Re-possessing (F10 again) does not
+    /// auto-recapture; click the viewport to hand focus back to the game.
+    void toggle_eject();
+
     /// Called once per frame from Engine::run, before the play phases tick.
     /// Turns a pending step() into exactly one unpaused frame.
     void begin_frame();
@@ -207,6 +226,16 @@ private:
     // start() — see the comment on input_focused(). Meaningless in
     // fullscreen — input_focused() short-circuits to true there regardless.
     bool captured_{true};
+
+    // F10 camera eject — see ejected(). Reset to false in stop().
+    bool ejected_{false};
+
+    // Set when F10 ejects from fullscreen, so presentation() reports docked
+    // for the rest of this session without touching the project's saved
+    // preference — ejecting is a transient view choice, not a change to
+    // what play mode defaults to next time. Cleared on stop() and on
+    // toggle_presentation() (an explicit F11 wins over it either way).
+    bool docked_override_{false};
 
     // Screen-space HUD, composited over the scene image by whichever
     // presentation is active. Created lazily by apply_pending_hud_resize()
