@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <vector>
 
 namespace fjell {
@@ -25,9 +24,29 @@ struct StyleSelector {
     }
 };
 
+/// One authored `name: value;`. Declarations keep their source order so a
+/// shorthand and a longhand in the same rule apply the way they were
+/// written (`margin: 10; margin-left: 20;` must leave the left edge at 20).
+struct StyleDeclaration {
+    std::string name;
+    std::string value;
+    /// `!important` was written. Kept so the sheet round-trips through the
+    /// serializer; the cascade does not weigh it yet.
+    bool important{false};
+};
+
 struct StyleRule {
     StyleSelector selector;
-    std::unordered_map<std::string, std::string> properties;
+    std::vector<StyleDeclaration> declarations;
+
+    /// The declaration that wins for `name` within this rule — the last one
+    /// written, as in CSS — or nullptr when the rule does not set it.
+    [[nodiscard]] const StyleDeclaration* find(std::string_view name) const;
+    [[nodiscard]] StyleDeclaration* find(std::string_view name);
+    /// Overwrites the winning declaration in place, keeping its authored
+    /// position, or appends one when the rule did not set `name` yet.
+    void set(std::string_view name, std::string value);
+    void erase(std::string_view name);
 };
 
 enum class FjssSeverity : uint8_t {
@@ -71,7 +90,7 @@ private:
     /// several StyleRules.
     std::vector<StyleRule> parse_rule();
     StyleSelector parse_selector();
-    void parse_declarations(std::unordered_map<std::string, std::string>& props);
+    void parse_declarations(std::vector<StyleDeclaration>& declarations);
 
     void skip_whitespace();
     void skip_comment();

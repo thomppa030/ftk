@@ -967,8 +967,7 @@ std::string UiEditorContext::style_prop_string(const UiNode& node, const char* p
             !rule.selector.parent.empty()) {
             continue;
         }
-        auto it = rule.properties.find(property);
-        if (it != rule.properties.end()) return it->second;
+        if (const auto* decl = rule.find(property)) return decl->value;
     }
     return fallback;
 }

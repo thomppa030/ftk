@@ -171,16 +171,10 @@ std::string FjssSerializer::serialize(const Stylesheet& sheet) {
         out += write_selector(rule.selector);
         out += " {\n";
 
-        // unordered_map iteration order isn't stable across runs — sort
-        // for deterministic, diffable output instead of shuffling every
-        // save.
-        std::vector<std::pair<std::string, std::string>> props(
-            rule.properties.begin(), rule.properties.end());
-        std::sort(props.begin(), props.end(),
-                  [](const auto& a, const auto& b) { return a.first < b.first; });
-
-        for (const auto& [name, value] : props) {
-            out += "    " + name + ": " + value + ";\n";
+        for (const auto& decl : rule.declarations) {
+            out += "    " + decl.name + ": " + decl.value;
+            if (decl.important) out += " !important";
+            out += ";\n";
         }
 
         out += "}\n\n";

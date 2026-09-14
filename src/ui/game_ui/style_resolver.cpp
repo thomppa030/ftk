@@ -15,45 +15,18 @@ void StyleResolver::resolve(UiNode& root, const Stylesheet& sheet) {
 }
 
 void StyleResolver::resolve_single(UiNode& node, const Stylesheet& sheet) {
-    // Reset to defaults, then re-inherit from parent
-    UiComputedStyle fresh{};
-    if (node.parent) {
-        inherit_properties(fresh, node.parent->style);
-    }
-    node.style = fresh;
-
-    // Collect and apply matching rules
-    struct Match {
-        uint32_t specificity;
-        const std::unordered_map<std::string, std::string>* props;
-    };
-    std::vector<Match> matches;
-
-    for (const auto& rule : sheet.rules) {
-        if (selector_matches(node, rule.selector)) {
-            matches.push_back({rule.selector.specificity(), &rule.properties});
-        }
-    }
-
-    std::stable_sort(matches.begin(), matches.end(),
-                     [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
-
-    for (const auto& match : matches) {
-        for (const auto& [name, value] : *match.props) {
-            apply_property(node.style, name, value);
-        }
-    }
-
-    // Inline style attributes
-    for (const auto& [name, value] : node.attributes) {
-        if (name == "id" || name == "class" || name == "style") continue;
-        if (name.find("style-") == 0) {
-            apply_property(node.style, name.substr(6), value);
-        }
-    }
+    apply_cascade(node, sheet, node.parent ? &node.parent->style : nullptr);
 }
 
 void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
+                                  const UiComputedStyle* parent_style) {
+    apply_cascade(node, sheet, parent_style);
+    for (auto& child : node.children) {
+        resolve_node(*child, sheet, &node.style);
+    }
+}
+
+void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
                                   const UiComputedStyle* parent_style) {
     // Reset to defaults, then inherit from parent (ensures removed classes
     // don't leave stale properties like gradients or box shadows).
@@ -62,27 +35,26 @@ void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
         inherit_properties(node.style, *parent_style);
     }
 
-    // Collect matching rules with specificity
     struct Match {
         uint32_t specificity;
-        const std::unordered_map<std::string, std::string>* props;
+        const StyleRule* rule;
     };
     std::vector<Match> matches;
-
     for (const auto& rule : sheet.rules) {
         if (selector_matches(node, rule.selector)) {
-            matches.push_back({rule.selector.specificity(), &rule.properties});
+            matches.push_back({rule.selector.specificity(), &rule});
         }
     }
 
-    // Sort by specificity (lower first, so higher specificity wins)
+    // Lower specificity first so higher specificity overwrites; the stable
+    // sort keeps sheet order for equal specificity, and within one rule the
+    // declarations apply in the order they were written.
     std::stable_sort(matches.begin(), matches.end(),
                      [](const Match& a, const Match& b) { return a.specificity < b.specificity; });
 
-    // Apply properties in order (higher specificity overwrites)
     for (const auto& match : matches) {
-        for (const auto& [name, value] : *match.props) {
-            apply_property(node.style, name, value);
+        for (const auto& decl : match.rule->declarations) {
+            apply_property(node.style, decl.name, decl.value);
         }
     }
 
@@ -92,11 +64,6 @@ void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
         if (name.find("style-") == 0) {
             apply_property(node.style, name.substr(6), value);
         }
-    }
-
-    // Recurse to children with this node's computed style as parent
-    for (auto& child : node.children) {
-        resolve_node(*child, sheet, &node.style);
     }
 }
 

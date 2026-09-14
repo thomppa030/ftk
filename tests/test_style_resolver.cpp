@@ -986,3 +986,31 @@ TEST_CASE("Many rules resolved correctly", "[style]") {
     REQUIRE(root->style.height == Catch::Approx(20.0f));
     REQUIRE(root->style.opacity == Catch::Approx(0.5f));
 }
+
+// --- Declaration order within a rule ---
+
+TEST_CASE("Longhand after shorthand overrides one edge", "[style][order]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { margin: 10; margin-left: 20; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.margin.left == Catch::Approx(20.0f));
+    REQUIRE(root->style.margin.top == Catch::Approx(10.0f));
+}
+
+TEST_CASE("Shorthand after longhand resets the edge", "[style][order]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { margin-left: 20; margin: 10; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.margin.left == Catch::Approx(10.0f));
+}
+
+TEST_CASE("Border shorthand and border-color apply in authored order", "[style][order]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { border-color: #ff0000; border: 2 solid #0000ff; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.border_color.b == Catch::Approx(1.0f));
+    REQUIRE(root->style.border_color.r == Catch::Approx(0.0f));
+}

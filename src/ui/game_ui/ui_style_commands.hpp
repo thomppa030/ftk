@@ -64,9 +64,9 @@ private:
             rule = &sheet.rules.back();
         }
         if (value.empty()) {
-            rule->properties.erase(property_);
+            rule->erase(property_);
         } else {
-            rule->properties[property_] = value;
+            rule->set(property_, value);
         }
         game_ui_.mark_dirty();
     }

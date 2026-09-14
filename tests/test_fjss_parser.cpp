@@ -3,6 +3,14 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+// Value of the declaration that wins for `name`, failing the test if the
+// rule does not set it.
+static std::string prop(const fjell::StyleRule& rule, const char* name) {
+    const auto* decl = rule.find(name);
+    REQUIRE(decl != nullptr);
+    return decl->value;
+}
+
 using namespace fjell;
 
 static struct LogInit {
@@ -91,8 +99,8 @@ TEST_CASE("Specificity: tag + class + pseudo", "[fjss]") {
 
 TEST_CASE("Parse single declaration", "[fjss]") {
     auto sheet = FjssParser::parse(".box { width: 100; }");
-    REQUIRE(sheet.rules[0].properties.size() == 1);
-    REQUIRE(sheet.rules[0].properties.at("width") == "100");
+    REQUIRE(sheet.rules[0].declarations.size() == 1);
+    REQUIRE(prop(sheet.rules[0], "width") == "100");
 }
 
 TEST_CASE("Parse multiple declarations", "[fjss]") {
@@ -105,16 +113,16 @@ TEST_CASE("Parse multiple declarations", "[fjss]") {
         }
     )");
     REQUIRE(sheet.rules.size() == 1);
-    auto& props = sheet.rules[0].properties;
-    REQUIRE(props.at("width") == "48");
-    REQUIRE(props.at("height") == "48");
-    REQUIRE(props.at("background-color") == "#222222");
-    REQUIRE(props.at("border") == "2 solid #555");
+    const auto& rule = sheet.rules[0];
+    REQUIRE(prop(rule, "width") == "48");
+    REQUIRE(prop(rule, "height") == "48");
+    REQUIRE(prop(rule, "background-color") == "#222222");
+    REQUIRE(prop(rule, "border") == "2 solid #555");
 }
 
 TEST_CASE("Trailing semicolons are optional for last declaration", "[fjss]") {
     auto sheet = FjssParser::parse(".box { width: 100 }");
-    REQUIRE(sheet.rules[0].properties.at("width") == "100");
+    REQUIRE(prop(sheet.rules[0], "width") == "100");
 }
 
 // --- Multiple rules ---
@@ -151,7 +159,7 @@ TEST_CASE("Comments are skipped inside declarations", "[fjss]") {
             height: 2;
         }
     )");
-    REQUIRE(sheet.rules[0].properties.size() == 2);
+    REQUIRE(sheet.rules[0].declarations.size() == 2);
 }
 
 // --- Edge cases ---
@@ -163,7 +171,7 @@ TEST_CASE("Empty input produces empty stylesheet", "[fjss]") {
 
 TEST_CASE("Transition property value is preserved", "[fjss]") {
     auto sheet = FjssParser::parse(".slot { transition: all 0.15s ease-in-out; }");
-    REQUIRE(sheet.rules[0].properties.at("transition") == "all 0.15s ease-in-out");
+    REQUIRE(prop(sheet.rules[0], "transition") == "all 0.15s ease-in-out");
 }
 
 // --- Selector edge cases ---
@@ -252,40 +260,40 @@ TEST_CASE("Hyphenated property names", "[fjss]") {
             flex-direction: row;
         }
     )");
-    auto& props = sheet.rules[0].properties;
-    REQUIRE(props.at("background-color") == "#ff0000");
-    REQUIRE(props.at("border-radius") == "4");
-    REQUIRE(props.at("flex-direction") == "row");
+    const auto& rule = sheet.rules[0];
+    REQUIRE(prop(rule, "background-color") == "#ff0000");
+    REQUIRE(prop(rule, "border-radius") == "4");
+    REQUIRE(prop(rule, "flex-direction") == "row");
 }
 
 TEST_CASE("Property value with multiple spaces preserved", "[fjss]") {
     auto sheet = FjssParser::parse(".a { box-shadow: 0 2 4 0 #000000; }");
-    REQUIRE(sheet.rules[0].properties.at("box-shadow") == "0 2 4 0 #000000");
+    REQUIRE(prop(sheet.rules[0], "box-shadow") == "0 2 4 0 #000000");
 }
 
 TEST_CASE("Empty value is skipped", "[fjss]") {
     auto sheet = FjssParser::parse(".a { width:; height: 10; }");
-    auto& props = sheet.rules[0].properties;
+    const auto& rule = sheet.rules[0];
     // width has empty value — should be skipped
-    REQUIRE(props.count("width") == 0);
-    REQUIRE(props.at("height") == "10");
+    REQUIRE(rule.find("width") == nullptr);
+    REQUIRE(prop(rule, "height") == "10");
 }
 
 TEST_CASE("Malformed declaration without colon is skipped", "[fjss]") {
     auto sheet = FjssParser::parse(".a { garbage; width: 10; }");
-    auto& props = sheet.rules[0].properties;
-    REQUIRE(props.count("garbage") == 0);
-    REQUIRE(props.at("width") == "10");
+    const auto& rule = sheet.rules[0];
+    REQUIRE(rule.find("garbage") == nullptr);
+    REQUIRE(prop(rule, "width") == "10");
 }
 
 TEST_CASE("Duplicate property last wins", "[fjss]") {
     auto sheet = FjssParser::parse(".a { width: 10; width: 20; }");
-    REQUIRE(sheet.rules[0].properties.at("width") == "20");
+    REQUIRE(prop(sheet.rules[0], "width") == "20");
 }
 
 TEST_CASE("Property value trailing whitespace is trimmed", "[fjss]") {
     auto sheet = FjssParser::parse(".a { width: 100   ; }");
-    REQUIRE(sheet.rules[0].properties.at("width") == "100");
+    REQUIRE(prop(sheet.rules[0], "width") == "100");
 }
 
 // --- Rule edge cases ---
@@ -302,8 +310,8 @@ TEST_CASE("Multiple rules with same selector are both kept", "[fjss]") {
         .slot { height: 48; }
     )");
     REQUIRE(sheet.rules.size() == 2);
-    REQUIRE(sheet.rules[0].properties.at("width") == "48");
-    REQUIRE(sheet.rules[1].properties.at("height") == "48");
+    REQUIRE(prop(sheet.rules[0], "width") == "48");
+    REQUIRE(prop(sheet.rules[1], "height") == "48");
 }
 
 // --- Comment edge cases ---
@@ -339,16 +347,16 @@ TEST_CASE("Extra whitespace around declarations", "[fjss]") {
             height  :  200  ;
         }
     )");
-    auto& props = sheet.rules[0].properties;
-    REQUIRE(props.at("width") == "100");
-    REQUIRE(props.at("height") == "200");
+    const auto& rule = sheet.rules[0];
+    REQUIRE(prop(rule, "width") == "100");
+    REQUIRE(prop(rule, "height") == "200");
 }
 
 TEST_CASE("No whitespace at all", "[fjss]") {
     auto sheet = FjssParser::parse(".a{width:100;height:200}");
-    auto& props = sheet.rules[0].properties;
-    REQUIRE(props.at("width") == "100");
-    REQUIRE(props.at("height") == "200");
+    const auto& rule = sheet.rules[0];
+    REQUIRE(prop(rule, "width") == "100");
+    REQUIRE(prop(rule, "height") == "200");
 }
 
 // --- Stress ---
@@ -360,8 +368,8 @@ TEST_CASE("Many rules", "[fjss]") {
     }
     auto sheet = FjssParser::parse(css);
     REQUIRE(sheet.rules.size() == 100);
-    REQUIRE(sheet.rules[0].properties.at("width") == "0");
-    REQUIRE(sheet.rules[99].properties.at("width") == "99");
+    REQUIRE(prop(sheet.rules[0], "width") == "0");
+    REQUIRE(prop(sheet.rules[99], "width") == "99");
 }
 
 TEST_CASE("Many properties in one rule", "[fjss]") {
@@ -371,7 +379,7 @@ TEST_CASE("Many properties in one rule", "[fjss]") {
     }
     css += " }";
     auto sheet = FjssParser::parse(css);
-    REQUIRE(sheet.rules[0].properties.size() == 50);
+    REQUIRE(sheet.rules[0].declarations.size() == 50);
 }
 
 TEST_CASE("Real-world stylesheet", "[fjss]") {
@@ -389,7 +397,7 @@ TEST_CASE("Real-world stylesheet", "[fjss]") {
     )");
     REQUIRE(sheet.rules.size() == 4);
     REQUIRE(sheet.rules[0].selector.class_ == "slot");
-    REQUIRE(sheet.rules[0].properties.size() == 6);
+    REQUIRE(sheet.rules[0].declarations.size() == 6);
     REQUIRE(sheet.rules[1].selector.pseudo == "hover");
     REQUIRE(sheet.rules[2].selector.pseudo == "active");
     REQUIRE(sheet.rules[3].selector.class_ == "active");
@@ -402,8 +410,8 @@ TEST_CASE("Selector group yields one rule per selector", "[fjss]") {
     REQUIRE(sheet.rules.size() == 2);
     REQUIRE(sheet.rules[0].selector.class_ == "a");
     REQUIRE(sheet.rules[1].selector.class_ == "b");
-    REQUIRE(sheet.rules[0].properties.at("width") == "1");
-    REQUIRE(sheet.rules[1].properties.at("width") == "1");
+    REQUIRE(prop(sheet.rules[0], "width") == "1");
+    REQUIRE(prop(sheet.rules[1], "width") == "1");
 }
 
 TEST_CASE("Selector group with three members and mixed kinds", "[fjss]") {
@@ -414,7 +422,7 @@ TEST_CASE("Selector group with three members and mixed kinds", "[fjss]") {
     REQUIRE(sheet.rules[2].selector.class_ == "slot");
     REQUIRE(sheet.rules[2].selector.pseudo == "hover");
     for (const auto& rule : sheet.rules) {
-        REQUIRE(rule.properties.at("opacity") == "0.5");
+        REQUIRE(prop(rule, "opacity") == "0.5");
     }
 }
 
@@ -437,7 +445,7 @@ TEST_CASE("Selector group followed by another rule", "[fjss]") {
     auto sheet = FjssParser::parse(".a, .b { width: 1; } .c { height: 2; }");
     REQUIRE(sheet.rules.size() == 3);
     REQUIRE(sheet.rules[2].selector.class_ == "c");
-    REQUIRE(sheet.rules[2].properties.at("height") == "2");
+    REQUIRE(prop(sheet.rules[2], "height") == "2");
 }
 
 TEST_CASE("Selector group with empty body is dropped entirely", "[fjss]") {
@@ -530,15 +538,15 @@ TEST_CASE("Declaration without ':' is a warning naming the property", "[fjss][di
     REQUIRE(d.line == 3);
     REQUIRE(d.column == 5);
     // The rest of the rule still applies
-    REQUIRE(sheet.rules[0].properties.at("width") == "1");
-    REQUIRE(sheet.rules[0].properties.at("height") == "2");
+    REQUIRE(prop(sheet.rules[0], "width") == "1");
+    REQUIRE(prop(sheet.rules[0], "height") == "2");
 }
 
 TEST_CASE("Empty value is a warning", "[fjss][diag]") {
     auto sheet = FjssParser::parse(".a { width:; height: 10; }");
     REQUIRE(sheet.diagnostics.size() == 1);
     REQUIRE(sheet.diagnostics[0].message.find("width") != std::string::npos);
-    REQUIRE(sheet.rules[0].properties.count("width") == 0);
+    REQUIRE(sheet.rules[0].find("width") == nullptr);
 }
 
 TEST_CASE("Unclosed rule is an error pointing at its opening brace", "[fjss][diag]") {
@@ -657,11 +665,59 @@ TEST_CASE("Nested rule inside a block is skipped and the outer rule survives", "
         ".a {\n    width: 1;\n    .b:hover { height: 2; }\n    height: 3;\n}\n.c { width: 4; }");
     REQUIRE(sheet.rules.size() == 2);
     REQUIRE(sheet.rules[0].selector.class_ == "a");
-    REQUIRE(sheet.rules[0].properties.at("width") == "1");
-    REQUIRE(sheet.rules[0].properties.at("height") == "3");
-    REQUIRE(sheet.rules[0].properties.count("b") == 0);
+    REQUIRE(prop(sheet.rules[0], "width") == "1");
+    REQUIRE(prop(sheet.rules[0], "height") == "3");
+    REQUIRE(sheet.rules[0].find("b") == nullptr);
     REQUIRE(sheet.rules[1].selector.class_ == "c");
     REQUIRE(sheet.diagnostics.size() == 1);
     REQUIRE(sheet.diagnostics[0].message.find(".b:hover") != std::string::npos);
     REQUIRE(sheet.diagnostics[0].line == 3);
+}
+
+// --- Declaration order ---
+
+TEST_CASE("Declarations keep their authored order", "[fjss][order]") {
+    auto sheet = FjssParser::parse(".a { background: #111; background-color: #222; margin: 1; margin-left: 2; }");
+    const auto& d = sheet.rules[0].declarations;
+    REQUIRE(d.size() == 4);
+    REQUIRE(d[0].name == "background");
+    REQUIRE(d[1].name == "background-color");
+    REQUIRE(d[2].name == "margin");
+    REQUIRE(d[3].name == "margin-left");
+}
+
+TEST_CASE("Duplicate declarations are both kept and the last one wins", "[fjss][order]") {
+    auto sheet = FjssParser::parse(".a { width: 10; height: 5; width: 20; }");
+    const auto& rule = sheet.rules[0];
+    REQUIRE(rule.declarations.size() == 3);
+    REQUIRE(prop(rule, "width") == "20");
+}
+
+TEST_CASE("!important is split off the value", "[fjss][order]") {
+    auto sheet = FjssParser::parse(".a { width: 10 !important; height: 5; }");
+    const auto& rule = sheet.rules[0];
+    REQUIRE(prop(rule, "width") == "10");
+    REQUIRE(rule.find("width")->important);
+    REQUIRE_FALSE(rule.find("height")->important);
+}
+
+TEST_CASE("StyleRule::set overwrites in place and appends when missing", "[fjss][order]") {
+    auto sheet = FjssParser::parse(".a { width: 10; height: 5; }");
+    auto& rule = sheet.rules[0];
+    rule.set("width", "30");
+    REQUIRE(rule.declarations.size() == 2);
+    REQUIRE(rule.declarations[0].name == "width");
+    REQUIRE(rule.declarations[0].value == "30");
+    rule.set("opacity", "0.5");
+    REQUIRE(rule.declarations.size() == 3);
+    REQUIRE(rule.declarations[2].name == "opacity");
+}
+
+TEST_CASE("StyleRule::erase removes every declaration of that name", "[fjss][order]") {
+    auto sheet = FjssParser::parse(".a { width: 10; height: 5; width: 20; }");
+    auto& rule = sheet.rules[0];
+    rule.erase("width");
+    REQUIRE(rule.declarations.size() == 1);
+    REQUIRE(rule.find("width") == nullptr);
+    REQUIRE(prop(rule, "height") == "5");
 }

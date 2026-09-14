@@ -3,8 +3,32 @@
 
 #include <algorithm>
 #include <cctype>
+#include <utility>
 
 namespace fjell {
+
+const StyleDeclaration* StyleRule::find(std::string_view name) const {
+    for (auto it = declarations.rbegin(); it != declarations.rend(); ++it) {
+        if (it->name == name) return &*it;
+    }
+    return nullptr;
+}
+
+StyleDeclaration* StyleRule::find(std::string_view name) {
+    return const_cast<StyleDeclaration*>(std::as_const(*this).find(name));
+}
+
+void StyleRule::set(std::string_view name, std::string value) {
+    if (auto* decl = find(name)) {
+        decl->value = std::move(value);
+        return;
+    }
+    declarations.push_back({std::string{name}, std::move(value), false});
+}
+
+void StyleRule::erase(std::string_view name) {
+    std::erase_if(declarations, [&](const StyleDeclaration& d) { return d.name == name; });
+}
 
 FjssParser::FjssParser(std::string_view source, std::string_view source_name)
     : source_{source}, source_name_{source_name} {}
@@ -36,7 +60,7 @@ Stylesheet FjssParser::parse_stylesheet() {
         size_t rule_start = pos_;
         auto rules = parse_rule();
         for (auto& rule : rules) {
-            if (!rule.properties.empty()) {
+            if (!rule.declarations.empty()) {
                 sheet_.rules.push_back(std::move(rule));
             }
         }
@@ -81,8 +105,8 @@ std::vector<StyleRule> FjssParser::parse_rule() {
     size_t block_start = pos_;
     advance(); // {
 
-    std::unordered_map<std::string, std::string> properties;
-    parse_declarations(properties);
+    std::vector<StyleDeclaration> declarations;
+    parse_declarations(declarations);
 
     skip_whitespace();
     if (!at_end() && peek() == '}') {
@@ -101,7 +125,7 @@ std::vector<StyleRule> FjssParser::parse_rule() {
     std::vector<StyleRule> rules;
     rules.reserve(selectors.size());
     for (auto& selector : selectors) {
-        rules.push_back({std::move(selector), properties});
+        rules.push_back({std::move(selector), declarations});
     }
     return rules;
 }
@@ -234,7 +258,7 @@ StyleSelector FjssParser::parse_selector() {
     return sel;
 }
 
-void FjssParser::parse_declarations(std::unordered_map<std::string, std::string>& props) {
+void FjssParser::parse_declarations(std::vector<StyleDeclaration>& declarations) {
     while (!at_end()) {
         skip_whitespace();
         if (at_end() || peek() == '}') break;
@@ -291,15 +315,25 @@ void FjssParser::parse_declarations(std::unordered_map<std::string, std::string>
         while (!at_end() && peek() != ';' && peek() != '}') {
             value += advance();
         }
-        // Trim trailing whitespace from value
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
-            value.pop_back();
+        auto trim_end = [](std::string& s) {
+            while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) {
+                s.pop_back();
+            }
+        };
+        trim_end(value);
+
+        bool important = false;
+        constexpr std::string_view IMPORTANT = "!important";
+        if (value.ends_with(IMPORTANT)) {
+            important = true;
+            value.resize(value.size() - IMPORTANT.size());
+            trim_end(value);
         }
 
         if (value.empty()) {
             diagnose(decl_start, FjssSeverity::warning, "'" + name + "' has no value");
         } else {
-            props[name] = value;
+            declarations.push_back({name, value, important});
         }
 
         if (!at_end() && peek() == ';') advance();
