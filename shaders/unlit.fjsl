@@ -1,7 +1,7 @@
 shader_type spatial;
 render_mode unlit;
 
-uniform vec3 color : hint_color = vec3(1.0, 0.5, 0.0);
+uniform vec3 color : hint_color = vec3(1.0, 0.735, 0.0);
 
 void fragment() {
     ALBEDO = color;

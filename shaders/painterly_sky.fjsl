@@ -4,8 +4,8 @@ shader_type sky;
 // SUN_DIR, and VIEW_DIR together. Looks closer to Wind Waker / Genshin
 // than to physical atmospheric scattering.
 
-uniform vec3 sky_color : hint_color = vec3(0.4, 0.6, 0.9);
-uniform vec3 cloud_color : hint_color = vec3(1.0, 0.95, 0.9);
+uniform vec3 sky_color : hint_color = vec3(0.665, 0.798, 0.955);
+uniform vec3 cloud_color : hint_color = vec3(1.0, 0.978, 0.955);
 uniform float cloud_density : hint_range(0.0, 1.0, 0.01) = 0.55;
 uniform float cloud_scale : hint_range(0.5, 8.0, 0.1) = 2.4;
 uniform float cloud_speed : hint_range(0.0, 1.0, 0.01) = 0.05;

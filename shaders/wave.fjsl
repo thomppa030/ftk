@@ -2,7 +2,7 @@ shader_type spatial;
 
 uniform float wave_amp : hint_range(0.0, 3.0, 0.1) = 0.5;
 uniform float wave_freq : hint_range(0.1, 10.0, 0.1) = 2.0;
-uniform vec3 water_color : hint_color = vec3(0.1, 0.4, 0.8);
+uniform vec3 water_color : hint_color = vec3(0.349, 0.665, 0.906);
 
 void vertex() {
     VERTEX.y += sin(VERTEX.x * wave_freq + TIME) * wave_amp;

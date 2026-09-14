@@ -9,7 +9,8 @@ render_mode blend_alpha;
 uniform sampler2D noise_tex;
 uniform float dissolve : hint_range(0.0, 1.0, 0.01) = 0.0;
 uniform float edge_width : hint_range(0.0, 0.3, 0.005) = 0.06;
-uniform vec3 edge_color : hint_color, hint_emission = vec3(2.5, 1.2, 0.3);
+uniform vec3 edge_color : hint_color, hint_emission = vec3(1.0, 0.722, 0.381);
+uniform float edge_strength : hint_range(0.0, 10.0, 0.1), hint_emission = 2.5;
 
 void fragment() {
     float n = texture(noise_tex, UV * 3.0).r;
@@ -18,5 +19,5 @@ void fragment() {
     ALPHA = smoothstep(dissolve - 0.02, dissolve + 0.02, n);
 
     float edge = smoothstep(dissolve + edge_width, dissolve, n) * step(dissolve, n);
-    EMISSION += edge_color * edge;
+    EMISSION += edge_color * edge_strength * edge;
 }

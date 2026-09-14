@@ -5,8 +5,8 @@ shader_type spatial;
 // DIFFUSE_LIGHT. Diffuse stays standard PBR via the helpers exposed by
 // the spatial template (we just call them inline).
 
-uniform vec3 specular_tint_1 : hint_color = vec3(1.0, 0.85, 0.6);
-uniform vec3 specular_tint_2 : hint_color = vec3(0.55, 0.30, 0.15);
+uniform vec3 specular_tint_1 : hint_color = vec3(1.0, 0.931, 0.798);
+uniform vec3 specular_tint_2 : hint_color = vec3(0.767, 0.584, 0.424);
 uniform float shift_1 : hint_range(-1.0, 1.0, 0.01) = 0.2;
 uniform float shift_2 : hint_range(-1.0, 1.0, 0.01) = -0.3;
 uniform float specular_exponent : hint_range(1.0, 256.0, 1.0) = 64.0;

@@ -3,8 +3,8 @@ shader_type sky;
 // Two-color zenith/horizon gradient with a soft sun disc and halo.
 // Set on a WorldEnvironmentNode via the Sky Shader inspector field.
 
-uniform vec3 zenith_color : hint_color = vec3(0.10, 0.30, 0.55);
-uniform vec3 horizon_color : hint_color = vec3(0.95, 0.65, 0.35);
+uniform vec3 zenith_color : hint_color = vec3(0.349, 0.584, 0.767);
+uniform vec3 horizon_color : hint_color = vec3(0.978, 0.827, 0.626);
 uniform float horizon_softness : hint_range(0.05, 1.0, 0.01) = 0.35;
 uniform float sun_size : hint_range(0.99, 0.99995, 0.0001) = 0.998;
 uniform float sun_halo : hint_range(0.9, 1.0, 0.001) = 0.985;

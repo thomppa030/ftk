@@ -3,7 +3,7 @@ render_mode unlit;
 uniform float caustic_speed : hint_range(0.0, 3.0, 0.1) = 0.5;
 uniform float caustic_intensity : hint_range(0.0, 1.0, 0.01) = 0.3;
 uniform float caustic_scale : hint_range(0.1, 5.0, 0.1) = 1.0;
-uniform vec3 caustic_color : hint_color = vec3(1.0, 0.9, 0.5);
+uniform vec3 caustic_color : hint_color = vec3(1.0, 0.955, 0.735);
 void fragment() {
     ALBEDO = vec3(1.0);
 }

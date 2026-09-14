@@ -2,7 +2,7 @@
     "shader": "shaders/chrome.fjsl",
     "textures": {},
     "params": {
-        "tint": [0.8, 0.8, 0.85],
+        "tint": [0.906, 0.906, 0.931],
         "roughness_override": 0.05
     }
 }
