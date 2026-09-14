@@ -2,6 +2,7 @@
 #include "core/log.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 // Value of the declaration that wins for `name`, failing the test if the
 // rule does not set it.
@@ -622,13 +623,53 @@ TEST_CASE("@import without a quoted name is an error and the next rule parses", 
     REQUIRE(sheet.rules.size() == 1);
 }
 
-TEST_CASE("@media block is skipped whole, including nested rules", "[fjss][unsupported]") {
+TEST_CASE("@media attaches its conditions to the rules inside", "[fjss][media]") {
     auto sheet = FjssParser::parse(
-        "@media (min-width: 800) { .a { width: 1; } .x { height: 9; } }\n.b { height: 2; }");
+        "@media (min-width: 800) and (orientation: portrait) { .a { width: 1; } .x { height: 9; } }\n.b { height: 2; }");
+    REQUIRE(sheet.diagnostics.empty());
+    REQUIRE(sheet.rules.size() == 3);
+    REQUIRE(sheet.rules[0].media.size() == 2);
+    REQUIRE(sheet.rules[0].media[0].feature == MediaFeature::min_width);
+    REQUIRE(sheet.rules[0].media[0].value == 800.0f);
+    REQUIRE(sheet.rules[0].media[1].feature == MediaFeature::orientation);
+    REQUIRE(sheet.rules[0].media[1].portrait);
+    REQUIRE(sheet.rules[1].media == sheet.rules[0].media);
+    REQUIRE(sheet.rules[2].media.empty());
+    REQUIRE(to_css(sheet.rules[0].media) == "(min-width: 800) and (orientation: portrait)");
+}
+
+TEST_CASE("Nested @media blocks combine their conditions", "[fjss][media]") {
+    auto sheet = FjssParser::parse(
+        "@media (max-aspect-ratio: 4/3) { @media (min-height: 600) { .a { width: 1; } } .b { width: 2; } }");
+    REQUIRE(sheet.diagnostics.empty());
+    REQUIRE(sheet.rules.size() == 2);
+    REQUIRE(sheet.rules[0].media.size() == 2);
+    REQUIRE(sheet.rules[0].media[0].feature == MediaFeature::max_aspect_ratio);
+    REQUIRE(sheet.rules[0].media[0].value == Catch::Approx(4.0f / 3.0f));
+    REQUIRE(sheet.rules[0].media[1].feature == MediaFeature::min_height);
+    REQUIRE(sheet.rules[1].media.size() == 1);
+}
+
+TEST_CASE("Unsupported @media forms are reported and the block ignored", "[fjss][media]") {
+    auto not_query = FjssParser::parse("@media not (min-width: 1) { .a { width: 1; } } .b { width: 2; }");
+    REQUIRE(not_query.rules.size() == 1);
+    REQUIRE(not_query.diagnostics.size() == 1);
+    auto commas = FjssParser::parse("@media (min-width: 1), (max-width: 2) { .a { width: 1; } }");
+    REQUIRE(commas.rules.empty());
+    REQUIRE(commas.diagnostics.size() == 1);
+    auto unknown = FjssParser::parse("@media (prefers-color-scheme: dark) { .a { width: 1; } }");
+    REQUIRE(unknown.rules.empty());
+    REQUIRE(unknown.diagnostics[0].message.find("prefers-color-scheme") != std::string::npos);
+    auto unit = FjssParser::parse("@media (min-width: 50em) { .a { width: 1; } }");
+    REQUIRE(unit.rules.empty());
+    REQUIRE(unit.diagnostics.size() == 1);
+}
+
+TEST_CASE("@media block that is never closed is reported", "[fjss][media]") {
+    auto sheet = FjssParser::parse("@media (min-width: 1) { .a { width: 1; }");
     REQUIRE(sheet.rules.size() == 1);
-    REQUIRE(sheet.rules[0].selector.subject.classes == std::vector<std::string>{"b"});
     REQUIRE(sheet.diagnostics.size() == 1);
-    REQUIRE(sheet.diagnostics[0].message.find("@media") != std::string::npos);
+    REQUIRE(sheet.diagnostics[0].severity == FjssSeverity::error);
 }
 
 TEST_CASE("@keyframes percentages never become tag rules", "[fjss][unsupported]") {

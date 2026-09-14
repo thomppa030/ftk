@@ -1269,14 +1269,18 @@ void UiEditorContext::style_origin_tooltip(const char* property) {
     }
     auto file = fs::path(origin.rule->source).filename().string();
     if (file.empty()) file = "(unsaved rule)";
-    ImGui::SetTooltip("%s: %s\n%s { %s: %s; }", file.c_str(), to_css(origin.rule->selector).c_str(),
-                      to_css(origin.rule->selector).c_str(), property, origin.declaration->value.c_str());
+    std::string media = origin.rule->media.empty() ? "" : "\n@media " + to_css(origin.rule->media);
+    ImGui::SetTooltip("%s: %s%s\n%s { %s: %s; }", file.c_str(), to_css(origin.rule->selector).c_str(),
+                      media.c_str(), to_css(origin.rule->selector).c_str(), property,
+                      origin.declaration->value.c_str());
 }
 
 void UiEditorContext::draw_style_editor(UiNode& node) {
     auto& s = node.style;
-    style_origins_ = preview_ui_ ? StyleResolver::explain(node, preview_ui_->stylesheet())
-                                 : std::unordered_map<std::string, StyleOrigin>{};
+    style_origins_ = preview_ui_
+        ? StyleResolver::explain(node, preview_ui_->stylesheet(),
+                                 preview_ui_->layout_size().x, preview_ui_->layout_size().y)
+        : std::unordered_map<std::string, StyleOrigin>{};
 
     if (ImGui::TreeNodeEx("Layout", ImGuiTreeNodeFlags_DefaultOpen)) {
         style_edit_keyword(node, "display");

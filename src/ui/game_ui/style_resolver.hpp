@@ -27,8 +27,10 @@ public:
     /// The winning declaration for each property the cascade set on `node`,
     /// keyed by property name, in the same order apply_cascade applies them.
     /// A property missing from the result is inherited or at its default.
+    /// The viewport is the design frame the UI is laid out in, which the
+    /// rules' @media conditions test.
     [[nodiscard]] static std::unordered_map<std::string, StyleOrigin>
-    explain(const UiNode& node, const Stylesheet& sheet);
+    explain(const UiNode& node, const Stylesheet& sheet, float viewport_width, float viewport_height);
 
     /// Re-resolve a node and everything below it, e.g. when its interaction
     /// state changes. Descendants are included because inherited values

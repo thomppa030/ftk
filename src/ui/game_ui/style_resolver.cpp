@@ -29,7 +29,9 @@ void StyleResolver::resolve_node(UiNode& node, const Stylesheet& sheet,
 }
 
 std::unordered_map<std::string, StyleOrigin> StyleResolver::explain(const UiNode& node,
-                                                                    const Stylesheet& sheet) {
+                                                                    const Stylesheet& sheet,
+                                                                    float viewport_width,
+                                                                    float viewport_height) {
     // The same ordering apply_cascade uses, so the last writer here is the
     // one whose value the node actually shows.
     struct Match {
@@ -38,7 +40,8 @@ std::unordered_map<std::string, StyleOrigin> StyleResolver::explain(const UiNode
     };
     std::vector<Match> matches;
     for (const auto& rule : sheet.rules) {
-        if (selector_matches(node, rule.selector)) {
+        if (media_holds(rule.media, viewport_width, viewport_height) &&
+            selector_matches(node, rule.selector)) {
             matches.push_back({rule.selector.specificity(), &rule});
         }
     }
@@ -74,6 +77,9 @@ void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
     };
     std::vector<Match> matches;
     for (const auto& rule : sheet.rules) {
+        // A rule under @media only takes part while its conditions hold for
+        // the frame; a resize re-runs the cascade.
+        if (!media_holds(rule.media, viewport_width_, viewport_height_)) continue;
         if (selector_matches(node, rule.selector)) {
             matches.push_back({rule.selector.specificity(), &rule});
         }

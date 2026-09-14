@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
+#include <charconv>
 #include <sstream>
 #include <utility>
 
@@ -41,6 +43,61 @@ std::string to_css(const StyleSelector& selector) {
         out += step.combinator == UiCombinator::child ? " > " : " ";
     }
     append_compound(selector.subject, out);
+    return out;
+}
+
+bool MediaCondition::holds(float viewport_width, float viewport_height) const {
+    float aspect = viewport_height > 0.0f ? viewport_width / viewport_height : 0.0f;
+    switch (feature) {
+    case MediaFeature::min_width: return viewport_width >= value;
+    case MediaFeature::max_width: return viewport_width <= value;
+    case MediaFeature::min_height: return viewport_height >= value;
+    case MediaFeature::max_height: return viewport_height <= value;
+    case MediaFeature::min_aspect_ratio: return aspect >= value;
+    case MediaFeature::max_aspect_ratio: return aspect <= value;
+    case MediaFeature::orientation:
+        return portrait ? viewport_height > viewport_width : viewport_width >= viewport_height;
+    }
+    return true;
+}
+
+bool media_holds(const std::vector<MediaCondition>& conditions,
+                 float viewport_width, float viewport_height) {
+    for (const auto& condition : conditions) {
+        if (!condition.holds(viewport_width, viewport_height)) return false;
+    }
+    return true;
+}
+
+static const char* media_feature_name(MediaFeature feature) {
+    switch (feature) {
+    case MediaFeature::min_width: return "min-width";
+    case MediaFeature::max_width: return "max-width";
+    case MediaFeature::min_height: return "min-height";
+    case MediaFeature::max_height: return "max-height";
+    case MediaFeature::min_aspect_ratio: return "min-aspect-ratio";
+    case MediaFeature::max_aspect_ratio: return "max-aspect-ratio";
+    case MediaFeature::orientation: return "orientation";
+    }
+    return "";
+}
+
+std::string to_css(const std::vector<MediaCondition>& conditions) {
+    std::string out;
+    for (const auto& c : conditions) {
+        if (!out.empty()) out += " and ";
+        out += "(";
+        out += media_feature_name(c.feature);
+        out += ": ";
+        if (c.feature == MediaFeature::orientation) {
+            out += c.portrait ? "portrait" : "landscape";
+        } else {
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(c.value));
+            out += buf;
+        }
+        out += ")";
+    }
     return out;
 }
 
@@ -82,9 +139,16 @@ Stylesheet FjssParser::parse(std::string_view source, std::string_view source_na
 }
 
 Stylesheet FjssParser::parse_stylesheet() {
+    parse_rules(false);
+    log_diagnostics();
+    return std::move(sheet_);
+}
+
+void FjssParser::parse_rules(bool in_block) {
     while (!at_end()) {
         skip_whitespace();
         if (at_end()) break;
+        if (in_block && peek() == '}') return;
 
         // Skip comments
         if (peek() == '/' && pos_ + 1 < source_.size() && source_[pos_ + 1] == '*') {
@@ -113,8 +177,6 @@ Stylesheet FjssParser::parse_stylesheet() {
             advance();
         }
     }
-    log_diagnostics();
-    return std::move(sheet_);
 }
 
 std::vector<StyleRule> FjssParser::parse_rule() {
@@ -168,7 +230,7 @@ std::vector<StyleRule> FjssParser::parse_rule() {
     std::vector<StyleRule> rules;
     rules.reserve(selectors.size());
     for (auto& selector : selectors) {
-        rules.push_back({std::move(selector), declarations, source_name_});
+        rules.push_back({std::move(selector), declarations, source_name_, media_stack_});
     }
     return rules;
 }
@@ -523,6 +585,130 @@ void FjssParser::parse_import(size_t start) {
     sheet_.imports.push_back({path, source_name_, sheet_.rules.size(), position.line, position.column});
 }
 
+bool FjssParser::parse_media_query(size_t start, std::vector<MediaCondition>& conditions) {
+    bool ok = true;
+    while (!at_end()) {
+        skip_whitespace();
+        if (at_end() || peek() == '{') break;
+
+        if (peek() == '(') {
+            advance();
+            std::string inner;
+            while (!at_end() && peek() != ')' && peek() != '{') inner += advance();
+            if (at_end() || peek() != ')') {
+                diagnose(start, FjssSeverity::error, "@media condition is not closed");
+                return false;
+            }
+            advance(); // )
+            auto colon = inner.find(':');
+            auto trim = [](std::string text) {
+                auto b = text.find_first_not_of(" \t");
+                auto e = text.find_last_not_of(" \t");
+                return b == std::string::npos ? std::string{} : text.substr(b, e - b + 1);
+            };
+            std::string feature = trim(inner.substr(0, colon));
+            std::string value = colon == std::string::npos ? "" : trim(inner.substr(colon + 1));
+
+            MediaCondition condition;
+            if (feature == "min-width") condition.feature = MediaFeature::min_width;
+            else if (feature == "max-width") condition.feature = MediaFeature::max_width;
+            else if (feature == "min-height") condition.feature = MediaFeature::min_height;
+            else if (feature == "max-height") condition.feature = MediaFeature::max_height;
+            else if (feature == "min-aspect-ratio") condition.feature = MediaFeature::min_aspect_ratio;
+            else if (feature == "max-aspect-ratio") condition.feature = MediaFeature::max_aspect_ratio;
+            else if (feature == "orientation") condition.feature = MediaFeature::orientation;
+            else {
+                diagnose(start, FjssSeverity::warning,
+                         "unknown media feature '" + feature + "', block ignored");
+                ok = false;
+                continue;
+            }
+
+            if (condition.feature == MediaFeature::orientation) {
+                if (value == "portrait") condition.portrait = true;
+                else if (value == "landscape") condition.portrait = false;
+                else {
+                    diagnose(start, FjssSeverity::warning,
+                             "orientation must be portrait or landscape, block ignored");
+                    ok = false;
+                }
+            } else if (condition.feature == MediaFeature::min_aspect_ratio ||
+                       condition.feature == MediaFeature::max_aspect_ratio) {
+                float w = 0.0f;
+                float h = 1.0f;
+                auto slash = value.find('/');
+                auto [end, ec] = std::from_chars(value.data(), value.data() + std::min(slash, value.size()), w);
+                if (ec != std::errc{}) {
+                    diagnose(start, FjssSeverity::warning,
+                             "'" + value + "' is not an aspect ratio, block ignored");
+                    ok = false;
+                } else if (slash != std::string::npos) {
+                    std::from_chars(value.data() + slash + 1, value.data() + value.size(), h);
+                }
+                condition.value = h > 0.0f ? w / h : 0.0f;
+            } else {
+                float px = 0.0f;
+                auto [end, ec] = std::from_chars(value.data(), value.data() + value.size(), px);
+                std::string_view unit{end, static_cast<size_t>(value.data() + value.size() - end)};
+                if (ec != std::errc{} || (!unit.empty() && unit != "px")) {
+                    diagnose(start, FjssSeverity::warning,
+                             "'" + value + "' is not a length in pixels for '" + feature + "', block ignored");
+                    ok = false;
+                }
+                condition.value = px;
+            }
+            conditions.push_back(condition);
+            continue;
+        }
+
+        auto word = read_identifier();
+        if (word == "and" || word == "screen" || word == "all") continue;
+        if (word == "not" || word == "only") {
+            diagnose(start, FjssSeverity::warning, "'" + word + "' in @media is not supported, block ignored");
+            ok = false;
+            continue;
+        }
+        if (word.empty()) {
+            char c = advance();
+            if (c == ',') {
+                diagnose(start, FjssSeverity::warning,
+                         "comma-separated @media queries are not supported, block ignored");
+            } else {
+                diagnose(start, FjssSeverity::warning,
+                         std::string("unexpected '") + c + "' in @media query, block ignored");
+            }
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+void FjssParser::parse_media(size_t start) {
+    std::vector<MediaCondition> conditions;
+    bool ok = parse_media_query(start, conditions);
+    skip_whitespace();
+    if (at_end() || peek() != '{') {
+        diagnose(start, FjssSeverity::error, "expected '{' after @media query");
+        skip_malformed_rule();
+        return;
+    }
+    if (!ok) {
+        skip_block();
+        return;
+    }
+
+    advance(); // {
+    size_t outer = media_stack_.size();
+    media_stack_.insert(media_stack_.end(), conditions.begin(), conditions.end());
+    parse_rules(true);
+    media_stack_.resize(outer);
+    if (!at_end() && peek() == '}') {
+        advance();
+    } else {
+        diagnose(start, FjssSeverity::error, "@media block is never closed, missing '}'");
+    }
+}
+
 void FjssParser::parse_at_rule() {
     size_t start = pos_;
     advance(); // @
@@ -532,6 +718,10 @@ void FjssParser::parse_at_rule() {
     }
     if (name == "import") {
         parse_import(start);
+        return;
+    }
+    if (name == "media") {
+        parse_media(start);
         return;
     }
     diagnose(start, FjssSeverity::warning, "'@" + name + "' is not supported, ignored");

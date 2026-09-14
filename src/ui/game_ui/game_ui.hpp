@@ -115,6 +115,9 @@ public:
     /// design frame scaled by. Anything that maps layout rects to the screen
     /// outside the renderer, such as editor overlays, multiplies by this.
     [[nodiscard]] float frame_scale() const { return frame_scale_; }
+    /// The design-frame size the tree was last laid out in — what @media
+    /// conditions and viewport units measure.
+    [[nodiscard]] glm::vec2 layout_size() const { return {last_layout_width_, last_layout_height_}; }
 
     [[nodiscard]] UiContext& context() { return context_; }
     [[nodiscard]] const UiContext& context() const { return context_; }

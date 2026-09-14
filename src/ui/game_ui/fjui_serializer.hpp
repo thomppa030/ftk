@@ -57,7 +57,9 @@ public:
 
 private:
     static std::string write_selector(const StyleSelector& sel);
-    static void write_rule(const StyleRule& rule, std::string& out);
+    static void write_rules(const Stylesheet& sheet, std::optional<std::string_view> source,
+                            std::string& out);
+    static void write_rule(const StyleRule& rule, std::string& out, int indent);
     /// The @import lines of `source`, or of every file when source is empty.
     static void write_imports(const Stylesheet& sheet, std::optional<std::string_view> source,
                               std::string& out);

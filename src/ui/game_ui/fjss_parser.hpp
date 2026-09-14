@@ -56,6 +56,35 @@ struct StyleSelector {
 /// such a rule, and every place that needs to recognize one must agree.
 [[nodiscard]] bool selects_only_id(const StyleSelector& selector, std::string_view id);
 
+/// What an `@media` condition tests. Sizes are in design-frame pixels, the
+/// space the UI is laid out in, so a query means the same at any real
+/// resolution; an aspect ratio is width over height.
+enum class MediaFeature : uint8_t {
+    min_width,
+    max_width,
+    min_height,
+    max_height,
+    min_aspect_ratio,
+    max_aspect_ratio,
+    orientation,
+};
+
+struct MediaCondition {
+    MediaFeature feature{MediaFeature::min_width};
+    float value{0.0f};    ///< pixels, or width/height for the aspect features
+    bool portrait{false}; ///< for orientation: portrait when height exceeds width
+
+    [[nodiscard]] bool holds(float viewport_width, float viewport_height) const;
+    friend bool operator==(const MediaCondition&, const MediaCondition&) = default;
+};
+
+/// True when every condition holds — the `and` of a query, with a nested
+/// block's conditions added to its parent's. Empty means unconditional.
+[[nodiscard]] bool media_holds(const std::vector<MediaCondition>& conditions,
+                               float viewport_width, float viewport_height);
+/// The conditions as written after `@media`, e.g. `(min-width: 800) and (orientation: portrait)`.
+[[nodiscard]] std::string to_css(const std::vector<MediaCondition>& conditions);
+
 /// One authored `name: value;`. Declarations keep their source order so a
 /// shorthand and a longhand in the same rule apply the way they were
 /// written (`margin: 10; margin-left: 20;` must leave the left edge at 20).
@@ -75,6 +104,8 @@ struct StyleRule {
     /// sheet and every widget sheet merged into it — so a save has to know
     /// which rules belong to the file being written.
     std::string source;
+    /// The `@media` conditions the rule sits under, outermost block first.
+    std::vector<MediaCondition> media;
 
     /// The declaration that wins for `name` within this rule — the last one
     /// written, as in CSS — or nullptr when the rule does not set it.
@@ -136,6 +167,9 @@ private:
     FjssParser(std::string_view source, std::string_view source_name);
 
     Stylesheet parse_stylesheet();
+    /// The rule loop, for the top level and for the inside of an @media
+    /// block; inside a block it stops at the closing brace, unconsumed.
+    void parse_rules(bool in_block);
     /// One declaration block may be shared by several comma-separated
     /// selectors (`.a, .b { ... }`), so a single source rule can yield
     /// several StyleRules.
@@ -166,6 +200,10 @@ private:
     /// are consumed whole and reported so the rules after them still parse.
     void parse_at_rule();
     void parse_import(size_t start);
+    void parse_media(size_t start);
+    /// Reads the query up to `{`. Returns false, after reporting, for a
+    /// query the engine cannot evaluate; the block is then skipped whole.
+    bool parse_media_query(size_t start, std::vector<MediaCondition>& conditions);
     [[nodiscard]] bool at_end() const;
     [[nodiscard]] char peek() const;
     char advance();
@@ -191,6 +229,8 @@ private:
     size_t pos_{0};
     Stylesheet sheet_;
     std::string selector_problem_;
+    /// Conditions of the @media blocks currently open, outermost first.
+    std::vector<MediaCondition> media_stack_;
 };
 
 } // namespace fjell

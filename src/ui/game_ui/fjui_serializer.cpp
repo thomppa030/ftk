@@ -197,19 +197,34 @@ std::string FjssSerializer::write_selector(const StyleSelector& sel) {
 std::string FjssSerializer::serialize(const Stylesheet& sheet) {
     std::string out;
     write_imports(sheet, std::nullopt, out);
-    for (const auto& rule : sheet.rules) {
-        write_rule(rule, out);
-    }
+    write_rules(sheet, std::nullopt, out);
     return finish(std::move(out));
 }
 
 std::string FjssSerializer::serialize(const Stylesheet& sheet, std::string_view source) {
     std::string out;
     write_imports(sheet, source, out);
-    for (const auto& rule : sheet.rules) {
-        if (rule.source == source) write_rule(rule, out);
-    }
+    write_rules(sheet, source, out);
     return finish(std::move(out));
+}
+
+void FjssSerializer::write_rules(const Stylesheet& sheet, std::optional<std::string_view> source,
+                                 std::string& out) {
+    // Consecutive rules under the same conditions share one @media block,
+    // which is how they were written; nested blocks flatten to one whose
+    // conditions are the combined `and`, which reads the same.
+    const std::vector<MediaCondition>* open_block = nullptr;
+    for (const auto& rule : sheet.rules) {
+        if (source && rule.source != *source) continue;
+        bool same_block = open_block ? rule.media == *open_block : rule.media.empty();
+        if (!same_block) {
+            if (open_block) out += "}\n\n";
+            open_block = rule.media.empty() ? nullptr : &rule.media;
+            if (open_block) out += "@media " + to_css(*open_block) + " {\n";
+        }
+        write_rule(rule, out, open_block ? 1 : 0);
+    }
+    if (open_block) out += "}\n\n";
 }
 
 void FjssSerializer::write_imports(const Stylesheet& sheet, std::optional<std::string_view> source,
@@ -232,19 +247,18 @@ std::string FjssSerializer::finish(std::string out) {
     return out;
 }
 
-void FjssSerializer::write_rule(const StyleRule& rule, std::string& out) {
-    {
-        out += write_selector(rule.selector);
-        out += " {\n";
+void FjssSerializer::write_rule(const StyleRule& rule, std::string& out, int indent) {
+    std::string pad(static_cast<size_t>(indent) * 4, ' ');
+    out += pad + write_selector(rule.selector);
+    out += " {\n";
 
-        for (const auto& decl : rule.declarations) {
-            out += "    " + decl.name + ": " + decl.value;
-            if (decl.important) out += " !important";
-            out += ";\n";
-        }
-
-        out += "}\n\n";
+    for (const auto& decl : rule.declarations) {
+        out += pad + "    " + decl.name + ": " + decl.value;
+        if (decl.important) out += " !important";
+        out += ";\n";
     }
+
+    out += pad + "}\n\n";
 }
 
 } // namespace fjell

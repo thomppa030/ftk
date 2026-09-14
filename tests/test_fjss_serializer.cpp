@@ -90,3 +90,21 @@ TEST_CASE("The real HUD stylesheet round-trips", "[serialize]") {
     REQUIRE(text == again);
     REQUIRE(FjssParser::parse(text).diagnostics.empty());
 }
+
+TEST_CASE("@media blocks are written back grouped and round-trip", "[serialize]") {
+    auto [text, again] = round_trip(R"(
+        .a { width: 1; }
+        @media (max-aspect-ratio: 4/3) and (min-height: 600) {
+            .a { flex-direction: column; }
+            .b { width: 2; }
+        }
+        .c { width: 3; }
+    )");
+    REQUIRE(text == again);
+    REQUIRE(text.find("@media (max-aspect-ratio: 1.33333) and (min-height: 600) {") != std::string::npos);
+    auto parsed = FjssParser::parse(text);
+    REQUIRE(parsed.rules.size() == 4);
+    REQUIRE(parsed.rules[1].media.size() == 2);
+    REQUIRE(parsed.rules[2].media.size() == 2);
+    REQUIRE(parsed.rules[3].media.empty());
+}

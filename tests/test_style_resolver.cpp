@@ -1227,7 +1227,7 @@ TEST_CASE("explain names the winning rule per property", "[style][explain]") {
         .panel span { height: 5; }
     )", "hud.fjss");
 
-    auto origins = StyleResolver::explain(*child, sheet);
+    auto origins = StyleResolver::explain(*child, sheet, 1920.0f, 1080.0f);
     REQUIRE(origins.size() == 3);
     REQUIRE(to_css(origins.at("width").rule->selector) == "#hud .label");
     REQUIRE(origins.at("width").declaration->value == "20");
@@ -1242,7 +1242,7 @@ TEST_CASE("explain reports inline style attributes over any rule", "[style][expl
     auto root = make_node("div", "", {"a"});
     root->inline_styles["width"] = "42";
     auto sheet = FjssParser::parse(".a { width: 10; }");
-    auto origins = StyleResolver::explain(*root, sheet);
+    auto origins = StyleResolver::explain(*root, sheet, 1920.0f, 1080.0f);
     REQUIRE(origins.at("width").inline_style);
     REQUIRE(origins.at("width").rule == nullptr);
 }
@@ -1336,4 +1336,48 @@ TEST_CASE("An inline style---name attribute sets a custom property on the node",
     StyleResolver resolver;
     resolver.resolve(*root, sheet);
     REQUIRE(root->style.background_color.g == Catch::Approx(1.0f));
+}
+
+// --- @media ---
+
+TEST_CASE("A rule under @media applies only while its condition holds", "[style][media]") {
+    auto root = make_node("div", "", {"vitals"});
+    auto sheet = FjssParser::parse(R"(
+        .vitals { flex-direction: row; }
+        @media (max-aspect-ratio: 4/3) { .vitals { flex-direction: column; } }
+    )");
+    StyleResolver resolver;
+    resolver.set_viewport(1920.0f, 1080.0f);
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.flex_direction == UiFlexDirection::row);
+    resolver.set_viewport(1080.0f, 1920.0f);
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.flex_direction == UiFlexDirection::column);
+}
+
+TEST_CASE("Size, aspect and orientation conditions evaluate against the frame", "[style][media]") {
+    MediaCondition min_w{MediaFeature::min_width, 800.0f, false};
+    MediaCondition max_h{MediaFeature::max_height, 600.0f, false};
+    MediaCondition wide{MediaFeature::min_aspect_ratio, 2.0f, false};
+    MediaCondition portrait{MediaFeature::orientation, 0.0f, true};
+    REQUIRE(min_w.holds(800.0f, 100.0f));
+    REQUIRE_FALSE(min_w.holds(799.0f, 100.0f));
+    REQUIRE(max_h.holds(100.0f, 600.0f));
+    REQUIRE_FALSE(max_h.holds(100.0f, 601.0f));
+    REQUIRE(wide.holds(2520.0f, 1080.0f));
+    REQUIRE_FALSE(wide.holds(1920.0f, 1080.0f));
+    REQUIRE(portrait.holds(1080.0f, 1920.0f));
+    REQUIRE_FALSE(portrait.holds(1920.0f, 1080.0f));
+    REQUIRE(media_holds({min_w, wide}, 2520.0f, 1080.0f));
+    REQUIRE_FALSE(media_holds({min_w, wide}, 1920.0f, 1080.0f));
+    REQUIRE(media_holds({}, 1.0f, 1.0f));
+}
+
+TEST_CASE("explain skips rules whose @media does not hold", "[style][media]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { width: 1; } @media (min-width: 3000) { .a { width: 2; } }");
+    auto wide = StyleResolver::explain(*root, sheet, 3840.0f, 1080.0f);
+    auto normal = StyleResolver::explain(*root, sheet, 1920.0f, 1080.0f);
+    REQUIRE(wide.at("width").declaration->value == "2");
+    REQUIRE(normal.at("width").declaration->value == "1");
 }
