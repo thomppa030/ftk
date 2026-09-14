@@ -25,6 +25,11 @@ Stylesheet FjssParser::parse_stylesheet() {
             continue;
         }
 
+        if (peek() == '@') {
+            skip_at_rule();
+            continue;
+        }
+
         // Every iteration must consume input. A rule that fails to parse
         // recovers on its own, but this guard makes the loop's termination
         // independent of any single recovery path being complete.
@@ -48,6 +53,7 @@ Stylesheet FjssParser::parse_stylesheet() {
 std::vector<StyleRule> FjssParser::parse_rule() {
     skip_whitespace();
     size_t selector_start = pos_;
+    selector_problem_.clear();
     std::vector<StyleSelector> selectors;
     while (true) {
         selectors.push_back(parse_selector());
@@ -83,6 +89,13 @@ std::vector<StyleRule> FjssParser::parse_rule() {
         advance(); // }
     } else {
         diagnose(block_start, FjssSeverity::error, "rule is never closed, missing '}'");
+    }
+
+    // As in CSS, one unsupported selector in a group invalidates the whole
+    // rule rather than applying it to the selectors that did parse.
+    if (!selector_problem_.empty()) {
+        diagnose(selector_start, FjssSeverity::warning, selector_problem_ + ", rule ignored");
+        return {};
     }
 
     std::vector<StyleRule> rules;
@@ -131,12 +144,53 @@ StyleSelector FjssParser::parse_selector() {
             if (!current.empty() && sel.tag.empty()) sel.tag = current;
             current.clear();
             advance(); // :
+            bool pseudo_element = !at_end() && peek() == ':';
+            if (pseudo_element) advance(); // second :
             while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) ||
                    peek() == '-' || peek() == '_')) {
                 current += advance();
             }
-            sel.pseudo = current;
+            if (pseudo_element) {
+                if (selector_problem_.empty()) {
+                    selector_problem_ = "'::" + current + "' pseudo-elements are not supported";
+                }
+            } else if (!at_end() && peek() == '(') {
+                // Functional pseudo-classes such as :not(.x) or :nth-child(2)
+                int depth = 0;
+                while (!at_end()) {
+                    char p = advance();
+                    if (p == '(') ++depth;
+                    else if (p == ')' && --depth == 0) break;
+                }
+                if (selector_problem_.empty()) {
+                    selector_problem_ = "':" + current + "()' is not supported";
+                }
+            } else {
+                sel.pseudo = current;
+            }
             current.clear();
+            break;
+        }
+        case '*':
+            advance();
+            if (selector_problem_.empty()) {
+                selector_problem_ = "'*' universal selector is not supported";
+            }
+            break;
+        case '[': {
+            while (!at_end() && advance() != ']') {}
+            if (selector_problem_.empty()) {
+                selector_problem_ = "attribute selectors are not supported";
+            }
+            break;
+        }
+        case '>':
+        case '+':
+        case '~': {
+            char combinator = advance();
+            if (selector_problem_.empty()) {
+                selector_problem_ = std::string("'") + combinator + "' combinator is not supported";
+            }
             break;
         }
         case '{':
@@ -188,6 +242,22 @@ void FjssParser::parse_declarations(std::unordered_map<std::string, std::string>
         // Skip comments inside block
         if (peek() == '/' && pos_ + 1 < source_.size() && source_[pos_ + 1] == '*') {
             skip_comment();
+            continue;
+        }
+
+        // A '{' before the next ';' or '}' means a rule nested inside this
+        // block. Skipping its whole body keeps the outer rule's closing
+        // brace from being mistaken for the nested one's.
+        size_t next_delim = source_.find_first_of("{;}", pos_);
+        if (next_delim != std::string_view::npos && source_[next_delim] == '{') {
+            std::string head{source_.substr(pos_, next_delim - pos_)};
+            while (!head.empty() && std::isspace(static_cast<unsigned char>(head.back()))) {
+                head.pop_back();
+            }
+            diagnose(pos_, FjssSeverity::warning,
+                     "nested rule '" + head + "' is not supported, ignored");
+            pos_ = next_delim;
+            skip_block();
             continue;
         }
 
@@ -254,6 +324,42 @@ void FjssParser::skip_malformed_rule() {
         } else if (c == ';' && depth == 0) {
             return;
         }
+    }
+}
+
+void FjssParser::skip_block() {
+    int depth = 0;
+    while (!at_end()) {
+        char c = advance();
+        if (c == '{') {
+            ++depth;
+        } else if (c == '}' && --depth == 0) {
+            return;
+        }
+    }
+}
+
+void FjssParser::skip_at_rule() {
+    size_t start = pos_;
+    advance(); // @
+    std::string name;
+    while (!at_end() && (std::isalnum(static_cast<unsigned char>(peek())) || peek() == '-')) {
+        name += advance();
+    }
+    diagnose(start, FjssSeverity::warning, "'@" + name + "' is not supported, ignored");
+
+    // A statement at-rule ends at ';', a block at-rule at its closing brace.
+    while (!at_end()) {
+        char c = peek();
+        if (c == ';') {
+            advance();
+            return;
+        }
+        if (c == '{') {
+            skip_block();
+            return;
+        }
+        advance();
     }
 }
 

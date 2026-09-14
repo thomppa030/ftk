@@ -576,3 +576,92 @@ TEST_CASE("Line counting is by newline and column is 1-based", "[fjss][diag]") {
     REQUIRE(sheet.diagnostics[0].line == 4);
     REQUIRE(sheet.diagnostics[0].column >= 4);
 }
+
+// --- Unsupported syntax is reported, never silently mis-parsed ---
+
+TEST_CASE("@import is skipped with a diagnostic and the next rule parses", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse("@import \"base.fjss\";\n.a { width: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "a");
+    REQUIRE(sheet.rules[0].selector.parent.empty());
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("@import") != std::string::npos);
+    REQUIRE(sheet.diagnostics[0].line == 1);
+}
+
+TEST_CASE("@media block is skipped whole, including nested rules", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse(
+        "@media (min-width: 800) { .a { width: 1; } .x { height: 9; } }\n.b { height: 2; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "b");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("@media") != std::string::npos);
+}
+
+TEST_CASE("@keyframes percentages never become tag rules", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse(
+        "@keyframes pulse { 0% { opacity: 0; } 100% { opacity: 1; } } .b { width: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "b");
+}
+
+TEST_CASE("Pseudo-element rule is dropped with a diagnostic", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse(".a::before { width: 1; }\n.b { height: 2; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "b");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("::before") != std::string::npos);
+    REQUIRE(sheet.diagnostics[0].line == 1);
+}
+
+TEST_CASE("Functional pseudo-classes are dropped with a diagnostic", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse(".a:not(.b) { width: 1; } .c:nth-child(2) { width: 2; } .d { width: 3; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "d");
+    REQUIRE(sheet.diagnostics.size() == 2);
+    REQUIRE(sheet.diagnostics[0].message.find(":not()") != std::string::npos);
+    REQUIRE(sheet.diagnostics[1].message.find(":nth-child()") != std::string::npos);
+}
+
+TEST_CASE("Plain pseudo-classes still parse next to unsupported ones", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse(".a:hover { width: 1; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.pseudo == "hover");
+    REQUIRE(sheet.diagnostics.empty());
+}
+
+TEST_CASE("Child combinator is reported instead of matching nothing", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse(".a > .b { width: 1; }");
+    REQUIRE(sheet.rules.empty());
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find("'>'") != std::string::npos);
+}
+
+TEST_CASE("Universal and attribute selectors are reported", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse("* { width: 1; } div[type=text] { width: 2; } .ok { width: 3; }");
+    REQUIRE(sheet.rules.size() == 1);
+    REQUIRE(sheet.rules[0].selector.class_ == "ok");
+    REQUIRE(sheet.diagnostics.size() == 2);
+    REQUIRE(sheet.diagnostics[0].message.find("'*'") != std::string::npos);
+    REQUIRE(sheet.diagnostics[1].message.find("attribute") != std::string::npos);
+}
+
+TEST_CASE("One unsupported selector invalidates the whole group", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse(".a, .b::after { width: 1; }");
+    REQUIRE(sheet.rules.empty());
+    REQUIRE(sheet.diagnostics.size() == 1);
+}
+
+TEST_CASE("Nested rule inside a block is skipped and the outer rule survives", "[fjss][unsupported]") {
+    auto sheet = FjssParser::parse(
+        ".a {\n    width: 1;\n    .b:hover { height: 2; }\n    height: 3;\n}\n.c { width: 4; }");
+    REQUIRE(sheet.rules.size() == 2);
+    REQUIRE(sheet.rules[0].selector.class_ == "a");
+    REQUIRE(sheet.rules[0].properties.at("width") == "1");
+    REQUIRE(sheet.rules[0].properties.at("height") == "3");
+    REQUIRE(sheet.rules[0].properties.count("b") == 0);
+    REQUIRE(sheet.rules[1].selector.class_ == "c");
+    REQUIRE(sheet.diagnostics.size() == 1);
+    REQUIRE(sheet.diagnostics[0].message.find(".b:hover") != std::string::npos);
+    REQUIRE(sheet.diagnostics[0].line == 3);
+}

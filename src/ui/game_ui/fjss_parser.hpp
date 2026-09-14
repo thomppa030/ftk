@@ -79,6 +79,12 @@ private:
     /// (past the next `;` or a balanced `}`) so the parser can carry on
     /// with the following rule instead of stalling on the bad one.
     void skip_malformed_rule();
+    /// Consumes a `{ ... }` block including nested ones, starting at the `{`.
+    void skip_block();
+    /// At-rules (`@import`, `@media`, `@keyframes`, ...) are not supported.
+    /// The whole construct is consumed and reported so the rules after it
+    /// still parse.
+    void skip_at_rule();
     [[nodiscard]] bool at_end() const;
     [[nodiscard]] char peek() const;
     char advance();
@@ -98,6 +104,10 @@ private:
     std::string source_name_;
     size_t pos_{0};
     Stylesheet sheet_;
+    /// Set by parse_selector on syntax the engine cannot match (`::before`,
+    /// `:not(...)`, `>`, `[attr]`, `*`). The rule is still consumed so the
+    /// sheet stays in sync, then dropped with this as the reason.
+    std::string selector_problem_;
 };
 
 } // namespace fjell
