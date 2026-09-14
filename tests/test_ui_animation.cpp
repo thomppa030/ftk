@@ -308,3 +308,41 @@ TEST_CASE("transition: border-radius interpolates all four corners", "[anim]") {
     anim.update(*root, 0.25f);
     REQUIRE(root->style.border_radius.bottom_left == Catch::Approx(2.0f));
 }
+
+TEST_CASE("A resolve to the same target mid-flight does not restart the transition", "[anim]") {
+    auto root = make_node("div");
+    root->style.transition = "opacity 1.0s linear";
+    root->style.opacity = 0.0f;
+    UiAnimation anim;
+    anim.update(*root, 0.0f);
+
+    root->style.opacity = 1.0f;
+    anim.update(*root, 0.0f);
+    anim.update(*root, 0.5f);
+    REQUIRE(root->style.opacity == Catch::Approx(0.5f));
+
+    // The cascade re-resolves the node (hover on a sibling, a data-bind
+    // relayout) and writes the target again.
+    root->style.opacity = 1.0f;
+    anim.update(*root, 0.25f);
+    REQUIRE(root->style.opacity == Catch::Approx(0.75f));
+}
+
+TEST_CASE("Retargeting mid-flight continues from the displayed value", "[anim]") {
+    auto root = make_node("div");
+    root->style.transition = "opacity 1.0s linear";
+    root->style.opacity = 0.0f;
+    UiAnimation anim;
+    anim.update(*root, 0.0f);
+
+    root->style.opacity = 1.0f;
+    anim.update(*root, 0.0f);
+    anim.update(*root, 0.5f);
+    REQUIRE(root->style.opacity == Catch::Approx(0.5f));
+
+    // Hover ends halfway: head back to 0 from 0.5, not from 1.
+    root->style.opacity = 0.0f;
+    anim.update(*root, 0.0f);
+    anim.update(*root, 0.5f);
+    REQUIRE(root->style.opacity == Catch::Approx(0.25f));
+}

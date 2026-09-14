@@ -108,19 +108,23 @@ void UiAnimation::update_node(UiNode& node, float dt, bool& any_active) {
             float prev = ui_style_read_channel(state.prev_style, *channel.property, channel.component);
 
             if (!first && std::abs(cur - prev) > 0.001f) {
-                // Check if already transitioning this channel
+                // Already transitioning this channel? `cur` is the target the
+                // resolver just wrote and `prev` is where the value actually
+                // is on screen. A resolve to the same target must not restart
+                // the transition, and a new target continues from the
+                // displayed value rather than snapping to the old one.
                 bool found = false;
                 for (auto& t : state.transitions) {
-                    if (t.channel == channel) {
-                        // Retarget: start from current interpolated value
-                        t.from = cur;
+                    if (t.channel != channel) continue;
+                    found = true;
+                    if (std::abs(t.to - cur) > 0.001f) {
+                        t.from = prev;
                         t.to = cur;
                         t.elapsed = 0.0f;
                         t.duration = spec.duration;
                         t.easing = spec.easing;
-                        found = true;
-                        break;
                     }
+                    break;
                 }
                 if (!found) {
                     ActiveTransition t;
