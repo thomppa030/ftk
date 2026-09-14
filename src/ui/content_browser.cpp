@@ -3,6 +3,7 @@
 #include "renderer/resources/fjmesh_writer.hpp"
 #include "ui/asset_templates.hpp"
 #include "ui/icon_cache.hpp"
+#include "ui/material_thumbnail_renderer.hpp"
 #include "ui/icons_lc.hpp"
 #include "ui/status_bar.hpp"
 #include "ui/theme.hpp"
@@ -26,10 +27,11 @@
 
 namespace fjell {
 
-void ContentBrowser::init(IconCache* icons,
+void ContentBrowser::init(IconCache* icons, MaterialThumbnailRenderer* material_thumbnails,
                           VulkanContext* vk_ctx, ResourceManager* resources,
                           ThreadPool* pool) {
     icons_ = icons;
+    material_thumbnails_ = material_thumbnails;
     vk_ctx_ = vk_ctx;
     resources_ = resources;
     pool_ = pool;
@@ -108,13 +110,20 @@ void ContentBrowser::apply_pending_navigation() {
         for (const auto& entry : entries_) {
             if (entry.type == FileType::texture) {
                 paths.push_back(entry.path.string());
-            } else if (entry.type == FileType::material) {
-                auto tex = resolve_material_texture(entry.path.string());
-                if (!tex.empty()) paths.push_back(tex);
             }
         }
         if (!paths.empty()) {
             icons_->preload_thumbnails(paths, *pool_);
+        }
+    }
+
+    // Material thumbnails stream in one per frame, cache hits first. A
+    // refresh also re-renders a material edited since its thumbnail was made.
+    if (material_thumbnails_) {
+        for (const auto& entry : entries_) {
+            if (entry.type == FileType::material) {
+                material_thumbnails_->refresh(entry.path.string());
+            }
         }
     }
 }
@@ -419,6 +428,9 @@ void ContentBrowser::draw() {
                 // without it.
                 std::error_code side_ec;
                 std::filesystem::remove(asset_identity::sidecar_path(e.path), side_ec);
+                if (e.type == FileType::material && material_thumbnails_) {
+                    material_thumbnails_->invalidate(e.path.string());
+                }
             }
             if (!ec) {
                 for (const auto& rel : removed) {
@@ -594,19 +606,17 @@ void ContentBrowser::draw_file_grid() {
         ImGui::BeginGroup();
 
         VkDescriptorSet icon_desc = VK_NULL_HANDLE;
-        if ((entry.type == FileType::texture || entry.type == FileType::material) && icons_) {
+        if (entry.type == FileType::texture && icons_) {
             std::string thumb_path = entry.path.string();
-            // For materials, use the base_color texture path
-            if (entry.type == FileType::material) {
-                thumb_path = resolve_material_texture(entry.path.string());
+            icon_desc = icons_->thumbnail_cached(thumb_path);
+            if (!icon_desc && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
+                icon_desc = icons_->thumbnail(thumb_path);
+                ++thumbs_loaded_this_frame;
             }
-            if (!thumb_path.empty()) {
-                icon_desc = icons_->thumbnail_cached(thumb_path);
-                if (!icon_desc && thumbs_loaded_this_frame < MAX_THUMBS_PER_FRAME) {
-                    icon_desc = icons_->thumbnail(thumb_path);
-                    ++thumbs_loaded_this_frame;
-                }
-            }
+        } else if (entry.type == FileType::material && material_thumbnails_) {
+            auto mat_path = entry.path.string();
+            icon_desc = material_thumbnails_->descriptor(mat_path);
+            if (!icon_desc) material_thumbnails_->request(mat_path);
         }
         if (!icon_desc && icons_) {
             icon_desc = icons_->icon(icon_name(entry.type));
@@ -645,6 +655,9 @@ void ContentBrowser::draw_file_grid() {
                     if (std::filesystem::exists(from_side, sc)) {
                         std::filesystem::rename(
                             from_side, asset_identity::sidecar_path(new_path), sc);
+                    }
+                    if (entry.type == FileType::material && material_thumbnails_) {
+                        material_thumbnails_->invalidate(entry.path.string());
                     }
 
                     auto old_rel = std::filesystem::relative(entry.path, root_);
@@ -751,6 +764,9 @@ void ContentBrowser::draw_file_grid() {
                             (void)pool_->submit([dest_str]() {
                                 IconCache::ensure_thumbnail_cache(dest_str);
                             });
+                        }
+                        if (src.type == FileType::material && material_thumbnails_) {
+                            material_thumbnails_->invalidate(src.path.string());
                         }
                         refresh_current_dir();
                     } else {
@@ -1201,24 +1217,6 @@ void ContentBrowser::handle_double_click(const Entry& entry) {
 }
 
 // ── Material base_color resolution ───────────────────────────────────────
-
-std::string ContentBrowser::resolve_material_texture(const std::string& fjmat_path) const {
-    std::ifstream file(fjmat_path);
-    if (!file.is_open()) return {};
-
-    nlohmann::json j;
-    try { j = nlohmann::json::parse(file); } catch (...) { return {}; }
-
-    if (!j.contains("textures") || !j["textures"].contains("base_color")) return {};
-
-    auto tex_rel = j["textures"]["base_color"].get<std::string>();
-    if (tex_rel.empty()) return {};
-
-    // Resolve relative to project root
-    auto abs_path = root_ / tex_rel;
-    if (std::filesystem::exists(abs_path)) return abs_path.string();
-    return {};
-}
 
 // ── Texture preview ─────────────────────────────────────────────────────
 

@@ -12,13 +12,14 @@
 namespace fjell {
 
 class IconCache;
+class MaterialThumbnailRenderer;
 class ThreadPool;
 class VulkanContext;
 class ResourceManager;
 
 class ContentBrowser {
 public:
-    void init(IconCache* icons,
+    void init(IconCache* icons, MaterialThumbnailRenderer* material_thumbnails,
               VulkanContext* vk_ctx, ResourceManager* resources,
               ThreadPool* pool = nullptr);
 
@@ -71,9 +72,9 @@ private:
 
     [[nodiscard]] static FileType classify(const std::filesystem::path& path);
     [[nodiscard]] const char* icon_name(FileType type) const;
-    [[nodiscard]] std::string resolve_material_texture(const std::string& fjmat_path) const;
 
     IconCache* icons_{nullptr};
+    MaterialThumbnailRenderer* material_thumbnails_{nullptr};
     VulkanContext* vk_ctx_{nullptr};
     ResourceManager* resources_{nullptr};
     ThreadPool* pool_{nullptr};

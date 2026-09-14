@@ -356,7 +356,7 @@ void Engine::init_content_browser() {
     IconCache::set_instance(icon_cache_.get());
 
     MaterialThumbnailRenderer::set_instance(&material_thumbnails_);
-    content_browser_.init(icon_cache_.get(),
+    content_browser_.init(icon_cache_.get(), &material_thumbnails_,
                           vulkan_context_.get(), resource_manager_.get());
     connections_.push_back(content_browser_.on_add_model.bind(
         [this](const std::string& path) {
