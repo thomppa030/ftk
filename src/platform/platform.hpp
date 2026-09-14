@@ -19,6 +19,10 @@ inline constexpr const char* EXE_EXT = "";
 /// Returns the absolute path of the running executable.
 [[nodiscard]] std::filesystem::path executable_path();
 
+/// Returns the OS process id of the running process. Unique among
+/// concurrently running processes, so it can key per-process scratch names.
+[[nodiscard]] std::uint32_t process_id();
+
 /// Runs a shell command, captures stdout+stderr. Returns exit code.
 [[nodiscard]] int run_command(const std::string& cmd, std::string& output);
 
