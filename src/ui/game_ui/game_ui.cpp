@@ -158,6 +158,17 @@ void GameUi::update(float viewport_width, float viewport_height,
 
     needs_redraw_ = false;
 
+    // The viewport can resize (window resize, docked panel drag) without any
+    // binding, style, input, or animation change firing below — check for it
+    // directly so the layout doesn't keep stretching a stale computation at
+    // the old size.
+    if (viewport_width != last_layout_width_ || viewport_height != last_layout_height_) {
+        last_layout_width_ = viewport_width;
+        last_layout_height_ = viewport_height;
+        layout_dirty_ = true;
+        needs_redraw_ = true;
+    }
+
     // 1. Data binding: resolve {key} templates and if directives
     auto bind_result = data_bind_.resolve(*root_, context_);
     if (bind_result.layout_changed) {

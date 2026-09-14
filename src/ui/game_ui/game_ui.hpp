@@ -131,6 +131,14 @@ private:
     bool needs_redraw_{true};
     uint32_t redraw_countdown_{0}; // force N frames of redraw after a change
 
+    // Last size update() computed layout at. A docked HUD's viewport can
+    // resize (window resize, panel drag) without touching any binding,
+    // style, input, or animation state that would otherwise set
+    // layout_dirty_ — checked against every call so a size change alone
+    // still triggers a relayout instead of stretching the stale one.
+    float last_layout_width_{-1.0f};
+    float last_layout_height_{-1.0f};
+
     ResourceManager* resource_manager_{nullptr};
     const class Project* project_{nullptr};
     BindlessTextures* bindless_{nullptr};
