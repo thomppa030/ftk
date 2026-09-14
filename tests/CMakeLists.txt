@@ -12,6 +12,8 @@ add_library(fjell-testable STATIC
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_data_bind.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_animation.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/game_ui/ui_widget_context.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_asset.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/game_ui/widget_resolver.cpp
 )
 
 target_include_directories(fjell-testable PUBLIC
@@ -41,6 +43,7 @@ add_executable(fjell-tests
     test_fjss_parser.cpp
     test_fjsl_parser.cpp
     test_style_resolver.cpp
+    test_widget_resolver.cpp
     test_data_bind.cpp
     test_ui_animation.cpp
     test_spline.cpp

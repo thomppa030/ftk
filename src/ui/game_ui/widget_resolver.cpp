@@ -130,16 +130,22 @@ void WidgetResolver::resolve_node(UiNode& node, const std::string& base_dir,
             fjss_ss << fjss_file.rdbuf();
             auto widget_sheet = FjssParser::parse(fjss_ss.str(), fjss_path);
 
-            // The scope class sits on the widget's instance node, above
-            // everything its own sheet targets.
+            // Every rule is confined to this instance by the scope class on
+            // its instance node. Prepending keeps whatever ancestors the
+            // widget's own sheet wrote, so ".row .label" still means a
+            // .label under a .row — inside this widget only. A second copy
+            // scoped on the subject lets the sheet style the instance node
+            // itself (by its tag, say), which sits at the scope rather
+            // than beneath it.
             StyleAncestorStep scope;
             scope.compound.classes.push_back(scope_class);
             for (auto& rule : widget_sheet.rules) {
-                rule.selector.ancestors = {scope};
+                StyleRule on_instance = rule;
+                on_instance.selector.subject.classes.push_back(scope_class);
+                rule.selector.ancestors.insert(rule.selector.ancestors.begin(), scope);
+                stylesheet.rules.push_back(std::move(rule));
+                stylesheet.rules.push_back(std::move(on_instance));
             }
-            stylesheet.rules.insert(stylesheet.rules.end(),
-                                    widget_sheet.rules.begin(),
-                                    widget_sheet.rules.end());
             stylesheet.diagnostics.insert(stylesheet.diagnostics.end(),
                                           widget_sheet.diagnostics.begin(),
                                           widget_sheet.diagnostics.end());
