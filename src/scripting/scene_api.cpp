@@ -3,6 +3,7 @@
 #include "scripting/script_manager.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "scene/preset_asset.hpp"
+#include "scene/node.hpp"
 #include "scene/scene.hpp"
 #include "scene/component_registry.hpp"
 
@@ -55,24 +56,37 @@ extern "C" FJELL_SDK_EXPORT float* fjell_scene_get_rotation(uint32_t node_id) {
     return node ? &node->transform.rotation.x : nullptr;
 }
 
+// The component of the given type on one node, engine or script, or null.
+static void* component_on(fjell::Node& node, const char* type_name) {
+    // Engine components — registry dispatch
+    auto* meta = fjell::ComponentRegistry::instance().find_by_script_name(type_name);
+    if (meta && meta->script_get) {
+        return meta->script_get(node);
+    }
+
+    // Script components
+    for (auto& entry : node.scripts) {
+        if (entry.instance && entry.type_name == type_name)
+            return entry.instance.get();
+    }
+    return nullptr;
+}
+
 extern "C" FJELL_SDK_EXPORT void* fjell_scene_get_component(uint32_t node_id, const char* type_name) {
     auto* scene = fjell::script_services().scene;
     if (!scene || !type_name) return nullptr;
     auto* node = scene->find(node_id);
     if (!node) return nullptr;
+    return component_on(*node, type_name);
+}
 
-    // Engine components — registry dispatch
-    auto* meta = fjell::ComponentRegistry::instance().find_by_script_name(type_name);
-    if (meta && meta->script_get) {
-        return meta->script_get(*node);
+extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_find_node_with(const char* type_name) {
+    auto* scene = fjell::script_services().scene;
+    if (!scene || !type_name) return 0;
+    for (const auto& obj : scene->objects()) {
+        if (component_on(*obj, type_name)) return obj->id;
     }
-
-    // Script components
-    for (auto& entry : node->scripts) {
-        if (entry.instance && entry.type_name == type_name)
-            return entry.instance.get();
-    }
-    return nullptr;
+    return 0;
 }
 
 extern "C" FJELL_SDK_EXPORT uint32_t fjell_scene_spawn_empty(const char* name,

@@ -10,6 +10,7 @@
 // Engine exports (resolved at dlopen via -rdynamic)
 extern "C" {
 FJELL_SDK_EXPORT uint32_t fjell_scene_find_node(const char* name);
+FJELL_SDK_EXPORT uint32_t fjell_scene_find_node_with(const char* type_name);
 FJELL_SDK_EXPORT uint32_t fjell_scene_find_child(uint32_t parent_id, const char* name);
 FJELL_SDK_EXPORT void     fjell_scene_destroy(uint32_t node_id);
 FJELL_SDK_EXPORT float*   fjell_scene_get_position(uint32_t node_id);
@@ -53,6 +54,24 @@ struct SceneAPI {
     /// @endcode
     static uint32_t find_child(uint32_t parent_id, const char* name) {
         return fjell_scene_find_child(parent_id, name);
+    }
+
+    /// Find the first node carrying a component of type T, wherever it sits
+    /// in the hierarchy and whatever the node happens to be called.
+    /// @tparam T A script component class or an engine component type.
+    /// @return The node ID, or 0 if no node in the scene has one.
+    /// @note Linear scan, first match wins. Resolve once in `begin_play()`
+    ///       and cache the ID. Prefer this over `find_node()` when what you
+    ///       need is the component and the node's name is an accident of
+    ///       how the scene was authored — a rename or a prefab restructure
+    ///       then cannot silently break the lookup.
+    /// @code
+    /// fjell::Node3D owner{fjell::SceneAPI::find_node_with<PlayerStats>()};
+    /// if (auto* stats = owner.get_component<PlayerStats>()) { ... }
+    /// @endcode
+    template <typename T>
+    static uint32_t find_node_with() {
+        return fjell_scene_find_node_with(T::type_name);
     }
 
     /// Spawn an empty node — no mesh, no components — at a world position.
