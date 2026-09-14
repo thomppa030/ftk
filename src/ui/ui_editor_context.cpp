@@ -2,6 +2,7 @@
 #include "ui/dockspace_layout.hpp"
 #include "ui/game_ui/game_ui.hpp"
 #include "ui/game_ui/ui_data_bind.hpp"
+#include "ui/game_ui/fjui_serializer.hpp"
 #include "ui/game_ui/ui_style_commands.hpp"
 #include "ui/game_ui/ui_style_properties.hpp"
 #include "ui/game_ui/widget_asset.hpp"
@@ -28,6 +29,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 
 namespace fjell {
 
@@ -62,6 +64,42 @@ void UiEditorContext::shutdown() {
         preview_ui_->destroy();
         preview_ui_.reset();
     }
+}
+
+bool UiEditorContext::save() {
+    if (!preview_ui_ || !preview_ui_->root() || fjui_path_.empty()) return false;
+    auto markup_path = base_path::resolve_asset(fjui_path_, deps_.project_mgr->active());
+
+    // The watcher would otherwise see these writes and reopen the files we
+    // are saving, throwing away selection and undo history for nothing.
+    preview_ui_->expect_write(markup_path);
+    preview_ui_->expect_write(fjss_path_);
+
+    if (is_widget_file_) {
+        auto result = save_widget_asset(markup_path, loaded_widget_, preview_ui_->root());
+        if (!result) {
+            FJELL_CORE_WARN("UI editor: {}", result.error());
+            return false;
+        }
+    } else {
+        std::ofstream out(markup_path);
+        if (!out) {
+            FJELL_CORE_WARN("UI editor: cannot write {}", markup_path);
+            return false;
+        }
+        out << FjuiSerializer::serialize(*preview_ui_->root());
+    }
+
+    if (!fjss_path_.empty()) {
+        std::ofstream out(fjss_path_);
+        if (!out) {
+            FJELL_CORE_WARN("UI editor: cannot write {}", fjss_path_);
+            return false;
+        }
+        out << FjssSerializer::serialize(preview_ui_->stylesheet(), fjss_path_);
+    }
+    FJELL_CORE_INFO("UI editor: saved {} and {}", markup_path, fjss_path_);
+    return true;
 }
 
 void UiEditorContext::draw(float dt) {
@@ -1033,7 +1071,7 @@ void UiEditorContext::style_edit_float(UiNode& node, const char* property, const
 
     if (ImGui::IsItemDeactivatedAfterEdit() && edited != source_value) {
         command_history().execute(std::make_unique<SetStylePropertyCommand>(
-            *preview_ui_, node, property, explicit_str, std::to_string(edited),
+            *preview_ui_, node, property, explicit_str, to_css(UiLength::pixels(edited)),
             std::string("Set ") + property));
     }
 }

@@ -46,6 +46,10 @@ public:
     [[nodiscard]] const char* context_type() const override { return "ui"; }
     [[nodiscard]] std::vector<std::string> docked_window_names() const override;
     [[nodiscard]] std::string asset_path() const override { return fjui_path_; }
+    /// Writes the markup and the stylesheet. The markup goes too because a
+    /// node styled from the inspector gets an id there, and the stylesheet
+    /// rule written for it only means something if the id is in the file.
+    bool save() override;
 
     void init() override;
     void shutdown() override;

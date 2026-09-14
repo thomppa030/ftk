@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 namespace fjell {
@@ -32,10 +33,17 @@ public:
     /// returns true if any watched file was modified.
     [[nodiscard]] bool poll();
 
+    /// The owner is about to write `path` itself. Every event that file
+    /// raises within the next poll that sees one is swallowed, so a save
+    /// does not turn around and reload what was just saved.
+    void expect_change(const std::string& path);
+
 private:
     ChangeCallback callback_;
     platform::FileWatcher watcher_;
     bool changed_{false};
+    std::unordered_set<std::string> expected_;
+    std::unordered_set<std::string> expected_hit_;
 };
 
 } // namespace fjell

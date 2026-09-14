@@ -80,6 +80,7 @@ void GameUi::load(const std::string& fjui_path, const std::string& fjss_path) {
     root_ = std::move(parsed);
 
     stylesheet_ = {};
+    stylesheet_path_ = fjss_path;
     if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
         std::ifstream fjss_file(fjss_path);
         std::ostringstream fjss_ss;
@@ -113,6 +114,7 @@ void GameUi::load_from_tree(std::unique_ptr<UiNode> root, const std::string& fjs
     root_ = std::move(root);
 
     stylesheet_ = {};
+    stylesheet_path_ = fjss_path;
     if (!fjss_path.empty() && std::filesystem::exists(fjss_path)) {
         std::ifstream fjss_file(fjss_path);
         std::ostringstream fjss_ss;
@@ -153,6 +155,14 @@ void GameUi::watch_sources(const std::string& markup_path, const std::string& fj
 #else
     (void)markup_path;
     (void)fjss_path;
+#endif
+}
+
+void GameUi::expect_write(const std::string& path) {
+#ifndef NDEBUG
+    if (watcher_) watcher_->expect_change(path);
+#else
+    (void)path;
 #endif
 }
 

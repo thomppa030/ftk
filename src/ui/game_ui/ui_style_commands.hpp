@@ -34,7 +34,7 @@ public:
         // inspector — every subsequent edit to this node reuses it. Left
         // in place even across undo (see undo() below).
         if (node_.id.empty()) {
-            node_.id = make_unique_id();
+            node_.id = make_unique_id(game_ui.root());
         }
     }
 
@@ -60,6 +60,7 @@ private:
         if (!rule) {
             StyleRule new_rule;
             new_rule.selector.subject.id = node_.id;
+            new_rule.source = game_ui_.stylesheet_path();
             sheet.rules.push_back(std::move(new_rule));
             rule = &sheet.rules.back();
         }
@@ -78,9 +79,21 @@ private:
         return nullptr;
     }
 
-    [[nodiscard]] static std::string make_unique_id() {
-        static uint32_t counter = 0;
-        return "editor-node-" + std::to_string(++counter);
+    /// The first "editor-node-N" no node in the tree carries. Saved files
+    /// keep earlier ids, so a fresh session cannot start counting at one.
+    [[nodiscard]] static std::string make_unique_id(const UiNode* root) {
+        for (uint32_t n = 1;; ++n) {
+            auto candidate = "editor-node-" + std::to_string(n);
+            if (!root || !has_id(*root, candidate)) return candidate;
+        }
+    }
+
+    [[nodiscard]] static bool has_id(const UiNode& node, const std::string& id) {
+        if (node.id == id) return true;
+        for (const auto& child : node.children) {
+            if (has_id(*child, id)) return true;
+        }
+        return false;
     }
 
     GameUi& game_ui_;

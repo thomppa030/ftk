@@ -123,6 +123,14 @@ public:
     [[nodiscard]] const UiNode* root() const { return root_.get(); }
     [[nodiscard]] Stylesheet& stylesheet() { return stylesheet_; }
     [[nodiscard]] const Stylesheet& stylesheet() const { return stylesheet_; }
+    /// The root stylesheet's path as it was loaded — the `source` a rule
+    /// made in the editor is given, so a save writes it to that file.
+    [[nodiscard]] const std::string& stylesheet_path() const { return stylesheet_path_; }
+
+    /// The owner is about to write this watched file itself. The change is
+    /// swallowed instead of raising a reload request, since the tree in
+    /// memory is exactly what is being written.
+    void expect_write(const std::string& path);
     [[nodiscard]] bool loaded() const { return root_ != nullptr; }
     [[nodiscard]] bool needs_redraw() const;
     void mark_dirty();
@@ -140,6 +148,7 @@ private:
 
     std::unique_ptr<UiNode> root_;
     Stylesheet stylesheet_;
+    std::string stylesheet_path_;
     StyleResolver style_resolver_;
     UiLayout layout_;
     UiContext context_;
