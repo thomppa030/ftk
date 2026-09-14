@@ -54,6 +54,117 @@
 
 namespace fjell {
 
+namespace {
+
+// The triangles the editor treats as an object's visible surface. Full-detail
+// collision geometry is what the render mesh was imported from, so it is the
+// closest match to what the user sees; the derived collision mesh is the
+// fallback for files that never stored the full set. Either pointer may be
+// null when the model carries no triangles at all.
+struct SurfaceGeometry {
+    const std::vector<glm::vec3>* vertices = nullptr;
+    const std::vector<uint32_t>* indices = nullptr;
+
+    [[nodiscard]] bool valid() const {
+        return vertices && indices && !vertices->empty() && indices->size() >= 3;
+    }
+};
+
+SurfaceGeometry surface_geometry_of(const Model& model) {
+    if (model.has_full_collision() && model.collision_full_indices().size() >= 3) {
+        return {&model.collision_full_vertices(), &model.collision_full_indices()};
+    }
+    if (!model.collision_vertices().empty() && model.collision_indices().size() >= 3) {
+        return {&model.collision_vertices(), &model.collision_indices()};
+    }
+    return {};
+}
+
+// Möller–Trumbore ray/triangle test. `dir` need not be normalised; `out_t` is
+// in units of `dir`. Both windings hit, since a pick should land on whatever
+// face is under the cursor regardless of which way it faces.
+bool ray_hits_triangle(const glm::vec3& origin, const glm::vec3& dir,
+                       const glm::vec3& a, const glm::vec3& b,
+                       const glm::vec3& c, float& out_t) {
+    constexpr float EPS = 1e-7f;
+
+    const glm::vec3 e1 = b - a;
+    const glm::vec3 e2 = c - a;
+    const glm::vec3 pv = glm::cross(dir, e2);
+    const float det = glm::dot(e1, pv);
+    if (std::abs(det) < EPS) return false; // ray parallel to the triangle
+
+    const float inv_det = 1.0f / det;
+    const glm::vec3 tv = origin - a;
+    const float u = glm::dot(tv, pv) * inv_det;
+    if (u < 0.0f || u > 1.0f) return false;
+
+    const glm::vec3 qv = glm::cross(tv, e1);
+    const float v = glm::dot(dir, qv) * inv_det;
+    if (v < 0.0f || u + v > 1.0f) return false;
+
+    const float t = glm::dot(e2, qv) * inv_det;
+    if (t < 0.0f) return false; // behind the start point
+    out_t = t;
+    return true;
+}
+
+// Slab test against a world AABB. `out_t` is the entry distance, or the exit
+// distance when the ray starts inside the box.
+bool ray_hits_aabb(const glm::vec3& origin, const glm::vec3& dir,
+                   const AABB& box, float& out_t) {
+    const glm::vec3 inv_dir = 1.0f / dir;
+    const glm::vec3 t1 = (box.min - origin) * inv_dir;
+    const glm::vec3 t2 = (box.max - origin) * inv_dir;
+    const glm::vec3 t_min_v = glm::min(t1, t2);
+    const glm::vec3 t_max_v = glm::max(t1, t2);
+    const float t_enter = std::max({t_min_v.x, t_min_v.y, t_min_v.z});
+    const float t_exit  = std::min({t_max_v.x, t_max_v.y, t_max_v.z});
+    if (t_enter > t_exit || t_exit < 0.0f) return false;
+    out_t = t_enter >= 0.0f ? t_enter : t_exit;
+    return true;
+}
+
+// Closest distance along the ray to the object's surface, if the ray hits it.
+// The bounding box is only a broad phase: a hit on it means nothing unless a
+// triangle confirms it, since boxes of large or rotated meshes enclose plenty
+// of empty space and neighbouring objects. Models without triangles fall back
+// to the box itself, which is the best information there is for them.
+bool ray_hits_model(const glm::vec3& origin, const glm::vec3& dir,
+                    const Model& model, const glm::mat4& world,
+                    float t_limit, float& out_t) {
+    if (!model.local_aabb().valid()) return false;
+
+    float box_t = 0.0f;
+    if (!ray_hits_aabb(origin, dir, model.local_aabb().transform(world), box_t)) return false;
+    if (box_t >= t_limit) return false;
+
+    const SurfaceGeometry geo = surface_geometry_of(model);
+    if (!geo.valid()) {
+        out_t = box_t;
+        return true;
+    }
+
+    const auto& verts = *geo.vertices;
+    const auto& indices = *geo.indices;
+    float best_t = t_limit;
+    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+        const glm::vec3 a{world * glm::vec4(verts[indices[i + 0]], 1.0f)};
+        const glm::vec3 b{world * glm::vec4(verts[indices[i + 1]], 1.0f)};
+        const glm::vec3 c{world * glm::vec4(verts[indices[i + 2]], 1.0f)};
+
+        float t = 0.0f;
+        if (ray_hits_triangle(origin, dir, a, b, c, t) && t < best_t) {
+            best_t = t;
+        }
+    }
+    if (best_t >= t_limit) return false;
+    out_t = best_t;
+    return true;
+}
+
+} // namespace
+
 SceneEditorContext::SceneEditorContext(SceneEditorDeps deps)
     : deps_{deps} {}
 
@@ -346,28 +457,14 @@ void SceneEditorContext::draw_picking(ViewportPanel& vp) {
         for (const auto& obj : deps_.scene->objects()) {
             auto* mesh = obj->components.get<MeshComponent>();
             if (!mesh || !mesh->model) continue;
-            if (!mesh->model->local_aabb().valid()) continue;
             const auto* spatial = obj->as_spatial();
             if (!spatial) continue;
 
-            AABB world_aabb = mesh->model->local_aabb().transform(spatial->world_matrix_);
-            glm::vec3 aabb_min = world_aabb.min;
-            glm::vec3 aabb_max = world_aabb.max;
-
-            glm::vec3 inv_dir = 1.0f / ray_dir;
-            glm::vec3 t1 = (aabb_min - ray_origin) * inv_dir;
-            glm::vec3 t2 = (aabb_max - ray_origin) * inv_dir;
-            glm::vec3 t_min_v = glm::min(t1, t2);
-            glm::vec3 t_max_v = glm::max(t1, t2);
-            float t_enter = std::max({t_min_v.x, t_min_v.y, t_min_v.z});
-            float t_exit  = std::min({t_max_v.x, t_max_v.y, t_max_v.z});
-
-            if (t_enter <= t_exit && t_exit >= 0.0f) {
-                float t = t_enter >= 0.0f ? t_enter : t_exit;
-                if (t < closest_t) {
-                    closest_t = t;
-                    hit_id = obj->id;
-                }
+            float t = 0.0f;
+            if (ray_hits_model(ray_origin, ray_dir, *mesh->model,
+                               spatial->world_matrix_, closest_t, t)) {
+                closest_t = t;
+                hit_id = obj->id;
             }
         }
 
@@ -1562,36 +1659,6 @@ void SceneEditorContext::duplicate_selection() {
 
 namespace {
 
-// Smallest positive distance along -Y from `from_y` to the triangle, if the
-// downward ray through (x, z) crosses it. Mirrors the ray/triangle test used
-// for picking, specialised to a fixed direction.
-bool ray_down_hits_triangle(const glm::vec3& origin,
-                            const glm::vec3& a, const glm::vec3& b,
-                            const glm::vec3& c, float& out_t) {
-    constexpr glm::vec3 DIR{0.0f, -1.0f, 0.0f};
-    constexpr float EPS = 1e-7f;
-
-    const glm::vec3 e1 = b - a;
-    const glm::vec3 e2 = c - a;
-    const glm::vec3 pv = glm::cross(DIR, e2);
-    const float det = glm::dot(e1, pv);
-    if (std::abs(det) < EPS) return false; // ray parallel to the triangle
-
-    const float inv_det = 1.0f / det;
-    const glm::vec3 tv = origin - a;
-    const float u = glm::dot(tv, pv) * inv_det;
-    if (u < 0.0f || u > 1.0f) return false;
-
-    const glm::vec3 qv = glm::cross(tv, e1);
-    const float v = glm::dot(DIR, qv) * inv_det;
-    if (v < 0.0f || u + v > 1.0f) return false;
-
-    const float t = glm::dot(e2, qv) * inv_det;
-    if (t < 0.0f) return false; // behind the start point
-    out_t = t;
-    return true;
-}
-
 // Downward distance from `origin` to a world AABB's top face, for models that
 // carry no collision geometry.
 bool ray_down_hits_aabb(const glm::vec3& origin, const AABB& box, float& out_t) {
@@ -1614,6 +1681,7 @@ void SceneEditorContext::snap_selection_to_floor() {
     const AABB self_box = mesh->model->local_aabb().transform(obj->world_matrix_);
 
     // Cast from the centre of the object's footprint, starting at its underside.
+    constexpr glm::vec3 DOWN{0.0f, -1.0f, 0.0f};
     const glm::vec3 origin{(self_box.min.x + self_box.max.x) * 0.5f,
                            self_box.min.y,
                            (self_box.min.z + self_box.max.z) * 0.5f};
@@ -1650,21 +1718,21 @@ void SceneEditorContext::snap_selection_to_floor() {
         if (!ray_down_hits_aabb(origin, other_box, box_t)) continue;
         if (box_t >= best_t) continue;
 
-        const auto& verts = other_mesh->model->collision_vertices();
-        const auto& indices = other_mesh->model->collision_indices();
-
-        if (verts.empty() || indices.size() < 3) {
+        const SurfaceGeometry geo = surface_geometry_of(*other_mesh->model);
+        if (!geo.valid()) {
             best_t = box_t; // no triangles to refine against — rest on the bounds
             continue;
         }
 
+        const auto& verts = *geo.vertices;
+        const auto& indices = *geo.indices;
         for (size_t i = 0; i + 2 < indices.size(); i += 3) {
             const glm::vec3 a{world * glm::vec4(verts[indices[i + 0]], 1.0f)};
             const glm::vec3 b{world * glm::vec4(verts[indices[i + 1]], 1.0f)};
             const glm::vec3 c{world * glm::vec4(verts[indices[i + 2]], 1.0f)};
 
             float t = 0.0f;
-            if (ray_down_hits_triangle(origin, a, b, c, t) && t < best_t) {
+            if (ray_hits_triangle(origin, DOWN, a, b, c, t) && t < best_t) {
                 best_t = t;
             }
         }
