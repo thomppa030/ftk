@@ -1150,3 +1150,68 @@ TEST_CASE("Lengths round-trip through to_css and parse_length", "[style][units]"
     REQUIRE(to_css(UiLength::percent(50.0f)) == "50%");
     REQUIRE(to_css(UiLength::automatic()) == "auto");
 }
+
+// --- Relative units ---
+
+TEST_CASE("Relative units parse into their own unit", "[style][units]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { width: 10vw; height: 2em; margin-top: 1.5rem; padding-left: 3vh; }");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.width == UiLength{10.0f, UiUnit::vw});
+    REQUIRE(root->style.height == UiLength{2.0f, UiUnit::em});
+    REQUIRE(root->style.margin.top == UiLength{1.5f, UiUnit::rem});
+    REQUIRE(root->style.padding.left == UiLength{3.0f, UiUnit::vh});
+}
+
+TEST_CASE("font-size in em and percent builds on the parent", "[style][units]") {
+    auto root = make_node("div", "", {"root"});
+    auto* child = add_child(*root, make_node("div", "", {"child"}));
+    auto* grandchild = add_child(*child, make_node("div", "", {"grandchild"}));
+    auto sheet = FjssParser::parse(R"(
+        .root { font-size: 20; }
+        .child { font-size: 1.5em; }
+        .grandchild { font-size: 50%; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.font_size == Catch::Approx(20.0f));
+    REQUIRE(child->style.font_size == Catch::Approx(30.0f));
+    REQUIRE(grandchild->style.font_size == Catch::Approx(15.0f));
+}
+
+TEST_CASE("font-size in rem builds on the root, wherever the node sits", "[style][units]") {
+    auto root = make_node("div", "", {"root"});
+    auto* child = add_child(*root, make_node("div", "", {"child"}));
+    auto* grandchild = add_child(*child, make_node("div", "", {"grandchild"}));
+    auto sheet = FjssParser::parse(R"(
+        .root { font-size: 10; }
+        .child { font-size: 30; }
+        .grandchild { font-size: 2rem; }
+    )");
+    StyleResolver resolver;
+    resolver.resolve(*root, sheet);
+    REQUIRE(grandchild->style.font_size == Catch::Approx(20.0f));
+}
+
+TEST_CASE("font-size in vh follows the viewport the resolver was given", "[style][units]") {
+    auto root = make_node("div", "", {"a"});
+    auto sheet = FjssParser::parse(".a { font-size: 5vh; }");
+    StyleResolver resolver;
+    resolver.set_viewport(800.0f, 600.0f);
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.font_size == Catch::Approx(30.0f));
+    resolver.set_viewport(800.0f, 1000.0f);
+    resolver.resolve(*root, sheet);
+    REQUIRE(root->style.font_size == Catch::Approx(50.0f));
+}
+
+TEST_CASE("Relative lengths round-trip through to_css", "[style][units]") {
+    for (UiLength length : {UiLength{1.5f, UiUnit::em}, UiLength{2.0f, UiUnit::rem},
+                            UiLength{10.0f, UiUnit::vw}, UiLength{5.0f, UiUnit::vh},
+                            UiLength{1.0f, UiUnit::vmin}, UiLength{1.0f, UiUnit::vmax}}) {
+        INFO(to_css(length));
+        REQUIRE(StyleResolver::parse_length(to_css(length)) == length);
+    }
+    REQUIRE(to_css(UiLength{1.5f, UiUnit::em}) == "1.5em");
+}

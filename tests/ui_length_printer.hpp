@@ -11,12 +11,8 @@ namespace Catch {
 template <>
 struct StringMaker<fjell::UiLength> {
     static std::string convert(const fjell::UiLength& length) {
-        switch (length.unit) {
-        case fjell::UiUnit::px: return std::to_string(length.value) + "px";
-        case fjell::UiUnit::percent: return std::to_string(length.value) + "%";
-        case fjell::UiUnit::auto_: return "auto";
-        }
-        return "?";
+        auto text = fjell::to_css(length);
+        return length.unit == fjell::UiUnit::px ? text + "px" : text;
     }
 };
 } // namespace Catch

@@ -20,6 +20,15 @@ public:
     /// Store the active stylesheet for targeted re-resolves.
     void set_stylesheet(const Stylesheet& sheet) { active_sheet_ = &sheet; }
 
+    /// Viewport size the vw/vh units of `font-size` resolve against. Layout
+    /// resolves them for every other property; font size has to be pixels
+    /// by the end of the cascade because children inherit it and em builds
+    /// on it.
+    void set_viewport(float width, float height) {
+        viewport_width_ = width;
+        viewport_height_ = height;
+    }
+
     /// Parse a single CSS-style value in isolation — exposed as a
     /// reusable pure function for callers outside the cascade (e.g. the
     /// UI editor's style inspector reading/writing individual property
@@ -53,7 +62,16 @@ private:
     static UiEdges parse_edges(const std::string& value);
     static UiCorners parse_corners(const std::string& value);
 
+    /// `font-size` needs what its units refer to: the parent's size for em
+    /// and %, the root's for rem, the viewport for vw/vh.
+    [[nodiscard]] float resolve_font_size(UiLength authored) const;
+
     const Stylesheet* active_sheet_{nullptr};
+    float viewport_width_{0.0f};
+    float viewport_height_{0.0f};
+    // Set for the node being cascaded, see apply_cascade.
+    float parent_font_size_{16.0f};
+    float root_font_size_{16.0f};
 };
 
 } // namespace fjell

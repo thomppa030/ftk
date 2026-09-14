@@ -9,9 +9,7 @@ std::string to_css(UiLength length) {
     if (length.is_auto()) return "auto";
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%g", static_cast<double>(length.value));
-    std::string out = buf;
-    if (length.is_percent()) out += '%';
-    return out;
+    return std::string{buf} + unit_suffix(length.unit);
 }
 
 UiLength& ui_edge(UiEdges& edges, UiEdgeSide side) {

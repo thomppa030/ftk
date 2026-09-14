@@ -24,12 +24,16 @@ public:
 
 private:
     void build_yoga_tree(UiNode& node, YGNode* parent);
+    /// Feeds a node's style to Yoga, turning font- and viewport-relative
+    /// lengths into pixels on the way.
     void apply_style(YGNode* yg, const UiComputedStyle& style);
     void read_layout(UiNode& node, float offset_x, float offset_y);
     void propagate_clip(UiNode& node);
 
     YGConfig* config_{nullptr};
     YGNode* root_yg_{nullptr};
+    // What em/rem/vw/vh measure against for the tree being computed.
+    UiLengthContext length_context_{};
 };
 
 } // namespace fjell

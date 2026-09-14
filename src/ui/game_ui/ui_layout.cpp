@@ -16,11 +16,13 @@ struct LengthSetters {
     void (*automatic)(YGNodeRef);
 };
 
-void apply_length(YGNodeRef yg, UiLength length, LengthSetters set) {
+void apply_length(YGNodeRef yg, UiLength length, const UiLengthContext& ctx, LengthSetters set) {
+    length = resolve_relative(length, ctx);
     switch (length.unit) {
     case UiUnit::px: set.px(yg, length.value); break;
     case UiUnit::percent: set.percent(yg, length.value); break;
     case UiUnit::auto_: if (set.automatic) set.automatic(yg); break;
+    default: break; // resolved above
     }
 }
 
@@ -30,26 +32,30 @@ struct EdgeSetters {
     void (*automatic)(YGNodeRef, YGEdge);
 };
 
-void apply_edge(YGNodeRef yg, YGEdge edge, UiLength length, EdgeSetters set) {
+void apply_edge(YGNodeRef yg, YGEdge edge, UiLength length, const UiLengthContext& ctx,
+                EdgeSetters set) {
+    length = resolve_relative(length, ctx);
     switch (length.unit) {
     case UiUnit::px: set.px(yg, edge, length.value); break;
     case UiUnit::percent: set.percent(yg, edge, length.value); break;
     case UiUnit::auto_: if (set.automatic) set.automatic(yg, edge); break;
+    default: break;
     }
 }
 
-void apply_edges(YGNodeRef yg, const UiEdges& edges, EdgeSetters set) {
-    apply_edge(yg, YGEdgeTop, edges.top, set);
-    apply_edge(yg, YGEdgeRight, edges.right, set);
-    apply_edge(yg, YGEdgeBottom, edges.bottom, set);
-    apply_edge(yg, YGEdgeLeft, edges.left, set);
+void apply_edges(YGNodeRef yg, const UiEdges& edges, const UiLengthContext& ctx, EdgeSetters set) {
+    apply_edge(yg, YGEdgeTop, edges.top, ctx, set);
+    apply_edge(yg, YGEdgeRight, edges.right, ctx, set);
+    apply_edge(yg, YGEdgeBottom, edges.bottom, ctx, set);
+    apply_edge(yg, YGEdgeLeft, edges.left, ctx, set);
 }
 
-void apply_gap(YGNodeRef yg, YGGutter gutter, UiLength length) {
+void apply_gap(YGNodeRef yg, YGGutter gutter, UiLength length, const UiLengthContext& ctx) {
+    length = resolve_relative(length, ctx);
     switch (length.unit) {
     case UiUnit::px: YGNodeStyleSetGap(yg, gutter, length.value); break;
     case UiUnit::percent: YGNodeStyleSetGapPercent(yg, gutter, length.value); break;
-    case UiUnit::auto_: break;
+    default: break;
     }
 }
 
@@ -81,6 +87,7 @@ void UiLayout::compute(UiNode& root, float viewport_width, float viewport_height
 
     root_yg_ = YGNodeNewWithConfig(config_);
     root.yg_node = root_yg_;
+    length_context_ = {root.style.font_size, root.style.font_size, viewport_width, viewport_height};
 
     // Root node fills viewport
     YGNodeStyleSetWidth(root_yg_, viewport_width);
@@ -190,22 +197,27 @@ void UiLayout::apply_style(YGNode* yg, const UiComputedStyle& style) {
 
     // Dimensions. The min/max bounds have no auto in Yoga; auto there means
     // the bound is simply not applied.
-    apply_length(yg, style.width,
+    // em measures against this node's own font size; the rest of the
+    // context is shared across the tree.
+    UiLengthContext ctx = length_context_;
+    ctx.font_size = style.font_size;
+
+    apply_length(yg, style.width, ctx,
                  {YGNodeStyleSetWidth, YGNodeStyleSetWidthPercent, YGNodeStyleSetWidthAuto});
-    apply_length(yg, style.height,
+    apply_length(yg, style.height, ctx,
                  {YGNodeStyleSetHeight, YGNodeStyleSetHeightPercent, YGNodeStyleSetHeightAuto});
-    apply_length(yg, style.min_width,
+    apply_length(yg, style.min_width, ctx,
                  {YGNodeStyleSetMinWidth, YGNodeStyleSetMinWidthPercent, nullptr});
-    apply_length(yg, style.min_height,
+    apply_length(yg, style.min_height, ctx,
                  {YGNodeStyleSetMinHeight, YGNodeStyleSetMinHeightPercent, nullptr});
-    apply_length(yg, style.max_width,
+    apply_length(yg, style.max_width, ctx,
                  {YGNodeStyleSetMaxWidth, YGNodeStyleSetMaxWidthPercent, nullptr});
-    apply_length(yg, style.max_height,
+    apply_length(yg, style.max_height, ctx,
                  {YGNodeStyleSetMaxHeight, YGNodeStyleSetMaxHeightPercent, nullptr});
 
-    apply_edges(yg, style.margin,
+    apply_edges(yg, style.margin, ctx,
                 {YGNodeStyleSetMargin, YGNodeStyleSetMarginPercent, YGNodeStyleSetMarginAuto});
-    apply_edges(yg, style.padding,
+    apply_edges(yg, style.padding, ctx,
                 {YGNodeStyleSetPadding, YGNodeStyleSetPaddingPercent, nullptr});
 
     // Border (Yoga uses border for layout spacing, we also draw it visually)
@@ -215,11 +227,11 @@ void UiLayout::apply_style(YGNode* yg, const UiComputedStyle& style) {
 
     // Position insets: an auto edge is left unpositioned, so `top: 0` pins
     // to the top like any other value.
-    apply_edges(yg, style.inset,
+    apply_edges(yg, style.inset, ctx,
                 {YGNodeStyleSetPosition, YGNodeStyleSetPositionPercent, YGNodeStyleSetPositionAuto});
 
-    apply_gap(yg, YGGutterRow, style.row_gap);
-    apply_gap(yg, YGGutterColumn, style.column_gap);
+    apply_gap(yg, YGGutterRow, style.row_gap, ctx);
+    apply_gap(yg, YGGutterColumn, style.column_gap, ctx);
 }
 
 void UiLayout::read_layout(UiNode& node, float offset_x, float offset_y) {

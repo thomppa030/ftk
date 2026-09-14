@@ -400,6 +400,8 @@ void FjssParser::validate_declaration(size_t offset, const std::string& name,
     case UiPropertyKind::keyword:
         break;
     case UiPropertyKind::number:
+        if (name == "font-size") validate_lengths(offset, *desc, value);
+        return;
     case UiPropertyKind::color:
     case UiPropertyKind::corners:
         return;
@@ -441,13 +443,18 @@ void FjssParser::validate_lengths(size_t offset, const UiPropertyDescriptor& des
         size_t digits_start = i;
         while (i < token.size() && (std::isdigit(static_cast<unsigned char>(token[i])) || token[i] == '.')) ++i;
         std::string_view unit{token.data() + i, token.size() - i};
+        bool known_unit = unit.empty() || unit == "px";
+        for (UiUnit u : {UiUnit::percent, UiUnit::em, UiUnit::rem, UiUnit::vw, UiUnit::vh,
+                         UiUnit::vmin, UiUnit::vmax}) {
+            if (unit == unit_suffix(u)) known_unit = true;
+        }
         if (i == digits_start) {
             diagnose(offset, FjssSeverity::warning,
                      "'" + token + "' is not a length for '" + std::string(desc.name) + "'");
-        } else if (!unit.empty() && unit != "px" && unit != "%") {
+        } else if (!known_unit) {
             diagnose(offset, FjssSeverity::warning,
                      "unit '" + std::string(unit) + "' is not supported for '" +
-                     std::string(desc.name) + "', use px or %");
+                     std::string(desc.name) + "', use px, %, em, rem, vw or vh");
         }
     }
 }

@@ -85,3 +85,26 @@ TEST_CASE("max-width with a percentage caps the child", "[layout]") {
     LaidOut l("width: 100%; max-width: 25%; height: 10;");
     REQUIRE(l.child->layout_rect.w == Catch::Approx(100.0f));
 }
+
+TEST_CASE("vw and vh resolve against the viewport", "[layout][units]") {
+    LaidOut l("width: 10vw; height: 50vh;");
+    REQUIRE(l.child->layout_rect.w == Catch::Approx(40.0f));
+    REQUIRE(l.child->layout_rect.h == Catch::Approx(150.0f));
+}
+
+TEST_CASE("em resolves against the node's own font size", "[layout][units]") {
+    LaidOut l("font-size: 20; width: 2em; height: 1em;");
+    REQUIRE(l.child->layout_rect.w == Catch::Approx(40.0f));
+    REQUIRE(l.child->layout_rect.h == Catch::Approx(20.0f));
+}
+
+TEST_CASE("rem resolves against the root's font size", "[layout][units]") {
+    LaidOut l("font-size: 40; width: 2rem; height: 10;", "font-size: 12;");
+    REQUIRE(l.child->layout_rect.w == Catch::Approx(24.0f));
+}
+
+TEST_CASE("vmin picks the smaller viewport side", "[layout][units]") {
+    LaidOut l("width: 10vmin; height: 10vmax;");
+    REQUIRE(l.child->layout_rect.w == Catch::Approx(30.0f));
+    REQUIRE(l.child->layout_rect.h == Catch::Approx(40.0f));
+}

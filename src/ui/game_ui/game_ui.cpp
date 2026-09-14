@@ -186,6 +186,10 @@ void GameUi::update(float viewport_width, float viewport_height,
     if (viewport_width != last_layout_width_ || viewport_height != last_layout_height_) {
         last_layout_width_ = viewport_width;
         last_layout_height_ = viewport_height;
+        // Viewport-relative font sizes are resolved in the cascade, so a
+        // resize is a style change as well as a layout change.
+        style_resolver_.set_viewport(viewport_width, viewport_height);
+        dirty_ = true;
         layout_dirty_ = true;
         needs_redraw_ = true;
     }

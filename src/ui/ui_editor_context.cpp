@@ -1040,12 +1040,15 @@ void UiEditorContext::style_edit_length(UiNode& node, const char* property,
         bool dragging = it != active_float_edits_.end();
         float edited = dragging ? it->second : source.value;
 
-        const char* format = source.is_percent() ? "%.1f %%" : "%.1f px";
+        std::string format = source.unit == UiUnit::px ? "%.1f px"
+                           : source.is_percent() ? "%.1f %%"
+                           : std::string("%.2f ") + unit_suffix(source.unit);
         float min = 0.0f;
-        float limit = source.is_percent() ? 100.0f : max;
+        float limit = source.is_percent() ? 100.0f : source.is_relative() ? max / 16.0f : max;
         // Insets and margins may be negative; percentages of them too.
         if (desc->auto_allowed) min = -limit;
-        ImGui::DragFloat(property, &edited, speed, min, limit, format);
+        float step = source.is_relative() ? speed / 16.0f : speed;
+        ImGui::DragFloat(property, &edited, step, min, limit, format.c_str());
 
         if (ImGui::IsItemActive()) {
             active_float_edits_[id] = edited;
@@ -1065,6 +1068,11 @@ void UiEditorContext::style_edit_length(UiNode& node, const char* property,
         }
         if (ImGui::MenuItem("%", nullptr, source.is_percent())) {
             commit(UiLength::percent(value));
+        }
+        for (UiUnit unit : {UiUnit::em, UiUnit::rem, UiUnit::vw, UiUnit::vh}) {
+            if (ImGui::MenuItem(unit_suffix(unit), nullptr, source.unit == unit)) {
+                commit({value, unit});
+            }
         }
         if (desc->auto_allowed && ImGui::MenuItem("auto", nullptr, source.is_auto())) {
             commit(UiLength::automatic());

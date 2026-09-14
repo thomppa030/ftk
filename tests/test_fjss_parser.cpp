@@ -835,11 +835,22 @@ TEST_CASE("Known properties with valid values produce no diagnostics", "[fjss][d
 // --- Length validation ---
 
 TEST_CASE("Unsupported units are reported", "[fjss][diag]") {
-    auto sheet = FjssParser::parse(".a { width: 1.5em; height: 100vw; margin: 4 2rem; }");
+    auto sheet = FjssParser::parse(".a { width: 1.5pt; height: 100cm; margin: 4 2ex; }");
     REQUIRE(sheet.diagnostics.size() == 3);
-    REQUIRE(sheet.diagnostics[0].message.find("em") != std::string::npos);
-    REQUIRE(sheet.diagnostics[1].message.find("vw") != std::string::npos);
-    REQUIRE(sheet.diagnostics[2].message.find("rem") != std::string::npos);
+    REQUIRE(sheet.diagnostics[0].message.find("pt") != std::string::npos);
+    REQUIRE(sheet.diagnostics[1].message.find("cm") != std::string::npos);
+    REQUIRE(sheet.diagnostics[2].message.find("ex") != std::string::npos);
+}
+
+TEST_CASE("Font- and viewport-relative units pass validation", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(
+        ".a { width: 10vw; height: 5vh; margin: 1em 2rem; padding: 1vmin 1vmax; font-size: 1.5rem; }");
+    REQUIRE(sheet.diagnostics.empty());
+}
+
+TEST_CASE("font-size rejects a unit it cannot resolve", "[fjss][diag]") {
+    auto sheet = FjssParser::parse(".a { font-size: 12pt; }");
+    REQUIRE(sheet.diagnostics.size() == 1);
 }
 
 TEST_CASE("calc() and words are reported as not a length", "[fjss][diag]") {

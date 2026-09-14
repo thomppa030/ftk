@@ -35,6 +35,8 @@ void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
     if (parent_style) {
         inherit_properties(node.style, *parent_style);
     }
+    parent_font_size_ = parent_style ? parent_style->font_size : UiComputedStyle{}.font_size;
+    if (!parent_style) root_font_size_ = UiComputedStyle{}.font_size;
 
     struct Match {
         uint32_t specificity;
@@ -66,6 +68,16 @@ void StyleResolver::apply_cascade(UiNode& node, const Stylesheet& sheet,
             apply_property(node.style, name.substr(6), value);
         }
     }
+
+    // The root's computed size is what rem means for everything below it.
+    if (!parent_style) root_font_size_ = node.style.font_size;
+}
+
+float StyleResolver::resolve_font_size(UiLength authored) const {
+    if (authored.is_auto()) return parent_font_size_;
+    if (authored.is_percent()) return parent_font_size_ * authored.value / 100.0f;
+    UiLengthContext ctx{parent_font_size_, root_font_size_, viewport_width_, viewport_height_};
+    return resolve_relative(authored, ctx).value;
 }
 
 void StyleResolver::inherit_properties(UiComputedStyle& style, const UiComputedStyle& parent) {
@@ -119,6 +131,13 @@ void StyleResolver::apply_property(UiComputedStyle& style, const std::string& na
     const auto* desc = find_ui_style_property(name);
     // Unknown names were reported when the sheet was parsed.
     if (!desc) return;
+
+    // font-size is authored as a length but stored resolved: children
+    // inherit the pixel value and em on the node itself builds on it.
+    if (desc->name == "font-size") {
+        style.font_size = resolve_font_size(parse_length(value));
+        return;
+    }
 
     switch (desc->kind) {
     case UiPropertyKind::number:
@@ -348,8 +367,15 @@ float StyleResolver::parse_px(const std::string& value) {
 
 UiLength StyleResolver::parse_length(const std::string& value) {
     if (value == "auto") return UiLength::automatic();
-    float number = parse_px(value);
-    if (value.ends_with('%')) return UiLength::percent(number);
+    float number = 0.0f;
+    auto [end, ec] = std::from_chars(value.data(), value.data() + value.size(), number);
+    // Whatever follows the number is the unit, matched whole: "rem" must
+    // not be mistaken for a suffix of "em".
+    std::string_view unit{end, static_cast<size_t>(value.data() + value.size() - end)};
+    for (UiUnit candidate : {UiUnit::percent, UiUnit::em, UiUnit::rem, UiUnit::vw, UiUnit::vh,
+                             UiUnit::vmin, UiUnit::vmax}) {
+        if (unit == unit_suffix(candidate)) return {number, candidate};
+    }
     return UiLength::pixels(number);
 }
 
