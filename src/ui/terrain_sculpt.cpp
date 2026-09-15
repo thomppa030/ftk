@@ -12,6 +12,24 @@
 
 namespace fjell {
 
+namespace {
+
+// Stable per-sample noise in [-1, 1]. The seed changes per stroke so two
+// strokes over the same ground do not stack the same pattern.
+float sample_noise(uint32_t x, uint32_t z, uint32_t seed) {
+    uint32_t h = seed;
+    h ^= x * 0x8DA6B343U;
+    h ^= z * 0xD8163841U;
+    h ^= h >> 15;
+    h *= 0x2C1B3C6DU;
+    h ^= h >> 12;
+    h *= 0x297A2D39U;
+    h ^= h >> 15;
+    return (static_cast<float>(h & 0xFFFFFFU) / static_cast<float>(0x1000000U)) * 2.0f - 1.0f;
+}
+
+} // namespace
+
 HeightRect HeightRect::merged(const HeightRect& other) const {
     if (empty()) return other;
     if (other.empty()) return *this;
@@ -142,6 +160,8 @@ void TerrainSculptTool::begin_stroke(const Frame& frame) {
     // stroke has already captured, and a few megabytes per click is nothing.
     snapshot_ = frame.terrain->data().heights;
     touched_ = {};
+    flatten_target_set_ = false;
+    ++stroke_seed_;
     stroke_active_ = true;
 }
 
@@ -168,8 +188,40 @@ void TerrainSculptTool::dab(const Frame& frame, const glm::vec3& hit_world) {
 
     // Strength is metres per second so the feel does not change with frame
     // rate; heights are stored normalized, so divide by the field's scale.
+    // Rate brushes close a fraction of the remaining difference per second.
     const float amount = (brush_.strength * frame.dt) / terrain.height_scale();
+    const float blend = 1.0f - std::exp(-brush_.rate * frame.dt);
     const float hard = std::clamp(brush_.hardness, 0.0f, 0.999f);
+
+    if (tool_ == BrushTool::flatten && !flatten_target_set_) {
+        flatten_target_ = terrain.height_at_sample(static_cast<uint32_t>(std::lround(cx)),
+                                                   static_cast<uint32_t>(std::lround(cz)));
+        flatten_target_set_ = true;
+    }
+
+    // Smoothing reads each cell's neighbours, one sample past the rect.
+    const int nx0 = std::max(x0 - 1, 0);
+    const int nz0 = std::max(z0 - 1, 0);
+    const int nx1 = std::min(x1 + 1, last);
+    const int nz1 = std::min(z1 + 1, last);
+    const auto nw = static_cast<uint32_t>(nx1 - nx0 + 1);
+    const auto nh = static_cast<uint32_t>(nz1 - nz0 + 1);
+    if (tool_ == BrushTool::smooth) {
+        neighbourhood_.resize(static_cast<size_t>(nw) * nh);
+        terrain.copy_heights(static_cast<uint32_t>(nx0), static_cast<uint32_t>(nz0), nw, nh,
+                             neighbourhood_.data());
+    }
+    auto neighbour_mean = [&](int sx, int sz) {
+        float sum = 0.0f;
+        for (int oz = -1; oz <= 1; ++oz) {
+            const int rz = std::clamp(sz + oz, nz0, nz1) - nz0;
+            for (int ox = -1; ox <= 1; ++ox) {
+                const int rx = std::clamp(sx + ox, nx0, nx1) - nx0;
+                sum += neighbourhood_[(static_cast<size_t>(rz) * nw) + static_cast<size_t>(rx)];
+            }
+        }
+        return sum / 9.0f;
+    };
 
     for (uint32_t row = 0; row < rect.height; ++row) {
         const float dz = (static_cast<float>(rect.z + row) - cz) / radius;
@@ -182,7 +234,20 @@ void TerrainSculptTool::dab(const Frame& frame, const glm::vec3& hit_world) {
                 const float t = (d - hard) / (1.0f - hard);
                 weight = 1.0f - (t * t * (3.0f - (2.0f * t)));
             }
-            scratch_[(static_cast<size_t>(row) * rect.width) + col] += amount * weight;
+
+            float& h = scratch_[(static_cast<size_t>(row) * rect.width) + col];
+            const uint32_t sx = rect.x + col;
+            const uint32_t sz = rect.z + row;
+            switch (tool_) {
+            case BrushTool::raise:   h += amount * weight; break;
+            case BrushTool::lower:   h -= amount * weight; break;
+            case BrushTool::smooth:
+                h += (neighbour_mean(static_cast<int>(sx), static_cast<int>(sz)) - h) * blend * weight;
+                break;
+            case BrushTool::flatten: h += (flatten_target_ - h) * blend * weight; break;
+            case BrushTool::noise:   h += amount * weight * sample_noise(sx, sz, stroke_seed_); break;
+            case BrushTool::none:    break;
+            }
         }
     }
 

@@ -73,11 +73,12 @@ class TerrainSculptTool {
 public:
     /// Which brush is in hand. `none` leaves the viewport to the gizmo and
     /// picking; anything else sculpts on drag.
-    enum class BrushTool : uint8_t { none, raise };
+    enum class BrushTool : uint8_t { none, raise, lower, smooth, flatten, noise };
 
     struct Brush {
         float radius{8.0f};    ///< metres
-        float strength{4.0f};  ///< metres of height per second at the centre
+        float strength{4.0f};  ///< raise, lower, noise: metres of height per second at the centre
+        float rate{2.0f};      ///< smooth, flatten: fraction of the remaining difference closed per second
         float hardness{0.5f};  ///< fraction of the radius held at full strength before falloff
     };
 
@@ -115,6 +116,10 @@ private:
     Brush brush_;
     BrushTool tool_{BrushTool::none};
     bool stroke_active_{false};
+    bool flatten_target_set_{false};
+    float flatten_target_{0.0f};     ///< normalized height the stroke flattens toward
+    uint32_t stroke_seed_{0};        ///< varies the noise brush between strokes
+    std::vector<float> neighbourhood_;  ///< dab rect plus a one-sample border, for smoothing
     bool mouse_was_down_{false};
     std::vector<float> snapshot_;  ///< the whole field at stroke start, for undo
     HeightRect touched_;           ///< union of every dab's rect this stroke

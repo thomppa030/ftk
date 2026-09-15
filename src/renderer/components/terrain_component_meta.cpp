@@ -4,6 +4,7 @@
 #include "core/project_manager.hpp"
 #include "renderer/resources/resource_manager.hpp"
 #include "renderer/resources/terrain_asset.hpp"
+#include "ui/inspector_widgets.hpp"
 #include "ui/terrain_sculpt.hpp"
 #include "ui/asset_ref_widget.hpp"
 #include "scene/component_registry.hpp"
@@ -66,18 +67,44 @@ static const bool registered = [] {
                 ImGui::Separator();
                 ImGui::Text("Sculpt");
                 auto& tool = *ctx.sculpt;
-                static const char* tool_labels[] = {"None", "Raise"};
-                int tool_idx = static_cast<int>(tool.tool());
-                ImGui::SetNextItemWidth(-1);
-                if (ImGui::Combo("##SculptTool", &tool_idx, tool_labels, 2)) {
-                    tool.set_tool(static_cast<TerrainSculptTool::BrushTool>(tool_idx));
+                using BrushTool = TerrainSculptTool::BrushTool;
+                struct BrushEntry {
+                    BrushTool tool;
+                    const char* id;
+                    const char* label;
+                    const char* tip;
+                };
+                static constexpr BrushEntry brushes[] = {
+                    {BrushTool::raise,   "brush_raise",   "Raise",   "Raise the ground under the brush"},
+                    {BrushTool::lower,   "brush_lower",   "Lower",   "Lower the ground under the brush"},
+                    {BrushTool::smooth,  "brush_smooth",  "Smooth",  "Blend each point toward its neighbours"},
+                    {BrushTool::flatten, "brush_flatten", "Flatten", "Pull the ground to the height where the stroke began"},
+                    {BrushTool::noise,   "brush_noise",   "Noise",   "Roughen the ground under the brush"},
+                };
+                // Clicking the active brush puts it down again, so the row
+                // needs no separate "none" entry.
+                bool first = true;
+                for (const auto& entry : brushes) {
+                    if (!first) ImGui::SameLine();
+                    first = false;
+                    const bool on = tool.tool() == entry.tool;
+                    if (toggle_button(entry.id, entry.label, on, entry.tip)) {
+                        tool.set_tool(on ? BrushTool::none : entry.tool);
+                    }
                 }
                 if (tool.active()) {
                     auto& brush = tool.brush();
+                    const bool rate_brush =
+                        tool.tool() == BrushTool::smooth || tool.tool() == BrushTool::flatten;
                     ImGui::SliderFloat("Radius (m)", &brush.radius, 0.5f, 100.0f, "%.1f",
                                        ImGuiSliderFlags_Logarithmic);
-                    ImGui::SliderFloat("Strength (m/s)", &brush.strength, 0.1f, 50.0f, "%.1f",
-                                       ImGuiSliderFlags_Logarithmic);
+                    if (rate_brush) {
+                        ImGui::SliderFloat("Rate (1/s)", &brush.rate, 0.1f, 20.0f, "%.1f",
+                                           ImGuiSliderFlags_Logarithmic);
+                    } else {
+                        ImGui::SliderFloat("Strength (m/s)", &brush.strength, 0.1f, 50.0f, "%.1f",
+                                           ImGuiSliderFlags_Logarithmic);
+                    }
                     ImGui::SliderFloat("Hardness", &brush.hardness, 0.0f, 1.0f, "%.2f");
                     ImGui::TextDisabled("Drag on the terrain to sculpt. Ctrl+Z undoes a stroke.");
                 }
