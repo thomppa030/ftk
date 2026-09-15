@@ -17,7 +17,12 @@ namespace fjell {
 
 class Device;
 class Model;
+class TerrainAsset;
 struct PassResources;
+
+// What an instance's grid holds: a baked mesh distance field, or a terrain's
+// height samples that the shader turns into a distance on the fly.
+enum class SdfInstanceKind : uint32_t { mesh = 0, terrain = 1 };
 
 // Per-instance SDF metadata for the compositing shader (matches GLSL SdfInstance)
 struct GpuSdfInstance {
@@ -32,8 +37,17 @@ struct GpuSdfInstance {
     float pad1;
     glm::vec3 mesh_max;
     float pad2;
+    // Terrain instances only: the field's placement, so the shader can go
+    // from a world position to a height sample without a matrix.
+    SdfInstanceKind kind{SdfInstanceKind::mesh};
+    uint32_t pad3;
+    glm::vec2 terrain_origin;      // world XZ of the field's min corner
+    float terrain_size;            // metres across
+    float terrain_height_scale;    // world metres per unit of normalized height
+    float terrain_height_offset;   // world Y of normalized height 0
+    float pad4;
 };
-static_assert(sizeof(GpuSdfInstance) == 144);
+static_assert(sizeof(GpuSdfInstance) == 176);
 
 class SceneSdfPass : public RenderPass {
 public:
@@ -52,6 +66,27 @@ public:
 
     // Register a model's per-mesh SDF data. Returns true if data was uploaded.
     bool register_model_sdf(const Model& model, uintptr_t model_id);
+
+    /// Where a terrain's height samples live in the packed grid buffer.
+    struct TerrainSdfEntry {
+        uint32_t offset;       // in int16 units
+        uint32_t samples;      // per side
+        uint32_t generation;   // TerrainAsset::edit_generation() the copy matches
+    };
+
+    /// Upload a terrain's heights into the grid buffer, once. A terrain has no
+    /// baked distance field; the shader derives the distance from the heights
+    /// it finds here. Null when the buffer is full.
+    const TerrainSdfEntry* register_terrain_sdf(const TerrainAsset& terrain);
+
+    /// Re-copy a rectangle of a registered terrain's heights after a sculpt
+    /// edit, in place, and record the asset generation the copy now matches.
+    void update_terrain_sdf(const TerrainAsset& terrain, uint32_t x, uint32_t z,
+                            uint32_t size_x, uint32_t size_z);
+
+    /// Mark a world-space box for recomputation without any instance having
+    /// moved: what an edit inside a terrain needs.
+    void invalidate_region(const AABB& world_bounds) { add_dirty_region(world_bounds); }
 
     /// Identifies one placed mesh across frames. Node ids repeat across
     /// scenes, so the scene id is part of the key.
@@ -144,6 +179,7 @@ private:
     VkImageLayout image_layout_{VK_IMAGE_LAYOUT_UNDEFINED};
 
     std::unordered_map<uintptr_t, MeshSdfEntry> model_sdf_entries_;
+    std::unordered_map<const TerrainAsset*, TerrainSdfEntry> terrain_sdf_entries_;
 
     // What the field currently holds, per placed mesh, so the next gather
     // can tell what moved or vanished.

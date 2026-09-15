@@ -218,6 +218,25 @@ public:
     void apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,
                        const float* heights, UploadContext& upload);
 
+    /// A rectangle of height samples: what an edit touched.
+    struct SampleRect {
+        uint32_t x{0};
+        uint32_t z{0};
+        uint32_t width{0};
+        uint32_t height{0};
+        [[nodiscard]] bool empty() const { return width == 0 || height == 0; }
+    };
+
+    /// Counts every apply_heights() call, so a consumer holding a derived copy
+    /// of the heights — the scene SDF — can tell the copy went stale without
+    /// being told.
+    [[nodiscard]] uint32_t edit_generation() const { return edit_generation_; }
+    /// The union of every rectangle apply_heights() touched since the last
+    /// clear_edited_rect(). The scene SDF is the one consumer: it re-reads
+    /// that rect and clears it.
+    [[nodiscard]] const SampleRect& edited_rect() const { return edited_rect_; }
+    void clear_edited_rect() { edited_rect_ = {}; }
+
     /// True when the heights or the layer table changed since load or the last
     /// successful save.
     [[nodiscard]] bool dirty() const { return dirty_; }
@@ -252,6 +271,8 @@ private:
     mutable float max_world_height_{0.0F};
     mutable bool height_range_stale_{false};
     bool dirty_{false};
+    uint32_t edit_generation_{0};
+    SampleRect edited_rect_;
     VkDevice device_{VK_NULL_HANDLE};
     std::unique_ptr<Image> height_image_;
     std::unique_ptr<Image> weight_image_;

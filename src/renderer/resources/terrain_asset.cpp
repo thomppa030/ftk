@@ -474,6 +474,16 @@ void TerrainAsset::apply_heights(uint32_t x, uint32_t z, uint32_t size_x, uint32
 
     height_range_stale_ = true;
     dirty_ = true;
+    ++edit_generation_;
+    if (edited_rect_.empty()) {
+        edited_rect_ = {x, z, w, h};
+    } else {
+        const uint32_t x0 = std::min(edited_rect_.x, x);
+        const uint32_t z0 = std::min(edited_rect_.z, z);
+        const uint32_t x1 = std::max(edited_rect_.x + edited_rect_.width, x + w);
+        const uint32_t z1 = std::max(edited_rect_.z + edited_rect_.height, z + h);
+        edited_rect_ = {x0, z0, x1 - x0, z1 - z0};
+    }
 }
 
 void TerrainAsset::copy_weights(uint32_t x, uint32_t z, uint32_t size_x, uint32_t size_z,

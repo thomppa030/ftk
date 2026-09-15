@@ -12,11 +12,16 @@ layout(std430, set = 0, binding = 2) readonly buffer SdfMetadata {
     // Per-instance: mat4 world_to_sdf (64), vec3 sdf_min (12), float sdf_scale (4),
     //               vec3 sdf_max (12), uint grid_offset (4),
     //               uvec3 grid_resolution (12), uint pad (4),
-    //               vec3 mesh_min (12), pad (4), vec3 mesh_max (12), pad (4) = 144 bytes
+    //               vec3 mesh_min (12), pad (4), vec3 mesh_max (12), pad (4),
+    //               uint kind (4), pad (4), vec2 terrain_origin (8),
+    //               float terrain_size (4), float terrain_height_scale (4),
+    //               float terrain_height_offset (4), pad (4) = 176 bytes
     uint instance_data[];
 };
 
-const uint INSTANCE_WORDS = 36u;
+const uint INSTANCE_WORDS = 44u;
+const uint KIND_MESH = 0u;
+const uint KIND_TERRAIN = 1u;
 
 layout(push_constant) uniform PushConstants {
     vec3 volume_min;
@@ -68,6 +73,72 @@ uint read_instance_uint(uint inst, uint word_offset) {
     return instance_data[inst * INSTANCE_WORDS + word_offset];
 }
 
+vec2 read_instance_vec2(uint inst, uint word_offset) {
+    uint base = inst * INSTANCE_WORDS + word_offset;
+    return vec2(uintBitsToFloat(instance_data[base]), uintBitsToFloat(instance_data[base + 1u]));
+}
+
+// ── Terrain ──
+// A terrain's grid holds its normalized heights, one per sample, and the
+// distance is derived here rather than baked: the heights change under the
+// sculpt brush and a bake per stroke would be far too slow.
+
+// World-space surface height at a point given in 0..1 across the field,
+// bilinear like the mesh shader and the CPU query, clamped at the edges.
+float terrain_height(uint grid_offset, uint samples, vec2 uv, float height_scale, float height_offset) {
+    vec2 g = clamp(uv, vec2(0.0), vec2(1.0)) * float(samples - 1u);
+    ivec2 p0 = ivec2(floor(g));
+    ivec2 p1 = min(p0 + 1, ivec2(int(samples) - 1));
+    vec2 f = g - vec2(p0);
+    float h00 = read_sdf(grid_offset + uint(p0.y * int(samples) + p0.x));
+    float h10 = read_sdf(grid_offset + uint(p0.y * int(samples) + p1.x));
+    float h01 = read_sdf(grid_offset + uint(p1.y * int(samples) + p0.x));
+    float h11 = read_sdf(grid_offset + uint(p1.y * int(samples) + p1.x));
+    float h = mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+    return height_offset + h * height_scale;
+}
+
+// Signed distance from a point to the heightfield, approximately: the
+// vertical gap scaled by the slope under the point, which is exact for a
+// plane, then tightened against surface points on a ring around the point so
+// a cliff face a metre to the side is not missed. Outside the field's
+// footprint the distance is to the field's box, as for a mesh outside its
+// grid.
+float terrain_distance(vec3 world_pos, uint grid_offset, uint samples, vec2 origin, float size,
+                       float height_scale, float height_offset, float max_dist) {
+    vec2 local = world_pos.xz - origin;
+    vec2 outside = max(max(-local, local - vec2(size)), vec2(0.0));
+    float texel = size / float(samples - 1u);
+    vec2 uv = local / size;
+
+    float h = terrain_height(grid_offset, samples, uv, height_scale, height_offset);
+    float gap = world_pos.y - h;
+    if (dot(outside, outside) > 0.0) {
+        return length(vec3(outside.x, max(gap, 0.0), outside.y));
+    }
+
+    vec2 du = vec2(texel / size, 0.0);
+    vec2 dv = vec2(0.0, texel / size);
+    float hx = (terrain_height(grid_offset, samples, uv + du, height_scale, height_offset) -
+                terrain_height(grid_offset, samples, uv - du, height_scale, height_offset)) / (2.0 * texel);
+    float hz = (terrain_height(grid_offset, samples, uv + dv, height_scale, height_offset) -
+                terrain_height(grid_offset, samples, uv - dv, height_scale, height_offset)) / (2.0 * texel);
+    float d = gap * inversesqrt(1.0 + hx * hx + hz * hz);
+
+    if (gap > 0.0) {
+        // Ring at the gap's own radius: ground rising at 45 degrees or more
+        // within that reach shows up here.
+        float r = clamp(gap, texel, max_dist);
+        for (int i = 0; i < 8; ++i) {
+            float a = float(i) * 0.78539816;
+            vec2 p = local + vec2(cos(a), sin(a)) * r;
+            float ph = terrain_height(grid_offset, samples, p / size, height_scale, height_offset);
+            d = min(d, distance(world_pos, vec3(origin.x + p.x, ph, origin.y + p.y)));
+        }
+    }
+    return d;
+}
+
 // Trilinear sample from per-mesh SDF grid
 float sample_mesh_sdf(vec3 grid_coord, uint grid_offset, uvec3 grid_res) {
     // Clamp to grid bounds
@@ -110,6 +181,17 @@ void main() {
 
     for (uint n = 0u; n < instance_count; n++) {
         uint i = instance_offset + n;
+        if (read_instance_uint(i, 36u) == KIND_TERRAIN) {
+            uint grid_offset = read_instance_uint(i, 23u);
+            uint samples = read_instance_uint(i, 24u);
+            vec2 origin = read_instance_vec2(i, 38u);
+            float size = read_instance_float(i, 40u);
+            float height_scale = read_instance_float(i, 41u);
+            float height_offset = read_instance_float(i, 42u);
+            min_dist = min(min_dist, terrain_distance(world_pos, grid_offset, samples, origin, size,
+                                                      height_scale, height_offset, max_distance));
+            continue;
+        }
         mat4 world_to_sdf = read_instance_mat4(i, 0u);
         vec3 sdf_min = read_instance_vec3(i, 16u);
         float sdf_scale = read_instance_float(i, 19u);

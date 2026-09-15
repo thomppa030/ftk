@@ -1608,15 +1608,54 @@ void VulkanContext::record_frame(const std::vector<ViewportRenderRequest>& viewp
                 // below, but it is the largest thing in most scenes. Leaving it
                 // out sizes the SDF volume and the DDGI probe grid as though the
                 // ground were not there.
-                if (const auto* tc = obj->components.get<TerrainComponent>();
+                if (auto* tc = obj->components.get<TerrainComponent>();
                     tc != nullptr && tc->terrain != nullptr) {
-                    const glm::vec3 origin = tc->terrain->world_min_corner(spatial->world_matrix_);
-                    const float span = tc->terrain->world_size();
-                    scene_bounds.expand({origin.x, origin.y + tc->terrain->min_world_height(),
-                                         origin.z});
-                    scene_bounds.expand({origin.x + span,
-                                         origin.y + tc->terrain->max_world_height(),
-                                         origin.z + span});
+                    TerrainAsset& terrain = *tc->terrain;
+                    const glm::vec3 origin = terrain.world_min_corner(spatial->world_matrix_);
+                    const float span = terrain.world_size();
+                    AABB terrain_bounds{
+                        {origin.x, origin.y + terrain.min_world_height(), origin.z},
+                        {origin.x + span, origin.y + terrain.max_world_height(), origin.z + span}};
+                    scene_bounds.expand(terrain_bounds.min);
+                    scene_bounds.expand(terrain_bounds.max);
+
+                    // The terrain is one instance whose grid holds its heights.
+                    // It never moves on its own, so after the first build it
+                    // costs nothing until a sculpt stroke, which re-copies the
+                    // touched samples and dirties only their box.
+                    const auto* entry = scene_sdf_pass().register_terrain_sdf(terrain);
+                    if (entry != nullptr) {
+                        if (entry->generation != terrain.edit_generation()) {
+                            const auto rect = terrain.edited_rect();
+                            if (!rect.empty()) {
+                                scene_sdf_pass().update_terrain_sdf(terrain, rect.x, rect.z,
+                                                                    rect.width, rect.height);
+                                const float spacing =
+                                    span / static_cast<float>(terrain.sample_count() - 1);
+                                AABB edited{
+                                    {origin.x + static_cast<float>(rect.x) * spacing,
+                                     terrain_bounds.min.y,
+                                     origin.z + static_cast<float>(rect.z) * spacing},
+                                    {origin.x + static_cast<float>(rect.x + rect.width) * spacing,
+                                     terrain_bounds.max.y,
+                                     origin.z + static_cast<float>(rect.z + rect.height) * spacing}};
+                                scene_sdf_pass().invalidate_region(edited);
+                            }
+                            terrain.clear_edited_rect();
+                        }
+
+                        GpuSdfInstance inst{};
+                        inst.kind = SdfInstanceKind::terrain;
+                        inst.grid_offset = entry->offset;
+                        inst.grid_resolution = glm::uvec3(entry->samples, entry->samples, 1);
+                        inst.terrain_origin = {origin.x, origin.z};
+                        inst.terrain_size = span;
+                        inst.terrain_height_scale = terrain.height_scale();
+                        inst.terrain_height_offset = terrain.height_offset() + origin.y;
+                        scene_sdf_pass().gather_instance(
+                            SceneSdfPass::instance_key(s.id(), obj->id), terrain_bounds,
+                            spatial->world_dirty_, inst);
+                    }
                 }
 
                 auto* mesh_comp = obj->components.get<MeshComponent>();

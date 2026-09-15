@@ -6,11 +6,13 @@
 #include "renderer/renderer_constants.hpp"
 #include "renderer/resource_registry.hpp"
 #include "renderer/resources/model.hpp"
+#include "renderer/resources/terrain_asset.hpp"
 #include "renderer/resources/shader_utils.hpp"
 #include "core/base_path.hpp"
 #include "core/log.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include <imgui.h>
 #include <backends/imgui_impl_vulkan.h>
@@ -303,6 +305,65 @@ bool SceneSdfPass::register_model_sdf(const Model& model, uintptr_t model_id) {
     FJELL_GFX_DEBUG("Registered SDF for model {} ({}³, offset={})",
                     model_id, res, entry.offset);
     return true;
+}
+
+namespace {
+
+// Heights are stored normalized in [0,1] and read back through the same
+// int16 path as a mesh grid, which divides by 32767.
+int16_t height_to_packed(float h) {
+    return static_cast<int16_t>(std::lround(std::clamp(h, 0.0F, 1.0F) * 32767.0F));
+}
+
+} // namespace
+
+const SceneSdfPass::TerrainSdfEntry* SceneSdfPass::register_terrain_sdf(
+    const TerrainAsset& terrain) {
+    auto it = terrain_sdf_entries_.find(&terrain);
+    if (it != terrain_sdf_entries_.end()) return &it->second;
+
+    const uint32_t samples = terrain.sample_count();
+    const auto& heights = terrain.data().heights;
+    const size_t count = static_cast<size_t>(samples) * samples;
+    if (samples < 2 || heights.size() != count) return nullptr;
+
+    const size_t bytes_needed = count * sizeof(int16_t);
+    const size_t current_bytes = static_cast<size_t>(mesh_sdf_offset_) * sizeof(int16_t);
+    if (current_bytes + bytes_needed > mesh_sdf_buffer_->size()) {
+        FJELL_GFX_WARN("SDF grid buffer full, terrain '{}' will not be part of the scene SDF",
+                       terrain.path());
+        return nullptr;
+    }
+
+    auto* dst = static_cast<int16_t*>(mesh_sdf_buffer_->mapped()) + mesh_sdf_offset_;
+    for (size_t i = 0; i < count; ++i) dst[i] = height_to_packed(heights[i]);
+
+    TerrainSdfEntry entry{mesh_sdf_offset_, samples, terrain.edit_generation()};
+    mesh_sdf_offset_ += static_cast<uint32_t>(count);
+    FJELL_GFX_DEBUG("Registered terrain '{}' in the scene SDF ({}x{} samples, offset={})",
+                    terrain.path(), samples, samples, entry.offset);
+    return &terrain_sdf_entries_.emplace(&terrain, entry).first->second;
+}
+
+void SceneSdfPass::update_terrain_sdf(const TerrainAsset& terrain, uint32_t x, uint32_t z,
+                                      uint32_t size_x, uint32_t size_z) {
+    auto it = terrain_sdf_entries_.find(&terrain);
+    if (it == terrain_sdf_entries_.end()) return;
+    auto& entry = it->second;
+    const uint32_t samples = entry.samples;
+    if (samples != terrain.sample_count()) return;
+    const auto& heights = terrain.data().heights;
+
+    const uint32_t x_end = std::min(x + size_x, samples);
+    const uint32_t z_end = std::min(z + size_z, samples);
+    auto* dst = static_cast<int16_t*>(mesh_sdf_buffer_->mapped()) + entry.offset;
+    for (uint32_t row = z; row < z_end; ++row) {
+        for (uint32_t col = x; col < x_end; ++col) {
+            const size_t i = (static_cast<size_t>(row) * samples) + col;
+            dst[i] = height_to_packed(heights[i]);
+        }
+    }
+    entry.generation = terrain.edit_generation();
 }
 
 const SceneSdfPass::MeshSdfEntry* SceneSdfPass::model_entry(uintptr_t model_id) const {
