@@ -319,6 +319,7 @@ void Engine::init_scene() {
     if (std::filesystem::exists(current_scene_path_)) {
         auto result = Scene::load(current_scene_path_, *resource_manager_, project_mgr_.active());
         if (result) {
+            vulkan_context_->release_scene_particles(scene_);
             scene_ = std::move(*result);
         } else {
             FJELL_CORE_ERROR("{}", result.error());
@@ -1269,6 +1270,7 @@ void Engine::load_scene(const std::string& path) {
     current_scene_path_ = path;
     auto result = Scene::load(path, *resource_manager_, project_mgr_.active());
     if (result) {
+        vulkan_context_->release_scene_particles(scene_);
         scene_ = std::move(*result);
     } else {
         FJELL_CORE_ERROR("{}", result.error());

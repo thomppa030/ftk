@@ -295,6 +295,10 @@ public:
   /// Drop the particle state a scene owned. Call before a scene that had
   /// emitters is destroyed, or its emitters sit in the particle system for
   /// good.
+  /// Drops every emitter the particle system holds for `scene`. Call before
+  /// a Scene object is replaced wholesale (scene load, play restore): the
+  /// loaded content carries a new scene id, so nothing else would ever
+  /// reclaim the old emitters.
   void release_scene_particles(const Scene& scene);
 
   /// Callback for worldspace UI rendering (color pass, after transparent objects).

@@ -32,6 +32,9 @@ void PlaySnapshot::restore(const PlayServices& s) const {
     // per-node GPU state.
     s.vulkan->wait_idle();
 
+    // The restored scene is a new scene to the particle system, so the
+    // play scene's emitters have to go first or they stay behind frozen.
+    s.vulkan->release_scene_particles(*s.scene);
     *s.scene = Scene::from_json(scene, *s.resources, s.project_mgr->active());
     if (scene_dirty) s.scene->mark_dirty();
 
