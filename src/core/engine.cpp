@@ -845,12 +845,12 @@ void Engine::save_scene() {
     // thumbnail is cheap: from the scene's camera when it has one, else
     // from wherever the editor viewport is looking.
     AssetThumbnailRenderer::View view;
-    if (auto* cam = camera_subsystem_->active_camera(scene_)) {
-        view = {.view = cam->view_matrix(), .projection = cam->projection_matrix(1.0f),
-                .position = cam->position()};
-    } else if (auto* cam = scene_context_->viewport_manager().active_camera()) {
-        view = {.view = cam->view_matrix(), .projection = cam->projection_matrix(1.0f),
-                .position = cam->position()};
+    if (auto* scene_cam = camera_subsystem_->active_camera(scene_)) {
+        view = {.view = scene_cam->view_matrix(), .projection = scene_cam->projection_matrix(1.0f),
+                .position = scene_cam->position()};
+    } else if (auto* editor_cam = scene_context_->viewport_manager().active_camera()) {
+        view = {.view = editor_cam->view_matrix(), .projection = editor_cam->projection_matrix(1.0f),
+                .position = editor_cam->position()};
     } else {
         return;
     }
