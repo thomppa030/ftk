@@ -37,15 +37,20 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
                        const std::string& font_dir,
                        const std::string& shader_dir)
     : device_{device}, font_dir_{font_dir} {
-  // Descriptor pool for ImGui
+  // Descriptor pool for ImGui. Every ImGui::Image texture holds one set for
+  // as long as it is registered: editor icons, a directory's worth of
+  // texture thumbnails, the resident asset thumbnails, viewport images.
+  // When this runs out AddTexture returns null and the image silently does
+  // not draw, so the size leaves generous room above those counts.
+  constexpr uint32_t MAX_IMAGE_DESCRIPTORS = 4096;
   std::array<VkDescriptorPoolSize, 1> pool_sizes = {{
-      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 100},
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_IMAGE_DESCRIPTORS},
   }};
 
   VkDescriptorPoolCreateInfo pool_info{};
   pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
   pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-  pool_info.maxSets = 100;
+  pool_info.maxSets = MAX_IMAGE_DESCRIPTORS;
   pool_info.poolSizeCount = static_cast<uint32_t>(pool_sizes.size());
   pool_info.pPoolSizes = pool_sizes.data();
 
@@ -75,6 +80,14 @@ ImGuiLayer::ImGuiLayer(GLFWwindow *window, VkInstance instance,
   init_info.QueueFamily = graphics_family;
   init_info.Queue = graphics_queue;
   init_info.DescriptorPool = descriptor_pool_;
+  // The backend swallows Vulkan failures unless told where to report them;
+  // an exhausted descriptor pool would otherwise show up only as images
+  // that stop drawing.
+  init_info.CheckVkResultFn = [](VkResult result) {
+    if (result != VK_SUCCESS) {
+      FJELL_GFX_ERROR("ImGui Vulkan backend: VkResult={}", static_cast<int>(result));
+    }
+  };
   init_info.MinImageCount = 2;
   init_info.ImageCount = image_count;
   init_info.UseDynamicRendering = true;
