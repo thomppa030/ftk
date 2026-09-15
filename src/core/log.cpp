@@ -3,6 +3,8 @@
 
 #include <spdlog/sinks/stdout_color_sinks.h>
 
+#include <cstdlib>
+#include <string_view>
 #include <vector>
 
 namespace fjell::log {
@@ -11,6 +13,21 @@ static std::shared_ptr<spdlog::logger> s_core;
 static std::shared_ptr<spdlog::logger> s_renderer;
 static std::shared_ptr<spdlog::logger> s_app;
 static std::shared_ptr<ConsoleSink> s_console_sink;
+
+// Debug and trace lines are diagnostics for chasing a specific problem, so
+// they stay off until asked for. FJELL_LOG_LEVEL raises (or lowers) the
+// floor for one run without a rebuild.
+static spdlog::level::level_enum initial_level() {
+    if (const char* env = std::getenv("FJELL_LOG_LEVEL")) {
+        std::string_view v = env;
+        if (v == "trace") return spdlog::level::trace;
+        if (v == "debug") return spdlog::level::debug;
+        if (v == "info") return spdlog::level::info;
+        if (v == "warn") return spdlog::level::warn;
+        if (v == "error") return spdlog::level::err;
+    }
+    return spdlog::level::info;
+}
 
 void init() {
     auto terminal_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
@@ -25,15 +42,10 @@ void init() {
     s_renderer = std::make_shared<spdlog::logger>("GFX", sinks.begin(), sinks.end());
     s_app = std::make_shared<spdlog::logger>("APP", sinks.begin(), sinks.end());
 
-#ifdef NDEBUG
-    s_core->set_level(spdlog::level::info);
-    s_renderer->set_level(spdlog::level::info);
-    s_app->set_level(spdlog::level::info);
-#else
-    s_core->set_level(spdlog::level::trace);
-    s_renderer->set_level(spdlog::level::trace);
-    s_app->set_level(spdlog::level::trace);
-#endif
+    const auto level = initial_level();
+    s_core->set_level(level);
+    s_renderer->set_level(level);
+    s_app->set_level(level);
 
     spdlog::register_logger(s_core);
     spdlog::register_logger(s_renderer);
